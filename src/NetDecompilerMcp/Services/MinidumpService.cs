@@ -18,7 +18,7 @@ namespace NetDecompilerMcp.Services;
 /// </summary>
 public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null, NativeCodeService? code = null, Il2CppNavigator? navigator = null)
 {
-    private const int MaxCachedModules = 96;
+    private const int MaxCachedModules = 256;
     private static readonly TimeSpan IndexWait = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<string, string> _ids = new(StringComparer.OrdinalIgnoreCase);

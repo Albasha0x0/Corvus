@@ -6,7 +6,8 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>Writes synthetic Windows minidumps: system info, modules, threads with contexts, an exception, memory, regions, names.</summary>
 internal sealed class MinidumpBuilder
 {
-    public sealed record Module(ulong Base, uint Size, uint TimeDateStamp, string Path, Guid? PdbGuid = null, uint PdbAge = 1, string PdbPath = "");
+    public sealed record Module(ulong Base, uint Size, uint TimeDateStamp, string Path, Guid? PdbGuid = null, uint PdbAge = 1, string PdbPath = "",
+        uint VersionMs = 0x00010002, uint VersionLs = 0x00030004);
     public sealed record Thread(uint Id, ulong StackStart, byte[] Context, string? Name = null);
     public sealed record Region(ulong Base, ulong Size, uint Protect, uint State = 0x1000, uint Type = 0x20000);
 
@@ -128,8 +129,8 @@ internal sealed class MinidumpBuilder
             BinaryPrimitives.WriteUInt32LittleEndian(arr.AsSpan(e + 20), (uint)(at + b.Count));
             b.AddRange(MinidumpString(m.Path));
             BinaryPrimitives.WriteUInt32LittleEndian(arr.AsSpan(e + 24), 0xFEEF04BD);
-            BinaryPrimitives.WriteUInt32LittleEndian(arr.AsSpan(e + 32), 0x00010002);
-            BinaryPrimitives.WriteUInt32LittleEndian(arr.AsSpan(e + 36), 0x00030004);
+            BinaryPrimitives.WriteUInt32LittleEndian(arr.AsSpan(e + 32), m.VersionMs);
+            BinaryPrimitives.WriteUInt32LittleEndian(arr.AsSpan(e + 36), m.VersionLs);
             if (m.PdbGuid is { } g)
             {
                 var cv = new List<byte>();

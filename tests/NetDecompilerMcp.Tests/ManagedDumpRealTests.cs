@@ -161,6 +161,26 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Contains(stack.Frames, f => f.SymbolSource == "clr" && f.Function!.Contains("Inner", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task DotNetCrashesBucketByExceptionTypeAndManagedFrames()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var dir = new TempDir();
+        var dll = Build(dir);
+        var dumps = Directory.CreateDirectory(dir.File("dumps")).FullName;
+        Crash(dll, Path.Combine(dumps, "one.dmp"), 1);
+        Crash(dll, Path.Combine(dumps, "two.dmp"), 1);
+        var service = new MinidumpService { BucketCache = dir.File("cache") };
+        var r = await service.Bucket(dumps, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
+        var bucket = Assert.Single(r.Buckets);
+        output.WriteLine(bucket.Signature);
+        Assert.Equal(2, bucket.Count);
+        Assert.Equal("clr_exception", bucket.Kind);
+        Assert.StartsWith("clr | System.ApplicationException | Probe.Program.Main", bucket.Signature);
+        var native = await service.Bucket(dumps, false, null, 3, null, false, false, 10, null, 0, 10, null, default);
+        Assert.NotEqual("clr_exception", Assert.Single(native.Buckets).Kind);
+    }
+
     private static void AssertSortedBySp(MinidumpService.StackReport stack)
     {
         var sps = stack.Frames.Where(f => !f.Heuristic).Select(f => Convert.ToUInt64(f.StackPointer[2..], 16)).ToList();

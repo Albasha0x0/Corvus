@@ -353,6 +353,26 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         if (summary.Managed.Dac.Status == "loaded") Assert.True(decoded > 0, "the DAC loaded but no managed frame was decoded");
     }
 
+    /// <summary>Three crashes of two kinds (ASLR moves the image between runs) make two buckets.</summary>
+    [Fact]
+    public async Task RealCrashesBucketBySignature()
+    {
+        using var dir = new TempDir();
+        if (Build(dir, "x64") is not { } exe) return;
+        var dumps = Directory.CreateDirectory(dir.File("dumps")).FullName;
+        CrashAndDump(exe, Path.Combine(dumps, "av1.dmp"), Normal);
+        CrashAndDump(exe, Path.Combine(dumps, "av2.dmp"), Normal);
+        SelfDump(exe, "cpp", Path.Combine(dumps, "cpp.dmp"));
+        var service = new MinidumpService { BucketCache = dir.File("cache") };
+        var r = await service.Bucket(dumps, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
+        foreach (var b in r.Buckets) output.WriteLine($"{b.Count} {b.Signature}");
+        Assert.Equal(2, r.Total);
+        var av = r.Buckets[0];
+        Assert.Equal(2, av.Count);
+        Assert.StartsWith("0xC0000005 | crash!crash_here | crash!level2 > crash!level1 > crash!main", av.Signature);
+        Assert.StartsWith("0xE06D7363 | crash!thrower", r.Buckets[1].Signature); // the raising frames are skipped
+    }
+
     /// <summary>Through the server: a loaded image's user name wins over the PDB name in dump_stack.</summary>
     [Fact]
     public async Task UserNamesOfALoadedImageNameTheFrames()

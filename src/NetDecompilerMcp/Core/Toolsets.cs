@@ -43,7 +43,7 @@ public static class Toolsets
         new("notes", true, "analyst notes kept per binary across sessions", ["record_note", "update_note", "list_notes"]),
         new("engine", false, "edits inside the decompiler engine's database: types, locals, frames, declarations, scripting",
             ["set_native_type", "set_native_local", "set_native_stack_var", "get_native_frame", "declare_native_types", "list_native_types", "ida_python"]),
-        new("dumps", false, "crash dumps and crash text", ["open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text"]),
+        new("dumps", false, "crash dumps and crash text", ["open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps"]),
         new("live", false, "read-only inspection of a running process", ["inspect_process"]),
     ];
 

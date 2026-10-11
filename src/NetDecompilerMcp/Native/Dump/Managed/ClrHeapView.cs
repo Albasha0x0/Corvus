@@ -40,7 +40,7 @@ public static class ClrHeapView
             if ((++walked & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
             var t = o.Type;
             if (t == null || !o.IsValid) continue;
-            if (!matches.TryGetValue(t, out var ok)) matches[t] = ok = type == null || Matches(t.Name ?? "", type);
+            if (!matches.TryGetValue(t, out var ok)) matches[t] = ok = type == null || Core.Wildcard.Matches(t.Name ?? "", type);
             if (!ok) continue;
             ulong size = o.Size;
             if (size < minSize) continue;
@@ -195,19 +195,4 @@ public static class ClrHeapView
     private static string? Clip(string? s) => s == null ? null : s.Length > MaxStringChars ? s[..MaxStringChars] + "..." : s;
 
     private static string? Quote(string? s) => s == null ? null : "\"" + Clip(s) + "\"";
-
-    /// <summary>Case-insensitive match of a full type name: '*' and '?' wildcards, else the exact name.</summary>
-    public static bool Matches(string name, string pattern)
-    {
-        int n = 0, p = 0, star = -1, mark = 0;
-        while (n < name.Length)
-        {
-            if (p < pattern.Length && (pattern[p] == '?' || char.ToUpperInvariant(pattern[p]) == char.ToUpperInvariant(name[n]))) { n++; p++; }
-            else if (p < pattern.Length && pattern[p] == '*') { star = p++; mark = n; }
-            else if (star >= 0) { p = star + 1; n = ++mark; }
-            else return false;
-        }
-        while (p < pattern.Length && pattern[p] == '*') p++;
-        return p == pattern.Length;
-    }
 }

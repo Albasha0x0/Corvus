@@ -50,6 +50,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null
                     ? Path.Combine(workingDirectory, ".ndm-annotations")
                     : Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")),
+                // the dump bucketing cache is private: outside the working directory the contract sweep watches
+                [NetDecompilerMcp.Services.MinidumpService.BucketCacheVariable] = Path.Combine(AnnotationsDir, ".ndm-dumpbuckets"),
             },
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
@@ -290,6 +292,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         // a native process: nothing to decode (ManagedDumpRealTests covers .NET dumps)
         ["dump_heap"] = (new() { ["dump"] = SyntheticCrash.Write(dir) }, "Error (unsupported) in dump_heap: the dumped process has no .NET runtime"),
         ["dump_object"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "0x1000" }, "Error (unsupported) in dump_object: the dumped process has no .NET runtime"),
+        ["bucket_minidumps"] = (new() { ["folder"] = Path.GetDirectoryName(SyntheticCrash.Write(dir)) }, "\"signature\":\"0xC0000005 | synth!Crash | synth!Outer > synth!Big\""),
         ["symbolize_stack_text"] = (new() { ["text"] = "System.Exception: boom\n   at Fixture.Model.Account.Charge(Int32 amount)" }, "\"resolved\":\"Fixture.Model.Account::Charge(int)\""),
         ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "53 48 83 EC"),
         // the test process itself (the server is a child process): read-only, every handle closed

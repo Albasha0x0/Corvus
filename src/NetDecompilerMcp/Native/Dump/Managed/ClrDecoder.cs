@@ -32,13 +32,14 @@ public sealed class ClrDecoder : IDisposable
     private readonly DataTarget? _target;
     private readonly ClrRuntime? _runtime;
     private readonly Dictionary<ulong, Guid?> _mvids = [];
+    private bool _disposed;
 
     public object Gate { get; } = new();
     /// <summary>Runtime name and version, e.g. ".NET 10.0.11 (CoreCLR)".</summary>
     public string RuntimeName { get; }
     public string? Version { get; }
     public DacState Dac { get; }
-    public ClrRuntime? Runtime => _runtime;
+    public ClrRuntime? Runtime => _disposed ? throw Closed() : _runtime;
     public bool Loaded => _runtime != null;
 
     private ClrDecoder(string runtimeName, string? version, DacState dac, DataTarget? target, ClrRuntime? runtime)
@@ -234,12 +235,17 @@ public sealed class ClrDecoder : IDisposable
         catch (BadImageFormatException) { return null; }
     }
 
-    private ClrRuntime Require() => _runtime ?? throw new InvalidOperationException("no runtime");
+    private ClrRuntime Require() => _disposed ? throw Closed() : _runtime ?? throw new InvalidOperationException("no runtime");
+
+    private static ToolError Closed() =>
+        new(ErrorCode.Conflict, "the dump's .NET decoder was closed while in use (more than four .NET dumps are open at once).", "call again");
 
     public void Dispose()
     {
         lock (Gate)
         {
+            if (_disposed) return;
+            _disposed = true;
             _runtime?.Dispose();
             _target?.Dispose();
         }

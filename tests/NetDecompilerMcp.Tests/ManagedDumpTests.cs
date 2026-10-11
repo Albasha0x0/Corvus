@@ -170,7 +170,7 @@ public sealed class ManagedDumpTests
     [InlineData("Probe.Program", "*.Prog?am", true)]
     [InlineData("Probe.Program", "*Exception", false)]
     [InlineData("A", "**", true)]
-    public void TypeFilterIsWildcardOrExact(string name, string pattern, bool expected) => Assert.Equal(expected, ClrHeapView.Matches(name, pattern));
+    public void TypeFilterIsWildcardOrExact(string name, string pattern, bool expected) => Assert.Equal(expected, Wildcard.Matches(name, pattern));
 
     /// <summary>A CoreCLR module whose build is nowhere on this machine: not found locally, a refused download offline, a rejected unsigned DAC.</summary>
     [Fact]

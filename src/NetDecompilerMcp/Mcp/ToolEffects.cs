@@ -177,6 +177,7 @@ public static class ToolEffects
         ["dump_object"] = Reads(),
         ["read_dump_memory"] = Reads(),
         ["symbolize_stack_text"] = Reads(longRunning: true), // waits for the code index of the images it names
+        ["bucket_minidumps"] = Reads(longRunning: true), // caches signatures privately
 
         // Notes (kept per user beside the annotation sidecars)
         ["record_note"] = Changes(destructive: false, idempotent: false),

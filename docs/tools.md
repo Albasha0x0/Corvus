@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-122 tools in 12 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+123 tools in 12 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,7 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [dumps](#dumps) | no | 6: crash dumps and crash text |
+| [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
 ## session
@@ -1787,7 +1787,7 @@ Crash dumps and crash text.
 
 **Open a crash dump** (read-only, idempotent, open-world, long-running)
 
-Summary of a Windows minidump (.dmp): OS and CPU, process (id, times, integrity, WoW64, managed runtime), the exception (code and name, e.g. EXCEPTION_ACCESS_VIOLATION writing 0x0, the faulting thread, module+offset and function, the faulting instruction disassembled from dump memory or the module image, registers, the thrown type of a C++ exception), the .NET state (the managed exception with its message, stack and inner exceptions, threads, whether the heap can be walked), modules (path, base, size, timestamp, checksum, version, PDB name/GUID/age, and whether a matching image file exists on this machine), threads (ids, names, stack ranges, where each one is), unloaded modules, captured memory, handle counts by type, and what the parser could not read. Modules and threads are paged. The dump gets an id for dump_stack, dump_heap, dump_object and read_dump_memory. The dumped program is not run; decoding .NET state loads Microsoft's debugging library for that runtime build (its DAC, signature-checked) into this server, never code from the dump.
+Summary of a Windows minidump (.dmp): OS and CPU, process (id, times, integrity, WoW64, managed runtime), the exception (code and name, e.g. EXCEPTION_ACCESS_VIOLATION writing 0x0, the faulting thread, module+offset and function, the faulting instruction disassembled from dump memory or the module image, registers, the thrown type of a C++ exception), the .NET state (managed exception with stack and inner chain, threads, heap state), modules (path, base, size, timestamp, checksum, version, PDB name/GUID/age, and whether a matching image file exists on this machine), threads (ids, names, stack ranges, where each one is), unloaded modules, captured memory, handle counts by type, and what the parser could not read. Modules and threads are paged. The dump gets an id for the other dump tools. The dumped program is not run; .NET decoding loads Microsoft's signature-checked debugging library (DAC) for that runtime build, never code from the dump.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1806,7 +1806,7 @@ Structured output: `id`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `p
 
 **Crash dump stack** (read-only, idempotent)
 
-Call stack of a thread in a minidump. x64: virtual unwind with the modules' .pdata unwind data (from the matching image file on disk, or the image in dump memory); x86: the EBP chain. Where unwind data is missing (JIT code, no image) the stack is scanned for return addresses and those frames are marked heuristic. Frames are named from a loaded native image's code index (user, PDB, Il2Cpp, discovered names), Il2Cpp dummy DLLs for GameAssembly.dll, a matching local PDB, or exports (nearest_export is a guess). .NET frames come from the runtime's own stack walk through its DAC, merged with the native frames by stack pointer: method, token, IL offset and the loaded assembly that is this build (by MVID), ready for decompile_member. The faulting thread uses the exception context, like .ecxr.
+Call stack of a thread in a minidump. x64: virtual unwind with the modules' .pdata unwind data (from the matching image file on disk, or the image in dump memory); x86: the EBP chain. Where unwind data is missing (JIT code, no image) the stack is scanned for return addresses and those frames are marked heuristic. Frames are named from a loaded native image's code index (user, PDB, Il2Cpp, discovered names), Il2Cpp dummy DLLs for GameAssembly.dll, a matching local PDB, or exports (nearest_export is a guess). .NET frames come from the runtime's own walk (DAC), merged by stack pointer, with token, IL offset and the loaded assembly of that build (by MVID). The faulting thread uses the exception context, like .ecxr.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1825,7 +1825,7 @@ Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, 
 
 **Crash dump .NET heap** (read-only, idempotent, long-running)
 
-The .NET GC heap of a minidump through the runtime's DAC. stats: count and total size per type, largest first, each with the loaded assembly and type token of that build; objects: matching objects in heap order (address, type, size, a string's value). type filters by full name ('*' and '?' wildcards, else the exact name). Needs a dump with heap memory (full or private read/write); a stacks-only dump is an error naming heap_not_captured. The walk is bounded by maxObjects and says when it stopped early.
+The .NET GC heap of a minidump (through the runtime's DAC). stats: count and size per type, largest first, with the loaded assembly and type token of that build; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured). Bounded by maxObjects.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1843,7 +1843,7 @@ Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `walkStopped`, `
 
 **Crash dump .NET object** (read-only, idempotent)
 
-One .NET object of a minidump through the runtime's DAC: type, size, fields (name, type, offset, value; references expanded depth levels, structs inline), a string's or boxed value, or an array's elements. The type's loaded assembly and token lead to get_type_info / decompile_type. Exception objects come from open_minidump's managed exception address.
+One .NET object of a minidump (through the runtime's DAC): type, size, fields (references expanded depth levels, structs inline), a string's or boxed value, or array elements, with the type's loaded assembly and token.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1874,7 +1874,7 @@ Structured output: `dump`, `address`, `requested`, `length`, `source`, `location
 
 **Symbolize crash text** (read-only, idempotent, long-running)
 
-Resolves the frames of crash text against the loaded build: Unity Player.log / error.log native backtraces (with the log's module list for load addresses), Mono managed frames (matched by their module MVID) and Il2Cpp/Unity managed lines, .NET exception text (the inner chain, NativeAOT frames), WER Report.wer and Event Log 1000/1026 text (faulting module, offset, time stamp, code), and debugger stacks (module!function+0x.., module+0x..). Native frames are named through the loaded images (code index, PDB, Il2Cpp names); every frame says whether it is the same build (buildCheck: time stamps, MVIDs, the text's own names), and modules the text needs that are not loaded are listed. Lines no format recognizes are counted, with a sample.
+Resolves crash text against the loaded build: Unity Player.log / error.log backtraces (its module list gives load addresses), Mono frames (by module MVID), Il2Cpp/Unity managed lines, .NET exception text (inner chain, NativeAOT), WER Report.wer, Event Log 1000/1026 text and debugger stacks. Each frame gets our name and a buildCheck (time stamp, MVID or the text's own name); modules not loaded are listed; unrecognized lines are counted.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1887,6 +1887,28 @@ Resolves the frames of crash text against the loaded build: Unity Player.log / e
 | `limit` | integer |  | `200` | Max frames returned (default 200). |
 
 Structured output: `format`, `exception`, `total`, `offset`, `truncated`, `frames`, `unrecognizedLines`, `unrecognizedSample`, `modulesMissing`, `notes`.
+
+### bucket_minidumps
+
+**Group crash dumps** (read-only, idempotent, long-running)
+
+Groups a folder of minidumps by signature: exception code | faulting module!function | next frames (raising frames such as RaiseException and _CxxThrowException skipped); .NET: clr | exception type | top managed frames; no exception: hang | top frames. Function names, so rebases and offsets do not split a bucket; offsets and module versions are counted. Each bucket has dump ids and its newest dump as representative. Cached per file, so re-runs parse only new dumps.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `folder` | string | yes |  | Folder with the .dmp files. |
+| `recursive` | boolean |  | `false` | Also search subfolders. |
+| `pattern` | string |  |  | File patterns, ';'-separated (default *.dmp;*.mdmp). |
+| `topFrames` | integer |  | `3` | Frames after the faulting one in the signature (default 3). |
+| `skipModules` | string |  |  | More frames to skip, ';'-separated: a module (ucrtbase) or module!function, '*' wildcards. |
+| `splitByVersion` | boolean |  | `false` | Put the faulting module's version in the signature. |
+| `managed` | string |  | `auto` | auto: CLR exceptions get managed signatures when a local DAC is found; off: native frames only. Values: auto, off. |
+| `maxDumps` | integer |  | `1000` | Most dumps bucketed, newest first (default 1000). |
+| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for module images not at their recorded paths. |
+| `offset` | integer |  | `0` | Index of the first bucket returned. |
+| `limit` | integer |  | `50` | Max buckets returned (default 50). |
+
+Structured output: `folder`, `dumps`, `total`, `offset`, `truncated`, `buckets`, `failed`, `notes`.
 
 ## live
 

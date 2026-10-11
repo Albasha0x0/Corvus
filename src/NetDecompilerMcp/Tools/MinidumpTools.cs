@@ -17,12 +17,12 @@ public sealed class MinidumpTools(MinidumpService dumps)
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true)]
     [Description("Summary of a Windows minidump (.dmp): OS and CPU, process (id, times, integrity, WoW64, managed runtime), the exception (code and name, " +
                  "e.g. EXCEPTION_ACCESS_VIOLATION writing 0x0, the faulting thread, module+offset and function, the faulting instruction disassembled from " +
-                 "dump memory or the module image, registers, the thrown type of a C++ exception), the .NET state (the managed exception with its message, " +
-                 "stack and inner exceptions, threads, whether the heap can be walked), modules (path, base, size, timestamp, checksum, version, " +
+                 "dump memory or the module image, registers, the thrown type of a C++ exception), the .NET state (managed exception with stack and inner " +
+                 "chain, threads, heap state), modules (path, base, size, timestamp, checksum, version, " +
                  "PDB name/GUID/age, and whether a matching image file exists on this machine), threads (ids, names, stack ranges, where each one is), " +
                  "unloaded modules, captured memory, handle counts by type, and what the parser could not read. Modules and threads are paged. " +
-                 "The dump gets an id for dump_stack, dump_heap, dump_object and read_dump_memory. The dumped program is not run; decoding .NET state loads " +
-                 "Microsoft's debugging library for that runtime build (its DAC, signature-checked) into this server, never code from the dump.")]
+                 "The dump gets an id for the other dump tools. The dumped program is not run; .NET decoding loads Microsoft's signature-checked " +
+                 "debugging library (DAC) for that runtime build, never code from the dump.")]
     public Task<MinidumpService.DumpSummary> OpenMinidump(
         [Description("Path of the .dmp file (or the id of an open dump).")] string path,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
@@ -41,8 +41,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
                  "or the image in dump memory); x86: the EBP chain. Where unwind data is missing (JIT code, no image) the stack is scanned for return " +
                  "addresses and those frames are marked heuristic. Frames are named from a loaded native image's code index (user, PDB, Il2Cpp, discovered " +
                  "names), Il2Cpp dummy DLLs for GameAssembly.dll, a matching local PDB, or exports (nearest_export is a guess). .NET frames come from the " +
-                 "runtime's own stack walk through its DAC, merged with the native frames by stack pointer: method, token, IL offset and the loaded assembly " +
-                 "that is this build (by MVID), ready for decompile_member. The faulting thread uses the exception context, like .ecxr.")]
+                 "runtime's own walk (DAC), merged by stack pointer, with token, IL offset and the loaded assembly of that build (by MVID). The faulting thread uses the exception context, like .ecxr.")]
     public Task<MinidumpService.StackReport> DumpStack(
         [Description(DumpDescription)] string dump,
         [Description("Thread id (decimal or 0x hex), '#index', a thread name, or 'exception'. Default: the faulting thread, else the first thread.")] string? thread = null,
@@ -57,10 +56,9 @@ public sealed class MinidumpTools(MinidumpService dumps)
             !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "dump_heap", Title = "Crash dump .NET heap", UseStructuredContent = true)]
-    [Description("The .NET GC heap of a minidump through the runtime's DAC. stats: count and total size per type, largest first, each with the " +
-                 "loaded assembly and type token of that build; objects: matching objects in heap order (address, type, size, a string's value). " +
-                 "type filters by full name ('*' and '?' wildcards, else the exact name). Needs a dump with heap memory (full or private read/write); " +
-                 "a stacks-only dump is an error naming heap_not_captured. The walk is bounded by maxObjects and says when it stopped early.")]
+    [Description("The .NET GC heap of a minidump (through the runtime's DAC). stats: count and size per type, largest first, with the loaded " +
+                 "assembly and type token of that build; objects: matching objects (address, type, size, a string's value). Needs heap memory in the " +
+                 "dump (else heap_not_captured). Bounded by maxObjects.")]
     public Task<MinidumpService.HeapReport> DumpHeap(
         [Description(DumpDescription)] string dump,
         [Description("stats (per type) or objects (one row per object).")] string? mode = "stats",
@@ -73,9 +71,8 @@ public sealed class MinidumpTools(MinidumpService dumps)
         Task.Run(() => dumps.Heap(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "dump_object", Title = "Crash dump .NET object", UseStructuredContent = true)]
-    [Description("One .NET object of a minidump through the runtime's DAC: type, size, fields (name, type, offset, value; references expanded " +
-                 "depth levels, structs inline), a string's or boxed value, or an array's elements. The type's loaded assembly and token " +
-                 "lead to get_type_info / decompile_type. Exception objects come from open_minidump's managed exception address.")]
+    [Description("One .NET object of a minidump (through the runtime's DAC): type, size, fields (references expanded depth levels, structs " +
+                 "inline), a string's or boxed value, or array elements, with the type's loaded assembly and token.")]
     public Task<MinidumpService.ObjectReport> DumpObject(
         [Description(DumpDescription)] string dump,
         [Description("Hex address of the object.")] string address,

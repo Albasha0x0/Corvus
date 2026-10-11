@@ -16,7 +16,6 @@ internal static class SyntheticCrash
     public const ulong Base = 0x7FF6_1000_0000;
     public const ulong Stack = 0xE0_0001_0000;
     public const uint CrashRva = 0x1000, OuterRva = 0x1020, FragmentRva = 0x1050, BigRva = 0x1080;
-    public const ulong Ra1 = Base + FragmentRva + 5, Ra2 = Base + BigRva + 20;
     public const ulong JitCode = 0x0000_0200_0000_0000;
 
     /// <summary>The module as mapped in memory.</summary>
@@ -100,35 +99,36 @@ internal static class SyntheticCrash
         return b.Build();
     }
 
-    public static MinidumpBuilder Builder()
+    /// <summary>The crash; <paramref name="moduleBase"/> moves the module (ASLR), <paramref name="faultOffset"/> the faulting instruction inside Crash.</summary>
+    public static MinidumpBuilder Builder(ulong moduleBase = Base, uint faultOffset = 5, uint code = 0xC0000005, bool exception = true, uint versionLs = 0x00030004)
     {
         var image = Image();
         var stack = new byte[0x1100];
         void Put(int at, ulong v) => BinaryPrimitives.WriteUInt64LittleEndian(stack.AsSpan(at), v);
         Put(0x20, 0x1111); // rbx saved by Crash
-        Put(0x28, Ra1);
+        Put(0x28, moduleBase + FragmentRva + 5);
         Put(0x60, 0x6666); // rsi saved by Outer
         Put(0x68, 0x5555); // caller's rbp
-        Put(0x70, Ra2);
+        Put(0x70, moduleBase + BigRva + 20);
         Put(0x1078, 0); // Big's return address: end of the stack
         Put(0x1088, 0x7777); // rdi saved by Big
         var d = new MinidumpBuilder { FullMemory = true };
-        d.Modules.Add(new MinidumpBuilder.Module(Base, (uint)image.Length, 0, @"Z:\nowhere\synth.dll"));
-        d.Memory.Add((Base, image));
+        d.Modules.Add(new MinidumpBuilder.Module(moduleBase, (uint)image.Length, 0, @"Z:\nowhere\synth.dll", VersionLs: versionLs));
+        d.Memory.Add((moduleBase, image));
         d.Memory.Add((Stack, stack));
         d.Memory.Add((JitCode - 0x10, Enumerable.Repeat((byte)0xCC, 0x40).ToArray()));
-        d.Regions.Add(new MinidumpBuilder.Region(Base, (ulong)image.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(moduleBase, (ulong)image.Length, 0x20));
         d.Regions.Add(new MinidumpBuilder.Region(JitCode - 0x1000, 0x2000, 0x20));
         d.Regions.Add(new MinidumpBuilder.Region(Stack, 0x1100, 0x04));
-        var crash = MinidumpBuilder.ContextX64(Base + CrashRva + 5, Stack, rbp: Stack + 0x50, rcx: 0x2A);
+        var crash = MinidumpBuilder.ContextX64(moduleBase + CrashRva + faultOffset, Stack, rbp: Stack + 0x50, rcx: 0x2A);
         d.Threads.Add(new MinidumpBuilder.Thread(100, Stack, crash, "main"));
         // inside Crash's epilog: after add rsp, before pop rbx
-        d.Threads.Add(new MinidumpBuilder.Thread(101, Stack, MinidumpBuilder.ContextX64(Base + CrashRva + 11, Stack + 0x20, rbp: Stack + 0x50)));
+        d.Threads.Add(new MinidumpBuilder.Thread(101, Stack, MinidumpBuilder.ContextX64(moduleBase + CrashRva + 11, Stack + 0x20, rbp: Stack + 0x50)));
         // inside Crash's prolog: after push rbx, before sub rsp
-        d.Threads.Add(new MinidumpBuilder.Thread(102, Stack, MinidumpBuilder.ContextX64(Base + CrashRva + 1, Stack + 0x20, rbp: Stack + 0x50)));
+        d.Threads.Add(new MinidumpBuilder.Thread(102, Stack, MinidumpBuilder.ContextX64(moduleBase + CrashRva + 1, Stack + 0x20, rbp: Stack + 0x50)));
         // in code outside any module (JIT): only a scan finds the caller
         d.Threads.Add(new MinidumpBuilder.Thread(103, Stack, MinidumpBuilder.ContextX64(JitCode, Stack, rbp: Stack + 0x50)));
-        d.Exception = (100, 0xC0000005, Base + CrashRva + 5, [1, 0], crash);
+        if (exception) d.Exception = (100, code, moduleBase + CrashRva + faultOffset, [1, 0], crash);
         return d;
     }
 

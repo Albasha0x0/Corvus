@@ -161,7 +161,7 @@ Server options and their environment variables are in the README ("Server option
 | `NDM_YES` | `1`: `install` adds new clients without asking. |
 | `NDM_REPO` | Repository `update` and the scripts download from (`owner/name`). |
 | `NDM_RELAY_DIR` | Folder of the development reload relay's staged copies. |
-| `NDM_OFFLINE` | `1`: never download reference packs or symbols. |
+| `NDM_OFFLINE` | `1`: never download reference packs, symbols or a runtime DAC. |
 | `NDM_IDA_DIR`, `NDM_IDA_PYTHON` | IDA installation folder and the Python interpreter for idalib (found automatically otherwise). |
 | `NDM_GHIDRA_DIR`, `NDM_GHIDRA_JAVA`, `NDM_GHIDRA_ANALYSIS`, `NDM_GHIDRA_MAXMEM`, `NDM_GHIDRA_OPTIONS`, `NDM_GHIDRA_EXTENSIONS` | Ghidra installation, JDK, analysis profile, JVM heap, analyzer options and extension zips (README, "Server options"). |
 | `NDM_ENGINE_MEMORY_MB` | Memory limit of each IDA or Ghidra worker in MB (`0` removes it). |
@@ -169,7 +169,8 @@ Server options and their environment variables are in the README ("Server option
 | `NDM_ANALYSIS_CACHE` | Folder of saved engine databases (IDA, Ghidra), keyed by file hash. |
 | `NDM_ANNOTATIONS_DIR` | Folder of saved native names, comments and imported name layers. |
 | `NDM_IL2CPP_CACHE` | Folder of the dummy assemblies made by the built-in Il2Cpp metadata reader. |
-| `NDM_SYMBOL_CACHE` | Folder of downloaded PDBs. |
+| `NDM_SYMBOL_CACHE` | Folder of downloaded PDBs and runtime DACs (`open_minidump downloadDac=true`). |
+| `NDM_DUMP_BUCKET_CACHE` | Folder of the signatures `bucket_minidumps` keeps per dump file, so a re-run parses only new dumps. |
 | `NDM_AUTO_PDB` | `0`: do not read a matching local PDB automatically. |
 | `NDM_AUTO_NATIVEAOT` | `0`: do not name NativeAOT images from their metadata automatically. |
 | `NDM_DIE` | Detect It Easy's `diec` (the file or its folder) for `unity_overview detectItEasy=true`. |
