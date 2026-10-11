@@ -200,6 +200,25 @@ public sealed class StackTextTests : IDisposable
         Assert.StartsWith($"get_il2cpp_info assembly={env.Fixture.Id} symbol=0x06", managed.NextStep);
     }
 
+    /// <summary>Android tombstones name libil2cpp.so: its frames get the Il2Cpp names too, not only GameAssembly's.</summary>
+    [Fact]
+    public async Task AndroidTombstoneFramesInLibIl2CppAreNamedThroughTheDummyAssemblies()
+    {
+        using var env = new Env();
+        var game = _dir.File("libil2cpp.so");
+        File.WriteAllBytes(game, Il2CppStringTests.Pe64([(".text", 0x1000, new byte[0x400], 0x60000020)]));
+        env.Workspace.LoadAny(game);
+        var service = new StackTextService(env.Workspace, null, env.Il2CppNavigator);
+        var r = await service.Symbolize("""
+            backtrace:
+                  #00 pc 0000000000001105  /data/app/~~x==/com.example.game-1/lib/arm64/libil2cpp.so
+            """, null, null, null, null, 0, 50, default);
+        var native = Assert.Single(r.Frames);
+        Assert.Equal("il2cpp", native.Source);
+        Assert.Contains("Second", native.Resolved);
+        Assert.EndsWith("+0x5", native.Resolved);
+    }
+
     [Fact]
     public async Task WerReportComparesTheFaultingModuleTimestamp()
     {

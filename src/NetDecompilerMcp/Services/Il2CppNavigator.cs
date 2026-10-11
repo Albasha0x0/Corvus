@@ -232,19 +232,22 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
     }
 
     /// <summary>
-    /// The managed method whose GameAssembly code holds <paramref name="rva"/>, named for a stack frame (source il2cpp,
-    /// with the function start); null without loaded Il2Cpp dummy assemblies.
+    /// The managed method whose game binary code holds <paramref name="rva"/>, named for a stack frame (source il2cpp,
+    /// with the function start). The dump made from <paramref name="native"/> answers; without one, the only loaded dump
+    /// does when <paramref name="binaryName"/> is an Il2Cpp game binary (GameAssembly.*, libil2cpp.so, UnityFramework).
     /// </summary>
-    public (string Name, string Source, uint Start)? FrameName(uint rva)
+    public (string Name, string Source, uint Start)? FrameName(uint rva, string binaryName, LoadedNative? native = null)
     {
         try
         {
             return workspace.Read<(string, string, uint)?>(() =>
             {
                 if (workspace.Assemblies.Count == 0) return null;
-                var scope = workspace.Scope(null);
-                if (ImagesFor(scope).Count == 0) return null;
-                foreach (var r in Locate(rva, "rva", scope))
+                var images = ImagesFor(workspace.Scope(null));
+                var image = (native != null ? images.FirstOrDefault(i => i.Dump?.Files.Describes(native) == true) : null)
+                            ?? (images.Count == 1 && IsGameBinary(binaryName) ? images[0] : null);
+                if (image == null) return null;
+                foreach (var r in Locate(rva, "rva", image.Assemblies))
                 {
                     if (r.Function is not { } fn || r.Total == 0) continue;
                     string name = r.Methods.Count > 0 ? Format.MemberLabel(r.Methods[0].Method) : r.Image.Script!.MethodName(r.ScriptMethods[0]);
@@ -256,6 +259,10 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         }
         catch (ToolError) { return null; }
     }
+
+    private static bool IsGameBinary(string fileName) =>
+        fileName.StartsWith("GameAssembly", StringComparison.OrdinalIgnoreCase)
+        || Il2CppGameFiles.BinaryNames.Contains(fileName, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The image holding <paramref name="asm"/>, when it is an Il2Cpp dummy assembly.</summary>
     public Image? ImageOf(LoadedAssembly asm) => ImagesFor([asm]).FirstOrDefault();

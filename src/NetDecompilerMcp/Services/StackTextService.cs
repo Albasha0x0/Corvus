@@ -315,8 +315,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             var sourced = index.Sourced.NameAt(f.Start);
             found = (index.NameAt(f.Start) ?? f.Name, sourced is { } sn ? sn.Source.ToString().ToLowerInvariant() : f.KnownName != null ? "export" : "discovered", f.Start);
         }
-        if (found is not { Source: "user" } && Path.GetFileName(native.FilePath).StartsWith("GameAssembly", StringComparison.OrdinalIgnoreCase)
-            && navigator?.FrameName(rva) is { } il2cpp)
+        if (found is not { Source: "user" } && navigator?.FrameName(rva, Path.GetFileName(native.FilePath), native) is { } il2cpp)
             found = il2cpp;
         if (found == null && native.Image.Exports.Where(e => e.ForwardedTo == null && e.Rva <= rva && e.Name != null).MaxBy(e => e.Rva) is { } export)
             found = (export.Name!, "nearest_export", export.Rva);

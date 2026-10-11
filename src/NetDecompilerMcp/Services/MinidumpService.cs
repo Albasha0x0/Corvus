@@ -301,9 +301,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             string source = sourced is { } sn ? sn.Source.ToString().ToLowerInvariant() : f.KnownName != null ? "export" : "discovered";
             found = (index.NameAt(f.Start) ?? f.Name, source, f.Start);
         }
-        // Il2Cpp dummy DLLs for GameAssembly.dll
-        if (found is not { Source: "user" } && module.FileName.StartsWith("GameAssembly", StringComparison.OrdinalIgnoreCase)
-            && navigator?.FrameName(rva) is { } il2cpp)
+        if (found is not { Source: "user" } && navigator?.FrameName(rva, module.FileName) is { } il2cpp)
             found = il2cpp;
         var mc = s.Code(module);
         if (found is null or { Source: "discovered" } && mc.Names?.Lookup(rva) is { Name: not null } light)
