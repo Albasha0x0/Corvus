@@ -157,6 +157,14 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         var parallel = await Task.WhenAll(functions.Select(f => Task.Run(() => s.DecompileAsync(f.StartRva))));
         output.WriteLine($"{functions.Count} decompiles: serial {serialMs} ms, parallel {clock.ElapsedMilliseconds} ms");
         Assert.Equal(serial.Select(d => d.Text), parallel.Select(d => d.Text));
+
+        // one batch request runs its items across the decompiler pool and keeps their order and per-item outcomes
+        clock.Restart();
+        var batch = await s.DecompileManyAsync([.. functions.Select(f => f.StartRva), 0x10u], 60, 600);
+        output.WriteLine($"batch of {batch.Count}: {clock.ElapsedMilliseconds} ms");
+        Assert.Equal([.. functions.Select(f => f.StartRva), 0x10u], batch.Select(b => b.Rva));
+        Assert.Equal(serial.Select(d => d.Text), batch.Take(functions.Count).Select(b => b.Function!.Text));
+        Assert.Equal((DecompileStatus.Error, "not_found"), (batch[^1].Status, batch[^1].ErrorCode));
     }
 
     [GhidraFact]
