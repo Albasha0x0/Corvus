@@ -350,6 +350,23 @@ internal static class WorkerRows
         new(r.GetProperty("total").GetInt32(), r.GetProperty("rows").EnumerateArray()
             .Select(x => new EngineDataItem(x[0].GetUInt32(), x[1].GetInt64(), x[2].GetString() ?? "", Text(x[3]), Text(x[4]), x[5].GetBoolean())).ToList());
 
+    /// <summary>
+    /// function_info: start, name, namespace, prototype, convention, signature_source, ranges [[start, end]], thunk_target, thunk_name,
+    /// external, noreturn, library, stack_purge, params [[name, type, storage]], return_type, return_storage, varargs.
+    /// </summary>
+    public static EngineFunctionRecord FunctionRecord(JsonElement r)
+    {
+        static string? S(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        static bool B(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+        static int? I(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
+        uint? thunk = r.TryGetProperty("thunk_target", out var t) && t.ValueKind == JsonValueKind.Number ? t.GetUInt32() : null;
+        var ranges = r.GetProperty("ranges").EnumerateArray().Select(x => (x[0].GetUInt32(), x[1].GetUInt32())).ToList();
+        var parameters = r.GetProperty("params").EnumerateArray().Select(x => new EngineParameter(x[0].GetString() ?? "", x[1].GetString() ?? "", x[2].GetString() ?? "")).ToList();
+        return new EngineFunctionRecord(r.GetProperty("start").GetUInt32(), S(r, "name") ?? "", S(r, "namespace"), S(r, "prototype"), S(r, "convention"),
+            S(r, "signature_source"), ranges, thunk, S(r, "thunk_name"), B(r, "external"), B(r, "noreturn"), B(r, "library"), I(r, "stack_purge"), parameters,
+            S(r, "return_type"), S(r, "return_storage"), B(r, "varargs"));
+    }
+
     /// <summary>defined_strings: rows [rva, size, type, text].</summary>
     public static List<EngineString> Strings(JsonElement r) =>
         r.GetProperty("rows").EnumerateArray().Select(x => new EngineString(x[0].GetUInt32(), x[1].GetInt64(), x[2].GetString() ?? "", x[3].GetString() ?? "")).ToList();

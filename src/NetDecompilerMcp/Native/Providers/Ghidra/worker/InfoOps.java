@@ -9,10 +9,14 @@ import com.google.gson.JsonPrimitive;
 import ghidra.framework.Application;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressIterator;
+import ghidra.program.model.address.AddressRange;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.symbol.Namespace;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
@@ -115,6 +119,51 @@ final class InfoOps {
         }
         JsonObject o = new JsonObject();
         o.add("rows", rows);
+        return o;
+    }
+
+    /** The function containing rva as Ghidra records it (function_info); field names match the IDA worker's. */
+    static JsonElement functionInfo(Worker w, Worker.Request r) {
+        Function f = CodeOps.functionAt(w, w.addr(r.args, "rva"));
+        JsonObject o = new JsonObject();
+        o.addProperty("start", w.rva(f.getEntryPoint()));
+        o.addProperty("name", f.getName());
+        Namespace ns = f.getParentNamespace();
+        o.addProperty("namespace", ns == null || ns.isGlobal() ? null : ns.getName(true));
+        o.addProperty("prototype", f.getPrototypeString(false, true));
+        o.addProperty("convention", f.getCallingConventionName());
+        o.addProperty("signature_source", f.getSignatureSource().toString().toLowerCase());
+        JsonArray ranges = new JsonArray();
+        for (AddressRange range : f.getBody().getAddressRanges()) {
+            Long start = w.rva(range.getMinAddress()), last = w.rva(range.getMaxAddress());
+            if (start == null || last == null) continue;
+            JsonArray pair = new JsonArray();
+            pair.add(start);
+            pair.add(last + 1);
+            ranges.add(pair);
+        }
+        o.add("ranges", ranges);
+        if (f.isThunk() && f.getThunkedFunction(true) instanceof Function target) {
+            o.addProperty("thunk_target", w.rva(target.getEntryPoint()));
+            o.addProperty("thunk_name", target.getName(true));
+        }
+        o.addProperty("external", f.isExternal());
+        o.addProperty("noreturn", f.hasNoReturn());
+        int purge = f.getStackPurgeSize();
+        if (purge != Function.UNKNOWN_STACK_DEPTH_CHANGE && purge != Function.INVALID_STACK_DEPTH_CHANGE) o.addProperty("stack_purge", purge);
+        JsonArray params = new JsonArray();
+        for (Parameter p : f.getParameters()) {
+            JsonArray row = new JsonArray();
+            row.add(p.getName());
+            row.add(p.getDataType().getDisplayName());
+            row.add(p.getVariableStorage().toString());
+            params.add(row);
+        }
+        o.add("params", params);
+        o.addProperty("return_type", f.getReturnType().getDisplayName());
+        Parameter ret = f.getReturn();
+        o.addProperty("return_storage", ret == null ? null : ret.getVariableStorage().toString());
+        o.addProperty("varargs", f.hasVarArgs());
         return o;
     }
 

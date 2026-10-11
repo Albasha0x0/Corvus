@@ -217,6 +217,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list strings.");
 
+    /// <summary>The engine's record of the function containing <paramref name="rva"/> (NotFound when none does).</summary>
+    Task<EngineFunctionRecord> GetFunctionRecordAsync(uint rva, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not describe functions.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -617,3 +621,15 @@ public sealed record EngineDataList(int Total, IReadOnlyList<EngineDataItem> Ite
 
 /// <summary>A string the engine defined: its size in bytes, the engine's string type (e.g. string, unicode, utf8, C, C_16) and its text (clipped at 400 characters).</summary>
 public sealed record EngineString(uint Rva, long Size, string Type, string Text);
+
+/// <summary>A parameter as the engine stores it: name, type and storage (register, stack offset).</summary>
+public sealed record EngineParameter(string Name, string Type, string Storage);
+
+/// <summary>
+/// The engine's record of a function: name and namespace, prototype, calling convention, where the signature came from
+/// (user, imported, analysis, default; IDA: user or guessed), body ranges (exclusive ends), the thunked function, external,
+/// no-return and library flags, bytes the callee pops, parameters with storage, the return type and storage, varargs.
+/// </summary>
+public sealed record EngineFunctionRecord(uint Start, string Name, string? Namespace, string? Prototype, string? CallingConvention, string? SignatureSource,
+    IReadOnlyList<(uint Start, uint End)> Ranges, uint? ThunkTarget, string? ThunkTargetName, bool External, bool NoReturn, bool Library, int? StackPurge,
+    IReadOnlyList<EngineParameter> Parameters, string? ReturnType, string? ReturnStorage, bool VarArgs);

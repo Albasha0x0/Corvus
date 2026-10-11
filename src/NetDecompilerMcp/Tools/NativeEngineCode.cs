@@ -92,6 +92,37 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
 
     private static string Va(NativeCodeIndex index, uint rva) => NativeAddress.Va(index.Image, rva);
 
+    /// <summary>An engine's function record as lines ("prototype: ...").</summary>
+    public static List<string> RecordLines(EngineFunctionRecord r, Func<uint, string> va)
+    {
+        var lines = new List<string>();
+        if (r.Prototype != null) lines.Add($"prototype: {r.Prototype}");
+        lines.Add($"convention {r.CallingConvention ?? "unknown"}, signature from {r.SignatureSource ?? "nothing (untyped)"}" +
+                  (r.StackPurge is { } p ? $", callee pops {p} bytes" : "") + (r.VarArgs ? ", varargs" : ""));
+        if (r.Namespace != null) lines.Add($"namespace {r.Namespace}");
+        foreach (var x in r.Parameters) lines.Add($"param {x.Type} {x.Name} in {x.Storage}");
+        if (r.ReturnType != null) lines.Add($"returns {r.ReturnType}" + (r.ReturnStorage != null ? $" in {r.ReturnStorage}" : ""));
+        if (r.Ranges.Count > 0) lines.Add("body " + string.Join(", ", r.Ranges.Select(x => $"{va(x.Start)}-{va(x.End)}")));
+        var flags = new List<string>();
+        if (r.ThunkTarget != null || r.ThunkTargetName != null) flags.Add($"thunk to {r.ThunkTargetName ?? va(r.ThunkTarget!.Value)}");
+        if (r.NoReturn) flags.Add("noreturn");
+        if (r.External) flags.Add("external");
+        if (r.Library) flags.Add("library");
+        if (flags.Count > 0) lines.Add(string.Join(", ", flags));
+        return lines;
+    }
+
+    /// <summary>The engine record of the function at <paramref name="rva"/> under a header line, or empty when the engine has none.</summary>
+    public static async Task<string> RecordDetail(INativeDecompilerSession session, uint rva, Func<uint, string> va, CancellationToken ct)
+    {
+        try
+        {
+            var r = await session.GetFunctionRecordAsync(rva, ct);
+            return $"{NativeEngineService.DisplayName(session.ProviderId)}'s record of {r.Name}:\n" + string.Concat(RecordLines(r, va).Select(l => $"  {l}\n"));
+        }
+        catch (ToolError e) when (e.Code is ErrorCode.Unsupported or ErrorCode.NotFound) { return ""; }
+    }
+
     /// <summary>Our name at a function start (user, PDB, Il2Cpp, export), else the engine's.</summary>
     private static string Name(NativeCodeIndex index, uint rva, string engineName) =>
         index.Sourced.NameAt(rva)?.Name ?? index.FunctionByStart(rva)?.KnownName ?? (engineName.Length > 0 ? engineName : $"sub_{rva:X}");
@@ -144,8 +175,11 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         var structured = Paged(list, offset, limit, (page, o, total, more) => new FunctionList(native.Id, functions.List.Count,
             page.Select(x => new FunctionEntry(Va(index, x.f.StartRva), (int)(x.f.EndRva - x.f.StartRva), x.Name, FlagList(x.f.Flags), Sources(x.f), x.f.References ?? 0)).ToList(),
             o, total, more, coverage, choice.Engine, choice.Note));
+        int exact = query.ExactIndex(list, x => x.Name);
+        var detail = exact >= 0 ? await RecordDetail(session, list[exact].f.StartRva, r => Va(index, r), ct) : "";
         return StructuredOutput.With($"{native.Id}: {Plural(functions.List.Count, "function")} ({thunks} thunks, {library} library) {Via(choice.Engine)}\n{choice.Line}\n" +
-                                     $"Note: {coverage}\n" + NativeCodeTools.Matching(query, list.Count, index.Image) + pager.PageRows(lines, offset, limit, "function"), structured);
+                                     $"Note: {coverage}\n" + NativeCodeTools.Matching(query, list.Count, index.Image) + pager.PageRows(lines, offset, limit, "function") +
+                                     detail, structured);
     }
 
     public async Task<string> Disassemble(LoadedNative native, NativeCodeIndex index, uint rva, bool function, int max, int offset, int? maxChars,

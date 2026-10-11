@@ -2922,7 +2922,63 @@ def op_defined_strings(args):
     return {"rows": rows}
 
 
+def cc_name(cc):
+    import ida_typeinf as t
+    names = {t.CM_CC_CDECL: "__cdecl", t.CM_CC_ELLIPSIS: "__cdecl", t.CM_CC_STDCALL: "__stdcall", t.CM_CC_PASCAL: "__pascal",
+             t.CM_CC_FASTCALL: "__fastcall", t.CM_CC_THISCALL: "__thiscall", t.CM_CC_SPECIAL: "__usercall", t.CM_CC_SPECIALE: "__usercall",
+             t.CM_CC_SPECIALP: "__usercall"}
+    return names.get(cc & t.CM_CC_MASK)
+
+
+def argloc_text(m, loc, size):
+    import ida_idp
+    if loc.is_reg1():
+        return ida_idp.get_reg_name(loc.reg1(), max(1, size))
+    if loc.is_reg2():
+        return "%s:%s" % (ida_idp.get_reg_name(loc.reg1(), max(1, size // 2)), ida_idp.get_reg_name(loc.reg2(), max(1, size // 2)))
+    if loc.is_stkoff():
+        return "stack[0x%X]" % loc.stkoff()
+    return "scattered" if loc.is_scattered() else "unknown"
+
+
+def op_function_info(args):
+    # the function containing rva as IDA records it; field names match the Ghidra worker's function_info
+    m = need_open()
+    import ida_typeinf
+    f = func_at(m, ea_of(args))
+    ea = f.start_ea
+    tif, ftd = ida_typeinf.tinfo_t(), ida_typeinf.func_type_data_t()
+    typed = m.ida_nalt.get_tinfo(tif, ea) and tif.get_func_details(ftd)
+    if not typed:
+        # IDA's guess, as the decompiler would start from
+        typed = ida_typeinf.guess_tinfo(tif, ea) != ida_typeinf.GUESS_FUNC_FAILED and tif.get_func_details(ftd)
+    params = []
+    if typed:
+        for a in ftd:
+            params.append([a.name or "", str(a.type), argloc_text(m, a.argloc, a.type.get_size())])
+    ranges = [[rva_of(s), rva_of(e)] for s, e in m.idautils.Chunks(ea) if rva_of(s) is not None and rva_of(e) is not None]
+    target = None
+    if f.flags & m.ida_funcs.FUNC_THUNK:
+        t, _ = m.ida_funcs.calc_thunk_func_target(f)
+        if t != m.idautils.ida_idaapi.BADADDR:
+            target = t
+    proto = ida_typeinf.print_type(ea, ida_typeinf.PRTYPE_1LINE) if typed else None
+    cc = ftd.get_cc() if typed else None
+    result = {"start": rva_of(ea), "name": m.ida_funcs.get_func_name(ea) or "", "namespace": None, "prototype": proto,
+              "convention": cc_name(cc) if cc is not None else None,
+              "signature_source": ("user" if m.ida_nalt.is_userti(ea) else "guessed") if typed else None, "ranges": ranges,
+              "external": False, "noreturn": bool(f.flags & m.ida_funcs.FUNC_NORET), "library": bool(f.flags & m.ida_funcs.FUNC_LIB),
+              "stack_purge": f.argsize, "params": params, "return_type": str(ftd.rettype) if typed else None,
+              "return_storage": argloc_text(m, ftd.retloc, ftd.rettype.get_size()) if typed and not ftd.rettype.is_void() else None,
+              "varargs": bool(typed and ftd.is_vararg_cc())}
+    if target is not None:
+        result["thunk_target"] = rva_of(target)
+        result["thunk_name"] = m.ida_name.get_name(target) or None
+    return result
+
+
 OPS["defined_data"] = op_defined_data
+OPS["function_info"] = op_function_info
 OPS["defined_strings"] = op_defined_strings
 OPS["image_info"] = op_image_info
 

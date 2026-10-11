@@ -104,7 +104,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
     [Description("Functions of a native image (x86 / x64 / ARM64): address, size, name (export, module!import for thunks, or sub_<rva>; names from " +
                  "rename_native, PDB symbols and apply_il2cpp_names win in that order), flags (thunk, noreturn, unresolved jumps, invalid code, " +
-                 "funclets and exception chunks; get_exception_info details them), how it was found and how many call sites reach it. " + IndexNote)]
+                 "funclets and exception chunks; get_exception_info details them), how it was found and how many call sites reach it; an exact name filter adds an open engine's function record. " + IndexNote)]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
@@ -142,10 +142,14 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var result = Paged(functions, offset, limit, (page, o, total, more) => new FunctionList(native.Id, s.Functions,
             page.Select(f => new FunctionEntry(NativeAddress.Va(index.Image, f.Start), (int)f.Size, f.Name, FlagList(f, index), Sources(f), index.CountRefsTo(f.Start))).ToList(),
             o, total, more, coverage.Length > 0 ? coverage.Trim() : null, choice.Engine, choice.Note));
+        // one exact name match: the record of an engine session already open (none is started for this)
+        int exact = query.ExactIndex(functions, f => f.Name);
+        var detail = exact >= 0 && engines?.OpenSession(native) is { } open
+            ? await NativeEngineCode.RecordDetail(open, functions[exact].Start, r => NativeAddress.Va(index.Image, r), cancellationToken) : "";
         return StructuredOutput.With($"{native.Id}: {Plural(s.Functions, "function")} ({s.Thunks} thunks, {s.NoReturnFunctions} noreturn" +
                (library > 0 ? $", {library} library functions named by IDA" : "") + $"), {s.Instructions:N0} instructions, " +
                $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n{choice.Line}\n" + coverage + Matching(query, functions.Count, index.Image) +
-               pager.PageRows(rows, offset, limit, "function"), result);
+               pager.PageRows(rows, offset, limit, "function") + detail, result);
     });
 
     /// <summary>"Matching (name 'Get*', size >= 64): 12" when the query narrows the list, plus a regex timeout note.</summary>

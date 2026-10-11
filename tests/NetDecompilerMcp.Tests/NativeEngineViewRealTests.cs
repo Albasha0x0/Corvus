@@ -60,6 +60,27 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
         Assert.Contains(strings, x => x.Type == "unicode" && x.Text.Length > 2);
         Assert.Contains(strings, x => x.Text == Export);
     }
+
+    [GhidraFact]
+    public async Task Function_record_has_prototype_convention_storage_and_thunk_target()
+    {
+        await using var s = await Open();
+        var rva = NativeIdaProviderTests.ExportRva(shared.Sample, Export);
+        var r = await s.GetFunctionRecordAsync(rva + 2);
+        output.WriteLine(string.Join("\n", NetDecompilerMcp.Tools.NativeEngineCode.RecordLines(r, x => $"0x{x:X}")));
+        Assert.Equal(rva, r.Start);
+        Assert.Contains(Export, r.Prototype);
+        Assert.Equal("__fastcall", r.CallingConvention);
+        Assert.NotNull(r.SignatureSource);
+        Assert.Equal(4, r.Parameters.Count);
+        Assert.Equal("RCX:8", r.Parameters[0].Storage);
+        Assert.Contains(r.Ranges, x => x.Start == rva && x.End > rva);
+        var thunk = (await s.ListFunctionsAsync()).First(f => f.Flags.HasFlag(NativeFunctionFlags.Thunk));
+        var t = await s.GetFunctionRecordAsync(thunk.StartRva);
+        output.WriteLine($"{t.Name} -> {t.ThunkTargetName}");
+        Assert.NotNull(t.ThunkTargetName);
+        Assert.Equal(Core.ErrorCode.NotFound, (await Assert.ThrowsAsync<Core.ToolError>(() => s.GetFunctionRecordAsync(0x10))).Code);
+    }
 }
 
 /// <summary>The engine read views against a real IDA (idalib), on a system DLL analyzed once for the class.</summary>
@@ -112,5 +133,25 @@ public sealed class NativeIdaViewTests(ITestOutputHelper output, IdaCacheFixture
         Assert.True(strings.Count > 20);
         Assert.Contains(strings, x => x.Type == "C_16" && x.Text.Length > 2);
         Assert.Contains(strings, x => x.Type == "C" && x.Text == Export);
+    }
+
+    [IdaFact]
+    public async Task Function_record_has_prototype_convention_storage_and_thunk_target()
+    {
+        await using var s = await Open();
+        var rva = NativeIdaProviderTests.ExportRva(NativeIdaProviderTests.System64, Export);
+        var r = await s.GetFunctionRecordAsync(rva + 2);
+        output.WriteLine(string.Join("\n", NetDecompilerMcp.Tools.NativeEngineCode.RecordLines(r, x => $"0x{x:X}")));
+        Assert.Equal(rva, r.Start);
+        Assert.Contains(Export, r.Prototype);
+        Assert.Contains(r.CallingConvention, new[] { "__fastcall", "__stdcall" }); // IDA keeps the x64 type library's __stdcall
+        Assert.Equal(4, r.Parameters.Count);
+        Assert.Equal("rcx", r.Parameters[0].Storage);
+        Assert.Contains(r.Ranges, x => x.Start == rva && x.End > rva);
+        var thunk = (await s.ListFunctionsAsync()).First(f => f.Flags.HasFlag(NativeFunctionFlags.Thunk));
+        var t = await s.GetFunctionRecordAsync(thunk.StartRva);
+        output.WriteLine($"{t.Name} -> {t.ThunkTargetName}");
+        Assert.NotNull(t.ThunkTargetName);
+        Assert.Equal(Core.ErrorCode.NotFound, (await Assert.ThrowsAsync<Core.ToolError>(() => s.GetFunctionRecordAsync(0x10))).Code);
     }
 }

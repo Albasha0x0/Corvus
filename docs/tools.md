@@ -1015,7 +1015,7 @@ Structured output: `items`.
 
 **List native functions** (read-only, idempotent, open-world, long-running)
 
-Functions of a native image (x86 / x64 / ARM64): address, size, name (export, module!import for thunks, or sub_<rva>; names from rename_native, PDB symbols and apply_il2cpp_names win in that order), flags (thunk, noreturn, unresolved jumps, invalid code, funclets and exception chunks; get_exception_info details them), how it was found and how many call sites reach it. The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
+Functions of a native image (x86 / x64 / ARM64): address, size, name (export, module!import for thunks, or sub_<rva>; names from rename_native, PDB symbols and apply_il2cpp_names win in that order), flags (thunk, noreturn, unresolved jumps, invalid code, funclets and exception chunks; get_exception_info details them), how it was found and how many call sites reach it; an exact name filter adds an open engine's function record. The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1258,7 +1258,7 @@ Structured output: `image`, `scope`, `engine`, `total`, `byStatus`, `byMechanism
 
 **Native function dossier** (read-only, idempotent, open-world, long-running)
 
-Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, flags, demangled and Il2Cpp names, vftable slots), signature evidence (ret n, argument registers read before written, this class, result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import slots), flow (blocks, loops, switches, cyclomatic complexity, unresolved jumps, noreturn and tail calls), annotations. Optional: constants, params (values callers pass) and pseudocode (IDA or Ghidra). Several addresses: a dossier each, or with component=true a component view (sections only when asked). A failing section reports its error.
+Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, flags, demangled and Il2Cpp names, vftable slots, an open engine's function record), signature evidence (ret n, argument registers read before written, this class, result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import slots), flow (blocks, loops, switches, cyclomatic complexity, unresolved jumps, noreturn and tail calls), annotations. Optional: constants, params (values callers pass) and pseudocode (IDA or Ghidra). Several addresses: a dossier each, or with component=true a component view (sections only when asked). A failing section reports its error.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

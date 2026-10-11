@@ -94,6 +94,27 @@ public sealed class EngineViewTests : IDisposable
         Assert.DoesNotContain("zzz", text);
     }
 
+    [Fact]
+    public async Task An_exact_name_and_the_dossier_show_the_engine_function_record_of_an_open_session()
+    {
+        var rig = Setup();
+        var native = await Loaded(rig);
+        var first = (await rig.Code.Index(native, null, default)).AddressOfName("First")!.Value;
+        rig.Provider.Functions = [new NativeFunctionInfo(first, first + 0x10, "First", NativeFunctionFlags.None)];
+        var dossiers = new NativeFunctionTools(rig.Workspace, rig.Code, new OutputPager(new ServerOptions()), null, rig.Engines);
+        Assert.DoesNotContain("record of", await rig.Tools.ListFunctions(rig.Image, filter: "First"));
+        Assert.DoesNotContain("ghidra: prototype", await dossiers.AnalyzeNativeFunction(rig.Image, "First"));
+        Assert.Equal(0, rig.Provider.Opens);
+
+        var engine = await rig.Tools.ListFunctions(rig.Image, filter: "first", engine: "ghidra");
+        Assert.Contains("Ghidra's record of First:\n  prototype: int __fastcall First(int a)\n  convention __fastcall, signature from user, callee pops 0 bytes", engine);
+        Assert.Contains("  param int a in ECX:4\n  returns int in EAX:4", engine);
+        Assert.DoesNotContain("record of", await rig.Tools.ListFunctions(rig.Image, filter: "Firs", engine: "ghidra"));
+        // the session is open now: the built-in listing and the dossier show it too
+        Assert.Contains("Ghidra's record of First", await rig.Tools.ListFunctions(rig.Image, filter: "First", engine: "ours"));
+        Assert.Contains("ghidra: prototype: int __fastcall First(int a)", await dossiers.AnalyzeNativeFunction(rig.Image, "First"));
+    }
+
     /// <summary>A Ghidra-like engine whose sessions answer the read views from fixed data.</summary>
     internal sealed class ViewProvider : INativeDecompilerProvider
     {
@@ -135,6 +156,10 @@ public sealed class EngineViewTests : IDisposable
         public Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
             Task.FromResult(new EngineDataList(3, [new EngineDataItem(0x3000, 8, "pointer", "g_engine_table", "180001000h", false),
                 new EngineDataItem(0x3010, 6, "string", null, "\"hello\"", true)]));
+
+        public Task<EngineFunctionRecord> GetFunctionRecordAsync(uint rva, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new EngineFunctionRecord(rva, "First", "Ns", "int __fastcall First(int a)", "__fastcall", "user", [(rva, rva + 0x10)], null, null,
+                false, false, false, 0, [new EngineParameter("a", "int", "ECX:4")], "int", "EAX:4", false));
 
         public Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<EngineString>>([new EngineString(0x3020, 12, "utf8", "only in the engine"), new EngineString(0x3040, 8, "unicode", "zzz")]);

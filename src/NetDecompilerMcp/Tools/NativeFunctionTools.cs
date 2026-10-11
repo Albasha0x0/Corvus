@@ -66,7 +66,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 
     [McpServerTool(Name = "analyze_native_function", Title = "Native function dossier", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDossier))]
     [Description("Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, " +
-                 "flags, demangled and Il2Cpp names, vftable slots), signature evidence (ret n, argument registers read before written, this class, " +
+                 "flags, demangled and Il2Cpp names, vftable slots, an open engine's function record), signature evidence (ret n, argument registers read before written, this class, " +
                  "result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other " +
                  "images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import " +
                  "slots), flow (blocks, loops, switches, cyclomatic complexity, unresolved jumps, noreturn and tail calls), annotations. Optional: " +
@@ -115,14 +115,19 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         if (component && functions.Count < 2)
             throw new ToolError(ErrorCode.InvalidArgument, "component=true needs two or more functions.", "pass the functions as comma-separated addresses");
         var pseudo = wanted.Contains("pseudocode") ? await Pseudocode(native, functions, engine, progress, cancellationToken) : [];
+        var records = new Dictionary<uint, (string Engine, EngineFunctionRecord Value)>();
+        if (wanted.Contains("identity"))
+            foreach (var f in functions)
+                if (await EngineRecord(native, f.Start, engine, cancellationToken) is { } rec) records[f.Start] = rec;
         var key = $"dossier|{native.Image.Sha256}|{string.Join(",", found.Select(x => $"{x.Query}={x.Function?.Start:X}"))}|{string.Join(",", wanted)}|{max}|{component}|" +
-                  $"{index.Sourced.Version}|{engine}|{string.Join(",", pseudo.Values.Select(p => $"{p.Text?.GetHashCode()}:{p.Error}"))}";
+                  $"{index.Sourced.Version}|{engine}|{string.Join(",", pseudo.Values.Select(p => $"{p.Text?.GetHashCode()}:{p.Error}"))}|" +
+                  string.Join(",", records.Values.Select(x => string.Join(";", NativeEngineCode.RecordLines(x.Value, r => r.ToString("X")))));
         var (text, report) = await Task.Run(() =>
         {
             lock (Reports)
                 if (Reports.TryGetValue(key, out var hit) && pager.TryGet(key, out var cached)) return (cached, hit);
             var parts = functions.Select(f => Build(native, index, f, wanted, max, pseudo.GetValueOrDefault(f.Start).Text, pseudo.GetValueOrDefault(f.Start).Error,
-                cancellationToken)).ToList();
+                cancellationToken, records.TryGetValue(f.Start, out var rec) ? rec : null)).ToList();
             var sb = new StringBuilder();
             var view = component ? Component(native, index, functions, max, sb, cancellationToken) : null;
             if (wanted.Count > 0 || !component) foreach (var p in parts) sb.Append(p.Text).AppendLine();
@@ -177,6 +182,15 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         catch (ToolError e) { return All($"{ToolError.CodeName(e.Code)}: {e.Message}"); }
     }
 
+    /// <summary>The function record of an engine session already open (the one engine names, else any); none is started for it.</summary>
+    private async Task<(string Engine, EngineFunctionRecord Value)?> EngineRecord(LoadedNative native, uint start, string? engine, CancellationToken ct)
+    {
+        var named = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? null : engine.Trim().ToLowerInvariant();
+        if (engines?.OpenSession(native, named) is not { } session) return null;
+        try { return (session.ProviderId, await session.GetFunctionRecordAsync(start, ct)); }
+        catch (ToolError) { return null; }
+    }
+
     /// <summary>Collects one section's facts; an exception becomes the section's error.</summary>
     private sealed class Section(string name, int max)
     {
@@ -195,7 +209,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     }
 
     private (string Text, FunctionDossier Report) Build(LoadedNative native, NativeCodeIndex index, NativeFunction f, List<string> wanted, int max, string? pseudo,
-        string? pseudoError, CancellationToken ct)
+        string? pseudoError, CancellationToken ct, (string Engine, EngineFunctionRecord Value)? record = null)
     {
         var image = index.Image;
         string Va(uint r) => NativeAddress.Va(image, r);
@@ -285,6 +299,8 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             foreach (var slot in slots)
                 x.Add(Va(slot.Vtable.VftableRva), $"slot {slot.Slot} of {slot.Class.Name}'s vftable at {Va(slot.Vtable.VftableRva)} (subobject +0x{slot.Vtable.Offset:X})", "vftable_slot");
             if (index.Sourced.CommentAt(f.Start) is { } c) x.Add(Va(f.Start), $"comment ({c.Source.Id()}): {c.Text}", "comment");
+            if (record is { } engineRecord)
+                foreach (var line in NativeEngineCode.RecordLines(engineRecord.Value, Va)) x.Add(null, $"{engineRecord.Engine}: {line}", "engine");
         }
 
         void Signature(Section x)

@@ -36,6 +36,20 @@ internal sealed record FunctionQuery(NameFilter? Filter, long? MinSize, long? Ma
         return string.Join(", ", parts);
     }
 
+    /// <summary>The index of the only item named exactly as a plain (substring) filter, ignoring case; -1 when none or several are.</summary>
+    public int ExactIndex<T>(IReadOnlyList<T> items, Func<T, string> name)
+    {
+        if (Filter is not { Pattern: null } plain) return -1;
+        int found = -1;
+        for (int i = 0; i < items.Count; i++)
+            if (string.Equals(name(items[i]), plain.Text, StringComparison.OrdinalIgnoreCase))
+            {
+                if (found >= 0) return -1;
+                found = i;
+            }
+        return found;
+    }
+
     /// <summary>The matching items in order: address and name ascend, size and callers descend, unless <see cref="Descending"/> says otherwise.</summary>
     public List<T> Apply<T>(IEnumerable<T> items, Func<T, uint> start, Func<T, long> size, Func<T, string> name, Func<T, int> callers, Func<T, bool>? typed)
     {
