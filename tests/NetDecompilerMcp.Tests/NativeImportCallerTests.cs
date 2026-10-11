@@ -1,0 +1,89 @@
+using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Annotations;
+using NetDecompilerMcp.Services;
+using NetDecompilerMcp.Tests.NativeFormats;
+using NetDecompilerMcp.Tools;
+
+namespace NetDecompilerMcp.Tests;
+
+/// <summary>Call paths and caller trees to an import whose library is not loaded: PE module!name, ELF lib.so.N!name, Mach-O lib.dylib!_name.</summary>
+public sealed class NativeImportCallerTests : IDisposable
+{
+    private readonly TempDir _dir = new();
+
+    public void Dispose() => _dir.Dispose();
+
+    private (AssemblyWorkspace Workspace, CallGraphTools Paths, NativeCodeTools Code) Rig(params string[] files)
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var ws = new AssemblyWorkspace(options);
+        foreach (var f in files) ws.LoadAny(f);
+        var code = new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann")));
+        var link = new NativeLinkService(ws, code);
+        var pager = new OutputPager(options);
+        return (ws, new CallGraphTools(ws, new CallGraphService(ws), pager, link, code), new NativeCodeTools(ws, code, pager, link));
+    }
+
+    /// <summary>app.exe: Main (entry point) calls Helper, which calls through provider_2c9d.dll!OpenThing; the provider exists nowhere.</summary>
+    private string App()
+    {
+        var path = _dir.File("app.exe");
+        File.WriteAllBytes(path, LinkedImages.Build("app.exe", [("Main", 0)], [("provider_2c9d.dll", ["OpenThing"])], slots =>
+        {
+            var c = new LinkedImages.Code(slots);
+            c.Raw(0xE8, 11, 0, 0, 0).Ret().Pad(16); // call Helper (at 16)
+            return c.CallImport("provider_2c9d.dll!OpenThing").Ret().ToArray();
+        }));
+        return path;
+    }
+
+    [Fact]
+    public async Task Paths_reach_an_import_of_a_library_that_is_not_loaded()
+    {
+        var (ws, paths, _) = Rig(App());
+        using var _ = ws;
+        var text = await paths.FindCallPaths("provider_2c9d.dll!OpenThing");
+        Assert.Contains("native provider_2c9d.dll!OpenThing (imported by app.exe; its library is not loaded)", text);
+        Assert.Contains("(2 native calls; root: entry point)", text);
+        Assert.Contains("[app.exe] Main at", text);
+        Assert.Contains("(import at 0x", text);
+        Assert.Contains("provider_2c9d!OpenThing", text);
+    }
+
+    [Fact]
+    public async Task Caller_tree_of_an_import_lists_its_callers_and_theirs()
+    {
+        var (ws, _, code) = Rig(App());
+        using var _ = ws;
+        var tree = await code.NativeCallTree("app.exe", "provider_2c9d.dll!OpenThing", direction: "callers");
+        Assert.Contains("provider_2c9d!OpenThing  (import slot at 0x", tree);
+        var lines = tree.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        int helper = lines.FindIndex(l => l.StartsWith("  sub_", StringComparison.Ordinal));
+        Assert.True(helper > 0, tree);
+        Assert.StartsWith("    Main", lines[helper + 1]);
+    }
+
+    [Fact]
+    public async Task Elf_and_MachO_library_forms_name_their_imports()
+    {
+        // arm64 ELF: the entry calls free through its PLT stub (bl plt0 + 32; ret); libc.so.6 is needed, not loaded
+        var elf = new ElfWriter
+        {
+            Machine = ElfWriter.EmAarch64, Type = 2, Base = 0x400000, Entry = ElfWriter.TextRva, Needed = ["libc.so.6"], PltImports = ["free"],
+            Text = [0x0C, 0x00, 0x00, 0x94, 0xC0, 0x03, 0x5F, 0xD6],
+        };
+        var elfPath = _dir.File("tool");
+        File.WriteAllBytes(elfPath, elf.Build());
+        var (ws, paths, code) = Rig(elfPath);
+        using var _ = ws;
+        Assert.Equal(new NativeSymbol("libc.so.6", "free"), SymbolResolver.ParseNative("libc.so.6!free"));
+        Assert.Equal(new NativeSymbol("libSystem.B.dylib", "_malloc"), SymbolResolver.ParseNative("libSystem.B.dylib!_malloc"));
+        var text = await paths.FindCallPaths("libc.so.6!free");
+        Assert.Contains("imported by tool; its library is not loaded", text);
+        Assert.Contains("root: entry point", text);
+        Assert.Contains("(import at 0x40", text);
+        var tree = await code.NativeCallTree("tool", "libc.so.6!free", direction: "callers");
+        Assert.Contains("(import slot at 0x", tree);
+        Assert.DoesNotContain("nothing calls through it", tree);
+    }
+}

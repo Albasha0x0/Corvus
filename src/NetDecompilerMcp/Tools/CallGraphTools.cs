@@ -94,7 +94,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", UseStructuredContent = true, OutputSchemaType = typeof(CallPathList))]
     [Description("How execution reaches a method: call chains from 'from' to 'to', or — when 'from' is omitted — from entry points (methods nothing in the workspace calls: Main, Unity callbacks, event handlers). " +
                  "Shortest first, direct calls preferred; a hop that only happens through virtual dispatch (a call to a base/interface method this one overrides) is marked. " +
-                 "'to' may be native code (an export, or native:<image>!<address or function>): chains then run through native callers across loaded images " +
+                 "'to' may be native code (an export, an import whose library is not loaded, or native:<image>!<address or function>): chains then run through native callers across loaded images " +
                  "(calls, tail calls, imports bound between images, an open IDA / Ghidra session's call references, RTTI virtual calls, calls through function pointers) back to native roots " +
                  "(entry point, exports, TLS callbacks, callbacks, uncalled functions) and to managed methods through P/Invoke; 'from' may then be native too. " +
                  "Each native step carries its call site and edge kind; chains are ranked by length, uncertain hops and image changes.")]
@@ -117,8 +117,25 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         return await Read(workspace, () =>
         {
             int limit = ClampLimit(maxPaths, 200), deepest = Math.Clamp(maxDepth, 1, 30);
-            if (native != null && code != null && link!.FunctionOf(link.Resolve(native).Binding) is { } goal)
-                return NativePaths(native, goal, nativeFrom, from, deepest, limit, includeVirtual, cancellationToken);
+            if (native != null && code != null)
+            {
+                NativeLinkService.NativeTarget? resolved = null;
+                ToolError? unresolved = null;
+                try { resolved = link!.Resolve(native); }
+                catch (ToolError e) when (e.Code == ErrorCode.NotFound) { unresolved = e; }
+                if (resolved != null && link!.FunctionOf(resolved.Binding) is { } goal)
+                    return NativePaths(native, new NativeNode(goal.Image, goal.Function.Start), null, nativeFrom, from, deepest, limit, includeVirtual, cancellationToken);
+                // the provider is not loaded (or not found, as an ELF or Mach-O library on Windows): the calls through its imports in loaded images
+                var through = link!.ImportCallers(native, cancellationToken);
+                if (through.Count > 0)
+                {
+                    var (image, import, _, _) = through[0];
+                    var goalNode = new NativeNode(image, import.SlotRva);
+                    var hops = through.Select(t => new NativeHop(new NativeNode(t.Image, t.Caller.Start), goalNode, "import", t.Site)).ToList();
+                    return NativePaths(native, goalNode, hops, nativeFrom, from, deepest, limit, includeVirtual, cancellationToken, resolved);
+                }
+                if (unresolved != null) throw unresolved;
+            }
             if (nativeFrom != null)
                 throw new ToolError(ErrorCode.NotFound, $"{native} has no function in an indexed image: native chains need its code loaded.", "load the image that holds its code with load_assembly");
             var start = from == null ? null : SymbolResolver.ResolveOne(workspace, null, from, SymbolKind.Method);
@@ -184,18 +201,23 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     /// Native goal: chains through native callers (bounded backward search, then bounded enumeration), from 'from', or from
     /// native roots and from managed methods bound to the code on the way.
     /// </summary>
-    private string NativePaths(NativeSymbol symbol, (LoadedNative Image, Native.Code.NativeFunction Function) goal, NativeSymbol? nativeFrom, string? from, int deepest,
-        int limit, bool includeVirtual, CancellationToken ct)
+    /// <param name="goalCallers">For an import goal (the slot in one importer): the calls through the imports that name it, in every importer.</param>
+    /// <param name="direct">For an import goal: the export it resolves to, whose P/Invoke declarations also reach it.</param>
+    private string NativePaths(NativeSymbol symbol, NativeNode goalNode, IReadOnlyList<NativeHop>? goalCallers, NativeSymbol? nativeFrom, string? from, int deepest,
+        int limit, bool includeVirtual, CancellationToken ct, NativeLinkService.NativeTarget? direct = null)
     {
         var paths = new NativeCallPaths(link!, code!) { EngineCallers = engines != null ? NativeCallPaths.FromEngines(engines, code!, ct) : null };
-        var goalNode = new NativeNode(goal.Image, goal.Function.Start);
-        var label = $"native {symbol} ([{goal.Image.Id}] {NativeName(goalNode)} at {NativeAddress.Va(goal.Image.Image, goalNode.Start)})";
+        var label = goalCallers != null
+            ? $"native {symbol} (imported by {string.Join(", ", goalCallers.Select(h => h.From.Image.Id).Distinct())}; its library is not loaded)"
+            : $"native {symbol} ([{goalNode.Image.Id}] {NativeName(goalNode)} at {NativeAddress.Va(goalNode.Image.Image, goalNode.Start)})";
         NativeNode? fromNode = null;
         if (nativeFrom != null)
             fromNode = link!.FunctionOf(link.Resolve(nativeFrom).Binding) is { } f ? new NativeNode(f.Image, f.Function.Start)
                 : throw new ToolError(ErrorCode.NotFound, $"{nativeFrom} has no function in an indexed image.", "load the image that holds its code with load_assembly");
         var start = from != null && nativeFrom == null ? SymbolResolver.ResolveOne(workspace, null, from, SymbolKind.Method) : null;
-        var explored = paths.Explore(goalNode, deepest, includeVirtual, ct);
+        var explored = paths.Explore(goalNode, deepest, includeVirtual, ct, goalCallers);
+        if (direct != null)
+            foreach (var m in link!.ManagedLinksTo(direct, ct)) explored.Managed.Add(new ManagedEntry(m, goalNode, 0));
         var chains = new List<Chain>();
         bool truncated = explored.Cut;
         if (fromNode is { } fnode)

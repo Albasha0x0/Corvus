@@ -74,7 +74,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private static NativeFunction FunctionAt(NativeCodeIndex index, uint rva) =>
         index.FunctionAt(rva) ?? throw (index.Image.Imports.FirstOrDefault(i => i.SlotRva == rva) is { } slot
             ? new ToolError(ErrorCode.NotFound, $"{NativeAddress.Va(index.Image, rva)} is the import slot of {NativeCodeIndex.ImportName(slot)}, not a function.",
-                $"find_xrefs address={NativeCodeIndex.ImportName(slot)} lists the calls through it; pass one of the calling functions")
+                $"native_call_tree direction=callers function={NativeCodeIndex.ImportName(slot)} lists the functions calling through it")
             : new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
                 "list_functions shows the functions; disassemble shows raw instructions at any address"));
 
@@ -298,7 +298,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private static partial Regex XrefRow();
 
     [McpServerTool(Name = "native_call_tree", Title = "Native call tree")]
-    [Description("Callers or callees of a native function, several levels deep (calls through thunks and import slots included). Across images: " +
+    [Description("Callers or callees of a native function, several levels deep (calls through thunks and import slots included); callers of module!import " +
+                 "are the functions calling through it, whether or not its library is loaded. Across images: " +
                  "a call through module!import continues into the provider's function when that image is loaded (shown as module!import -> " +
                  "PROVIDER.dll!export at VA [image], forwarders and jump thunks followed; otherwise the provider's path, or why it does not resolve), " +
                  "and callers include call sites in other loaded images that import the function. Callees include late-bound imports called " +
@@ -346,7 +347,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (choice.External)
             return await _engine!.CallTree(native, index, Address(index, function), callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), offset, maxChars,
                 edges, choice, progress, cancellationToken);
-        var fn = FunctionAt(index, Address(index, function));
+        uint at = Address(index, function);
+        if (callers && index.FunctionAt(at) == null && index.Image.Imports.FirstOrDefault(i => i.SlotRva == at) is { } import)
+        {
+            if (link != null) await link.WarmUp(null, cancellationToken);
+            return choice.Line + "\n" + pager.Page(workspace.Read(() => ImportCallerTree(native, index, import, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), edges, cancellationToken)), offset, maxChars);
+        }
+        var fn = FunctionAt(index, at);
         if (link != null)
         {
             await link.WarmUp(null, cancellationToken);
@@ -375,6 +382,35 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         Walk(root, 0);
         return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxChars);
     });
+
+    /// <summary>Callers of an import: the functions calling through its slot (or a thunk jumping through it), each with its own callers.</summary>
+    private string ImportCallerTree(LoadedNative native, NativeCodeIndex index, NativeImport import, int depth, int maxNodes, CallEdgeFilter edges, CancellationToken ct)
+    {
+        var sb = new StringBuilder($"{NativeCodeIndex.ImportName(import)}  (import slot at {NativeAddress.Va(index.Image, import.SlotRva)})\n");
+        var callers = index.Callers(import).Where(c => c.Caller != null).Select(c => c.Caller!).DistinctBy(f => f.Start).ToList();
+        if (callers.Count == 0) sb.AppendLine("  nothing calls through it");
+        int nodes = 0;
+        foreach (var caller in callers)
+        {
+            if (nodes >= maxNodes) { sb.AppendLine("  (more not shown)"); break; }
+            if (link != null)
+            {
+                nodes += link.AppendTree(sb, native, caller, callers: true, depth - 1, maxNodes - nodes, 1, withRoot: true, ct, edges);
+                continue;
+            }
+            var root = index.CallTree(caller, depth - 1, callers: true, maxNodes - nodes, edges);
+            void Walk(CallTreeNode node, int level)
+            {
+                nodes++;
+                sb.Append(new string(' ', level * 2)).Append(node.Function?.Name ?? NativeAddress.Va(index.Image, node.Address))
+                  .Append(node.Function != null ? $"  {NativeAddress.Va(index.Image, node.Function.Start)}" : "")
+                  .Append(node.Repeated ? "  (repeated)" : "").Append(node.Truncated ? "  (more not shown)" : "").AppendLine();
+                foreach (var child in node.Children) Walk(child, level + 1);
+            }
+            Walk(root, 1);
+        }
+        return sb.ToString();
+    }
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]
     [Description("Strings (ASCII and UTF-16) a native image's code or data references, with the address, the number of references and the first " +

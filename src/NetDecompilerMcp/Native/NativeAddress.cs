@@ -46,7 +46,7 @@ public static class NativeAddress
             var module = t[..bang];
             var name = t[(bang + 1)..];
             foreach (var i in image.Imports)
-                if (SameModule(i.Module, module) && (i.Name == name || name.StartsWith('#') && i.Ordinal?.ToString() == name[1..]) && !candidates.Exists(k => k.Rva == i.SlotRva))
+                if (ImportMatches(image, i, module, name) && !candidates.Exists(k => k.Rva == i.SlotRva))
                     candidates.Add(new(i.SlotRva, "import"));
             if (candidates.Count == 0)
                 throw new ToolError(ErrorCode.NotFound, $"{Path.GetFileName(image.Path)} does not import {t}.", "list_imports shows what it imports");
@@ -124,8 +124,34 @@ public static class NativeAddress
     public static string Describe(INativeImage image, uint rva) =>
         $"rva 0x{rva:X}, va {Va(image, rva)}" + (image.TryRvaToFileOffset(rva, out var off) ? $", file 0x{off:X}" : ", not in the file");
 
-    private static bool SameModule(string a, string b) =>
-        string.Equals(Path.GetFileNameWithoutExtension(a), Path.GetFileNameWithoutExtension(b), StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// <paramref name="import"/> is module!name: the module by file name with or without its extension (kernel32, KERNEL32.dll,
+    /// libc.so.6, libSystem.B.dylib; an unversioned ELF import, module *, matches any library), the name exactly, by #ordinal,
+    /// or on Mach-O without its leading underscore.
+    /// </summary>
+    public static bool ImportMatches(INativeImage image, NativeImport import, string module, string name)
+    {
+        if (import.Module != "*" && !SameModule(import.Module, module)) return false;
+        if (import.Module == "*" && image.Dependencies.Count > 0 && !image.Dependencies.Any(d => SameModule(d, module))) return false;
+        if (name.StartsWith('#')) return import.Ordinal?.ToString() == name[1..];
+        return import.Name == name || (image.Format == ImageFormat.MachO && import.Name == "_" + name);
+    }
+
+    private static bool SameModule(string a, string b)
+    {
+        string x = Path.GetFileName(a), y = Path.GetFileName(b);
+        return string.Equals(x, y, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Path.GetFileNameWithoutExtension(x), Path.GetFileNameWithoutExtension(y), StringComparison.OrdinalIgnoreCase)
+            || string.Equals(StripSoVersion(x), StripSoVersion(y), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>libc.so.6 -> libc, libSystem.B.dylib -> libSystem.B, kernel32.dll -> kernel32.</summary>
+    private static string StripSoVersion(string file)
+    {
+        int so = file.IndexOf(".so", StringComparison.OrdinalIgnoreCase);
+        if (so > 0 && (so + 3 == file.Length || file[so + 3] == '.')) return file[..so];
+        return Path.GetFileNameWithoutExtension(file);
+    }
 
     private static uint CheckRva(INativeImage image, ulong value, string text) =>
         value < image.SizeOfImage ? (uint)value

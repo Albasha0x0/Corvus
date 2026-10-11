@@ -140,8 +140,11 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
             return result;
         };
 
-    /// <summary>Explores the callers of <paramref name="goal"/> backward up to <paramref name="maxDepth"/> calls and <see cref="MaxVisited"/> functions.</summary>
-    public NativeCallGraph Explore(NativeNode goal, int maxDepth, bool indirect, CancellationToken ct)
+    /// <summary>
+    /// Explores the callers of <paramref name="goal"/> backward up to <paramref name="maxDepth"/> calls and <see cref="MaxVisited"/> functions;
+    /// <paramref name="goalCallers"/> replaces the goal's own callers (an import of a library that is not loaded: the calls through it).
+    /// </summary>
+    public NativeCallGraph Explore(NativeNode goal, int maxDepth, bool indirect, CancellationToken ct, IReadOnlyList<NativeHop>? goalCallers = null)
     {
         var g = new NativeCallGraph { Goal = goal };
         g.Distance[goal] = 0;
@@ -153,9 +156,10 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
             ct.ThrowIfCancellationRequested();
             var n = queue.Dequeue();
             int d = g.Distance[n];
-            var preds = Predecessors(n, indirect, g.Notes, unscanned, ct);
-            foreach (var m in link.ManagedLinksAt(n.Image, n.Start, ct)) g.Managed.Add(new ManagedEntry(m, n, d));
-            if (Root(n, preds.Count) is { } why) g.RootKinds[n] = why;
+            var preds = goalCallers != null && n == goal ? goalCallers.ToList() : Predecessors(n, indirect, g.Notes, unscanned, ct);
+            if (goalCallers == null || n != goal)
+                foreach (var m in link.ManagedLinksAt(n.Image, n.Start, ct)) g.Managed.Add(new ManagedEntry(m, n, d));
+            if (n != goal && Root(n, preds.Count) is { } why) g.RootKinds[n] = why;
             if (d >= maxDepth)
             {
                 if (preds.Count > 0) g.Frontier++;

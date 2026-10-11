@@ -144,6 +144,25 @@ public sealed partial class NativeLinkService
     }
 
     /// <summary>
+    /// Calls through the imports that name <paramref name="symbol"/> (module!name) in every loaded, indexed image, whether or not
+    /// the providing library is loaded: the image, the import, the calling function and the call site.
+    /// </summary>
+    public List<(LoadedNative Image, NativeImport Import, NativeFunction Caller, uint Site)> ImportCallers(NativeSymbol symbol, CancellationToken ct)
+    {
+        var result = new List<(LoadedNative, NativeImport, NativeFunction, uint)>();
+        foreach (var native in workspace.Natives)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (code.Ready(native) is not { } index) continue;
+            foreach (var import in native.Image.Imports)
+                if (NativeAddress.ImportMatches(native.Image, import, symbol.Image, symbol.Export))
+                    foreach (var c in index.Callers(import))
+                        if (c.Caller is { } caller) result.Add((native, import, caller, c.From));
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Native call sites of what <paramref name="target"/> names, in every loaded image: calls inside the image of
     /// each hop that has code (the export, and the code a thunk leads to) and calls through imports bound to it.
     /// </summary>

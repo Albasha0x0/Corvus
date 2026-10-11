@@ -136,15 +136,19 @@ public class NativeToolsTests
     }
 
     [Fact]
-    public async Task CallTreeOfAnImportSlotPointsToItsReferences()
+    public async Task CallTreeOfAnImportSlotListsTheFunctionsCallingThroughIt()
     {
         using var env = new Env();
         using var dir = new TempDir();
         var tools = new NativeCodeTools(env.Workspace, new NetDecompilerMcp.Services.NativeCodeService(env.Workspace, env.Options), env.Pager);
-        var error = await Assert.ThrowsAsync<ToolError>(() => tools.NativeCallTree(McpProtocolTests.NativeSample(dir), "KERNEL32.dll!ExitProcess", direction: "callers"));
-        Assert.Equal(ErrorCode.NotFound, error.Code);
+        var path = McpProtocolTests.NativeSample(dir);
+        var tree = await tools.NativeCallTree(path, "KERNEL32.dll!ExitProcess", direction: "callers", depth: 2);
+        Assert.Contains("KERNEL32!ExitProcess  (import slot at 0x", tree);
+        Assert.Contains("nothing calls through it", tree); // the sample only imports it
+        // callees of a slot: still no function there
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.NativeCallTree("native.dll", "KERNEL32.dll!ExitProcess"));
         Assert.Contains("is the import slot of KERNEL32!ExitProcess, not a function", error.Message);
-        Assert.Contains("find_xrefs address=KERNEL32!ExitProcess", error.Remediation);
+        Assert.Contains("native_call_tree direction=callers function=KERNEL32!ExitProcess", error.Remediation);
     }
 
     [Fact]

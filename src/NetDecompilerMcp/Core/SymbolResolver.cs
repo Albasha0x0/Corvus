@@ -34,7 +34,7 @@ public sealed record NativeSymbol(string Image, string Export)
 ///   Ns.Type::Member | Ns.Type.Member | Ns.Type::Method(int, string) | Ns.Type::.ctor | Ns.Type::ctor
 ///   0x06001234 (metadata token; scope it with the assembly parameter when several are loaded)
 /// </summary>
-public static class SymbolResolver
+public static partial class SymbolResolver
 {
     /// <param name="referenced">
     /// Also match types that are only referenced (not defined) by loaded code, read from their defining file.
@@ -400,12 +400,19 @@ public static class SymbolResolver
     };
 
     /// <summary>File extensions that mark "module!export" as a native symbol without the native: prefix.</summary>
-    private static readonly string[] NativeExtensions = [".dll", ".exe", ".sys", ".drv", ".ocx", ".cpl"];
+    private static readonly string[] NativeExtensions = [".dll", ".exe", ".sys", ".drv", ".ocx", ".cpl", ".dylib", ".so"];
+
+    /// <summary>A PE, Mach-O or ELF library file name: kernel32.dll, libSystem.B.dylib, libc.so, libc.so.6.</summary>
+    private static bool IsNativeFileName(string image) =>
+        NativeExtensions.Any(e => image.EndsWith(e, StringComparison.OrdinalIgnoreCase)) || SoVersioned().IsMatch(image);
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\.so(\.\d+)+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex SoVersioned();
 
     /// <summary>
     /// A native export written as 'native:&lt;image&gt;!&lt;export&gt;' (image: a loaded image id, file name or path, or a DLL
     /// name; export: a name, '#ordinal', or with a loaded image an address or function name) or as
-    /// '&lt;module&gt;.dll!&lt;export&gt;' (also .exe/.sys/.drv/.ocx/.cpl). Null for .NET symbols: their '!' only appears in
+    /// '&lt;module&gt;.dll!&lt;export&gt;' (also .exe/.sys/.drv/.ocx/.cpl/.dylib/.so/.so.N). Null for .NET symbols: their '!' only appears in
     /// generic parameters after '(' or '&lt;' ('Method(!!0)').
     /// </summary>
     public static NativeSymbol? ParseNative(string? symbol)
@@ -419,7 +426,7 @@ public static class SymbolResolver
             return prefixed ? throw new ToolError(ErrorCode.InvalidArgument, $"'{symbol}' is not image!export.", "write native:kernel32.dll!CreateFileW") : null;
         var image = s[..bang].Trim();
         var export = s[(bang + 1)..].Trim();
-        if (!prefixed && !(NativeExtensions.Any(e => image.EndsWith(e, StringComparison.OrdinalIgnoreCase))
+        if (!prefixed && !(IsNativeFileName(image)
                            && (Path.IsPathFullyQualified(image) || IsWindowsDrivePath(image) || image.IndexOfAny(['(', '<', ',', ' ', ':']) < 0)))
             return null;
         if (image.Length == 0 || export.Length == 0)
