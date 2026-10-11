@@ -396,7 +396,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Replacement bytes as hex (e.g. '90 90' or '9090' or '0x90,0x90').")] string? hex = null,
-        [Description("Instead of hex: a number written as type (range-checked).")] string? value = null,
+        [Description("Instead of hex: a number of type (range-checked); ptr: or a name.")] string? value = null,
         [Description("With value: i8-i64, u8-u64, f32, f64 or ptr; a be suffix for big-endian.")] string? type = null,
         [Description("Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot).")] bool force = false,
         [Description("Preview only; do not record the patch.")] bool dryRun = false,
@@ -411,6 +411,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var rva = Address(index, address);
         if ((hex == null) == (value == null) || (value == null) != (type == null))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass hex, or value with type.", "e.g. value=0x10 type=u32");
+        // ptr takes a name or address too: the VA it resolves to
+        if (value != null && TypedValue.IsPointer(type) && !TypedValue.IsInteger(value))
+            value = $"0x{index.Image.ImageBase + Address(index, value):X}";
         var bytes = value != null ? TypedValue.Encode(type!, value, index.Image.Is64Bit) : ParseHex(hex!);
         if (extend)
         {

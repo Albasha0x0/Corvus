@@ -68,6 +68,26 @@ public sealed class NativeFormatPatchTests : IDisposable
     }
 
     [Fact]
+    public async Task Pointer_values_take_a_name()
+    {
+        var elf = new ElfWriter
+        {
+            Machine = ElfWriter.EmX64, Type = 2, Base = 0x400000, Entry = ElfWriter.TextRva, Text = [0x31, 0xC0, 0xC3, 0xCC, 0xC3],
+            Symbols = [new("helper", ElfWriter.TextRva + 4, 1)], Hash = ElfWriter.HashKind.Gnu,
+        };
+        var path = Write("ptr", elf.Build());
+        Assert.Contains("Recorded", await _tools.PatchBytes(path, $"rva:0x{ElfWriter.DataRva + 0x10:X}", value: "helper", type: "ptr"));
+        Assert.Contains("Recorded", await _tools.PatchBytes("ptr", $"rva:0x{ElfWriter.DataRva + 0x20:X}", value: "0x401000", type: "ptr"));
+        var native = _env.Workspace.Read(() => _env.Workspace.GetNative("ptr"));
+        var read = new byte[8];
+        native.Image.Read(ElfWriter.DataRva + 0x10, read);
+        Assert.Equal(0x400000UL + ElfWriter.TextRva + 4, BitConverter.ToUInt64(read));
+        native.Image.Read(ElfWriter.DataRva + 0x20, read);
+        Assert.Equal(0x401000UL, BitConverter.ToUInt64(read));
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAnyAsync<ToolError>(() => _tools.PatchBytes("ptr", $"rva:0x{ElfWriter.DataRva + 0x30:X}", value: "no_such_name", type: "ptr"))).Code);
+    }
+
+    [Fact]
     public async Task Elf_bytes_the_loader_rewrites_are_refused()
     {
         var path = Write("rel.so", Elf());

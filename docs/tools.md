@@ -1516,7 +1516,7 @@ Replace bytes at an address of a native image with a hex string, in memory. The 
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
 | `address` | string | yes |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
 | `hex` | string |  |  | Replacement bytes as hex (e.g. '90 90' or '9090' or '0x90,0x90'). |
-| `value` | string |  |  | Instead of hex: a number written as type (range-checked). |
+| `value` | string |  |  | Instead of hex: a number of type (range-checked); ptr: or a name. |
 | `type` | string |  |  | With value: i8-i64, u8-u64, f32, f64 or ptr; a be suffix for big-endian. Values: i8, u8, i16, u16, i32, u32, i64, u64, f32, f64, ptr, i16be, u16be, i32be, u32be, i64be, u64be, f32be, f64be. |
 | `force` | boolean |  | `false` | Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot). |
 | `dryRun` | boolean |  | `false` | Preview only; do not record the patch. |
