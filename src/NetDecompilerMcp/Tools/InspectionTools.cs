@@ -63,19 +63,17 @@ public sealed class InspectionTools(InspectionService inspection)
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true)]
     [Description("Embedded content of an assembly: embedded resources, .resources entries, static byte arrays (<PrivateImplementationDetails>) and " +
                  "string literals of 64+ characters, decoded through hex, base64, gzip / zlib / deflate and XOR (key recovered from a known PE / " +
-                 "ZIP / gzip header; repeating-key XOR over plain text with xorText=true) until a recognized kind appears: .NET / native PE images, archives, " +
-                 "ELF / Mach-O binaries, or text; plus high-entropy blobs (1 KB+, 7.5+ bits per byte). Each item shows its source and encoding " +
-                 "chain. save=true writes them (defanged names) to a directory of their own; load=true also loads the .NET ones into the " +
-                 "workspace. Nothing is executed.")]
+                 "ZIP / gzip header; text XOR with xorText=true) until a known kind appears: PE images, archives, ELF / Mach-O, or text; plus " +
+                 "high-entropy blobs (1 KB+, 7.5+ bits per byte). Each item shows its source and encoding chain. save=true writes them (defanged " +
+                 "names) to a directory of their own; load=true also loads the .NET ones. Nothing is executed.")]
     public Task<InspectionService.EmbeddedReport> ExtractEmbedded(
         [Description(AssemblyParam)] string? assembly = null,
         [Description(PathParam)] string? path = null,
         [Description("Write the items to disk.")] bool save = false,
         [Description("Directory to write into (new, empty, or an earlier extraction of the same file). Default: under the temp directory.")] string? outputDirectory = null,
         [Description("Load the .NET assemblies found into the workspace (implies save).")] bool load = false,
-        [Description("Also recover XOR keys of 1-16 bytes over text on resources and arrays that are not readable as they are (UTF-8 in any " +
-                     "script, or UTF-16), keeping a decode only if it is clearly natural text (words of one script, spaces, likely letter pairs) " +
-                     "or structured configuration (JSON, XML, URL / key=value lines). Off by default: heuristic, and slower on large data.")] bool xorText = false,
+        [Description("Also recover XOR keys of 1-16 bytes over unreadable resources and arrays, keeping a decode only if it is clearly natural " +
+                     "text (UTF-8 or UTF-16) or structured configuration (JSON, XML, URL / key=value lines). Off by default: heuristic, slower.")] bool xorText = false,
         [Description("Also list (and save) images: png, jpeg, gif, ico. By default they are only counted in notes.")] bool includeMedia = false,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText, includeMedia), cancellationToken);

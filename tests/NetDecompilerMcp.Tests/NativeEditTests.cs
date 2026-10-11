@@ -363,6 +363,22 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task Export_Header_UsesTheCurrentFunctionName()
+    {
+        using var h = new Harness();
+        var (native, index) = await h.Open();
+        uint entry = native.Image.EntryPointRva;
+        h.Edits.Rename(native, index, entry, "Start", false);
+        h.Edits.Annotations(native).ChangeUserTypes(l => l.WithDeclarations("struct Ctx { int n; };").WithType(entry, "int __stdcall(struct Ctx *c)"));
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        var output = h.Dir.File("tiny.h");
+        Assert.Contains("(Header format)", await tools.ExportNativeAnnotations(h.Path, output, "header"));
+        var header = File.ReadAllText(output);
+        Assert.Contains("struct Ctx { int n; };", header);
+        Assert.Contains($"int __stdcall Start(struct Ctx *c); // rva 0x{entry:X}", header);
+    }
+
+    [Fact]
     public async Task Rename_FlowsIntoListFunctionsAndDisassemble()
     {
         using var h = new Harness();

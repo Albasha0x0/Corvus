@@ -106,6 +106,31 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
+    public void Header_Declares_Types_Prototypes_ByCurrentName_AndGlobals()
+    {
+        var ann = Open();
+        ann.SetName(0x1000, "Parse");
+        ann.SetName(0x3000, "Untyped");
+        ann.ChangeUserTypes(l => l.WithDeclarations("struct S { int a; }").WithType(0x1000, "int __fastcall old(S *s)").WithType(0x2000, "void __cdecl(int)")
+            .WithType(0x5000, "S *").WithType(0x6000, "int[4]").WithType(0x7000, "void (*)(int)"));
+        var names = new Dictionary<uint, string> { [0x1000] = "Parse", [0x2000] = "ns::Init", [0x3000] = "Untyped" };
+        var header = AnnotationHeader.Render(ann, r => names.GetValueOrDefault(r), r => r is 0x1000 or 0x2000 or 0x3000);
+        Assert.Contains("#pragma once", header);
+        Assert.Contains("struct S { int a; };", header);
+        Assert.Contains("int __fastcall Parse(S *s); // rva 0x1000", header);
+        Assert.Contains("void __cdecl ns__Init(int); // rva 0x2000", header);
+        Assert.Contains("// Untyped: rva 0x3000, no prototype set", header);
+        Assert.Contains("extern S * g_5000; // rva 0x5000", header);
+        Assert.Contains("extern int g_6000[4];", header);
+        Assert.Contains("extern void (*g_7000)(int);", header);
+        Assert.Equal("int f(int)", AnnotationHeader.Prototype("int(int)", "f"));
+        Assert.Equal("unsigned int f(void)", AnnotationHeader.Prototype("unsigned int(void)", "f"));
+        Assert.Equal("char * f(void)", AnnotationHeader.Prototype("char *(void)", "f"));
+        Assert.Null(AnnotationHeader.Prototype("int", "f"));
+        Assert.Equal(AnnotationExport.Format.Header, AnnotationExport.ParseFormat("header"));
+    }
+
+    [Fact]
     public void Export_CarriesUserTypes_InTheIdaScriptAndJson()
     {
         var ann = Open();

@@ -94,21 +94,23 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations")]
-    [Description("Write the image's names and comments as an IDAPython script (format=ida), a Ghidra script (format=ghidra) or JSON (format=json); " +
-                 "the IDA script and JSON also carry the user's engine types (declarations, prototypes and global types, stack variables, locals). " +
-                 "Scripts apply by RVA rebased to the database's own image base at run time.")]
+    [Description("Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON; the IDA script and JSON also " +
+                 "carry the user's engine types (declarations, prototypes, global types, stack variables, locals). Scripts apply by RVA, rebased to the " +
+                 "database's image base. header: a C header of declared types, function prototypes by name and externs of typed globals.")]
     public Task<string> ExportNativeAnnotations(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
-        [Description("ida, ghidra or json (default json).")] string? format = null,
+        [Description("ida, ghidra, json (default) or header.")] string? format = null,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (native, _) = await Open(image, progress, cancellationToken);
+        var (native, index) = await Open(image, progress, cancellationToken);
         var fmt = AnnotationExport.ParseFormat(format);
         var ann = edits.Annotations(native);
-        var text = AnnotationExport.Render(ann, fmt);
+        var text = fmt == AnnotationExport.Format.Header
+            ? AnnotationHeader.Render(ann, index.NameAt, rva => index.FunctionByStart(rva) != null)
+            : AnnotationExport.Render(ann, fmt);
         var target = SafeFile.WriteAllText(outputPath, text, overwrite);
         return $"Exported {ann.NameCount} name(s), {ann.CommentCount} comment(s) and {ann.UserTypes.Count} user type(s) to {target} ({fmt} format)" +
                (fmt == AnnotationExport.Format.Ghidra && ann.UserTypes.Count > 0 ? "; user types are not in Ghidra scripts." : ".");

@@ -11,14 +11,15 @@ public static class AnnotationExport
 {
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 
-    public enum Format { Ida, Ghidra, Json }
+    public enum Format { Ida, Ghidra, Json, Header }
 
     public static Format ParseFormat(string? format) => (format ?? "json").Trim().ToLowerInvariant() switch
     {
         "ida" or "idapython" or "idc" => Format.Ida,
         "ghidra" => Format.Ghidra,
         "json" or "" => Format.Json,
-        _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{format}'.", "use ida, ghidra or json"),
+        "header" or "h" => Format.Header,
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{format}'.", "use ida, ghidra, json or header"),
     };
 
     public static string Render(NativeAnnotations ann, Format format) => format switch
@@ -28,7 +29,7 @@ public static class AnnotationExport
         _ => Json(ann),
     };
 
-    public static string Extension(Format format) => format switch { Format.Ida => ".py", Format.Ghidra => ".java", _ => ".json" };
+    public static string Extension(Format format) => format switch { Format.Ida => ".py", Format.Ghidra => ".java", Format.Header => ".h", _ => ".json" };
 
     private static string Ida(NativeAnnotations ann)
     {
