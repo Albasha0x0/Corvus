@@ -1934,7 +1934,7 @@ Declare C types (structs, unions, enums, typedefs, function types) in the engine
 
 **Browse the engine's types** (read-only, idempotent, open-world, long-running)
 
-The named types of the decompiler engine's database (IDA local types, Ghidra data types: from the PDB, RTTI classes, Il2Cpp, the engine's type libraries and declare_native_types) with size and member count; members=true adds each type's first members. name= shows one type as a C declaration with its members' offsets.
+The named types of the decompiler engine's database (from the PDB, RTTI, Il2Cpp, the engine's type libraries and declare_native_types) with size and member count; members=true adds each type's first members. name= shows one type as a C declaration with its members' offsets.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1948,6 +1948,7 @@ The named types of the decompiler engine's database (IDA local types, Ghidra dat
 | `sort` | string |  |  | Order: the engine's (default), name or size. Values: name, size. |
 | `descending` | boolean |  | `false` | Reverse the order. |
 | `members` | boolean |  | `false` | List each type's first 32 members (enums: name = value). |
+| `related` | boolean |  | `false` | Add the types each one refers to. |
 
 ### define_native
 

@@ -615,7 +615,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types")]
-    [Description("The named types of the decompiler engine's database (IDA local types, Ghidra data types: from the PDB, RTTI classes, Il2Cpp, the " +
+    [Description("The named types of the decompiler engine's database (from the PDB, RTTI, Il2Cpp, the " +
                  "engine's type libraries and declare_native_types) with size and member count; members=true adds each type's first members. " +
                  "name= shows one type as a C declaration with its members' offsets.")]
     public Task<string> ListNativeTypes(
@@ -629,6 +629,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("Order: the engine's (default), name or size.")] string? sort = null,
         [Description("Reverse the order.")] bool descending = false,
         [Description("List each type's first 32 members (enums: name = value).")] bool members = false,
+        [Description("Add the types each one refers to.")] bool related = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -652,14 +653,29 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         }
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, 5000);
-        var (total, rows) = await NativeEngineQueries.Types(session, new NativeEngineQueries.TypeQuery(nameFilter, k, order, descending, members ? MemberRows : 0, offset, limit),
-            cancellationToken);
+        var (total, rows) = await NativeEngineQueries.Types(session, new NativeEngineQueries.TypeQuery(nameFilter, k, order, descending,
+            related ? RelatedMemberRows : members ? MemberRows : 0, offset, limit), cancellationToken);
+        var relatedNames = new Dictionary<string, IReadOnlyList<string>>();
+        if (related)
+        {
+            int declarations = 0;
+            foreach (var t in rows)
+            {
+                var texts = (t.Members ?? []).Where(_ => t.Kind != "enum").Select(m => m.Type).ToList();
+                // aliases, pointers and function types name what they refer to only in their declaration
+                if (t.MemberCount == 0 && t.Kind is not "enum" && declarations++ < RelatedDeclarations)
+                    texts.Add((await session.GetTypeAsync(t.Name, cancellationToken)).Declaration);
+                relatedNames[t.Name] = RelatedTypes(texts, t.Name);
+            }
+        }
         var blocks = rows.Select(t =>
         {
             var b = new System.Text.StringBuilder($"  {t.Kind} {t.Name}" + (t.Size >= 0 ? $"  {t.Size} bytes" : "") + (t.MemberCount > 0 ? $"  {t.MemberCount} members" : ""));
-            foreach (var m in t.Members ?? [])
+            var shown = members ? t.Members?.Take(MemberRows).ToList() : null;
+            foreach (var m in shown ?? [])
                 b.AppendLine().Append(t.Kind == "enum" ? $"      {m.Name} = {m.Offset}" : $"      +0x{m.Offset:X}  {m.Name}  {m.Type}  {m.Size}");
-            if (t.Members is { } shown && t.MemberCount > shown.Count) b.AppendLine().Append($"      ... {t.MemberCount - shown.Count} more (name={t.Name} lists them)");
+            if (shown != null && t.MemberCount > shown.Count) b.AppendLine().Append($"      ... {t.MemberCount - shown.Count} more (name={t.Name} lists them)");
+            if (relatedNames.TryGetValue(t.Name, out var refs) && refs.Count > 0) b.AppendLine().Append("      related: " + string.Join(", ", refs));
             return b.ToString();
         }).ToList();
         int fit = (pager ?? new OutputPager(new ServerOptions())).FitRows(blocks, 400);
@@ -674,6 +690,31 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     /// <summary>Members listed per type with members=true (the parameter text says 32).</summary>
     private const int MemberRows = 32;
+    /// <summary>Members read per type for related=true, and declarations read per page (aliases, pointers, function types).</summary>
+    private const int RelatedMemberRows = 4096, RelatedDeclarations = 50;
+
+    private static readonly HashSet<string> Primitive = new(StringComparer.Ordinal)
+    {
+        "void", "char", "short", "int", "long", "float", "double", "signed", "unsigned", "bool", "_Bool", "wchar_t", "char8_t", "char16_t", "char32_t",
+        "const", "volatile", "struct", "union", "enum", "class", "typedef", "restrict", "__restrict", "__ptr32", "__ptr64", "__unaligned",
+        "__cdecl", "__stdcall", "__fastcall", "__thiscall", "__vectorcall", "__usercall", "__userpurge", "__noreturn", "__int8", "__int16",
+        "__int32", "__int64", "__int128", "_BYTE", "_WORD", "_DWORD", "_QWORD", "_OWORD", "_TBYTE", "_UNKNOWN", "_BOOL1", "_BOOL2", "_BOOL4", "_BOOL8",
+        "BYTE", "WORD", "DWORD", "QWORD", "byte", "word", "dword", "qword", "uchar", "ushort", "uint", "ulong", "longlong", "ulonglong", "undefined",
+        "undefined1", "undefined2", "undefined4", "undefined8", "pointer", "pointer32", "pointer64", "size_t", "ssize_t", "ptrdiff_t", "intptr_t",
+        "uintptr_t", "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "string", "unicode", "float10",
+    };
+
+    /// <summary>The named types the type texts mention (identifiers that are no keywords, primitives or <paramref name="self"/>), in first-seen order.</summary>
+    internal static IReadOnlyList<string> RelatedTypes(IEnumerable<string> texts, string self)
+    {
+        var result = new List<string>();
+        foreach (var text in texts)
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text ?? "", @"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*"))
+                // a1, a2: parameter names of a function type's declaration
+                if (!Primitive.Contains(m.Value) && m.Value != self && !System.Text.RegularExpressions.Regex.IsMatch(m.Value, @"^a\d+$")
+                    && !result.Contains(m.Value) && result.Count < 64) result.Add(m.Value);
+        return result;
+    }
 
     /// <summary>A local named as "stack:0x28" (by stack offset) or by its name.</summary>
     internal static (string Local, int? Stack) LocalTarget(string text)

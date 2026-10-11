@@ -319,6 +319,13 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Equal(["Callback", "Color", "Header", "Packet", "PPacket"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, sort: "name")));
         var members = await rig.Types.ListNativeTypes(rig.Native.Id, kind: "udt", members: true);
         Assert.Contains("      +0x4  data  char[12]  12", members);
+        // related: member types, the aliased type, a function type's parameter types
+        var related = await rig.Types.ListNativeTypes(rig.Native.Id, sort: "name", related: true);
+        related = related.ReplaceLineEndings("\n");
+        Assert.Contains("  union Header  8 bytes  2 members\n      related: Packet, Color", related);
+        Assert.Contains("  typedef PPacket  8 bytes\n      related: Packet", related);
+        Assert.Contains("  func Callback\n      related: Packet, Color", related);
+        Assert.DoesNotContain("+0x", related);
         var enums = await rig.Types.ListNativeTypes(rig.Native.Id, kind: "enum", members: true);
         Assert.Contains("      Green = 2", enums);
         // pointer kinds come from IDA's type info
@@ -380,8 +387,15 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         {
             var t = TypeList.First(x => x.Name == name);
             IReadOnlyList<NativeTypeMember> members = t.Kind == "enum" ? [new(1, "Red", "", 0), new(2, "Green", "", 0), new(4, "Blue", "", 0)]
+                : t.Name == "Header" ? [new(0, "packet", "struct Packet *", 8), new(0, "color", "enum Color", 4)]
                 : t.Members > 0 ? [new(0, "length", "int", 4), new(4, "data", "char[12]", 12)] : [];
-            return Task.FromResult(new NativeTypeDetail(t.Name, t.Kind, t.Size, $"{t.Kind} {t.Name};", members));
+            var declaration = t.Name switch
+            {
+                "PPacket" => "typedef Packet *PPacket;",
+                "Callback" => "typedef int __cdecl Callback(Packet *a1, Color a2);",
+                _ => $"{t.Kind} {t.Name};",
+            };
+            return Task.FromResult(new NativeTypeDetail(t.Name, t.Kind, t.Size, declaration, members));
         }
 
         public Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default)
