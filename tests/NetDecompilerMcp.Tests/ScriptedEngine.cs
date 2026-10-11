@@ -18,6 +18,8 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     public HashSet<uint> Failing { get; } = [];
     /// <summary>Seconds each decompilation of these functions takes.</summary>
     public Dictionary<uint, double> Slow { get; } = [];
+    /// <summary>When set, slow functions advance this clock instead of waiting, and batches time out against it.</summary>
+    public ManualClock? Clock { get; set; }
     public List<NativeXref> Xrefs { get; } = [];
     public List<EngineString> Strings { get; } = [];
     public int Lanes { get; set; } = 1;
@@ -76,7 +78,7 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         {
             var f = e.Functions.FirstOrDefault(x => rva >= x.Start && rva < x.End);
             if (f.Name == null) throw new ToolError(ErrorCode.NotFound, $"no function contains rva 0x{rva:X}");
-            if (e.Slow.TryGetValue(f.Start, out var s)) await Task.Delay(TimeSpan.FromSeconds(s), cancellationToken);
+            if (e.Clock == null && e.Slow.TryGetValue(f.Start, out var s)) await Task.Delay(TimeSpan.FromSeconds(s), cancellationToken);
             if (e.Failing.Contains(f.Start)) throw new ToolError(ErrorCode.Failed, $"decompilation failed at 0x{f.Start:X}: scripted");
             Interlocked.Increment(ref e.Decompiles);
             return new DecompiledFunction(f.Start, f.Name, e.Texts.GetValueOrDefault(f.Start, ""), []);
@@ -86,7 +88,31 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
             CancellationToken cancellationToken = default)
         {
             lock (e) e.Batches.Add(rvas.Count);
+            if (e.Clock is { } clock) return DecompileOnClockAsync(clock, rvas, secondsPerItem, budgetSeconds, cancellationToken);
             return ((INativeDecompilerSession)new Plain(this)).DecompileManyAsync(rvas, secondsPerItem, budgetSeconds, cancellationToken);
+        }
+
+        private async Task<IReadOnlyList<DecompileOutcome>> DecompileOnClockAsync(ManualClock clock, IReadOnlyList<uint> rvas, double secondsPerItem,
+            double budgetSeconds, CancellationToken cancellationToken)
+        {
+            var results = new List<DecompileOutcome>(rvas.Count);
+            long started = clock.GetTimestamp();
+            foreach (var rva in rvas)
+            {
+                double left = budgetSeconds - clock.GetElapsedTime(started).TotalSeconds;
+                if (left <= 0) { results.Add(new DecompileOutcome(rva, DecompileStatus.Skipped, null, null, null)); continue; }
+                double limit = Math.Min(secondsPerItem, Math.Max(1, left));
+                if (e.Slow.TryGetValue(rva, out var s) && s > limit)
+                {
+                    clock.Advance(TimeSpan.FromSeconds(limit));
+                    results.Add(new DecompileOutcome(rva, DecompileStatus.Error, null, "timeout", $"not decompiled within {secondsPerItem:0.#} s"));
+                    continue;
+                }
+                if (e.Slow.TryGetValue(rva, out s)) clock.Advance(TimeSpan.FromSeconds(s));
+                try { results.Add(new DecompileOutcome(rva, DecompileStatus.Ok, await DecompileAsync(rva, cancellationToken), null, null)); }
+                catch (ToolError x) { results.Add(new DecompileOutcome(rva, DecompileStatus.Error, null, ToolError.CodeName(x.Code), x.Message)); }
+            }
+            return results;
         }
 
         public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>
@@ -160,4 +186,14 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         public void Dispose() { }
     }
+}
+
+/// <summary>A clock that moves only when told to, so time budgets are deterministic.</summary>
+internal sealed class ManualClock : TimeProvider
+{
+    private long _ticks = TimeSpan.TicksPerDay;
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+    public override long GetTimestamp() => Interlocked.Read(ref _ticks);
+    public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref _ticks), TimeSpan.Zero);
+    public void Advance(TimeSpan by) => Interlocked.Add(ref _ticks, by.Ticks);
 }

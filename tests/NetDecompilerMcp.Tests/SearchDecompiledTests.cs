@@ -23,13 +23,13 @@ public sealed class SearchDecompiledTests : IDisposable
     {
         var options = new ServerOptions { BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
-        var engine = new ScriptedEngine();
+        var engine = new ScriptedEngine { Clock = new ManualClock() };
         script(engine);
         var engines = new NativeEngineService([engine], _dir.File("cache"), null, workspace, options);
         _owned.Add(engines);
         _owned.Add(workspace);
         var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
-        return (new NativeSearchDecompiledTools(workspace, engines, new OutputPager(options)), engine, native);
+        return (new NativeSearchDecompiledTools(workspace, engines, new OutputPager(options), time: engine.Clock), engine, native);
     }
 
     /// <summary>40 functions; every third calls memcpy (once, or twice in every ninth); f_11 is a thunk; f_20 fails to decompile.</summary>
@@ -125,7 +125,7 @@ public sealed class SearchDecompiledTests : IDisposable
         var text = await tools.SearchDecompiled(native.Id, "memcpy", cursor: 10, seconds: 1);
         report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
         Assert.Equal("time", report.StoppedBy);
-        Assert.InRange(report.Cursor!.Value, 11, 38); // f_30 did not finish in time: a timeout failure, and the budget ends near it
+        Assert.Equal(30, report.Cursor!.Value); // f_30 used the whole second and is a timeout failure; f_31 (index 30, after the thunk) is next
         Assert.Contains("f_30: timeout", text);
         Assert.Contains("seconds=1 used", text);
     }

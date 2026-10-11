@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -18,8 +17,10 @@ namespace NetDecompilerMcp.Tools;
 /// <summary>A regular expression over the engine's pseudocode of many functions, budgeted, in parallel where the engine allows, resumable by cursor.</summary>
 [McpServerToolType]
 public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeCodeService? code = null,
-    NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
+    NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null, TimeProvider? time = null)
 {
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+
     public sealed record DecompiledHit(
         [property: Description("Start VA of the function.")] string Function,
         string Name,
@@ -64,7 +65,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         if (cursor < 0) throw new ToolError(ErrorCode.InvalidArgument, $"cursor must be 0 or more, not {cursor}.");
         int max = Math.Clamp(maxFunctions, 1, 20_000), hitLimit = Math.Clamp(limit, 1, 2000);
         var budget = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 600));
-        var clock = Stopwatch.StartNew();
+        long started = _time.GetTimestamp();
 
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
         var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
@@ -93,7 +94,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         int chunk = Chunk * lanes; // one request at a time; the engine spreads it over its decompiler pool
         for (int first = 0; first < window.Count && hitsSoFar < hitLimit; first += chunk)
         {
-            var left = budget - clock.Elapsed;
+            var left = budget - _time.GetElapsedTime(started);
             if (left <= TimeSpan.Zero) break;
             int last = Math.Min(first + chunk, window.Count);
             var asked = new List<int>();
@@ -155,7 +156,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
 
         var sb = new StringBuilder($"// {native.Id}: /{pattern}/ over the {session.ProviderId} pseudocode of {Plural(scope.Count, "function")}" +
                                    (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + $"; searched {cursor + (searched > 0 ? 1 : 0)}-{end} " +
-                                   $"in {clock.Elapsed.TotalSeconds:0.0} s (requests of {chunk} over a decompiler pool of {lanes})\n");
+                                   $"in {_time.GetElapsedTime(started).TotalSeconds:0.0} s (requests of {chunk} over a decompiler pool of {lanes})\n");
         sb.AppendLine($"{Plural(hits.Count, "hit")} in {Plural(hits.Select(h => h.Function).Distinct().Count(), "function")}:");
         var rows = hits.Select(h => $"  {h.Function}  {h.Name}:{h.Line}  {h.Text}").ToList();
         int fit = pager.FitRows(rows, 2_000);
