@@ -358,6 +358,7 @@ public sealed class SearchService(ServerOptions? options = null)
             case double n: yield return n.ToString(CultureInfo.InvariantCulture); break;
             case Local l: yield return l.Index.ToString(CultureInfo.InvariantCulture); yield return l.Name ?? ""; break;
             case Parameter p: yield return p.Index.ToString(CultureInfo.InvariantCulture); yield return p.Name ?? ""; break;
+            case MethodSig or StandAloneSig { MethodSig: not null }: yield return CalliSignature(i.Operand); break;
             default: yield return i.Operand.ToString() ?? ""; break;
         }
         if (i.IsLdcI4() && i.Operand is null)
@@ -376,8 +377,26 @@ public sealed class SearchService(ServerOptions? options = null)
         ITypeDefOrRef t => t.FullName,
         Instruction target => $"IL_{target.Offset:X4}",
         Instruction[] targets => "(" + string.Join(", ", targets.Select(t => $"IL_{t.Offset:X4}")) + ")",
+        MethodSig or StandAloneSig { MethodSig: not null } => CalliSignature(i.Operand),
         _ => Format.Literal(i.Operand),
     };
+
+    /// <summary>The signature a calli takes, e.g. "unmanaged cdecl int(nint)".</summary>
+    private static string CalliSignature(object operand)
+    {
+        var sig = operand as MethodSig ?? ((StandAloneSig)operand).MethodSig;
+        var convention = (sig.CallingConvention & CallingConvention.Mask) switch
+        {
+            CallingConvention.C => "unmanaged cdecl ",
+            CallingConvention.StdCall => "unmanaged stdcall ",
+            CallingConvention.ThisCall => "unmanaged thiscall ",
+            CallingConvention.FastCall => "unmanaged fastcall ",
+            CallingConvention.Unmanaged => "unmanaged ",
+            CallingConvention.VarArg => "vararg ",
+            _ => "",
+        };
+        return $"{convention}{(sig.HasThis ? "instance " : "")}{Format.Type(sig.RetType)}({Format.ParameterTypes(sig)})";
+    }
 
     /// <summary>Builds a predicate: substring (case-insensitive), wildcard (* ?) or regex; regex timeouts are counted in <paramref name="timeouts"/>.</summary>
     public static Func<string, bool> CreateMatcher(string query, bool regex, RegexTimeouts? timeouts = null)

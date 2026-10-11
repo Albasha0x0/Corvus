@@ -29,6 +29,19 @@ public class SearchTests : IDisposable
         Assert.Throws<ToolError>(() => _env.Search.SearchSymbols("", false, SymbolKind.Any, All, null, 10, default));
     }
 
+    /// <summary>A calli printed its signature operand as the reader's type name ("dnlib.DotNet.StandAloneSigMD"; C++/CLI code).</summary>
+    [Fact]
+    public void CalliShowsAndMatchesItsSignature()
+    {
+        using var dir = new TempDir();
+        File.WriteAllBytes(dir.File("Pointers.dll"), Roslyn.Compile("Pointers",
+            "public static unsafe class P { public static int Call(delegate* unmanaged[Cdecl]<int, int> f) => f(2); }",
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true)));
+        using var env = new Env(dir.File("Pointers.dll"));
+        var match = Assert.Single(env.Search.SearchIL("calli *int(int)", [env.Fixture], 10, default).Items);
+        Assert.Contains("calli unmanaged cdecl int(int)", Assert.Single(match.Instructions));
+    }
+
     [Fact]
     public void TimeLimitFailsWithWhatWasFound()
     {
