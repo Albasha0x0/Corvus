@@ -630,7 +630,7 @@ take `timeoutSeconds` per call), and an engine's start plus auto-analysis `NDM_E
 A request that runs out of time or is cancelled by the client is stopped inside the worker, which keeps the database open:
 scans answer with what they found, marked partial with where to continue, and only a worker that does not stop within 10 s
 is killed (the next request restarts it from the saved database). `server_status` reports both limits.
-For huge or hostile inputs, `NDM_ENGINE_ANALYSIS=none` opens images in IDA without auto-analysis: functions are made where a
+For huge or hostile inputs, `NDM_ENGINE_ANALYSIS=none` opens images in IDA and Ghidra without auto-analysis: functions are made where a
 tool asks for one, the database is kept apart from the fully analyzed one, and output headers say so.
 A second server process opening an image whose IDA database another process holds gets a read-only snapshot of the last
 saved database (edits are neither journaled nor saved; decompile headers and `server_status` say so), or, when none is

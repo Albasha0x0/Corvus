@@ -12,6 +12,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 
+import ghidra.app.cmd.disassemble.DisassembleCommand;
+import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.decompiler.ClangLine;
 import ghidra.app.decompiler.ClangToken;
 import ghidra.app.decompiler.DecompInterface;
@@ -41,6 +43,7 @@ import ghidra.program.model.symbol.ReferenceManager;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolType;
+import ghidra.util.task.TaskMonitor;
 
 /** Read operations; callers hold the read lock. Row shapes match the IDA worker's. */
 final class CodeOps {
@@ -51,8 +54,22 @@ final class CodeOps {
 
     static Function functionAt(Worker w, Address a) {
         Function f = w.program.getFunctionManager().getFunctionContaining(a);
+        if (f == null && w.noAuto) f = create(w, a);
         if (f == null) throw new Worker.WorkerError("not_found", "no function contains rva 0x" + Long.toHexString(a.getOffset() - w.base).toUpperCase());
         return f;
+    }
+
+    /** Without auto-analysis: disassembles from the address and makes a function there (as IDA's worker does). */
+    private static synchronized Function create(Worker w, Address a) {
+        int tx = w.program.startTransaction("function on request");
+        try {
+            if (w.program.getListing().getInstructionAt(a) == null) new DisassembleCommand(a, null, true).applyTo(w.program, TaskMonitor.DUMMY);
+            new CreateFunctionCmd(a).applyTo(w.program, TaskMonitor.DUMMY);
+            return w.program.getFunctionManager().getFunctionContaining(a);
+        }
+        finally {
+            w.program.endTransaction(tx, true);
+        }
     }
 
     /** Exclusive end of the body range holding the entry (the main chunk). */

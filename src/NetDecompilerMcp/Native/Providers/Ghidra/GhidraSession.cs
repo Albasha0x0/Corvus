@@ -32,6 +32,10 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     protected override string? DatabaseLocation => _projectDirectory.Length > 0 ? _projectDirectory : null;
     /// <summary>False when the first analysis ran out of time; the saved project then holds what was analyzed.</summary>
     public bool AnalysisComplete { get; private set; }
+
+    public string? DatabaseNote => Note;
+
+    protected override string? Note => Options.Analysis == EngineAnalysis.None && !AnalysisComplete ? "no auto-analysis: functions made where asked" : null;
     internal string Language { get; private set; } = "";
     internal int FunctionCount { get; private set; }
     internal IReadOnlyList<string> Warnings { get; private set; } = [];
@@ -49,7 +53,8 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             _loaderArguments.Add(new(GhidraOptions.ElfImageBaseArgument, elfBase.ToString("x", CultureInfo.InvariantCulture)));
         _analyzerOptions = GhidraOptions.AnalyzerOptions(profile, Options.Symbols, provider.ExtraOptions);
         var key = GhidraOptions.ProfileKey(ghidra, profile, _loaderArguments, _analyzerOptions, provider.Extensions);
-        _projectDirectory = Path.Combine(Entry.Directory, "p-" + key);
+        // a load-only project is its own profile, as in IDA
+        _projectDirectory = Path.Combine(Entry.Directory, "p-" + key + (Options.Analysis == EngineAnalysis.None ? "-noauto" : ""));
     }
 
     internal readonly record struct Header(NativeArch Arch, ulong? ImageBase, bool IsElf);
@@ -187,6 +192,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 ("loader_args", Pairs(_loaderArguments)),
                 ("options", Pairs(_analyzerOptions)),
                 ("budget_seconds", Math.Max(1, budget.TotalSeconds)),
+                ("analysis", Options.Analysis == EngineAnalysis.None ? "none" : "full"),
                 ("pdb", Options.Symbols == SymbolMode.Off ? null : Options.PdbPath),
                 ("decompilers", provider.Options.Decompilers),
                 ("decompile_timeout", (int)provider.DecompileTimeout.TotalSeconds),
@@ -484,8 +490,9 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     protected override ToolError Explain(ToolError error)
     {
         if (AnalysisComplete || error.Code is not (ErrorCode.NotFound or ErrorCode.Failed or ErrorCode.Unsupported)) return error;
-        var next = $"the Ghidra analysis of {Path.GetFileName(ImagePath)} is partial (the open's budget ran out): reanalyze_native image={Path.GetFileName(ImagePath)} " +
-                   "engine=ghidra completes it";
+        var why = Options.Analysis == EngineAnalysis.None ? $"{Path.GetFileName(ImagePath)} was loaded without Ghidra's analysis ({Core.ServerOptions.EngineAnalysisVariable}=none)"
+            : $"the Ghidra analysis of {Path.GetFileName(ImagePath)} is partial (the open's budget ran out)";
+        var next = $"{why}: reanalyze_native image={Path.GetFileName(ImagePath)} engine=ghidra completes it";
         return new ToolError(error.Code, error.Message, error.Remediation is { Length: > 0 } r ? $"{r}; or {next}" : next) { Details = error.Details, Partial = error.Partial };
     }
 

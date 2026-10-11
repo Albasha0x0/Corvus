@@ -28,7 +28,7 @@ namespace NetDecompilerMcp.Core;
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_PREWARM sets --prewarm (NDM_IDA_PREWARM=1: ida); NDM_ENGINE sets --engine;
 /// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level;
 /// NDM_TOOLSETS sets --toolsets; NDM_ENGINE_REQUEST_TIMEOUT and NDM_ENGINE_OPEN_TIMEOUT (seconds) bound IDA and Ghidra requests and opens;
-/// NDM_ENGINE_ANALYSIS=none opens images in IDA without auto-analysis.
+/// NDM_ENGINE_ANALYSIS=none opens images in IDA and Ghidra without auto-analysis.
 /// </summary>
 public sealed class ServerOptions
 {

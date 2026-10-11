@@ -79,6 +79,25 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
     }
 
     [GhidraFact]
+    public async Task Open_without_auto_analysis_keeps_its_own_project_and_decompiles_on_demand()
+    {
+        var path = shared.Sample;
+        var rva = NativeIdaProviderTests.ExportRva(path, Export);
+        var dir = new TempDir();
+        _owned.Add(dir);
+        var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = dir.Path });
+        _owned.Add(provider);
+        await using var s = (GhidraSession)await provider.OpenAsync(path, null, Offline with { Analysis = EngineAnalysis.None });
+        Assert.False(s.AnalysisComplete);
+        Assert.Contains("no auto-analysis", ((INativeDecompilerSession)s).DatabaseNote);
+        Assert.True(s.OpenTime < TimeSpan.FromSeconds(120), $"open {s.OpenTime}");
+        var decompiled = await s.DecompileAsync(rva);
+        Assert.Equal(rva, decompiled.StartRva);
+        var project = Directory.GetFiles(dir.Path, "*.gpr", SearchOption.AllDirectories).Single();
+        Assert.EndsWith("-noauto", Path.GetFileName(Path.GetDirectoryName(project)));
+    }
+
+    [GhidraFact]
     public async Task Open_list_decompile_disassemble_blocks_xrefs()
     {
         var path = shared.Sample;

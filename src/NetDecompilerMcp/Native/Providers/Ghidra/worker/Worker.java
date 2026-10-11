@@ -139,6 +139,8 @@ public class Worker implements GhidraLaunchable {
     GhidraProject project;
     volatile Program program;
     long base;
+    /** Opened without auto-analysis: functions are made where they are asked for. */
+    volatile boolean noAuto;
     Decompilers decompilers;
     int decompileTimeout = 60;
 
@@ -387,7 +389,7 @@ public class Worker implements GhidraLaunchable {
     /**
      * Opens the saved program of the project, or imports the input into a new project, analyzes it within the budget
      * and saves. Args: input, project_dir, project_name, program_name, loader_args [[k,v]], options [[k,v]],
-     * budget_seconds, pdb, decompilers, decompile_timeout, decompile_payload_mb.
+     * budget_seconds, pdb, decompilers, decompile_timeout, decompile_payload_mb, analysis ("none": load only).
      */
     private JsonElement open(Request r) throws Exception {
         lock.writeLock().lock();
@@ -399,6 +401,7 @@ public class Worker implements GhidraLaunchable {
             String name = a.get("project_name").getAsString();
             String programName = a.get("program_name").getAsString();
             if (a.has("decompile_timeout")) decompileTimeout = a.get("decompile_timeout").getAsInt();
+            noAuto = a.has("analysis") && "none".equals(a.get("analysis").getAsString());
             new File(dir).mkdirs();
             boolean reused = new File(dir, name + ".gpr").exists();
             List<String> warnings = new ArrayList<>();
@@ -409,7 +412,7 @@ public class Worker implements GhidraLaunchable {
                 DomainFile df = project.getProjectData().getFile("/" + programName);
                 if (df == null) throw new WorkerError("failed", "the project in " + dir + " holds no program " + programName);
                 program = (Program) df.getDomainObject(this, true, false, r.monitor);
-                complete = "complete".equals(program.getOptions(STAMPS).getString(ANALYSIS_STAMP, null));
+                complete = !noAuto && "complete".equals(program.getOptions(STAMPS).getString(ANALYSIS_STAMP, null));
             }
             else {
                 r.monitor.setMessage("import");
@@ -433,7 +436,7 @@ public class Worker implements GhidraLaunchable {
                 catch (LoadException e) {
                     throw new WorkerError("malformed_input", "Ghidra could not load the file: " + e.getMessage());
                 }
-                complete = analyze(r, a, warnings);
+                complete = !noAuto && analyze(r, a, warnings);
             }
             base = program.getImageBase().getOffset();
             decompilers = new Decompilers(program, a.has("decompilers") ? a.get("decompilers").getAsInt() : 2,
