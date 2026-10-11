@@ -109,6 +109,14 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             throw new ToolError(ErrorCode.Unsupported, "A native 'from' needs a native 'to': chains are followed from native code into native code.",
                 "pass to as native:<image>!<function>, or use native_call_tree with direction=callees from the native function");
         if (native != null) await link!.WarmUp(null, cancellationToken);
+        // 'from' is looked up in the assembly first (another loaded build defines it too), then anywhere: it may call in from another assembly.
+        ResolvedSymbol ResolveStart(string symbol)
+        {
+            if (assembly != null)
+                try { return SymbolResolver.ResolveOne(workspace, assembly, symbol, SymbolKind.Method); }
+                catch (ToolError e) when (e.Code == ErrorCode.NotFound) { }
+            return SymbolResolver.ResolveOne(workspace, null, symbol, SymbolKind.Method);
+        }
         return await Read(workspace, () =>
         {
             int limit = ClampLimit(maxPaths, 200), deepest = Math.Clamp(maxDepth, 1, 30);
@@ -139,7 +147,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             }
             if (nativeFrom != null)
                 throw new ToolError(ErrorCode.NotFound, $"{native} has no function in an indexed image: native chains need its code loaded.", "load the image that holds its code with load_assembly");
-            var start = from == null ? null : SymbolResolver.ResolveOne(workspace, null, from, SymbolKind.Method);
+            var start = from == null ? null : ResolveStart(from);
             var found = new List<(List<CallGraphService.PathStep> Path, NativeLinkService.ManagedLink? Native)>();
             string label;
             if (native != null)

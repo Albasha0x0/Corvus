@@ -1,4 +1,6 @@
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Services;
+using NetDecompilerMcp.Tools;
 
 namespace NetDecompilerMcp.Tests;
 
@@ -28,5 +30,13 @@ public sealed class OtherBuildLoadedTests : IDisposable
         var result = _env.Edit(() => _env.Edits.PatchMethodIL(describe,
             "ldarg.0\nldstr \"pen\"\ncall instance int32 Fixture.Model.Shop::PriceOf(string)\npop\nldstr \"x\"\nret", "replace", true));
         Assert.Contains("PriceOf", result);
+    }
+
+    [Fact]
+    public async Task CallPathStartsResolveInTheGivenAssembly()
+    {
+        var tools = new CallGraphTools(_env.Workspace, new CallGraphService(_env.Workspace), _env.Pager);
+        var paths = await tools.FindCallPaths("Fixture.Model.Shop::PriceOf(string)", from: "Fixture.Model.Shop::PriceOf(string, int)", assembly: _env.Fixture.Id);
+        Assert.Contains("1 path", paths);
     }
 }
