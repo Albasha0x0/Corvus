@@ -121,6 +121,28 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         return new PatchResult(ext.Patch, before, after, "extended with a relocation stub", preview.ToString());
     }
 
+    /// <summary>Fills <paramref name="replacement"/> after <paramref name="used"/> bytes with the architecture's NOP.</summary>
+    internal static void PadWithNops(INativeImage image, byte[] replacement, int used)
+    {
+        if (used == replacement.Length) return;
+        switch (image.Arch)
+        {
+            case NativeArch.X86 or NativeArch.X64:
+                replacement.AsSpan(used).Fill(0x90);
+                return;
+            case NativeArch.Arm64 when used % 4 == 0 && (replacement.Length - used) % 4 == 0:
+                for (int i = used; i < replacement.Length; i += 4)
+                    BinaryPrimitives.WriteUInt32LittleEndian(replacement.AsSpan(i), 0xD503201F); // nop
+                return;
+            case NativeArch.Arm64:
+                throw new ToolError(ErrorCode.InvalidArgument,
+                    $"ARM64 instructions are 4 bytes: a {used}-byte patch over {replacement.Length} bytes cannot be padded with whole NOPs.",
+                    "give a whole number of instructions");
+            default:
+                throw new ToolError(ErrorCode.Unsupported, $"Padding a patch is not supported for {image.Arch} code; give bytes covering whole instructions.");
+        }
+    }
+
     /// <summary>Parses the relocations option of patch_bytes / patch_asm (auto, keep, neutralize; default auto).</summary>
     public static RelocationMode ParseRelocationMode(string? text) => (text ?? "").Trim().ToLowerInvariant() switch
     {
@@ -142,7 +164,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         var (fileOffset, paddedLength, _, note) = Plan(index, rva, newBytes.Length, force);
         var replacement = new byte[paddedLength];
         newBytes.CopyTo(replacement, 0);
-        for (int i = newBytes.Length; i < paddedLength; i++) replacement[i] = 0x90; // NOP pad
+        PadWithNops(image, replacement, newBytes.Length);
 
         var original = new byte[paddedLength];
         int read = image.Read(rva, original);
