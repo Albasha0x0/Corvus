@@ -42,7 +42,8 @@ local variable and stack frame edits, struct member references, declaration pars
 evaluation op, the analysis edits: code, functions, data items and undefined ranges, operand display formats, enum member
 upserts and stack member deletion) are adapted from
 [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp); the Ghidra worker's `EditOps.java` follows the same
-operations on Ghidra's listing.
+operations on Ghidra's listing, and `search_instructions` (`src/NetDecompilerMcp/Tools/NativeCodeTools.Search.cs`) follows
+the query shape of its `insn_query` and `search_text`.
 
 ```
 MIT License

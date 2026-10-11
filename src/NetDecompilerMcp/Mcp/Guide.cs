@@ -137,7 +137,7 @@ public static class Guide
             engine=ida|ghidra slices each function in the decompiler's IR), resolve_call_targets
             (targets of indirect calls with their basis; scope=image lists the unresolved ones), analyze_native_function (one
             function in sections: identity, signature, frame, callers, callees, data, flow; params and pseudocode on request),
-            trace_native_feature (strings, names, imports, exports and classes matching a text, to ranked functions and hubs), search_native_strings, search_bytes (?? wildcards), read_bytes (type= reads values), resolve_address, list_cpp_classes (RTTI classes, bases,
+            trace_native_feature (strings, names, imports, exports and classes matching a text, to ranked functions and hubs), search_native_strings, search_bytes (?? wildcards), search_instructions (mnemonic / operand regexes, operand values), read_bytes (type= reads values), resolve_address, list_cpp_classes (RTTI classes, bases,
             vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or the engine by name, id or typed address; at=0x48 names a field;
             read=true adds the field values at an address), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
             through RTTI; crossCheck=true compares with IDA or Ghidra), decompile_native (C pseudocode through IDA or Ghidra when installed;

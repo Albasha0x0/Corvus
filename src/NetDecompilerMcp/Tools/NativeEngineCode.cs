@@ -81,7 +81,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             $"install IDA Pro 9 or newer with idalib (or set NDM_IDA_DIR), or Ghidra 12 or newer with a JDK (set NDM_GHIDRA_DIR), so {index.Image.Arch} code is analyzed through it" +
             (engines?.Unavailability is { Remediation: { } r } ? $": {r}" : ""));
 
-    private async Task<INativeDecompilerSession> Session(LoadedNative native, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    internal async Task<INativeDecompilerSession> Session(LoadedNative native, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var display = NativeEngineService.DisplayName(choice.Engine);
         var session = await engines.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>

@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-146 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+147 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -13,7 +13,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [containers](#containers) | yes | 7: file inspection, containers and wrapped apps, Unity overview |
 | [edit](#edit) | yes | 15: .NET edits, edit history and saving |
 | [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
-| [native](#native) | yes | 27: native PE analysis, symbols and decompilation |
+| [native](#native) | yes | 28: native PE analysis, symbols and decompilation |
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
@@ -1034,6 +1034,27 @@ What is at an address of a native image (x86 / x64 / ARM64), instruction by inst
 | `engine` | string |  |  | Engine: auto (default: the built-in decoder for x86 / x64 / ARM64, else IDA, else Ghidra when installed), ours, ida or ghidra. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `engine`, `engineNote`, `items`, `notes`.
+
+### search_instructions
+
+**Search native instructions** (read-only, idempotent, open-world, long-running)
+
+Find instructions by mnemonic, operand text, whole-line text (regular expressions, case-insensitive) and an operand value (an immediate, displacement or target, hex or decimal) in every function, one function, or an address range; paged, within a scan budget whose end the result names (continue with start=). Each match shows its address, function+offset and text. The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `mnemonic` | string |  |  | Mnemonic regex, e.g. '^(call\|jmp)$' or 'cmov'. |
+| `operands` | string |  |  | Operand text regex, e.g. 'rsp\+\|fs:'. |
+| `text` | string |  |  | Regex over the whole instruction text. |
+| `value` | string |  |  | An operand value: 0x10B, 267, or an address. |
+| `function` | string |  |  | Only this function: Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
+| `start` | string |  |  | Range start (with end, or alone: to the end of its section). |
+| `end` | string |  |  | Range end (exclusive). |
+| `offset` | integer |  | `0` | Index of the first match to return. |
+| `limit` | integer |  | `100` | Max matches (default 100, max 2000). |
+| `maxInstructions` | integer |  | `500000` | Max instructions scanned (default 500000, max 5000000). |
+| `engine` | string |  |  | Where functions, references and control flow come from: auto (default: an engine's analysis when one of this image is complete in this session, IDA's before Ghidra's, else the built-in index; never starts an engine), ours (the built-in index only), ida or ghidra (that engine's analysis, started or waited for when needed). The server default is set with --engine or NDM_ENGINE. Values: auto, ours, ida, ghidra. |
 
 ### get_cfg
 

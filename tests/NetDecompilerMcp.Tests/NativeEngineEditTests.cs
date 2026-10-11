@@ -26,7 +26,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
     }
 
     private sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeTypeTools Types, NativeAnalysisTools Analysis,
-        NativeTypeInfoTools Info)
+        NativeTypeInfoTools Info, NativeCodeTools CodeTools)
     {
         public LoadedNative Native => Workspace.Read(() => Workspace.Natives[0]);
         public Task<INativeDecompilerSession> Session(string engine) => Engines.Session(Native, engine, null, default);
@@ -53,7 +53,8 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var user = new NativeUserTypePush(code);
         workspace.LoadAny(Image());
         return new Rig(workspace, code, engines, new NativeTypeTools(workspace, engines, user, code, names, types),
-            new NativeAnalysisTools(workspace, engines, new OutputPager(options), names, code, types, user), new NativeTypeInfoTools(workspace, code, engines, user));
+            new NativeAnalysisTools(workspace, engines, new OutputPager(options), names, code, types, user), new NativeTypeInfoTools(workspace, code, engines, user),
+            new NativeCodeTools(workspace, code, new OutputPager(options), null, engines, names, types, user));
     }
 
     private void Restart()
@@ -225,6 +226,33 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var batch = await rig.Types.SetNativeType(path, items: $"rva:0x{data:X} = uint[2]\nrva:0x{data + 0x10:X} = NdmMode\nrva:0x{data + 0x20:X} = no_such_ndm_t", engine: "ghidra");
         output.WriteLine(batch);
         Assert.StartsWith("2 of 3 type(s) applied", batch);
+    }
+
+    [IdaFact]
+    public async Task Instruction_search_agrees_between_the_built_in_index_and_IDA()
+    {
+        var rig = Setup("ida-s");
+        var path = Image();
+        var ours = await rig.CodeTools.SearchInstructions(path, mnemonic: "^mov$", value: "0x10B", engine: "ours");
+        output.WriteLine(ours);
+        Assert.Contains($"{Function}+0x", ours);
+        var ida = await rig.CodeTools.SearchInstructions(path, mnemonic: "^mov$", value: "0x10B", engine: "ida");
+        output.WriteLine(ida);
+        Assert.Contains("Engine: ida", ida);
+        Assert.Contains($"{Function}+0x", ida);
+        var inFunction = await rig.CodeTools.SearchInstructions(path, operands: "10Bh", function: Function, engine: "ida");
+        Assert.Contains("1 match(es)", inFunction);
+    }
+
+    [GhidraFact]
+    public async Task Instruction_search_runs_over_Ghidras_listing()
+    {
+        var rig = Setup("ghidra-s");
+        var path = Image();
+        var found = await rig.CodeTools.SearchInstructions(path, mnemonic: "^mov$", value: "0x10B", function: Function, engine: "ghidra");
+        output.WriteLine(found);
+        Assert.Contains("Engine: ghidra", found);
+        Assert.Contains($"{Function}+0x", found);
     }
 
     [GhidraFact]
