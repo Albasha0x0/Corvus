@@ -381,6 +381,32 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// References are imported with their internals, so an internal type of the target and a same-named internal type of
+    /// another reference (System.SR in Microsoft.VisualBasic.Core and Microsoft.Win32.Registry) failed every C# patch
+    /// using it with CS0433. Between two other references, the one the target references by that name wins.
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesBindSameNamedInternalTypesToTheAssemblyTheTargetUses()
+    {
+        using var dir = new TempDir();
+        var lib = ReferenceResolutionTests.Compile("Lib", "namespace System { internal static class SR { public static string Name = \"lib\"; } } public class Marker { }");
+        var other = ReferenceResolutionTests.Compile("Other", "namespace Util { internal class Helper { } public class Help { public static string Name = \"other\"; } }");
+        var util = ReferenceResolutionTests.Compile("Util", "namespace Util { public class Helper { public static int Id = 1; } } public class UtilMarker { }");
+        File.WriteAllBytes(dir.File("Lib.dll"), lib);
+        File.WriteAllBytes(dir.File("Other.dll"), other);
+        File.WriteAllBytes(dir.File("Util.dll"), util);
+        File.WriteAllBytes(dir.File("App.dll"), ReferenceResolutionTests.Compile("App", """
+            namespace System { internal static class SR { public static string Name = "app"; } }
+            namespace App { public class C { public Marker M; public string Run() { return System.SR.Name + Util.Help.Name + Util.Helper.Id; } } }
+            """, lib, other, util));
+        using var env = new Env(dir.File("App.dll"));
+        env.Edit(() => env.Edits.PatchMethodCSharp(env.One("App.C::Run"), "return System.SR.Name + Util.Helper.Id + \"!\";", dryRun: false, default));
+        var fields = env.Def<MethodDef>("App.C::Run").Body.Instructions.Select(i => i.Operand).OfType<IField>().ToList();
+        Assert.IsAssignableFrom<TypeDef>(fields.Single(f => f.Name == "Name").DeclaringType); // the target's own SR
+        Assert.Equal("Util", ((AssemblyRef)((TypeRef)fields.Single(f => f.Name == "Id").DeclaringType).ResolutionScope).Name.String); // the Helper App uses
+    }
+
+    /// <summary>
     /// The decompiled types were made public in the compiled copy, so an internal type deriving from or exposing another
     /// internal type of the target failed every C# patch with CS0060 or CS0053 (Newtonsoft.Json's JSON path classes).
     /// </summary>

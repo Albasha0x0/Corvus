@@ -83,13 +83,29 @@ public sealed partial class CSharpPatcher
         return compilation.GetSemanticModel(tree);
     }
 
-    private CSharpCompilation CreateCompilation(LoadedAssembly asm, SyntaxTree tree, byte[]? targetImage, out List<string> missing, bool withUsings)
+    private CSharpCompilation CreateCompilation(LoadedAssembly asm, SyntaxTree tree, byte[]? targetImage, out List<string> missing, bool withUsings,
+        IReadOnlySet<string>? clashing = null)
     {
-        var plain = CSharpCompilation.Create(asm.AssemblyName + PatchSuffix, [tree], BuildReferences(asm, targetImage, out missing), CreateOptions());
+        var plain = CSharpCompilation.Create(asm.AssemblyName + PatchSuffix, [tree], BuildReferences(asm, targetImage, out missing, clashing), CreateOptions());
         if (!withUsings) return plain;
         var usings = DefaultUsings.Where(ns => NamespaceExists(plain, ns)).ToList();
         return usings.Count == 0 ? plain
             : plain.AddSyntaxTrees(CSharpSyntaxTree.ParseText(string.Concat(usings.Select(u => $"global using {u};\n")), (CSharpParseOptions)tree.Options));
+    }
+
+    /// <summary>Simple names of the types reported in two references (CS0433), read from the source they occur at.</summary>
+    private static HashSet<string> ClashingTypeNames(IEnumerable<Diagnostic> diagnostics)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var d in diagnostics.Where(d => d.Id == "CS0433" && d.Location.IsInSource))
+        {
+            var text = d.Location.SourceTree!.GetText().ToString(d.Location.SourceSpan);
+            int lt = text.IndexOf('<');
+            if (lt >= 0) text = text[..lt];
+            text = text[(text.LastIndexOfAny(['.', ':']) + 1)..].Trim().TrimStart('@');
+            if (text.Length > 0) names.Add(text);
+        }
+        return names;
     }
 
     private static byte[] WriteImage(ModuleDef module)
@@ -125,6 +141,12 @@ public sealed partial class CSharpPatcher
                 SyntaxRemoveOptions.KeepNoTrivia)!;
             tree = tree.WithRootAndOptions(newRoot, tree.Options);
             withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true);
+            pe.SetLength(0);
+            emit = withUsings.Emit(pe, cancellationToken: ct);
+        }
+        if (!emit.Success && ClashingTypeNames(emit.Diagnostics) is { Count: > 0 } clashing)
+        {
+            withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true, clashing);
             pe.SetLength(0);
             emit = withUsings.Emit(pe, cancellationToken: ct);
         }

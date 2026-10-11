@@ -27,7 +27,8 @@ public sealed partial class CSharpPatcher
     }
 
     /// <summary>The assembly's own (current) image plus the transitive closure of its references.</summary>
-    private List<MetadataReference> BuildReferences(LoadedAssembly asm, byte[]? targetImage, out List<string> missing)
+    /// <param name="clashing">Simple names of types a compilation found in two references (CS0433); see <see cref="HideClashingTypes"/>.</param>
+    private List<MetadataReference> BuildReferences(LoadedAssembly asm, byte[]? targetImage, out List<string> missing, IReadOnlySet<string>? clashing = null)
     {
         missing = new List<string>();
         var references = new List<MetadataReference>();
@@ -77,11 +78,89 @@ public sealed partial class CSharpPatcher
             }
             if (owned) module.Dispose();
         }
+        if (clashing is { Count: > 0 }) HideClashingTypes(asm, images, references, clashing);
         // A stand-in has no public key, so a reference naming one by its token does not bind to it (CS0012).
         for (int i = 0; i < images.Count && stubbed.Count > 0; i++)
             if (WithoutTokens(images[i].Image, stubbed) is { } image)
                 references[i] = MetadataReference.CreateFromImage(image);
         return SingleCoreLibrary(references, images);
+    }
+
+    /// <summary>
+    /// References are imported with their internals, so a non-public top-level type defined under the same full name in two
+    /// of them (System.SR is in most runtime libraries) is ambiguous (CS0433). The copy that counts is the target's own,
+    /// else the one of the assembly the target references by that name, else the only public one; the other non-public
+    /// copies are renamed out of reach in their reference copies.
+    /// </summary>
+    private static void HideClashingTypes(LoadedAssembly asm, List<(string Name, byte[] Image, string Path)> images, List<MetadataReference> references,
+        IReadOnlySet<string> clashing)
+    {
+        var defined = images.Select(i => TopLevelTypes(i.Image).Where(t => clashing.Contains(Format.StripArity(t.Name))).ToList()).ToList();
+        var usedFrom = asm.Module.GetTypeRefs().Where(t => t.ResolutionScope is AssemblyRef)
+            .GroupBy(t => t.FullName).ToDictionary(g => g.Key, g => ((AssemblyRef)g.First().ResolutionScope).Name.String);
+        var hide = new Dictionary<int, HashSet<string>>();
+        foreach (var name in defined.SelectMany(d => d.Select(t => t.FullName)).Distinct())
+        {
+            var owners = Enumerable.Range(0, images.Count).Where(i => defined[i].Any(t => t.FullName == name)).ToList();
+            if (owners.Count < 2) continue;
+            bool Public(int i) => defined[i].First(t => t.FullName == name).IsPublic;
+            int? winner = owners[0] == 0 ? 0
+                : usedFrom.TryGetValue(name, out var from) && owners.FirstOrDefault(i => string.Equals(images[i].Name, from, StringComparison.OrdinalIgnoreCase), -1) is var used and >= 0 ? used
+                : owners.Where(Public).ToList() is [var onlyPublic] ? onlyPublic : null;
+            if (winner == null) continue;
+            foreach (int i in owners.Where(i => i != winner && !Public(i)))
+                (hide.TryGetValue(i, out var set) ? set : hide[i] = new HashSet<string>(StringComparer.Ordinal)).Add(name);
+        }
+        foreach (var (i, names) in hide)
+            if (WithTypesRenamed(images[i].Image, names) is { } renamed)
+            {
+                images[i] = (images[i].Name, renamed, images[i].Path);
+                references[i] = MetadataReference.CreateFromImage(renamed);
+            }
+    }
+
+    private static List<(string FullName, string Name, bool IsPublic)> TopLevelTypes(byte[] image)
+    {
+        try
+        {
+            using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(image, writable: false));
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            var result = new List<(string, string, bool)>();
+            foreach (var h in md.TypeDefinitions)
+            {
+                var t = md.GetTypeDefinition(h);
+                if (!t.GetDeclaringType().IsNil) continue;
+                string ns = md.GetString(t.Namespace), name = md.GetString(t.Name);
+                result.Add((ns.Length == 0 ? name : ns + "." + name, name, (t.Attributes & System.Reflection.TypeAttributes.VisibilityMask) == System.Reflection.TypeAttributes.Public));
+            }
+            return result;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException) { return []; }
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], TokenFreeImage> RenamedImages = new();
+
+    /// <summary>The image with the top-level types <paramref name="fullNames"/> given unspeakable names; null when it cannot be rewritten. Cached per image.</summary>
+    private static byte[]? WithTypesRenamed(byte[] image, HashSet<string> fullNames)
+    {
+        var key = string.Join(",", fullNames.Order(StringComparer.Ordinal));
+        lock (RenamedImages)
+        {
+            if (RenamedImages.TryGetValue(image, out var cached) && cached.Names == key) return cached.Image;
+            byte[]? result;
+            try
+            {
+                using var module = ModuleDefMD.Load(image);
+                foreach (var t in module.Types.Where(t => fullNames.Contains(t.FullName)))
+                    t.Name = "<hidden>" + t.Name;
+                using var ms = new MemoryStream();
+                FaithfulWriter.WritePlain(module, ms);
+                result = ms.ToArray();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { result = null; }
+            RenamedImages.AddOrUpdate(image, new TokenFreeImage(key, result));
+            return result;
+        }
     }
 
     /// <summary>The image with the public key tokens of its references to <paramref name="names"/> removed; null when it has none.</summary>
