@@ -76,7 +76,8 @@ internal static class StackTextFormats
         new("unity", R(@"^\s*at (?<sym>[^\s(][^(]*?) ?\((?<args>[^)]*)\) \[0x(?<il>[0-9a-fA-F]+)\] in (?:<(?<mvid>[0-9a-fA-F]{32})(?:#[0-9a-fA-F]+)?>|(?<file>[^<>]+?)):(?<line>\d+)\s*$"),
             (m, line, raw, into, s) => Add(into, Managed(line, raw, "unity", m.Groups["sym"].Value, m.Groups["args"].Value, s) with
             {
-                Mvid = m.Groups["mvid"].Success ? Guid.ParseExact(m.Groups["mvid"].Value, "N") : null,
+                // Il2Cpp prints an all-zero MVID: no build identity
+                Mvid = m.Groups["mvid"].Success && Guid.ParseExact(m.Groups["mvid"].Value, "N") is var mvid && mvid != Guid.Empty ? mvid : null,
                 IlOffset = (int)Hex(m.Groups["il"]),
                 File = m.Groups["file"].Success ? m.Groups["file"].Value : null,
                 SourceLine = m.Groups["file"].Success ? IntOrNull(m.Groups["line"]) : null,

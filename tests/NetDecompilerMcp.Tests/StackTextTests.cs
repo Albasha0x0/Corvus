@@ -120,6 +120,19 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal(2, r.UnrecognizedLines); // the banner lines
     }
 
+    /// <summary>Il2Cpp builds print an all-zero MVID: no build identity, so the frame is matched by name and its build is unknown.</summary>
+    [Fact]
+    public async Task Il2CppZeroMvidIsUnknownNotAnotherBuild()
+    {
+        var r = await Run("""
+            NullReferenceException: Object reference not set to an instance of an object.
+              at Fixture.Model.Account.Charge (System.Int32 amount) [0x00000] in <00000000000000000000000000000000>:0
+            """);
+        var f = Assert.Single(r.Frames);
+        Assert.Equal((_fixture.Id, "unknown"), (f.Assembly, f.BuildCheck));
+        Assert.Empty(r.ModulesMissing);
+    }
+
     /// <summary>Unity writes "Crash!!!" before every crash report: a banner, not a module!function frame.</summary>
     [Fact]
     public async Task UnityCrashBannerIsNotAFrame()
