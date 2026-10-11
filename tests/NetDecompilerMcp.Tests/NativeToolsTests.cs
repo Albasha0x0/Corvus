@@ -135,6 +135,18 @@ public class NativeToolsTests
         Assert.Contains("vftable", classes);
     }
 
+    [Fact]
+    public async Task CallTreeOfAnImportSlotPointsToItsReferences()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var tools = new NativeCodeTools(env.Workspace, new NetDecompilerMcp.Services.NativeCodeService(env.Workspace, env.Options), env.Pager);
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.NativeCallTree(McpProtocolTests.NativeSample(dir), "KERNEL32.dll!ExitProcess", direction: "callers"));
+        Assert.Equal(ErrorCode.NotFound, error.Code);
+        Assert.Contains("is the import slot of KERNEL32!ExitProcess, not a function", error.Message);
+        Assert.Contains("find_xrefs address=KERNEL32!ExitProcess", error.Remediation);
+    }
+
     /// <summary>ReadyToRun images clear the IL-only flag too; they are not mixed-mode and get no native view.</summary>
     [Fact]
     public void ReadyToRunAssembliesGetNoNativeView()

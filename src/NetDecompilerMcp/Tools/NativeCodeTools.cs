@@ -72,8 +72,11 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     });
 
     private static NativeFunction FunctionAt(NativeCodeIndex index, uint rva) =>
-        index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
-            "list_functions shows the functions; disassemble shows raw instructions at any address");
+        index.FunctionAt(rva) ?? throw (index.Image.Imports.FirstOrDefault(i => i.SlotRva == rva) is { } slot
+            ? new ToolError(ErrorCode.NotFound, $"{NativeAddress.Va(index.Image, rva)} is the import slot of {NativeCodeIndex.ImportName(slot)}, not a function.",
+                $"find_xrefs address={NativeCodeIndex.ImportName(slot)} lists the calls through it; pass one of the calling functions")
+            : new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
+                "list_functions shows the functions; disassemble shows raw instructions at any address"));
 
     private static string Flags(NativeFunction f, NativeCodeIndex? index = null) => FlagList(f, index) is { Count: > 0 } flags ? $"  [{string.Join(", ", flags)}]" : "";
 
