@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-121 tools in 12 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+122 tools in 12 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,7 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [dumps](#dumps) | no | 5: crash dumps |
+| [dumps](#dumps) | no | 6: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
 ## session
@@ -1781,7 +1781,7 @@ Run Python in the IDA worker that holds a native image's database (idalib): IDAP
 
 ## dumps
 
-Crash dumps.
+Crash dumps and crash text.
 
 ### open_minidump
 
@@ -1869,6 +1869,24 @@ Hex dump of the dumped process's memory at an address: the bytes the dump captur
 | `imageFallback` | boolean |  | `true` | Read bytes the dump does not hold from the module image. |
 
 Structured output: `dump`, `address`, `requested`, `length`, `source`, `location`, `region`, `protection`, `hex`, `bytes`, `note`.
+
+### symbolize_stack_text
+
+**Symbolize crash text** (read-only, idempotent, long-running)
+
+Resolves the frames of crash text against the loaded build: Unity Player.log / error.log native backtraces (with the log's module list for load addresses), Mono managed frames (matched by their module MVID) and Il2Cpp/Unity managed lines, .NET exception text (the inner chain, NativeAOT frames), WER Report.wer and Event Log 1000/1026 text (faulting module, offset, time stamp, code), and debugger stacks (module!function+0x.., module+0x..). Native frames are named through the loaded images (code index, PDB, Il2Cpp names); every frame says whether it is the same build (buildCheck: time stamps, MVIDs, the text's own names), and modules the text needs that are not loaded are listed. Lines no format recognizes are counted, with a sample.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `text` | string |  |  | The crash text (up to 1 MiB). Pass this or path. |
+| `path` | string |  |  | A log or report file (Player.log, error.log, Report.wer, saved event text); its last 8 MiB are read. |
+| `format` | string |  | `auto` | auto (default), unity, dotnet, wer, eventlog or windbg. Values: auto, unity, dotnet, wer, eventlog, windbg. |
+| `images` | string |  |  | Native image ids or paths to resolve against (';'-separated); default every loaded native image. |
+| `moduleBases` | string |  |  | Module load addresses for absolute addresses, 'name=0xBASE;...' (the crash's module list in the text is used too). |
+| `offset` | integer |  | `0` | Index of the first frame returned. |
+| `limit` | integer |  | `200` | Max frames returned (default 200). |
+
+Structured output: `format`, `exception`, `total`, `offset`, `truncated`, `frames`, `unrecognizedLines`, `unrecognizedSample`, `modulesMissing`, `notes`.
 
 ## live
 

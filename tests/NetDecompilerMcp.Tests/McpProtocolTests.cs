@@ -290,6 +290,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         // a native process: nothing to decode (ManagedDumpRealTests covers .NET dumps)
         ["dump_heap"] = (new() { ["dump"] = SyntheticCrash.Write(dir) }, "Error (unsupported) in dump_heap: the dumped process has no .NET runtime"),
         ["dump_object"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "0x1000" }, "Error (unsupported) in dump_object: the dumped process has no .NET runtime"),
+        ["symbolize_stack_text"] = (new() { ["text"] = "System.Exception: boom\n   at Fixture.Model.Account.Charge(Int32 amount)" }, "\"resolved\":\"Fixture.Model.Account::Charge(int)\""),
         ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "53 48 83 EC"),
         // the test process itself (the server is a child process): read-only, every handle closed
         ["inspect_process"] = (new() { ["process"] = Environment.ProcessId.ToString(), ["sections"] = "modules,threads", ["modulesLimit"] = 5, ["threadsLimit"] = 1 }, "\"detached\":true"),

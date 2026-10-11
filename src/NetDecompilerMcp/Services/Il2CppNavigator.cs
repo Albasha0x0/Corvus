@@ -231,6 +231,32 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         return (methods, scriptMethods);
     }
 
+    /// <summary>
+    /// The managed method whose GameAssembly code holds <paramref name="rva"/>, named for a stack frame (source il2cpp,
+    /// with the function start); null without loaded Il2Cpp dummy assemblies.
+    /// </summary>
+    public (string Name, string Source, uint Start)? FrameName(uint rva)
+    {
+        try
+        {
+            return workspace.Read<(string, string, uint)?>(() =>
+            {
+                if (workspace.Assemblies.Count == 0) return null;
+                var scope = workspace.Scope(null);
+                if (ImagesFor(scope).Count == 0) return null;
+                foreach (var r in Locate(rva, "rva", scope))
+                {
+                    if (r.Function is not { } fn || r.Total == 0) continue;
+                    string name = r.Methods.Count > 0 ? Format.MemberLabel(r.Methods[0].Method) : r.Image.Script!.MethodName(r.ScriptMethods[0]);
+                    if (r.Total > 1) name += $" (code shared by {r.Total} methods)";
+                    return (name, "il2cpp", fn.Start);
+                }
+                return null;
+            });
+        }
+        catch (ToolError) { return null; }
+    }
+
     /// <summary>The image holding <paramref name="asm"/>, when it is an Il2Cpp dummy assembly.</summary>
     public Image? ImageOf(LoadedAssembly asm) => ImagesFor([asm]).FirstOrDefault();
 

@@ -284,7 +284,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         }
         // Il2Cpp dummy DLLs for GameAssembly.dll
         if (found is not { Source: "user" } && module.FileName.StartsWith("GameAssembly", StringComparison.OrdinalIgnoreCase)
-            && Il2CppName(rva) is { } il2cpp)
+            && navigator?.FrameName(rva) is { } il2cpp)
             found = il2cpp;
         var mc = s.Code(module);
         if (found is null or { Source: "discovered" } && mc.Names?.Lookup(rva) is { Name: not null } light)
@@ -309,29 +309,6 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
                 note ?? $"unnamed function at {moduleName}+0x{st:X}");
         return new Location(module, shownRva, $"{moduleName}+0x{shownRva:X}", null, "none", null, kind,
             note ?? (mc.Image == null ? mc.Detail : null));
-    }
-
-    private (string Name, string Source, uint Start)? Il2CppName(uint rva)
-    {
-        if (workspace == null || navigator == null) return null;
-        try
-        {
-            return workspace.Read<(string, string, uint)?>(() =>
-            {
-                if (workspace.Assemblies.Count == 0) return null;
-                var scope = workspace.Scope(null);
-                if (navigator.ImagesFor(scope).Count == 0) return null;
-                foreach (var r in navigator.Locate(rva, "rva", scope))
-                {
-                    if (r.Function is not { } fn || r.Total == 0) continue;
-                    string name = r.Methods.Count > 0 ? Format.MemberLabel(r.Methods[0].Method) : r.Image.Script!.MethodName(r.ScriptMethods[0]);
-                    if (r.Total > 1) name += $" (code shared by {r.Total} methods)";
-                    return (name, "il2cpp", fn.Start);
-                }
-                return null;
-            });
-        }
-        catch (ToolError) { return null; }
     }
 
     /// <summary>The module name as debuggers print it: the file name without .dll / .exe / .sys.</summary>

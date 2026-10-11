@@ -19,7 +19,17 @@ internal static class SyntheticCrash
     public const ulong Ra1 = Base + FragmentRva + 5, Ra2 = Base + BigRva + 20;
     public const ulong JitCode = 0x0000_0200_0000_0000;
 
+    /// <summary>The module as mapped in memory.</summary>
     public static byte[] Image()
+    {
+        var pe = PeFile.FromBytes(FileImage());
+        var mapped = new byte[pe.SizeOfImage];
+        for (uint page = 0; page < mapped.Length; page += 0x1000) pe.Read(page, mapped.AsSpan((int)page, 0x1000));
+        return mapped;
+    }
+
+    /// <summary>The module's file (synth.dll).</summary>
+    public static byte[] FileImage()
     {
         var b = new PeBuilder { ImageBase = Base, Characteristics = 0x2022 };
         var text = new byte[0x100];
@@ -87,11 +97,7 @@ internal static class SyntheticCrash
             return blob.ToArray();
         });
         b.Directories[PeDirectory.Exception] = (pdata.Rva, 48);
-        var file = b.Build();
-        var pe = PeFile.FromBytes(file);
-        var mapped = new byte[pe.SizeOfImage];
-        for (uint page = 0; page < mapped.Length; page += 0x1000) pe.Read(page, mapped.AsSpan((int)page, 0x1000));
-        return mapped;
+        return b.Build();
     }
 
     public static MinidumpBuilder Builder()

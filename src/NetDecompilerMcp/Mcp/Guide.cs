@@ -152,6 +152,8 @@ public static class Guide
             inner chain, and gives managed frames a token, IL offset and the loaded assembly of that build (load the app's assemblies
             first; decompile_member assembly=<id> member=<token>). Mono frames stay identified only. With heap memory in the dump:
             dump_heap (stats per type, or objects by type) and dump_object (fields, strings, arrays; the exception's address works).
+            No dump, only text (Player.log, error.log, Report.wer, event text, an exception's ToString, a debugger stack):
+            symbolize_stack_text names each frame in the loaded build; check buildCheck before trusting a name (mismatch: another build).
             inspect_process does the same for a running local process (Windows), read-only: modules, regions, threads and stacks. It
             opens only query and read handles, writes and suspends nothing, and closes every handle before returning. Pick the target
             by pid or name (a shared name is refused with the candidate pids).

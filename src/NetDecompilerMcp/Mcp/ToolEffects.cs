@@ -176,6 +176,8 @@ public static class ToolEffects
         ["dump_heap"] = Reads(longRunning: true),
         ["dump_object"] = Reads(),
         ["read_dump_memory"] = Reads(),
+        ["symbolize_stack_text"] = Reads(longRunning: true), // waits for the code index of the images it names
+
         // Notes (kept per user beside the annotation sidecars)
         ["record_note"] = Changes(destructive: false, idempotent: false),
         ["update_note"] = Changes(destructive: true, idempotent: true), // replaces text or status; a repeat with the same revision is a conflict

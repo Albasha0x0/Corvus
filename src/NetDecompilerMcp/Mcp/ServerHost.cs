@@ -65,6 +65,7 @@ public static class ServerHost
             .AddSingleton<NotesService>()
             .AddSingleton<EditJournal>()
             .AddSingleton<SessionService>()
+            .AddSingleton<StackTextService>()
             .AddSingleton<LiveProcessService>()
             .AddSingleton<ResourceSubscriptions>();
 
