@@ -59,7 +59,9 @@ public sealed record InspectedInstruction(uint Rva, int Length, string Bytes, st
 /// <summary>Decodes one x86 / x64 instruction with Iced into <see cref="InspectedInstruction"/>: operands, register and memory use, flags, flow.</summary>
 public static class InstructionInspector
 {
-    private static readonly MasmFormatter Plain = CreateFormatter();
+    // Iced formatters are not thread-safe: one per thread.
+    [ThreadStatic] private static MasmFormatter? _plain;
+    private static MasmFormatter Plain => _plain ??= CreateFormatter();
 
     private static MasmFormatter CreateFormatter()
     {
