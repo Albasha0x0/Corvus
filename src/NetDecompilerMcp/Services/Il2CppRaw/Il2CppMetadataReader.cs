@@ -95,11 +95,12 @@ public static class Il2CppMetadataReader
             LibCpp2IlMain.Settings.AllowManualMetadataAndCodeRegInput = false; // it would read the console
             LibCpp2IlMain.Settings.DisableMethodPointerMapping = true;
             var bytesForSearch = binary;
-            searchCandidates = new(() =>
+            searchImage = new(() =>
             {
-                try { return Il2CppRegistrationSearch.CodeRegistration(Native.NativeImageLoader.FromBytes(bytesForSearch, files.Binary), ct); }
-                catch (ToolError) { return []; }
+                try { return Native.NativeImageLoader.FromBytes(bytesForSearch, files.Binary); }
+                catch (ToolError) { return null; }
             });
+            searchCt = ct;
             searchIs64 = layout.Is64;
             searchNote = null;
             Il2CppBinary.OnRegistrationStructLocationFailure += LocateRegistrations;
@@ -169,7 +170,7 @@ public static class Il2CppMetadataReader
             finally
             {
                 Il2CppBinary.OnRegistrationStructLocationFailure -= LocateRegistrations;
-                searchCandidates = null;
+                searchImage = null;
                 LibCpp2IlMain.Reset();
                 LibLogger.Writer = Silent;
             }
@@ -177,20 +178,23 @@ public static class Il2CppMetadataReader
     }
 
     /// <summary>The binary being read (under <see cref="Gate"/>), for <see cref="LocateRegistrations"/>; the note it leaves.</summary>
-    private static Lazy<List<Il2CppRegistrationSearch.Candidate>>? searchCandidates;
+    private static Lazy<Native.INativeImage?>? searchImage;
+    private static CancellationToken searchCt;
     private static bool searchIs64;
     private static string? searchNote;
 
     /// <summary>
     /// The library's fallback when its own search leaves the code registration unfound: our relocation-based candidates,
-    /// each read with the version's layout and kept when its module count and array pointer read back as found.
+    /// each read with the version's layout and kept when its module count and array pointer read back as found; else,
+    /// for builds that fill the registration at run time, one made up of the module array alone (one module per image,
+    /// no generic method pointers).
     /// </summary>
     private static void LocateRegistrations(Il2CppBinary binary, LibCpp2IL.Metadata.Il2CppMetadata metadata, ref Il2CppCodeRegistration? codeReg, ref Il2CppMetadataRegistration? metaReg)
     {
-        if (codeReg != null || searchCandidates == null) return;
+        if (codeReg != null || searchImage?.Value is not { } image) return;
         int ptr = searchIs64 ? 8 : 4;
         int size = Il2CppCodeRegistration.GetStructSize(!searchIs64, metadata.MetadataVersion);
-        foreach (var c in searchCandidates.Value)
+        foreach (var c in Il2CppRegistrationSearch.CodeRegistration(image, searchCt))
         {
             ulong start = c.FieldVa + (ulong)ptr - (ulong)size;
             try
@@ -202,6 +206,12 @@ public static class Il2CppMetadataReader
                 return;
             }
             catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException)) { }
+        }
+        int images = metadata.imageDefinitions.Length;
+        if (Il2CppRegistrationSearch.ModuleArrays(image, images, searchCt) is [var array])
+        {
+            codeReg = new Il2CppCodeRegistration { codeGenModulesCount = (ulong)images, addrCodeGenModulePtrs = array };
+            searchNote = $"no code registration in the file (filled at run time): read through its module array at 0x{array:X} ({images} modules); generic method bodies are not mapped";
         }
     }
 

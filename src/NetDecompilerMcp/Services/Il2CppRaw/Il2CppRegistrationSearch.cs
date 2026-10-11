@@ -37,17 +37,51 @@ public static class Il2CppRegistrationSearch
                 foreach (uint entry in byTarget.GetValueOrDefault(module) ?? [])
                 {
                     ct.ThrowIfCancellationRequested();
-                    uint start = entry;
-                    for (int i = 0; i < MaxModules && start >= ptr && Pointer(image, start - (uint)ptr) is { } previous && IsModule(previous); i++) start -= (uint)ptr;
-                    foreach (uint field in byTarget.GetValueOrDefault(start) ?? [])
+                    // Every module pointer before the entry may start the array (other module lists can precede it).
+                    for (uint start = entry, i = 0; i < MaxModules; i++)
                     {
-                        if (field < ptr || ReadUInt(image, field - (uint)ptr, ptr) is not { } count || count is 0 or > MaxModules) continue;
-                        // The array holds count modules and the found one among them.
-                        if (entry >= start + count * (uint)ptr) continue;
-                        result.Add(new Candidate(image.ImageBase + field, image.ImageBase + start, (uint)count));
+                        foreach (uint field in byTarget.GetValueOrDefault(start) ?? [])
+                        {
+                            if (field < ptr || ReadUInt(image, field - (uint)ptr, ptr) is not { } count || count is 0 or > MaxModules) continue;
+                            // The array holds count modules and the found one among them.
+                            if (entry >= start + count * (uint)ptr) continue;
+                            result.Add(new Candidate(image.ImageBase + field, image.ImageBase + start, (uint)count));
+                        }
+                        if (start < ptr || Pointer(image, start - (uint)ptr) is not { } previous || !IsModule(previous)) break;
+                        start -= (uint)ptr;
                     }
                 }
         return [.. result.DistinctBy(c => c.FieldVa).OrderBy(c => c.FieldVa)];
+    }
+
+    /// <summary>
+    /// The addresses of arrays of exactly <paramref name="modules"/> code-gen module pointers that hold mscorlib's module,
+    /// for builds that fill their code registration at run time (only code references the array).
+    /// </summary>
+    public static List<ulong> ModuleArrays(INativeImage image, int modules, CancellationToken ct = default)
+    {
+        uint ptr = image.Is64Bit ? 8u : 4u;
+        var result = new List<ulong>();
+        if (modules is <= 0 or > MaxModules) return result;
+        var mscorlib = Strings(image, "mscorlib.dll", ct).ToHashSet();
+        bool IsModule(uint at, out uint target)
+        {
+            target = 0;
+            if (Pointer(image, at) is not { } module || Pointer(image, module) is not { } name || !IsModuleName(image, name)) return false;
+            target = name;
+            return true;
+        }
+        foreach (uint slot in image.RelocationRvas)
+        {
+            if (!IsModule(slot, out uint name) || !mscorlib.Contains(name)) continue;
+            ct.ThrowIfCancellationRequested();
+            uint first = slot, last = slot;
+            while (first >= ptr && slot - first < MaxModules * ptr && IsModule(first - ptr, out _)) first -= ptr;
+            while (last - slot < MaxModules * ptr && IsModule(last + ptr, out _)) last += ptr;
+            // Exactly the module count: one run, bounded by non-module words on both sides.
+            if ((last - first) / ptr + 1 == modules) result.Add(image.ImageBase + first);
+        }
+        return [.. result.Distinct()];
     }
 
     private static IEnumerable<uint> Strings(INativeImage image, string text, CancellationToken ct)

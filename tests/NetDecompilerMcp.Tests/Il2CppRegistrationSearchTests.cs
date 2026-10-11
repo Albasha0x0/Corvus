@@ -41,5 +41,8 @@ public class Il2CppRegistrationSearchTests
         var image = ElfFile.FromBytes(w.Build(), "libil2cpp.so");
         var found = Il2CppRegistrationSearch.CodeRegistration(image);
         Assert.Equal([new Il2CppRegistrationSearch.Candidate(field, array, 3)], found);
+        // A build that fills its registration at run time keeps only the array: found by its module count alone.
+        Assert.Equal([(ulong)array], Il2CppRegistrationSearch.ModuleArrays(image, 3));
+        Assert.Empty(Il2CppRegistrationSearch.ModuleArrays(image, 2));
     }
 }

@@ -247,7 +247,8 @@ are listed by reason in the load report. Mobile and Unix builds read the same wa
 (`libil2cpp.so` of one ABI, `slice=` picks it; only the binary, the metadata and the version files are extracted to the
 cache), an extracted Android package, an `.ipa` or iOS `.app` (`UnityFramework`; FairPlay-encrypted binaries fail with
 `encrypted_fairplay`), a macOS `.app` (`GameAssembly.dylib`) or a Linux build (`GameAssembly.so`). When LibCpp2IL
-does not find the code registration, it is found from the module list (Unity 6 armeabi-v7a); 32-bit ARM builds that still
+does not find the code registration, it is found from the module list (Unity 6 armeabi-v7a), or built from the module array when
+the game fills it at run time (Unity 2021.3 armeabi-v7a, 2023.2 Linux; no generic method bodies then); 32-bit ARM builds that still
 fail report `registration_not_found_armv7` / `armv7_unreadable` and point to the arm64-v8a build.
 Il2CppDumper / Cpp2IL output folders keep working as below.
 
