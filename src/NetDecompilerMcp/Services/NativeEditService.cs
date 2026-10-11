@@ -267,8 +267,13 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         return sb.ToString();
     }
 
-    /// <summary>Rebuilds the patched image and swaps it in; analysis (code index, sessions) is discarded and rebuilds lazily.</summary>
-    private void Rebuild(LoadedNative native) => native.ReplaceImage(native.Patches.ApplyTo(native.FilePath));
+    /// <summary>Rebuilds the patched image and swaps it in; analysis (code index, sessions) is discarded and rebuilt, the old index kept for previews.</summary>
+    private void Rebuild(LoadedNative native)
+    {
+        var previous = code.Provisional(native);
+        native.ReplaceImage(native.Patches.ApplyTo(native.FilePath));
+        code.Patched(native, previous);
+    }
 
     public string List(LoadedNative native)
     {

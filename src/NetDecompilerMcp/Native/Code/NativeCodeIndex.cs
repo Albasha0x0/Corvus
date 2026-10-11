@@ -136,6 +136,23 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         Array.Sort(keys, _byTo);
     }
 
+    /// <summary>
+    /// This analysis over <paramref name="image"/>, a patched copy of the indexed image: functions, extents and references
+    /// as they were, instructions decoded from the new bytes. Cheap; for previews while the full index rebuilds.
+    /// </summary>
+    public NativeCodeIndex Rebase(INativeImage image)
+    {
+        CodeContext? ctx = null;
+        if (_ctx != null)
+        {
+            ctx = new CodeContext(image, new ImageCode(image), _ctx.Options) { FunctionStarts = _ctx.FunctionStarts, NoReturn = _ctx.NoReturn };
+            foreach (var s in _ctx.LocalSubroutines) ctx.LocalSubroutines.Add(s);
+            foreach (var s in _ctx.Funclets) ctx.Funclets.Add(s);
+            foreach (var (thunk, slot) in _ctx.Thunks) ctx.Thunks[thunk] = slot;
+        }
+        return new NativeCodeIndex(image, Support, SupportNote, ctx, _functions, _rangeStarts, _rangeEnds, _xrefs, _strings, [.. Truncations], Stats, _byTo);
+    }
+
     /// <summary>Builds the index. Long-running for large images: run it on a background thread.</summary>
     public static NativeCodeIndex Build(INativeImage image, CodeIndexOptions? options = null, Action<CodeIndexProgress>? progress = null, CancellationToken ct = default)
     {

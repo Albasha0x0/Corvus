@@ -17,6 +17,18 @@ namespace NetDecompilerMcp.Tools;
 public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, EditJournal? journal = null,
     NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
 {
+    private const string ProvisionalNote = "Previewed on the analysis from before the last patch (function extents as they were), without waiting for the code index to rebuild.\n";
+
+    /// <summary><see cref="Open"/> for a patch; a dry run right after a patch takes the analysis from before it instead of waiting for the rebuild.</summary>
+    private async Task<(LoadedNative Native, NativeCodeIndex Index, string Note)> OpenToPatch(string image, bool dryRun, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        if (dryRun && await Task.Run(() => workspace.Read(() => workspace.FindNative(image)), ct) is { } native
+            && code.Ready(native) == null && code.Provisional(native) is { } provisional)
+            return (native, provisional, ProvisionalNote);
+        var (n, index) = await Open(image, progress, ct);
+        return (n, index, "");
+    }
+
     private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var native = await Task.Run(() =>
@@ -394,7 +406,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (native, index) = await Open(image, progress, cancellationToken);
+        var (native, index, note) = await OpenToPatch(image, dryRun, progress, cancellationToken);
         var rva = Address(index, address);
         if ((hex == null) == (value == null) || (value == null) != (type == null))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass hex, or value with type.", "e.g. value=0x10 type=u32");
@@ -402,11 +414,11 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         if (extend)
         {
             var extended = edits.PrepareExtendedPatch(index, rva, bytes, null, PatchExtension.ParseMode(stubMode), $"patch_bytes {bytes.Length} bytes (stub)", null, PatchExtension.ParsePlacement(placement));
-            return edits.ApplyPatch(native, index, extended, dryRun);
+            return note + edits.ApplyPatch(native, index, extended, dryRun);
         }
         var mode = NativeEditService.ParseRelocationMode(relocations);
         var prepared = edits.PreparePatch(index, rva, bytes, force, value != null ? $"patch_bytes {type} {value}" : $"patch_bytes {bytes.Length} bytes", mode);
-        return edits.ApplyPatch(native, index, prepared, dryRun);
+        return note + edits.ApplyPatch(native, index, prepared, dryRun);
     });
 
     [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code")]
@@ -427,7 +439,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (native, index) = await Open(image, progress, cancellationToken);
+        var (native, index, note) = await OpenToPatch(image, dryRun, progress, cancellationToken);
         var rva = Address(index, address);
         ulong startVa = index.Image.ImageBase + rva;
         Func<string, ulong?> resolve = name =>
@@ -440,12 +452,12 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             // Assemble the new code at the eventual stub address inside the extension; here only validate it decodes.
             var newBytes = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, resolve).Bytes;
             var extended = edits.PrepareExtendedPatch(index, rva, newBytes, assembly, PatchExtension.ParseMode(stubMode), "patch_asm (stub)", resolve, PatchExtension.ParsePlacement(placement));
-            return edits.ApplyPatch(native, index, extended, dryRun);
+            return note + edits.ApplyPatch(native, index, extended, dryRun);
         }
         var mode = NativeEditService.ParseRelocationMode(relocations);
         var result = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, resolve);
         var prepared = edits.PreparePatch(index, rva, result.Bytes, force, "patch_asm", mode, result.Constants, assembly);
-        return edits.ApplyPatch(native, index, prepared, dryRun);
+        return note + edits.ApplyPatch(native, index, prepared, dryRun);
     });
 
     [McpServerTool(Name = "list_native_edits", Title = "List native byte patches")]

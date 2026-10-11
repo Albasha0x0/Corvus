@@ -520,6 +520,30 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.PatchBytes(h.Path, at, value: "1"))).Code);
     }
 
+    /// <summary>After a patch the code index rebuilds; a dry run previews on the analysis from before the patch instead of waiting for that rebuild.</summary>
+    [Fact]
+    public async Task PatchDryRun_AfterAPatch_DoesNotWaitForTheIndexRebuild()
+    {
+        using var h = new Harness();
+        var code = new NativeCodeService(h.Env.Workspace, new ServerOptions { BackgroundIndexing = false }, null, h.Store);
+        var edits = new NativeEditService(h.Env.Workspace, code);
+        var tools = new NativeEditTools(h.Env.Workspace, code, edits);
+        var native = h.Load();
+        await code.Index(native, null, default);
+        uint entry = native.Image.EntryPointRva;
+        await tools.PatchBytes(h.Path, $"rva:0x{entry + 1:X}", value: "7", type: "u32", force: true);
+        Assert.Null(code.Ready(native)); // discarded by the patch; nothing rebuilds it in the background here
+
+        var preview = await tools.PatchAsm(h.Path, $"rva:0x{entry:X}", "mov eax, 9", dryRun: true);
+        _output.WriteLine(preview);
+        Assert.Null(code.Ready(native)); // not built for the preview
+        Assert.Matches(@"Before:\s+\S+\s+B807000000\s+mov\s+eax,\s*7", preview); // the current bytes
+        Assert.Contains("analysis from before the last patch", preview);
+        var real = await tools.PatchAsm(h.Path, $"rva:0x{entry + 6:X}", "int3"); // a real patch checks against the rebuilt index
+        Assert.StartsWith("Patched", real);
+        Assert.DoesNotContain(native.Analysis.Keys, k => k.Name.Contains("Rebased", StringComparison.Ordinal)); // the stand-in went with the old bytes
+    }
+
     [Fact]
     public void ShowDecompile_Modes()
     {

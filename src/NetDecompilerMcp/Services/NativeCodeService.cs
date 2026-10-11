@@ -15,11 +15,13 @@ public sealed class NativeCodeService
     private readonly ILogger<NativeCodeService>? _logger;
     private readonly AnnotationStore _store;
     private readonly AssemblyWorkspace _workspace;
+    private readonly bool _background;
 
     public NativeCodeService(AssemblyWorkspace workspace, ServerOptions options, ILogger<NativeCodeService>? logger = null, AnnotationStore? annotations = null)
     {
         _logger = logger;
         _workspace = workspace;
+        _background = options.BackgroundIndexing;
         _store = annotations ?? new AnnotationStore();
         IndexCache = options.CodeIndexCache is { } cache ? new CodeIndexCache(cache) : null;
         if (options.BackgroundIndexing)
@@ -170,6 +172,39 @@ public sealed class NativeCodeService
 
     private static IndexHolder Holder(LoadedNative native) => native.GetAnalysis(n => new IndexHolder(n));
 
+    /// <summary>The analysis of the image before its last patch (kept by <see cref="Patched"/>), and that analysis over the current bytes.</summary>
+    private sealed record PriorIndex(NativeCodeIndex Index);
+    private sealed record RebasedIndex(NativeCodeIndex Index);
+
+    /// <summary>
+    /// After a patch replaced the image: keeps <paramref name="previous"/> (<see cref="Provisional"/> before the patch) so
+    /// previews need not wait for the rebuild, which starts now when indexing runs in the background.
+    /// </summary>
+    public void Patched(LoadedNative native, NativeCodeIndex? previous)
+    {
+        if (previous != null) native.Analysis[typeof(PriorIndex)] = new PriorIndex(previous);
+        if (!_background) return;
+        try { Holder(native).Start(_logger, this); }
+        catch (ToolError) when (native.Released.IsCancellationRequested) { }
+    }
+
+    /// <summary>
+    /// The index when it is built; else, after a patch, the analysis from before it over the current bytes (functions as
+    /// they were, instructions as they are now) without waiting for the rebuild; else null.
+    /// </summary>
+    public NativeCodeIndex? Provisional(LoadedNative native)
+    {
+        if (Ready(native) is { } ready) return ready;
+        if (!native.Analysis.TryGetValue(typeof(PriorIndex), out var prior)) return null;
+        var image = native.Image;
+        return native.GetAnalysis(n =>
+        {
+            var rebased = ((PriorIndex)prior).Index.Rebase(image);
+            ApplyAnnotations(n, rebased);
+            return new RebasedIndex(rebased);
+        }).Index;
+    }
+
     // ---- debug symbols (PdbService) ----
 
     /// <summary>Function starts from debug symbols for a build of <paramref name="native"/>, asked on the build thread; null when none.</summary>
@@ -236,6 +271,9 @@ public sealed class NativeCodeService
                     {
                         if (done.IsCompletedSuccessfully)
                         {
+                            // the stand-ins for previews are not needed once the real index is there
+                            native.Analysis.TryRemove(typeof(PriorIndex), out _);
+                            native.Analysis.TryRemove(typeof(RebasedIndex), out _);
                             try { owner.ApplyAnnotations(native, done.Result); }
                             catch (Exception ex) { logger?.LogWarning(ex, "Applying annotations to {Id} failed", native.Id); }
                             if (done.Result.LoadedFromCache)
