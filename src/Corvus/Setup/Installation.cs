@@ -232,7 +232,8 @@ internal static class Installation
             var temp = current + ".new";
             if (File.Exists(temp) || Directory.Exists(temp)) File.Delete(temp);
             File.CreateSymbolicLink(temp, target);
-            File.Move(temp, current, overwrite: true);
+            // File.Move follows the link, finds a directory and refuses it.
+            Core.Posix.Rename(temp, current);
         }
     }
 
