@@ -220,7 +220,7 @@ internal static class SyntheticCrashX86
 
     public static byte[] HaltImage() => Pe32("halt.dll", HaltBase, _ => [0x8B, 0xFF, 0xCC, 0xC3], [("Halt", 0x1000)], null); // mov edi, edi; int3; ret
 
-    private static byte[] Mapped(byte[] file)
+    internal static byte[] Mapped(byte[] file)
     {
         var pe = PeFile.FromBytes(file);
         var image = new byte[pe.SizeOfImage];
@@ -230,11 +230,9 @@ internal static class SyntheticCrashX86
 
     public const uint Jit = 0x0300_0000;
 
-    /// <summary>The dump; <paramref name="jit"/> puts JIT code (an executable region outside any module) below Top on the stack.</summary>
-    public static string Write(TempDir dir, string name = "synth32.dmp", bool jit = false)
+    /// <summary>The 32-bit stack at <see cref="Stack"/>: Leaf's frame up to Top's at 0x00, a bad call's return at 0x100, Halt's at 0x200.</summary>
+    internal static byte[] StackBytes(bool jit = false)
     {
-        var image = Mapped(FileImage());
-        var halt = Mapped(HaltImage());
         var stack = new byte[0x300];
         void Put(int at, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(stack.AsSpan(at), v);
         Put(0x00, Base + MidRva + 6); // Leaf's return into Mid
@@ -244,6 +242,15 @@ internal static class SyntheticCrashX86
         Put(0x10, jit ? Jit + 5 : 0); // Top's return: into JIT code, or the end
         Put(0x100, Base + JumpRva + 2); // the bad call's return into Jump
         Put(0x200, Base + TrapRva + 6); // Halt's return into Trap
+        return stack;
+    }
+
+    /// <summary>The dump; <paramref name="jit"/> puts JIT code (an executable region outside any module) below Top on the stack.</summary>
+    public static string Write(TempDir dir, string name = "synth32.dmp", bool jit = false)
+    {
+        var image = Mapped(FileImage());
+        var halt = Mapped(HaltImage());
+        var stack = StackBytes(jit);
         var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
         d.Modules.Add(new MinidumpBuilder.Module(Base, (uint)image.Length, 0, @"Z:\nowhere\synth32.dll"));
         d.Modules.Add(new MinidumpBuilder.Module(HaltBase, (uint)halt.Length, 0, @"Z:\nowhere\halt.dll"));
@@ -294,6 +301,47 @@ public sealed class MinidumpTests
 
         var buckets = await new MinidumpService { BucketCache = dir.File("cache") }.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
         Assert.Equal("0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top", Assert.Single(buckets.Buckets).Signature);
+    }
+
+    /// <summary>
+    /// A WoW64 process dumped by a 64-bit tool: each thread's 32-bit side comes from the x86 context WoW64 keeps in the
+    /// CPU area that TEB64 TLS slot 1 points to, with the 32-bit stack bounds from the TEB32 at TEB64 + 0x2000.
+    /// </summary>
+    [Fact]
+    public async Task Wow64ThreadsShowTheir32BitSide()
+    {
+        using var dir = new TempDir();
+        const uint id = 7;
+        ulong teb = 0x7FF000000000UL + id * 0x2000UL, cpu = 0x7FF0_1000_0000, wow64cpu = 0x7FFA_0000_0000;
+        var image = SyntheticCrashX86.Mapped(SyntheticCrashX86.FileImage());
+        var d = new MinidumpBuilder { FullMemory = true };
+        d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.Base, (uint)image.Length, 0, @"Z:\nowhere\synth32.dll"));
+        d.Modules.Add(new MinidumpBuilder.Module(wow64cpu, 0x10000, 0, @"C:\Windows\System32\wow64cpu.dll"));
+        d.Memory.Add((SyntheticCrashX86.Base, image));
+        d.Memory.Add((SyntheticCrashX86.Stack, SyntheticCrashX86.StackBytes()));
+        var teb64 = new byte[0x1500];
+        BinaryPrimitives.WriteUInt64LittleEndian(teb64.AsSpan(0x1488), cpu);
+        d.Memory.Add((teb, teb64));
+        var teb32 = new byte[0x10];
+        BinaryPrimitives.WriteUInt32LittleEndian(teb32.AsSpan(4), SyntheticCrashX86.Stack + 0x300);
+        BinaryPrimitives.WriteUInt32LittleEndian(teb32.AsSpan(8), SyntheticCrashX86.Stack);
+        d.Memory.Add((teb + 0x2000, teb32));
+        d.Memory.Add((cpu, [0, 0, 0x4C, 0x01, .. MinidumpBuilder.ContextX86(SyntheticCrashX86.Base + SyntheticCrashX86.LeafRva, SyntheticCrashX86.Stack, ebp: SyntheticCrashX86.Stack + 0xC)]));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Base, (ulong)image.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Stack, 0x300, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(id, 0x7FF0_2000_0000, MinidumpBuilder.ContextX64(wow64cpu + 0x1000, 0x7FF0_2000_0000)));
+        var path = dir.File("wow64.dmp");
+        File.WriteAllBytes(path, d.Build());
+
+        var service = new MinidumpService { BucketCache = dir.File("cache") };
+        var stack = await service.Stack(path, null, true, 64, 0, 64, null, default);
+        Assert.Equal("x86 (WoW64)", stack.Architecture);
+        Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], stack.Frames.Take(3).Select(f => f.Symbol));
+        Assert.Contains(stack.Notes, n => n.StartsWith("WoW64 thread: frames 0-2 are its 32-bit side", StringComparison.Ordinal));
+        var summary = await service.Summarize(path, null, 0, 50, 0, 50, default);
+        Assert.Equal("synth32!Leaf", summary.Threads.Single().Location);
+        Assert.True(summary.Process.Wow64);
+        Assert.Equal("hang | synth32!Leaf > synth32!Mid > synth32!Top", Assert.Single((await service.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Buckets).Signature);
     }
 
     /// <summary>Frames without a name (JIT code, unknown places) are left out of a signature, so a dump that holds less memory lands in the same bucket.</summary>

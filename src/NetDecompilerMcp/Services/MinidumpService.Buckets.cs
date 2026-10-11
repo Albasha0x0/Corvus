@@ -243,8 +243,10 @@ public sealed partial class MinidumpService
 
     private async Task<List<(string Label, string? Version, string? Offset)>> SignatureFrames(Session s, DumpThread thread, DumpContext ctx, IReadOnlyList<string> skip, CancellationToken ct)
     {
-        var walker = s.Walker();
-        var walk = walker.Walk(ctx, thread.StackStart, thread.StackStart + thread.StackSize, BucketWalkFrames, ct);
+        // a WoW64 thread's own code is its 32-bit side
+        var walk = Wow64.Thread(s.Dump, thread.Teb) is { } wow
+            ? s.Walker(Wow64.View(s.Dump)).Walk(wow.Context, wow.StackLow, wow.StackHigh, BucketWalkFrames, ct)
+            : s.Walker().Walk(ctx, thread.StackStart, thread.StackStart + thread.StackSize, BucketWalkFrames, ct);
         var frames = new List<(string, string?, string?)>();
         foreach (var f in walk.Frames)
         {

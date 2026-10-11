@@ -137,7 +137,7 @@ public sealed partial class MinidumpService
                 si.Processors, si.ProcessorLevel, si.VendorId, string.IsNullOrEmpty(si.CsdVersion) ? null : si.CsdVersion, d.MiscInfo?.BuildString)
             : null;
         bool wow64 = d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("wow64.dll", StringComparison.OrdinalIgnoreCase));
-        if (wow64) notes.Add("WoW64 process dumped by a 64-bit tool: threads and stacks are the 64-bit side (wow64cpu); the 32-bit stacks are not walked. A 32-bit tool (procdump -x86 ...) writes a dump with the x86 view.");
+        int sides32 = 0;
         HostsClr(d, out var runtime);
         if (runtime == null && d.Modules.Any(m => m.FileName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))) runtime = "Il2Cpp (Unity)";
         var misc = d.MiscInfo;
@@ -156,11 +156,20 @@ public sealed partial class MinidumpService
         {
             ct.ThrowIfCancellationRequested();
             var ctx = d.ReadContext(t.Context);
+            if (wow64 && Wow64.Thread(d, t.Teb) is { } side)
+            {
+                ctx = side.Context;
+                sides32++;
+            }
             string? where = null;
             if (ctx != null) where = (await Locate(s, ctx.Ip, false, ct)).Symbol;
             threads.Add(new ThreadSummary(t.Id, t.Name, t.Id == exceptionThread, t.SuspendCount, t.Priority, Hex(d, t.Teb), Hex(d, t.StackStart), Hex(d, t.StackStart + t.StackSize),
                 t.StackSize, ctx != null ? Hex(d, ctx.Ip) : null, ctx != null ? Hex(d, ctx.Sp) : null, where, t.StartAddress is { } sa ? Hex(d, sa) : null));
         }
+        if (wow64)
+            notes.Add(sides32 > 0 ? "WoW64 process dumped by a 64-bit tool: thread instruction pointers and locations are the 32-bit side, from the x86 context WoW64 saved; dump_stack walks both sides."
+                : "WoW64 process dumped by a 64-bit tool: the 32-bit thread contexts (WoW64's CPU area) are not in the dump, so threads show the 64-bit side (wow64cpu). " +
+                  "A full-memory dump, or one written by a 32-bit tool (procdump -x86), holds them.");
         if (d.Exception == null) notes.Add("No exception stream: the dump was written without an exception (a hang or on-demand dump). dump_stack walks any thread.");
         if (!d.HasMemory64 && d.Modules.Count > 0) notes.Add("Not a full-memory dump: module code is read from the image files on disk when a matching build is found.");
         var handleTypes = d.Handles.GroupBy(h => h.TypeName ?? "(unknown)").Select(g => new HandleTypeCount(g.Key, g.Count()))
@@ -317,13 +326,23 @@ public sealed partial class MinidumpService
         var notes = new List<string>(walk.Notes);
         var (clrFrames, managedState) = await ManagedFrames(s, t.Id, managed, maxFrames, notes, ct);
         var merged = Merge(walk.Frames, clrFrames);
+        string arch = ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), registers = ctx.Format(), stop = walk.Stop;
+        if (Wow64.Thread(d, t.Teb) is { } wow)
+        {
+            // the 32-bit side first: that is the program's own code; the 64-bit side (wow64cpu, the thread start) follows
+            var walk32 = await Task.Run(() => s.Walker(Wow64.View(d)).Walk(wow.Context, wow.StackLow, wow.StackHigh, maxFrames, ct), ct);
+            merged.InsertRange(0, walk32.Frames.Select(f => ((WalkFrame?)f, (ManagedFrame?)null)));
+            notes.Add($"WoW64 thread: frames 0-{walk32.Frames.Count - 1} are its 32-bit side (the x86 context WoW64 saved for the thread); the 64-bit side follows.");
+            (arch, registers, stop) = ("x86 (WoW64)", wow.Context.Format(), walk32.Stop);
+        }
+        else if (Wow64.IsWow64(d))
+            notes.Add($"WoW64 process: this is the 64-bit side of the thread; its 32-bit context (in WoW64's CPU area{(Wow64.CpuArea(d, t.Teb) is { } cpu ? $" at {Hex(d, cpu)}" : "")}) " +
+                      "is not in the dump. A full-memory dump, or one written by a 32-bit tool (procdump -x86), holds it.");
         if (merged.Count > maxFrames) merged.RemoveRange(maxFrames, merged.Count - maxFrames);
         var frames = await Frames(s, merged, offset, limit, ct);
-        if (d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase)))
-            notes.Add("WoW64 process: this is the 64-bit side of the thread; its 32-bit frames are not walked.");
         notes.AddRange(ModuleNotes(s));
-        return new StackReport(s.Id, t.Id, t.Name, contextKind, ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), ctx.Format(),
-            merged.Count, offset, offset + frames.Count < merged.Count, frames, walk.Stop, merged.Count(f => f.Managed == null && f.Native!.Heuristic), managedState, notes);
+        return new StackReport(s.Id, t.Id, t.Name, contextKind, arch, registers,
+            merged.Count, offset, offset + frames.Count < merged.Count, frames, stop, merged.Count(f => f.Managed == null && f.Native!.Heuristic), managedState, notes);
     }
 
     /// <summary>Frames <paramref name="offset"/>.. of a walk, each named through <see cref="Locate"/>.</summary>
