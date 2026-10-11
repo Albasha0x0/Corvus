@@ -78,7 +78,7 @@ Loaded assemblies with their ids (use the id in other tools), versions, paths, w
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | Optional: a container file whose managed assemblies to list (a plain assembly lists itself). |
-| `filter` | string |  |  | Only assemblies whose id, name or path contains this text (case-insensitive; in a container, its path). |
+| `filter` | string |  |  | Only assemblies whose id, name or path contains this text (case-insensitive). |
 | `offset` | integer |  | `0` | Index of the first assembly to return. |
 | `limit` | integer |  | `100` | Max assemblies to return (default 100; total has the full count). |
 

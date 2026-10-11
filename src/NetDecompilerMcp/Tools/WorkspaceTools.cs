@@ -176,7 +176,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                  "(only the container is listed then, not the workspace, paged the same way); unpack_container extracts and loads them.")]
     public Task<WorkspaceState> ListAssemblies(
         [Description("Optional: a container file whose managed assemblies to list (a plain assembly lists itself).")] string? path = null,
-        [Description("Only assemblies whose id, name or path contains this text (case-insensitive; in a container, its path).")] string? filter = null,
+        [Description("Only assemblies whose id, name or path contains this text (case-insensitive).")] string? filter = null,
         [Description("Index of the first assembly to return.")] int offset = 0,
         [Description("Max assemblies to return (default 100; total has the full count).")] int limit = 100,
         CancellationToken cancellationToken = default) => Task.Run(() =>
