@@ -45,7 +45,9 @@ public sealed partial class CSharpPatcher
         var root = (CompilationUnitSyntax)model.SyntaxTree.GetRoot(ct);
         var methods = new List<(IMethodSymbol Symbol, string Name)>();
         var source = new StringBuilder();
-        foreach (var u in root.Usings) source.AppendLine(u.ToString());
+        // Inside the namespace, as in the shadow (see UsingsInsideNamespaces).
+        var usings = string.Concat(root.DescendantNodes(n => n is CompilationUnitSyntax or BaseNamespaceDeclarationSyntax).OfType<UsingDirectiveSyntax>()
+            .Select(u => Rooted(u) + "\n"));
         INamespaceSymbol? ns = null;
         var body = new StringBuilder();
 
@@ -65,6 +67,7 @@ public sealed partial class CSharpPatcher
 
         bool hasNamespace = ns is { IsGlobalNamespace: false };
         if (hasNamespace) source.AppendLine($"namespace {ns!.ToDisplayString()} {{");
+        source.Append(usings);
         source.AppendLine($"internal static class {HelperClass} {{");
         source.Append(body);
         source.AppendLine("}");

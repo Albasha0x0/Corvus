@@ -22,8 +22,30 @@ public sealed partial class CSharpPatcher
                        ?? throw new ToolError(ErrorCode.Unsupported, IsDelegate(type)
                            ? $"{type.FullName} is a delegate that also declares methods or fields (a code transformer construct); C# cannot declare those, so its code cannot be patched in C#: use patch_method_il instead."
                            : $"Could not locate {type.FullName} in its decompiled source; use patch_method_il instead.");
-        return CSharpSyntaxTree.Create((CompilationUnitSyntax)new InternalTypes().Visit(transform(root, typeNode))!, parseOptions);
+        return CSharpSyntaxTree.Create(UsingsInsideNamespaces((CompilationUnitSyntax)new InternalTypes().Visit(transform(root, typeNode))!), parseOptions);
     }
+
+    /// <summary>
+    /// Moves the file's using directives into its namespace declarations, so the names they import bind before types of
+    /// the global namespace: references are imported with their internals, and an internal global 'Exception' (a .NET
+    /// Framework assembly has one) took every 'catch (Exception)' of patched code. System, which user code may rely on
+    /// without a directive, is always among them.
+    /// </summary>
+    private static CompilationUnitSyntax UsingsInsideNamespaces(CompilationUnitSyntax root)
+    {
+        var usings = root.Usings.Where(u => u.GlobalKeyword.IsKind(SyntaxKind.None)).ToList();
+        if (!root.Members.OfType<BaseNamespaceDeclarationSyntax>().Any()) return root;
+        var moved = SF.List(usings.Select(Rooted));
+        if (!moved.Any(u => u.Alias == null && u.StaticKeyword.IsKind(SyntaxKind.None) && u.Name?.ToString() == "global::System"))
+            moved = moved.Insert(0, SF.ParseCompilationUnit("using global::System;\n").Usings[0]);
+        root = root.WithUsings(SF.List(root.Usings.Where(u => !u.GlobalKeyword.IsKind(SyntaxKind.None))));
+        return root.ReplaceNodes(root.Members.OfType<BaseNamespaceDeclarationSyntax>(), (_, ns) => ns.WithUsings(moved.AddRange(ns.Usings)));
+    }
+
+    /// <summary>The directive with its name from the global namespace: inside a namespace, 'System' could name a nested one.</summary>
+    private static UsingDirectiveSyntax Rooted(UsingDirectiveSyntax u) =>
+        u.Name == null || u.Name is AliasQualifiedNameSyntax || u.Name.ToString().StartsWith("global::", StringComparison.Ordinal) ? u
+            : u.WithName(SF.ParseName("global::" + u.Name).WithTriviaFrom(u.Name));
 
     private static bool IsDelegate(TypeDef type) => type.BaseType?.FullName is "System.MulticastDelegate" or "System.Delegate";
 
@@ -133,7 +155,7 @@ public sealed partial class CSharpPatcher
     private static bool NamespaceExists(Compilation compilation, string name)
     {
         INamespaceSymbol? ns = compilation.GlobalNamespace;
-        foreach (var part in name.Split('.'))
+        foreach (var part in (name.StartsWith("global::", StringComparison.Ordinal) ? name[8..] : name).Split('.'))
         {
             ns = ns.GetNamespaceMembers().FirstOrDefault(n => n.Name == part);
             if (ns == null) return false;

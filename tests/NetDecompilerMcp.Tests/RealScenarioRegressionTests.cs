@@ -275,6 +275,25 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// References are imported with their internals, and a global-namespace type bound before the decompiled file's
+    /// usings: an internal global 'Exception' in a .NET Framework assembly took every 'catch (Exception)' (CS0155; Greenshot).
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesBindUsingsBeforeInternalGlobalTypesOfReferences()
+    {
+        using var dir = new TempDir();
+        var lib = ReferenceResolutionTests.Compile("Lib", "internal class Exception { } public class Marker { }");
+        File.WriteAllBytes(dir.File("Lib.dll"), lib);
+        File.WriteAllBytes(dir.File("App.dll"), ReferenceResolutionTests.Compile("App", """
+            using System;
+            namespace App { public class C { public Marker M; public int Run() { return M == null ? 1 : 0; } } }
+            """, lib));
+        using var env = new Env(dir.File("App.dll"));
+        var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("App.C::Run"), "try { return 2; } catch (Exception e) { return e.Message.Length; }", dryRun: true, default));
+        Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The decompiled types were made public in the compiled copy, so an internal type deriving from or exposing another
     /// internal type of the target failed every C# patch with CS0060 or CS0053 (Newtonsoft.Json's JSON path classes).
     /// </summary>
