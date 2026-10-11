@@ -12,18 +12,74 @@ using NetDecompilerMcp.Relay;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>The development reload relay against scripted fake servers (one per staged build) and the SDK's client.</summary>
-public sealed class DevRelayTests : IAsyncLifetime
+/// <summary>The relay with a client on the initialize handshake (2025-11-25).</summary>
+public sealed class DevRelayInitializeTests() : DevRelayTests("2025-11-25")
 {
-    private readonly TempDir _dir = new();
+    [Fact]
+    public void ArgumentsSplitBetweenRelayAndServer()
+    {
+        var options = RelayCli.Parse(["--target", Dir.Path, "--load", "x.dll", "--poll-ms", "50", "--", "--target", "y"]);
+        Assert.Equal(Path.GetFullPath(Dir.Path), options.Target);
+        Assert.Equal(["--load", "x.dll", "--target", "y"], options.ServerArgs);
+        Assert.Equal(TimeSpan.FromMilliseconds(50), options.Poll);
+        Assert.Throws<ArgumentException>(() => RelayCli.Parse(["--load", "x.dll"]));
+        Assert.Equal(["--load", "x.dll"], RelayCli.WithoutRelayPrefix(["relay", "--target", "d", "--state", "s", "--", "--load", "x.dll"]));
+        Assert.Equal(["--load", "x.dll"], RelayCli.WithoutRelayPrefix(["--load", "x.dll"]));
+    }
+
+    [Fact]
+    public void StagingSkipsTheMarkerAndRenamedAsideFiles()
+    {
+        File.WriteAllText(Path.Combine(Publish, "NetDecompilerMcp.dll" + RelayBuilds.AsideInfix + "1"), "old");
+        Directory.CreateDirectory(Path.Combine(Publish, "runtimes"));
+        File.WriteAllText(Path.Combine(Publish, "runtimes", "n.so"), "n");
+        var marker = RelayBuilds.ReadMarker(Publish);
+        var staged = RelayBuilds.Stage(Publish, Path.Combine(Dir.Path, "stage"), marker);
+        Assert.True(File.Exists(Path.Combine(staged, "runtimes", "n.so")));
+        Assert.False(File.Exists(Path.Combine(staged, RelayBuilds.MarkerName)));
+        Assert.Empty(Directory.GetFiles(staged, "*" + RelayBuilds.AsideInfix + "*"));
+        Assert.Equal("A", RelayBuild.From(marker).Id);
+        Assert.Throws<IOException>(() => RelayBuilds.Stage(Publish, Path.Combine(Dir.Path, "stage"), "{\"buildId\":\"other\"}"));
+    }
+}
+
+/// <summary>The relay with a client on per-request metadata (2026-07-28): server/discover, no session, a listen stream.</summary>
+public sealed class DevRelayDiscoverTests() : DevRelayTests("2026-07-28")
+{
+    [Fact]
+    public async Task FailedInitializeIsNotRepeatedOnTheNewBuild()
+    {
+        var initialize = new JsonRpcRequest
+        {
+            Method = RequestMethods.Initialize,
+            Params = new JsonObject { ["protocolVersion"] = Protocol, ["capabilities"] = new JsonObject(), ["clientInfo"] = new JsonObject { ["name"] = "x", ["version"] = "1" } },
+        };
+        await Assert.ThrowsAnyAsync<McpException>(() => Client.SendRequestAsync(initialize));
+        PublishBuild("B");
+        await Until(() => Notifications.Count == 3, "the swap");
+        Assert.StartsWith("[relay] now serving build B", await Call("echo", new() { ["text"] = "hi" }));
+    }
+}
+
+/// <summary>
+/// The development reload relay against scripted fake servers (one per staged build) and the SDK's client, run once per
+/// protocol family: the initialize handshake, and per-request metadata where list_changed travels on a listen stream.
+/// </summary>
+public abstract class DevRelayTests(string protocol) : IAsyncLifetime
+{
+    protected string Protocol { get; } = protocol;
+    private bool PerRequest => Protocol == "2026-07-28";
+    protected TempDir Dir { get; } = new();
     private readonly ConcurrentQueue<FakeMcpServer> _servers = new();
-    private readonly ConcurrentQueue<string> _notifications = new();
+    protected ConcurrentQueue<string> Notifications { get; } = new();
+    private int _tagged, _acks;
     private DevRelay _relay = null!;
     private Task<int> _run = null!;
-    private McpClient _client = null!;
+    protected McpClient Client { get; private set; } = null!;
+    private readonly CancellationTokenSource _listenEnd = new();
     private readonly Pipe _toRelay = new();
-    private string Publish => Path.Combine(_dir.Path, "publish");
-    private string State => Path.Combine(_dir.Path, "state");
+    protected string Publish => Path.Combine(Dir.Path, "publish");
+    private string State => Path.Combine(Dir.Path, "state");
 
     public async Task InitializeAsync()
     {
@@ -39,29 +95,49 @@ public sealed class DevRelayTests : IAsyncLifetime
             return server;
         });
         _run = _relay.RunAsync();
+        ValueTask Changed(JsonRpcNotification n, CancellationToken _)
+        {
+            if (n.Params?["_meta"]?["io.modelcontextprotocol/subscriptionId"] != null) Interlocked.Increment(ref _tagged);
+            Notifications.Enqueue(n.Method);
+            return ValueTask.CompletedTask;
+        }
         var handlers = new McpClientHandlers
         {
             NotificationHandlers =
             [
-                new(NotificationMethods.ToolListChangedNotification, (n, _) => { _notifications.Enqueue(n.Method); return ValueTask.CompletedTask; }),
-                new(NotificationMethods.PromptListChangedNotification, (n, _) => { _notifications.Enqueue(n.Method); return ValueTask.CompletedTask; }),
-                new(NotificationMethods.ResourceListChangedNotification, (n, _) => { _notifications.Enqueue(n.Method); return ValueTask.CompletedTask; }),
+                new(NotificationMethods.ToolListChangedNotification, Changed),
+                new(NotificationMethods.PromptListChangedNotification, Changed),
+                new(NotificationMethods.ResourceListChangedNotification, Changed),
+                new("notifications/subscriptions/acknowledged", (_, _) => { Interlocked.Increment(ref _acks); return ValueTask.CompletedTask; }),
             ],
         };
-        _client = await McpClient.CreateAsync(new StreamClientTransport(toRelay.Writer.AsStream(), toClient.Reader.AsStream()),
-            new McpClientOptions { ClientInfo = new Implementation { Name = "relay-test", Version = "1" }, Handlers = handlers });
+        Client = await McpClient.CreateAsync(new StreamClientTransport(toRelay.Writer.AsStream(), toClient.Reader.AsStream()),
+            new McpClientOptions { ClientInfo = new Implementation { Name = "relay-test", Version = "1" }, Handlers = handlers, ProtocolVersion = Protocol });
+        Assert.Equal(Protocol, Client.NegotiatedProtocolVersion);
+        if (PerRequest)
+        {
+            // Long-lived: answered only when the client ends it, and must not hold a swap back.
+            var listen = new JsonRpcRequest
+            {
+                Method = "subscriptions/listen",
+                Params = new JsonObject { ["notifications"] = new JsonObject { ["toolsListChanged"] = true, ["promptsListChanged"] = true, ["resourcesListChanged"] = true } },
+            };
+            _ = Client.SendRequestAsync(listen, _listenEnd.Token).ContinueWith(_ => { }, TaskScheduler.Default);
+            await Until(() => Volatile.Read(ref _acks) == 1, "the listen acknowledgement");
+        }
     }
 
     public async Task DisposeAsync()
     {
-        await _client.DisposeAsync();
+        await _listenEnd.CancelAsync();
+        await Client.DisposeAsync();
         await _toRelay.Writer.CompleteAsync(); // the client's end of input
         Assert.Equal(0, await _run.WaitAsync(TimeSpan.FromSeconds(10)));
-        _dir.Dispose();
+        Dir.Dispose();
     }
 
     /// <summary>Writes a build tagged <paramref name="tag"/> and then its marker, as publish.ps1 does.</summary>
-    private void PublishBuild(string tag)
+    protected void PublishBuild(string tag)
     {
         File.Delete(Path.Combine(Publish, RelayBuilds.MarkerName));
         File.WriteAllText(Path.Combine(Publish, "NetDecompilerMcp.dll"), "stand-in");
@@ -71,13 +147,13 @@ public sealed class DevRelayTests : IAsyncLifetime
 
     private FakeMcpServer Server(string tag) => _servers.Last(s => s.Tag == tag);
 
-    private async Task<string> Call(string tool, Dictionary<string, object?>? args = null, CancellationToken token = default)
+    protected async Task<string> Call(string tool, Dictionary<string, object?>? args = null, CancellationToken token = default)
     {
-        var result = await _client.CallToolAsync(tool, args ?? [], cancellationToken: token);
+        var result = await Client.CallToolAsync(tool, args ?? [], cancellationToken: token);
         return string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text));
     }
 
-    private static async Task Until(Func<bool> condition, string what)
+    protected static async Task Until(Func<bool> condition, string what)
     {
         for (int i = 0; i < 500 && !condition(); i++) await Task.Delay(20);
         Assert.True(condition(), "timed out waiting for " + what);
@@ -86,11 +162,11 @@ public sealed class DevRelayTests : IAsyncLifetime
     [Fact]
     public async Task ForwardsCallsAndAddsTheApplyTool()
     {
-        var tools = await _client.ListToolsAsync();
+        var tools = await Client.ListToolsAsync();
         Assert.Contains(tools, t => t.Name == "echo");
         Assert.Contains(tools, t => t.Name == DevRelay.ApplyTool);
         Assert.Equal("build A: hi", await Call("echo", new() { ["text"] = "hi" }));
-        Assert.True(_client.ServerCapabilities.Tools?.ListChanged);
+        Assert.True(Client.ServerCapabilities.Tools?.ListChanged);
         Assert.Contains("No newer build", await Call(DevRelay.ApplyTool));
         // The server ran from a staged copy, never from the publish folder.
         Assert.StartsWith(Path.Combine(State, "builds"), Server("A").Directory ?? Path.Combine(State, "builds"), StringComparison.OrdinalIgnoreCase);
@@ -99,23 +175,30 @@ public sealed class DevRelayTests : IAsyncLifetime
     [Fact]
     public async Task NewBuildReplaysLoadsAndNotifies()
     {
-        var file = _dir.File("app.dll");
+        var file = Dir.File("app.dll");
         File.WriteAllText(file, "x");
         await Call("load_assembly", new() { ["path"] = file });
         await Call("load_assembly", new() { ["path"] = file, ["dryRun"] = true });
         await Call("echo", new() { ["text"] = "not replayed" });
         PublishBuild("B");
-        await Until(() => _notifications.Count == 3, "list_changed notifications");
-        Assert.Equal(["notifications/prompts/list_changed", "notifications/resources/list_changed", "notifications/tools/list_changed"], _notifications.Order(StringComparer.Ordinal));
+        await Until(() => Notifications.Count == 3, "list_changed notifications");
+        Assert.Equal(["notifications/prompts/list_changed", "notifications/resources/list_changed", "notifications/tools/list_changed"], Notifications.Order(StringComparer.Ordinal));
+        Assert.Equal(PerRequest ? 3 : 0, _tagged); // on the listen stream
         var text = await Call("echo", new() { ["text"] = "hi" });
         Assert.StartsWith("[relay] now serving build B (B, catalog t1-fake) (was A); replayed 1 workspace call(s): load_assembly " + file, text);
         Assert.EndsWith("build B: hi", text);
         var b = Server("B");
         Assert.Equal([file], b.Loaded);
         Assert.Equal("relay-test", b.ClientName);
-        Assert.True(b.Initialized);
+        Assert.True(b.Ready);
         await Until(() => Server("A").Killed, "the old server to stop");
         Assert.DoesNotContain("[relay]", await Call("echo", new() { ["text"] = "again" }));
+        if (!PerRequest) return;
+        // The listen stream moved: the new server's own notifications reach the client, its second acknowledgement does not.
+        Assert.Equal(1, b.Listens);
+        await Call("notify");
+        await Until(() => Notifications.Count == 4, "the new server's notification");
+        Assert.Equal(1, Volatile.Read(ref _acks));
     }
 
     [Fact]
@@ -149,10 +232,10 @@ public sealed class DevRelayTests : IAsyncLifetime
         PublishBuild("broken");
         await Until(() => _servers.Any(s => s.Tag == "broken" && s.Killed), "the broken build to be dropped");
         var text = await Call("echo", new() { ["text"] = "hi" });
-        Assert.StartsWith("[relay] new build broken was not applied: initialize failed", text);
+        Assert.StartsWith($"[relay] new build broken was not applied: {(PerRequest ? "server/discover" : "initialize")} failed", text);
         Assert.EndsWith("build A: hi", text);
         PublishBuild("C");
-        await Until(() => _servers.Any(s => s.Tag == "C" && s.Initialized), "build C");
+        await Until(() => _servers.Any(s => s.Tag == "C" && s.Ready), "build C");
         await Until(() => Server("A").Killed, "build A to stop");
         Assert.EndsWith("build C: hi", await Call("echo", new() { ["text"] = "hi" }));
     }
@@ -160,7 +243,7 @@ public sealed class DevRelayTests : IAsyncLifetime
     [Fact]
     public async Task FailedReplayKeepsTheOldOneUnlessForced()
     {
-        var file = _dir.File("gone.dll");
+        var file = Dir.File("gone.dll");
         File.WriteAllText(file, "x");
         await Call("load_assembly", new() { ["path"] = file });
         File.Delete(file);
@@ -183,71 +266,55 @@ public sealed class DevRelayTests : IAsyncLifetime
         PublishBuild("B");
         await Task.Delay(300);
         Assert.Single(_servers); // not while a call is in flight
+        var text = await Call("echo", new() { ["text"] = "hi" });
+        Assert.StartsWith("[relay] new build B is ready but not applied yet: 1 call(s) in flight (tools/call slow).", text);
+        Assert.DoesNotContain("[relay]", await Call("echo", new() { ["text"] = "hi" })); // said once
         // Sent by hand: this SDK version does not send notifications/cancelled for a cancelled call.
-        await _client.SendNotificationAsync(NotificationMethods.CancelledNotification,
+        await Client.SendNotificationAsync(NotificationMethods.CancelledNotification,
             new CancelledNotificationParams { RequestId = new RequestId(Server("A").SlowIds.Single()) });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => slow); // the SDK drops its own pending request
         await Until(() => Server("A").Cancelled == 1, "the cancellation to reach the server");
-        await Until(() => _servers.Any(s => s.Tag == "B" && s.Initialized), "build B");
+        await Until(() => _servers.Any(s => s.Tag == "B" && s.Ready), "build B");
     }
 
     [Fact]
     public async Task ServerRequestsReachTheClientAcrossSwaps()
     {
-        Assert.Equal("build A: the client answered ping", await Call("ask"));
+        // A 2026-07-28 client refuses ping (removed there); its error reply still has to find the asking server.
+        var answer = PerRequest ? "failed" : "answered";
+        Assert.Equal($"build A: the client {answer} ping", await Call("ask"));
         PublishBuild("B");
-        await Until(() => _notifications.Count == 3, "the swap");
-        Assert.EndsWith("build B: the client answered ping", await Call("ask"));
+        await Until(() => Notifications.Count == 3, "the swap");
+        Assert.EndsWith($"build B: the client {answer} ping", await Call("ask"));
     }
 
     [Fact]
     public async Task ExitedServerIsRestartedWithReplay()
     {
-        var file = _dir.File("app.dll");
+        var file = Dir.File("app.dll");
         File.WriteAllText(file, "x");
         await Call("load_assembly", new() { ["path"] = file });
         await Assert.ThrowsAnyAsync<McpException>(() => Call("crash"));
-        await Until(() => _servers.Count == 2 && _servers.Last().Initialized, "the restart");
+        await Until(() => _servers.Count == 2 && _servers.Last().Ready, "the restart");
         var text = await Call("echo", new() { ["text"] = "hi" });
         Assert.Contains("exited", text);
         Assert.Contains("replayed 1 workspace call(s)", text);
         Assert.Equal([file], _servers.Last().Loaded);
-    }
-
-    [Fact]
-    public void ArgumentsSplitBetweenRelayAndServer()
-    {
-        var options = RelayCli.Parse(["--target", _dir.Path, "--load", "x.dll", "--poll-ms", "50", "--", "--target", "y"]);
-        Assert.Equal(Path.GetFullPath(_dir.Path), options.Target);
-        Assert.Equal(["--load", "x.dll", "--target", "y"], options.ServerArgs);
-        Assert.Equal(TimeSpan.FromMilliseconds(50), options.Poll);
-        Assert.Throws<ArgumentException>(() => RelayCli.Parse(["--load", "x.dll"]));
-        Assert.Equal(["--load", "x.dll"], RelayCli.WithoutRelayPrefix(["relay", "--target", "d", "--state", "s", "--", "--load", "x.dll"]));
-        Assert.Equal(["--load", "x.dll"], RelayCli.WithoutRelayPrefix(["--load", "x.dll"]));
-    }
-
-    [Fact]
-    public void StagingSkipsTheMarkerAndRenamedAsideFiles()
-    {
-        File.WriteAllText(Path.Combine(Publish, "NetDecompilerMcp.dll" + RelayBuilds.AsideInfix + "1"), "old");
-        Directory.CreateDirectory(Path.Combine(Publish, "runtimes"));
-        File.WriteAllText(Path.Combine(Publish, "runtimes", "n.so"), "n");
-        var marker = RelayBuilds.ReadMarker(Publish);
-        var staged = RelayBuilds.Stage(Publish, Path.Combine(_dir.Path, "stage"), marker);
-        Assert.True(File.Exists(Path.Combine(staged, "runtimes", "n.so")));
-        Assert.False(File.Exists(Path.Combine(staged, RelayBuilds.MarkerName)));
-        Assert.Empty(Directory.GetFiles(staged, "*" + RelayBuilds.AsideInfix + "*"));
-        Assert.Equal("A", RelayBuild.From(marker).Id);
-        Assert.Throws<IOException>(() => RelayBuilds.Stage(Publish, Path.Combine(_dir.Path, "stage"), "{\"buildId\":\"other\"}"));
+        Assert.Equal(PerRequest ? 1 : 0, _servers.Last().Listens); // the open stream is taken over
     }
 }
 
-/// <summary>The relay with the real server: two publishes of this build, a load replayed, an edit holding the swap back.</summary>
+/// <summary>
+/// The relay with the real server: two publishes of this build, a load replayed, an edit holding the swap back; on
+/// 2026-07-28 with a listen stream open throughout, which carries list_changed.
+/// </summary>
 public sealed class DevRelayRealServerTests
 {
     [Trait("Speed", "Slow")]
-    [Fact]
-    public async Task RepublishSwapsTheRealServerAndKeepsTheWorkspace()
+    [Theory]
+    [InlineData("2025-11-25")]
+    [InlineData("2026-07-28")]
+    public async Task RepublishSwapsTheRealServerAndKeepsTheWorkspace(string protocol)
     {
         using var dir = new TempDir();
         var publish = Path.Combine(dir.Path, "publish");
@@ -275,15 +342,29 @@ public sealed class DevRelayRealServerTests
             return process;
         });
         var run = relay.RunAsync();
-        var changed = 0;
+        int changed = 0, acks = 0;
         var handlers = new McpClientHandlers
         {
-            NotificationHandlers = [new(NotificationMethods.ToolListChangedNotification, (_, _) => { Interlocked.Increment(ref changed); return ValueTask.CompletedTask; })],
+            NotificationHandlers =
+            [
+                new(NotificationMethods.ToolListChangedNotification, (_, _) => { Interlocked.Increment(ref changed); return ValueTask.CompletedTask; }),
+                new("notifications/subscriptions/acknowledged", (_, _) => { Interlocked.Increment(ref acks); return ValueTask.CompletedTask; }),
+            ],
         };
-        await using (var client = await McpClient.CreateAsync(new StreamClientTransport(toRelay.Writer.AsStream(), toClient.Reader.AsStream()), new McpClientOptions { Handlers = handlers }))
+        using var listenEnd = new CancellationTokenSource();
+        await using (var client = await McpClient.CreateAsync(new StreamClientTransport(toRelay.Writer.AsStream(), toClient.Reader.AsStream()),
+                         new McpClientOptions { Handlers = handlers, ProtocolVersion = protocol }))
         {
+            Assert.Equal(protocol, client.NegotiatedProtocolVersion);
             async Task<string> Call(string tool, Dictionary<string, object?> args) =>
                 string.Join("\n", (await client.CallToolAsync(tool, args)).Content.OfType<TextContentBlock>().Select(b => b.Text));
+            if (protocol == "2026-07-28")
+            {
+                var listen = new JsonRpcRequest { Method = "subscriptions/listen", Params = new JsonObject { ["notifications"] = new JsonObject { ["toolsListChanged"] = true } } };
+                _ = client.SendRequestAsync(listen, listenEnd.Token).ContinueWith(_ => { }, TaskScheduler.Default);
+                for (int i = 0; i < 200 && Volatile.Read(ref acks) == 0; i++) await Task.Delay(50);
+                Assert.Equal(1, acks);
+            }
 
             await Call("load_assembly", new() { ["path"] = Env.FixturePath });
             Mark("two");
@@ -301,6 +382,8 @@ public sealed class DevRelayRealServerTests
             Assert.Contains("unsaved edit(s) pending", await Call("list_assemblies", []));
             Assert.Contains("now serving build three", await Call(DevRelay.ApplyTool, []));
             Assert.Equal(3, processes.Count);
+            Assert.Equal(protocol == "2026-07-28" ? 1 : 0, acks); // the stream moved twice without a second acknowledgement
+            await listenEnd.CancelAsync();
         }
         await toRelay.Writer.CompleteAsync();
         Assert.Equal(0, await run.WaitAsync(TimeSpan.FromSeconds(30)));
@@ -309,8 +392,9 @@ public sealed class DevRelayRealServerTests
 
 /// <summary>
 /// A scripted MCP server behind in-memory pipes. Tools: echo {text}, load_assembly {path} (fails for a missing file),
-/// edit / save (unsaved edits in the assemblies resource), slow (until cancelled), ask (pings the client), crash, server_status.
-/// Tagged "broken", it exits without answering.
+/// edit / save (unsaved edits in the assemblies resource), slow (until cancelled), ask (pings the client), crash, server_status,
+/// notify (tools list_changed on each listen stream). Speaks the initialize handshake, or 2026-07-28 per-request metadata
+/// (server/discover, subscriptions/listen, _meta required on every request). Tagged "broken", it exits without answering.
 /// </summary>
 internal sealed class FakeMcpServer : ChildProcess
 {
@@ -326,6 +410,10 @@ internal sealed class FakeMcpServer : ChildProcess
     public List<string> Loaded { get; } = [];
     public string? ClientName { get; private set; }
     public bool Initialized { get; private set; }
+    public bool Discovered { get; private set; }
+    public bool Ready => Initialized || Discovered;
+    public int Listens => _listens.Count;
+    private readonly ConcurrentDictionary<string, JsonNode> _listens = new();
     public bool Killed { get; private set; }
     public int Running, Cancelled, EditChecks;
     public ConcurrentQueue<long> SlowIds { get; } = new();
@@ -389,6 +477,20 @@ internal sealed class FakeMcpServer : ChildProcess
 
     private void Reply(JsonNode? id, JsonNode result) => Send(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(), ["result"] = result });
 
+    private void Fail(JsonNode? id, string message) =>
+        Send(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(), ["error"] = new JsonObject { ["code"] = -32601, ["message"] = message } });
+
+    private const string PerRequestVersion = "2026-07-28";
+
+    private static JsonObject Capabilities() => new() { ["tools"] = new JsonObject(), ["prompts"] = new JsonObject(), ["resources"] = new JsonObject() };
+
+    private void Notify(string method, JsonNode? stream)
+    {
+        var message = new JsonObject { ["jsonrpc"] = "2.0", ["method"] = method };
+        if (stream != null) message["params"] = new JsonObject { ["_meta"] = new JsonObject { ["io.modelcontextprotocol/subscriptionId"] = stream.DeepClone() } };
+        Send(message);
+    }
+
     private static JsonObject Text(string text, bool isError = false) =>
         new() { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }), ["isError"] = isError };
 
@@ -396,19 +498,64 @@ internal sealed class FakeMcpServer : ChildProcess
     {
         var id = message["id"];
         var p = message["params"];
-        switch (message["method"]?.GetValue<string>())
+        var method = message["method"]?.GetValue<string>();
+        var meta = p?["_meta"];
+        // As the SDK: past server/discover every request carries the client's protocol version and capabilities.
+        if (id != null && method != null && Discovered && (meta?["io.modelcontextprotocol/protocolVersion"] == null || meta["io.modelcontextprotocol/clientCapabilities"] == null))
+        {
+            Fail(id, $"'{method}' must include _meta/io.modelcontextprotocol/protocolVersion and clientCapabilities.");
+            return;
+        }
+        switch (method)
         {
             case null:
                 if (_asks.TryRemove(id!.ToJsonString(), out var ask)) ask.TrySetResult(message);
                 return;
             case "initialize":
+                if (p?["protocolVersion"]?.GetValue<string>() == PerRequestVersion)
+                {
+                    Fail(id, $"Protocol version '{PerRequestVersion}' is not available through the initialize handshake.");
+                    return;
+                }
                 ClientName = p?["clientInfo"]?["name"]?.GetValue<string>();
                 Reply(id, new JsonObject
                 {
                     ["protocolVersion"] = p?["protocolVersion"]?.DeepClone(),
-                    ["capabilities"] = new JsonObject { ["tools"] = new JsonObject(), ["prompts"] = new JsonObject(), ["resources"] = new JsonObject() },
+                    ["capabilities"] = Capabilities(),
                     ["serverInfo"] = new JsonObject { ["name"] = "fake", ["version"] = Tag },
                 });
+                return;
+            case "server/discover":
+                if (meta?["io.modelcontextprotocol/protocolVersion"]?.GetValue<string>() != PerRequestVersion)
+                {
+                    Fail(id, "server/discover requires per-request metadata.");
+                    return;
+                }
+                ClientName = meta["io.modelcontextprotocol/clientInfo"]?["name"]?.GetValue<string>();
+                Discovered = true;
+                Reply(id, new JsonObject
+                {
+                    ["supportedVersions"] = new JsonArray(PerRequestVersion),
+                    ["capabilities"] = Capabilities(),
+                    ["_meta"] = new JsonObject { ["io.modelcontextprotocol/serverInfo"] = new JsonObject { ["name"] = "fake", ["version"] = Tag } },
+                });
+                return;
+            case "subscriptions/listen":
+                using (var end = new CancellationTokenSource())
+                {
+                    _calls[id!.ToJsonString()] = end;
+                    _listens[id.ToJsonString()] = id.DeepClone();
+                    Send(new JsonObject
+                    {
+                        ["jsonrpc"] = "2.0",
+                        ["method"] = "notifications/subscriptions/acknowledged",
+                        ["params"] = new JsonObject { ["notifications"] = p?["notifications"]?.DeepClone(), ["_meta"] = new JsonObject { ["io.modelcontextprotocol/subscriptionId"] = id.DeepClone() } },
+                    });
+                    try { await Task.Delay(Timeout.Infinite, end.Token); }
+                    catch (OperationCanceledException) { }
+                    _listens.TryRemove(id.ToJsonString(), out _);
+                    Reply(id, new JsonObject());
+                }
                 return;
             case "notifications/initialized":
                 Initialized = true;
@@ -484,6 +631,13 @@ internal sealed class FakeMcpServer : ChildProcess
                 break;
             case "crash":
                 Exit();
+                break;
+            case "notify":
+                if (Discovered)
+                    foreach (var stream in _listens.Values) Notify("notifications/tools/list_changed", stream);
+                else
+                    Notify("notifications/tools/list_changed", null);
+                Reply(id, Text("notified"));
                 break;
         }
     }

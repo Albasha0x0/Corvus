@@ -21,9 +21,11 @@ public sealed record RelayOptions
 
 /// <summary>
 /// Development reload. Speaks MCP stdio to the client and forwards JSON-RPC to the real server, run as a child from a
-/// staged copy of the publish folder. When a new publish marker is stable and no client request is in flight, a new
-/// child is initialized with the client's initialize params, replays the workspace-establishing calls, and replaces the
-/// old one; the client then gets list_changed notifications and a [relay] notice on its next tool result.
+/// staged copy of the publish folder. When a new publish marker is stable and no client call is in flight, a new child
+/// is brought to the client's session (its initialize repeated, or on per-request-metadata protocols such as 2026-07-28
+/// a server/discover with the client's metadata), replays the workspace-establishing calls, takes over the client's open
+/// subscriptions/listen streams and replaces the old one; the client then gets list_changed notifications (through its
+/// listen streams on 2026-07-28) and a [relay] notice on its next tool result.
 /// </summary>
 public sealed partial class DevRelay : IAsyncDisposable
 {
@@ -33,6 +35,12 @@ public sealed partial class DevRelay : IAsyncDisposable
     private static readonly HashSet<string> ReplayedTools = ["load_assembly", "unload_assembly", "add_search_directory", "load_pdb", "unpack_container"];
     private static readonly string[] ListChanged =
         ["notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/resources/list_changed"];
+    private static readonly string[] ListenFlags = ["toolsListChanged", "promptsListChanged", "resourcesListChanged"];
+    // Long-lived requests: moved to the new child on a swap instead of holding it back.
+    private static readonly HashSet<string> StreamMethods = ["subscriptions/listen"];
+    private const string MetaPrefix = "io.modelcontextprotocol/";
+    private const string ProtocolKey = MetaPrefix + "protocolVersion";
+    private const string SubscriptionKey = MetaPrefix + "subscriptionId";
     private const string NotCarried = "not carried over: in-memory edits, native engine sessions and kept results (read_result ids).";
 
     // Relaxed escaping keeps forwarded text as the server wrote it ('+', quotes inside strings) instead of \uXXXX.
@@ -49,17 +57,19 @@ public sealed partial class DevRelay : IAsyncDisposable
 
     // Guarded by _gate.
     private Child? _active;
-    private readonly Dictionary<string, (Child Child, JsonObject Request)> _inFlight = [];
+    private readonly Dictionary<string, (Child Child, JsonObject Request, bool Stream)> _inFlight = [];
+    private readonly HashSet<string> _movedStreams = []; // the new child's acknowledgement of these is not news to the client
     private readonly Dictionary<string, (Child Child, JsonNode? Id)> _serverRequests = [];
     private readonly List<(string Method, JsonObject? Params, string Label)> _replay = [];
     private readonly List<string> _notices = [];
     private readonly List<TaskCompletionSource<(bool Ok, string Text)>> _applyWaiters = [];
-    private JsonObject? _initializeParams;
+    private JsonObject? _initializeParams; // of a successful initialize
+    private JsonObject? _requestMeta; // the client's per-request metadata (2026-07-28 and later)
     private string? _protocolVersion;
     private bool _initialized, _swapping, _force, _postponed, _clientSpoke;
     private TaskCompletionSource _swapDone = Done();
     private RelayBuild? _pending;
-    private string? _failedMarker, _postponeNoticeFor;
+    private string? _failedMarker, _postponeNoticeFor, _waitNoticeFor;
     private long _ids;
     private int _generation;
 
@@ -197,11 +207,9 @@ public sealed partial class DevRelay : IAsyncDisposable
     {
         var method = Method(message);
         var id = message["id"];
+        if (RequestMeta(message) is { } meta) _requestMeta = meta;
         switch (method)
         {
-            case "initialize":
-                _initializeParams = message["params"]?.DeepClone() as JsonObject;
-                break;
             case "notifications/initialized":
                 _initialized = true;
                 break;
@@ -225,7 +233,7 @@ public sealed partial class DevRelay : IAsyncDisposable
             WriteClient(Error(id, "the server process is not running; publish a build or call relay_apply to restart it." + reason));
             return null;
         }
-        _inFlight[Key(id)] = (active, message);
+        _inFlight[Key(id)] = (active, message, method != null && StreamMethods.Contains(method));
         return active;
     }
 
@@ -265,9 +273,14 @@ public sealed partial class DevRelay : IAsyncDisposable
                 WriteClient(message);
                 return;
             }
-            bool active;
-            lock (_gate) active = child == _active && !child.Retired;
-            if (active) WriteClient(message);
+            bool forward;
+            lock (_gate)
+            {
+                forward = child == _active && !child.Retired;
+                if (forward && Method(message) == "notifications/subscriptions/acknowledged" && message["params"]?["_meta"]?[SubscriptionKey] is { } stream)
+                    forward = !_movedStreams.Remove(Key(stream));
+            }
+            if (forward) WriteClient(message);
             return;
         }
         if (message["id"] is not { } id) return;
@@ -282,9 +295,10 @@ public sealed partial class DevRelay : IAsyncDisposable
         {
             if (!_inFlight.TryGetValue(key, out var entry) || entry.Child != child) return;
             _inFlight.Remove(key);
+            _movedStreams.Remove(key);
             Record(entry.Request, message);
             Decorate(entry.Request, message);
-            drained = _inFlight.Count == 0;
+            drained = Calls() == 0;
         }
         WriteClient(message);
         if (drained) TryBeginSwap();
@@ -298,8 +312,10 @@ public sealed partial class DevRelay : IAsyncDisposable
         var failed = new List<JsonNode>();
         lock (_gate)
         {
+            var restart = !child.Retired && child == _active && !_stop.IsCancellationRequested;
             foreach (var (key, entry) in _inFlight.Where(e => e.Value.Child == child).ToList())
             {
+                if (entry.Stream && restart) continue; // taken over by the restarted server
                 _inFlight.Remove(key);
                 if (entry.Request["id"] is { } id) failed.Add(id.DeepClone());
             }
@@ -337,10 +353,10 @@ public sealed partial class DevRelay : IAsyncDisposable
                 break;
             case "logging/setLevel":
                 _replay.RemoveAll(r => r.Method == "logging/setLevel");
-                _replay.Add(("logging/setLevel", p?.DeepClone() as JsonObject, "logging level"));
+                _replay.Add(("logging/setLevel", WithoutMeta(p), "logging level"));
                 break;
             case "resources/subscribe" or "resources/unsubscribe":
-                _replay.Add((Method(request)!, p?.DeepClone() as JsonObject, $"{Method(request)} {p?["uri"]}"));
+                _replay.Add((Method(request)!, WithoutMeta(p), $"{Method(request)} {p?["uri"]}"));
                 break;
         }
     }
@@ -352,17 +368,25 @@ public sealed partial class DevRelay : IAsyncDisposable
         switch (Method(request))
         {
             case "initialize":
+                // Only a handshake that succeeded is repeated (a 2026-07-28 client's initialize fails; it uses server/discover).
+                _initializeParams = request["params"]?.DeepClone() as JsonObject;
+                _initialized = false;
                 _protocolVersion = result["protocolVersion"]?.GetValue<string>();
-                // The relay sends these after a swap whatever the server declares.
-                if (result["capabilities"] is JsonObject capabilities)
-                    foreach (var kind in new[] { "tools", "prompts", "resources" })
-                        if (capabilities[kind] is JsonObject o) o["listChanged"] = true;
+                ListChangedCapabilities(result);
+                break;
+            case "server/discover":
+                ListChangedCapabilities(result);
                 break;
             case "tools/list" when result["nextCursor"] == null && result["tools"] is JsonArray tools:
                 tools.Add(ApplyToolDefinition());
                 break;
             case "tools/call":
                 _postponed = false; // the call may have saved or reverted the edits that held a swap back
+                if (_pending != null && !_swapping && SwapBlocker(_force) is { } why && _waitNoticeFor != _pending.Marker + why)
+                {
+                    _waitNoticeFor = _pending.Marker + why;
+                    _notices.Add($"new build {_pending.Id} is ready but not applied yet: {why}. It is applied once that clears, or call {ApplyTool}.");
+                }
                 if (_notices.Count > 0 && result["content"] is JsonArray content)
                 {
                     content.Insert(0, new JsonObject { ["type"] = "text", ["text"] = string.Join("\n", _notices.Select(n => "[relay] " + n)) + "\n\n" });
@@ -370,6 +394,14 @@ public sealed partial class DevRelay : IAsyncDisposable
                 }
                 break;
         }
+    }
+
+    /// <summary>The relay sends list_changed after a swap whatever the server declares.</summary>
+    private static void ListChangedCapabilities(JsonObject result)
+    {
+        if (result["capabilities"] is not JsonObject capabilities) return;
+        foreach (var kind in new[] { "tools", "prompts", "resources" })
+            if (capabilities[kind] is JsonObject o) o["listChanged"] = true;
     }
 
     private static JsonObject ApplyToolDefinition() => new()
@@ -431,21 +463,30 @@ public sealed partial class DevRelay : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_swapping || _pending == null || _postponed || _inFlight.Count > 0 || _stop.IsCancellationRequested) return;
-            // Before the client's handshake there is nothing to replay into: a new child then just replaces the old one.
-            if (_initializeParams != null && !_initialized) return;
+            if (_swapping || _pending == null || _postponed || _stop.IsCancellationRequested || SwapBlocker(_force) != null) return;
             _swapping = true;
             _swapDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
         _ = Task.Run(RunSwapAsync);
     }
 
+    /// <summary>Why a swap cannot start now (null: it can). Called under _gate.</summary>
+    private string? SwapBlocker(bool force)
+    {
+        if (!force && _initializeParams != null && !_initialized) return "the client has not completed its initialize handshake";
+        var calls = _inFlight.Values.Where(e => !e.Stream).Select(e => Method(e.Request) == "tools/call" ? $"tools/call {ToolName(e.Request)}" : Method(e.Request)).ToList();
+        return calls.Count == 0 ? null : $"{calls.Count} call(s) in flight ({string.Join(", ", calls.Distinct())})";
+    }
+
+    /// <summary>Client requests in flight, not counting listen streams. Called under _gate.</summary>
+    private int Calls() => _inFlight.Values.Count(e => !e.Stream);
+
     private async Task RunSwapAsync()
     {
         RelayBuild build;
         bool force;
         Child? old, next = null;
-        JsonObject? initialize;
+        JsonObject? initialize, meta;
         bool spoke;
         List<(string Method, JsonObject? Params, string Label)> replay;
         lock (_gate)
@@ -454,6 +495,7 @@ public sealed partial class DevRelay : IAsyncDisposable
             force = _force;
             old = _active;
             initialize = _initializeParams;
+            meta = _requestMeta?.DeepClone() as JsonObject;
             spoke = _clientSpoke;
             replay = [.. _replay];
         }
@@ -463,7 +505,7 @@ public sealed partial class DevRelay : IAsyncDisposable
             int discarded = 0;
             if (old is { Gone: false })
             {
-                discarded = await UnsavedEditsAsync(old);
+                discarded = await UnsavedEditsAsync(old, meta);
                 if (discarded > 0 && !force)
                 {
                     lock (_gate)
@@ -492,21 +534,30 @@ public sealed partial class DevRelay : IAsyncDisposable
                 if (!next.Send(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/initialized" }))
                     throw new RelayException("the new server stopped reading its input");
             }
+            else if (meta?[ProtocolKey] is JsonValue v && v.TryGetValue<string>(out var version))
+            {
+                // No session handshake on this protocol: the new server only has to accept the client's version.
+                var discover = await RequestAsync(next, "server/discover", WithMeta(null, meta));
+                if (Failure(discover) is { } why) throw new RelayException($"server/discover failed: {why}");
+                if (discover["result"]?["supportedVersions"] is not JsonArray versions || !versions.Any(s => s is JsonValue sv && sv.TryGetValue<string>(out var t) && t == version))
+                    throw new RelayException($"the new server does not support protocol {version}, which the client uses");
+            }
             // A client without an initialize handshake (stateless protocol versions) still gets its workspace replayed.
             foreach (var (method, parameters, label) in replay)
             {
-                var reply = await RequestAsync(next, method, (JsonObject?)parameters?.DeepClone());
+                var reply = await RequestAsync(next, method, WithMeta((JsonObject?)parameters?.DeepClone(), meta));
                 if (Failure(reply) is not { } why2) replayed.Add(label);
                 else if (force) skipped.Add($"{label} ({why2})");
                 else throw new RelayException($"replaying {label} failed: {why2}");
             }
-            var identity = spoke ? await IdentityAsync(next) : null;
+            var identity = spoke ? await IdentityAsync(next, meta) : null;
 
             var text = new StringBuilder($"now serving build {build.Id}{identity} (was {old?.Build.Id ?? "none"}); ");
             text.Append(replayed.Count == 0 ? "no workspace calls to replay" : $"replayed {replayed.Count} workspace call(s): {string.Join("; ", replayed)}");
             if (skipped.Count > 0) text.Append($"; not replayed: {string.Join("; ", skipped)}");
             if (discarded > 0) text.Append($"; {discarded} unsaved edit(s) were discarded");
             text.Append("; ").Append(NotCarried);
+            var streams = new List<JsonObject>();
             lock (_gate)
             {
                 _active = next;
@@ -515,10 +566,19 @@ public sealed partial class DevRelay : IAsyncDisposable
                 _force = false;
                 _failedMarker = null;
                 _notices.Add(text.ToString());
+                // Open listen streams continue on the new server under the client's own ids.
+                foreach (var (key, entry) in _inFlight.Where(e => e.Value.Stream).ToList())
+                {
+                    _inFlight[key] = entry with { Child = next };
+                    _movedStreams.Add(key);
+                    streams.Add(entry.Request);
+                }
             }
+            foreach (var request in streams) next.Send(request);
             next = null;
             if (spoke)
-                foreach (var method in ListChanged) WriteClient(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = method });
+                foreach (var notification in ListChangedNotifications(initialize != null || meta == null, streams))
+                    WriteClient(notification);
             if (old != null) _ = Retire(old);
             outcome = (true, text.ToString());
         }
@@ -554,11 +614,36 @@ public sealed partial class DevRelay : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// list_changed for the client: plain on handshake protocols; on 2026-07-28 only on the listen streams that asked
+    /// for that kind, tagged with the stream's subscription id.
+    /// </summary>
+    private static IEnumerable<JsonObject> ListChangedNotifications(bool session, List<JsonObject> streams)
+    {
+        if (session)
+        {
+            foreach (var method in ListChanged) yield return new JsonObject { ["jsonrpc"] = "2.0", ["method"] = method };
+            yield break;
+        }
+        foreach (var request in streams)
+        {
+            var wanted = request["params"]?["notifications"];
+            foreach (var (method, flag) in ListChanged.Zip(ListenFlags))
+                if (IsTrue(wanted?[flag]))
+                    yield return new JsonObject
+                    {
+                        ["jsonrpc"] = "2.0",
+                        ["method"] = method,
+                        ["params"] = new JsonObject { ["_meta"] = new JsonObject { [SubscriptionKey] = request["id"]?.DeepClone() } },
+                    };
+        }
+    }
+
     /// <summary>Unsaved .NET edits and native patches in the server's assemblies resource; 0 when it cannot tell.</summary>
-    private async Task<int> UnsavedEditsAsync(Child child)
+    private async Task<int> UnsavedEditsAsync(Child child, JsonObject? meta)
     {
         JsonObject reply;
-        try { reply = await RequestAsync(child, "resources/read", new JsonObject { ["uri"] = "netdecomp://assemblies" }); }
+        try { reply = await RequestAsync(child, "resources/read", WithMeta(new JsonObject { ["uri"] = "netdecomp://assemblies" }, meta)); }
         catch (Exception ex) when (ex is TimeoutException or RelayException or IOException) { return 0; }
         int count = 0;
         foreach (var content in reply["result"]?["contents"] as JsonArray ?? [])
@@ -568,11 +653,11 @@ public sealed partial class DevRelay : IAsyncDisposable
     }
 
     /// <summary>" (version, catalog digest)" from the new server's server_status, or "" when it does not say.</summary>
-    private async Task<string> IdentityAsync(Child child)
+    private async Task<string> IdentityAsync(Child child, JsonObject? meta)
     {
         try
         {
-            var reply = await RequestAsync(child, "tools/call", new JsonObject { ["name"] = "server_status", ["arguments"] = new JsonObject() });
+            var reply = await RequestAsync(child, "tools/call", WithMeta(new JsonObject { ["name"] = "server_status", ["arguments"] = new JsonObject() }, meta));
             var status = reply["result"]?["structuredContent"];
             var version = status?["informationalVersion"]?.GetValue<string>();
             var digest = status?["catalogDigest"]?.GetValue<string>();
@@ -629,6 +714,32 @@ public sealed partial class DevRelay : IAsyncDisposable
         if (!IsTrue(reply["result"]?["isError"])) return null;
         var text = (reply["result"]?["content"] as JsonArray)?.Select(c => c?["text"]?.GetValue<string>()).FirstOrDefault(t => t != null) ?? "error";
         return text.Length > 200 ? text[..200] + "..." : text;
+    }
+
+    /// <summary>The io.modelcontextprotocol/* keys of a request's _meta: protocol version, client info and capabilities.</summary>
+    private static JsonObject? RequestMeta(JsonObject message)
+    {
+        if (message["params"]?["_meta"] is not JsonObject meta || meta[ProtocolKey] == null) return null;
+        var kept = new JsonObject();
+        foreach (var (name, value) in meta)
+            if (name.StartsWith(MetaPrefix, StringComparison.Ordinal) && name != SubscriptionKey) kept[name] = value?.DeepClone();
+        return kept;
+    }
+
+    /// <summary>Params of a relay request with the client's per-request metadata, which those protocols require on every request.</summary>
+    private static JsonObject? WithMeta(JsonObject? parameters, JsonObject? meta)
+    {
+        if (meta == null) return parameters;
+        parameters ??= new JsonObject();
+        parameters["_meta"] = meta.DeepClone();
+        return parameters;
+    }
+
+    private static JsonObject? WithoutMeta(JsonObject? parameters)
+    {
+        var copy = parameters?.DeepClone() as JsonObject;
+        copy?.Remove("_meta");
+        return copy;
     }
 
     private static string Label(string tool, JsonObject? args)
