@@ -259,6 +259,11 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Contains(stack.Frames, f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal) && f.Token == $"0x{MethodToken(dll, "Main"):X8}");
         var heap = await service.Heap(dump, "stats", "System.String", 0, 0, 10, MinidumpService.DefaultMaxHeapObjects, default);
         Assert.True(heap.Types.Single().Count > 10);
+        // the exception trace is not resolved here: the signature takes the thread's managed frames
+        var bucket = Assert.Single((await new MinidumpService { BucketCache = dir.File("cache") }.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Buckets);
+        output.WriteLine(bucket.Signature);
+        Assert.StartsWith("clr | System.ApplicationException | ", bucket.Signature);
+        Assert.Contains("Probe.Program.Main", bucket.Signature);
     }
 
     /// <summary>A program that writes a stacks-only and a full dump of itself (dbghelp) from an exception filter, as crash reporters do.</summary>

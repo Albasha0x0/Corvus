@@ -228,7 +228,10 @@ internal static class SyntheticCrashX86
         return image;
     }
 
-    public static string Write(TempDir dir, string name = "synth32.dmp")
+    public const uint Jit = 0x0300_0000;
+
+    /// <summary>The dump; <paramref name="jit"/> puts JIT code (an executable region outside any module) below Top on the stack.</summary>
+    public static string Write(TempDir dir, string name = "synth32.dmp", bool jit = false)
     {
         var image = Mapped(FileImage());
         var halt = Mapped(HaltImage());
@@ -238,7 +241,7 @@ internal static class SyntheticCrashX86
         Put(0x04, 0x6666); // esi saved by Mid
         Put(0x08, Base + TopRva + 8); // Mid's return into Top
         Put(0x0C, 0); // Top's saved ebp; EBP points here
-        Put(0x10, 0); // Top's return: the end
+        Put(0x10, jit ? Jit + 5 : 0); // Top's return: into JIT code, or the end
         Put(0x100, Base + JumpRva + 2); // the bad call's return into Jump
         Put(0x200, Base + TrapRva + 6); // Halt's return into Trap
         var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
@@ -250,6 +253,11 @@ internal static class SyntheticCrashX86
         d.Regions.Add(new MinidumpBuilder.Region(Base, (ulong)image.Length, 0x20));
         d.Regions.Add(new MinidumpBuilder.Region(HaltBase, (ulong)halt.Length, 0x20));
         d.Regions.Add(new MinidumpBuilder.Region(Stack, 0x300, 0x04));
+        if (jit)
+        {
+            d.Memory.Add((Jit, [0xE8, 0, 0, 0, 0, 0xC3, 0, 0])); // call; ret
+            d.Regions.Add(new MinidumpBuilder.Region(Jit, 0x1000, 0x20));
+        }
         var crash = MinidumpBuilder.ContextX86(Base + LeafRva, Stack, ebp: Stack + 0xC, ecx: 0x2A);
         d.Threads.Add(new MinidumpBuilder.Thread(100, Stack, crash, "main"));
         d.Threads.Add(new MinidumpBuilder.Thread(101, Stack, MinidumpBuilder.ContextX86(0x1234, Stack + 0x100)));
@@ -286,6 +294,18 @@ public sealed class MinidumpTests
 
         var buckets = await new MinidumpService { BucketCache = dir.File("cache") }.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
         Assert.Equal("0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top", Assert.Single(buckets.Buckets).Signature);
+    }
+
+    /// <summary>Frames without a name (JIT code, unknown places) are left out of a signature, so a dump that holds less memory lands in the same bucket.</summary>
+    [Fact]
+    public async Task UnnamedFramesDoNotSplitABucket()
+    {
+        using var dir = new TempDir();
+        SyntheticCrashX86.Write(dir, "with-jit.dmp", jit: true);
+        SyntheticCrashX86.Write(dir, "without.dmp");
+        var service = new MinidumpService { BucketCache = dir.File("cache") };
+        var bucket = Assert.Single((await service.Bucket(dir.Path, false, null, 4, null, false, true, 10, null, 0, 10, null, default)).Buckets);
+        Assert.Equal((2, "0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top"), (bucket.Count, bucket.Signature));
     }
 
     [Fact]

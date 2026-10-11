@@ -140,7 +140,7 @@ public sealed partial class MinidumpService
     private string Settings(int topFrames, List<string> skip, bool managed, string? imageDirectories)
     {
         var images = workspace?.Read(() => string.Join(",", workspace.Natives.Select(n => $"{Path.GetFileName(n.FilePath)}:{n.Pe?.Coff.TimeDateStamp:X}").Order(StringComparer.Ordinal))) ?? "";
-        return Hash($"1|{topFrames}|{string.Join(";", skip)}|{managed}|{imageDirectories}|{images}");
+        return Hash($"2|{topFrames}|{string.Join(";", skip)}|{managed}|{imageDirectories}|{images}");
     }
 
     private static string Hash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16].ToLowerInvariant();
@@ -221,6 +221,13 @@ public sealed partial class MinidumpService
             lock (decoder.Gate) ex = decoder.Exception(threadId) ?? decoder.Exception(null);
             if (ex == null) return null;
             var frames = ex.Stack.Where(f => f.IsMethod).Select(f => MethodOnly(f.Name)).ToList();
+            if (frames.Count == 0 && (threadId ?? ex.ThreadId) is { } thread)
+            {
+                // an exception trace the DAC does not resolve (32-bit runtimes): the thread's own walk from the raise down
+                ulong raisedAt = s.Dump.Exception is { } e && e.ThreadId == thread && s.Dump.ReadContext(e.Context) is { } c ? c.Sp : 0;
+                lock (decoder.Gate)
+                    frames = decoder.Frames(thread, BucketWalkFrames).Where(f => f.IsMethod && f.Sp >= raisedAt).Select(f => MethodOnly(f.Name)).ToList();
+            }
             var version = ClrDecoder.RuntimeModule(s.Dump)?.FileVersion;
             return new DumpSignature("clr_exception", $"clr | {ex.Type} | {string.Join(" > ", frames.Take(Math.Max(1, topFrames)))}", version, null, s.Dump.Time);
         }
@@ -245,6 +252,8 @@ public sealed partial class MinidumpService
             var at = await Locate(s, f.Ip, f.IsReturnAddress, ct);
             var label = Label(at, f.Ip);
             if (skip.Any(p => Noise(label, p))) continue;
+            // below the fault, a place without a name (JIT code, unknown memory) depends on what memory the dump holds
+            if (frames.Count > 0 && label.StartsWith('<')) continue;
             frames.Add((label, at.Module?.FileVersion, Offset(at, f.Ip)));
         }
         return frames;
