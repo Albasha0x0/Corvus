@@ -56,14 +56,25 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         return sb.ToString();
     }
 
+    /// <summary>The edit script of <paramref name="asm"/>'s current edits, bound to its build; the caller holds the workspace lock.</summary>
+    public Script BuildScript(LoadedAssembly asm)
+    {
+        var original = asm.GetOriginalView(workspace.DnlibContext).Module;
+        return new Script(ScriptFormat, asm.AssemblyName, original.Mvid?.ToString(), asm.OriginalSha256, original.Assembly?.FullName ?? original.Name,
+            DateTime.UtcNow, asm.Edits.Select(e => new ScriptEdit(e.Kind, e.Args.ToDictionary(kv => kv.Key, kv => kv.Value), e.Description)).ToList());
+    }
+
+    /// <summary>A script as JSON text (the export_edits file).</summary>
+    public static string Serialize(Script script) => JsonSerializer.Serialize(script, Json);
+
+    public static Script? Deserialize(JsonElement json) => json.Deserialize<Script>(Json);
+
     public string Export(LoadedAssembly asm, string path, bool overwrite = false)
     {
         if (asm.Edits.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"{asm.Id} has no edits to export.");
-        var original = asm.GetOriginalView(workspace.DnlibContext).Module;
-        var script = new Script(ScriptFormat, asm.AssemblyName, original.Mvid?.ToString(), asm.OriginalSha256, original.Assembly?.FullName ?? original.Name,
-            DateTime.UtcNow, asm.Edits.Select(e => new ScriptEdit(e.Kind, e.Args.ToDictionary(kv => kv.Key, kv => kv.Value), e.Description)).ToList());
-        var full = SafeFile.WriteAllText(path, JsonSerializer.Serialize(script, Json), overwrite);
+        var script = BuildScript(asm);
+        var full = SafeFile.WriteAllText(path, Serialize(script), overwrite);
         return $"Exported {script.Edits.Count} edit(s) of {asm.Id} to {full}.\n" +
                $"Bound to the build: sha256 {script.Sha256}, MVID {script.Mvid ?? "(none)"}, {script.Identity}. " +
                "apply_edits refuses other builds unless targetBuild=other.";

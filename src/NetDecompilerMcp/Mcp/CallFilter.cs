@@ -40,6 +40,7 @@ internal static partial class CallFilter
         log?.LogDebug("Tool {Tool} {Status} in {Ms} ms", tool, result.IsError == true ? ErrorCodeOf(result) : "ok",
             (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         services?.GetService<ResourceSubscriptions>()?.Check();
+        if (tool != null && !ToolEffects.Of(tool).ReadOnly) services?.GetService<Services.EditJournal>()?.Sync();
         if (services?.GetService<ServerOptions>() is { } options && services.GetService<ResultStore>() is { } store)
             result = ResponseBudget.Enforce(result, tool, options, store, request);
         // Pending workspace notices; trailing blank line because clients join content blocks without a separator.

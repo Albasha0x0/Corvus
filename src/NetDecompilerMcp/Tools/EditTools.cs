@@ -11,7 +11,8 @@ namespace NetDecompilerMcp.Tools;
 /// In-memory edits: visible immediately in decompile/IL/search output, written to disk only by save_assembly.
 /// </summary>
 [McpServerToolType]
-public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, EditHistoryService history, DecompilerService decompiler, OutputPager pager)
+public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, EditHistoryService history, DecompilerService decompiler, OutputPager pager,
+    EditJournal? journal = null)
 {
     [McpServerTool(Name = "rename_symbol", Title = "Rename symbol")]
     [Description("Rename a type, method, field, property (with its accessors) or event in memory — e.g. to give transformed names meaning. Other assemblies that reference the old name are not updated.")]
@@ -156,7 +157,11 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Roll back everything on the first failure (default true).")] bool stopOnError = true,
         [Description("same (default): only the build the script was made from; other: carry the edits to a different build, re-resolving symbols by name.")] string targetBuild = "same",
         CancellationToken cancellationToken = default) => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
-            history.Apply(path, assembly, dryRun, stopOnError, cancellationToken, EditHistoryService.ParseTargetBuild(targetBuild)), cancellationToken);
+    {
+        var report = history.Apply(path, assembly, dryRun, stopOnError, cancellationToken, EditHistoryService.ParseTargetBuild(targetBuild));
+        if (!dryRun) journal?.Replayed(path);
+        return report;
+    }, cancellationToken);
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL")]
     [Description("Rewrite a method body from IL text, in memory. Easiest: get_il the method, edit the instruction lines, pass them back (header lines are ignored; the /* token */ comments resolve operands exactly). " +
@@ -233,7 +238,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Allow replacing an existing file.")] bool overwrite = false,
         [Description("Refuse the save (writing nothing) when any member would be written differently from the original without an edit asking for it. Default: save and list them.")] bool strict = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
-            edits.Save(workspace.Get(assembly), outputPath, overwrite, strict), cancellationToken);
+    {
+        var asm = workspace.Get(assembly);
+        var report = edits.Save(asm, outputPath, overwrite, strict);
+        journal?.Saved(asm);
+        return report;
+    }, cancellationToken);
 
     private static string Pending(LoadedAssembly asm, bool dryRun) => dryRun ? "" : $"\nUnsaved edits in {asm.Id}: {asm.Edits.Count}.";
 }

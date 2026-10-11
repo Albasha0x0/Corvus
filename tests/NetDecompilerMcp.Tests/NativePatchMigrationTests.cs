@@ -73,7 +73,7 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
     //   f1 @f1: mov eax, [rip+g] ; add eax, 0x11 ; ret   (RIP-relative load; the displacement moves between builds)
     //   f2 @f2: mov eax, f2Imm   ; add eax, 0x22 ; ret   (a plain immediate)
     // In the new build the functions and g are shifted, so f1's RIP-relative bytes differ but the opcode does not.
-    private static byte[] X64Image(uint f1, uint gData, uint f2, byte f2Imm)
+    internal static byte[] X64Image(uint f1, uint gData, uint f2, byte f2Imm)
     {
         var b = new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x180000000, DllCharacteristics = 0x0160 };
         var code = new byte[0x80];

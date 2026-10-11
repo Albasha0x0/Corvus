@@ -63,6 +63,7 @@ public static class ServerHost
             .AddSingleton<PdbService>()
             .AddSingleton<MinidumpService>()
             .AddSingleton<NotesService>()
+            .AddSingleton<EditJournal>()
             .AddSingleton<LiveProcessService>()
             .AddSingleton<ResourceSubscriptions>();
 
@@ -101,6 +102,7 @@ public static class ServerHost
         host.Services.GetRequiredService<NativeCodeService>();
         host.Services.GetRequiredService<PdbService>(); // reads matching local PDBs during index builds
         host.Services.GetRequiredService<NativeEngineService>(); // with --ida-prewarm, analyzes preloaded native images in the background
+        host.Services.GetRequiredService<EditJournal>(); // offers journals of earlier sessions for preloaded files
         var subscriptions = host.Services.GetRequiredService<ResourceSubscriptions>();
         host.Services.GetRequiredService<FileWatchService>().Changed += _ => subscriptions.Check();
         Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);

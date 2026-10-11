@@ -93,7 +93,7 @@ public sealed class FileWatchService : IDisposable
             if (asm.IsDirty)
             {
                 Report($"{asm.Id}: {path} changed on disk, but the loaded copy has {asm.Edits.Count} unsaved edit(s), so it was NOT reloaded. " +
-                       "export_edits to keep them, then reload_assembly (and apply_edits with targetBuild=other) to move to the new version.");
+                       "export_edits to keep them (they are also journaled until saved), then reload_assembly (and apply_edits with targetBuild=other) to move to the new version.");
                 return;
             }
             var fresh = _workspace.Reload(asm);

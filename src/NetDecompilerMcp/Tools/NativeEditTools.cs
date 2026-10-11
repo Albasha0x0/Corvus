@@ -13,7 +13,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Native annotations (rename, comment, export) and byte/assembly patching with undo and save.</summary>
 [McpServerToolType]
-public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits)
+public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, EditJournal? journal = null)
 {
     private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
@@ -227,7 +227,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, _) = await Open(image, progress, cancellationToken);
-        return edits.Save(native, outputPath, overwrite, stripSignature);
+        var report = edits.Save(native, outputPath, overwrite, stripSignature);
+        journal?.Saved(native);
+        return report;
     });
 
     private static byte[] ParseHex(string hex)

@@ -102,9 +102,38 @@ public static class PatchMigration
         Func<uint, MigratablePatch, byte[]>? prepareStub = null)
     {
         var mapper = new AddressMapper(match);
-        var newIndex = match.New.Index;
-        int bitness = newIndex.Image.Is64Bit ? 64 : 32;
-        var oldDecoder = TryDecoder(match.Old.Index);
+        return Plan(mapper.Map, match.Old.Index, match.New.Index, patches, prepare, ct, prepareStub);
+    }
+
+    /// <summary>
+    /// Replays a patch set on the build it was made for (a journal or an export): every patch at its own address, the
+    /// original bytes checked against the image as it is now (a patch already there is already_present).
+    /// </summary>
+    public static List<PatchMigrationStep> PlanSameBuild(NativeCodeIndex index, IReadOnlyList<MigratablePatch> patches, Action<uint, byte[], string?> prepare,
+        CancellationToken ct) =>
+        Plan((rva, _) => new MappedAddress(rva, rva, 1, "same_build", "the build the patch set was made for", null, []), index, index, patches, prepare, ct, null);
+
+    /// <summary>The SHA-256 of the file a json patch set was made for, or null.</summary>
+    public static string? ImageSha256(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("image", out var image) && image.TryGetProperty("sha256", out var sha) ? sha.GetString() : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static List<PatchMigrationStep> Plan(
+        Func<uint, CancellationToken, MappedAddress> map,
+        NativeCodeIndex oldIndex,
+        NativeCodeIndex newIndex,
+        IReadOnlyList<MigratablePatch> patches,
+        Action<uint, byte[], string?> prepare,
+        CancellationToken ct,
+        Func<uint, MigratablePatch, byte[]>? prepareStub)
+    {
+        var oldDecoder = TryDecoder(oldIndex);
         var newDecoder = TryDecoder(newIndex);
         var steps = new List<PatchMigrationStep>(patches.Count);
 
@@ -113,7 +142,7 @@ public static class PatchMigration
             ct.ThrowIfCancellationRequested();
             if (patch.IsStub && prepareStub != null)
             {
-                steps.Add(PlanStub(mapper, newIndex, oldDecoder, newDecoder, patch, prepareStub, ct));
+                steps.Add(PlanStub(map, newIndex, oldDecoder, newDecoder, patch, prepareStub, ct));
                 continue;
             }
             if (patch.IsStub)
@@ -123,7 +152,7 @@ public static class PatchMigration
                 steps.Add(Refuse(patch, null, 0, null, "extended_patch", "a patch-site extension (relocation stub) must be re-applied on the new build with patch_asm/patch_bytes extend=true"));
                 continue;
             }
-            var mapped = mapper.Map(patch.Rva, ct);
+            var mapped = map(patch.Rva, ct);
             int? tier = mapped.Pair?.Tier;
             if (mapped.NewRva is not { } newRva)
             {
@@ -143,6 +172,11 @@ public static class PatchMigration
             var (matches, mask) = patch.FromAsm
                 ? MaskedEqual(oldDecoder, patch.Rva, patch.Original, newDecoder, newRva, found)
                 : (patch.Original.AsSpan().SequenceEqual(found), null);
+            if (!matches && found.AsSpan().SequenceEqual(patch.Replacement))
+            {
+                steps.Add(Refuse(patch, newRva, mapped.Confidence, tier, "already_present", "the replacement bytes are already there"));
+                continue;
+            }
             if (!matches)
             {
                 steps.Add(Refuse(patch, newRva, mapped.Confidence, tier, "original_bytes_differ",
@@ -184,12 +218,12 @@ public static class PatchMigration
     /// masked), and the extension is re-created at the new site by <paramref name="prepareStub"/>; its failure codes
     /// (no_space, no_header_space, branch_target_in_site, ...) become the refusal reason.
     /// </summary>
-    private static PatchMigrationStep PlanStub(AddressMapper mapper, NativeCodeIndex newIndex, MaskedDecoder? oldDecoder, MaskedDecoder? newDecoder,
+    private static PatchMigrationStep PlanStub(Func<uint, CancellationToken, MappedAddress> map, NativeCodeIndex newIndex, MaskedDecoder? oldDecoder, MaskedDecoder? newDecoder,
         MigratablePatch patch, Func<uint, MigratablePatch, byte[]> prepareStub, CancellationToken ct)
     {
         if (patch.StubCode == null)
             return Refuse(patch, null, 0, null, "stub_code_unknown", "the patch set does not record the stub's new code (exported before it was saved); re-apply it with extend=true");
-        var mapped = mapper.Map(patch.Rva, ct);
+        var mapped = map(patch.Rva, ct);
         int? tier = mapped.Pair?.Tier;
         if (mapped.NewRva is not { } newRva) return Refuse(patch, null, mapped.Confidence, tier, mapped.Reason, mapped.Detail);
         var found = new byte[patch.Original.Length];

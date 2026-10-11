@@ -21,6 +21,9 @@ public sealed class NativePatchSet
     public IReadOnlyList<NativePatch> Patches => _patches;
     public bool IsDirty => _patches.Count > 0;
 
+    /// <summary>Incremented by every add and removal.</summary>
+    public int Version { get; private set; }
+
     /// <summary>The unmodified file bytes (a fresh copy).</summary>
     public byte[] OriginalBytes() => (byte[])_original.Clone();
 
@@ -59,7 +62,11 @@ public sealed class NativePatchSet
         return null;
     }
 
-    public void Add(NativePatch patch) => _patches.Add(patch);
+    public void Add(NativePatch patch)
+    {
+        _patches.Add(patch);
+        Version++;
+    }
 
     /// <summary>
     /// A later patch that rewrote one of the relocation slots patch <paramref name="number"/> (1-based; the last when
@@ -84,6 +91,7 @@ public sealed class NativePatchSet
         if (index < 0 || index >= _patches.Count) return null;
         var patch = _patches[index];
         _patches.RemoveAt(index);
+        Version++;
         return patch;
     }
 

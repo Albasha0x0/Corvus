@@ -14,7 +14,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>A native image's byte patches outside the session: export for IDA / patchers, and migration to a new build.</summary>
 [McpServerToolType]
-public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits)
+public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, EditJournal? journal = null)
 {
     public sealed record PatchExportReport(
         string Image,
@@ -53,23 +53,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         var fmt = PatchExport.ParseFormat(format);
         if (string.IsNullOrWhiteSpace(outputPath)) throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.");
         var native = await Resolve(image, cancellationToken);
-        var result = await Task.Run(() => workspace.Read(() =>
-        {
-            var notes = new List<string>();
-            var output = NativeEditService.OutputBytes(native, stripSignature: false, notes);
-            var original = native.Patches.OriginalBytes();
-            var pe = native.RequirePe("export_native_patches");
-            var appended = native.Patches.Patches.Where(p => p.Growth != null).Select(p =>
-            {
-                var g = p.Growth!;
-                return new AppendedSection(g.SectionName, g.SectionRva, g.SectionVirtualSize, g.AppendFileOffset, g.AppendedData);
-            }).ToList();
-            var source = new PatchExportSource(native.FilePath, native.OriginalSha256, pe.ImageBase, pe.Arch, native.Patches.Patches.ToList(), original, output,
-                pe.OptionalHeaderOffset + 64, offset => pe.TryFileOffsetToRva(offset, out var rva) ? rva : null, appended);
-            var rendered = PatchExport.Render(source, fmt);
-            rendered.Notes.InsertRange(0, notes.Where(n => n.StartsWith("The file is Authenticode-signed", StringComparison.Ordinal)));
-            return rendered;
-        }), cancellationToken);
+        var result = await Task.Run(() => workspace.Read(() => NativeEditService.RenderPatches(native, fmt)), cancellationToken);
 
         var target = SafeFile.WriteAllBytes(outputPath, result.Content, overwrite);
         return new PatchExportReport(native.Id, target, PatchExport.Name(fmt), result.Patches, result.RelocationEdits, result.ChangedBytes, result.Records,
@@ -111,7 +95,8 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
                  "mapped address match what the patch expected — exact for raw patch_bytes, ignoring relocated / RIP-relative / branch-displacement bytes for " +
                  "patch_asm patches (whose replacement is re-assembled at the new address). Survivors go through the normal patch path (safety checks and " +
                  "relocations). Every patch is reported applied or refused with a reason code and evidence. Source: the old build's in-memory patches " +
-                 "(default) or an exported json (patchSet). dryRun shows everything without changing the new build.")]
+                 "(default) or an exported json (patchSet). dryRun shows everything without changing the new build. The same image as old and new with " +
+                 "patchSet replays a patch set on the build it was made for (an export, or the journal of a session that ended without saving).")]
     public async Task<MigrationPatchReport> MigrateNativePatches(
         [Description("The old build: native image id or path (its in-memory patches are the source unless patchSet is given).")] string oldImage,
         [Description("The new build: native image id or path. Load both builds; the second gets an id like name#2.")] string newImage,
@@ -124,8 +109,10 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
     {
         var oldNative = await Resolve(oldImage, cancellationToken);
         var newNative = await Resolve(newImage, cancellationToken);
-        if (ReferenceEquals(oldNative, newNative))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Both arguments name {oldNative.Id}.", "load the other build too and pass its id (e.g. name#2)");
+        bool sameBuild = ReferenceEquals(oldNative, newNative);
+        if (sameBuild && string.IsNullOrWhiteSpace(patchSet))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Both arguments name {oldNative.Id}.",
+                "load the other build too and pass its id (e.g. name#2), or pass patchSet to replay a patch set on this build");
         var oldIndex = await code.Index(oldNative, null, cancellationToken);
         var newIndex = await code.Index(newNative, null, cancellationToken);
         if (oldIndex.Support != CodeSupport.Full || newIndex.Support != CodeSupport.Full)
@@ -140,6 +127,9 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
             var json = await ReadPatchSet(patchSet, cancellationToken);
             patches = PatchMigration.FromJson(json);
             source = File.Exists(patchSet.Trim()) ? Path.GetFullPath(patchSet.Trim()) : "json";
+            if (sameBuild && PatchMigration.ImageSha256(json) is { } made && !made.Equals(newNative.OriginalSha256, StringComparison.OrdinalIgnoreCase))
+                throw new ToolError(ErrorCode.Conflict, $"The patch set was made for sha256 {made}; {newNative.Id} is sha256 {newNative.OriginalSha256}.",
+                    "load the build it was made for as oldImage and pass this build as newImage to migrate it");
         }
         else
         {
@@ -147,17 +137,25 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
             source = "in_memory";
         }
 
-        // Match the clean old build: in-memory patches would otherwise hide a patched function's identity.
-        var matchOld = oldNative.HasPatches ? await Task.Run(() => code.IndexOfOriginal(oldNative, cancellationToken), cancellationToken) : oldIndex;
-        var options = new MatchOptions { UseNames = useNames };
-        var match = await Task.Run(() => MatchCache.Get(matchOld, newIndex, options, cancellationToken), cancellationToken);
-
         // Current new index used by the prepare path; it is rebuilt after each applied patch so later patches see earlier ones.
         var currentNew = newIndex;
+        string origin = sameBuild ? "replayed" : "migrated";
         NativeEditService.PatchResult Prepare(NativeCodeIndex index, uint rva, byte[] replacement, string? assembly) =>
-            edits.PreparePatch(index, rva, replacement, force: false, assembly != null ? "patch_asm (migrated)" : "patch_bytes (migrated)", RelocationMode.Auto, assembled: null, assembly: assembly);
+            edits.PreparePatch(index, rva, replacement, force: false, assembly != null ? $"patch_asm ({origin})" : $"patch_bytes ({origin})", RelocationMode.Auto, assembled: null, assembly: assembly);
 
-        var steps = await Task.Run(() => PatchMigration.Plan(match, patches, (rva, repl, asm) => Prepare(currentNew, rva, repl, asm), cancellationToken), cancellationToken);
+        List<PatchMigrationStep> steps;
+        IReadOnlyList<string> matchNotes = [];
+        if (sameBuild)
+            steps = await Task.Run(() => PatchMigration.PlanSameBuild(newIndex, patches, (rva, repl, asm) => Prepare(currentNew, rva, repl, asm), cancellationToken), cancellationToken);
+        else
+        {
+            // Match the clean old build: in-memory patches would otherwise hide a patched function's identity.
+            var matchOld = oldNative.HasPatches ? await Task.Run(() => code.IndexOfOriginal(oldNative, cancellationToken), cancellationToken) : oldIndex;
+            var options = new MatchOptions { UseNames = useNames };
+            var match = await Task.Run(() => MatchCache.Get(matchOld, newIndex, options, cancellationToken), cancellationToken);
+            matchNotes = match.Notes;
+            steps = await Task.Run(() => PatchMigration.Plan(match, patches, (rva, repl, asm) => Prepare(currentNew, rva, repl, asm), cancellationToken), cancellationToken);
+        }
 
         int applied = 0;
         if (!dryRun)
@@ -183,7 +181,8 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
             steps = updated;
         }
 
-        var notes = new List<string>(match.Notes);
+        var notes = new List<string>(matchNotes);
+        if (!dryRun && applied > 0 && source != "in_memory" && source != "json") journal?.Replayed(source);
         if (patches.Count == 0) notes.Add(source == "in_memory" ? $"{oldNative.Id} has no in-memory patches to migrate" : "the patch set has no patches");
         if (source == "in_memory" && patches.Count > 0 && newNative.Patches.IsDirty && dryRun)
             notes.Add("the new build already has patches; migrated patches that conflict with them are refused");

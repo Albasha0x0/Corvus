@@ -290,6 +290,25 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                $"\n{verify}";
     }
 
+    /// <summary>The image's patches in an export format (export_native_patches); the caller holds the workspace lock.</summary>
+    public static PatchExportResult RenderPatches(LoadedNative native, PatchExport.Format format)
+    {
+        var notes = new List<string>();
+        var output = OutputBytes(native, stripSignature: false, notes);
+        var original = native.Patches.OriginalBytes();
+        var pe = native.RequirePe("export_native_patches");
+        var appended = native.Patches.Patches.Where(p => p.Growth != null).Select(p =>
+        {
+            var g = p.Growth!;
+            return new AppendedSection(g.SectionName, g.SectionRva, g.SectionVirtualSize, g.AppendFileOffset, g.AppendedData);
+        }).ToList();
+        var source = new PatchExportSource(native.FilePath, native.OriginalSha256, pe.ImageBase, pe.Arch, native.Patches.Patches.ToList(), original, output,
+            pe.OptionalHeaderOffset + 64, offset => pe.TryFileOffsetToRva(offset, out var rva) ? rva : null, appended);
+        var rendered = PatchExport.Render(source, format);
+        rendered.Notes.InsertRange(0, notes.Where(n => n.StartsWith("The file is Authenticode-signed", StringComparison.Ordinal)));
+        return rendered;
+    }
+
     /// <summary>
     /// The bytes save_native writes: the patched bytes, the certificate table removed when <paramref name="stripSignature"/>,
     /// and the PE checksum recomputed when the original had one. export_native_patches exports the same bytes.

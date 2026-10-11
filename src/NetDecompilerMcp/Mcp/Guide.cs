@@ -83,7 +83,8 @@ public static class Guide
             proxies) call their real target when the field's initializer always sets the same one (else delegate-target). Every body is
             stack-verified or left unchanged, with a reason code (docs/simplify.md). decompile_member simplified=true previews it.
             Review: list_edits, diff_edits; undo_edit, revert_edits. Carry edits: export_edits writes a script, apply_edits replays it
-            (tied to its build: another build needs targetBuild=other; dryRun=true first).
+            (tied to its build: another build needs targetBuild=other; dryRun=true first). Unsaved edits and patches are journaled; a
+            file whose last session ended without saving gets a [workspace] notice naming the journal to replay.
             save_assembly writes a new file (never overwrites the original without overwrite=true; keeps a .bak; untouched parts are
             written byte-for-byte, anything that cannot be is listed; strict=true refuses such a save).
             Native: rename_native and comment_native (kept per file hash), patch_bytes / patch_asm (relocation-correct under ASLR; a
