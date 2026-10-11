@@ -45,6 +45,7 @@ public static class ParameterDomains
         ["extract_strings"] = new Dictionary<string, Domain> { ["format"] = Of(["json", "csv"]) },
         ["inspect_process"] = new Dictionary<string, Domain> { ["regionFilter"] = Of(["committed", "all", "executable", "writable", "image", "private", "mapped"]) },
 
+        ["get_nativeaot_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "sections", "types", "type", "methods", "strings"]) },
         ["list_functions"] = new Dictionary<string, Domain> { ["sort"] = Of(["address", "size", "callers"]), ["engine"] = Engine },
         ["disassemble"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["inspect_instruction"] = new Dictionary<string, Domain> { ["engine"] = Engine },

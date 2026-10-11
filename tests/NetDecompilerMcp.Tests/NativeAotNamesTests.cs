@@ -167,6 +167,49 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.DoesNotContain("L\"hi\"", text);
     }
 
+    [Fact]
+    public async Task GetNativeAotInfo_Views()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(dir.File("ann")));
+        var tools = new NetDecompilerMcp.Tools.NativeTools(env.Workspace, new OutputPager(env.Options), code);
+        var (path, w) = WriteImage(dir);
+        var native = env.Workspace.LoadAny(path).Native!;
+        await code.Index(native, null, default);
+
+        var summary = await tools.GetNativeAotInfo(native.Id);
+        output.WriteLine(summary);
+        Assert.Contains("NativeAOT, .NET 10, ReadyToRun 16.0", summary);
+        Assert.Contains("method tables: complete", summary);
+        Assert.Contains("nativeaot name layer:", summary);
+        Assert.Contains("list_functions: 4 of 5 functions carry a nativeaot name", summary);
+
+        Assert.Contains("FrozenObjectRegion  [section]", await tools.GetNativeAotInfo(native.Id, "sections"));
+        var types = await tools.GetNativeAotInfo(native.Id, "types", "zoo.dog");
+        Assert.Contains("Sample.Zoo.Dog  [class]  name from vtable, base System.Object, 3 slots, 1 interfaces", types);
+        Assert.Contains("Sample.Zoo.Dog[]  [array]  name from element, element Sample.Zoo.Dog", types);
+
+        var obj = await tools.GetNativeAotInfo(native.Id, "type", "MT_System_Object");
+        output.WriteLine(obj);
+        Assert.Contains("[1] 0x140001070 System_Object__vslot1", obj);
+        var dog = await tools.GetNativeAotInfo(native.Id, "type", $"0x{w.Dog:X}");
+        Assert.Contains("base chain: System.Object", dog);
+        Assert.Contains("[0] 0x140001010 Sample_Zoo_Dog__Speak", dog);
+        Assert.Contains("[2] 0x140001080 System_Object__vslot2  (inherited)", dog);
+        Assert.Contains($"interfaces (1): MT_{w.Speaker:X}", dog);
+
+        Assert.Contains("Sample.Zoo.Dog::Speak", await tools.GetNativeAotInfo(native.Id, "methods", "speak"));
+        Assert.Contains("hi  [string]  1 refs", await tools.GetNativeAotInfo(native.Id, "strings", "h"));
+
+        var bad = await Assert.ThrowsAsync<ToolError>(() => tools.GetNativeAotInfo(native.Id, "nope"));
+        Assert.Equal(ErrorCode.InvalidArgument, bad.Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => tools.GetNativeAotInfo(native.Id, "type", "No.Such"))).Code);
+        var plain = dir.File("plain.dll");
+        File.WriteAllBytes(plain, new NativeAotBuilder().Build());
+        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => tools.GetNativeAotInfo(plain))).Code);
+    }
+
     /// <summary>The production ilc binaries: most functions named right after load; logged as named / all index functions and / .pdata starts.</summary>
     [Theory]
     [Trait("Speed", "Slow")]

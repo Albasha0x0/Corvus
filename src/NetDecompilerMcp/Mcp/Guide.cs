@@ -119,12 +119,14 @@ public static class Guide
             Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);
             search_pdb_symbols lists its symbols. Names from load_pdb and apply_il2cpp_names are saved per file SHA-256 and reapplied
             when the same file loads again; list_native_edits shows the layers, clear=true on either tool removes one.
+            NativeAOT images name themselves from their metadata when the code index builds (methods, vtable slots, MethodTables,
+            frozen strings); get_nativeaot_info shows the version, recovery stages, types, methods and strings.
             Cross-image: load the DLLs an image imports (or load_assembly loadProviders=true) and the call tools follow imports,
             forwarders and thunks into them.
             Engines: list_functions, disassemble, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida. auto (default)
             uses IDA's analysis once it has finished in this session, else the built-in index, and never starts IDA; every result has
             an "Engine: ours|ida (why)" line. ARM64 / ARM images work through IDA. inspect_instruction takes the same values (auto: the
-            built-in decoder for x86 / x64). Name priority: user > pdb > il2cpp > ida > discovered.
+            built-in decoder for x86 / x64). Name priority: user > pdb > nativeaot > il2cpp > ida > discovered.
             decompile_native pushes names, patches, Il2Cpp prototypes, RTTI and PDB types into the IDA database; --ida-prewarm analyzes
             images in IDA as they load. Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
             Editing and engine type edits: the edits topic. Build-to-build: the builds topic.

@@ -216,6 +216,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["save_assembly"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = dir.File("saved.dll") }, "Wrote"),
         ["server_status"] = (new(), "\"catalogDigest\""),
         ["get_pe_info"] = (new() { ["image"] = NativeSample(dir) }, "seed.pdb"),
+        ["get_nativeaot_info"] = (new() { ["image"] = NativeSample(dir) }, "Error (unsupported) in get_nativeaot_info"),
         ["list_imports"] = (new() { ["image"] = NativeSample(dir), ["bind"] = true }, "KERNEL32.dll!ExitProcess"),
         ["list_exports"] = (new() { ["image"] = NativeSample(dir) }, "First"),
         ["resolve_address"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "export First"),

@@ -111,6 +111,7 @@ public static class ToolEffects
 
         // Native images
         ["get_pe_info"] = Reads(),
+        ["get_nativeaot_info"] = Reads(longRunning: true), // the first call reads the metadata of a large image
         ["list_imports"] = Reads(longRunning: true), // call sites wait for the code index
         ["list_exports"] = Reads(),
         ["resolve_address"] = Reads(),
