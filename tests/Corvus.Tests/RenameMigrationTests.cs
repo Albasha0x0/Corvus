@@ -369,7 +369,7 @@ public sealed class RenameMigrationTests : IDisposable
         var notes = new NotesService(new AnnotationStore(dir.File("annotations")));
         var anchor = new NoteAnchor(NoteAnchor.Native, new string('a', 64), Rva: 0x1000);
         notes.Record("first", null, null, anchor, null, null, null);
-        var file = Assert.Single(Directory.GetFiles(notes.Root));
+        var file = Assert.Single(Directory.GetFiles(notes.Root, "*.json")); // Unix keeps the .lock file beside it
         File.WriteAllText(file, File.ReadAllText(file).Replace(NotesService.Format, "net-decompiler-notes/1"));
 
         var again = new NotesService(new AnnotationStore(dir.File("annotations")));
