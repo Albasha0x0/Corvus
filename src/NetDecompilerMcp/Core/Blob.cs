@@ -246,6 +246,24 @@ public static class Blob
     /// <summary>Full path of <paramref name="relative"/> under <paramref name="root"/>; throws if it would escape it, lexically or through a link.</summary>
     public static string UnderRoot(string root, string relative) => SafeFile.UnderRoot(root, relative);
 
+    /// <summary>
+    /// Whether the file at <paramref name="path"/> holds <paramref name="bytes"/>. Read sharing everything: a concurrent
+    /// writer that just renamed its file into place may still hold a handle on it, and a read that does not share
+    /// write and delete access fails on that handle with a sharing violation.
+    /// </summary>
+    private static bool SameContent(string path, ReadOnlySpan<byte> bytes)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length != bytes.Length) return false;
+            var existing = new byte[bytes.Length];
+            stream.ReadExactly(existing);
+            return existing.AsSpan().SequenceEqual(bytes);
+        }
+        catch (FileNotFoundException) { return false; }
+    }
+
     /// <summary>Writes to a unique path under root; never overwrites a different file.</summary>
     public static string WriteUnique(string root, string relative, ReadOnlySpan<byte> bytes)
     {
@@ -258,7 +276,7 @@ public static class Blob
             try { return SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false); }
             catch (ToolError ex) when (ex.Code == ErrorCode.Conflict)
             {
-                if (File.Exists(path) && new FileInfo(path).Length == bytes.Length && File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes)) return path;
+                if (SameContent(path, bytes)) return path;
             }
             path = Path.Combine(dir, $"{stem}_{i}{ext}");
         }

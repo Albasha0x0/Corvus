@@ -134,6 +134,15 @@ public class SafeFileTests : IDisposable
     }
 
     [Fact]
+    public void WriteUnique_SharesEqualContentWhileAnotherWriterStillHoldsTheFile()
+    {
+        var root = _dir.File("held");
+        var first = Blob.WriteUnique(root, "same.bin", Bytes("content"));
+        using (new FileStream(first, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
+            Assert.Equal(first, Blob.WriteUnique(root, "same.bin", Bytes("content")));
+    }
+
+    [Fact]
     public void WriteUnique_ConcurrentWritersOfDifferentContent_KeepEveryOne()
     {
         var root = _dir.File("unique");
