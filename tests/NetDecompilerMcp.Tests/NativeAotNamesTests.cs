@@ -89,6 +89,8 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Equal(("str_0", "\"hi\""), (n[w.Text + 8], built.Comments[w.Text + 8]));
         Assert.Equal("frozen_0", n[w.Frozen + 8]);
         Assert.Equal("__ReadyToRunHeader", n[w.Aot.Header.Rva]);
+        Assert.Equal("__EmbeddedMetadata", n[w.Aot.Header.Blob(Native.NativeAot.BlobId.EmbeddedMetadata)!.StartRva]);
+        Assert.Equal("__FrozenObjectRegion", n[w.Aot.Header.Section(Native.NativeAot.SectionId.FrozenObjectRegion)!.StartRva]);
         Assert.Equal($"Sample_Zoo_Dog__MT_{w.Speaker:X}_slot1", n[T.SealedCode]);
         Assert.Equal($"Sample.Zoo.Dog implementation of MT_{w.Speaker:X} slot 1, vtable slot 3", built.Comments[T.SealedCode]);
         Assert.Equal([T.SpeakCode, T.ToStringCode, T.EqualsCode, T.HashCode, T.SealedCode], built.FunctionStarts);

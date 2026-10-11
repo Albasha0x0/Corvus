@@ -13,9 +13,10 @@ namespace NetDecompilerMcp.Services;
 /// <para>
 /// Naming scheme (the Il2Cpp layer's IDA-safe identifiers, <see cref="NativeName.Identifier"/>): method bodies
 /// "Ns_Type__Method" from the stack-trace and invoke maps, commented with the C# form and the other methods folded into the
-/// same body; unnamed bodies in a vtable "Ns_Type__BaseMethod" (the overridden method) or "Ns_Type__vslot&lt;k&gt;";
-/// MethodTables "MT_Ns_Type"; frozen strings "str_&lt;n&gt;" (n in address order) commented with the text, other frozen
-/// objects "frozen_&lt;n&gt;"; the module header "__ReadyToRunHeader". A name already used at another address gets "_&lt;RVA hex&gt;".
+/// same body; unnamed bodies in a vtable "Ns_Type__BaseMethod" (the overridden method) or "Ns_Type__vslot&lt;k&gt;", unnamed
+/// interface implementations "Ns_Type__Method" or "Ns_Type__IFoo_slot&lt;k&gt;"; MethodTables "MT_Ns_Type"; frozen strings
+/// "str_&lt;n&gt;" (n in address order) commented with the text, other frozen objects "frozen_&lt;n&gt;"; the module header
+/// "__ReadyToRunHeader" and its sections "__&lt;SectionName&gt;". A name already used at another address gets "_&lt;RVA hex&gt;".
 /// </para>
 /// </summary>
 public static class NativeAotNames
@@ -207,6 +208,8 @@ public static class NativeAotNames
             else Add(obj.Rva, $"frozen_{objects++}", $"frozen {obj.TypeName} ({obj.Size} bytes)");
         }
         Add(aot.Header.Rva, "__ReadyToRunHeader", $"NativeAOT module header, ReadyToRun {aot.ReadyToRunVersion} ({aot.Runtime})");
+        foreach (var section in aot.Header.Sections.Where(s => s.HasEnd && s.Length > 0))
+            Add(section.StartRva, "__" + NativeName.Identifier(section.Name), $"NativeAOT module section {section.Name} ({section.Length} bytes)");
 
         return new Built(names, comments, starts.Distinct().Order().ToArray(),
             new Report(functions, folded, slots, interfaceSlots, methodTables, strings, objects, suffixed, watch.Elapsed));
