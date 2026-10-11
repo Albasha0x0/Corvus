@@ -177,9 +177,13 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
             Assert.Equal((45, 3600), (o.EngineRequestTimeoutSeconds, o.EngineOpenTimeoutSeconds));
             using var engines = new NativeEngineService(new FakeProvider(available: true), null, options: o);
             Assert.Equal((TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(3600)), (engines.RequestTimeout, engines.OpenTimeout));
+            Assert.Equal(EngineAnalysis.Full, o.EngineAnalysis);
+            Environment.SetEnvironmentVariable(ServerOptions.EngineAnalysisVariable, "None");
+            Assert.Equal(EngineAnalysis.None, ServerOptions.Parse([]).EngineAnalysis);
         }
         finally
         {
+            Environment.SetEnvironmentVariable(ServerOptions.EngineAnalysisVariable, null);
             Environment.SetEnvironmentVariable(ServerOptions.EngineRequestTimeoutVariable, saved.Item1);
             Environment.SetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable, saved.Item2);
         }

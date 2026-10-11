@@ -58,6 +58,7 @@ public sealed class NativeEngineService : IDisposable
         DefaultMode = options?.Engine ?? EngineMode.Auto;
         RequestTimeout = TimeSpan.FromSeconds(options?.EngineRequestTimeoutSeconds ?? 120);
         OpenTimeout = TimeSpan.FromSeconds(options?.EngineOpenTimeoutSeconds ?? 1200);
+        _analysis = options?.EngineAnalysis ?? EngineAnalysis.Full;
         _prewarm = options?.Prewarm;
         if (_prewarm != null && workspace != null) workspace.NativeLoaded += native => _ = PrewarmCore(native);
     }
@@ -180,8 +181,10 @@ public sealed class NativeEngineService : IDisposable
     public TimeSpan RequestTimeout { get; }
     public TimeSpan OpenTimeout { get; }
 
+    private readonly EngineAnalysis _analysis;
+
     private NativeOpenOptions OpenOptions(IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
-        new() { Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout };
+        new() { Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, Analysis = _analysis };
 
     /// <summary>
     /// The image's session of engine <paramref name="provider"/> (null: the first engine in order of preference that has

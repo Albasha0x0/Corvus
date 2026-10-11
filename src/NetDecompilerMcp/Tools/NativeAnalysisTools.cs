@@ -203,7 +203,8 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         var byLine = function.LineAddresses.GroupBy(l => l.Line).ToDictionary(g => g.Key, g => g.Min(l => l.Rva));
         var (display, symbol) = NativeTools.Named(function.Name, native.Image.Format);
         var sb = new StringBuilder($"// {display} at {NativeAddress.Va(native.Image, function.StartRva)} ({session.ProviderId}" +
-                                   $"{(session.ReusedDatabase ? ", saved analysis" : $", analyzed in {session.OpenTime.TotalSeconds:0.0} s")}{symbol})\n");
+                                   $"{(session.ReusedDatabase ? ", saved analysis" : $", analyzed in {session.OpenTime.TotalSeconds:0.0} s")}" +
+                                   $"{(session.DatabaseNote is { } note ? ", " + note : "")}{symbol})\n");
         for (int i = 0; i < lines.Length; i++)
             sb.Append(addresses ? (byLine.TryGetValue(i, out var at) ? $"/* {native.Image.ImageBase + at:X} */ " : new string(' ', 6 + 16 - 2)) : "")
               .AppendLine(lines[i].TrimEnd('\r'));

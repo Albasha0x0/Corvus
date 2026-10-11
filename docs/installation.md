@@ -165,6 +165,7 @@ Server options and their environment variables are in the README ("Server option
 | `NDM_IDA_DIR`, `NDM_IDA_PYTHON` | IDA installation folder and the Python interpreter for idalib (found automatically otherwise). |
 | `NDM_GHIDRA_DIR`, `NDM_GHIDRA_JAVA`, `NDM_GHIDRA_ANALYSIS`, `NDM_GHIDRA_MAXMEM`, `NDM_GHIDRA_OPTIONS`, `NDM_GHIDRA_EXTENSIONS`, `NDM_GHIDRA_DECOMPILE_TIMEOUT`, `NDM_GHIDRA_DECOMPILE_PAYLOAD_MB` | Ghidra installation, JDK, analysis profile, JVM heap, analyzer options, extension zips and decompiler limits (README, "Server options"). |
 | `NDM_ENGINE_MEMORY_MB` | Memory limit of each IDA or Ghidra worker in MB (`0` removes it). |
+| `NDM_ENGINE_ANALYSIS` | `none`: IDA opens images without auto-analysis (functions are made where a tool asks), kept in a database of their own; default `full`. |
 | `NDM_ENGINE_REQUEST_TIMEOUT`, `NDM_ENGINE_OPEN_TIMEOUT` | Seconds each IDA or Ghidra request may take (default 120) and an engine's start plus auto-analysis (default 1200). |
 | `NDM_CODE_INDEX_CACHE`, `NDM_CODE_INDEX_CACHE_MB`, `NDM_CODE_INDEX_CACHE_DAYS` | Folder and bounds of saved native code indexes (`--index-cache`, `--index-cache-mb`, `--index-cache-days`). |
 | `NDM_ANALYSIS_CACHE` | Folder of saved engine databases (IDA, Ghidra), keyed by file hash. |

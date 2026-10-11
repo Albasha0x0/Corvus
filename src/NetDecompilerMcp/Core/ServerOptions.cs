@@ -26,7 +26,8 @@ namespace NetDecompilerMcp.Core;
 ///   --allow-device-changes  allow the Android device tools that install or uninstall apps (NDM_ALLOW_DEVICE_CHANGES=1)
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_PREWARM sets --prewarm (NDM_IDA_PREWARM=1: ida); NDM_ENGINE sets --engine;
 /// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level;
-/// NDM_TOOLSETS sets --toolsets; NDM_ENGINE_REQUEST_TIMEOUT and NDM_ENGINE_OPEN_TIMEOUT (seconds) bound IDA and Ghidra requests and opens.
+/// NDM_TOOLSETS sets --toolsets; NDM_ENGINE_REQUEST_TIMEOUT and NDM_ENGINE_OPEN_TIMEOUT (seconds) bound IDA and Ghidra requests and opens;
+/// NDM_ENGINE_ANALYSIS=none opens images in IDA without auto-analysis.
 /// </summary>
 public sealed class ServerOptions
 {
@@ -83,6 +84,11 @@ public sealed class ServerOptions
     public int EngineOpenTimeoutSeconds { get; set; } = 1200;
 
     public const string EngineOpenTimeoutVariable = "NDM_ENGINE_OPEN_TIMEOUT";
+
+    /// <summary>IDA's first open of an image: full auto-analysis (default) or none (load only; functions made on demand, kept under a separate database).</summary>
+    public Native.Providers.EngineAnalysis EngineAnalysis { get; set; } = Native.Providers.EngineAnalysis.Full;
+
+    public const string EngineAnalysisVariable = "NDM_ENGINE_ANALYSIS";
 
     /// <summary>Minimum level of the stderr log; Debug adds a line per tool call (tool, outcome, milliseconds).</summary>
     public LogLevel LogLevel { get; set; } = LogLevel.Information;
@@ -171,6 +177,12 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
         o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);
+        o.EngineAnalysis = Environment.GetEnvironmentVariable(EngineAnalysisVariable)?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "full" => Native.Providers.EngineAnalysis.Full,
+            "none" => Native.Providers.EngineAnalysis.None,
+            var other => throw new ArgumentException($"{EngineAnalysisVariable} must be full or none, not '{other}'"),
+        };
         if (engine != null)
             o.Engine = EngineModes.TryParse(engine) ?? throw new ArgumentException($"--engine (or {EngineVariable}) must be auto, ours, ida or ghidra, not '{engine.Trim()}'");
         var env = Environment.GetEnvironmentVariable("NETDECOMP_LOAD");

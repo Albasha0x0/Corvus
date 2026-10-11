@@ -146,7 +146,7 @@ def heartbeat():
 
 # idalib is loaded on the first request so that load and license failures come back as responses.
 _ida = None
-_state = {"open": False, "base": 0}
+_state = {"open": False, "base": 0, "auto": True}
 
 
 def ida():
@@ -204,6 +204,8 @@ def rva_of(ea):
 
 def func_at(m, ea):
     f = m.ida_funcs.get_func(ea)
+    if f is None and not _state["auto"] and m.ida_funcs.add_func(ea):
+        f = m.ida_funcs.get_func(ea)  # without auto-analysis, functions are made where they are asked for
     if f is None:
         raise WorkerError("not_found", "no function contains rva 0x%X" % (ea - _state["base"]))
     return f
@@ -251,12 +253,14 @@ def op_open(args):
         extra.insert(0, "-o" + idb)
     cmdline = " ".join(quote_arg(a) for a in extra) or None
     start = time.time()
-    rc = m.idapro.open_database(path, True, cmdline)
+    _state["auto"] = args.get("auto", True) is not False
+    rc = m.idapro.open_database(path, _state["auto"], cmdline)
     if rc != 0:
         raise WorkerError("provider_unavailable", "open_database returned %d for %s" % (rc, path))
     _state["open"] = True
     batch_mode()
-    m.ida_auto.auto_wait()
+    if _state["auto"]:
+        m.ida_auto.auto_wait()
     _state["base"] = m.ida_nalt.get_imagebase()
     ftype = m.ida_ida.inf_get_filetype()
     if ftype not in (m.ida_ida.f_PE, m.ida_ida.f_ELF, m.ida_ida.f_MACHO):

@@ -21,6 +21,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     protected override int MaxRestarts => provider.Options.MaxRestarts;
     protected override int JournalSaveThreshold => provider.Options.JournalSaveThreshold;
     internal string DatabasePath => _databasePath;
+    /// <summary>False when opened without auto-analysis: the engine's function list is not complete.</summary>
+    public bool AnalysisComplete => Options.Analysis != EngineAnalysis.None;
+    public string? DatabaseNote => AnalysisComplete ? null : "no auto-analysis: functions made where asked";
     protected override string? DatabaseLocation => _databasePath.Length > 0 ? _databasePath : null;
 
     protected override CacheEntry AcquireEntry(string imagePath, string? sha256) => provider.Cache.Acquire(ProviderId, imagePath, sha256);
@@ -28,7 +31,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     protected override void PrepareOpen()
     {
         (Arch, _headerImageBase) = ReadHeader(Entry!.InputCopy, ImagePath);
-        var profile = Options.Symbols == SymbolMode.Off ? "nopdb" : "default";
+        var profile = (Options.Symbols == SymbolMode.Off ? "nopdb" : "default") + (Options.Analysis == EngineAnalysis.None ? "-noauto" : "");
         _databasePath = Path.Combine(Entry.Directory, IdaProvider.DatabaseFileName(ida, profile));
     }
 
@@ -99,7 +102,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         if (Options.Symbols == SymbolMode.Off) idaArgs.Add("-Opdb:off");
         var remaining = Options.OpenTimeout - clock.Elapsed;
         if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
-        var info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
+        var info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs), ("auto", Options.Analysis != EngineAnalysis.None),
             ("sha256", Entry.Sha256)), remaining, cancellationToken).ConfigureAwait(false);
 
         var loadedBase = info.GetProperty("imagebase").GetUInt64();

@@ -305,6 +305,27 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task Open_without_auto_analysis_keeps_its_own_database_and_decompiles_on_demand()
+    {
+        var path = System64;
+        var rva = ExportRva(path, Export);
+        var provider = Isolated();
+        await using (var s = (IdaSession)await provider.OpenAsync(path, null, Offline with { Analysis = EngineAnalysis.None }))
+        {
+            Assert.False(s.AnalysisComplete);
+            Assert.Contains("noauto", Path.GetFileName(s.DatabasePath));
+            Assert.Contains("no auto-analysis", ((INativeDecompilerSession)s).DatabaseNote);
+            var decompiled = await s.DecompileAsync(rva);
+            Assert.Equal(rva, decompiled.StartRva);
+            Assert.True(s.OpenTime < TimeSpan.FromSeconds(60));
+        }
+        // the full-analysis database of the same bytes is untouched (never made here)
+        var sha = AnalysisCache.HashFile(path);
+        Assert.False(File.Exists(provider.SavedDatabasePath(sha, "nopdb")));
+        Assert.True(File.Exists(provider.SavedDatabasePath(sha, "nopdb-noauto")));
+    }
+
+    [IdaFact]
     public async Task The_worker_runs_in_batch_mode()
     {
         await using var s = await Provider.OpenAsync(System64, null, Offline);

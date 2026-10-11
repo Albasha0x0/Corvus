@@ -63,6 +63,8 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     bool IsOpen { get; }
     /// <summary>False when the first analysis ran out of time and the database holds only part of it.</summary>
     bool AnalysisComplete => true;
+    /// <summary>What sets this database apart, for output headers ("no auto-analysis"), or null.</summary>
+    string? DatabaseNote => null;
 
     Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default);
 
@@ -274,7 +276,12 @@ public sealed record NativeOpenOptions
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromMinutes(2);
     /// <summary>Receives start and analysis progress (elapsed time and stage).</summary>
     public IProgress<NativeProviderProgress>? Progress { get; init; }
+    /// <summary>Whether the engine runs its auto-analysis on the first open (IDA); without it the database is kept under its own profile.</summary>
+    public EngineAnalysis Analysis { get; init; } = EngineAnalysis.Full;
 }
+
+/// <summary>Full: the engine's auto-analysis. None: load only, functions made where they are asked for (huge or hostile inputs).</summary>
+public enum EngineAnalysis { Full, None }
 
 public sealed record NativeProviderProgress(string Stage, TimeSpan Elapsed);
 
