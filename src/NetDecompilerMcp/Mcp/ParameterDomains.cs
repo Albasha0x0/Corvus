@@ -21,8 +21,6 @@ public static class ParameterDomains
     private static readonly Domain DecompilerEngine = Of(["auto", "ida", "ghidra"]);
     /// <summary>Tools only IDA serves.</summary>
     private static readonly Domain IdaEngine = Of(["auto", "ida"]);
-    /// <summary>Code tools whose engine side only IDA has.</summary>
-    private static readonly Domain IdaCodeEngine = Of(["auto", "ours", "ida"], "built-in", "builtin");
     private static readonly Domain Relocations = Of(["auto", "keep", "neutralize"], "neutralise");
     private static readonly Domain StubMode = Of(["replace", "before", "after"]);
     private static readonly Domain Placement = Of(["auto", "cave", "section"]);
@@ -70,7 +68,7 @@ public static class ParameterDomains
         ["get_nativeaot_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "sections", "types", "type", "methods", "strings"]) },
         ["list_functions"] = new Dictionary<string, Domain> { ["sort"] = Of(["address", "size", "callers"]), ["engine"] = Engine },
         ["disassemble"] = new Dictionary<string, Domain> { ["engine"] = Engine },
-        ["inspect_instruction"] = new Dictionary<string, Domain> { ["engine"] = IdaCodeEngine },
+        ["inspect_instruction"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["get_cfg"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["find_xrefs"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["native_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Direction, ["calls"] = Of(["all", "direct", "virtual"]), ["engine"] = Engine },

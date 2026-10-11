@@ -107,15 +107,15 @@ public sealed partial class NativeCodeTools
                  "prefixes, encoding, CPUID / ARM64 features; each operand's kind, size and access, registers with their full register, memory as base, " +
                  "index, scale or extend, displacement and pre / post-index writeback, with the effective address named; registers and flags read and " +
                  "written, memory accesses, stack pointer change; flow with target and fallthrough; the ARM64 ADRP pair and the address it forms; " +
-                 "references from and to; a call's arguments; a switch's table. count > 1 walks forward, skipping data items. With IDA (ARM32 and " +
-                 "other instruction sets): IDA's items, operands, access, flow and references; fields IDA does not supply are null. " + IndexNote)]
+                 "references from and to; a call's arguments; a switch's table. count > 1 walks forward, skipping data items. With IDA or Ghidra " +
+                 "(ARM32 and other instruction sets): the engine's items, operands, access, flow and references; fields it does not supply are null. " + IndexNote)]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Instructions to inspect from the address (1-64, default 1).")] int count = 1,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
-        [Description("Engine: auto (default: the built-in decoder for x86 / x64 / ARM64, IDA for other instruction sets when it is installed), ours or ida.")]
+        [Description("Engine: auto (default: the built-in decoder for x86 / x64 / ARM64, else IDA, else Ghidra when installed), ours, ida or ghidra.")]
         string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -129,12 +129,13 @@ public sealed partial class NativeCodeTools
         var origin = mode.Named ? $"engine={EngineModes.Name(mode.Mode)}" : $"server default {EngineModes.Name(mode.Mode)}";
         var choice = mode.Mode switch
         {
-            EngineMode.Ida => NativeEngineCode.Choose(EngineMode.Ida, mode.Named, engines, native, index),
+            EngineMode.Ida or EngineMode.Ghidra => NativeEngineCode.Choose(mode.Mode, mode.Named, engines, native, index),
             _ when operands => new EngineChoice("ours", $"{origin}: the built-in decoder"),
-            // instruction details come from IDA only
-            EngineMode.Auto when engines != null && engines.UnavailabilityOf("ida") == null => new EngineChoice("ida", undecoded
-                ? $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions"
-                : $"{origin}: the built-in inspector reads x86 / x64 / ARM64 operands"),
+            // instruction details for other instruction sets come from an engine
+            EngineMode.Auto when (engines?.UnavailabilityOf("ida") == null ? "ida" : engines?.UnavailabilityOf("ghidra") == null ? "ghidra" : null) is { } id && engines != null =>
+                new EngineChoice(id, undecoded
+                    ? $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions"
+                    : $"{origin}: the built-in inspector reads x86 / x64 / ARM64 operands"),
             _ => throw NativeEngineCode.Unsupported(index, engines),
         };
         var (text, report) = choice.External
@@ -189,7 +190,7 @@ public sealed partial class NativeCodeTools
         IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await engines!.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
-            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"IDA {p.Stage}" })), ct);
+            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"{NativeEngineService.DisplayName(choice.Engine)} {p.Stage}" })), ct);
         if (names != null) await names.EnsureAsync(native, session, ct);
         var found = await session.InspectAsync(rva, count, ct);
         return EngineReport(native.Id, index, found, choice, ct);
@@ -203,7 +204,7 @@ public sealed partial class NativeCodeTools
         var classifier = index.Support == CodeSupport.Full ? new AddressClassifier(index) : null;
         var sb = new StringBuilder();
         var items = new List<InstructionItem>();
-        var notes = new List<string> { "IDA does not report prefixes, encoding, CPUID features, register and flag use, memory accesses or the stack pointer change: those fields are null" };
+        var notes = new List<string> { $"{NativeEngineService.DisplayName(choice.Engine)} does not report prefixes, encoding, CPUID features, register and flag use, memory accesses or the stack pointer change: those fields are null" };
         foreach (var e in found)
         {
             ct.ThrowIfCancellationRequested();

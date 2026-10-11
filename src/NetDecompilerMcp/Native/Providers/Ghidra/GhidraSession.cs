@@ -271,6 +271,9 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public async Task<FunctionDisassembly> DisassembleRangeAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
         WorkerRows.Range(rva, await CallAsync("disasm_range", WorkerRows.Args(("rva", rva), ("count", Math.Clamp(count, 1, 200_000))), cancellationToken).ConfigureAwait(false));
 
+    public async Task<IReadOnlyList<EngineInstructionItem>> InspectAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
+        EngineInstructions.Parse(await CallAsync("insn", WorkerRows.Args(("rva", rva), ("count", Math.Clamp(count, 1, 64))), cancellationToken).ConfigureAwait(false));
+
     public async Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
         WorkerRows.Blocks(await CallAsync("blocks", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
 

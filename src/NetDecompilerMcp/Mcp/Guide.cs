@@ -149,7 +149,7 @@ public static class Guide
             Engines: list_functions, disassemble, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida|ghidra. auto
             (default) uses an engine's analysis once it has finished in this session (IDA's before Ghidra's), else the built-in index,
             and never starts an engine; every result has an "Engine: ours|ida|ghidra (why)" line. ARM (Thumb) images work through IDA,
-            else Ghidra (NDM_GHIDRA_DIR and a JDK). inspect_instruction takes auto|ours|ida (auto: the built-in decoder for x86 / x64).
+            else Ghidra (NDM_GHIDRA_DIR and a JDK). inspect_instruction takes auto|ours|ida|ghidra (auto: the built-in decoder for x86 / x64 / ARM64).
             Name priority: user > pdb > nativeaot > il2cpp > ida > discovered; our names win in engine output. decompile_native pushes
             names, patches, Il2Cpp prototypes, RTTI and PDB types into the engine's database; --prewarm ida|ghidra|auto analyzes images
             as they load. Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).

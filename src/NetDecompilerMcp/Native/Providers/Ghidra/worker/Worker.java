@@ -244,6 +244,7 @@ public class Worker implements GhidraLaunchable {
             case "close": return close(r);
             case "sleep": return sleep(r);
             case "decompile_many": return read(() -> BatchOps.decompileMany(this, r));
+            case "insn": return read(() -> InsnOps.insn(this, r));
             default: throw new WorkerError("invalid_argument", "unknown op '" + r.op + "'");
         }
     }
