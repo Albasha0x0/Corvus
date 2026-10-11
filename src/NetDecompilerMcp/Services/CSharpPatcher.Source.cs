@@ -165,11 +165,34 @@ public sealed partial class CSharpPatcher
             pe.SetLength(0);
             emit = withUsings.Emit(pe, cancellationToken: ct);
         }
-        if (!emit.Success && ClashingTypeNames(emit.Diagnostics) is { Count: > 0 } clashing)
+        HashSet<string>? clashing = null;
+        if (!emit.Success && ClashingTypeNames(emit.Diagnostics) is { Count: > 0 } clashed)
         {
+            clashing = clashed;
             withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true, clashing);
             pe.SetLength(0);
             emit = withUsings.Emit(pe, cancellationToken: ct);
+        }
+        if (!emit.Success && UnimplementableInterfaces(emit.Diagnostics, tree, withUsings) is { Count: > 0 } interfaces)
+        {
+            // A target interface whose members return the target's own type (ImmutableList<T>.GetRange) cannot be implemented
+            // by its decompiled copy; only bodies are taken from the result, so the copy is compiled without those interfaces.
+            using var retry = new MemoryStream();
+            var without = tree.WithRootAndOptions(tree.GetRoot(ct).RemoveNodes(interfaces, SyntaxRemoveOptions.KeepNoTrivia)!, tree.Options);
+            var compilation = CreateCompilation(asm, without, targetImage, out _, withUsings: true, clashing);
+            var result = compilation.Emit(retry, cancellationToken: ct);
+            // Their explicit implementations (stubs unless one is the patched member) go too.
+            var orphans = result.Diagnostics.Where(d => d.Id == "CS0540" && d.Location.SourceTree == without)
+                .Select(d => without.GetRoot(ct).FindNode(d.Location.SourceSpan).AncestorsAndSelf().OfType<MemberDeclarationSyntax>().FirstOrDefault())
+                .OfType<MemberDeclarationSyntax>().Distinct().ToList();
+            if (!result.Success && orphans.Count > 0 && !orphans.Any(o => o.DescendantNodesAndSelf().Any(n => n.HasAnnotation(UserCode))))
+            {
+                without = without.WithRootAndOptions(without.GetRoot(ct).RemoveNodes(orphans, SyntaxRemoveOptions.KeepNoTrivia)!, tree.Options);
+                retry.SetLength(0);
+                result = CreateCompilation(asm, without, targetImage, out _, withUsings: true, clashing).Emit(retry, cancellationToken: ct);
+            }
+            if (result.Success)
+                return ModuleDefMD.Load(retry.ToArray(), workspace.DnlibContext);
         }
         if (!emit.Success && withUsings.SyntaxTrees.Length > 1)
         {
@@ -180,6 +203,25 @@ public sealed partial class CSharpPatcher
         if (!emit.Success)
             throw new ToolError(ErrorCode.InvalidArgument, FormatErrors(emit.Diagnostics, tree, missing));
         return ModuleDefMD.Load(pe.ToArray(), workspace.DnlibContext);
+    }
+
+    /// <summary>Interfaces in base lists of the decompiled declaration that its types fail to implement (CS0535, CS0738).</summary>
+    private static List<SyntaxNode> UnimplementableInterfaces(IEnumerable<Diagnostic> diagnostics, SyntaxTree tree, CSharpCompilation compilation)
+    {
+        var root = tree.GetRoot();
+        var model = compilation.GetSemanticModel(tree);
+        return diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id is "CS0535" or "CS0738" && d.Location.SourceTree == tree)
+            .Select(d => root.FindNode(d.Location.SourceSpan).AncestorsAndSelf().OfType<TypeDeclarationSyntax>().FirstOrDefault())
+            .OfType<TypeDeclarationSyntax>()
+            .Where(t => !t.AncestorsAndSelf().Any(n => n.HasAnnotation(UserCode)) && t.BaseList != null)
+            .Distinct()
+            .SelectMany(t =>
+            {
+                var interfaces = t.BaseList!.Types.Where(b => model.GetTypeInfo(b.Type).Type?.TypeKind == TypeKind.Interface).ToList();
+                return interfaces.Count == t.BaseList.Types.Count ? [t.BaseList] : interfaces.Cast<SyntaxNode>();
+            })
+            .ToList();
     }
 
     /// <summary>Attributes outside the user's code whose type is not found (CS0246, CS0234) or is not an attribute (CS0616).</summary>

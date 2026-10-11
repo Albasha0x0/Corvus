@@ -419,6 +419,19 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// ImmutableList&lt;T&gt;'s interfaces (from the target) return the target's ImmutableList&lt;T&gt;, which its decompiled copy
+    /// cannot (CS0738): every patch in the type failed. The copy is compiled without those interfaces and their explicit stubs.
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void CSharpPatchesCompileInATypeWhoseInterfacesReturnTheType()
+    {
+        using var env = new Env(RealPackages.Lib("System.Collections.Immutable", "1.3.1", "netstandard1.0", "System.Collections.Immutable.dll"));
+        Assert.Contains("compiled OK", env.Edit(() => env.Edits.PatchMethodCSharp(env.One("System.Collections.Immutable.ImmutableList`1/Node::CopyTo(int, T[], int, int)"),
+            "throw new System.InvalidOperationException();", dryRun: true, default)));
+    }
+
+    /// <summary>
     /// Two references with an internal System.SR, neither public nor used by the target: none was hidden, so SR in code of
     /// namespace App.Sub (usings inside it) was ambiguous instead of the target's App.SR (System.Web.SR in System.Web.Security).
     /// </summary>
