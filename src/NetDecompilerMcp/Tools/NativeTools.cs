@@ -53,7 +53,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         "Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them).";
 
     [McpServerTool(Name = "get_pe_info", Title = "Native image overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
-    [Description("Overview of a native image. PE: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), packers and protectors, " +
+    [Description("Overview of a native image. PE: machine (ARM64X / ARM64EC views too), kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), packers and protectors, " +
                  "security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), " +
                  "load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. " +
                  "ELF: program headers, soname, NDK note, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, " +
@@ -94,6 +94,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         sb.AppendLine($"  characteristics: {string.Join(", ", pe.CharacteristicNames)}");
         if (pe.DllCharacteristicNames.Count > 0) sb.AppendLine($"  DLL characteristics: {string.Join(", ", pe.DllCharacteristicNames)}");
         if (pe.IsDotNet) sb.AppendLine("  has .NET metadata (mixed-mode or loaded as native): the .NET tools apply to it too");
+        if (PeHybrid.Of(pe) is { } hybrid) HybridLines(sb, pe, hybrid);
 
         var (on, off) = Mitigations(pe);
         sb.AppendLine($"Mitigations: on: {(on.Count > 0 ? string.Join(", ", on) : "none")}; off: {(off.Count > 0 ? string.Join(", ", off) : "none")}" + (pe.Mitigations.NoSeh ? "; no SEH" : ""));
@@ -162,6 +163,22 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 sb.AppendLine($"  {issue.Area}: {issue.Message}" + (issue.FileOffset is { } fo ? $" (file 0x{fo:X})" : ""));
         }
         return sb.ToString();
+    }
+
+    private static void HybridLines(StringBuilder sb, PeFile pe, PeHybrid h)
+    {
+        sb.AppendLine(h.Kind == "ARM64X"
+            ? $"  {h.Kind}: ARM64 code and ARM64EC / x64 code in one file; this is the ARM64 view" +
+              (h.ViewMachine != null || h.ViewEntryRva != null || h.ViewDirectories.Count > 0
+                  ? $"; the x64 view ({h.Arm64XFixups} ARM64X fixups): machine {h.ViewMachine ?? pe.MachineName}" +
+                    (h.ViewEntryRva is { } e ? $", entry point {NativeAddress.Va(pe, e)}" : "") +
+                    (h.ViewDirectories.Count > 0 ? $", its own {string.Join(", ", h.ViewDirectories)} directories" : "")
+                  : "")
+            : $"  {h.Kind}: an x64 image whose code is partly ARM64EC (runs natively on ARM64, x64 code under emulation)");
+        var bytes = h.CodeRanges.GroupBy(r => r.Arch).Select(g => $"{g.Key} {g.Sum(r => (long)r.Length):N0} bytes");
+        sb.AppendLine($"  CHPE metadata version {h.MetadataVersion}: code map of {Plural(h.CodeRanges.Count, "range")} ({string.Join(", ", bytes)})" +
+                      (h.AlternateEntryRva is { } alt ? $", alternate entry point {NativeAddress.Va(pe, alt)}" : "") +
+                      (h.AuxiliaryIatRva is { } aux ? $", auxiliary IAT at {NativeAddress.Va(pe, aux)}" : ""));
     }
 
     private static (List<string> On, List<string> Off) Mitigations(PeFile pe)
