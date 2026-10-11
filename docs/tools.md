@@ -2120,13 +2120,13 @@ Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `inte
 
 **Disassemble DEX** (read-only, idempotent)
 
-Smali of one method, or of a whole class, from the DEX code of an Android package, in baksmali's layout: registers as pN / vN, string, type, field and method operands resolved, labels by code offset, .line numbers, try / catch blocks, switch and array payloads, annotations. A method is one exact id (Lpkg/C;->m(I)V) or one overload (pkg.C::m(int)); never several at once. format=annotated adds each instruction's code offset and code units.
+Smali of a method or a class of an Android package's DEX code in baksmali's layout (operands resolved, labels, .line, try / catch, payloads, annotations). A method is one exact id (Lpkg/C;->m(I)V) or one overload (pkg.C::m(int)). format=annotated adds code offsets and units.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex. |
 | `symbol` | string | yes |  | A method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)) or a class (pkg.C, Lpkg/C;). |
-| `format` | string |  |  | smali (default) or annotated. Values: smali, annotated. |
+| `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 
@@ -2345,7 +2345,7 @@ Summary of a Windows minidump (.dmp): OS, CPU and process (times, integrity, WoW
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | Path of the .dmp file (or the id of an open dump). |
-| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), searched by file name when a module's recorded path is not on this machine or holds another build. The dump's own folder is always searched. |
+| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), searched by file name, then by timestamp and size, when a module's recorded path is not on this machine or holds another build. The dump's own folder is always searched. |
 | `modulesOffset` | integer |  | `0` | Index of the first module listed. |
 | `modulesLimit` | integer |  | `50` | Max modules listed (default 50). |
 | `threadsOffset` | integer |  | `0` | Index of the first thread listed. |
@@ -2369,7 +2369,7 @@ Call stack of a minidump thread. x64: unwind with the modules' .pdata (image on 
 | `maxFrames` | integer |  | `256` | Max frames walked (default 256, up to 1024). |
 | `offset` | integer |  | `0` | Index of the first frame returned. |
 | `limit` | integer |  | `100` | Max frames returned (default 100). |
-| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), searched by file name when a module's recorded path is not on this machine or holds another build. The dump's own folder is always searched. |
+| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), searched by file name, then by timestamp and size, when a module's recorded path is not on this machine or holds another build. The dump's own folder is always searched. |
 | `managed` | string |  | `auto` | auto: decode .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only. Values: auto, off. |
 
 Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `truncated`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`.
@@ -2378,7 +2378,7 @@ Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, 
 
 **Crash dump .NET heap** (read-only, idempotent, long-running)
 
-The .NET GC heap of a minidump (through the runtime's DAC). stats: count and size per type, largest first, with the loaded assembly and type token of that build; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured). Bounded by maxObjects.
+The .NET GC heap of a minidump (through the runtime's DAC). stats: count and size per type, largest first, with the loaded assembly and token; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2412,7 +2412,7 @@ Structured output: `dump`, `address`, `type`, `size`, `assembly`, `token`, `buil
 
 **Read crash dump memory** (read-only, idempotent)
 
-Hex dump of the dumped process's memory at an address: the bytes the dump captured, with what is there (module!function, captured range, page protection). Bytes the dump does not hold are read from the module image when imageFallback is true (code and read-only data match; writable data shows initial values), and the source is reported.
+Hex dump of the dumped process's memory at an address, with what is there (module!function, captured range, protection). Bytes the dump lacks come from the module image with imageFallback (writable data then shows initial values); the source is reported.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

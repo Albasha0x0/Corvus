@@ -73,7 +73,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     }
 
     /// <summary>One tool call's view of a dump (or of a live process): its memory and the module images it resolved.</summary>
-    internal sealed class Session(MinidumpService owner, string id, IProcessMemory memory, IReadOnlyList<string> directories) : IDisposable
+    internal sealed class Session(MinidumpService owner, string id, IProcessMemory memory, IReadOnlyList<string> directories, IReadOnlyList<string>? loaded = null) : IDisposable
     {
         private readonly Dictionary<DumpModule, ModuleCode> _modules = [];
         private readonly Dictionary<DumpModule, Task<NativeCodeIndex?>> _indexes = [];
@@ -83,12 +83,14 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         /// <summary>The minidump of a dump session.</summary>
         public MinidumpFile Dump => Memory as MinidumpFile ?? throw new InvalidOperationException("not a dump session");
         public IReadOnlyList<string> Directories { get; } = directories;
+        /// <summary>Files of the native images open in the workspace, matched to modules by timestamp and size under any name.</summary>
+        public IReadOnlyList<string> LoadedImages { get; } = loaded ?? [];
 
         public ModuleCode Code(DumpModule module)
         {
             lock (_modules)
             {
-                if (!_modules.TryGetValue(module, out var c)) _modules[module] = c = owner.Load(Memory, module, Directories);
+                if (!_modules.TryGetValue(module, out var c)) _modules[module] = c = owner.Load(Memory, module, Directories, LoadedImages);
                 return c;
             }
         }
@@ -139,8 +141,11 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         var file = MinidumpFile.Open(path);
         string id = Register(path);
         var dirs = Directories(imageDirectories, path);
-        return new Session(this, id, file, dirs);
+        return new Session(this, id, file, dirs, LoadedImagePaths());
     }
+
+    private List<string> LoadedImagePaths() =>
+        workspace == null ? [] : workspace.Read(() => workspace.Natives.Select(n => n.FilePath).Where(File.Exists).ToList());
 
     /// <summary>The file of an open dump id, or null.</summary>
     internal string? PathOf(string id) => _ids.TryGetValue(id.Trim(), out var path) ? path : null;
@@ -186,9 +191,9 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         return dirs;
     }
 
-    internal ModuleCode Load(IProcessMemory dump, DumpModule module, IReadOnlyList<string> directories)
+    internal ModuleCode Load(IProcessMemory dump, DumpModule module, IReadOnlyList<string> directories, IReadOnlyList<string>? loaded = null)
     {
-        var local = DumpImages.Find(module, directories, dump.Arch);
+        var local = DumpImages.Find(module, directories, dump.Arch, loaded);
         string key = local.Matches ? $"disk|{local.Path}|{module.TimeDateStamp:X}|{module.Size:X}"
             : $"memory|{dump.Identity}|{module.Base:X}";
         lock (_cacheGate)
@@ -217,13 +222,15 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         return result;
     }
 
-    /// <summary>The code index of a loaded native image that is this module's build (file name, timestamp and size), else null.</summary>
+    /// <summary>The code index of a loaded native image that is this module's build (timestamp and size; the same file name first), else null.</summary>
     private async Task<NativeCodeIndex?> WorkspaceIndex(DumpModule module, CancellationToken ct)
     {
         if (workspace == null || code == null) return null;
-        var native = workspace.Read(() => workspace.Natives.FirstOrDefault(n =>
-            Path.GetFileName(n.FilePath).Equals(module.FileName, StringComparison.OrdinalIgnoreCase)
-            && n.Pe?.Coff.TimeDateStamp == module.TimeDateStamp && n.Image.SizeOfImage == module.Size));
+        var native = workspace.Read(() =>
+        {
+            var same = workspace.Natives.Where(n => n.Pe?.Coff.TimeDateStamp == module.TimeDateStamp && n.Image.SizeOfImage == module.Size && module.TimeDateStamp != 0).ToList();
+            return same.FirstOrDefault(n => Path.GetFileName(n.FilePath).Equals(module.FileName, StringComparison.OrdinalIgnoreCase)) ?? same.FirstOrDefault();
+        });
         if (native == null) return null;
         try { return await code.Index(native, null, ct).WaitAsync(IndexWait, ct); }
         catch (TimeoutException) { return null; }

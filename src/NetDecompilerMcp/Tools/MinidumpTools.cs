@@ -11,8 +11,8 @@ public sealed class MinidumpTools(MinidumpService dumps)
 {
     private const string DumpDescription = "A minidump: the path of a .dmp file, or the id open_minidump returned (its file name).";
     private const string ImageDirectoriesDescription =
-        "Folders with the crashed program's binaries (';'-separated), searched by file name when a module's recorded path is not on this machine " +
-        "or holds another build. The dump's own folder is always searched.";
+        "Folders with the crashed program's binaries (';'-separated), searched by file name, then by timestamp and size, when a module's recorded path is not on " +
+        "this machine or holds another build. The dump's own folder is always searched.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true)]
     [Description("Summary of a Windows minidump (.dmp): OS, CPU and process (times, integrity, WoW64, runtime); the exception (code and name, " +
@@ -53,8 +53,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
 
     [McpServerTool(Name = "dump_heap", Title = "Crash dump .NET heap", UseStructuredContent = true)]
     [Description("The .NET GC heap of a minidump (through the runtime's DAC). stats: count and size per type, largest first, with the loaded " +
-                 "assembly and type token of that build; objects: matching objects (address, type, size, a string's value). Needs heap memory in the " +
-                 "dump (else heap_not_captured). Bounded by maxObjects.")]
+                 "assembly and token; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).")]
     public Task<MinidumpService.HeapReport> DumpHeap(
         [Description(DumpDescription)] string dump,
         [Description("stats (per type) or objects (one row per object).")] string? mode = "stats",
@@ -79,9 +78,8 @@ public sealed class MinidumpTools(MinidumpService dumps)
         Task.Run(() => dumps.Object(dump, address, depth, maxFields, maxArrayItems, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "read_dump_memory", Title = "Read crash dump memory", UseStructuredContent = true)]
-    [Description("Hex dump of the dumped process's memory at an address: the bytes the dump captured, with what is there (module!function, " +
-                 "captured range, page protection). Bytes the dump does not hold are read from the module image when imageFallback is true (code and " +
-                 "read-only data match; writable data shows initial values), and the source is reported.")]
+    [Description("Hex dump of the dumped process's memory at an address, with what is there (module!function, captured range, protection). " +
+                 "Bytes the dump lacks come from the module image with imageFallback (writable data then shows initial values); the source is reported.")]
     public Task<MinidumpService.MemoryRead> ReadDumpMemory(
         [Description(DumpDescription)] string dump,
         [Description("Address: hex (0x7FF6A1B21000), 'module+0x1234', or a module name for its base.")] string address,

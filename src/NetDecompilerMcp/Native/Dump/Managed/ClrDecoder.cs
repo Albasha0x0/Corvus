@@ -263,7 +263,7 @@ public sealed class ClrDecoder : IDisposable
                 candidates.AddRange(directories.Select(d => System.IO.Path.Combine(d, name)));
             foreach (var c in candidates)
                 if (File.Exists(c) && Pdb.PdbLocator.CheckImage(c, (uint)buildTimeStamp, (uint)imageSize) == null) return c;
-            return null;
+            return DumpImages.ByIdentity(name, (uint)buildTimeStamp, (uint)imageSize, directories)?.Path;
         }
 
         public string? FindPEImage(string fileName, SymbolProperties archivedUnder, System.Collections.Immutable.ImmutableArray<byte> buildIdOrUUID, OSPlatform originalPlatform, bool checkProperties) => null;

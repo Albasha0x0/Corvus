@@ -146,7 +146,7 @@ public sealed partial class MinidumpService
         ExceptionSummary? exception = d.Exception != null ? await DescribeException(s, ct) : null;
         var managed = await ManagedSection(s, dac, ct);
 
-        var modules = d.Modules.Skip(modulesOffset).Take(modulesLimit).Select(m => ModuleRow(m, s.Directories, d.Arch)).ToList();
+        var modules = d.Modules.Skip(modulesOffset).Take(modulesLimit).Select(m => ModuleRow(m, s.Directories, d.Arch, s.LoadedImages)).ToList();
         var exceptionThread = d.Exception?.ThreadId;
         var threads = new List<ThreadSummary>();
         foreach (var t in d.Threads.Skip(threadsOffset).Take(threadsLimit))
@@ -172,9 +172,9 @@ public sealed partial class MinidumpService
             d.Issues.Select(i => $"{i.Area}: {i.Message}").ToList(), notes);
     }
 
-    internal static ModuleSummary ModuleRow(DumpModule m, IReadOnlyList<string> directories, NativeArch arch)
+    internal static ModuleSummary ModuleRow(DumpModule m, IReadOnlyList<string> directories, NativeArch arch, IReadOnlyList<string>? loaded = null)
     {
-        var local = DumpImages.Find(m, directories, arch);
+        var local = DumpImages.Find(m, directories, arch, loaded);
         string state = local.Matches ? "matches" : local.Exists ? "mismatch" : "missing";
         string? built = m.TimeDateStamp is > 0x30000000 and < 0x80000000 ? DateTimeOffset.FromUnixTimeSeconds(m.TimeDateStamp).UtcDateTime.ToString("u") : null;
         var cv = m.CodeView;

@@ -13,11 +13,17 @@ public static class DumpImages
     /// <summary>Largest module image rebuilt from dump memory.</summary>
     public const uint MaxMemoryImage = 512u << 20;
 
+    /// <summary>Most files whose headers are read in one folder, and names looked at in one symbol store, when searching by timestamp and size.</summary>
+    public const int MaxFilesPerFolder = 4096, MaxStoreNames = 50_000;
+
     /// <summary>
     /// Looks for the module's file: its recorded path, then each of <paramref name="directories"/> with its file name. A
-    /// file matches when its header's TimeDateStamp and SizeOfImage are the module's. Only the first 4 KB are read.
+    /// file matches when its header's TimeDateStamp and SizeOfImage are the module's. Only the first 4 KB are read. When
+    /// no file of that name matches, the module is looked for by timestamp and size alone: in <paramref name="loaded"/>
+    /// (images the caller has open), under its store key in the local symbol stores, among the images of the folders,
+    /// and in the stores under any name (a renamed copy).
     /// </summary>
-    public static LocalImageCheck Find(DumpModule module, IReadOnlyList<string> directories, NativeArch arch = NativeArch.Unknown)
+    public static LocalImageCheck Find(DumpModule module, IReadOnlyList<string> directories, NativeArch arch = NativeArch.Unknown, IEnumerable<string>? loaded = null)
     {
         LocalImageCheck? firstMismatch = null;
         foreach (var candidate in Candidates(module, directories, arch))
@@ -26,7 +32,99 @@ public static class DumpImages
             if (check.Matches) return check;
             if (check.Exists) firstMismatch ??= check;
         }
+        if (ByIdentity(module.FileName, module.TimeDateStamp, module.Size, directories, loaded) is { } found) return found;
         return firstMismatch ?? new LocalImageCheck(null, false, false, null, null, null, "not found on this machine");
+    }
+
+    /// <summary>A file with this TimeDateStamp and SizeOfImage under any name (see <see cref="Find"/>); null when there is none or the stamp is 0.</summary>
+    public static LocalImageCheck? ByIdentity(string fileName, uint stamp, uint size, IReadOnlyList<string> directories, IEnumerable<string>? loaded = null)
+    {
+        if (stamp == 0 || size == 0) return null;
+        LocalImageCheck? Hit(string path, string where)
+        {
+            var c = Check(path, stamp, size);
+            return c.Matches ? c with { Detail = $"timestamp and size match {where}" } : null;
+        }
+        foreach (var path in loaded ?? [])
+            if (Hit(path, $"a loaded image ({System.IO.Path.GetFileName(path)})") is { } hit) return hit;
+        var key = Pdb.PdbLocator.ImageKey(stamp, size);
+        var stores = Pdb.PdbLocator.LocalStores([]);
+        bool usableName = fileName.Length > 0 && fileName.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0;
+        if (usableName)
+            foreach (var store in stores)
+                if (Hit(System.IO.Path.Combine(store, fileName, key, fileName), $"symbol store {store}") is { } hit) return hit;
+        foreach (var dir in directories)
+            if (Listing(dir, FolderImages).GetValueOrDefault(key) is { } file && Hit(file, $"{System.IO.Path.GetFileName(file)} in {dir} (another file name)") is { } hit)
+                return hit;
+        foreach (var store in stores)
+            if (Listing(store, StoreImages).GetValueOrDefault(key) is { } file && Hit(file, $"symbol store {store} as {System.IO.Path.GetFileName(file)}") is { } hit)
+                return hit;
+        return null;
+    }
+
+    private static readonly string[] ImageExtensions = [".dll", ".exe", ".sys", ".drv", ".ocx", ".cpl", ".efi", ".pyd", ".node", ".winmd", ".mui"];
+
+    private static bool IsImageName(string path) => ImageExtensions.Contains(System.IO.Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Store keys of a folder or store, kept a minute while its listing time is unchanged: a dump's modules all search the same folders.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Written, DateTime Built, Dictionary<string, string> Keys)> Listings =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static Dictionary<string, string> Listing(string dir, Func<string, Dictionary<string, string>> build)
+    {
+        DateTime written;
+        try { written = Directory.GetLastWriteTimeUtc(dir); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return []; }
+        var id = $"{build.Method.Name}|{dir}";
+        if (Listings.TryGetValue(id, out var known) && known.Written == written && DateTime.UtcNow - known.Built < TimeSpan.FromMinutes(1)) return known.Keys;
+        var keys = build(dir);
+        if (Listings.Count > 256) Listings.Clear();
+        Listings[id] = (written, DateTime.UtcNow, keys);
+        return keys;
+    }
+
+    /// <summary>The images of a folder by their store key (headers read, at most <see cref="MaxFilesPerFolder"/>).</summary>
+    private static Dictionary<string, string> FolderImages(string dir)
+    {
+        var keys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var head = new byte[4096];
+        foreach (var file in Enumerate(() => Directory.EnumerateFiles(dir)).Where(IsImageName).Take(MaxFilesPerFolder))
+        {
+            try
+            {
+                using var handle = File.OpenHandle(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                int n = RandomAccess.Read(handle, head, 0);
+                if (TryHeader(head.AsSpan(0, n), out uint stamp, out uint size, out _)) keys.TryAdd(Pdb.PdbLocator.ImageKey(stamp, size), file);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        return keys;
+    }
+
+    /// <summary>The images of a symbol store (name/KEY/file) by key, whatever their name; PDB folders are skipped.</summary>
+    private static Dictionary<string, string> StoreImages(string store)
+    {
+        var keys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in Enumerate(() => Directory.EnumerateDirectories(store)).Where(IsImageName).Take(MaxStoreNames))
+            foreach (var keyDir in Enumerate(() => Directory.EnumerateDirectories(name)))
+                if (Enumerate(() => Directory.EnumerateFiles(keyDir)).FirstOrDefault(IsImageName) is { } file)
+                    keys.TryAdd(System.IO.Path.GetFileName(keyDir), file);
+        return keys;
+    }
+
+    /// <summary>A directory listing that ends quietly at an unreadable folder.</summary>
+    private static IEnumerable<string> Enumerate(Func<IEnumerable<string>> list)
+    {
+        IEnumerator<string> e;
+        try { e = list().GetEnumerator(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { yield break; }
+        using (e)
+            while (true)
+            {
+                try { if (!e.MoveNext()) yield break; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { yield break; }
+                yield return e.Current;
+            }
     }
 
     private static IEnumerable<string> Candidates(DumpModule module, IReadOnlyList<string> directories, NativeArch arch)
@@ -63,7 +161,10 @@ public static class DumpImages
     }
 
     /// <summary>Reads the header of <paramref name="path"/> and compares it with the module.</summary>
-    public static LocalImageCheck Check(string path, DumpModule module)
+    public static LocalImageCheck Check(string path, DumpModule module) => Check(path, module.TimeDateStamp, module.Size);
+
+    /// <summary>Reads the header of <paramref name="path"/> and compares it with a TimeDateStamp and SizeOfImage.</summary>
+    public static LocalImageCheck Check(string path, uint timeDateStamp, uint sizeOfImage)
     {
         byte[] head = new byte[4096];
         int n;
@@ -79,9 +180,9 @@ public static class DumpImages
         }
         if (!TryHeader(head.AsSpan(0, n), out uint stamp, out uint size, out bool dotNet))
             return new LocalImageCheck(path, true, false, null, null, null, "not a PE file");
-        bool matches = stamp == module.TimeDateStamp && size == module.Size;
+        bool matches = stamp == timeDateStamp && size == sizeOfImage;
         string detail = matches ? "timestamp and size match" :
-            $"different build: file timestamp 0x{stamp:X8} size 0x{size:X}, dump module timestamp 0x{module.TimeDateStamp:X8} size 0x{module.Size:X}";
+            $"different build: file timestamp 0x{stamp:X8} size 0x{size:X}, dump module timestamp 0x{timeDateStamp:X8} size 0x{sizeOfImage:X}";
         return new LocalImageCheck(path, true, matches, stamp, size, dotNet, detail);
     }
 
