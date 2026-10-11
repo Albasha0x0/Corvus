@@ -540,7 +540,16 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             if (target < 0 || target > uint.MaxValue || target == f.Start || !_byStart.TryGetValue((uint)target, out var to)) continue;
             if (!_thunksTo.TryGetValue(to.Start, out var list)) _thunksTo[to.Start] = list = [];
             list.Add(f.Start);
-            if (f.KnownName == null && to.KnownName != null) f.KnownName = "j_" + to.KnownName;
+        }
+        // thunks to thunks: named in chain order, as a saved index (which holds the names) reads them back
+        bool changed = true;
+        for (int guard = 0; changed && guard < 8; guard++)
+        {
+            changed = false;
+            foreach (var (target, thunks) in _thunksTo)
+                if (_byStart[target].KnownName is { } name)
+                    foreach (uint t in thunks)
+                        if (_byStart[t].KnownName == null) { _byStart[t].KnownName = "j_" + name; changed = true; }
         }
     }
 
