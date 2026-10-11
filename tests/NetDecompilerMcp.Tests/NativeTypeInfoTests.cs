@@ -102,6 +102,65 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Get("Player", at: "0x24.0x0"))).Code);
     }
 
+    /// <summary>Writes little-endian values into the fixture image at RVAs of its .data section, before the image loads.</summary>
+    private void Patch(params (uint Rva, byte[] Bytes)[] writes)
+    {
+        var bytes = File.ReadAllBytes(_image);
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
+        {
+            var data = pe.PEHeaders.SectionHeaders.First(s => s.Name == ".data");
+            foreach (var (rva, value) in writes) value.CopyTo(bytes, data.PointerToRawData + (int)(rva - (uint)data.VirtualAddress));
+        }
+        File.WriteAllBytes(_image, bytes);
+    }
+
+    [Fact]
+    public async Task Read_gives_field_values_from_the_image_bytes()
+    {
+        const uint player = PdbTypeFixture.GameRva + 8;
+        Patch((PdbTypeFixture.GameRva, BitConverter.GetBytes(3)), (player, BitConverter.GetBytes((ushort)0x5A4D)), (player + 2, [7]),
+            (player + 4, BitConverter.GetBytes(3)), (player + 8, BitConverter.GetBytes(0b1011u)), (player + 0xC, BitConverter.GetBytes(1.5f)),
+            (player + 0x24, [.. BitConverter.GetBytes(10), .. BitConverter.GetBytes(-2), .. BitConverter.GetBytes(30), .. BitConverter.GetBytes(40)]),
+            (player + 0x38, BitConverter.GetBytes(0x140000000UL + PdbTypeFixture.GameRva)));
+
+        var collector = StructuredOutput.Begin();
+        var text = await _tools.GetNativeType(_image, name: "Player", address: $"rva:0x{player:X}", depth: 2, read: true);
+        _output.WriteLine(text);
+        var r = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value);
+        string Value(string field) => r.Type!.Fields.Single(f => f.Name == field).Value!;
+        Assert.Equal($"0x{0x140000000 + player:X}", r.ReadAddress);
+        Assert.Equal("23117 (0x5A4D)", Value("header.magic"));
+        Assert.Equal("7", Value("header.version"));
+        Assert.Equal("Red | Green (3)", Value("header.kind"));
+        Assert.Equal(("1", "5"), (Value("header.urgent"), Value("header.retries")));
+        Assert.Equal("1.5", Value("pos.x"));
+        Assert.Equal("{10, -2, 30, 40}", Value("scores"));
+        Assert.Equal("0x140003010 (g_Game)", Value("next"));
+        Assert.Contains("pos.x  float  = 1.5", text);
+
+        // a typed address reads its owner from the start; a plain name needs an address
+        Assert.Null((await Get(address: "g_Game")).Report.Type!.Fields.Single(f => f.Name == "count").Value);
+        var owner = StructuredOutput.Begin();
+        await _tools.GetNativeType(_image, address: $"rva:0x{player:X}", read: true);
+        var game = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(owner.Value);
+        Assert.Equal(("0x140003010", "3"), (game.ReadAddress, game.Type!.Fields.Single(f => f.Name == "count").Value));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.GetNativeType(_image, name: "Player", read: true))).Code);
+        var color = StructuredOutput.Begin();
+        await _tools.GetNativeType(_image, name: "Color", address: $"rva:0x{player + 4:X}", read: true);
+        Assert.Equal("Red | Green (3)", Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(color.Value).Value);
+
+        // read_bytes type= reads scalars and strings without a type source
+        var tools = new NativeTools(_env.Workspace, _env.Pager, _code);
+        var ints = await tools.ReadBytes(_image, $"rva:0x{player + 0x24:X}", length: 4, type: "i32");
+        _output.WriteLine(ints);
+        Assert.Contains("4 x i32", ints);
+        Assert.Contains($"{0x140000000 + player + 0x28:X}  -2", ints);
+        Assert.Contains("1.5", await tools.ReadBytes(_image, $"rva:0x{player + 0xC:X}", type: "float"));
+        Assert.Contains("0x140003010 (g_Game)", await tools.ReadBytes(_image, $"rva:0x{player + 0x38:X}", type: "Player *"));
+        Assert.Contains("\"MZ", await tools.ReadBytes(_image, "rva:0x0", type: "string"));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.ReadBytes(_image, "rva:0x0", type: "Player"))).Code);
+    }
+
     [Fact]
     public async Task Typed_address_inside_a_global_gives_the_field_path()
     {

@@ -25,7 +25,8 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         _dir.Dispose();
     }
 
-    private sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeTypeTools Types, NativeAnalysisTools Analysis)
+    private sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeTypeTools Types, NativeAnalysisTools Analysis,
+        NativeTypeInfoTools Info)
     {
         public LoadedNative Native => Workspace.Read(() => Workspace.Natives[0]);
         public Task<INativeDecompilerSession> Session(string engine) => Engines.Session(Native, engine, null, default);
@@ -52,7 +53,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var user = new NativeUserTypePush(code);
         workspace.LoadAny(Image());
         return new Rig(workspace, code, engines, new NativeTypeTools(workspace, engines, user, code, names, types),
-            new NativeAnalysisTools(workspace, engines, new OutputPager(options), names, code, types, user));
+            new NativeAnalysisTools(workspace, engines, new OutputPager(options), names, code, types, user), new NativeTypeInfoTools(workspace, code, engines, user));
     }
 
     private void Restart()
@@ -81,6 +82,10 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         output.WriteLine(await rig.Types.DefineNative(path, Rva(data), "data", type: "dword[4]"));
         await rig.Types.DeclareNativeTypes(path, "struct NdmRec { int a; short b; char c[10]; };");
         Assert.Contains("NdmRec", await rig.Types.DefineNative(path, Rva(data + 0x40), "data", type: "NdmRec"));
+        // an engine type read at an address from the image's bytes
+        var read = await rig.Info.GetNativeType(path, name: "NdmRec", address: Rva(data + 0x40), source: "engine", read: true);
+        output.WriteLine(read);
+        Assert.Matches(@"\+0x4  2  b  .*= -?\d+", read);
         Assert.Contains("string", await rig.Types.DefineNative(path, Rva(data + 0x60), "data", end: Rva(data + 0x68), type: "string"));
         Assert.Contains("byte(s) undefined", await rig.Types.DefineNative(path, Function, "undefine"));
         var ida = await rig.Session("ida");

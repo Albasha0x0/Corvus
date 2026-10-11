@@ -19,7 +19,11 @@ public sealed record NativeTypeField(
     [property: Description("member, base, vbase, vfptr, static, padding or header (Il2Cpp object header).")] string Kind,
     [property: Description("First bit of a bit field in its storage unit.")] int? BitOffset,
     [property: Description("Width of a bit field in bits.")] int? BitSize,
-    [property: Description("Source-specific detail: the managed type and declaring class for Il2Cpp, computed offsets.")] string? Note);
+    [property: Description("Source-specific detail: the managed type and declaring class for Il2Cpp, computed offsets.")] string? Note)
+{
+    [Description("read=true: the field's value in the image's bytes.")]
+    public string? Value { get; init; }
+}
 
 public sealed record NativeTypeEnumerator(string Name, [property: Description("The value in hex (two's complement for negatives).")] string Hex, long Value);
 

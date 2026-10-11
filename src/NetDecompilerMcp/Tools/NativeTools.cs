@@ -517,19 +517,23 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         return true;
     }
 
-    [McpServerTool(Name = "read_bytes", Title = "Hex dump native bytes")]
-    [Description("Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them.")]
+    [McpServerTool(Name = "read_bytes", Title = "Read native bytes or values")]
+    [Description("Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them. type= reads values instead: " +
+                 "length of them, each with its address: u8-u64, i8-i64, f32, f64, ptr (with the target's name), C names (int, unsigned short, " +
+                 "DWORD, float, char *...), string or string16 (one string to its terminator). get_native_type read=true reads structs.")]
     public Task<string> ReadBytes(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
-        [Description("Bytes to dump (default 256, max 65536).")] int length = 256,
+        [Description("Bytes to dump (default 256, max 65536); with type, values to read (default 1, max 4096).")] int? length = null,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description("Read values of this type instead of dumping bytes.")] string? type = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
         var rva = NativeAddress.Parse(pe, address);
-        var buffer = new byte[Math.Clamp(length, 1, 65_536)];
+        if (!string.IsNullOrWhiteSpace(type)) return pager.Page(ReadValues(native, rva, type.Trim(), length ?? 1), offset, maxChars);
+        var buffer = new byte[Math.Clamp(length ?? 256, 1, 65_536)];
         int read = pe.Read(rva, buffer);
         var sb = new StringBuilder(NativeAddress.Describe(pe, rva) + ", " + (read < buffer.Length
             ? $"{read:N0} of {buffer.Length:N0} bytes requested: incomplete, nothing is mapped at 0x{pe.ImageBase + rva + (uint)read:X}"
@@ -545,6 +549,30 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         }
         return pager.Page(sb.ToString(), offset, maxChars);
     }, cancellationToken);
+
+    /// <summary>read_bytes type=: <paramref name="count"/> values of a scalar type, or one string.</summary>
+    private string ReadValues(LoadedNative native, uint rva, string type, int count)
+    {
+        var pe = native.Image;
+        var index = code?.Ready(native);
+        Func<uint, string?> nameAt = r => index?.NameAt(r);
+        var head = NativeAddress.Describe(pe, rva);
+        if (type is "string" or "string16" || NativeValues.Classify(type, pe.Is64Bit ? 8 : 4) is { Kind: "string" or "string16" })
+            return $"{head}, {type}\n{NativeValues.ReadString(pe, rva, type == "string16") ?? "(not mapped)"}\n";
+        var scalar = NativeValues.Classify(type, pe.Is64Bit ? 8 : 4)
+            ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{type}' is not a scalar type read_bytes knows.",
+                "use u8-u64, i8-i64, f32, f64, ptr, string, string16 or a C scalar name; get_native_type read=true reads structs and enums");
+        count = Math.Clamp(count, 1, 4096);
+        var sb = new StringBuilder($"{head}, {count} x {type} ({scalar.Size} byte(s) each)\n");
+        var bytes = new byte[scalar.Size];
+        for (int i = 0; i < count; i++)
+        {
+            uint at = rva + (uint)(i * scalar.Size);
+            if (pe.Read(at, bytes) < bytes.Length) { sb.AppendLine($"{pe.ImageBase + at:X}  (not mapped)"); break; }
+            sb.AppendLine($"{pe.ImageBase + at:X}  {NativeValues.Format(pe, bytes, scalar, nameAt)}");
+        }
+        return sb.ToString();
+    }
 
     private static readonly Lazy<ApiSetSchema?> ApiSets = new(() => ApiSetSchema.FromSystem(PeFile.Open));
 }

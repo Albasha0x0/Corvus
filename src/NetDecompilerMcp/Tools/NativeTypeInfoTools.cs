@@ -27,7 +27,13 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         [property: Description("The field path(s) at the address or at=.")] IReadOnlyList<NativeFieldPath> Paths,
         [property: Description("Index of the first returned field, enumerator, slot or candidate.")] int Offset,
         [property: Description("More rows exist past this page: call again with offset = offset + rows returned.")] bool Truncated,
-        IReadOnlyList<string> Notes);
+        IReadOnlyList<string> Notes)
+    {
+        [Description("read=true: where the values were read (VA).")]
+        public string? ReadAddress { get; init; }
+        [Description("read=true on a type without fields (scalar, enum, pointer, array): its value.")]
+        public string? Value { get; init; }
+    }
 
     [McpServerTool(Name = "get_native_type", Title = "Native type layout", UseStructuredContent = true, OutputSchemaType = typeof(NativeTypeReport))]
     [Description("A native type's layout from the image's sources: PDB type records (structs, classes, unions, enums, typedefs, pointers, arrays, " +
@@ -36,7 +42,8 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
                  "when already analyzed, for names the others lack). By name (exact, case-insensitive, then substring candidates; several definitions " +
                  "are an ambiguous error listing ids), id (drill-down) or typed address (in a PDB global: the field path, g_Game.players[3].pos.y; also " +
                  "vftables and Il2Cpp metadata slots). at=0x48 names the field at an offset (all union members; 0x48.0x10 reads through a pointer); " +
-                 "depth inlines by-value members; enums sorted by value.")]
+                 "depth inlines by-value members; enums sorted by value. read=true adds each field's value from the image's bytes (integers, floats, " +
+                 "pointers with their target's name, strings, enumerators, bit fields): at a typed address, or with name or id at address; no engine needed.")]
     public Task<string> GetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Type name (Packet, ns::Widget, Ns.Type for Il2Cpp).")] string? name = null,
@@ -49,12 +56,19 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         [Description("Index of the first row (field, enumerator, slot, candidate).")] int offset = 0,
         [Description("Max rows (default 200, max 5000).")] int limit = 200,
         [Description("Engine for source=engine: auto (default), ida or ghidra.")] string? engine = null,
+        [Description("Read the fields' values from the image's bytes at address (with name or id: the type read there).")] bool read = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        int given = new[] { name, id, address }.Count(v => !string.IsNullOrWhiteSpace(v));
-        if (given != 1) throw new ToolError(ErrorCode.InvalidArgument, given == 0 ? "Pass name, id or address." : "Pass only one of name, id and address.");
-        if (!string.IsNullOrWhiteSpace(at) && !string.IsNullOrWhiteSpace(address))
+        // read=true with name or id: address says where the type is read, it is not looked up
+        bool readAt = read && !string.IsNullOrWhiteSpace(address) && (!string.IsNullOrWhiteSpace(name) || !string.IsNullOrWhiteSpace(id));
+        var lookup = readAt ? null : address;
+        int given = new[] { name, id, lookup }.Count(v => !string.IsNullOrWhiteSpace(v));
+        if (given != 1) throw new ToolError(ErrorCode.InvalidArgument, given == 0 ? "Pass name, id or address." : "Pass only one of name, id and address.",
+            "read=true takes name or id together with address");
+        if (read && string.IsNullOrWhiteSpace(address))
+            throw new ToolError(ErrorCode.InvalidArgument, "read=true needs an address.", "pass address: a typed one, or where the named type is");
+        if (!string.IsNullOrWhiteSpace(at) && !string.IsNullOrWhiteSpace(lookup))
             throw new ToolError(ErrorCode.InvalidArgument, "at= applies to name or id; an address already gives the offset.", "drop at, or look the type up by name");
         var src = (source ?? "").Trim().ToLowerInvariant();
         var sources = src switch
@@ -97,17 +111,20 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         IReadOnlyList<NativeFieldPath> paths = [];
         IReadOnlyList<NativeTypeCandidate> candidates = [];
         int totalCandidates = 0;
-        if (!string.IsNullOrWhiteSpace(address))
+        uint? readBase = readAt ? rva : null;
+        if (!string.IsNullOrWhiteSpace(lookup))
         {
             query = $"address {NativeAddress.Va(native.Image, rva)}";
             var typed = await Task.Run(() => catalog.AtAddress(ctx, rva, cancellationToken), cancellationToken)
                 ?? throw new ToolError(ErrorCode.NotFound, $"No type source covers {NativeAddress.Va(native.Image, rva)} in {native.Id}.",
-                    "typed addresses come from PDB globals (load_pdb), RTTI vftables and descriptors, and Il2Cpp metadata slots (apply_il2cpp_names); resolve_address describes any address");
+                    "typed addresses come from PDB globals (load_pdb), RTTI vftables and descriptors, and Il2Cpp metadata slots (apply_il2cpp_names); resolve_address describes any address" +
+                    (read ? "; or pass the type's name with read=true" : ""));
             view = typed.Type;
             owner = typed.Owner;
             ownerAddress = NativeAddress.Va(native.Image, typed.Start);
             paths = typed.Paths;
             notes.Add(typed.Note);
+            if (read) readBase = typed.Start;
         }
         else if (!string.IsNullOrWhiteSpace(id))
         {
@@ -128,6 +145,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         notes.AddRange(ctx.Notes);
 
         bool truncated;
+        string? rootValue = null;
         if (view != null)
         {
             view = NativeTypeCatalog.WithGlobals(ctx, view);
@@ -138,13 +156,58 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
             truncated = offset + pageFields.Count < fields.Count || offset + pageEnums.Count < view.Enumerators.Count
                         || view.Vftables.Any(v => offset + v.Entries.Count < v.Slots);
             if (c && view.Declaration == null) view = view with { Declaration = Declaration(view, fields) };
+            if (readBase is { } at0)
+            {
+                var values = new ValueReader(catalog, ctx, code?.Ready(native));
+                pageFields = await values.Fields(at0, pageFields, cancellationToken);
+                if (view.Fields.Count == 0) rootValue = await values.Value(at0, view.Size, view.Name, view.Kind == "enum" ? view.Enumerators : null, null, cancellationToken);
+                notes.Add($"values read at {NativeAddress.Va(native.Image, at0)} from the image's mapped bytes (patches included)");
+            }
             view = view with { Fields = pageFields, TotalFields = fields.Count, Enumerators = pageEnums, Notes = viewNotes };
         }
         else truncated = offset + candidates.Count < totalCandidates;
 
-        var report = new NativeTypeReport(native.Id, query, view, candidates, totalCandidates, owner, ownerAddress, paths, offset, truncated, notes);
+        var report = new NativeTypeReport(native.Id, query, view, candidates, totalCandidates, owner, ownerAddress, paths, offset, truncated, notes)
+        {
+            ReadAddress = readBase is { } b ? NativeAddress.Va(native.Image, b) : null, Value = rootValue,
+        };
         return StructuredOutput.With(Text(report, c), report);
     });
+
+    /// <summary>Field values at an address, enums named through the catalog.</summary>
+    private sealed class ValueReader(NativeTypeCatalog catalog, NativeTypeCatalog.Context ctx, Native.Code.NativeCodeIndex? index)
+    {
+        private readonly Dictionary<string, IReadOnlyList<NativeTypeEnumerator>?> _enums = new(StringComparer.Ordinal);
+
+        private string? NameAt(uint rva) => index?.NameAt(rva) ?? (index?.FunctionAt(rva) is { } f ? $"{f.Name}+0x{rva - f.Start:X}" : null);
+
+        public async Task<List<NativeTypeField>> Fields(uint at, List<NativeTypeField> fields, CancellationToken ct)
+        {
+            var result = new List<NativeTypeField>(fields.Count);
+            foreach (var f in fields)
+            {
+                if (f.Offset < 0 || f.Size <= 0 || f.Kind is "padding" or "base" or "vbase" or "static" || f.Offset > uint.MaxValue - at) { result.Add(f); continue; }
+                result.Add(f with { Value = await Value(at + (uint)f.Offset, f.Size, f.Type, await Enumerators(f, ct), f, ct) });
+            }
+            return result;
+        }
+
+        public Task<string?> Value(uint rva, long size, string type, IReadOnlyList<NativeTypeEnumerator>? enumerators, NativeTypeField? field, CancellationToken ct) =>
+            Task.FromResult(NativeValues.Read(ctx.Native.Image, rva, size, type, NameAt, enumerators, field?.BitOffset, field?.BitSize));
+
+        /// <summary>The enumerators of a field whose type is an enum (looked up by its id once).</summary>
+        private async Task<IReadOnlyList<NativeTypeEnumerator>?> Enumerators(NativeTypeField f, CancellationToken ct)
+        {
+            if (f.TypeId is not { } id || NativeValues.Classify(f.Type, ctx.Native.Image.Is64Bit ? 8 : 4) != null || NativeValues.ArrayOf(f.Type) != null) return null;
+            if (!_enums.TryGetValue(id, out var list))
+            {
+                try { list = await catalog.Get(ctx, id, ct) is { Kind: "enum" } e ? e.Enumerators : null; }
+                catch (ToolError) { list = null; }
+                _enums[id] = list;
+            }
+            return list;
+        }
+    }
 
     private static IEnumerable<string> Describe(NativeTypeCatalog.Context c)
     {
@@ -176,6 +239,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         if (t.Referenced != null) sb.Append($", of {t.Referenced}");
         sb.AppendLine();
         foreach (var p in r.Paths) sb.AppendLine($"Field at +0x{p.Offset + p.Remainder:X}: {p.Path} ({p.Type}{(p.Remainder > 0 ? $", +0x{p.Remainder:X} into it" : "")})");
+        if (r.Value != null) sb.AppendLine($"Value at {r.ReadAddress}: {r.Value}");
         // an engine's enum or typedef has no rows: its declaration says it all
         if (t.Declaration != null && (c || t.Fields.Count + t.Enumerators.Count == 0 && t.Function == null)) sb.AppendLine(t.Declaration);
         else
@@ -191,7 +255,8 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
                 foreach (var f2 in t.Fields)
                     sb.AppendLine($"  {(f2.Offset >= 0 ? $"+0x{f2.Offset:X}" : "-")}  {(f2.Size >= 0 ? f2.Size.ToString(System.Globalization.CultureInfo.InvariantCulture) : "?")}  " +
                                   $"{f2.Name}{(f2.BitSize is { } bits ? $" : {bits} (bit {f2.BitOffset})" : "")}  {f2.Type}" +
-                                  (f2.Kind is "member" ? "" : $"  ({f2.Kind})") + (f2.TypeId != null ? $"  [{f2.TypeId}]" : "") + (f2.Note != null ? $"  // {f2.Note}" : ""));
+                                  (f2.Kind is "member" ? "" : $"  ({f2.Kind})") + (f2.TypeId != null ? $"  [{f2.TypeId}]" : "") + (f2.Value != null ? $"  = {f2.Value}" : "") +
+                                  (f2.Note != null ? $"  // {f2.Note}" : ""));
             }
             if (t.Enumerators.Count > 0)
             {

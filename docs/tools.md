@@ -972,17 +972,18 @@ Find a byte pattern in a native image's mapped sections: hex bytes with ?? wildc
 
 ### read_bytes
 
-**Hex dump native bytes** (read-only, idempotent)
+**Read native bytes or values** (read-only, idempotent)
 
-Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them.
+Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them. type= reads values instead: length of them, each with its address: u8-u64, i8-i64, f32, f64, ptr (with the target's name), C names (int, unsigned short, DWORD, float, char *...), string or string16 (one string to its terminator). get_native_type read=true reads structs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
 | `address` | string | yes |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
-| `length` | integer |  | `256` | Bytes to dump (default 256, max 65536). |
+| `length` | integer |  |  | Bytes to dump (default 256, max 65536); with type, values to read (default 1, max 4096). |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
+| `type` | string |  |  | Read values of this type instead of dumping bytes. |
 
 ### list_functions
 
@@ -1248,7 +1249,7 @@ C++ classes of an MSVC-built native image recovered from RTTI: demangled class n
 
 **Native type layout** (read-only, idempotent, open-world, long-running)
 
-A native type's layout from the image's sources: PDB type records (structs, classes, unions, enums, typedefs, pointers, arrays, function types; fields with offset, size and bit fields, bases, padding), MSVC RTTI (bases, vftables with named slot targets; merged with the PDB's class), Il2Cpp layouts (after apply_il2cpp_names) and the engine's types (IDA or Ghidra; source=engine opens it, auto reads it when already analyzed, for names the others lack). By name (exact, case-insensitive, then substring candidates; several definitions are an ambiguous error listing ids), id (drill-down) or typed address (in a PDB global: the field path, g_Game.players[3].pos.y; also vftables and Il2Cpp metadata slots). at=0x48 names the field at an offset (all union members; 0x48.0x10 reads through a pointer); depth inlines by-value members; enums sorted by value.
+A native type's layout from the image's sources: PDB type records (structs, classes, unions, enums, typedefs, pointers, arrays, function types; fields with offset, size and bit fields, bases, padding), MSVC RTTI (bases, vftables with named slot targets; merged with the PDB's class), Il2Cpp layouts (after apply_il2cpp_names) and the engine's types (IDA or Ghidra; source=engine opens it, auto reads it when already analyzed, for names the others lack). By name (exact, case-insensitive, then substring candidates; several definitions are an ambiguous error listing ids), id (drill-down) or typed address (in a PDB global: the field path, g_Game.players[3].pos.y; also vftables and Il2Cpp metadata slots). at=0x48 names the field at an offset (all union members; 0x48.0x10 reads through a pointer); depth inlines by-value members; enums sorted by value. read=true adds each field's value from the image's bytes (integers, floats, pointers with their target's name, strings, enumerators, bit fields): at a typed address, or with name or id at address; no engine needed.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1263,8 +1264,9 @@ A native type's layout from the image's sources: PDB type records (structs, clas
 | `offset` | integer |  | `0` | Index of the first row (field, enumerator, slot, candidate). |
 | `limit` | integer |  | `200` | Max rows (default 200, max 5000). |
 | `engine` | string |  |  | Engine for source=engine: auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+| `read` | boolean |  | `false` | Read the fields' values from the image's bytes at address (with name or id: the type read there). |
 
-Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `owner`, `ownerAddress`, `paths`, `offset`, `truncated`, `notes`.
+Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `owner`, `ownerAddress`, `paths`, `offset`, `truncated`, `notes`, `readAddress`, `value`.
 
 ### decompile_native
 
