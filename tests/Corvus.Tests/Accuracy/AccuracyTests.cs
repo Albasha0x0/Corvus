@@ -123,7 +123,11 @@ public class AccuracyTests(ITestOutputHelper output)
                 });
             var xrefs = new JsonObject();
             foreach (var t in targets)
-                xrefs[t.ToString()] = new JsonArray(index.RefsTo(t).Select(x => (JsonNode)new JsonArray(x.From, x.Kind.ToString())).ToArray());
+            {
+                // a Thumb pointer (odd value) is recorded at the even function start
+                var refs = image.Arch == NativeArch.Arm && (t & 1) != 0 ? index.RefsTo(t).Concat(index.RefsTo(t & ~1u)) : index.RefsTo(t);
+                xrefs[t.ToString()] = new JsonArray(refs.Select(x => (JsonNode)new JsonArray(x.From, x.Kind.ToString())).ToArray());
+            }
             var doc = new JsonObject
             {
                 ["engine"] = "ours", ["id"] = id, ["base"] = 0, ["seconds"] = Math.Round(sw.Elapsed.TotalSeconds, 2),
