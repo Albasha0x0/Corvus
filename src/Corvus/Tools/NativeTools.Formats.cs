@@ -220,7 +220,7 @@ public sealed partial class NativeTools
         {
             if (module != null && !ModuleMatches(i.Module, module.Trim())) continue;
             var name = i.Name ?? $"#{i.Ordinal}";
-            var demangled = Native.Itanium.ItaniumDemangler.Demangle(name, stripUnderscore: macho);
+            var demangled = Demangled(name, image.Format);
             if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase) && demangled?.Contains(filter, StringComparison.OrdinalIgnoreCase) != true) continue;
             rows.Add($"{NativeAddress.Va(image, i.SlotRva)}  {i.Module}!{name}{(i.IsDelayLoad ? "  [lazy]" : "")}" + (demangled != null ? $"  = {demangled}" : ""));
             items.Add(new ImportEntry(NativeAddress.Va(image, i.SlotRva), i.Module, name, null, i.IsDelayLoad, false, null, null));

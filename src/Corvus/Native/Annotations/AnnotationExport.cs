@@ -317,11 +317,11 @@ public static class AnnotationExport
     private static string Java(string s) => Py(s);
 }
 
-/// <summary>An imported name or comment at an RVA and the layer it comes from (nativeaot, il2cpp).</summary>
+/// <summary>An imported name or comment at an RVA and the layer it comes from (nativeaot, il2cpp, objc, swift).</summary>
 public readonly record struct ImportedName(uint Rva, string? Name, string? Comment, string Source);
 
 /// <summary>
-/// The names and comments of the image's imported metadata layers (NativeAOT, Il2Cpp), exported beneath the user's: the
+/// The names and comments of the image's imported metadata layers (NativeAOT, Il2Cpp, ObjC, Swift), exported beneath the user's: the
 /// higher-ranked layer wins at an address, and what the user named or commented keeps only the user's. PDB names are left
 /// out (engines load the PDB themselves), as are the engines' own layers.
 /// </summary>
@@ -334,7 +334,7 @@ public sealed record ImportedNames(IReadOnlyList<ImportedName> Entries, string S
     public static ImportedNames Of(IReadOnlyList<NativeNameLayers.Layer> layers, NativeAnnotations user)
     {
         var merged = new Dictionary<uint, ImportedName>();
-        var used = layers.Where(l => l.Source is NativeNameSource.NativeAot or NativeNameSource.Il2Cpp).OrderBy(l => l.Source.Rank()).ToList();
+        var used = layers.Where(l => l.Source is NativeNameSource.NativeAot or NativeNameSource.Il2Cpp or NativeNameSource.ObjC or NativeNameSource.Swift).OrderBy(l => l.Source.Rank()).ToList();
         foreach (var layer in used)
         {
             string source = layer.Source.Id();

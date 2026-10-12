@@ -291,8 +291,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             if (NativeCodeTools.FlagList(f, index) is { Count: > 0 } flags) x.Add(null, "flags: " + string.Join(", ", flags), "flags");
             x.Add(null, $"found by: {f.Sources}", "discovery");
             if (name.StartsWith('?') && MsvcDemangler.Undecorate(name) is { } msvc && msvc != name) x.Add(null, $"demangled: {msvc}", "demangled");
-            else if (ItaniumDemangler.IsMangled(name, stripUnderscore: image.Format == ImageFormat.MachO) && ItaniumDemangler.Demangle(name, image.Format == ImageFormat.MachO) is { } it)
-                x.Add(null, $"demangled: {it}", "demangled");
+            else if (NativeTools.Demangled(name, image.Format) is { } it) x.Add(null, $"demangled: {it}", "demangled");
             foreach (var line in Il2CppNativeNames.Describe(native, index, f.Start)) x.Add(null, line, "il2cpp");
             foreach (var slot in slots)
                 x.Add(Va(slot.Vtable.VftableRva), $"slot {slot.Slot} of {slot.Class.Name}'s vftable at {Va(slot.Vtable.VftableRva)} (subobject +0x{slot.Vtable.Offset:X})", "vftable_slot");

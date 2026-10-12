@@ -34,12 +34,19 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         }
         return workspace.Read(() => work(workspace.GetNative(id ?? image)));
     }, ct);
-    /// <summary>A function name as people read it: MSVC-decorated names as the qualified name, Itanium-mangled ones demangled; others as given.</summary>
+    /// <summary>A function name as people read it: MSVC-decorated names as the qualified name, Itanium and Swift mangled ones demangled; others as given.</summary>
     internal static string DisplayName(string name, ImageFormat format = ImageFormat.Pe)
     {
         if (name.Length > 1 && name[0] == '?') return Native.Pdb.PdbNaming.Display(name);
+        return Demangled(name, format) ?? name;
+    }
+
+    /// <summary>The Itanium (C++) or Swift demangling of a mangled name, or null.</summary>
+    internal static string? Demangled(string? name, ImageFormat format)
+    {
         bool macho = format == ImageFormat.MachO;
-        return Native.Itanium.ItaniumDemangler.IsMangled(name, macho) && Native.Itanium.ItaniumDemangler.Demangle(name, macho) is { Length: > 0 } plain ? plain : name;
+        if (Native.Itanium.ItaniumDemangler.IsMangled(name, macho) && Native.Itanium.ItaniumDemangler.Demangle(name, macho) is { Length: > 0 } plain) return plain;
+        return Native.Swift.SwiftDemangler.IsMangled(name) ? Native.Swift.SwiftDemangler.Demangle(name) : null;
     }
 
     /// <summary>"A::f" for a mangled name with the symbol beside it ("; symbol ?f@A@@QEAAXXZ"), so the name stays usable as input.</summary>
@@ -322,7 +329,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         {
             cancellationToken.ThrowIfCancellationRequested();
             var name = e.Name ?? "(no name)";
-            var demangled = !ordinals ? Native.Itanium.ItaniumDemangler.Demangle(e.Name, stripUnderscore: pe.Format == ImageFormat.MachO)
+            var demangled = !ordinals ? Demangled(e.Name, pe.Format)
                 : e.Name is { } n && (n.StartsWith('?') || n.StartsWith('@') || n.StartsWith('_')) ? Native.Msvc.MsvcDemangler.Undecorate(n, Native.Msvc.MsvcNameStyle.Full) : null;
             if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase) && demangled?.Contains(filter, StringComparison.OrdinalIgnoreCase) != true) continue;
             rows.Add($"{(ordinals ? $"#{e.Ordinal,-5} " : "")}{(e.ForwardedTo != null ? (ordinals ? "forwarder" : "re-export").PadRight(18) : NativeAddress.Va(pe, e.Rva).PadRight(18))} {name}{e.Version}" +

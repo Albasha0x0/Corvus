@@ -225,5 +225,6 @@ Server options and their environment variables are in the README ("Server option
 | `CORVUS_DUMP_BUCKET_CACHE` | Folder of the signatures `bucket_minidumps` keeps per dump file, so a re-run parses only new dumps. |
 | `CORVUS_AUTO_PDB` | `0`: do not read a matching local PDB automatically. |
 | `CORVUS_AUTO_NATIVEAOT` | `0`: do not name NativeAOT images from their metadata automatically. |
+| `CORVUS_AUTO_APPLE_NAMES` | `0`: do not name Mach-O images from their Objective-C and Swift metadata automatically. |
 | `CORVUS_DIE` | Detect It Easy's `diec` (the file or its folder) for `unity_overview detectItEasy=true`. |
 | `CORVUS_CLEANUP_LOG` | Set: record the decompiler cleanup's rewrite decisions (diagnostics). |

@@ -15,13 +15,11 @@ trace_native_values (where a value comes from or goes, across callers, callees a
 engine=ida|ghidra slices each function in the decompiler's IR), resolve_call_targets
 (targets of indirect calls with their basis; scope=image lists the unresolved ones), analyze_native_function (one
 function in sections: identity, signature, frame, callers, callees, data, flow; params and pseudocode on request),
-trace_native_feature (strings, names, imports, exports and classes matching a text, to ranked functions and hubs),
-find_similar_functions (look-alikes of a function ranked with evidence, also across loaded images; duplicates and near-duplicate clusters), search_native_strings, search_bytes (?? wildcards), search_instructions (mnemonic / operand regexes, operand values), read_bytes (type= reads values), convert_number, resolve_address, list_cpp_classes (RTTI classes, bases,
+trace_native_feature (strings, names, imports, exports and classes matching a text, to ranked functions and hubs), search_native_strings, search_bytes (?? wildcards), search_instructions (mnemonic / operand regexes, operand values), read_bytes (type= reads values), convert_number, resolve_address, list_cpp_classes (RTTI classes, bases,
 vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or the engine by name, id or typed address; at=0x48 names a field;
 read=true adds the field values at an address), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
 through RTTI; crossCheck=true compares with IDA or Ghidra), decompile_native (C pseudocode through IDA or Ghidra when installed;
-functions=[...] decompiles several in one request, each with its own deadline; callersOf= the callers of one), search_decompiled (a regex over many functions' pseudocode; cursor= continues); emulate_native (Ghidra p-code emulation of a decoder, hash or computed constant: args,
-registers, memory and stubs= for calls; nothing runs natively).
+functions=[...] decompiles several in one request, each with its own deadline; callersOf= the callers of one), search_decompiled (a regex over many functions' pseudocode; cursor= continues).
 Addresses: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixes, export names, module!import, sub_<rva>, function names
 (a name on several addresses is an ambiguous error listing them).
 Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);
@@ -29,9 +27,6 @@ search_pdb_symbols lists its symbols. Names from load_pdb and apply_il2cpp_names
 when the same file loads again; list_native_edits shows the layers, clear=true on either tool removes one.
 NativeAOT images name themselves from their metadata when the code index builds (methods, vtable slots, MethodTables,
 frozen strings); get_nativeaot_info shows the version, recovery stages, types, methods and strings.
-Node-API add-ons (.node) name their callbacks after the JavaScript names they register (napi layer: js_<name>,
-js_get_ / js_set_ for accessors, js_Class_member), from constant napi_create_function / napi_define_properties /
-napi_define_class / napi_module_register arguments; descriptors built at run time (node-addon-api, napi-rs) are not read.
 Cross-image: load the DLLs an image imports (or load_assembly loadProviders=true) and the call tools follow imports,
 forwarders and thunks into them.
 Engines: list_functions, disassemble, search_instructions, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida|ghidra. auto
@@ -39,7 +34,7 @@ Engines: list_functions, disassemble, search_instructions, get_cfg, find_xrefs a
 and never starts an engine; ida / ghidra start that engine; --engine / CORVUS_ENGINE sets the server default. Every result has an
 "Engine: ours|ida|ghidra (why)" line. 32-bit ARM: an odd address is Thumb code one byte
 lower; list_functions flags A32 functions "arm". inspect_instruction takes auto|ours|ida|ghidra (auto: the built-in decoder for x86 / x64 / ARM).
-Name priority: user > pdb > nativeaot > il2cpp > napi > ida > ghidra > discovered; our names win in engine output. decompile_native pushes
+Name priority: user > pdb > nativeaot > il2cpp > objc > swift > ida > ghidra > discovered; our names win in engine output. decompile_native pushes
 names, patches, Il2Cpp prototypes, RTTI and PDB types into the engine's database; --prewarm ida|ghidra|auto analyzes images
 as they load; get_engine_status shows each engine session of an image (opening stage, analysis complete or partial, language,
 database, worker). Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).

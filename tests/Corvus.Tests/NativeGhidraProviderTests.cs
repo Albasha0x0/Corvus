@@ -354,6 +354,18 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         Assert.NotEmpty(await rebuilt.ListFunctionsAsync());
     }
 
+    /// <summary>ObjC method names carry a blank ("-[Class sel]"), which Ghidra refuses: the batch keeps them with '_'.</summary>
+    [GhidraFact]
+    public async Task Batch_names_with_blanks_are_applied()
+    {
+        await using var s = (GhidraSession)await Isolated().OpenAsync(shared.Sample, null, Offline);
+        var f = (await s.ListFunctionsAsync()).First(x => !x.Flags.HasFlag(NativeFunctionFlags.Thunk));
+        var batch = await s.ApplyNamesAsync([new NativeNameItem(f.StartRva, "-[Animal speak:]", null)]);
+        Assert.Equal(1, batch.Named);
+        var named = (await s.ListFunctionsAsync()).Single(x => x.StartRva == f.StartRva).Name;
+        Assert.Equal("-[Animal_speak:]", named);
+    }
+
     [GhidraFact]
     public async Task Base_zero_shared_object_loads_at_its_file_base()
     {

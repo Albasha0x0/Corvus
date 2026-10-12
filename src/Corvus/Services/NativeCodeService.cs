@@ -262,6 +262,11 @@ public sealed class NativeCodeService
             if (NativeAotNames.AutoApply(native, this, ct) is { Count: > 0 } aot) starts = [.. starts ?? [], .. aot];
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { _logger?.LogWarning(ex, "Naming the NativeAOT image {Id} failed", native.Id); }
+        try
+        {
+            if (AppleNames.AutoApply(native, this, ct) is { Count: > 0 } apple) starts = [.. starts ?? [], .. apple];
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { _logger?.LogWarning(ex, "Naming the Mach-O image {Id} from its ObjC / Swift metadata failed", native.Id); }
         // The native bodies of a mixed-mode assembly's methods are function starts.
         if (native.ManagedView is { } asm)
             starts = [.. starts ?? [], .. Native.Linking.MixedModeMap.Build(asm.Module, ct).Bodies.Values.Distinct()];

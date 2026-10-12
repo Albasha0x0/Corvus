@@ -1538,7 +1538,7 @@ Comment a native address (kept, pushed to engines). scope: line (repeatable: als
 
 **Export native annotations** (destructive, idempotent, long-running)
 
-Write the image's names and comments (with the NativeAOT and Il2Cpp names) as an IDAPython script, a Ghidra script or JSON; the IDA script and JSON carry the user's engine types too. Scripts apply by rebased RVA. header: a C header of declared types, prototypes and typed globals.
+Write the image's names and comments (with the NativeAOT, Il2Cpp, ObjC and Swift names) as an IDAPython script, a Ghidra script or JSON; the IDA script and JSON carry the user's engine types too. Scripts apply by rebased RVA. header: a C header of declared types, prototypes and typed globals.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

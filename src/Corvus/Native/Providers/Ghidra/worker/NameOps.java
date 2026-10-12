@@ -48,6 +48,18 @@ final class NameOps {
         return o;
     }
 
+    /** Ghidra refuses blanks in names ("-[Class sel]" from ObjC metadata): retried with '_' for each. */
+    private static void applyLenient(Worker w, Address a, String name) throws InvalidInputException, DuplicateNameException {
+        try {
+            apply(w, a, name);
+        }
+        catch (InvalidInputException e) {
+            String plain = name.replace(' ', '_');
+            if (plain.equals(name)) throw e;
+            apply(w, a, plain);
+        }
+    }
+
     private static void apply(Worker w, Address a, String name) throws InvalidInputException, DuplicateNameException {
         Function f = w.program.getFunctionManager().getFunctionAt(a);
         SymbolTable st = w.program.getSymbolTable();
@@ -137,7 +149,7 @@ final class NameOps {
             if (!item.get(1).isJsonNull()) {
                 String name = item.get(1).getAsString();
                 try {
-                    apply(w, a, name);
+                    applyLenient(w, a, name);
                     named++;
                 }
                 catch (InvalidInputException | DuplicateNameException | RuntimeException ex) {
