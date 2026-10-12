@@ -583,6 +583,39 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// A script from before arity labels replayed on another build without the source build loaded: the bare label
+    /// Read(string) named both Read(string) and Read&lt;T&gt;(string) and failed as ambiguous; the recorded token picks one.
+    /// </summary>
+    [Fact]
+    public void LegacyEditScriptsPickBetweenOverloadsOfOneLabelByTheRecordedToken()
+    {
+        using var dir = new TempDir();
+        static string Source(int version) => "namespace L { public static class C { public static object Read(string s) { return s; } " +
+                                             "public static T Read<T>(string s) { return default(T); } public static int Version() { return " + version + "; } } }";
+        File.WriteAllBytes(dir.File("Old.dll"), ReferenceResolutionTests.Compile("L", Source(1)));
+        Directory.CreateDirectory(dir.File("new"));
+        File.WriteAllBytes(dir.File("new/L.dll"), ReferenceResolutionTests.Compile("L", Source(2)));
+        var script = dir.File("edits.json");
+        using (var env = new Env(dir.File("Old.dll")))
+        {
+            env.Edit(() => env.Edits.StubMethod(env.One("L.C::Read(string)"), "null"));
+            env.Edit(() => env.Edits.Rename(env.One("L.C::Read<T>(string)"), "ReadAs"));
+            env.Workspace.Read(() => env.History.Export(env.Fixture, script));
+        }
+        var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(script))!.AsObject();
+        foreach (var arg in json["edits"]!.AsArray().SelectMany(e => e!["args"]!.AsObject()).Where(a => a.Value?.ToString().Contains("<T>(") == true).ToList())
+            arg.Value!.ReplaceWith(arg.Value.ToString().Replace("<T>(", "("));
+        Assert.True(json.Remove("labels"));
+        File.WriteAllText(script, json.ToJsonString());
+
+        using var other = new Env(dir.File("new/L.dll"));
+        var replay = other.Edit(() => other.History.Apply(script, null, dryRun: false, stopOnError: true, default, Corvus.Services.EditHistoryService.TargetBuild.Other));
+        Assert.Contains("2 applied, 0 failed", replay);
+        Assert.Single(SymbolResolver.Resolve(other.Workspace, null, "L.C::ReadAs<T>(string)"));
+        Assert.Contains("return null;", other.Decompile("L.C::Read(string)"));
+    }
+
+    /// <summary>
     /// apply_edits onto a transformed rebuild matched targets against the source build as edited: after the script's
     /// own stub, that body no longer resembled its counterpart (now renamed), so the replay failed and rolled back.
     /// </summary>

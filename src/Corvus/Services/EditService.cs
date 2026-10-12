@@ -544,7 +544,14 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             return new ResolvedSymbol(asm, def);
         try
         {
-            return SymbolResolver.ResolveOne(workspace, asm.Id, Required(record, key), SymbolResolver.ParseKind(record.Arg(key + "Kind")), legacyLabels: record.LegacyLabels);
+            var label = Required(record, key);
+            var all = SymbolResolver.Resolve(workspace, asm.Id, label, SymbolResolver.ParseKind(record.Arg(key + "Kind")), legacyLabels: record.LegacyLabels);
+            // A label shared by overloads (a legacy label names generic and plain ones alike): the recorded token, often
+            // stable between builds, picks among them.
+            if (all.Count > 1 && SymbolResolver.TryParseToken(record.Arg(key + "Token") ?? "", out uint recorded)
+                && all.Where(r => r.Member.MDToken.Raw == recorded).ToList() is [var byToken])
+                return byToken;
+            return SymbolResolver.Single(all, label);
         }
         catch (ToolError) when (Remap?.Invoke(record, key) is { } renamed)
         {

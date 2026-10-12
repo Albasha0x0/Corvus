@@ -113,8 +113,11 @@ public static partial class SymbolResolver
     /// <summary>Resolves to exactly one symbol, or throws with the candidate list.</summary>
     public static ResolvedSymbol ResolveOne(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false,
         bool legacyLabels = false)
+        => Single(Resolve(ws, assembly, symbol, kind, referenced, legacyLabels), symbol);
+
+    /// <summary>The one symbol of <paramref name="all"/> (resolved from <paramref name="symbol"/>), or throws with the candidate list.</summary>
+    public static ResolvedSymbol Single(IReadOnlyList<ResolvedSymbol> all, string symbol)
     {
-        var all = Resolve(ws, assembly, symbol, kind, referenced, legacyLabels);
         if (all.Count == 1)
             return all[0];
         throw new ToolError(ErrorCode.Ambiguous, $"'{symbol}' is ambiguous ({all.Count} matches). Pass a parameter signature like Method(int, string), " +
