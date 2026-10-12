@@ -258,7 +258,7 @@ public class ReadyToRunSweepTests(ITestOutputHelper output)
                 long at = off + random.Next(len);
                 bytes[at] = random.Next(3) switch { 0 => (byte)random.Next(256), 1 => (byte)(bytes[at] ^ (1 << random.Next(8))), _ => 0xFF };
             }
-            var one = Stopwatch.StartNew();
+            var cpu = ThreadCpuClock.Now();
             try
             {
                 var mutated = R2RImage.Open(PeFile.FromBytes(bytes, path));
@@ -275,7 +275,7 @@ public class ReadyToRunSweepTests(ITestOutputHelper output)
                 }
             }
             catch (R2RFormatException) { failures++; }
-            Assert.True(one.Elapsed < TimeSpan.FromSeconds(10), $"run {run} took {one.Elapsed}");
+            Assert.True(ThreadCpuClock.Now() - cpu is var took && took < TimeSpan.FromSeconds(10), $"run {run} took {took} of CPU");
         }
         output.WriteLine($"{runs} mutations: {failures} rejected as malformed, {sw.ElapsedMilliseconds} ms");
     }

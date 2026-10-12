@@ -258,7 +258,7 @@ public class MsvcDemangleTests
     [Fact]
     public void DeepAndLongInputsAreBounded()
     {
-        var sw = Stopwatch.StartNew();
+        var cpu = ThreadCpuClock.Now();
         var deepPointers = "?x@@3" + string.Concat(Enumerable.Repeat("PA", 50_000)) + "HA";
         var deepTemplates = "?f@@YAXV" + string.Concat(Enumerable.Repeat("?$A@V", 5_000)) + "B@@Z";
         var deepScopes = "?x@" + string.Concat(Enumerable.Repeat("?1??f@", 3_000)) + "@YAXXZ@4HA";
@@ -273,8 +273,8 @@ public class MsvcDemangleTests
         var blowup = "?f@@YAX" + string.Concat(Enumerable.Range(0, 9).Select(i => i == 0 ? "PAH" : $"P6AX{i - 1}{i - 1}{i - 1}{i - 1}@Z")) + "@Z";
         var b = MsvcDemangler.Demangle(blowup);
         Assert.True(b.Success || b.Error!.Contains("longer than"), b.Error);
-        // Catches exponential blow-ups, not speed: the quick set runs tests in parallel on a loaded machine.
-        Assert.True(sw.ElapsedMilliseconds < 20_000, $"{sw.ElapsedMilliseconds} ms");
+        // Catches exponential blow-ups, not speed.
+        Assert.True(ThreadCpuClock.Now() - cpu is var took && took < TimeSpan.FromSeconds(20), $"{took} of CPU");
     }
 
     /// <summary>Deterministic mutations of the table: no exception escapes, no internal error, bounded time.</summary>
@@ -284,7 +284,7 @@ public class MsvcDemangleTests
         var rng = new Random(1234);
         var seeds = Names.Select(r => (string)r[0]).ToList();
         const string alphabet = "?@$0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcxyz";
-        var sw = Stopwatch.StartNew();
+        var cpu = ThreadCpuClock.Now();
         for (int i = 0; i < 10_000; i++)
         {
             var chars = seeds[rng.Next(seeds.Count)].ToCharArray().ToList();
@@ -304,6 +304,6 @@ public class MsvcDemangleTests
             Assert.True(r.Error == null || !r.Error.StartsWith("internal error", StringComparison.Ordinal), $"{name}: {r.Error}");
             MsvcDemangler.Demangle(name, new MsvcDemangleOptions { Style = MsvcNameStyle.NameOnly, Ptr64 = true });
         }
-        Assert.True(sw.ElapsedMilliseconds < 30_000, $"{sw.ElapsedMilliseconds} ms");
+        Assert.True(ThreadCpuClock.Now() - cpu is var took && took < TimeSpan.FromSeconds(30), $"{took} of CPU");
     }
 }

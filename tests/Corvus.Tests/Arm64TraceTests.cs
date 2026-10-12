@@ -28,10 +28,10 @@ public class Arm64TraceTests
         // 200 levels of merges whose two inputs are the same value: 2^200 paths for a plain walk
         var v = new A64Val(A64Kind.Const, 0, "") { Num = 1 };
         for (int i = 0; i < 200; i++) v = new A64Val(A64Kind.Merge, 0, "") { Inputs = [v, v with { Why = "b" }] };
-        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var cpu = ThreadCpuClock.Now();
         Assert.False(Arm64Resolver.ContainsCycle(v, new(ReferenceEqualityComparer.Instance)));
         Assert.True(Arm64Resolver.ContainsCycle(new A64Val(A64Kind.Merge, 0, "") { Inputs = [v, new A64Val(A64Kind.Cycle, 0, "")] }, new(ReferenceEqualityComparer.Instance)));
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5));
+        Assert.True(ThreadCpuClock.Now() - cpu < TimeSpan.FromSeconds(5));
     }
 
     private sealed record Sample(NativeCodeIndex Index, Dictionary<string, uint> At);

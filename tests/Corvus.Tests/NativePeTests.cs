@@ -434,10 +434,10 @@ public sealed class NativePeTests
             return blob.ToArray();
         });
         b.Directories[PeDirectory.Import] = (first, 20);
-        var timer = Stopwatch.StartNew();
+        var cpu = ThreadCpuClock.Now();
         var pe = Parse(b.Build());
         var issues = TouchEverything(pe);
-        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(5), $"took {timer.Elapsed}");
+        Assert.True(ThreadCpuClock.Now() - cpu is var took && took < TimeSpan.FromSeconds(5), $"took {took} of CPU");
         Assert.Contains(issues, i => i.Area == "imports" && i.Message.Contains("not read"));
         Assert.True(pe.Imports.Count <= PeLimits.MaxImports);
     }
@@ -572,10 +572,10 @@ public sealed class NativePeTests
             return [.. blob.ToArray(), .. new byte[0x10000]];
         });
         b.Directories[PeDirectory.Export] = (dir, 40);
-        var timer = Stopwatch.StartNew();
+        var cpu = ThreadCpuClock.Now();
         var pe = Parse(b.Build());
         TouchEverything(pe);
-        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(5), $"took {timer.Elapsed}");
+        Assert.True(ThreadCpuClock.Now() - cpu is var took && took < TimeSpan.FromSeconds(5), $"took {took} of CPU");
         Assert.True(HasIssue(pe, "exports", "declares 4294967295 entries"));
         Assert.True(pe.Exports.Count < 0x10000);
     }

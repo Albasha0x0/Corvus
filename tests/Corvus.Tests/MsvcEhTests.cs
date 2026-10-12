@@ -139,7 +139,7 @@ public class MsvcEhTests(ITestOutputHelper output)
         if (SystemFile("version.dll", wow64) is not { } path) return;
         var pe = PeFile.Open(path);
         var data = pe.Sections.Where(s => !s.IsExecutable).ToList();
-        var sw = Stopwatch.StartNew();
+        var cpu = ThreadCpuClock.Now();
         for (int seed = 0; seed < 24; seed++)
         {
             // flip about one byte in 32 of the data sections (handler data, FuncInfo, scope tables, unwind info)
@@ -153,7 +153,7 @@ public class MsvcEhTests(ITestOutputHelper output)
             var r = MsvcEh.Analyze(image, new AlignedView());
             Assert.True(r.Frames.Count <= pe.RuntimeFunctions.Count + 100_000);
         }
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"took {sw.Elapsed}");
+        Assert.True(ThreadCpuClock.Now() - cpu is var took && took < TimeSpan.FromSeconds(10), $"took {took} of CPU");
     }
 
     [Fact]
