@@ -724,9 +724,15 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         s.Length is > 0 and <= 255 && (char.IsAsciiLetter(s[0]) || s[0] == '_') && s.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
 
     /// <summary>The single item of a one-edit batch, or the engine's reason as an invalid_argument error.</summary>
+    /// <summary>How the engine workers word an edit they verified had no effect.</summary>
+    private const string NoEffect = "not take";
+
     private static NativeUserTypeOutcome Outcome(UserTypeResult result)
     {
         var item = result.Items.Count == 1 ? result.Items[0] : throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
+        // The engine took the request but its state did not change: not a spelling problem.
+        if (!item.Applied && item.Error is { } noEffect && noEffect.Contains(NoEffect, StringComparison.Ordinal))
+            throw new ToolError(ErrorCode.Failed, noEffect, "rename a local that decompile_native shows, or the variable this one is copied from");
         if (!item.Applied)
             throw new ToolError(ErrorCode.InvalidArgument, item.Error ?? "The engine did not apply the edit.",
                 "check the spelling; list_native_types shows the engine's types and declare_native_types adds missing ones");

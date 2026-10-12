@@ -210,6 +210,19 @@ public sealed class NativeTypeEditTests : IDisposable
     }
 
     [Fact]
+    public async Task A_local_rename_without_effect_fails_and_is_not_kept()
+    {
+        var (tools, engine, code, native) = await Rig();
+        engine.Storageless = "uVar3";
+        var function = $"rva:0x{code.Ready(native)!.Functions[0].Start:X}";
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.SetNativeLocal(native.Id, function, "uVar3", newName: "sample_local"));
+        Assert.Equal(ErrorCode.Failed, error.Code);
+        Assert.Contains("did not take", error.Message);
+        Assert.Empty(code.Annotations(native).UserTypes.Locals);
+        Assert.Contains("is now: int sample_local", await tools.SetNativeLocal(native.Id, function, "v1", newName: "sample_local"));
+    }
+
+    [Fact]
     public async Task Only_a_Ghidra_session_refreshes_the_ghidra_name_layer()
     {
         var (_, engine, code, native) = await Rig();
@@ -225,6 +238,8 @@ public sealed class NativeTypeEditTests : IDisposable
         public Dictionary<string, string> Stamps { get; } = [];
         /// <summary>A type the engine will not rename or delete.</summary>
         public string? Refuse { get; set; }
+        /// <summary>A local whose rename the engine accepts without effect.</summary>
+        public string? Storageless { get; set; }
         public string Id => IdaProvider.ProviderId;
         public string DisplayName => "scripted engine";
         public ProviderAvailability CheckAvailability() => ProviderAvailability.Ok(Id, new Dictionary<string, string>());
@@ -259,6 +274,13 @@ public sealed class NativeTypeEditTests : IDisposable
                 items.Add(new("field", 0, $"{f.Type}.{f.Key}", ok, ok ? null : $"no struct or union named {f.Type}", null, f.Offset, ok ? $"{f.Type}.{f.Key}: {f.FieldType}" : null));
             }
             foreach (var t in batch.Types) items.Add(new("type", t.Rva, t.Declaration, true, null, null, null, t.Declaration));
+            foreach (var l in batch.Locals)
+            {
+                // as the Ghidra worker reports a local without storage: the rename was verified and did not take
+                bool ok = l.Local != Storageless;
+                items.Add(new("local", l.Function, l.Local, ok, ok ? null : $"the decompiler kept the name {l.Local}; the edit did not take", l.Local, l.Stack,
+                    ok ? $"int {l.Name}" : null));
+            }
             if (stampKey != null) Stamps[stampKey] = stamp ?? "";
             return new UserTypeResult(0, [], declared, items, TimeSpan.Zero);
         }

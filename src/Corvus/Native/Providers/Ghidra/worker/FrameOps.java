@@ -290,6 +290,10 @@ final class FrameOps {
         }
         String resolved = s.getName();
         Integer stk = s.getStorage().isStackStorage() ? s.getStorage().getStackOffset() - low : null;
+        // Such a symbol takes the edit without error and without effect.
+        if (!s.isParameter() && (s.getHighVariable() == null || s.getStorage().isUnassignedStorage() || s.getStorage().isBadStorage()))
+            return item("local", rva, local, false, resolved + " has no storage the decompiler uses; it is not in the pseudocode, so the edit would not take",
+                resolved, stk, null);
         if (name != null && !name.equals(resolved)) {
             for (Iterator<HighSymbol> it = hf.getLocalSymbolMap().getSymbols(); it.hasNext();)
                 if (it.next().getName().equals(name))
@@ -307,15 +311,24 @@ final class FrameOps {
         catch (Exception e) {
             return item("local", rva, local, false, "Ghidra did not change " + resolved + ": " + e.getMessage(), resolved, stk, null);
         }
+        String before = pin(s);
         w.decompilers.flush();
-        HighSymbol now;
+        HighSymbol now = null;
         try {
-            now = find(high(w, f, r), low, resolved, stk, name);
+            HighFunction after = high(w, f, r);
+            // By pin first: other default names may be renumbered by the edit.
+            for (Iterator<HighSymbol> it = after.getLocalSymbolMap().getSymbols(); it.hasNext() && now == null;) {
+                HighSymbol x = it.next();
+                if (pin(x).equals(before)) now = x;
+            }
+            if (now == null) now = find(after, low, name, stk, resolved);
         }
         catch (Worker.WorkerError e) {
             return item("local", rva, local, false, e.getMessage(), resolved, stk, null);
         }
         if (now == null) return item("local", rva, local, false, "the local is gone after the edit", resolved, stk, null);
+        if (name != null && !now.getName().equals(name))
+            return item("local", rva, local, false, "the decompiler kept the name " + now.getName() + "; the edit did not take", resolved, stk, null);
         if (dt != null && !now.getDataType().isEquivalent(dt))
             return item("local", rva, local, false, "the decompiler kept " + now.getName() + " as " + now.getDataType().getDisplayName() + " (it did not accept " + type + ")",
                 resolved, stk, null);
