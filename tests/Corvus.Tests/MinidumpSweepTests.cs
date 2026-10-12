@@ -29,7 +29,7 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
     [Fact]
     public async Task LocalCrashDumpsAreReadAndWalked()
     {
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         int dumps = 0, rejected = 0, threads = 0, frames = 0, heuristic = 0, withException = 0;
         var stops = new Dictionary<string, int>();
         var sw = Stopwatch.StartNew();

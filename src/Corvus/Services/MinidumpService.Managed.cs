@@ -12,6 +12,7 @@ public sealed partial class MinidumpService
 
     private readonly List<(string Path, ClrDecoder Decoder)> _decoders = [];
     private readonly SemaphoreSlim _decoderGate = new(1, 1);
+    private bool _disposed;
 
     public sealed record DacSummary(
         [property: Description("loaded, not_found, bitness_mismatch, host_unsupported, signature_invalid, download_refused_offline, download_failed, load_failed or unsupported_runtime.")] string Status,
@@ -51,6 +52,7 @@ public sealed partial class MinidumpService
         await _decoderGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             int at = _decoders.FindIndex(d => d.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
             if (at >= 0)
             {
@@ -76,6 +78,19 @@ public sealed partial class MinidumpService
                 _decoders.RemoveAt(0);
             }
             return decoder;
+        }
+        finally { _decoderGate.Release(); }
+    }
+
+    /// <summary>Closes the CLR decoders: their dump handles and the 32-bit decoder processes.</summary>
+    public void Dispose()
+    {
+        _decoderGate.Wait();
+        try
+        {
+            _disposed = true;
+            foreach (var (_, decoder) in _decoders) decoder.Dispose();
+            _decoders.Clear();
         }
         finally { _decoderGate.Release(); }
     }

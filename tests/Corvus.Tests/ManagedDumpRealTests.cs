@@ -87,7 +87,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var dump = Crash(dll, dir.File("full.dmp"), 4);
         using var ws = new AssemblyWorkspace();
         var probe = ws.Load(dll);
-        var service = new MinidumpService(ws, decompiler: new DecompilerService(ws, new ServerOptions()));
+        using var service = new MinidumpService(ws, decompiler: new DecompilerService(ws, new ServerOptions()));
 
         var summary = await service.Summarize(dump, null, 0, 50, 0, 50, default);
         var m = summary.Managed!;
@@ -151,7 +151,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
         var dump = Crash(Build(dir), dir.File("mini.dmp"), 1);
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var summary = await service.Summarize(dump, null, 0, 50, 0, 50, default);
         var m = summary.Managed!;
         Assert.Equal("loaded", m.Dac.Status);
@@ -173,7 +173,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var dumps = Directory.CreateDirectory(dir.File("dumps")).FullName;
         Crash(dll, Path.Combine(dumps, "one.dmp"), 1);
         Crash(dll, Path.Combine(dumps, "two.dmp"), 1);
-        var service = new MinidumpService { BucketCache = dir.File("cache") };
+        using var service = new MinidumpService { BucketCache = dir.File("cache") };
         var r = await service.Bucket(dumps, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
         var bucket = Assert.Single(r.Buckets);
         output.WriteLine(bucket.Signature);
@@ -198,7 +198,8 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var dump = Crash(Build(dir), dir.File("mini.dmp"), 1);
         var request = new Native.Dump.Managed.DacRequest(Download: true) { DownloadOnly = true };
 
-        var m = (await new MinidumpService().Summarize(dump, null, 0, 50, 0, 50, request, default)).Managed!;
+        using var first = new MinidumpService();
+        var m = (await first.Summarize(dump, null, 0, 50, 0, 50, request, default)).Managed!;
         output.WriteLine($"{m.Runtime}: DAC {m.Dac.Status} {m.Dac.Path} ({m.Dac.Detail})");
         Assert.Equal("loaded", m.Dac.Status);
         Assert.StartsWith(dir.File("cache"), m.Dac.Path);
@@ -207,10 +208,12 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Null(DacLocatorVerify(m.Dac.Path!));
 
         var written = File.GetLastWriteTimeUtc(m.Dac.Path!);
-        var again = (await new MinidumpService().Summarize(dump, null, 0, 50, 0, 50, request, default)).Managed!;
+        using var second = new MinidumpService();
+        var again = (await second.Summarize(dump, null, 0, 50, 0, 50, request, default)).Managed!;
         Assert.Equal((m.Dac.Path, written), (again.Dac.Path, File.GetLastWriteTimeUtc(again.Dac.Path!))); // from the cache
         // the cache is a local store: found without a download
-        var local = (await new MinidumpService().Summarize(dump, null, 0, 50, 0, 50, new Native.Dump.Managed.DacRequest(), default)).Managed!;
+        using var third = new MinidumpService();
+        var local = (await third.Summarize(dump, null, 0, 50, 0, 50, new Native.Dump.Managed.DacRequest(), default)).Managed!;
         Assert.Equal("loaded", local.Dac.Status);
     }
 
@@ -243,7 +246,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
 
         using var ws = new AssemblyWorkspace();
         var probe = ws.Load(dll);
-        var service = new MinidumpService(ws);
+        using var service = new MinidumpService(ws);
         var summary = await service.Summarize(dump, null, 0, 50, 0, 50, default);
         var m = summary.Managed!;
         output.WriteLine($"{m.Runtime}: DAC {m.Dac.Status} {m.Dac.Path} ({m.Dac.Detail}); heap {m.Heap}");
@@ -263,7 +266,8 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var heap = await service.Heap(dump, "stats", "System.String", 0, 0, 10, MinidumpService.DefaultMaxHeapObjects, default);
         Assert.True(heap.Types.Single().Count > 10);
         // the bucket names the CLR exception and its managed frames
-        var bucket = Assert.Single((await new MinidumpService { BucketCache = dir.File("cache") }.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Buckets);
+        using var bucketing = new MinidumpService { BucketCache = dir.File("cache") };
+        var bucket = Assert.Single((await bucketing.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Buckets);
         output.WriteLine(bucket.Signature);
         Assert.StartsWith("clr | System.ApplicationException | ", bucket.Signature);
         Assert.Contains("Probe.Program.Main", bucket.Signature);
@@ -347,7 +351,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var (dll, mini, full) = SelfDumps(dir);
         using var ws = new AssemblyWorkspace();
         ws.Load(dll);
-        var service = new MinidumpService(ws, decompiler: new DecompilerService(ws, new ServerOptions()));
+        using var service = new MinidumpService(ws, decompiler: new DecompilerService(ws, new ServerOptions()));
 
         var small = (await service.Summarize(mini, null, 0, 50, 0, 50, default)).Managed!;
         foreach (var f in small.Exception!.Stack) output.WriteLine($"mini {f.Function} il={f.IlOffset} {f.Statement}");
@@ -372,7 +376,8 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
         var (_, mini, _) = SelfDumps(dir);
-        var summary = await new MinidumpService().Summarize(mini, null, 0, 50, 0, 50, default);
+        using var service = new MinidumpService();
+        var summary = await service.Summarize(mini, null, 0, 50, 0, 50, default);
         Assert.Equal("0xE0434352", summary.Exception!.Code);
         Assert.Equal("System.InvalidOperationException", summary.Managed!.Exception!.Type);
         Assert.DoesNotContain("managed debugger", summary.Exception.Description);
@@ -386,7 +391,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
         var (_, mini, full) = SelfDumps(dir);
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var heap = (await service.Summarize(mini, null, 0, 50, 0, 50, default)).Managed!.Heap!;
         Assert.False(heap.Walkable);
         Assert.StartsWith("heap_not_captured", heap.Reason);

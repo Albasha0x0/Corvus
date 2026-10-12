@@ -125,7 +125,7 @@ public sealed class IlStatementTests : IDisposable
             0x{SyntheticCrash.JitCode:X16} (Mono JIT Code) [Player.cs:14] Game.Player:Update ()
             ========== END OF STACKTRACE ===========
             """);
-        var service = new MinidumpService(_ws, decompiler: _decompiler, stacks: new StackTextService(_ws, decompiler: _decompiler));
+        using var service = new MinidumpService(_ws, decompiler: _decompiler, stacks: new StackTextService(_ws, decompiler: _decompiler));
 
         var m = (await service.Summarize(dump, null, 0, 50, 0, 50, default)).Managed!;
         Assert.Equal("Mono", m.Runtime);

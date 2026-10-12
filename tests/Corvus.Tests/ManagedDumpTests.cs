@@ -185,7 +185,7 @@ public sealed class ManagedDumpTests
         using var dir = new TempDir();
         var path = dir.File("native.dmp");
         File.WriteAllBytes(path, Dump(pe).Build());
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         Assert.Null((await service.Summarize(path, null, 0, 50, 0, 50, default)).Managed);
         Assert.Null((await service.Stack(path, null, true, 16, 0, 16, null, default)).Managed);
         var error = await Assert.ThrowsAsync<ToolError>(() => service.Object(path, "0x1000", 1, 10, 10, default));
@@ -211,7 +211,7 @@ public sealed class ManagedDumpTests
         using var dir = new TempDir();
         var path = dir.File("clr.dmp");
         File.WriteAllBytes(path, Dump(pe, module: @"Z:\nowhere\coreclr.dll").Build());
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
 
         var summary = await service.Summarize(path, null, 0, 50, 0, 50, default);
         var managed = Assert.IsType<MinidumpService.ManagedSummary>(summary.Managed);

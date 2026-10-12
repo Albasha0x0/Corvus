@@ -72,7 +72,7 @@ public sealed class DumpImageIdentityTests : IDisposable
         var dump = Dump();
         var folder = Directory.CreateDirectory(_dir.File("bin")).FullName;
         System.IO.File.WriteAllBytes(Path.Combine(folder, "synth_1.2.3.dll"), File());
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var summary = await service.Summarize(dump, folder, 0, 50, 0, 50, default);
         Assert.Equal("matches", summary.Modules[0].LocalImage);
         Assert.Equal("synth!Crash+0x5", (await service.Stack(summary.Id, null, true, 64, 0, 64, null, default)).Frames[0].Symbol);

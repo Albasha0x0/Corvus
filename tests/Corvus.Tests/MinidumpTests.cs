@@ -291,7 +291,7 @@ public sealed class MinidumpTests
     {
         using var dir = new TempDir();
         var path = SyntheticCrashX86.Write(dir);
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var stack = await service.Stack(path, null, true, 64, 0, 64, null, default);
         Assert.Equal("x86", stack.Architecture);
         Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], stack.Frames.Select(f => f.Symbol));
@@ -310,7 +310,8 @@ public sealed class MinidumpTests
         Assert.Equal(["synth32!Leaf", "synth32!Outer+0x8"], tail.Frames.Select(f => f.Symbol));
         Assert.Equal("call_target", tail.Frames[1].Method);
 
-        var buckets = await new MinidumpService { BucketCache = dir.File("cache") }.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
+        using var bucketing = new MinidumpService { BucketCache = dir.File("cache") };
+        var buckets = await bucketing.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
         Assert.Equal("0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top", Assert.Single(buckets.Buckets).Signature);
     }
 
@@ -344,7 +345,7 @@ public sealed class MinidumpTests
         var path = dir.File("wow64.dmp");
         File.WriteAllBytes(path, d.Build());
 
-        var service = new MinidumpService { BucketCache = dir.File("cache") };
+        using var service = new MinidumpService { BucketCache = dir.File("cache") };
         var stack = await service.Stack(path, null, true, 64, 0, 64, null, default);
         Assert.Equal("x86 (WoW64)", stack.Architecture);
         Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], stack.Frames.Take(3).Select(f => f.Symbol));
@@ -366,7 +367,7 @@ public sealed class MinidumpTests
         d.Threads.Add(new MinidumpBuilder.Thread(1, 0x1000, MinidumpBuilder.ContextX64(0x7FFE_0000_1000, 0x1000)));
         var path = dir.File("two.dmp");
         File.WriteAllBytes(path, d.Build());
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         foreach (var address in new[] { "ntdll", "ntdll.dll", "ntdll+0x10" })
         {
             var error = await Assert.ThrowsAsync<ToolError>(() => service.ReadMemory(path, address, 8, true, default));
@@ -383,7 +384,7 @@ public sealed class MinidumpTests
         using var dir = new TempDir();
         SyntheticCrashX86.Write(dir, "with-jit.dmp", jit: true);
         SyntheticCrashX86.Write(dir, "without.dmp");
-        var service = new MinidumpService { BucketCache = dir.File("cache") };
+        using var service = new MinidumpService { BucketCache = dir.File("cache") };
         var bucket = Assert.Single((await service.Bucket(dir.Path, false, null, 4, null, false, true, 10, null, 0, 10, null, default)).Buckets);
         Assert.Equal((2, "0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top"), (bucket.Count, bucket.Signature));
     }
@@ -393,7 +394,7 @@ public sealed class MinidumpTests
     {
         using var dir = new TempDir();
         var path = SyntheticCrash.Write(dir);
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var summary = await service.Summarize(path, null, 0, 50, 0, 50, default);
         Assert.Equal("synth.dmp", summary.Id);
         Assert.Equal("x64", summary.System!.Architecture);

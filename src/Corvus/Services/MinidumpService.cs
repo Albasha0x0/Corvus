@@ -17,7 +17,7 @@ namespace Corvus.Services;
 /// (positional reads); module images and names are cached.
 /// </summary>
 public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null, NativeCodeService? code = null, Il2CppNavigator? navigator = null,
-    DecompilerService? decompiler = null, StackTextService? stacks = null)
+    DecompilerService? decompiler = null, StackTextService? stacks = null) : IDisposable
 {
     private const int MaxCachedModules = 256;
     private static readonly TimeSpan IndexWait = TimeSpan.FromSeconds(30);

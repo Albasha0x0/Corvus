@@ -15,7 +15,11 @@ public sealed class DumpBucketTests : IDisposable
         _service = new MinidumpService { BucketCache = _dir.File("cache") };
     }
 
-    public void Dispose() => _dir.Dispose();
+    public void Dispose()
+    {
+        _service.Dispose();
+        _dir.Dispose();
+    }
 
     private string Folder => _dir.File("dumps");
 

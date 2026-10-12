@@ -41,7 +41,8 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
     [Fact]
     public async Task Selection_errors_are_typed()
     {
-        var service = new LiveProcessService(new MinidumpService());
+        using var dumps = new MinidumpService();
+        var service = new LiveProcessService(dumps);
         async Task<ToolError> Fails(string process, string? sections = null) =>
             await Assert.ThrowsAsync<ToolError>(() => service.Inspect(process, sections, null, 0, 1, 0, 1, null, 0, 1, 1, null, 5, default));
         if (!OperatingSystem.IsWindows())
@@ -87,7 +88,8 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
             Assert.NotEmpty(before.Writable);
 
             var clock = Stopwatch.StartNew();
-            var service = new LiveProcessService(new MinidumpService());
+            using var dumps = new MinidumpService();
+            var service = new LiveProcessService(dumps);
             var report = await service.Inspect(child.Id.ToString(), null, null, 0, 200, 0, 1000, "writable", 0, 50, 64, null, 60, default);
             output.WriteLine($"{systemFolder}: {report.ModuleCount} modules, {report.RegionCount}/{report.RegionsTotal} writable regions, {report.ThreadCount} threads, " +
                              $"handles {report.HandlesOpened}/{report.HandlesClosed}, {clock.ElapsedMilliseconds} ms");
@@ -133,7 +135,8 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
     public async Task Cancellation_is_honored_before_attaching()
     {
         if (!OperatingSystem.IsWindows()) return;
-        var service = new LiveProcessService(new MinidumpService());
+        using var dumps = new MinidumpService();
+        var service = new LiveProcessService(dumps);
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.Inspect("4", null, null, 0, 1, 0, 1, null, 0, 1, 1, null, 5, cts.Token));
@@ -190,7 +193,8 @@ public sealed class LiveProcessSweepTests(ITestOutputHelper output)
     public async Task Every_process_of_the_session_is_inspected_or_refused_with_a_typed_error()
     {
         if (!OperatingSystem.IsWindows() || RuntimeInformation.ProcessArchitecture != Architecture.X64) return;
-        var service = new LiveProcessService(new MinidumpService());
+        using var dumps = new MinidumpService();
+        var service = new LiveProcessService(dumps);
         using var self = Process.GetCurrentProcess();
         int session = self.SessionId, ok = 0, threads = 0, frames = 0, named = 0, heuristic = 0;
         var errors = new Dictionary<string, int>();

@@ -200,7 +200,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         using var dir = new TempDir();
         if (Build(dir, "x64") is not { } exe) return;
         var dump = CrashAndDump(exe, dir.File("av.dmp"), Normal);
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var sw = Stopwatch.StartNew();
         var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
         output.WriteLine($"summary in {sw.ElapsedMilliseconds} ms: {summary.Modules.Count} modules, {summary.Threads.Count} threads");
@@ -245,7 +245,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         if (Build(dir, "x64") is not { } exe) return;
         var dump = CrashAndDump(exe, dir.File("full.dmp"), Full);
         File.Move(exe, dir.File("renamed.bin"));
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
         Assert.Equal("missing", summary.Modules.Single(m => m.Name == "crash.exe").LocalImage);
         Assert.True(summary.Memory.FullMemory);
@@ -262,7 +262,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         using var dir = new TempDir();
         if (Build(dir, "x86") is not { } exe) return;
         var dump = SelfDump(exe, "av", dir.File("x86.dmp"));
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
         Assert.Equal("x86", summary.System!.Architecture);
         Assert.All(summary.Modules, m => Assert.Equal("matches", m.LocalImage));
@@ -282,7 +282,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         using var dir = new TempDir();
         if (Build(dir, "x64") is not { } exe) return;
         var dump = SelfDump(exe, "cpp", dir.File("cpp.dmp"));
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
         var e = summary.Exception!;
         output.WriteLine($"{e.Name}: {e.Description}; types {string.Join(", ", e.ThrownTypes)}; at {e.Symbol}");
@@ -308,7 +308,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
             WriteDump(p, dump, Normal);
         }
         finally { Kill(p); }
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
         Assert.Null(summary.Exception);
         Assert.Contains(summary.Notes, n => n.StartsWith("No exception stream", StringComparison.Ordinal));
@@ -333,7 +333,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
             WriteDump(p, dump, Normal);
         }
         finally { Kill(p); }
-        var service = new MinidumpService();
+        using var service = new MinidumpService();
         var summary = await service.Summarize(dump, null, 0, 500, 0, 200, default);
         Assert.Equal(".NET (CoreCLR)", summary.Process.Runtime);
         output.WriteLine($"DAC {summary.Managed!.Dac.Status}: {summary.Managed.Dac.Detail}; heap {summary.Managed.Heap}");
@@ -363,7 +363,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         CrashAndDump(exe, Path.Combine(dumps, "av1.dmp"), Normal);
         CrashAndDump(exe, Path.Combine(dumps, "av2.dmp"), Normal);
         SelfDump(exe, "cpp", Path.Combine(dumps, "cpp.dmp"));
-        var service = new MinidumpService { BucketCache = dir.File("cache") };
+        using var service = new MinidumpService { BucketCache = dir.File("cache") };
         var r = await service.Bucket(dumps, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
         foreach (var b in r.Buckets) output.WriteLine($"{b.Count} {b.Signature}");
         Assert.Equal(2, r.Total);

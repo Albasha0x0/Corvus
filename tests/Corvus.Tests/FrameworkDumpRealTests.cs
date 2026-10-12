@@ -105,7 +105,7 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
         var dump = Dump(exe, dir.File($"fx-{arch}.dmp"));
         using var ws = new Core.AssemblyWorkspace();
         var probe = ws.Load(exe);
-        var service = new MinidumpService(ws);
+        using var service = new MinidumpService(ws);
 
         var summary = await service.Summarize(dump, null, 0, 50, 0, 50, default);
         Assert.Equal(arch, summary.System!.Architecture);
