@@ -39,7 +39,8 @@ public static partial class Catalog
     public static IMcpServerBuilder WithCatalog(this IMcpServerBuilder builder)
     {
         var assembly = typeof(Catalog).Assembly;
-        builder.WithToolsFromAssembly(assembly, ToolSerializerOptions).WithResourcesFromAssembly(assembly).WithPromptsFromAssembly(assembly);
+        builder.WithToolsFromAssembly(assembly, ToolSerializerOptions).WithResourcesFromAssembly(assembly).WithPromptsFromAssembly(assembly)
+            .WithMessageFilters(filters => filters.AddIncomingFilter(ToolListCache.Filter));
         // Applied once the tool collection is complete.
         builder.Services.AddOptions<McpServerOptions>().PostConfigure<IServiceProvider>((o, services) =>
         {

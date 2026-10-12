@@ -71,8 +71,6 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [property: Description("budget (profile, ceiling, deadline, delivery, with sources), results (kept-result store), caches, calls (leftover calls, lock holders), workers (child PIDs, start times), run.")]
         IReadOnlyList<StatusSection> Sections);
 
-    private static readonly ConditionalWeakTable<McpServerOptions, string> Digests = new();
-
     [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
     [Description("Which server runs (version, program, install kind, client), a catalog digest, what is loaded, limits, long-running tools, " +
                  "capabilities with the fix when missing, tool families, unusable tools, and engine sessions (busy op, queue). expectedCatalogDigest " +
@@ -83,11 +81,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         RequestContext<CallToolRequestParams> context = null!)
     {
         var server = context?.Server?.ServerOptions;
-        var digest = server == null ? "" : Digests.GetValue(server, o =>
-        {
-            var (tools, prompts) = Catalog.Of(o);
-            return Catalog.Digest(tools, prompts);
-        });
+        var digest = context?.Server is { } listed ? ToolListCache.Digest(listed) : "";
         bool expected = !string.IsNullOrWhiteSpace(expectedCatalogDigest);
         var difference = expected ? Catalog.Difference(expectedCatalogDigest!, digest) : null;
         int toolCount = server?.ToolCollection?.Count ?? 0;
