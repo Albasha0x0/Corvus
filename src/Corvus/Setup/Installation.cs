@@ -92,10 +92,7 @@ internal static class Installation
             return 1;
         }
         var repo = Environment.GetEnvironmentVariable("CORVUS_REPO") is { Length: > 0 } r ? r : DefaultRepository;
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("Corvus/" + Version);
-        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        if (!string.IsNullOrEmpty(token)) http.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        using var http = GitHubHttp.Create("Corvus/" + Version, Environment.GetEnvironmentVariable("GITHUB_TOKEN"));
 
         JsonNode release;
         try { release = JsonNode.Parse(http.GetStringAsync(ReleaseApi(repo, version)).GetAwaiter().GetResult())!; }
