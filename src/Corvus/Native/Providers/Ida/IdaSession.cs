@@ -331,7 +331,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
             }
             var methods = new JsonArray();
             foreach (var m in batch.Methods) methods.Add(new JsonArray(m.Rva, m.Class));
-            classes = new JsonObject { ["ptr"] = batch.PointerSize, ["classes"] = list, ["methods"] = methods };
+            // a whole push decompiles nothing for method types; methods sent alone (on demand, when decompiled) may decompile
+            classes = new JsonObject { ["ptr"] = batch.PointerSize, ["classes"] = list, ["methods"] = methods,
+                ["method_seconds"] = batch.Classes.Count == 0 ? Math.Max(1, RequestTimeout.TotalSeconds * 0.5) : 0 };
         }
         var args = IdaProvider.Args(("decls", batch.Declarations), ("prototypes", prototypes), ("classes", classes), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
         // The request is large and mostly in the type library: a saved batch is in the database, an unsaved one journaled.

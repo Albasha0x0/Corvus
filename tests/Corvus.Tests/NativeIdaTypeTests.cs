@@ -368,4 +368,23 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("userBase", text);
         Assert.DoesNotContain("pushedBase", text);
     }
+
+    [IdaFact]
+    public async Task A_class_push_decompiles_nothing_and_methods_sent_alone_are_typed_by_decompiling()
+    {
+        var rig = Setup("cache-d");
+        var session = await rig.Session();
+        var functions = (await session.ListFunctionsAsync()).Where(f => (f.Flags & (NativeFunctionFlags.Thunk | NativeFunctionFlags.Library)) == 0).Take(150).ToList();
+        var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name.Contains("data")).Rva;
+        var owners = functions.Select(f => new NativeMethodOwner(f.StartRva, "SampleLazy")).ToList();
+        var push = await session.ApplyTypesAsync(new NativeTypeBatch(null, [],
+            [new NativeClassType("SampleLazy", [new NativeVftableType(0, data, functions.Take(2).Select(f => f.StartRva).ToList())], [])], owners, 8));
+        output.WriteLine($"push: {push.MethodsTyped} typed, skips {string.Join(", ", push.MethodSkips.Select(kv => $"{kv.Key} {kv.Value}"))}, {push.Elapsed.TotalSeconds:0.00} s");
+        Assert.False(push.MethodSkips.ContainsKey("no_type")); // no decompilation tried
+        var alone = await session.ApplyTypesAsync(new NativeTypeBatch(null, [], [], owners, 8));
+        output.WriteLine($"alone: {alone.MethodsTyped} typed, skips {string.Join(", ", alone.MethodSkips.Select(kv => $"{kv.Key} {kv.Value}"))}");
+        Assert.False(alone.MethodSkips.ContainsKey("deferred"));
+        Assert.Equal(push.MethodSkips.GetValueOrDefault("deferred"), alone.MethodsTyped + alone.MethodSkips.GetValueOrDefault("no_type") + alone.MethodSkips.GetValueOrDefault("no_arguments")
+                                                                       + alone.MethodSkips.GetValueOrDefault("rejected"));
+    }
 }

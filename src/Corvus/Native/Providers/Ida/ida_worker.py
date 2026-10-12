@@ -773,7 +773,9 @@ def apply_classes(m, ti, til, model, result):
     def skip(reason):
         skips[reason] = skips.get(reason, 0) + 1
 
-    deadline = time.time() + float(model.get("method_seconds") or 15)
+    # decompiling for a method's arguments is the slow part of a push (seconds on a large image): by default none here,
+    # each such method is typed when it is decompiled
+    deadline = time.time() + float(model.get("method_seconds") or 0)
     for rva, cname in model.get("methods") or []:
         ea = base + rva
         cls = named(cname)
