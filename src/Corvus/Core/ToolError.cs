@@ -109,13 +109,6 @@ public sealed class ToolError : McpException
     public static string DefaultNext(string code, string? tool) =>
         code == "internal" ? InternalNext : DefaultNext(Enum.GetValues<ErrorCode>().FirstOrDefault(c => CodeName(c) == code), tool);
 
-    /// <summary>The standard error for a path that names no file.</summary>
-    public static ToolError FileNotFound(string path) =>
-        new(ErrorCode.NotFound, $"File not found: '{path}'.", "pass the path of an existing file; a relative path resolves against the server's working directory")
-        {
-            Details = new { path },
-        };
-
     /// <summary>The standard error for a call that needs a loaded target; <paramref name="what"/> names it ("No native images are").</summary>
     public static ToolError NotLoaded(string what, string? next = null) => new(ErrorCode.NotLoaded, $"{what} loaded.", next);
 

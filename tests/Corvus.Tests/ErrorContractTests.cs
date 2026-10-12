@@ -50,10 +50,10 @@ public class ErrorContractTests
     [Fact]
     public void StandardNotFoundAndNotLoadedTexts()
     {
-        var missing = ToolError.FileNotFound("x/app.dll");
+        var missing = Targets.FileNotFound("x/app.dll");
         Assert.Equal(ErrorCode.NotFound, missing.Code);
-        Assert.Equal("File not found: 'x/app.dll'.", missing.Message);
-        Assert.Contains("existing file", missing.NextFor(null));
+        Assert.Equal("File not found: 'x/app.dll'", missing.Message);
+        Assert.Equal(Targets.FileNotFoundNext, missing.NextFor(null));
         var notLoaded = ToolError.NotLoaded("No native images are");
         Assert.Equal("No native images are loaded.", notLoaded.Message);
         Assert.Contains("load_assembly", notLoaded.NextFor(null));
