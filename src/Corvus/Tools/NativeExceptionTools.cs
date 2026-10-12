@@ -95,6 +95,8 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
             var caught = withLsda.SelectMany(f => f.CallSites).SelectMany(c => c.Actions).Where(a => a.StartsWith("catch", StringComparison.Ordinal))
                 .GroupBy(a => a).OrderByDescending(g => g.Count()).Take(20).ToList();
             if (caught.Count > 0) sb.AppendLine("Caught: " + string.Join(", ", caught.Select(g => $"{g.Key[7..^1]} ({g.Count()})")));
+            int attached = index.Functions.Sum(f => f.Chunks.Count);
+            if (attached > 0) sb.AppendLine($"Landing pads no flow reaches, attached to their functions as chunks: {attached}");
             foreach (var note in table.Notes) sb.AppendLine($"Note: {note}");
             sb.AppendLine("Pass an address for one function's call sites and landing pads.");
             return sb.ToString();
@@ -102,6 +104,7 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         uint rva = NativeCodeTools.Address(index, address);
         var fn = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(rva)}.", "list_functions shows the functions");
         sb.AppendLine($"{fn.Name} at {Va(fn.Start)}");
+        if (fn.Chunks.Any(c => c.Start == rva)) sb.AppendLine($"{Va(rva)} is a landing pad of {fn.Name} (a chunk of its code)");
         if (table.At(fn.Start) is not { } eh)
         {
             sb.AppendLine("No exception handling metadata (no FDE, compact unwind or .ARM.exidx entry).");

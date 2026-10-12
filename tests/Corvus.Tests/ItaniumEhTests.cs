@@ -154,6 +154,25 @@ public class ItaniumEhTests
             ], pr2.CallSites.Select(c => (c.Start, c.End, c.LandingPad, c.Actions.Single())));
     }
 
+    /// <summary>A landing pad the function's flow never reaches joins that function as a chunk (not a function of its own).</summary>
+    [Fact]
+    public void Landing_pads_are_chunks_of_their_function()
+    {
+        const uint Text = ElfWriter.TextRva;
+        // push {r4, lr}; nop; pop {r4, pc} | landing pad at +6: movs r0, #1; pop {r4, pc}
+        var code = new byte[0x20];
+        new byte[] { 0x10, 0xB5, 0x00, 0xBF, 0x10, 0xBD, 0x01, 0x20, 0x10, 0xBD }.CopyTo(code, 0);
+        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = code };
+        w.Symbols.Add(new ElfWriter.Symbol("__gxx_personality_v0", Text + 0x1C | 1, 2, Type: 2));
+        // generic personality: pop {r4, lr}; LSDA with one call site [+0, +4) landing at +6 (cleanup)
+        w.Extab.Add((Text | 1, Text + 0x1C, [0x00A8B0B0, 0x0401FFFF, 0x00060400]));
+        var index = Corvus.Native.Code.NativeCodeIndex.Build(ElfFile.FromBytes(w.Build(), "lib.so"));
+        var f = index.FunctionByStart(Text)!;
+        Assert.Null(index.FunctionByStart(Text + 6));
+        Assert.Same(f, index.FunctionAt(Text + 8));
+        Assert.Equal([new Corvus.Native.Code.FunctionChunk(Text + 6, Corvus.Native.Msvc.MsvcEhChildKind.Unwind)], f.Chunks);
+    }
+
     [Fact]
     public void Arm32_library_lsdas_through_the_generic_personality()
     {
@@ -187,6 +206,9 @@ public class ItaniumEhTests
         Assert.Contains("DWARF CFI", text);
         Assert.Contains(": catch (std::exception), cleanup", text);
         Assert.Contains("no landing pad (unwinds through)", text);
+        Assert.Contains("Landing pads no flow reaches, attached to their functions as chunks: ", summary);
+        uint pad = fn.CallSites.First(c => c.Actions.Contains("catch (std::exception)")).LandingPad!.Value;
+        Assert.Contains($" is a landing pad of ", await tools.GetExceptionInfo(path, $"rva:0x{pad:X}"));
 
         var dossier = await new NativeFunctionTools(workspace, code, pager).AnalyzeNativeFunction(path, $"rva:0x{fn.Begin:X}", sections: "frame");
         Assert.Contains("unwind data (DWARF CFI", dossier);

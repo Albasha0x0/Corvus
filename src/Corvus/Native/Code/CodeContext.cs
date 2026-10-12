@@ -54,6 +54,11 @@ internal sealed class CodeContext
     /// x86 __finally blocks are): not functions.
     /// </summary>
     public HashSet<uint> LocalSubroutines { get; } = [];
+    /// <summary>
+    /// Itanium landing pads with the function whose tables name them: discovery explores them (their callees, such as
+    /// __cxa_end_cleanup thunks, become functions) without making them functions; the build attaches them as chunks.
+    /// </summary>
+    public List<(uint Function, uint Pad, bool Catches)> LandingPads { get; set; } = [];
     /// <summary>x86 functions that run in another function's frame (see <see cref="FunctionFlags.Funclet"/>).</summary>
     public HashSet<uint> Funclets { get; } = [];
     /// <summary>Thunk start -> import slot.</summary>

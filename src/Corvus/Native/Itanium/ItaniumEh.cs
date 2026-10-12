@@ -66,7 +66,15 @@ public static class ItaniumEh
     private const int MaxCallSites = 4096;
     private static readonly ConditionalWeakTable<INativeImage, ItaniumEhTable> Tables = new();
 
-    public static ItaniumEhTable Of(INativeImage image) => Tables.GetValue(image, Build);
+    public static ItaniumEhTable Of(INativeImage image) => Tables.GetValue(image, i => Build(i, names: true));
+
+    /// <summary>
+    /// The landing pads of every function with exception tables, with whether one catches (else it only cleans up). Not cached
+    /// and without names: the code index reads it once per build.
+    /// </summary>
+    internal static List<(uint Function, uint Pad, bool Catches)> LandingPads(INativeImage image) =>
+        [.. Build(image, names: false).Functions.SelectMany(f => f.CallSites.Where(c => c.LandingPad != null)
+            .Select(c => (f.Begin, c.LandingPad!.Value, c.Actions.Any(a => a.StartsWith("catch", StringComparison.Ordinal)))))];
 
     private static NativeSection? Section(INativeImage image, string elf, string macho) =>
         image.Sections.FirstOrDefault(s => s.Name == (image.Format == ImageFormat.MachO ? macho : elf));
@@ -93,13 +101,13 @@ public static class ItaniumEh
 
     private static List<CfiFde> Fdes(INativeImage image) => CfiOf(image).Fdes;
 
-    private static ItaniumEhTable Build(INativeImage image)
+    private static ItaniumEhTable Build(INativeImage image, bool names)
     {
         var notes = new List<string>();
         var imports = new Dictionary<uint, NativeImport>();
         foreach (var i in image.Imports) imports.TryAdd(i.SlotRva, i);
-        var types = CppRtti.Analyze(image).Classes.ToDictionary(c => c.TypeDescriptorRva, c => c.Name);
-        var lsda = new Lsda(image, imports, types);
+        var types = names ? CppRtti.Analyze(image).Classes.ToDictionary(c => c.TypeDescriptorRva, c => c.Name) : [];
+        var lsda = new Lsda(image, imports, types, names);
         var list = new List<ItaniumEhFunction>();
         var fdes = Fdes(image);
         foreach (var f in fdes)
@@ -146,13 +154,14 @@ public static class ItaniumEh
     }
 
     /// <summary>Reads LSDAs: call sites, actions and the catch types (typeinfos by RTTI name, import name or address).</summary>
-    private sealed class Lsda(INativeImage image, Dictionary<uint, NativeImport> imports, Dictionary<uint, string> types)
+    private sealed class Lsda(INativeImage image, Dictionary<uint, NativeImport> imports, Dictionary<uint, string> types, bool names)
     {
         private readonly int _ptr = image.Is64Bit ? 8 : 4;
 
-        /// <summary>The name of what a (possibly indirect) pointer leads to: an import bound at the slot, a typeinfo, a symbol.</summary>
+        /// <summary>The name of what a (possibly indirect) pointer leads to: an import bound at the slot, a typeinfo, a symbol ("?" without names).</summary>
         public string PointerName(ulong va, bool indirect)
         {
+            if (!names) return "?";
             if (!Rva(image, va, out uint rva)) return $"0x{va:X}";
             if (indirect)
             {

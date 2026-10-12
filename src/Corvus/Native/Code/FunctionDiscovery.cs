@@ -89,6 +89,14 @@ internal sealed class FunctionDiscovery
         foreach (var e in exports)
             if (ExportKind(e.Name) == null) TryExport(e.Rva);
         Drain();
+        foreach (var (function, pad, _) in _ctx.LandingPads)
+            if (_ctx.Code.IsCode(pad) && !_functions.ContainsKey(pad))
+            {
+                // a landing pad runs in its function's ARM / Thumb state
+                if (_ctx.ArmModes is { } modes) modes.Hint(pad, modes.StartMode(function));
+                Explore(pad, chunk: true);
+            }
+        Drain();
 
         int iterations = 0;
         bool changed = true;
@@ -221,8 +229,14 @@ internal sealed class FunctionDiscovery
         }
     }
 
-    private void Explore(uint root)
+    // exploring a landing pad: part of another function, so neither a jump as its first instruction nor a far jump (into
+    // the function's cold part) is a tail call
+    private bool _chunk;
+
+    /// <param name="chunk">Explores a landing pad: its callees become functions, it does not.</param>
+    private void Explore(uint root, bool chunk = false)
     {
+        _chunk = chunk;
         List<(uint Begin, uint End)>? own = _ctx.PdataRanges.TryGetValue(root, out var r) ? r : null;
         _ctx.ArmModes?.Fix(root);
         _dec.BeginFunction(root);
@@ -299,12 +313,12 @@ internal sealed class FunctionDiscovery
                 if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
                 // a function that is only a jump (adjustor / ICF thunk), a jump to an import thunk, an x86 jump to a standard
                 // prologue, an ARM32 jump that changes state, is computed (a veneer) or reaches a bx pc stub: tail calls to functions
-                if (own == null && !_functions.ContainsKey(insn.Target) && IsFarJump(in insn, root))
+                if (own == null && !_chunk && !_functions.ContainsKey(insn.Target) && IsFarJump(in insn, root))
                 {
                     _farJumps.Add(insn.Target);
                     return false;
                 }
-                if (insn.Rva == root && insn.Target != root || ThunkSlot(insn.Target) != null || (_x86Dec is { Is64: false } && StartsWithPrologue(insn.Target))
+                if (insn.Rva == root && insn.Target != root && !_chunk || ThunkSlot(insn.Target) != null || (_x86Dec is { Is64: false } && StartsWithPrologue(insn.Target))
                     || _dec is Arm32Decoder arm && (arm.LastSwitchesState || arm.LastIsComputed || arm.IsStateSwitchStub(insn.Target)))
                     Add(insn.Target, FunctionSource.TailJump, strong: true);
                 else Branch(insn.Target, root, own, IndexBound.None);

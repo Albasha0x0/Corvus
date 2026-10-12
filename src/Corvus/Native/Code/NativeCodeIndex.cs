@@ -708,6 +708,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             _truncations.AddRange(code.Truncations);
             _ctx = new CodeContext(image, code, options);
             var baseNoReturn = new HashSet<uint>(_ctx.NoReturn);
+            if (image.Format is ImageFormat.Elf or ImageFormat.MachO) ReadLandingPads();
 
             var starts = Discover();
             var results = WalkWithNoReturn(starts);

@@ -123,6 +123,11 @@ public sealed partial class NativeCodeIndex
         private ChunkPlan AttachExceptionChunks(ref uint[] starts, ref WalkResult[] results)
         {
             var plan = new ChunkPlan();
+            if (image.Format is ImageFormat.Elf or ImageFormat.MachO)
+            {
+                AttachLandingPads(plan, starts, ref results);
+                return plan;
+            }
             if (image.Arch is not (NativeArch.X86 or NativeArch.X64)) return plan;
             report.Report("decoding exception metadata", 0, 0);
             var index = new Dictionary<uint, int>(starts.Length);
@@ -239,6 +244,49 @@ public sealed partial class NativeCodeIndex
             }
             else results = merged;
             return plan;
+        }
+
+        /// <summary>
+        /// Itanium landing pads (.eh_frame / compact unwind LSDAs, ARM EHABI) that no function's flow reaches: chunks of the
+        /// function whose tables name them (catch when a catch clause leads there, else unwind), walked with its body.
+        /// They run in that function's frame, so they join it rather than become functions of their own.
+        /// </summary>
+        private void AttachLandingPads(ChunkPlan plan, uint[] starts, ref WalkResult[] results)
+        {
+            var pads = _ctx.LandingPads;
+            if (pads.Count == 0) return;
+            report.Report("attaching landing pads", 0, 0);
+            var index = new Dictionary<uint, int>(starts.Length);
+            for (int i = 0; i < starts.Length; i++) index[starts[i]] = i;
+            var view = new WalkView(starts, results, index);
+            var byOwner = new Dictionary<int, List<FunctionChunk>>();
+            foreach (var (function, pad, catches) in pads)
+            {
+                if (view.FunctionContaining(function) is not { } owner || view.FunctionContaining(pad) != null || !_ctx.Code.IsCode(pad)) continue;
+                int p = index[owner];
+                if (!byOwner.TryGetValue(p, out var list)) byOwner[p] = list = [];
+                int at = list.FindIndex(c => c.Start == pad);
+                var kind = catches ? MsvcEhChildKind.Catch : MsvcEhChildKind.Unwind;
+                if (at < 0) list.Add(new FunctionChunk(pad, kind));
+                else if (catches) list[at] = new FunctionChunk(pad, kind);
+            }
+            if (byOwner.Count == 0) return;
+            var walker = new FunctionWalker(_ctx);
+            var merged = (WalkResult[])results.Clone();
+            foreach (var (p, list) in byOwner.OrderBy(kv => kv.Key))
+            {
+                ct.ThrowIfCancellationRequested();
+                list.Sort((a, b) => a.Start.CompareTo(b.Start));
+                merged[p] = walker.Walk(null, starts[p], buildGraph: false, ct, list.Select(c => c.Start).ToList());
+                plan.ByParent[starts[p]] = list;
+            }
+            results = merged;
+        }
+
+        private void ReadLandingPads()
+        {
+            try { _ctx.LandingPads = Itanium.ItaniumEh.LandingPads(image); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { AddTruncation($"landing pads not read ({ex.GetType().Name}: {ex.Message})"); }
         }
 
         /// <summary>Walks chunk roots discovery did not decode (each once).</summary>
