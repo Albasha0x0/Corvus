@@ -55,6 +55,7 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
     public JavaDotNetResult Map(string symbol, string? path, CancellationToken ct)
     {
         symbol = symbol.Trim();
+        if (path != null && !File.Exists(path) && !Directory.Exists(path)) throw Targets.FileNotFound(path);
         var index = Build(path, ct);
         if (dex != null && path != null)
             index.Dex = new(() =>

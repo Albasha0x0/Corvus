@@ -157,6 +157,10 @@ public sealed class PdbService
         long maxDownloadBytes, CancellationToken ct)
     {
         var pe = native.RequirePe("load_pdb");
+        // a symbol server (srv*, URL) is not a local path
+        if (path != null && Targets.LooksLikePath(path) && !path.Contains('*') && !path.Contains("://", StringComparison.Ordinal)
+            && !File.Exists(path) && !Directory.Exists(path))
+            throw Targets.FileNotFound(path);
         var cv = pe.CodeView;
         var location = await Task.Run(() => PdbLocator.Locate(pe, path), ct);
         string? found = location.Path;

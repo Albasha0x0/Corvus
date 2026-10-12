@@ -39,7 +39,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         if (file != null)
         {
             var path = Path.GetFullPath(file.Trim());
-            if (!File.Exists(path)) throw new ToolError(ErrorCode.NotFound, $"No file {path}.");
+            if (!File.Exists(path)) throw Targets.FileNotFound(path);
             if (new FileInfo(path).Length > MaxScriptBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{path} is over {MaxScriptBytes / 1024} KB.");
             code = await File.ReadAllTextAsync(path, cancellationToken);
         }

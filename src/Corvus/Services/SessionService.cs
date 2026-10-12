@@ -159,7 +159,7 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
     public static Document Read(string path)
     {
         var full = Path.GetFullPath(path);
-        if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
+        if (!File.Exists(full)) throw Targets.FileNotFound(full);
         if (new FileInfo(full).Length > MaxBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{full} is over {MaxBytes >> 20} MiB, the session file limit.");
         Document? doc;
         try { doc = JsonSerializer.Deserialize<Document>(File.ReadAllBytes(full), Json); }

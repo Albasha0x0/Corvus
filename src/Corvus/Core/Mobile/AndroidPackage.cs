@@ -94,7 +94,7 @@ public sealed class AndroidPackage : IDisposable
     {
         limits ??= AnalysisLimits.Default;
         var full = InputFiles.RequireRegularFile(path, "Android package");
-        if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"file not found: {full}");
+        if (!File.Exists(full)) throw Targets.FileNotFound(full);
         ZipArchive zip;
         FileStream? stream = null;
         try { stream = File.OpenRead(full); zip = new ZipArchive(stream, ZipArchiveMode.Read); _ = zip.Entries; }

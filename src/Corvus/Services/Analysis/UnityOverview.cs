@@ -106,7 +106,7 @@ public static class UnityOverview
         {
             throw new ToolError(ErrorCode.InvalidArgument, $"Not a valid path: {path} ({ex.Message}).");
         }
-        if (!File.Exists(full) && !Directory.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"Not found: {full}");
+        if (!File.Exists(full) && !Directory.Exists(full)) throw Targets.FileNotFound(full);
         string? die = null;
         if (detectItEasy)
             die = FindDie() ?? throw new ToolError(ErrorCode.ProviderUnavailable,

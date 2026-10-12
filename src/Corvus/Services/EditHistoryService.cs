@@ -100,7 +100,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     {
         var full = Path.GetFullPath(path);
         if (!File.Exists(full))
-            throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
+            throw Targets.FileNotFound(full);
         Script? script;
         try { script = JsonSerializer.Deserialize<Script>(File.ReadAllText(full), Json); }
         catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a valid edit script: {ex.Message}"); }

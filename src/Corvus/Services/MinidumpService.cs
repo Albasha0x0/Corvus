@@ -144,6 +144,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             {
                 throw new ToolError(ErrorCode.InvalidArgument, $"'{dump}' is neither an open dump id nor a valid path: {ex.Message}");
             }
+            if (!File.Exists(path) && _ids.IsEmpty && Targets.LooksLikePath(dump)) throw Targets.FileNotFound(dump);
             if (!File.Exists(path))
                 throw new ToolError(ErrorCode.NotFound,
                     _ids.IsEmpty ? $"No dump file at '{dump}'." : $"No dump file at '{dump}', and no open dump has that id (open: {string.Join(", ", _ids.Keys.Order())}).",

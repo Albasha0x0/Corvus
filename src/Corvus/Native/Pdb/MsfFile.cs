@@ -104,7 +104,7 @@ internal sealed class MsfFile : IDisposable
         {
             throw new ToolError(ErrorCode.InvalidArgument, $"invalid path '{path}': {ex.Message}");
         }
-        if (!info.Exists) throw new ToolError(ErrorCode.NotFound, $"file not found: {path}");
+        if (!info.Exists) throw Targets.FileNotFound(path);
         if (info.Length > PdbLimits.MaxFileSize)
             throw new ToolError(ErrorCode.LimitExceeded, $"{path} is {info.Length} bytes; PDB files up to {PdbLimits.MaxFileSize} bytes are read");
         SafeFileHandle handle;

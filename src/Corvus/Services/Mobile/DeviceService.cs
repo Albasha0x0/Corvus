@@ -374,7 +374,7 @@ public sealed partial class DeviceService(ServerOptions options)
         {
             List<string> apks;
             if (Directory.Exists(full)) apks = [.. Directory.EnumerateFiles(full, "*.apk").Order(StringComparer.Ordinal)];
-            else if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"file not found: {full}");
+            else if (!File.Exists(full)) throw Targets.FileNotFound(full);
             else if (full.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)) apks = [full];
             else
             {

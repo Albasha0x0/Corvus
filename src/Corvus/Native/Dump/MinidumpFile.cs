@@ -38,7 +38,7 @@ public sealed partial class MinidumpFile : IProcessMemory, IDisposable
     public static MinidumpFile Open(string path)
     {
         var full = InputFiles.RequireRegularFile(path, "dump file");
-        if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"file not found: {path}");
+        if (!File.Exists(full)) throw Targets.FileNotFound(path);
         IDumpSource source;
         try { source = new FileDumpSource(full); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

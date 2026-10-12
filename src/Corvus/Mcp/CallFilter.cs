@@ -70,6 +70,7 @@ internal static partial class CallFilter
                 ArgumentCheck.Apply(schema, request?.Arguments, tool);
                 ArgumentCheck.RequireAll(schema, request?.Arguments, tool);
             }
+            if (services?.GetService<AssemblyWorkspace>() is { } workspace) await Task.Run(() => Targets.PreResolve(workspace, tool, request?.Arguments?.AsReadOnly()), call.Token);
             var structured = StructuredOutput.Begin();
             var result = await WithinDeadline(next(call.Token).AsTask(), call.Token, deadline, cancellationToken, leftovers);
             // An error object never matches the tool's output schema, and clients validate whatever structuredContent is present.

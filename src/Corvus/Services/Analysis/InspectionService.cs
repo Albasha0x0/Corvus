@@ -146,7 +146,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     {
         if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
         var full = InputFiles.RequireRegularFile(path);
-        if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
+        if (!File.Exists(full)) throw Targets.FileNotFound(path);
         var length = new FileInfo(full).Length;
         if (length > Math.Min(Limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError(ErrorCode.LimitExceeded, $"{full} is too large to analyze ({length:N0} bytes).");
         return (full, File.ReadAllBytes(full));

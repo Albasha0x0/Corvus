@@ -136,6 +136,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             return text;
         }
         var full = InputFiles.RequireRegularFile(path!, "crash text file");
+        if (!File.Exists(full)) throw Targets.FileNotFound(path!);
         try
         {
             var info = new FileInfo(full);

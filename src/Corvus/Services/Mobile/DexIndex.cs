@@ -88,7 +88,7 @@ public sealed class DexIndex
     public static DexIndex Load(string path, AnalysisLimits limits, CancellationToken ct)
     {
         var full = InputFiles.RequireRegularFile(path, "Android package or DEX file");
-        if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"file not found: {full}");
+        if (!File.Exists(full)) throw Targets.FileNotFound(full);
         var head = new byte[8];
         using (var s = File.OpenRead(full)) _ = s.ReadAtLeast(head, 8, throwOnEndOfStream: false);
         var files = new List<DexFile>();

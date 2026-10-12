@@ -350,7 +350,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 "copy the app's _framework folder with its .wasm (or .dll) files and pass it again");
         if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host) or a Blazor _framework folder. To load a folder of assemblies, use load_assembly.");
         var source = InputFiles.RequireRegularFile(path, "container file");
-        if (!File.Exists(source)) throw new ToolError(ErrorCode.NotFound, $"File not found: {source}");
+        if (!File.Exists(source)) throw Targets.FileNotFound(source);
         var length = new FileInfo(source).Length;
         if (length > Math.Min(limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError(ErrorCode.LimitExceeded, $"{source} is too large to unpack ({length:N0} bytes).");
         var data = File.ReadAllBytes(source);

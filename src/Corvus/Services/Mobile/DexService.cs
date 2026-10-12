@@ -55,7 +55,7 @@ public sealed class DexService
     {
         var full = InputFiles.RequireRegularFile(path, "Android package or DEX file");
         var info = new FileInfo(full);
-        if (!info.Exists) throw new ToolError(ErrorCode.NotFound, $"file not found: {full}");
+        if (!info.Exists) throw Targets.FileNotFound(full);
         lock (_lock)
             for (var n = _cache.First; n != null; n = n.Next)
                 if (InputFiles.SamePath(n.Value.Path, full) && n.Value.Length == info.Length && n.Value.Written == info.LastWriteTimeUtc)
