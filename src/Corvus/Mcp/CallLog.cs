@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -75,6 +76,30 @@ public sealed class CallLog
     public static (long Text, long Structured) Tokens(CallToolResult result) =>
         (result.Content.OfType<TextContentBlock>().Sum(b => EstimateTokens(b.Text)),
          result.StructuredContent is { } s ? EstimateTokens(s.GetRawText()) : 0);
+
+    /// <summary>The origin of a result kept from this call: tool, canonical arguments (masked) and their SHA-256 (unmasked).</summary>
+    public static KeptOrigin Origin(string? tool, IDictionary<string, JsonElement>? arguments)
+    {
+        if (arguments is not { Count: > 0 }) return new KeptOrigin(tool ?? "?");
+        var ordered = arguments.OrderBy(a => a.Key, StringComparer.Ordinal).ToList();
+        string Json(bool masked)
+        {
+            var buffer = new MemoryStream();
+            using (var w = new Utf8JsonWriter(buffer))
+            {
+                w.WriteStartObject();
+                foreach (var (name, value) in ordered)
+                {
+                    w.WritePropertyName(name);
+                    if (masked) Redaction.Write(w, value, name);
+                    else value.WriteTo(w);
+                }
+                w.WriteEndObject();
+            }
+            return Encoding.UTF8.GetString(buffer.ToArray());
+        }
+        return new KeptOrigin(tool ?? "?", Json(masked: true), Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Json(masked: false)))));
+    }
 
     /// <summary>
     /// Token estimate of S1.2 (letter runs /4, digit runs /3, symbols, newlines and non-ASCII 1 each, space runs /8); a

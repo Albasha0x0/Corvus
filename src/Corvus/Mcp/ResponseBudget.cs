@@ -46,13 +46,13 @@ internal static class ResponseBudget
         long limit = result.StructuredContent is null ? budget : 2L * budget;
         var size = Size(result);
         if (size <= limit) return result;
-        if (result.IsError == true) return BoundError(result, tool, store, size, limit);
-        if (tool != null && !ToolEffects.Of(tool).ReadOnly) return Head(result, tool, store, size, budget, limit);
+        if (result.IsError == true) return BoundError(result, tool, store, size, limit, request);
+        if (tool != null && !ToolEffects.Of(tool).ReadOnly) return Head(result, tool, store, size, budget, limit, request);
 
         var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text));
         if (text.Length == 0 && result.StructuredContent is { } s)
             text = JsonSerializer.Serialize(s, IndentedJson);
-        var id = store.Add(tool ?? "?", text);
+        var id = store.Keep(text, CallLog.Origin(tool, request?.Arguments), result.StructuredContent?.GetRawText());
         var error = new ToolError(ErrorCode.LimitExceeded,
             $"the result is {size:N0} characters, over the {limit:N0}-character response limit. It is kept as {id}.",
             $"read_result id={id} pages through it; or narrow the call (limit, filters, one member instead of a type)")
@@ -62,12 +62,12 @@ internal static class ResponseBudget
         return ErrorResult.From(error, tool);
     }
 
-    private static CallToolResult Head(CallToolResult result, string tool, ResultStore store, long size, int budget, long limit)
+    private static CallToolResult Head(CallToolResult result, string tool, ResultStore store, long size, int budget, long limit, CallToolRequestParams? request)
     {
         var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text));
         if (text.Length == 0 && result.StructuredContent is { } s)
             text = JsonSerializer.Serialize(s, IndentedJson);
-        var id = store.Add(tool, text);
+        var id = store.Keep(text, CallLog.Origin(tool, request?.Arguments), result.StructuredContent?.GetRawText());
         int keep = Math.Min(text.Length, budget - Slack);
         if (keep > 0 && keep < text.Length && char.IsHighSurrogate(text[keep - 1])) keep--;
         return new CallToolResult
@@ -80,9 +80,9 @@ internal static class ResponseBudget
     }
 
     /// <summary>The same error (code, retryable) with the head of its message; the full error text is kept for read_result.</summary>
-    private static CallToolResult BoundError(CallToolResult result, string? tool, ResultStore store, long size, long limit)
+    private static CallToolResult BoundError(CallToolResult result, string? tool, ResultStore store, long size, long limit, CallToolRequestParams? request)
     {
-        var id = store.Add(tool ?? "?", string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text)));
+        var id = store.Keep(string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text)), CallLog.Origin(tool, request?.Arguments));
         string code = "failed", message = result.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text ?? "";
         bool retryable = false;
         if (ErrorResult.JsonOf(result) is { } json)

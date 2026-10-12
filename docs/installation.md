@@ -219,6 +219,7 @@ Server options and their environment variables are in the README ("Server option
 | `CORVUS_CODE_INDEX_CACHE`, `CORVUS_CODE_INDEX_CACHE_MB`, `CORVUS_CODE_INDEX_CACHE_DAYS` | Folder and bounds of saved native code indexes (`--index-cache`, `--index-cache-mb`, `--index-cache-days`). |
 | `CORVUS_ANALYSIS_CACHE` | Folder of saved engine databases (IDA, Ghidra), keyed by file hash. |
 | `CORVUS_ANALYSIS_CACHE_MB`, `CORVUS_ANALYSIS_CACHE_DAYS` | Bounds of that folder (default 32768 MB and 60 days unused): after an engine opens an image, entries unused that long, then the least recently used beyond the size, are deleted; an entry open in any server is kept. |
+| `CORVUS_RESULT_CACHE`, `CORVUS_RESULT_CACHE_MB`, `CORVUS_RESULT_CACHE_DAYS` | Folder of kept results (`read_result` ids; default `results` in the data folder, `off` keeps them in memory only) and its bounds (default 512 MB and 7 days unused). |
 | `CORVUS_MAX_LEFTOVER_CALLS` | Calls cancelled by the client or past their deadline that may still run in the background (default 2); at that many, a new call waits for one to finish until its own deadline, then is refused with a retryable `provider_unavailable` and `details.retryAfterMs`. |
 | `CORVUS_LOG_FORMAT` | `json`: stderr log entries as JSON lines (each value of the per-call line its own field); single text lines otherwise. |
 | `CORVUS_ANNOTATIONS_DIR` | Folder of saved native names, comments and imported name layers. |

@@ -191,7 +191,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null)
     {
-        var (tool, text) = results.Get(id);
-        return $"[{id}: {tool} result, {text.Length:N0} chars]\n" + pager.Page(text, offset, maxChars);
+        var kept = results.Read(id);
+        return $"[{kept.Id}: {kept.Info.Tool} result, {kept.Text.Length:N0} chars]\n" + pager.Page(kept.Text, offset, maxChars);
     }
 }
