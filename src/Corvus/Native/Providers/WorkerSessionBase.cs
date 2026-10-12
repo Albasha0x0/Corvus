@@ -29,6 +29,25 @@ public static class EngineRequestLimit
     }
 }
 
+/// <summary>The engine a tool call used, for its log line: the call begins a record, engine requests on its flow fill it.</summary>
+public static class EngineUse
+{
+    public sealed class Record
+    {
+        public string? Engine { get; internal set; }
+    }
+
+    private static readonly AsyncLocal<Record?> Current = new();
+
+    /// <summary>A record for the current flow (the caller's own flow is restored when its async method returns).</summary>
+    public static Record Begin() => Current.Value = new Record();
+
+    public static void Note(string engine)
+    {
+        if (Current.Value is { } r) r.Engine = engine;
+    }
+}
+
 /// <summary>
 /// One image open in an engine worker process. Worker start and requests that change the database are serialized by
 /// a gate; with <see cref="ConcurrentRequests"/> other requests run in parallel once the worker is up. When the worker
@@ -145,6 +164,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     public async Task OpenAsync(string imagePath, string? sha256, CancellationToken cancellationToken)
     {
         var clock = Stopwatch.StartNew();
+        EngineUse.Note(ProviderId);
         ImagePath = imagePath;
         Entry = await Task.Run(() => AcquireEntry(imagePath, sha256), cancellationToken).ConfigureAwait(false);
         PrepareOpen();
@@ -237,6 +257,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false,
         TimeSpan? timeout = null)
     {
+        EngineUse.Note(ProviderId);
         Interlocked.Increment(ref _calls);
         try { await _gate.WaitAsync(cancellationToken).ConfigureAwait(false); }
         catch

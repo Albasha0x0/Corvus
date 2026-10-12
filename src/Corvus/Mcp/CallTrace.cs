@@ -5,8 +5,9 @@ using Corvus.Core;
 namespace Corvus.Mcp;
 
 /// <summary>
-/// Opt-in call trace (CORVUS_TRACE / --trace): one JSON line per tools/call with the time, tool, arguments, milliseconds,
-/// error code and result size, appended to a plain file of its own. A failed write is reported once and never fails a call.
+/// Opt-in call trace (CORVUS_TRACE / --trace): one JSON line per tools/call with the time, tool, argument names (values,
+/// secrets masked by <see cref="Redaction"/>, only with --trace-args), milliseconds, error code and result size, appended to
+/// a plain file of its own. A failed write is reported once and never fails a call.
 /// </summary>
 public sealed class CallTrace
 {
@@ -16,7 +17,14 @@ public sealed class CallTrace
 
     public string Path { get; }
 
-    private CallTrace(string path) => Path = path;
+    /// <summary>Argument values are recorded (masked), not only names.</summary>
+    public bool Arguments { get; }
+
+    private CallTrace(string path, bool arguments)
+    {
+        Path = path;
+        Arguments = arguments;
+    }
 
     /// <summary>The trace of a server's options, or null when it has none; one writer per file.</summary>
     public static CallTrace? For(ServerOptions? options)
@@ -24,7 +32,8 @@ public sealed class CallTrace
         if (options?.TracePath is not { } path) return null;
         lock (Open)
         {
-            if (!Open.TryGetValue(path, out var trace)) Open[path] = trace = new CallTrace(path);
+            if (!Open.TryGetValue(path, out var trace) || trace.Arguments != options.TraceArguments)
+                Open[path] = trace = new CallTrace(path, options.TraceArguments);
             return trace;
         }
     }
@@ -37,14 +46,24 @@ public sealed class CallTrace
             w.WriteStartObject();
             w.WriteString("ts", DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
             w.WriteString("tool", tool);
-            w.WritePropertyName("args");
-            w.WriteStartObject();
-            foreach (var (name, value) in arguments ?? new Dictionary<string, JsonElement>())
+            if (Arguments)
             {
-                w.WritePropertyName(name);
-                value.WriteTo(w);
+                w.WritePropertyName("args");
+                w.WriteStartObject();
+                foreach (var (name, value) in arguments ?? new Dictionary<string, JsonElement>())
+                {
+                    w.WritePropertyName(name);
+                    Redaction.Write(w, value, name);
+                }
+                w.WriteEndObject();
             }
-            w.WriteEndObject();
+            else
+            {
+                w.WritePropertyName("argNames");
+                w.WriteStartArray();
+                foreach (var name in arguments?.Keys ?? []) w.WriteStringValue(name);
+                w.WriteEndArray();
+            }
             w.WriteNumber("ms", Math.Round(milliseconds, 1));
             if (error != null) w.WriteString("error", error);
             else w.WriteNull("error");

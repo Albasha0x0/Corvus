@@ -20,10 +20,11 @@ namespace Corvus.Core;
 ///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/Corvus/code-index), or off
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
 ///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
-///   --log-level &lt;l&gt;     stderr log level: trace, debug (adds one line per tool call), information (default), warning, error or none
+///   --log-level &lt;l&gt;     stderr log level: trace, debug, information (default; one line per tool call), warning, error or none
 ///   --toolsets &lt;list&gt;   register only these tool families (see <see cref="Core.Toolsets"/>; default all): core, or names such as core,dumps
 ///   --tools-file &lt;path|readonly|triage&gt;  register only the tools a whitelist names, after --toolsets (CORVUS_TOOLS_FILE)
-///   --trace &lt;file&gt;      append one JSON line per tool call (tool, arguments, ms, error, size) to this file (CORVUS_TRACE)
+///   --trace &lt;file&gt;      append one JSON line per tool call (tool, argument names, ms, error, size) to this file (CORVUS_TRACE)
+///   --trace-args        the trace records argument values too, secrets masked (CORVUS_TRACE_ARGS=1)
 ///   --allow-device-changes  allow the Android device tools that install or uninstall apps (CORVUS_ALLOW_DEVICE_CHANGES=1)
 /// The CORVUS_LOAD environment variable (';'-separated paths) is also honored; CORVUS_PREWARM sets --prewarm (CORVUS_IDA_PREWARM=1: ida); CORVUS_ENGINE sets --engine;
 /// CORVUS_CODE_INDEX_CACHE, CORVUS_CODE_INDEX_CACHE_MB and CORVUS_CODE_INDEX_CACHE_DAYS set the code index cache defaults; CORVUS_LOG_LEVEL sets --log-level;
@@ -97,10 +98,12 @@ public sealed class ServerOptions
 
     public const string EngineAnalysisVariable = "CORVUS_ENGINE_ANALYSIS";
 
-    /// <summary>Minimum level of the stderr log; Debug adds a line per tool call (tool, outcome, milliseconds).</summary>
+    /// <summary>Minimum level of the stderr log; Information (the default) includes a line per tool call (tool, outcome, milliseconds, sizes).</summary>
     public LogLevel LogLevel { get; set; } = LogLevel.Information;
 
     public const string LogLevelVariable = "CORVUS_LOG_LEVEL";
+    /// <summary>"json" for JSON log lines; plain single lines otherwise.</summary>
+    public const string LogFormatVariable = "CORVUS_LOG_FORMAT";
 
     /// <summary>Tool families registered (<see cref="Core.Toolsets"/>); session is always among them.</summary>
     public IReadOnlySet<string> Toolsets { get; set; } = Core.Toolsets.Default;
@@ -158,6 +161,7 @@ public sealed class ServerOptions
                 case Core.Toolsets.Option: toolsets = Next(); break;
                 case Core.Toolsets.ToolsFileOption: toolsFile = Next(); break;
                 case TraceOption: trace = Next(); break;
+                case TraceArgsOption: o.TraceArguments = true; break;
                 case "--index-cache-days": cacheDays = int.TryParse(Next(), out var days) && days > 0 ? days : throw new ArgumentException("--index-cache-days must be a positive number"); break;
                 default: throw new ArgumentException($"Unknown argument '{args[i]}'");
             }
@@ -208,11 +212,17 @@ public sealed class ServerOptions
     /// <summary>The --tools-file value the whitelist came from (a list name or a path); null without one.</summary>
     public string? ToolAllowListSource { get; set; }
 
-    /// <summary>JSONL file that gets one line per tools/call (tool, arguments, ms, error, size); null: off.</summary>
+    /// <summary>JSONL file that gets one line per tools/call (tool, argument names, ms, error, size); null: off.</summary>
     public string? TracePath { get; set; }
 
     public const string TraceOption = "--trace";
     public const string TraceVariable = "CORVUS_TRACE";
+
+    /// <summary>The trace records argument values (secrets masked), not only their names.</summary>
+    public bool TraceArguments { get; set; }
+
+    public const string TraceArgsOption = "--trace-args";
+    public const string TraceArgsVariable = "CORVUS_TRACE_ARGS";
 
     /// <summary>Engine database files a trace must never be written into.</summary>
     private static readonly string[] DatabaseExtensions = [".i64", ".idb", ".id0", ".id1", ".id2", ".nam", ".til", ".gpr", ".gzf", ".rep"];
@@ -237,6 +247,7 @@ public sealed class ServerOptions
         }
         trace ??= Environment.GetEnvironmentVariable(TraceVariable) is { Length: > 0 } traceFromEnv ? traceFromEnv : null;
         if (trace != null) TracePath = TraceFile(trace);
+        if (Environment.GetEnvironmentVariable(TraceArgsVariable)?.Trim() is "1" or "true" or "on") TraceArguments = true;
     }
 
     /// <summary>A positive number of seconds from <paramref name="variable"/>, or <paramref name="fallback"/> when it is unset.</summary>

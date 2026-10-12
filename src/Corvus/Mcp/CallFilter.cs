@@ -24,8 +24,11 @@ internal static partial class CallFilter
         Func<CancellationToken, ValueTask<CallToolResult>> next, CancellationToken cancellationToken)
     {
         var tool = request?.Name;
-        var log = services?.GetService<ILoggerFactory>()?.CreateLogger("Corvus.Calls") is { } l && l.IsEnabled(LogLevel.Debug) ? l : null;
+        var log = services?.GetService<ILoggerFactory>()?.CreateLogger("Corvus.Calls") is { } l && l.IsEnabled(LogLevel.Information) ? l : null;
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        // Sizes, time and outcome only: arguments can hold paths, code and secrets.
+        long argumentChars = log == null ? 0 : request?.Arguments?.Sum(a => (long)a.Key.Length + a.Value.GetRawText().Length) ?? 0;
+        var engine = Native.Providers.EngineUse.Begin();
         CallToolResult result;
         try
         {
@@ -33,19 +36,21 @@ internal static partial class CallFilter
         }
         catch (OperationCanceledException)
         {
-            log?.LogDebug("Tool {Tool} cancelled after {Ms} ms", tool, (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            log?.LogInformation("call tool={Tool} outcome=cancelled ms={Ms} in={InChars} out=0 engine={Engine}", tool,
+                (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, argumentChars, engine.Engine ?? "-");
             CallTrace.For(services?.GetService<ServerOptions>())?.Record(tool, request?.Arguments, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, "cancelled", null);
             throw;
         }
         CallTrace.For(services?.GetService<ServerOptions>())?.Record(tool, request?.Arguments, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds,
             result.IsError == true ? ErrorCodeOf(result).Replace("error ", "") : null, result);
-        // Tool, time and outcome only: arguments can hold paths and code.
-        log?.LogDebug("Tool {Tool} {Status} in {Ms} ms", tool, result.IsError == true ? ErrorCodeOf(result) : "ok",
-            (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         services?.GetService<ResourceSubscriptions>()?.Check();
         if (tool != null && !ToolEffects.Of(tool).ReadOnly) services?.GetService<Services.EditJournal>()?.Sync();
         if (services?.GetService<ServerOptions>() is { } options && services.GetService<ResultStore>() is { } store)
             result = ResponseBudget.Enforce(result, tool, options, store, request);
+        // engine: the external engine (ida, ghidra) the call sent requests to, "-" for none
+        log?.LogInformation("call tool={Tool} outcome={Outcome} ms={Ms} in={InChars} out={OutChars} engine={Engine}", tool,
+            result.IsError == true ? ErrorCodeOf(result).Replace("error ", "") : "ok", (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            argumentChars, result.Content.OfType<TextContentBlock>().Sum(b => (long)b.Text.Length), engine.Engine ?? "-");
         // Pending workspace notices; trailing blank line because clients join content blocks without a separator.
         var notices = services?.GetService<AssemblyWorkspace>()?.DrainNotices();
         if (notices is { Count: > 0 })

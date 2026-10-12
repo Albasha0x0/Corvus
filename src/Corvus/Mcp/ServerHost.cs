@@ -22,6 +22,11 @@ public static class ServerHost
         var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings { Args = [], ContentRootPath = AppContext.BaseDirectory });
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+        // One line per entry, UTC; CORVUS_LOG_FORMAT=json writes JSON lines with each value as its own field.
+        if (Environment.GetEnvironmentVariable(ServerOptions.LogFormatVariable)?.Trim().Equals("json", StringComparison.OrdinalIgnoreCase) == true)
+            builder.Logging.AddJsonConsole(o => { o.UseUtcTimestamp = true; o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ"; });
+        else
+            builder.Logging.AddSimpleConsole(o => { o.SingleLine = true; o.UseUtcTimestamp = true; o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ "; });
         builder.Logging.SetMinimumLevel(options.LogLevel);
 
         builder.Services
