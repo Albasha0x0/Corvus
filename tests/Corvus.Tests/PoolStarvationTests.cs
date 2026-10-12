@@ -9,7 +9,10 @@ public class PoolStarvationCollection;
 [Collection(nameof(PoolStarvationTests))]
 public class PoolStarvationTests
 {
-    /// <summary>Blocks the pool: more queued blockers than it injects threads during a test.</summary>
+    /// <summary>
+    /// Blocks the pool: more queued blockers than it injects threads during a test. The event is never disposed: blockers
+    /// still queued at the release start later and wait on it.
+    /// </summary>
     private static ManualResetEventSlim Starve()
     {
         var release = new ManualResetEventSlim();
@@ -22,11 +25,9 @@ public class PoolStarvationTests
     {
         var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
         PythonLocator.CaptureResult run;
-        using (var release = Starve())
-        {
-            try { run = PythonLocator.RunCapture(cmd, ["/d", "/c", "echo out& echo err 1>&2& exit 3"], TimeSpan.FromSeconds(10)); }
-            finally { release.Set(); }
-        }
+        var release = Starve();
+        try { run = PythonLocator.RunCapture(cmd, ["/d", "/c", "echo out& echo err 1>&2& exit 3"], TimeSpan.FromSeconds(10)); }
+        finally { release.Set(); }
         Assert.False(run.TimedOut);
         Assert.Equal(3, run.ExitCode);
         Assert.Equal("out", run.Stdout.Trim());
@@ -38,11 +39,9 @@ public class PoolStarvationTests
     {
         var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
         ExternalTools.RunResult run;
-        using (var release = Starve())
-        {
-            try { run = ExternalTools.Run(cmd, ["/d", "/c", "echo out& exit 3"], TimeSpan.FromSeconds(10), 1000, default); }
-            finally { release.Set(); }
-        }
+        var release = Starve();
+        try { run = ExternalTools.Run(cmd, ["/d", "/c", "echo out& exit 3"], TimeSpan.FromSeconds(10), 1000, default); }
+        finally { release.Set(); }
         Assert.False(run.TimedOut);
         Assert.Equal(3, run.ExitCode);
         Assert.Equal("out", run.Text.Trim());
