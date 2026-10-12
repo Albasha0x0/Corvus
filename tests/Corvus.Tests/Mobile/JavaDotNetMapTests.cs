@@ -243,6 +243,7 @@ public sealed class JavaDotNetMapTests : IDisposable
                 public Listener() : base("com.example.plugin.Bridge$Callback") { }
                 public void onResult(string value) { }
             }
+            public class Score { public int Value; }
         }
         """;
 
@@ -299,6 +300,26 @@ public sealed class JavaDotNetMapTests : IDisposable
         _workspace.Load(_dir.File("Assembly-CSharp.dll"));
         Assert.Equal("Lcom/example/plugin/Bridge;->send unity_call name_match", Pairs("Game.Bridge::Send", null));
         Assert.True(map.Map("Game.Bridge::Send", null, default).Items.Single().Loaded);
+    }
+
+    /// <summary>Not-found results speak of the app's bridge: AndroidJavaClass and friends for Unity, [Register] for .NET for Android; hints carry the package.</summary>
+    [Fact]
+    public void NotFound_WordingFollowsTheAppKindAndHintsCarryThePackage()
+    {
+        var map = new JavaDotNetMap(_workspace, new DexService());
+        var unity = UnityApk();
+        var plain = Assert.Throws<ToolError>(() => map.Map("Game.Score", unity, default));
+        Assert.Contains("reaches no Java class or member: no AndroidJavaClass", plain.Message);
+        Assert.DoesNotContain("[Register]", plain.Message);
+        var java = Assert.Throws<ToolError>(() => map.Map("Lcom/example/Unused;", unity, default));
+        Assert.Contains("no C# in", java.Message);
+        Assert.Contains($"get_dex_class path={unity} class=Lcom/example/Unused;", java.Remediation);
+
+        var apk = Apk();
+        Assert.Contains("not a Java peer (no [Register] binding", Assert.Throws<ToolError>(() => map.Map("MyApp.PlainClass", apk, default)).Message);
+        var member = Assert.Throws<ToolError>(() => map.Map(AndroidSamples.Link + "->noSuch()V", apk, default));
+        Assert.Contains($"map_java_dotnet symbol=MyApp.LinkActivity path={apk}", member.Remediation);
+        Assert.Contains($"unpack_container path={apk} loads assemblies/MyApp.dll", member.Remediation);
     }
 
     [Fact]

@@ -36,6 +36,8 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         public readonly Dictionary<TypeDef, Source> SourceOf = [];
         public readonly List<string> Notes = [];
         public readonly List<(UnityJavaCall Call, Source Source)> Unity = [];
+        /// <summary>The assemblies are a Unity player's (UnityEngine), not a .NET for Android app's (Mono.Android): messages follow.</summary>
+        public bool IsUnity;
         /// <summary>The package's DEX code, read when a method's base has no [Register] left.</summary>
         public Lazy<DexIndex?>? Dex;
     }
@@ -76,8 +78,11 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             if (!index.ByJava.TryGetValue(javaName, out var hit) && UnityToDotNet(index, javaName, arrow > 0 ? symbol[(arrow + 2)..] : null) is { Count: > 0 } unity)
                 return new JavaDotNetResult(symbol, "java_to_dotnet", unity, index.Notes);
             if (hit.Type == null)
-                throw new ToolError(ErrorCode.NotFound, $"no .NET type is bound to {javaName} in {Describe(path)}.",
-                    "load the app's assemblies (unpack_container) or pass path=the package; Java-only classes have no .NET side") { Details = new { index.Notes } };
+                throw new ToolError(ErrorCode.NotFound,
+                    index.IsUnity ? $"no C# in {Describe(path)} reaches {javaName} by name (AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI)."
+                                  : $"no .NET type is bound to {javaName} in {Describe(path)}.",
+                    path == null ? "pass path=the package to read its assemblies too; Java-only classes have no .NET side"
+                                 : $"Java-only classes have no .NET side: get_dex_class path={path} class=L{javaName}; shows the Java class") { Details = new { index.Notes } };
             if (arrow < 0) items.Add(new($"L{javaName};", TypeLabel(hit.Type), hit.Source.Label, hit.Source.Loaded, hit.Basis));
             else
             {
@@ -86,7 +91,8 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
                     if (java2 == member) items.Add(new($"L{javaName};->{member}", Format.MemberLabel(m), hit.Source.Label, hit.Source.Loaded, basis));
                 if (items.Count == 0)
                     throw new ToolError(ErrorCode.NotFound, $"{TypeLabel(hit.Type)} (bound to {javaName}) has no method registered as {member}.",
-                        $"map_java_dotnet with L{javaName}; and get_type_info on {TypeLabel(hit.Type)}");
+                        $"map_java_dotnet symbol={TypeLabel(hit.Type)}{(path != null ? $" path={path}" : "")} lists its registered methods; " +
+                        (hit.Source.Loaded ? $"get_type_info on {TypeLabel(hit.Type)}" : $"unpack_container path={path} loads {hit.Source.Label} for get_type_info"));
             }
             return new JavaDotNetResult(symbol, "java_to_dotnet", items, index.Notes);
         }
@@ -94,7 +100,9 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         if (!index.ByType.TryGetValue(type, out var bound) && DotNetToUnity(index, type, sep > 0 ? symbol[(sep + 2)..] : null, path, ct) is { Count: > 0 } calls)
             return new JavaDotNetResult(symbol, "dotnet_to_java", calls, index.Notes);
         if (bound.Java == null)
-            throw new ToolError(ErrorCode.NotFound, $"{TypeLabel(type)} is not a Java peer (no [Register] binding and no registered base type): it has no Java side.");
+            throw new ToolError(ErrorCode.NotFound, index.IsUnity
+                ? $"{TypeLabel(type)}{(sep > 0 ? symbol[sep..] : "")} reaches no Java class or member: no AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI use names one."
+                : $"{TypeLabel(type)} is not a Java peer (no [Register] binding and no registered base type): it has no Java side.");
         var source = index.SourceOf[type];
         if (sep < 0) items.Add(new($"L{bound.Java};", TypeLabel(type), source.Label, source.Loaded, bound.Basis));
         else
@@ -345,6 +353,8 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             }
             index.Unity.AddRange(UnityJavaCalls.Scan(s.Module, ct).Select(c => (c, s)));
         }
+        index.IsUnity = !index.ByName.ContainsKey("Android.Runtime.RegisterAttribute")
+                        && (index.ByName.ContainsKey("UnityEngine.AndroidJavaObject") || sources.Any(s => s.Module.GetAssemblyRefs().Any(r => r.Name.String.StartsWith("UnityEngine", StringComparison.Ordinal))));
         var peer = new Dictionary<TypeDef, bool>();
         bool IsPeer(TypeDef t, int depth)
         {
