@@ -74,6 +74,33 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     public Task X64_open_list_decompile_disassemble_xrefs() => Walk(System64, NativeArch.X64);
 
     [IdaFact]
+    public async Task A_deep_cache_folder_opens_and_a_too_deep_one_names_the_path_length()
+    {
+        var dir = new TempDir();
+        _owned.Add(dir);
+        var input = Path.Combine(dir.Path, "Vendor.Product.Component.Library.Native.amd64.dll");
+        File.Copy(System64, input);
+        string Root(int length)
+        {
+            var r = Path.Combine(dir.Path, "c");
+            while (r.Length < length) r = Path.Combine(r, new string('d', Math.Max(1, Math.Min(40, length - r.Length - 1))));
+            return r;
+        }
+        var deep = new IdaProvider(new IdaProviderOptions { CacheRoot = Root(150) });
+        _owned.Add(deep);
+        await using (var s = await deep.OpenAsync(input, null, Offline))
+            Assert.NotEmpty(await s.ListFunctionsAsync());
+
+        var tooDeep = new IdaProvider(new IdaProviderOptions { CacheRoot = Root(230) });
+        _owned.Add(tooDeep);
+        var e = await Assert.ThrowsAsync<ToolError>(() => tooDeep.OpenAsync(input, null, Offline));
+        output.WriteLine(e.Message + "\n" + e.Remediation);
+        Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+        Assert.Contains("characters", e.Message);
+        Assert.Contains("CORVUS_DATA_DIR", e.Remediation);
+    }
+
+    [IdaFact]
     public Task X86_open_list_decompile_disassemble_xrefs()
     {
         if (!File.Exists(System32OnWow)) return Task.CompletedTask;

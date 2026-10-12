@@ -255,8 +255,7 @@ public sealed class NativeEngineService : IDisposable
         var provider = Find(id);
         if (provider is IdaProvider ida) return ida.SavedDatabasePath(sha256) is { } path && File.Exists(path);
         if (provider is GhidraProvider ghidra) return ghidra.HasSavedProject(sha256);
-        var dir = Path.Combine(_cacheRoot ?? AnalysisCache.DefaultRoot, id, sha256);
-        if (!Directory.Exists(dir)) return false;
+        if (new AnalysisCache(_cacheRoot ?? AnalysisCache.DefaultRoot).Find(id, sha256) is not { } dir) return false;
         return id == GhidraProvider.ProviderId
             ? Directory.EnumerateDirectories(dir, "p-*").Any(p => File.Exists(Path.Combine(p, GhidraSession.ProjectName + ".gpr")))
             : Directory.EnumerateFiles(dir, "ida-default*.i64").Any();

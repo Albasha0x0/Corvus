@@ -124,6 +124,62 @@ public class NativeProviderTests
     }
 
     [Fact]
+    public void Short_keyed_cache_migrates_full_hash_entries_and_moves_past_collisions()
+    {
+        using var tmp = new TempDir();
+        var cache = new AnalysisCache(tmp.File("cache")) { ShortKeys = true };
+        var input = tmp.File(new string('n', 70) + ".dll");
+        File.WriteAllBytes(input, [1, 2, 3, 4, 5]);
+        var sha = AnalysisCache.HashFile(input);
+
+        // an entry of the full-hash layout is moved to the short key with its database
+        var legacy = Path.Combine(cache.Root, "test", sha);
+        Directory.CreateDirectory(Path.Combine(legacy, "input"));
+        File.WriteAllText(Path.Combine(legacy, "db.i64"), "saved");
+        using (var entry = cache.Acquire("test", input, null))
+        {
+            Assert.Equal(Path.Combine(cache.Root, "test", sha[..16]), entry.Directory);
+            Assert.Equal("saved", File.ReadAllText(Path.Combine(entry.Directory, "db.i64")));
+            Assert.Equal(AnalysisCache.ShortNameLength, Path.GetFileName(entry.InputCopy).Length);
+            Assert.EndsWith(".dll", entry.InputCopy);
+            Assert.False(Directory.Exists(legacy));
+            Assert.Equal(entry.Directory, cache.Find("test", sha));
+        }
+
+        // another input's entry under the same prefix: the key gets longer
+        var other = tmp.File("other.bin");
+        File.WriteAllBytes(other, [9]);
+        var otherSha = AnalysisCache.HashFile(other);
+        var taken = Path.Combine(cache.Root, "test", otherSha[..16]);
+        Directory.CreateDirectory(taken);
+        File.WriteAllText(Path.Combine(taken, AnalysisCache.KeyFile), new string('0', 64));
+        using (var entry = cache.Acquire("test", other, null))
+        {
+            Assert.Equal(Path.Combine(cache.Root, "test", otherSha[..32]), entry.Directory);
+            Assert.Equal(entry.Directory, cache.Find("test", otherSha));
+        }
+        Assert.Null(cache.Find("test", new string('f', 64)));
+        // without short keys the full hash stays the key
+        using var plain = new AnalysisCache(cache.Root).Acquire("plain", input, null);
+        Assert.Equal(Path.Combine(cache.Root, "plain", sha), plain.Directory);
+    }
+
+    [Fact]
+    public void IDA_paths_over_the_Windows_limit_fail_with_their_length_and_the_folder_to_change()
+    {
+        var root = "C:\\" + new string('r', 150);
+        var path = Path.Combine(root, "ida", new string('0', 16), "input", new string('n', 100) + ".dll");
+        Corvus.Native.Providers.Ida.IdaProvider.CheckPathLength(path, "input copy", root, windows: false);
+        var e = Assert.Throws<ToolError>(() => Corvus.Native.Providers.Ida.IdaProvider.CheckPathLength(path, "input copy", root, windows: true));
+        Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+        Assert.Contains($"{path.Length} characters", e.Message);
+        Assert.Contains("CORVUS_DATA_DIR", e.Remediation);
+        Assert.Contains($"at most {259 - (path.Length - root.Length)} characters", e.Remediation);
+        Assert.DoesNotContain("licen", e.Remediation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("259 characters", Corvus.Native.Providers.Ida.IdaProvider.Remediation(ErrorCode.ProviderUnavailable, "open_database returned 2 for x"));
+    }
+
+    [Fact]
     public void IDA_before_9_is_refused_by_the_version_its_worker_reports()
     {
         using var provider = new Corvus.Native.Providers.Ida.IdaProvider();

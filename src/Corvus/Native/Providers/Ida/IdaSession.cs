@@ -53,6 +53,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     {
         (Arch, _headerImageBase) = ReadHeader(Entry!.InputCopy, ImagePath);
         _databasePath = Path.Combine(Entry.Directory, IdaProvider.DatabaseFileName(ida, Profile));
+        IdaProvider.CheckPathLength(Entry.InputCopy, "input copy", provider.Cache.Root, OperatingSystem.IsWindows());
+        IdaProvider.CheckPathLength(_databasePath, "IDA database", provider.Cache.Root, OperatingSystem.IsWindows());
     }
 
     /// <summary>

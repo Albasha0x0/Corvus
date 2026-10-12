@@ -5,14 +5,76 @@ namespace Corvus.Native.Providers;
 
 /// <summary>
 /// Per-user directory where providers keep a private copy of each input and their analysis databases, keyed by the
-/// input's SHA-256: <c>root/provider/sha256/input/name</c> plus the provider's database files beside it. Engines
+/// input's SHA-256: <c>root/provider/key/input/name</c> plus the provider's database files beside it. Engines
 /// never write next to the user's file, and a later open of the same bytes finds the saved database.
 /// </summary>
 public sealed class AnalysisCache(string root)
 {
     public const string RootVariable = "CORVUS_ANALYSIS_CACHE";
 
+    /// <summary>Holds the full SHA-256 of a short-keyed entry, so a prefix collision moves to a longer key.</summary>
+    internal const string KeyFile = ".sha256";
+
+    /// <summary>Longest input copy name of a short-keyed entry (the extension is kept).</summary>
+    internal const int ShortNameLength = 40;
+
     public string Root { get; } = Path.GetFullPath(root);
+
+    /// <summary>
+    /// Entries are keyed by the first 16 hex digits of the hash (longer on a collision) and the input copy's name is capped
+    /// at <see cref="ShortNameLength"/>, for engines that cannot open long paths. A full-hash entry of an earlier layout
+    /// is moved to the short key when it is not in use, else used where it is.
+    /// </summary>
+    public bool ShortKeys { get; init; }
+
+    /// <summary>The existing entry directory of <paramref name="sha256"/> in either layout, or null.</summary>
+    public string? Find(string providerId, string sha256)
+    {
+        var sha = sha256.ToLowerInvariant();
+        foreach (var length in new[] { 16, 32 })
+        {
+            var dir = Path.Combine(Root, providerId, sha[..length]);
+            if (!Directory.Exists(dir)) return Legacy();
+            if (KeyOf(dir) == sha) return dir;
+        }
+        return Legacy();
+
+        string? Legacy() => Directory.Exists(Path.Combine(Root, providerId, sha)) ? Path.Combine(Root, providerId, sha) : null;
+    }
+
+    /// <summary>The directory of a new or existing entry: short-keyed (claimed with its key file), else the full hash.</summary>
+    private string EntryDirectory(string providerId, string sha)
+    {
+        var legacy = Path.Combine(Root, providerId, sha);
+        if (!ShortKeys) return legacy;
+        foreach (var length in new[] { 16, 32 })
+        {
+            var dir = Path.Combine(Root, providerId, sha[..length]);
+            if (Directory.Exists(dir))
+            {
+                var key = KeyOf(dir);
+                if (key == sha) return dir;
+                if (key != null) continue; // another input's entry: a longer key
+                File.WriteAllText(Path.Combine(dir, KeyFile), sha); // made but not claimed (interrupted): the input stamp in its database guards reuse
+                return dir;
+            }
+            if (Directory.Exists(legacy))
+            {
+                try { Directory.Move(legacy, dir); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return legacy; } // in use by another process
+            }
+            else Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, KeyFile), sha);
+            return dir;
+        }
+        return legacy;
+    }
+
+    private static string? KeyOf(string dir)
+    {
+        try { return File.ReadAllText(Path.Combine(dir, KeyFile)).Trim().ToLowerInvariant(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
 
     public static string DefaultRoot =>
         Environment.GetEnvironmentVariable(RootVariable) is { Length: > 0 } custom
@@ -41,7 +103,7 @@ public sealed class AnalysisCache(string root)
         }
         else sha = Io(source, () => HashFile(source));
 
-        var dir = Path.Combine(Root, providerId, sha);
+        var dir = Io(Path.Combine(Root, providerId), () => EntryDirectory(providerId, sha));
         Io(dir, () => Directory.CreateDirectory(Path.Combine(dir, "input")));
         FileStream lockFile;
         try { lockFile = OpenLock(dir); }
@@ -49,7 +111,7 @@ public sealed class AnalysisCache(string root)
         catch (LockedError locked) { throw locked.Entry.Conflict; }
         try
         {
-            var copy = Io(dir, () => EnsureCopy(source, Path.Combine(dir, "input"), sha));
+            var copy = Io(dir, () => EnsureCopy(source, Path.Combine(dir, "input"), sha, ShortKeys ? ShortNameLength : 100));
             try { File.WriteAllText(Path.Combine(dir, OwnerFile), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* only names the owner in another process's conflict */ }
             return new CacheEntry(dir, copy, sha, source, lockFile);
@@ -105,7 +167,7 @@ public sealed class AnalysisCache(string root)
     /// </summary>
     public CacheEntry Snapshot(string providerId, LockedEntry locked, string sha256, string source, IReadOnlyList<string> files)
     {
-        var dir = Path.Combine(Root, providerId, "snapshots", $"{sha256[..16]}-{Environment.ProcessId}-{Guid.NewGuid():N}"[..48]);
+        var dir = Path.Combine(Root, providerId, "snapshots", $"{sha256[..8]}-{Environment.ProcessId}-{Guid.NewGuid():N}"[..24]);
         try
         {
             Directory.CreateDirectory(Path.Combine(dir, "input"));
@@ -135,7 +197,7 @@ public sealed class AnalysisCache(string root)
         input.CopyTo(output);
     }
 
-    private static string EnsureCopy(string source, string inputDir, string sha)
+    private static string EnsureCopy(string source, string inputDir, string sha, int maxName)
     {
         var existing = Directory.GetFiles(inputDir).Where(f => !f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)).ToList();
         foreach (var f in existing)
@@ -145,7 +207,7 @@ public sealed class AnalysisCache(string root)
         }
         foreach (var stale in Directory.GetFiles(inputDir, "*.tmp")) File.Delete(stale);
 
-        var name = SafeName(Path.GetFileName(source));
+        var name = SafeName(Path.GetFileName(source), maxName);
         var target = Path.Combine(inputDir, name);
         var temp = target + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
         string copied;
@@ -179,11 +241,15 @@ public sealed class AnalysisCache(string root)
         return target;
     }
 
-    private static string SafeName(string name)
+    internal static string SafeName(string name, int maxLength)
     {
         var invalid = Path.GetInvalidFileNameChars();
         var clean = new string(name.Select(c => invalid.Contains(c) || c < ' ' ? '_' : c).ToArray()).Trim(' ', '.');
-        return clean.Length == 0 ? "input.bin" : clean.Length > 100 ? clean[..100] : clean;
+        if (clean.Length == 0) return "input.bin";
+        if (clean.Length <= maxLength) return clean;
+        var ext = Path.GetExtension(clean);
+        if (ext.Length > 8) ext = "";
+        return clean[..(maxLength - ext.Length)].TrimEnd(' ', '.') + ext;
     }
 
     private static T Io<T>(string path, Func<T> action)

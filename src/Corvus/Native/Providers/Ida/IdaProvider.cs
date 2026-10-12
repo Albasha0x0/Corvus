@@ -51,7 +51,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     public string Id => ProviderId;
     public string DisplayName => "IDA Pro (idalib)";
     internal IdaProviderOptions Options => _options;
-    internal AnalysisCache Cache { get; } = new((options ?? new IdaProviderOptions()).CacheRoot ?? AnalysisCache.DefaultRoot);
+    internal AnalysisCache Cache { get; } = new((options ?? new IdaProviderOptions()).CacheRoot ?? AnalysisCache.DefaultRoot) { ShortKeys = true };
 
     /// <summary>The idalib version a worker reported (probe or session start), or null before one ran.</summary>
     public string? Version { get; private set; }
@@ -157,7 +157,20 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
 
     /// <summary>Where this IDA build keeps the saved analysis of <paramref name="sha256"/>, or null when IDA is not available.</summary>
     public string? SavedDatabasePath(string sha256, string profile = "default") =>
-        Static().Ida is { } ida ? Path.Combine(Cache.Root, ProviderId, sha256.ToLowerInvariant(), DatabaseFileName(ida, profile)) : null;
+        Static().Ida is { } ida ? Path.Combine(Cache.Find(ProviderId, sha256) ?? Path.Combine(Cache.Root, ProviderId, sha256.ToLowerInvariant()[..16]), DatabaseFileName(ida, profile)) : null;
+
+    /// <summary>Longest path IDA opens on Windows (MAX_PATH less the terminator); the extended-length prefix is not accepted.</summary>
+    internal const int MaxWindowsPath = 259;
+
+    /// <summary>InvalidArgument when IDA cannot open <paramref name="path"/> for its length (Windows only).</summary>
+    internal static void CheckPathLength(string path, string what, string cacheRoot, bool windows)
+    {
+        if (!windows || path.Length <= MaxWindowsPath) return;
+        int fits = MaxWindowsPath - (path.Length - cacheRoot.Length);
+        throw new ToolError(ErrorCode.InvalidArgument,
+            $"The {what} path is {path.Length} characters ({path}); IDA opens paths of at most {MaxWindowsPath} characters on Windows.",
+            $"Set CORVUS_DATA_DIR (or {AnalysisCache.RootVariable}) to a folder whose analysis cache path is at most {Math.Max(3, fits)} characters (now {cacheRoot.Length}: {cacheRoot}).");
+    }
 
     /// <summary>
     /// The symbol path for a worker: the directory of the PDB the server located first (IDA analyzes a copy of the image,
@@ -253,6 +266,8 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             return "Start IDA once interactively to accept the license terms, and check that the license is valid on this machine.";
         if (message.Contains(EngineMemoryLimit.Variable, StringComparison.Ordinal))
             return $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) and retry.";
+        if (message.Contains("open_database returned", StringComparison.Ordinal))
+            return $"IDA could not open the file: check that the input is a PE, ELF or Mach-O image and that both paths are readable and at most {MaxWindowsPath} characters on Windows (CORVUS_DATA_DIR moves them).";
         return code switch
         {
             ErrorCode.Timeout => "The request was stopped and IDA keeps running; retry with a larger time limit (timeoutSeconds where the tool takes it, or CORVUS_ENGINE_REQUEST_TIMEOUT).",

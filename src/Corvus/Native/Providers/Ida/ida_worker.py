@@ -256,7 +256,8 @@ def op_open(args):
     _state["auto"] = args.get("auto", True) is not False
     rc = m.idapro.open_database(path, _state["auto"], cmdline)
     if rc != 0:
-        raise WorkerError("provider_unavailable", "open_database returned %d for %s" % (rc, path))
+        raise WorkerError("provider_unavailable", "open_database returned %d for %s (%d characters; database %s, %d characters)"
+                          % (rc, path, len(path), idb, len(idb)))
     _state["open"] = True
     batch_mode()
     if _state["auto"]:
