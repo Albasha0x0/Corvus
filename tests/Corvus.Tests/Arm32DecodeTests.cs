@@ -98,6 +98,32 @@ public class Arm32DecodeTests
     public void Neon_text_matches_reference(string hex, uint address, string text) =>
         Assert.Equal(text, Decode(true, hex, address).Format());
 
+    // ARMv8 crypto: A32 words (little-endian bytes) and the T32 form of the same instruction
+    [Theory]
+    [InlineData(false, "0003B0F3", "aese.8 q0, q0")]
+    [InlineData(true, "B0FF4003", "aesd.8 q0, q0")]
+    [InlineData(false, "8003B0F3", "aesmc.8 q0, q0")]
+    [InlineData(true, "F0FFE203", "aesimc.8 q8, q9")]
+    [InlineData(false, "C002B9F3", "sha1h.32 q0, q0")]
+    [InlineData(true, "BAFF8003", "sha1su1.32 q0, q0")]
+    [InlineData(false, "C003BAF3", "sha256su0.32 q0, q0")]
+    [InlineData(true, "00EF400C", "sha1c.32 q0, q0, q0")]
+    [InlineData(false, "400C10F2", "sha1p.32 q0, q0, q0")]
+    [InlineData(true, "60EF682C", "sha1m.32 q9, q0, q12")]
+    [InlineData(false, "400C30F2", "sha1su0.32 q0, q0, q0")]
+    [InlineData(true, "00FF400C", "sha256h.32 q0, q0, q0")]
+    [InlineData(false, "400C10F3", "sha256h2.32 q0, q0, q0")]
+    [InlineData(true, "20FF400C", "sha256su1.32 q0, q0, q0")]
+    [InlineData(false, "A10EE0F2", "vmull.p64 q8, d16, d17")]
+    [InlineData(true, "E0EFA10E", "vmull.p64 q8, d16, d17")]
+    [InlineData(true, "BAFF0003", "vshll.i32 q0, d0, #0x20")]
+    public void Crypto_text_matches_reference(bool thumb, string hex, string text)
+    {
+        var i = Decode(thumb, hex, 0x1000);
+        Assert.Equal(text, System.Text.RegularExpressions.Regex.Replace(i.Format(), " +", " "));
+        Assert.Equal((ArmFlow.Next, 0u, 0u), (i.Flow, (uint)i.Reads, (uint)i.Writes));
+    }
+
     [Theory]
     [InlineData("F04F2DE9", 0x10000, "push   {r4, r5, r6, r7, r8, r9, r10, r11, lr}")]
     [InlineData("F08FBDE8", 0x10000, "pop    {r4, r5, r6, r7, r8, r9, r10, r11, pc}")]
@@ -190,7 +216,7 @@ public class Arm32DecodeTests
         Assert.False(Decode(true, "FFF7", 0).IsValid);           // half of a 32-bit encoding
         Assert.Equal("nop", Decode(true, "00BF", 0).Mnemonic);
         Assert.False(Decode(false, "F0F0F0F6", 0).IsValid);       // unallocated media space
-        Assert.Equal("simd", Decode(false, "400C00F2", 0).Mnemonic); // NEON data processing outside the decoded classes: valid, no operands
+        Assert.Equal("simd", Decode(false, "100F00F3", 0).Mnemonic); // NEON data processing outside the decoded classes: valid, no operands
         Assert.Equal(2, Arm32Decode.ThumbLength(0xBF00));
         Assert.Equal(4, Arm32Decode.ThumbLength(0xF000));
     }

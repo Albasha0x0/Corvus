@@ -3,7 +3,7 @@ namespace Corvus.Native.Code;
 /// <summary>
 /// Advanced SIMD (NEON) data processing in the A32 word form (T32 encodings are converted first): three registers of
 /// the same or different lengths, a register and a modified immediate, shifts by an immediate, two-register
-/// miscellaneous operations, scalars, VEXT, VTBL / VTBX and VDUP. An encoding outside these classes stays "simd"
+/// miscellaneous operations, scalars, VEXT, VTBL / VTBX, VDUP and the ARMv8 AES / SHA / VMULL.P64 forms. An encoding outside these classes stays "simd"
 /// without operands; every one is valid, flows on and touches no core register.
 /// </summary>
 internal static class Arm32Neon
@@ -86,6 +86,10 @@ internal static class Arm32Neon
                 else if (!u) { name = "vpadd"; suffix = Int(size); }
                 break;
             case 12 when b && !u: name = high ? "vfms" : "vfma"; suffix = ".f32"; break;
+            case 12 when !b && q && !(u && size == 3):
+                Set(ref i, u ? size switch { 0 => "sha256h", 1 => "sha256h2", _ => "sha256su1" } : size switch { 0 => "sha1c", 1 => "sha1p", 2 => "sha1m", _ => "sha1su0" }, ".32");
+                Three(ref i, w, true);
+                return;
             case 13:
                 suffix = ".f32";
                 name = (b, u, high) switch
@@ -223,7 +227,8 @@ internal static class Arm32Neon
             8 => "vmlal", 9 => u ? null : "vqdmlal", 10 => "vmlsl", 11 => u ? null : "vqdmlsl", 12 => "vmull", 13 => u ? null : "vqdmull", 14 => u ? null : "vmull", _ => null,
         };
         if (name == null) return;
-        string suffix = a is 4 or 6 ? ".i" + (16 << size) : a is 9 or 11 or 13 ? ".s" + (8 << size) : a == 14 ? ".p8" : su;
+        if (a == 14 && size is 1) return;
+        string suffix = a is 4 or 6 ? ".i" + (16 << size) : a is 9 or 11 or 13 ? ".s" + (8 << size) : a == 14 ? size == 2 ? ".p64" : ".p8" : su;
         Set(ref i, name, suffix);
         if (a is 4 or 6) { i.Vec(ArmVector.D, D(w)); i.Vec(ArmVector.Q, N(w) >> 1); i.Vec(ArmVector.Q, M(w) >> 1); return; }
         i.Vec(ArmVector.Q, D(w) >> 1);
@@ -270,6 +275,12 @@ internal static class Arm32Neon
         bool q = (w & 0x40) != 0;
         string? name = null, suffix = null;
         bool zero = false;
+        if (Crypto(a, b, size) is { } crypto)
+        {
+            Set(ref i, crypto, crypto[0] == 'a' ? ".8" : ".32");
+            Reg(ref i, true, D(w)); Reg(ref i, true, M(w));
+            return;
+        }
         switch (a)
         {
             case 0:
@@ -328,6 +339,13 @@ internal static class Arm32Neon
         Reg(ref i, q, D(w)); Reg(ref i, q, M(w));
         if (zero) i.Imm(0);
     }
+
+    /// <summary>The two-register AES and SHA forms: always Q registers, Q bit part of the opcode.</summary>
+    private static string? Crypto(int a, int b, int size) => (a, b, size) switch
+    {
+        (0, 12, 0) => "aese", (0, 13, 0) => "aesd", (0, 14, 0) => "aesmc", (0, 15, 0) => "aesimc",
+        (1, 11, 2) => "sha1h", (2, 14, 2) => "sha1su1", (2, 15, 2) => "sha256su0", _ => null,
+    };
 
     private static void Table(ref ArmInstruction i, uint w)
     {
