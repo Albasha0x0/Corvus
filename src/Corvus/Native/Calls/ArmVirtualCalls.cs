@@ -52,7 +52,8 @@ internal static class ArmVirtualCalls
                     }
             });
         }
-        return [.. shapes.OrderBy(s => s.Rva)];
+        // a site in code two functions share is kept for the lower one, whatever thread found it first
+        return [.. shapes.OrderBy(s => s.Rva).ThenBy(s => s.Function)];
     }
 
     private static bool IsSite(FlowKind flow, uint rva, FunctionGraph graph) =>

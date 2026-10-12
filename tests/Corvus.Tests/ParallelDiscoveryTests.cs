@@ -38,15 +38,15 @@ public class ParallelDiscoveryTests
         AssertSame(serial, Payload(image, new CodeIndexOptions { MaxParallelism = 4, ParallelExploreMin = 1 }), build);
     }
 
-    public static readonly TheoryData<string> Large = new() { "win-x64 10.0.11", "win-x86 10.0.11", "linux-x64 10.0.11", "osx-arm64 10.0.11" };
+    public static readonly TheoryData<string> Large = new() { "win-x64 10.0.11", "win-x86 10.0.11", "linux-x64 10.0.11", "osx-arm64 10.0.11", "libSkiaSharp" };
 
-    /// <summary>NativeAOT-compiled ilc (tens of megabytes): one thread against eight, twice to vary the scheduling.</summary>
+    /// <summary>NativeAOT-compiled ilc and libSkiaSharp (C++, ARM64 virtual call shapes): one thread against eight, twice to vary the scheduling.</summary>
     [Theory]
     [MemberData(nameof(Large))]
     [Trait("Speed", "Slow")]
     public void Saved_index_of_a_large_image_is_the_same_at_one_and_eight_threads(string sample)
     {
-        var image = NativeImageLoader.Open(NativeAotRealTests.PathOf(sample));
+        var image = NativeImageLoader.Open(sample == "libSkiaSharp" ? NativeFixtures.OsxFatSkia : NativeAotRealTests.PathOf(sample));
         var serial = Payload(image, new CodeIndexOptions { MaxParallelism = 1 });
         AssertSame(serial, Payload(image, new CodeIndexOptions { MaxParallelism = 8 }), sample);
         AssertSame(serial, Payload(image, new CodeIndexOptions { MaxParallelism = 8 }), sample + " (again)");

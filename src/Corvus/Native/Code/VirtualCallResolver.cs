@@ -692,6 +692,7 @@ internal sealed class VirtualCallResolver
             _record = false;
             _summary = summarize ? [] : null;
             _summaryEmpty = false;
+            _seenReturn = false;
             FunctionGraph? graph;
             try { graph = _walker.Walk(f, f.Start, buildGraph: true, r._ct, NativeCodeIndex.ChunkRoots(f)).Graph; }
             catch (Exception ex) when (ex is not OperationCanceledException) { return null; }
