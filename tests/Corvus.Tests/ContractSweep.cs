@@ -373,11 +373,32 @@ public static partial class ContractSweep
             if (result.StructuredContent == null) return Fail("bad output", "success without the structured content its output schema promises");
             var errors = OutputSchema.Validate(schema, JsonDocument.Parse(result.StructuredContent.ToString()!).RootElement);
             if (errors.Count > 0) return Fail("bad output", $"structured content does not match the output schema: {string.Join("; ", errors.Take(5))}");
+            if (Incomplete(c.Tool, string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text)), result.StructuredContent.Value) is { } missing)
+                return Fail("incomplete record", missing);
         }
         return new Result(c, null, "ok", watch.Elapsed);
     }
 
     private static string Clip(string s) => s.Length > 400 ? s[..400] + "..." : s;
+
+    /// <summary>
+    /// S4.1 (StructuredCompletenessTests): what the text says the record must say too. (a) a continuation footer: nextOffset
+    /// or resultId; (b) [workspace] notices: notices; (c) "Incomplete"/"Partial": coverage or warnings; (d) a code or bytes
+    /// page: the body. Null when the record is complete.
+    /// </summary>
+    public static string? Incomplete(string tool, string text, JsonElement record)
+    {
+        bool Has(string name) => record.ValueKind == JsonValueKind.Object && record.TryGetProperty(name, out _);
+        if ((text.Contains("[More: offset=", StringComparison.Ordinal) || text.Contains("read_result id=", StringComparison.Ordinal)) && !Has("nextOffset") && !Has("resultId"))
+            return "(a) the text continues, the record has neither nextOffset nor resultId";
+        if (text.Contains("[workspace]", StringComparison.Ordinal) && !Has("notices"))
+            return "(b) the text has [workspace] notices, the record has no notices";
+        if (System.Text.RegularExpressions.Regex.IsMatch(text, @"(?m)^\[?(Incomplete|Partial)\b") && !Has("coverage") && !Has("warnings"))
+            return "(c) the text says Incomplete or Partial, the record has no coverage or warnings";
+        if (Corvus.Mcp.ToolContract.Of(tool).Output is Corvus.Mcp.OutputClass.Code or Corvus.Mcp.OutputClass.Bytes && text.Length > 200 && !new[] { "code", "lines", "items", "hex", "bytes" }.Any(Has))
+            return "(d) a code or bytes result without its body in the record";
+        return null;
+    }
 
     /// <summary>JSON Schema 2020-12 keywords; anything else in a schema position is reported.</summary>
     private static readonly HashSet<string> Keywords =

@@ -204,6 +204,19 @@ public class ToolOutputTests
         Assert.StartsWith("[workspace]", ((TextContentBlock)error.Content[^1]).Text);
     }
 
+    /// <summary>S4.1 (c): an "Incomplete:" line of the tool's text reaches the record as a warning.</summary>
+    [Fact]
+    public async Task IncompleteTextBecomesAWarning()
+    {
+        using var services = Services();
+        var r = await Call(services, "search_strings", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.With("Incomplete: the regex timed out on 1 string.\n0 occurrences\n", Types(0, 0, 0)) }],
+        });
+        Assert.Equal("Incomplete: the regex timed out on 1 string.", Record(r).GetProperty("warnings")[0].GetString());
+        Assert.Null(ContractSweep.Incomplete("search_strings", Text(r), Record(r)));
+    }
+
     [Fact]
     public async Task JsonModeSendsTheRecordAsText()
     {

@@ -165,6 +165,12 @@ public static partial class ToolOutput
     /// <summary>Warnings, coverage and the engine into both parts.</summary>
     private static void Annotate(OutputCall call, JsonObject? record, ref string text)
     {
+        // Tools that state incompleteness in their own text: the same lines become the record's warnings.
+        if (record != null && record["warnings"] is null)
+        {
+            var stated = text.Split('\n').Where(l => l.StartsWith("Incomplete:", StringComparison.Ordinal) || l.StartsWith("Partial:", StringComparison.Ordinal)).ToList();
+            if (stated.Count > 0) record["warnings"] = new JsonArray(stated.Select(l => (JsonNode)JsonValue.Create(l)!).ToArray());
+        }
         if (call.Warnings.Count > 0)
         {
             text = text.TrimEnd('\n') + "\n" + string.Join("\n", call.Warnings.Select(w => "Warning: " + w)) + "\n";
