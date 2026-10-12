@@ -1,0 +1,41 @@
+Id: System.Private.CoreLib
+Assembly: System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e
+File: C:\work\inputs\managed\System.Private.CoreLib.dll
+Module: System.Private.CoreLib.dll  MVID bf17f41b-b4df-4387-9422-334838f3f653
+SHA-256: ed80a1a5dd066c0407ad59686f9af90a4f3e55dbf3e4c973b53cc8c9d0706f82
+Runtime: v4.0.30319  Kind: Dll  Machine: AMD64  IL-only: False  32-bit required: False
+Target framework: .NETCoreApp,Version=v10.0
+Types: 2898 (1017 nested)  Namespaces: 64  Methods: 42374  Fields: 9725  Resources: 4
+ReadyToRun: version 16.0, AMD64, 26648 methods with native code (49886 bodies incl. generic instantiations), not composite; get_r2r_code / find_r2r_method show it
+PE: PE32+  ImageBase 0x180000000  Subsystem WindowsCui  Characteristics ExecutableImage, LargeAddressAware, Dll  DllCharacteristics HighEntropyVA, DynamicBase, NxCompat, TerminalServerAware
+Timestamp: 0xC5690FA9 (2074-12-14 07:07 UTC)  CLR flags: ILLibrary, StrongNameSigned  Metadata version: v4.0.30319
+Sections:
+  .text    VA 0x00001000  VSize 0xEA4E27  Raw 0x1000+0xEA5000  flags 0x60000020
+  .data    VA 0x00EA6000  VSize 0x958F4  Raw 0xEA6000+0x96000  flags 0xC0000040
+  .reloc   VA 0x00F3C000  VSize 0xBB98  Raw 0xF3C000+0xC000  flags 0x42000040
+Metadata streams: #~ (2302720 bytes), #Strings (609152 bytes), #US (128512 bytes), #GUID (16 bytes), #Blob (402304 bytes)
+Metadata tables (rows): Module 1, TypeDef 2899, Field 9725, Method 42374, Param 68507, InterfaceImpl 2180, MemberRef 8337, Constant 3750, CustomAttribute 27721, FieldMarshal 257, ClassLayout 164, FieldLayout 143, StandAloneSig 3798, EventMap 12, Event 32, PropertyMap 1077, Property 5581, MethodSemantics 6134, MethodImpl 4165, ModuleRef 15, TypeSpec 2285, ImplMap 652, FieldRVA 193, Assembly 1, ManifestResource 4, NestedClass 1017, GenericParam 4172, MethodSpec 5007, GenericParamConstraint 1984
+Metadata heaps: #Strings 609152 bytes (4-byte indexes), #US 128512 bytes, #Blob 402304 bytes (4-byte indexes), #GUID 16 bytes (2-byte indexes)
+References:
+Assembly attributes:
+  [Extension]
+  [CompilationRelaxations(8)]
+  [RuntimeCompatibility(WrapNonExceptionThrows = true)]
+  [Debuggable(DebuggingModes.IgnoreSymbolStoreSequencePoints)]
+  [MetadataUpdateHandler(typeof(RuntimeTypeMetadataUpdateHandler))]
+  [CLSCompliant(true)]
+  [ComVisible(false)]
+  [DefaultDllImportSearchPaths((DllImportSearchPath)2050)]
+  [AssemblyMetadata("Serviceable", "True")]
+  [AssemblyMetadata("IsTrimmable", "True")]
+  [NeutralResourcesLanguage("en-US")]
+  [DisableRuntimeMarshalling]
+  [AssemblyCompany("Microsoft Corporation")]
+  [AssemblyConfiguration("Release")]
+  [AssemblyCopyright("© Microsoft Corporation. All rights reserved.")]
+  [AssemblyDescription("System.Private.CoreLib")]
+  [AssemblyFileVersion("10.0.1126.37416")]
+  [AssemblyInformationalVersion("10.0.11-servicing.26373.116+e2f47b0110ed922f21a1522da67279133ce28f32")]
+  [AssemblyProduct("Microsoft® .NET")]
+  [AssemblyTitle("System.Private.CoreLib")]
+  [AssemblyMetadata("RepositoryUrl", "https://github.com/dotnet/dotnet")]

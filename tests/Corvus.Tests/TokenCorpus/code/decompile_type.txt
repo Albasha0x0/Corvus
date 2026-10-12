@@ -1,0 +1,281 @@
+// [System.Private.CoreLib] System.String
+using System.Buffers;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Versioning;
+using System.Text;
+using System.Text.Unicode;
+
+namespace System;
+
+[Serializable]
+[NonVersionable]
+[TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+public sealed class String : IComparable, IEnumerable, IConvertible, IEnumerable<char>, IComparable<string?>, IEquatable<string?>, ICloneable, ISpanParsable<string>, IParsable<string>
+{
+	internal static class SearchValuesStorage
+	{
+		public static readonly SearchValues<char> NewLineChars = SearchValues.Create("\r\f\u0085\u2028\u2029\n");
+
+		public static readonly SearchValues<char> WhiteSpaceChars = SearchValues.Create("\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000");
+	}
+
+	[Intrinsic]
+	public static readonly string Empty;
+
+	[NonSerialized]
+	private readonly int _stringLength;
+
+	[NonSerialized]
+	private char _firstChar;
+
+	[IndexerName("Chars")]
+	public char this[int index]
+	{
+		[Intrinsic]
+		get
+		{
+			if ((uint)index >= (uint)_stringLength)
+			{
+				ThrowHelper.ThrowIndexOutOfRangeException();
+			}
+			return Unsafe.Add(ref _firstChar, (nint)(uint)index);
+		}
+	}
+
+	public int Length
+	{
+		[Intrinsic]
+		get
+		{
+			return _stringLength;
+		}
+	}
+
+	[DllImport("QCall", EntryPoint = "String_StrCns", ExactSpelling = true)]
+	private unsafe static extern string* StrCnsInternal(uint rid, nint scopeHandle);
+
+	[StackTraceHidden]
+	[DebuggerStepThrough]
+	[DebuggerHidden]
+	internal unsafe static string StrCns(uint rid, nint scopeHandle)
+	{
+		return *StrCnsInternal(rid, scopeHandle);
+	}
+
+	[MethodImpl(MethodImplOptions.InternalCall)]
+	internal unsafe static extern string FastAllocateString(MethodTable* pMT, nint length);
+
+	[DebuggerHidden]
+	internal unsafe static string FastAllocateString(nint length)
+	{
+		return FastAllocateString(TypeHandle.TypeHandleOf<string>().AsMethodTable(), length);
+	}
+
+	[DllImport("QCall", EntryPoint = "String_Intern", ExactSpelling = true)]
+	private static extern void Intern(StringHandleOnStack src);
+
+	public static string Intern(string str)
+	{
+		ArgumentNullException.ThrowIfNull(str, "str");
+		Intern(new StringHandleOnStack(ref str));
+		return str;
+	}
+
+	[DllImport("QCall", EntryPoint = "String_IsInterned", ExactSpelling = true)]
+	private static extern void IsInterned(StringHandleOnStack src);
+
+	public static string? IsInterned(string str)
+	{
+		ArgumentNullException.ThrowIfNull(str, "str");
+		IsInterned(new StringHandleOnStack(ref str));
+		return str;
+	}
+
+	internal unsafe static void InternalCopy(string src, nint dest, int len)
+	{
+		if (len != 0)
+		{
+			SpanHelpers.Memmove(ref *(byte*)dest, ref src.GetRawStringDataAsUInt8(), (nuint)len);
+		}
+	}
+
+	internal unsafe int GetBytesFromEncoding(byte* pbNativeBuffer, int cbNativeBuffer, Encoding encoding)
+	{
+		fixed (char* firstChar = &_firstChar)
+		{
+			return encoding.GetBytes(firstChar, Length, pbNativeBuffer, cbNativeBuffer);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static bool EqualsHelper(string strA, string strB)
+	{
+		return SpanHelpers.SequenceEqual(ref strA.GetRawStringDataAsUInt8(), ref strB.GetRawStringDataAsUInt8(), (uint)(strA.Length * 2));
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int CompareOrdinalHelper(string strA, int indexA, int countA, string strB, int indexB, int countB)
+	{
+		return SpanHelpers.SequenceCompareTo(ref Unsafe.Add(ref strA.GetRawStringData(), (nint)(uint)indexA), countA, ref Unsafe.Add(ref strB.GetRawStringData(), (nint)(uint)indexB), countB);
+	}
+
+	private static bool EqualsOrdinalIgnoreCaseNoLengthCheck(string strA, string strB)
+	{
+		return Ordinal.EqualsIgnoreCase(ref strA.GetRawStringData(), ref strB.GetRawStringData(), strB.Length);
+	}
+
+	private unsafe static int CompareOrdinalHelper(string strA, string strB)
+	{
+		int num = Math.Min(strA.Length, strB.Length);
+		fixed (char* firstChar = &strA._firstChar)
+		{
+			fixed (char* firstChar2 = &strB._firstChar)
+			{
+				char* ptr = firstChar;
+				char* ptr2 = firstChar2;
+				if (ptr[1] == ptr2[1])
+				{
+					num -= 2;
+					ptr += 2;
+					ptr2 += 2;
+					while (true)
+					{
+						if (num >= 12)
+						{
+							if (*(long*)ptr == *(long*)ptr2)
+							{
+								if (*(long*)(ptr + 4) == *(long*)(ptr2 + 4))
+								{
+									if (*(long*)(ptr + 8) == *(long*)(ptr2 + 8))
+									{
+										num -= 12;
+										ptr += 12;
+										ptr2 += 12;
+										continue;
+									}
+									ptr += 4;
+									ptr2 += 4;
+								}
+								ptr += 4;
+								ptr2 += 4;
+							}
+							if (*(int*)ptr == *(int*)ptr2)
+							{
+								ptr += 2;
+								ptr2 += 2;
+							}
+							break;
+						}
+						while (true)
+						{
+							if (num > 0)
+							{
+								if (*(int*)ptr != *(int*)ptr2)
+								{
+									break;
+								}
+								num -= 2;
+								ptr += 2;
+								ptr2 += 2;
+								continue;
+							}
+							return strA.Length - strB.Length;
+						}
+						break;
+					}
+					if (*ptr != *ptr2)
+					{
+						return *ptr - *ptr2;
+					}
+				}
+				return ptr[1] - ptr2[1];
+			}
+		}
+	}
+
+	public static int Compare(string? strA, string? strB)
+	{
+		return Compare(strA, strB, StringComparison.CurrentCulture);
+	}
+
+	public static int Compare(string? strA, string? strB, bool ignoreCase)
+	{
+		StringComparison comparisonType = (ignoreCase ? StringComparison.CurrentCultureIgnoreCase : StringComparison.CurrentCulture);
+		return Compare(strA, strB, comparisonType);
+	}
+
+	public static int Compare(string? strA, string? strB, StringComparison comparisonType)
+	{
+		if ((object)strA == strB)
+		{
+			CheckStringComparison(comparisonType);
+			return 0;
+		}
+		if ((object)strA == null)
+		{
+			CheckStringComparison(comparisonType);
+			return -1;
+		}
+		if ((object)strB == null)
+		{
+			CheckStringComparison(comparisonType);
+			return 1;
+		}
+		switch (comparisonType)
+		{
+		case StringComparison.CurrentCulture:
+		case StringComparison.CurrentCultureIgnoreCase:
+			return CultureInfo.CurrentCulture.CompareInfo.Compare(strA, strB, GetCaseCompareOfComparisonCulture(comparisonType));
+		case StringComparison.InvariantCulture:
+		case StringComparison.InvariantCultureIgnoreCase:
+			return CompareInfo.Invariant.Compare(strA, strB, GetCaseCompareOfComparisonCulture(comparisonType));
+		case StringComparison.Ordinal:
+			if (strA._firstChar != strB._firstChar)
+			{
+				return strA._firstChar - strB._firstChar;
+			}
+			return CompareOrdinalHelper(strA, strB);
+		case StringComparison.OrdinalIgnoreCase:
+			return Ordinal.CompareStringIgnoreCase(ref strA.GetRawStringData(), strA.Length, ref strB.GetRawStringData(), strB.Length);
+		default:
+			throw new ArgumentException(SR.NotSupported_StringComparison, "comparisonType");
+		}
+	}
+
+	public static int Compare(string? strA, string? strB, CultureInfo? culture, CompareOptions options)
+	{
+		return (culture ?? CultureInfo.CurrentCulture).CompareInfo.Compare(strA, strB, options);
+	}
+
+	public static int Compare(string? strA, string? strB, bool ignoreCase, CultureInfo? culture)
+	{
+		CompareOptions options = (ignoreCase ? CompareOptions.IgnoreCase : CompareOptions.None);
+		return Compare(strA, strB, culture, options);
+	}
+
+	public static int Compare(string? strA, int indexA, string? strB, int indexB, int length)
+	{
+		return Compare(strA, indexA, strB, indexB, length, ignoreCase: false);
+	}
+
+	public static int Compare(string? strA, int indexA, string? strB, int indexB, int length, bool ignoreCase)
+	{
+		int num = length;
+		int num2 = length;
+		if ((object)strA != null)
+		{
+			num = Math.Min(num, strA.Length - indexA);
+		}
+		if ((object)strB != null)
+		{
+			num2 = Math.Min(num2, strB.Length - indexB);
+		}

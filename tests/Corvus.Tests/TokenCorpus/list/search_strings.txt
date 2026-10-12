@@ -1,0 +1,127 @@
+4244 occurrences (showing 200; raise limit or refine):
+  "Unknown error (0x"
+      in Interop/Kernel32::GetMessage(int, nint) @IL_00BD  [System.Private.CoreLib] 0x060000EA
+  "targetClass"
+      in Microsoft.Win32.OAVariantLib::ChangeType(object, Type, short, CultureInfo) @IL_0001  [System.Private.CoreLib] 0x0600020A
+  "culture"
+      in Microsoft.Win32.OAVariantLib::ChangeType(object, Type, short, CultureInfo) @IL_000C  [System.Private.CoreLib] 0x0600020A
+  "elementType"
+      in System.Array::CreateInstance(Type, int) @IL_0001  [System.Private.CoreLib] 0x06000272
+  "length"
+      in System.Array::CreateInstance(Type, int) @IL_000C  [System.Private.CoreLib] 0x06000272
+  "elementType"
+      in System.Array::CreateInstance(Type, int, int) @IL_0001  [System.Private.CoreLib] 0x06000273
+  "length1"
+      in System.Array::CreateInstance(Type, int, int) @IL_000C  [System.Private.CoreLib] 0x06000273
+  "length2"
+      in System.Array::CreateInstance(Type, int, int) @IL_0017  [System.Private.CoreLib] 0x06000273
+  "elementType"
+      in System.Array::CreateInstance(Type, int, int, int) @IL_0001  [System.Private.CoreLib] 0x06000274
+  "length1"
+      in System.Array::CreateInstance(Type, int, int, int) @IL_000C  [System.Private.CoreLib] 0x06000274
+  "length2"
+      in System.Array::CreateInstance(Type, int, int, int) @IL_0017  [System.Private.CoreLib] 0x06000274
+  "length3"
+      in System.Array::CreateInstance(Type, int, int, int) @IL_0022  [System.Private.CoreLib] 0x06000274
+  "elementType"
+      in System.Array::CreateInstance(Type, int[]) @IL_0001  [System.Private.CoreLib] 0x06000275
+  "lengths"
+      in System.Array::CreateInstance(Type, int[]) @IL_000C  [System.Private.CoreLib] 0x06000275
+  "elementType"
+      in System.Array::CreateInstance(Type, int[], int[]) @IL_0001  [System.Private.CoreLib] 0x06000276
+  "lengths"
+      in System.Array::CreateInstance(Type, int[], int[]) @IL_000C  [System.Private.CoreLib] 0x06000276
+  "lowerBounds"
+      in System.Array::CreateInstance(Type, int[], int[]) @IL_0017  [System.Private.CoreLib] 0x06000276
+  "lengths"
+      in System.Array::CreateInstance(Type, long[]) @IL_0001  [System.Private.CoreLib] 0x06000277
+  "arrayType"
+      in System.Array::CreateInstanceFromArrayType(Type, int) @IL_0001  [System.Private.CoreLib] 0x06000278
+  "length"
+      in System.Array::CreateInstanceFromArrayType(Type, int) @IL_000C  [System.Private.CoreLib] 0x06000278
+  "arrayType"
+      in System.Array::CreateInstanceFromArrayType(Type, int[]) @IL_0001  [System.Private.CoreLib] 0x06000279
+  "lengths"
+      in System.Array::CreateInstanceFromArrayType(Type, int[]) @IL_000C  [System.Private.CoreLib] 0x06000279
+  "arrayType"
+      in System.Array::CreateInstanceFromArrayType(Type, int[], int[]) @IL_0001  [System.Private.CoreLib] 0x0600027A
+  "lengths"
+      in System.Array::CreateInstanceFromArrayType(Type, int[], int[]) @IL_000C  [System.Private.CoreLib] 0x0600027A
+  "lowerBounds"
+      in System.Array::CreateInstanceFromArrayType(Type, int[], int[]) @IL_0017  [System.Private.CoreLib] 0x0600027A
+  "sourceArray"
+      in System.Array::CopyImpl(Array, int, Array, int, int, bool) @IL_0001  [System.Private.CoreLib] 0x06000280
+  "destinationArray"
+      in System.Array::CopyImpl(Array, int, Array, int, int, bool) @IL_000C  [System.Private.CoreLib] 0x06000280
+  "length"
+      in System.Array::CopyImpl(Array, int, Array, int, int, bool) @IL_0044  [System.Private.CoreLib] 0x06000280
+  "sourceIndex"
+      in System.Array::CopyImpl(Array, int, Array, int, int, bool) @IL_0058  [System.Private.CoreLib] 0x06000280
+  "sourceArray"
+      in System.Array::CopyImpl(Array, int, Array, int, int, bool) @IL_007D  [System.Private.CoreLib] 0x06000280
+  "destinationIndex"
+      in System.Array::CopyImpl(Array, int, Array, int, int, bool) @IL_0092  [System.Private.CoreLib] 0x06000280
+  "destinationArray"
+      in System.Array::CopyImpl(Array, int, Array, int, int, bool) @IL_00B7  [System.Private.CoreLib] 0x06000280
+  "element"
+      in System.Attribute::GetCustomAttributes(MemberInfo, Type, bool) @IL_0001  [System.Private.CoreLib] 0x0600032B
+  "attributeType"
+      in System.Attribute::GetCustomAttributes(MemberInfo, Type, bool) @IL_000C  [System.Private.CoreLib] 0x0600032B
+  "element"
+      in System.Attribute::GetCustomAttributes(MemberInfo, bool) @IL_0001  [System.Private.CoreLib] 0x0600032D
+  "element"
+      in System.Attribute::IsDefined(MemberInfo, Type, bool) @IL_0001  [System.Private.CoreLib] 0x0600032F
+  "attributeType"
+      in System.Attribute::IsDefined(MemberInfo, Type, bool) @IL_000C  [System.Private.CoreLib] 0x0600032F
+  "element"
+      in System.Attribute::GetCustomAttributes(ParameterInfo, Type, bool) @IL_0001  [System.Private.CoreLib] 0x06000334
+  "attributeType"
+      in System.Attribute::GetCustomAttributes(ParameterInfo, Type, bool) @IL_000C  [System.Private.CoreLib] 0x06000334
+  "element"
+      in System.Attribute::GetCustomAttributes(ParameterInfo, Type, bool) @IL_0058  [System.Private.CoreLib] 0x06000334
+  "element"
+      in System.Attribute::GetCustomAttributes(ParameterInfo, bool) @IL_0001  [System.Private.CoreLib] 0x06000335
+  "element"
+      in System.Attribute::GetCustomAttributes(ParameterInfo, bool) @IL_001E  [System.Private.CoreLib] 0x06000335
+  "element"
+      in System.Attribute::IsDefined(ParameterInfo, Type, bool) @IL_0001  [System.Private.CoreLib] 0x06000337
+  "attributeType"
+      in System.Attribute::IsDefined(ParameterInfo, Type, bool) @IL_000C  [System.Private.CoreLib] 0x06000337
+  "element"
+      in System.Attribute::GetCustomAttributes(Module, bool) @IL_0001  [System.Private.CoreLib] 0x0600033C
+  "element"
+      in System.Attribute::GetCustomAttributes(Module, Type, bool) @IL_0001  [System.Private.CoreLib] 0x0600033D
+  "attributeType"
+      in System.Attribute::GetCustomAttributes(Module, Type, bool) @IL_000C  [System.Private.CoreLib] 0x0600033D
+  "element"
+      in System.Attribute::IsDefined(Module, Type, bool) @IL_0001  [System.Private.CoreLib] 0x0600033F
+  "attributeType"
+      in System.Attribute::IsDefined(Module, Type, bool) @IL_000C  [System.Private.CoreLib] 0x0600033F
+  "element"
+      in System.Attribute::GetCustomAttributes(Assembly, Type, bool) @IL_0001  [System.Private.CoreLib] 0x06000343
+  "attributeType"
+      in System.Attribute::GetCustomAttributes(Assembly, Type, bool) @IL_000C  [System.Private.CoreLib] 0x06000343
+  "element"
+      in System.Attribute::GetCustomAttributes(Assembly, bool) @IL_0001  [System.Private.CoreLib] 0x06000345
+  "element"
+      in System.Attribute::IsDefined(Assembly, Type, bool) @IL_0001  [System.Private.CoreLib] 0x06000347
+  "attributeType"
+      in System.Attribute::IsDefined(Assembly, Type, bool) @IL_000C  [System.Private.CoreLib] 0x06000347
+  "BadImageFormat_FileName"
+      in System.BadImageFormatException::.ctor(SerializationInfo, StreamingContext) @IL_000A  [System.Private.CoreLib] 0x06000357
+  "BadImageFormat_FusionLog"
+      in System.BadImageFormatException::.ctor(SerializationInfo, StreamingContext) @IL_001B  [System.Private.CoreLib] 0x06000357
+  "BadImageFormat_FileName"
+      in System.BadImageFormatException::GetObjectData(SerializationInfo, StreamingContext) @IL_0009  [System.Private.CoreLib] 0x06000358
+  "BadImageFormat_FusionLog"
+      in System.BadImageFormatException::GetObjectData(SerializationInfo, StreamingContext) @IL_0024  [System.Private.CoreLib] 0x06000358
+  "srcOffset"
+      in System.Buffer::BlockCopy(Array, int, Array, int, int) @IL_00A7  [System.Private.CoreLib] 0x06000363
+  "dstOffset"
+      in System.Buffer::BlockCopy(Array, int, Array, int, int) @IL_00B2  [System.Private.CoreLib] 0x06000363
+  "scale"
+      in System.Decimal::.ctor(int, int, int, bool, byte) @IL_0004  [System.Private.CoreLib] 0x06000395
+  "decimals"
+      in System.Decimal::Round(ref Decimal, int, MidpointRounding) @IL_0005  [System.Private.CoreLib] 0x060003C2
+  "mode"
+      in System.Decimal::Round(ref Decimal, int, MidpointRounding) @IL_002E  [System.Private.CoreLib] 0x060003C2

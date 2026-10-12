@@ -1,0 +1,71 @@
+[Newtonsoft.Json] Dry run — simplify Newtonsoft.Json (fold,cfg,inline): 173 of 4064 method(s) would change.
+Newtonsoft.Json.JsonConvert::EnsureDecimalPlace(double, string)  [27 -> 27 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IndexOf(string, char) -> System.String::IndexOf(char) at IL_0013
+  inlined Newtonsoft.Json.Utilities.StringUtils::IndexOf(string, char) -> System.String::IndexOf(char) at IL_001E
+  inlined Newtonsoft.Json.Utilities.StringUtils::IndexOf(string, char) -> System.String::IndexOf(char) at IL_0029
+Newtonsoft.Json.JsonConvert::EnsureDecimalPlace(string)  [11 -> 11 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IndexOf(string, char) -> System.String::IndexOf(char) at IL_0003
+Newtonsoft.Json.JsonConvert::SerializeObjectInternal(object, Type, JsonSerializer)  [26 -> 26 instructions]
+  inlined Newtonsoft.Json.JsonSerializer::Serialize(JsonWriter, object, Type) -> Newtonsoft.Json.JsonSerializer::SerializeInternal(JsonWriter, object, Type) at IL_002C
+Newtonsoft.Json.JsonConvert::DeserializeObject(string, Type, JsonSerializerSettings)  [29 -> 29 instructions]
+  inlined Newtonsoft.Json.JsonSerializer::Deserialize(JsonReader, Type) -> Newtonsoft.Json.JsonSerializer::DeserializeInternal(JsonReader, Type) at IL_0030
+Newtonsoft.Json.JsonConvert::PopulateObject(string, object, JsonSerializerSettings)  [35 -> 35 instructions]
+  inlined Newtonsoft.Json.JsonSerializer::Populate(JsonReader, object) -> Newtonsoft.Json.JsonSerializer::PopulateInternal(JsonReader, object) at IL_0016
+Newtonsoft.Json.JsonReader::ReadInt32String(string)  [40 -> 40 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_0001
+Newtonsoft.Json.JsonReader::ReadDoubleString(string)  [40 -> 40 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_0001
+Newtonsoft.Json.JsonReader::ReadBooleanString(string)  [37 -> 37 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_0001
+Newtonsoft.Json.JsonReader::ReadDecimalString(string)  [58 -> 58 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_0001
+Newtonsoft.Json.JsonReader::ReadDateTimeString(string)  [64 -> 64 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_0001
+Newtonsoft.Json.JsonReader::ReadDateTimeOffsetString(string)  [57 -> 57 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_0001
+Newtonsoft.Json.JsonSerializer::Create(JsonSerializerSettings)  [9 -> 9 instructions]
+  inlined Newtonsoft.Json.JsonSerializer::Create() -> Newtonsoft.Json.JsonSerializer::.ctor() at IL_0000
+Newtonsoft.Json.JsonSerializer::Populate(TextReader, object)  [6 -> 6 instructions]
+  inlined Newtonsoft.Json.JsonSerializer::Populate(JsonReader, object) -> Newtonsoft.Json.JsonSerializer::PopulateInternal(JsonReader, object) at IL_0008
+Newtonsoft.Json.JsonSerializer::Deserialize(JsonReader)  [5 -> 5 instructions]
+  inlined Newtonsoft.Json.JsonSerializer::Deserialize(JsonReader, Type) -> Newtonsoft.Json.JsonSerializer::DeserializeInternal(JsonReader, Type) at IL_0003
+Newtonsoft.Json.JsonSerializer::Deserialize(TextReader, Type)  [6 -> 6 instructions]
+  inlined Newtonsoft.Json.JsonSerializer::Deserialize(JsonReader, Type) -> Newtonsoft.Json.JsonSerializer::DeserializeInternal(JsonReader, Type) at IL_0008
+Newtonsoft.Json.JsonSerializer::Deserialize<T>(JsonReader)  [7 -> 7 instructions]
+  inlined Newtonsoft.Json.JsonSerializer::Deserialize(JsonReader, Type) -> Newtonsoft.Json.JsonSerializer::DeserializeInternal(JsonReader, Type) at IL_000C
+Newtonsoft.Json.JsonSerializer::Serialize(TextWriter, object, Type)  [7 -> 7 instructions]
+  inlined Newtonsoft.Json.JsonSerializer::Serialize(JsonWriter, object, Type) -> Newtonsoft.Json.JsonSerializer::SerializeInternal(JsonWriter, object, Type) at IL_0009
+Newtonsoft.Json.JsonTextReader::ReadStringIntoBuffer(char)  [300 -> 300 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsLowSurrogate(char) -> System.Char::IsLowSurrogate(char) at IL_01A0
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsHighSurrogate(char) -> System.Char::IsHighSurrogate(char) at IL_01B5
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsLowSurrogate(char) -> System.Char::IsLowSurrogate(char) at IL_020C
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsHighSurrogate(char) -> System.Char::IsHighSurrogate(char) at IL_0215
+Newtonsoft.Json.JsonTextReader/<ReadStringIntoBufferAsync>d__9::MoveNext()  [622 -> 622 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsLowSurrogate(char) -> System.Char::IsLowSurrogate(char) at IL_0387
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsHighSurrogate(char) -> System.Char::IsHighSurrogate(char) at IL_03A4
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsLowSurrogate(char) -> System.Char::IsLowSurrogate(char) at IL_04EC
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsHighSurrogate(char) -> System.Char::IsHighSurrogate(char) at IL_04F9
+Newtonsoft.Json.JsonTextWriter::WriteValue(DateTime)  [44 -> 44 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_001C
+Newtonsoft.Json.JsonTextWriter::WriteValue(DateTimeOffset)  [39 -> 39 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_000E
+Newtonsoft.Json.JsonTextWriter/<DoWriteValueAsync>d__60::MoveNext()  [258 -> 258 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_00B1
+Newtonsoft.Json.JsonTextWriter/<DoWriteValueAsync>d__64::MoveNext()  [251 -> 251 instructions]
+  inlined Newtonsoft.Json.Utilities.StringUtils::IsNullOrEmpty(string) -> System.String::IsNullOrEmpty(string) at IL_009A
+Newtonsoft.Json.JsonWriter::WriteEndObject()  [4 -> 4 instructions]
+  inlined Newtonsoft.Json.JsonWriter::InternalWriteEnd(JsonContainerType) -> Newtonsoft.Json.JsonWriter::AutoCompleteClose(JsonContainerType) at IL_0002
+Newtonsoft.Json.JsonWriter::WriteEndArray()  [4 -> 4 instructions]
+  inlined Newtonsoft.Json.JsonWriter::InternalWriteEnd(JsonContainerType) -> Newtonsoft.Json.JsonWriter::AutoCompleteClose(JsonContainerType) at IL_0002
+Newtonsoft.Json.JsonWriter::WriteEndConstructor()  [4 -> 4 instructions]
+  inlined Newtonsoft.Json.JsonWriter::InternalWriteEnd(JsonContainerType) -> Newtonsoft.Json.JsonWriter::AutoCompleteClose(JsonContainerType) at IL_0002
+Newtonsoft.Json.JsonWriter::SetWriteState(JsonToken, object)  [58 -> 58 instructions]
+  inlined Newtonsoft.Json.JsonWriter::InternalWriteEnd(JsonContainerType) -> Newtonsoft.Json.JsonWriter::AutoCompleteClose(JsonContainerType) at IL_00A3
+  inlined Newtonsoft.Json.JsonWriter::InternalWriteEnd(JsonContainerType) -> Newtonsoft.Json.JsonWriter::AutoCompleteClose(JsonContainerType) at IL_00AB
+  inlined Newtonsoft.Json.JsonWriter::InternalWriteEnd(JsonContainerType) -> Newtonsoft.Json.JsonWriter::AutoCompleteClose(JsonContainerType) at IL_00B3
+Newtonsoft.Json.Utilities.CollectionWrapper`1::IsCompatibleObject(object)  [17 -> 17 instructions]
+  inlined Newtonsoft.Json.Utilities.TypeExtensions::IsValueType(Type) -> System.Type::get_IsValueType() at IL_0015
+Newtonsoft.Json.Utilities.ConvertUtils::GetTypeCode(Type, ref bool)  [49 -> 49 instructions]
+  inlined Newtonsoft.Json.Utilities.TypeExtensions::IsEnum(Type) -> System.Type::get_IsEnum() at IL_0015
+  inlined Newtonsoft.Json.Utilities.TypeExtensions::IsEnum(Type) -> System.Type::get_IsEnum() at IL_003B
+Newtonsoft.Json.Utilities.ConvertUtils::CreateCastConverter(StructMultiKey<Type, Type>)  [45 -> 45 instructions]

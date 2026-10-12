@@ -1,0 +1,115 @@
+Error (invalid_argument) in patch_bytes: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in patch_bytes: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in patch_method_csharp: missing required parameter 'method'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'method'.","next":null,"partial":null,"details":{"parameter":"method"}}
+Error (invalid_argument) in patch_method_il: missing required parameter 'method'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'method'.","next":null,"partial":null,"details":{"parameter":"method"}}
+Error (invalid_argument) in pull_android_file: missing required parameter 'remotePath'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'remotePath'.","next":null,"partial":null,"details":{"parameter":"remotePath"}}
+Error (invalid_argument) in pull_android_package: missing required parameter 'package'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'package'.","next":null,"partial":null,"details":{"parameter":"package"}}
+Error (invalid_argument) in read_android_log: parameter 'pid' must be a whole number, not a string.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"parameter 'pid' must be a whole number, not a string.","next":null,"partial":null,"details":null}
+Error (invalid_argument) in read_bytes: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in read_bytes: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in read_dump_memory: missing required parameter 'dump'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'dump'.","next":null,"partial":null,"details":{"parameter":"dump"}}
+Error (not_found) in read_dump_memory: No dump file at 'C:\work\inputs\nope-missing\read_dump_memory\missing.dll'.
+Next: pass the path of a .dmp file
+
+
+error (json): {"code":"not_found","retryable":false,"message":"No dump file at 'C:\\work\\inputs\\nope-missing\\read_dump_memory\\missing.dll'.","next":"pass the path of a .dmp file","partial":null,"details":null}
+Error (invalid_argument) in read_result: missing required parameter 'id'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'id'.","next":null,"partial":null,"details":{"parameter":"id"}}
+Error (invalid_argument) in reanalyze_native: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in reanalyze_native: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in record_note: missing required parameter 'text'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'text'.","next":null,"partial":null,"details":{"parameter":"text"}}
+Error (invalid_argument) in reload_assembly: missing required parameter 'assembly'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'assembly'.","next":null,"partial":null,"details":{"parameter":"assembly"}}
+Error (not_found) in reload_assembly: No loaded assembly matches 'C:\work\inputs\nope-missing\reload_assembly\missing.dll'. Loaded: TestFixture, TestFixture.Consumer
+
+
+error (json): {"code":"not_found","retryable":false,"message":"No loaded assembly matches 'C:\\work\\inputs\\nope-missing\\reload_assembly\\missing.dll'. Loaded: TestFixture, TestFixture.Consumer","next":null,"partial":null,"details":null}
+Error (invalid_argument) in rename_namespace: missing required parameter 'assembly'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'assembly'.","next":null,"partial":null,"details":{"parameter":"assembly"}}
+Error (not_found) in rename_namespace: No loaded assembly matches 'C:\work\inputs\nope-missing\rename_namespace\missing.dll'. Loaded: TestFixture, TestFixture.Consumer
+
+
+error (json): {"code":"not_found","retryable":false,"message":"No loaded assembly matches 'C:\\work\\inputs\\nope-missing\\rename_namespace\\missing.dll'. Loaded: TestFixture, TestFixture.Consumer","next":null,"partial":null,"details":null}
+Error (invalid_argument) in rename_native: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in rename_native: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in rename_symbol: missing required parameter 'symbol'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'symbol'.","next":null,"partial":null,"details":{"parameter":"symbol"}}
+Error (invalid_argument) in resolve_address: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in resolve_address: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in resolve_call_targets: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in resolve_call_targets: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in resolve_symbol: missing required parameter 'symbol'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'symbol'.","next":null,"partial":null,"details":{"parameter":"symbol"}}

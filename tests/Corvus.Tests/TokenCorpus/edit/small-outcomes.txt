@@ -1,0 +1,51 @@
+Applying 5 edit(s) from edits.json to TestFixture (same build: using recorded tokens):
+Build check: same build (sha256 9c239458751551fc… matches)
+  #1 ok      stub Fixture.Model.Secret::Validate(string) => return true;
+  #2 ok      patch C# Fixture.Model.Shop::PriceOf(string, int)
+  #3 ok      patch IL (replace, 2 instructions) Fixture.Model.Account::Score()
+  #4 FAILED  add members to Fixture.Model.Shop: Twice(int)
+      C# compilation failed (1 error(s)). Nothing was changed.
+        CS0111 at line 1 of your member Twice: Type 'Shop' already defines a member called 'Twice' with the same parameter types
+            > {throw null;}public int Twice(int x) {throw null;}}
+Stopped; TestFixture was rolled back to its state before the script. Fix the edit (or pass stopOnError=false to skip failures).
+
+Dry run — would patch 7 byte(s) at 0x180013120 (padded 6 trailing byte(s) with NOPs to the next instruction boundary):
+Before:
+  180013120  488D05B18F1500           lea    rax, [sqlite3_version]
+After:
+  180013120  90                       nop
+  180013121  90                       nop
+  180013122  90                       nop
+  180013123  90                       nop
+  180013124  90                       nop
+  180013125  90                       nop
+  180013126  90                       nop
+
+{"oldImage":"e_sqlite3.dll","newImage":"e_sqlite3.dll#2","source":"in_memory","dryRun":true,"patches":1,"applied":0,"wouldApply":0,"refused":1,"refusedBy":[{"reason":"original_bytes_differ","count":1}],"offset":0,"total":1,"truncated":false,"entries":[{"number":1,"oldAddress":"0x180013120","newAddress":"0x180019990","origin":"bytes","description":"patch_bytes 1 bytes","status":"refused","reason":"original_bytes_differ","detail":"expected 488D05B18F1500 at the new address, found 488D05D5561300","confidence":1,"tier":1,"replacementBytes":null}],"notes":[]}
+{"path":"C:\\work\\tmp\\work.session.json","dryRun":true,"targetBuild":"same","outcomes":[{"outcome":"already_loaded","count":2}],"offset":0,"total":2,"truncated":false,"items":[{"kind":"file","id":"TestFixture","outcome":"already_loaded","reason":"same_build","count":1,"detail":"TestFixture"},{"kind":"file","id":"TestFixture.Consumer","outcome":"already_loaded","reason":"same_build","count":1,"detail":"TestFixture.Consumer"}],"notes":["dry run: nothing was loaded or changed; items on files that are not loaded yet report would_apply without checking them"]}
+{"id":"nipgw624r","kind":"finding","status":"open","text":"scores are capped","tags":[],"evidence":[],"anchor":{"kind":"dotnet","sha256":"9c239458751551fc933a84a5efa311e78560f9474eb479a4f6771c1220af9a14","mvid":"07d01fce-2120-48d3-82e4-66982f65d739","rva":null,"token":100663323,"label":"TestFixture:Fixture.Model.Account::Score()"},"revision":1,"created":"2026-10-12T11:32:29.0852076Z","updated":"2026-10-12T11:32:29.0852076Z","author":"corvus-measure"}
+[TestFixture] Dry run — would move 15 types: Fixture.Model.TagsAttribute, Fixture.Model.Tagged, Fixture.Model.IChargeable, Fixture.Model.Entity, Fixture.Model.Account, Fixture.Model.PremiumAccount, Fixture.Model.Vec2, Fixture.Model.Team, Fixture.Model.Secret, Fixture.Model.Container`1, Fixture.Model.Shop, Fixture.Model.Singleton`1, Fixture.Model.Bank, Fixture.Model.Holder`1, Fixture.Model.CountHolder
+Applying 5 edit(s) from edits.json to TestFixture (same build: using recorded tokens):
+Build check: same build (sha256 9c239458751551fc… matches)
+  #1 ok      stub Fixture.Model.Secret::Validate(string) => return true;
+  #2 ok      patch C# Fixture.Model.Shop::PriceOf(string, int)
+  #3 ok      patch IL (replace, 2 instructions) Fixture.Model.Account::Score()
+  #4 ok      add members to Fixture.Model.Shop: Twice(int)
+  #5 ok      add types: Mods.M
+5 applied, 0 failed.
+
+Wrote C:\work\tmp\saved.dll (13,312 bytes, 1 edit(s); everything no edit touched is as in the original).
+[TestFixture] stub Fixture.Model.Secret::Validate(string) => return true;
+Unsaved edits in TestFixture: 1.
+[TestFixture] Dry run — would rename type Fixture.Model.Account -> Customer
+[TestFixture] patch C# Fixture.Model.Shop::PriceOf(string, int)
+Unsaved edits in TestFixture: 1.
+
+Decompiled result:
+// Fixture.Model.Shop::PriceOf(string, int)  [token 0x0600002E]
+public int PriceOf(string item, int quantity)
+{
+	return quantity;
+}
+
+Undid #5 (add types: Mods.M). TestFixture now has 4 edit(s).

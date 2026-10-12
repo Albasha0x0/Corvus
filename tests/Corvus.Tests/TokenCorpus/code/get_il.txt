@@ -1,0 +1,269 @@
+// [System.Private.CoreLib] System.DateTimeFormat::FormatCustomized<TChar>(DateTime, ReadOnlySpan<char>, DateTimeFormatInfo, TimeSpan, ref ValueListBuilder<TChar>)
+// IL hash: 48a96a58e134fb4b  raw IL SHA-256: d963c88958e0d5a2
+.method /* 06001386 */ private hidebysig static 
+	void FormatCustomized<valuetype .ctor (class System.ValueType modreq(System.Runtime.InteropServices.UnmanagedType), class System.IUtfChar`1<!!TChar>) TChar> (
+		valuetype System.DateTime dateTime,
+		valuetype System.ReadOnlySpan`1<char> format,
+		class System.Globalization.DateTimeFormatInfo dtfi,
+		valuetype System.TimeSpan offset,
+		valuetype System.Collections.Generic.ValueListBuilder`1<!!TChar>& result
+	) cil managed 
+{
+	.param type TChar
+		.custom /* 0C000A7E */ instance void System.Runtime.CompilerServices.IsUnmanagedAttribute::.ctor() = (
+			01 00 00 00
+		)
+	.param [2]
+		.custom /* 0C002A82 */ instance void System.Runtime.CompilerServices.ScopedRefAttribute::.ctor() = (
+			01 00 00 00
+		)
+	// Method begins at RVA 0x854768
+	// Header size: 12
+	// Code size: 1673 (0x689)
+	.maxstack 7
+	.locals /* 110002B2 */ (
+		[0] class System.Globalization.Calendar,
+		[1] bool,
+		[2] bool,
+		[3] bool,
+		[4] int32,
+		[5] int32,
+		[6] int32,
+		[7] char,
+		[8] int32,
+		[9] int32,
+		[10] int32,
+		[11] int32,
+		[12] int32,
+		[13] int32,
+		[14] string,
+		[15] int32,
+		[16] int32,
+		[17] char
+	)
+
+	IL_0000: ldarg.2
+	IL_0001: callvirt instance class System.Globalization.Calendar System.Globalization.DateTimeFormatInfo::get_Calendar() /* 06003550 */
+	IL_0006: stloc.0
+	IL_0007: ldloc.0
+	IL_0008: callvirt instance valuetype System.Globalization.CalendarId System.Globalization.Calendar::get_ID() /* 060032E2 */
+	IL_000d: ldc.i4.8
+	IL_000e: ceq
+	IL_0010: stloc.1
+	IL_0011: ldloc.0
+	IL_0012: callvirt instance valuetype System.Globalization.CalendarId System.Globalization.Calendar::get_ID() /* 060032E2 */
+	IL_0017: ldc.i4.3
+	IL_0018: ceq
+	IL_001a: stloc.2
+	IL_001b: ldc.i4.1
+	IL_001c: stloc.3
+	IL_001d: ldc.i4.0
+	IL_001e: stloc.s 4
+	IL_0020: br IL_067a
+	// loop start (head: IL_067a)
+		IL_0025: ldarga.s format
+		IL_0027: ldloc.s 4
+		IL_0029: call instance !0& modreq(System.Runtime.InteropServices.InAttribute) valuetype System.ReadOnlySpan`1<char>::get_Item(int32) /* 0A00003C */
+		IL_002e: ldind.u2
+		IL_002f: stloc.s 7
+		IL_0031: ldloc.s 7
+		IL_0033: ldc.i4.s 75
+		IL_0035: bgt.un.s IL_00a5
+
+		IL_0037: ldloc.s 7
+		IL_0039: ldc.i4.s 47
+		IL_003b: bgt.un.s IL_0071
+
+		IL_003d: ldloc.s 7
+		IL_003f: ldc.i4.s 37
+		IL_0041: bgt.un.s IL_005a
+
+		IL_0043: ldloc.s 7
+		IL_0045: ldc.i4.s 34
+		IL_0047: beq IL_05eb
+
+		IL_004c: ldloc.s 7
+		IL_004e: ldc.i4.s 37
+		IL_0050: beq IL_05f9
+
+		IL_0055: br IL_0667
+
+		IL_005a: ldloc.s 7
+		IL_005c: ldc.i4.s 39
+		IL_005e: beq IL_05eb
+
+		IL_0063: ldloc.s 7
+		IL_0065: ldc.i4.s 47
+		IL_0067: beq IL_05d6
+
+		IL_006c: br IL_0667
+
+		IL_0071: ldloc.s 7
+		IL_0073: ldc.i4.s 70
+		IL_0075: bgt.un.s IL_008e
+
+		IL_0077: ldloc.s 7
+		IL_0079: ldc.i4.s 58
+		IL_007b: beq IL_05c1
+
+		IL_0080: ldloc.s 7
+		IL_0082: ldc.i4.s 70
+		IL_0084: beq IL_0209
+
+		IL_0089: br IL_0667
+
+		IL_008e: ldloc.s 7
+		IL_0090: ldc.i4.s 72
+		IL_0092: beq IL_0194
+
+		IL_0097: ldloc.s 7
+		IL_0099: ldc.i4.s 75
+		IL_009b: beq IL_05b0
+
+		IL_00a0: br IL_0667
+
+		IL_00a5: ldloc.s 7
+		IL_00a7: ldc.i4.s 109
+		IL_00a9: bgt.un.s IL_00f4
+
+		IL_00ab: ldloc.s 7
+		IL_00ad: ldc.i4.s 92
+		IL_00af: bgt.un.s IL_00c8
+
+		IL_00b1: ldloc.s 7
+		IL_00b3: ldc.i4.s 77
+		IL_00b5: beq IL_03ce
+
+		IL_00ba: ldloc.s 7
+		IL_00bc: ldc.i4.s 92
+		IL_00be: beq IL_0634
+
+		IL_00c3: br IL_0667
+
+		IL_00c8: ldloc.s 7
+		IL_00ca: ldc.i4.s 100
+		IL_00cc: sub
+		IL_00cd: switch (IL_0373, IL_0667, IL_0209, IL_0128, IL_0152)
+
+		IL_00e6: ldloc.s 7
+		IL_00e8: ldc.i4.s 109
+		IL_00ea: beq IL_01bb
+
+		IL_00ef: br IL_0667
+
+		IL_00f4: ldloc.s 7
+		IL_00f6: ldc.i4.s 116
+		IL_00f8: bgt.un.s IL_0111
+
+		IL_00fa: ldloc.s 7
+		IL_00fc: ldc.i4.s 115
+		IL_00fe: beq IL_01e2
+
+		IL_0103: ldloc.s 7
+		IL_0105: ldc.i4.s 116
+		IL_0107: beq IL_0301
+
+		IL_010c: br IL_0667
+
+		IL_0111: ldloc.s 7
+		IL_0113: ldc.i4.s 121
+		IL_0115: beq IL_0473
+
+		IL_011a: ldloc.s 7
+		IL_011c: ldc.i4.s 122
+		IL_011e: beq IL_0593
+
+		IL_0123: br IL_0667
+
+		IL_0128: ldarg.1
+		IL_0129: ldloc.s 4
+		IL_012b: ldloc.s 7
+		IL_012d: call int32 System.DateTimeFormat::ParseRepeatPattern(valuetype System.ReadOnlySpan`1<char>, int32, char) /* 0600137F */
+		IL_0132: stloc.s 5
+		IL_0134: ldarg.s result
+		IL_0136: ldarg.2
+		IL_0137: ldloc.0
+		IL_0138: ldarg.0
+		IL_0139: callvirt instance int32 System.Globalization.Calendar::GetEra(valuetype System.DateTime) /* 060032FB */
+		IL_013e: callvirt instance string System.Globalization.DateTimeFormatInfo::GetEraName(int32) /* 06003555 */
+		IL_0143: call valuetype System.ReadOnlySpan`1<char> System.MemoryExtensions::AsSpan(string) /* 0600194C */
+		IL_0148: call void System.DateTimeFormat::AppendString<!!TChar>(valuetype System.Collections.Generic.ValueListBuilder`1<!!0>&, valuetype System.ReadOnlySpan`1<char>) /* 2B000283 */
+		IL_014d: br IL_0673
+
+		IL_0152: ldarg.1
+		IL_0153: ldloc.s 4
+		IL_0155: ldloc.s 7
+		IL_0157: call int32 System.DateTimeFormat::ParseRepeatPattern(valuetype System.ReadOnlySpan`1<char>, int32, char) /* 0600137F */
+		IL_015c: stloc.s 5
+		IL_015e: ldarga.s dateTime
+		IL_0160: call instance int32 System.DateTime::get_Hour() /* 060010FB */
+		IL_0165: stloc.s 6
+		IL_0167: ldloc.s 6
+		IL_0169: ldc.i4.s 12
+		IL_016b: ble.s IL_0176
+
+		IL_016d: ldloc.s 6
+		IL_016f: ldc.i4.s 12
+		IL_0171: sub
+		IL_0172: stloc.s 6
+		IL_0174: br.s IL_017e
+
+		IL_0176: ldloc.s 6
+		IL_0178: brtrue.s IL_017e
+
+		IL_017a: ldc.i4.s 12
+		IL_017c: stloc.s 6
+
+		IL_017e: ldarg.s result
+		IL_0180: ldloc.s 6
+		IL_0182: ldloc.s 5
+		IL_0184: ldc.i4.2
+		IL_0185: call int32 System.Math::Min(int32, int32) /* 06000675 */
+		IL_018a: call void System.DateTimeFormat::FormatDigits<!!TChar>(valuetype System.Collections.Generic.ValueListBuilder`1<!!0>&, int32, int32) /* 2B000284 */
+		IL_018f: br IL_0673
+
+		IL_0194: ldarg.1
+		IL_0195: ldloc.s 4
+		IL_0197: ldloc.s 7
+		IL_0199: call int32 System.DateTimeFormat::ParseRepeatPattern(valuetype System.ReadOnlySpan`1<char>, int32, char) /* 0600137F */
+		IL_019e: stloc.s 5
+		IL_01a0: ldarg.s result
+		IL_01a2: ldarga.s dateTime
+		IL_01a4: call instance int32 System.DateTime::get_Hour() /* 060010FB */
+		IL_01a9: ldloc.s 5
+		IL_01ab: ldc.i4.2
+		IL_01ac: call int32 System.Math::Min(int32, int32) /* 06000675 */
+		IL_01b1: call void System.DateTimeFormat::FormatDigits<!!TChar>(valuetype System.Collections.Generic.ValueListBuilder`1<!!0>&, int32, int32) /* 2B000284 */
+		IL_01b6: br IL_0673
+
+		IL_01bb: ldarg.1
+		IL_01bc: ldloc.s 4
+		IL_01be: ldloc.s 7
+		IL_01c0: call int32 System.DateTimeFormat::ParseRepeatPattern(valuetype System.ReadOnlySpan`1<char>, int32, char) /* 0600137F */
+		IL_01c5: stloc.s 5
+		IL_01c7: ldarg.s result
+		IL_01c9: ldarga.s dateTime
+		IL_01cb: call instance int32 System.DateTime::get_Minute() /* 06001101 */
+		IL_01d0: ldloc.s 5
+		IL_01d2: ldc.i4.2
+		IL_01d3: call int32 System.Math::Min(int32, int32) /* 06000675 */
+		IL_01d8: call void System.DateTimeFormat::FormatDigits<!!TChar>(valuetype System.Collections.Generic.ValueListBuilder`1<!!0>&, int32, int32) /* 2B000284 */
+		IL_01dd: br IL_0673
+
+		IL_01e2: ldarg.1
+		IL_01e3: ldloc.s 4
+		IL_01e5: ldloc.s 7
+		IL_01e7: call int32 System.DateTimeFormat::ParseRepeatPattern(valuetype System.ReadOnlySpan`1<char>, int32, char) /* 0600137F */
+		IL_01ec: stloc.s 5
+		IL_01ee: ldarg.s result
+		IL_01f0: ldarga.s dateTime
+		IL_01f2: call instance int32 System.DateTime::get_Second() /* 06001104 */
+		IL_01f7: ldloc.s 5
+		IL_01f9: ldc.i4.2
+		IL_01fa: call int32 System.Math::Min(int32, int32) /* 06000675 */
+		IL_01ff: call void System.DateTimeFormat::FormatDigits<!!TChar>(valuetype System.Collections.Generic.ValueListBuilder`1<!!0>&, int32, int32) /* 2B000284 */
+		IL_0204: br IL_0673
+
+		IL_0209: ldarg.1
+		IL_020a: ldloc.s 4
+		IL_020c: ldloc.s 7

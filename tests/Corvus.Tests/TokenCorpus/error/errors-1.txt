@@ -1,0 +1,105 @@
+Error (invalid_argument) in add_members_csharp: missing required parameter 'type'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'type'.","next":null,"partial":null,"details":{"parameter":"type"}}
+Error (invalid_argument) in add_search_directory: missing required parameter 'directory'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'directory'.","next":null,"partial":null,"details":{"parameter":"directory"}}
+Error (not_found) in add_search_directory: Directory not found: C:\work\inputs\nope-missing\add_search_directory\missing.dll
+
+
+error (json): {"code":"not_found","retryable":false,"message":"Directory not found: C:\\work\\inputs\\nope-missing\\add_search_directory\\missing.dll","next":null,"partial":null,"details":null}
+Error (invalid_argument) in add_types_csharp: missing required parameter 'assembly'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'assembly'.","next":null,"partial":null,"details":{"parameter":"assembly"}}
+Error (not_found) in add_types_csharp: No loaded assembly matches 'C:\work\inputs\nope-missing\add_types_csharp\missing.dll'. Loaded: TestFixture, TestFixture.Consumer
+
+
+error (json): {"code":"not_found","retryable":false,"message":"No loaded assembly matches 'C:\\work\\inputs\\nope-missing\\add_types_csharp\\missing.dll'. Loaded: TestFixture, TestFixture.Consumer","next":null,"partial":null,"details":null}
+Error (invalid_argument) in analyze_native_function: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in analyze_native_function: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in apply_edits: missing required parameter 'path'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'path'.","next":null,"partial":null,"details":{"parameter":"path"}}
+Error (not_found) in apply_edits: File not found: C:\work\inputs\nope-missing\apply_edits\missing.dll
+
+
+error (json): {"code":"not_found","retryable":false,"message":"File not found: C:\\work\\inputs\\nope-missing\\apply_edits\\missing.dll","next":null,"partial":null,"details":null}
+Error (invalid_argument) in apply_il2cpp_names: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in apply_il2cpp_names: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in bucket_minidumps: missing required parameter 'folder'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'folder'.","next":null,"partial":null,"details":{"parameter":"folder"}}
+Error (not_found) in bucket_minidumps: no folder at 'C:\work\inputs\nope-missing\bucket_minidumps\missing.dll'.
+Next: pass the folder that holds the .dmp files
+
+
+error (json): {"code":"not_found","retryable":false,"message":"no folder at 'C:\\work\\inputs\\nope-missing\\bucket_minidumps\\missing.dll'.","next":"pass the folder that holds the .dmp files","partial":null,"details":null}
+Error (invalid_argument) in comment_native: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in comment_native: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in compare_assemblies: missing required parameter 'oldAssembly'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'oldAssembly'.","next":null,"partial":null,"details":{"parameter":"oldAssembly"}}
+Error (invalid_argument) in compare_folders: missing required parameter 'oldPath'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'oldPath'.","next":null,"partial":null,"details":{"parameter":"oldPath"}}
+Error (not_found) in compare_folders: oldPath: nothing at 'C:\work\inputs\nope-missing\compare_folders\missing.dll'.
+Next: pass a folder, a zip-family archive (.zip, .nupkg, .apk, ...) or a file
+
+
+error (json): {"code":"not_found","retryable":false,"message":"oldPath: nothing at 'C:\\work\\inputs\\nope-missing\\compare_folders\\missing.dll'.","next":"pass a folder, a zip-family archive (.zip, .nupkg, .apk, ...) or a file","partial":null,"details":null}
+Error (invalid_argument) in compare_native_images: missing required parameter 'oldImage'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'oldImage'.","next":null,"partial":null,"details":{"parameter":"oldImage"}}
+Error (not_loaded) in compare_native_images: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in convert_number: missing required parameter 'numbers'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'numbers'.","next":null,"partial":null,"details":{"parameter":"numbers"}}
+Error (invalid_argument) in declare_native_types: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in declare_native_types: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in decompile_assembly_attributes: missing required parameter 'assembly'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'assembly'.","next":null,"partial":null,"details":{"parameter":"assembly"}}
+Error (not_found) in decompile_assembly_attributes: No loaded assembly matches 'C:\work\inputs\nope-missing\decompile_assembly_attributes\missing.dll'. Loaded: TestFixture, TestFixture.Consumer
+

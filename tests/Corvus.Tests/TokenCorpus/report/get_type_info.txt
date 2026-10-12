@@ -1,0 +1,99 @@
+public sealed class String : IComparable, IEnumerable, IConvertible, IEnumerable<char>, IComparable<string>, IEquatable<string>, ICloneable, ISpanParsable<string>, IParsable<string>
+  full name: System.String   token: 0x020000C9   assembly: System.Private.CoreLib
+  [NullableContext(1)]
+  [Nullable(0)]
+  [DefaultMember("Chars")]
+  [NonVersionable]
+  [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+
+Nested types (1):
+  0x020000CA  static class SearchValuesStorage
+
+Fields (3):
+  0x04000381  public static readonly string Empty
+  0x04000382  private readonly int _stringLength
+  0x04000383  private char _firstChar
+
+Properties (2):
+  0x170000E6  public char Chars[int] { get; }
+  0x170000E7  public int Length { get; }
+
+Methods (279):
+  0x06000963  private static extern string* StrCnsInternal(uint rid, nint scopeHandle)  no body
+  0x06000964  internal static string StrCns(uint rid, nint scopeHandle)  IL 5 instr
+  0x06000965  internal static string FastAllocateString(MethodTable* pMT, nint length)  no body
+  0x06000966  internal static string FastAllocateString(nint length)  IL 7 instr
+  0x06000967  private static extern void Intern(StringHandleOnStack src)  no body
+  0x06000968  public static string Intern(string str)  IL 8 instr
+  0x06000969  private static extern void IsInterned(StringHandleOnStack src)  no body
+  0x0600096A  public static string IsInterned(string str)  IL 8 instr
+  0x0600096B  internal static void InternalCopy(string src, nint dest, int len)  IL 9 instr
+  0x0600096C  internal int GetBytesFromEncoding(byte* pbNativeBuffer, int cbNativeBuffer, Encoding encoding)  IL 14 instr
+  0x0600096D  private static bool EqualsHelper(string strA, string strB)  IL 11 instr
+  0x0600096E  private static int CompareOrdinalHelper(string strA, int indexA, int countA, string strB, int indexB, int countB)  IL 14 instr
+  0x0600096F  private static bool EqualsOrdinalIgnoreCaseNoLengthCheck(string strA, string strB)  IL 8 instr
+  0x06000970  private static int CompareOrdinalHelper(string strA, string strB)  IL 205 instr
+  0x06000971  public static int Compare(string strA, string strB)  IL 5 instr
+  0x06000972  public static int Compare(string strA, string strB, bool ignoreCase)  IL 11 instr
+  0x06000973  public static int Compare(string strA, string strB, StringComparison comparisonType)  IL 66 instr
+  0x06000974  public static int Compare(string strA, string strB, CultureInfo culture, CompareOptions options)  IL 11 instr
+  0x06000975  public static int Compare(string strA, string strB, bool ignoreCase, CultureInfo culture)  IL 12 instr
+  0x06000976  public static int Compare(string strA, int indexA, string strB, int indexB, int length)  IL 8 instr
+  0x06000977  public static int Compare(string strA, int indexA, string strB, int indexB, int length, bool ignoreCase)  IL 39 instr
+  0x06000978  public static int Compare(string strA, int indexA, string strB, int indexB, int length, bool ignoreCase, CultureInfo culture)  IL 15 instr
+  0x06000979  public static int Compare(string strA, int indexA, string strB, int indexB, int length, CultureInfo culture, CompareOptions options)  IL 37 instr
+  0x0600097A  public static int Compare(string strA, int indexA, string strB, int indexB, int length, StringComparison comparisonType)  IL 129 instr
+  0x0600097B  public static int CompareOrdinal(string strA, string strB)  IL 28 instr
+  0x0600097C  internal static int CompareOrdinal(ReadOnlySpan<char> strA, ReadOnlySpan<char> strB)  IL 10 instr
+  0x0600097D  public static int CompareOrdinal(string strA, int indexA, string strB, int indexB, int length)  IL 80 instr
+  0x0600097E  public int CompareTo(object value)  IL 16 instr
+  0x0600097F  public int CompareTo(string strB)  IL 5 instr
+  0x06000980  public bool EndsWith(string value)  IL 5 instr
+  0x06000981  public bool EndsWith(string value, StringComparison comparisonType)  IL 79 instr
+  0x06000982  public bool EndsWith(string value, bool ignoreCase, CultureInfo culture)  IL 23 instr
+  0x06000983  public bool EndsWith(char value)  IL 37 instr
+  0x06000984  public override bool Equals(object obj)  IL 23 instr
+  0x06000985  public bool Equals(string value)  IL 20 instr
+  0x06000986  public bool Equals(string value, StringComparison comparisonType)  IL 61 instr
+  0x06000987  public static bool Equals(string a, string b)  IL 20 instr
+  0x06000988  public static bool Equals(string a, string b, StringComparison comparisonType)  IL 63 instr
+  0x06000989  public static bool op_Equality(string a, string b)  IL 4 instr
+  0x0600098A  public static bool op_Inequality(string a, string b)  IL 6 instr
+  0x0600098B  public override int GetHashCode()  IL 17 instr
+  0x0600098C  public int GetHashCode(StringComparison comparisonType)  IL 5 instr
+  0x0600098D  internal int GetHashCodeOrdinalIgnoreCase()  IL 14 instr
+  0x0600098E  public static int GetHashCode(ReadOnlySpan<char> value)  IL 17 instr
+  0x0600098F  public static int GetHashCode(ReadOnlySpan<char> value, StringComparison comparisonType)  IL 27 instr
+  0x06000990  internal static int GetHashCodeOrdinalIgnoreCase(ReadOnlySpan<char> value)  IL 14 instr
+  0x06000991  internal int GetNonRandomizedHashCode()  IL 66 instr
+  0x06000992  internal static int GetNonRandomizedHashCode(ReadOnlySpan<char> span)  IL 107 instr
+  0x06000993  internal int GetNonRandomizedHashCodeOrdinalIgnoreCase()  IL 103 instr
+  0x06000994  internal static int GetNonRandomizedHashCodeOrdinalIgnoreCase(ReadOnlySpan<char> span)  IL 159 instr
+  0x06000995  private static int GetNonRandomizedHashCodeOrdinalIgnoreCaseSlow(uint hash1, uint hash2, ReadOnlySpan<char> str)  IL 109 instr
+  0x06000996  public bool StartsWith(string value)  IL 8 instr
+  0x06000997  public bool StartsWith(string value, StringComparison comparisonType)  IL 84 instr
+  0x06000998  public bool StartsWith(string value, bool ignoreCase, CultureInfo culture)  IL 23 instr
+  0x06000999  public bool StartsWith(char value)  IL 20 instr
+  0x0600099A  internal static void CheckStringComparison(StringComparison comparisonType)  IL 7 instr
+  0x0600099B  internal static CompareOptions GetCaseCompareOfComparisonCulture(StringComparison comparisonType)  IL 4 instr
+  0x0600099C  private static CompareOptions GetCompareOptionsFromOrdinalStringComparison(StringComparison comparisonType)  IL 7 instr
+  0x0600099D  public String(char[] value)  no body
+  0x0600099E  private static string Ctor(char[] value)  IL 23 instr
+  0x0600099F  public String(char[] value, int startIndex, int length)  no body
+  0x060009A0  private static string Ctor(char[] value, int startIndex, int length)  IL 37 instr
+  0x060009A1  public String(char* value)  no body
+  0x060009A2  private static string Ctor(char* ptr)  IL 26 instr
+  0x060009A3  public String(char* value, int startIndex, int length)  no body
+  0x060009A4  private static string Ctor(char* ptr, int startIndex, int length)  IL 45 instr
+  0x060009A5  public String(sbyte* value)  no body
+  0x060009A6  private static string Ctor(sbyte* value)  IL 15 instr
+  0x060009A7  public String(sbyte* value, int startIndex, int length)  no body
+  0x060009A8  private static string Ctor(sbyte* value, int startIndex, int length)  IL 31 instr
+  0x060009A9  private static string CreateStringForSByteConstructor(byte* pb, int numBytes)  IL 44 instr
+  0x060009AA  public String(sbyte* value, int startIndex, int length, Encoding enc)  no body
+  0x060009AB  private static string Ctor(sbyte* value, int startIndex, int length, Encoding enc)  IL 40 instr
+  0x060009AC  public String(char c, int count)  no body
+  0x060009AD  private static string Ctor(char c, int count)  IL 22 instr
+  0x060009AE  public String(ReadOnlySpan<char> value)  no body
+  0x060009AF  private static string Ctor(ReadOnlySpan<char> value)  IL 18 instr
+  0x060009B0  public static string Create<TState>(int length, TState state, SpanAction<char, TState> action)  IL 26 instr

@@ -1,0 +1,112 @@
+Error (invalid_argument) in get_attributes: unknown parameter 'zzNotAParameter'.
+Next: Parameters: symbol, assembly, filter.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"unknown parameter 'zzNotAParameter'.","next":"Parameters: symbol, assembly, filter.","partial":null,"details":{"parameter":"zzNotAParameter","suggestions":[],"parameters":["symbol","assembly","filter"]}}
+Error (invalid_argument) in get_call_arguments: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in get_call_arguments: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in get_call_tree: missing required parameter 'method'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'method'.","next":null,"partial":null,"details":{"parameter":"method"}}
+Error (invalid_argument) in get_cfg: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in get_cfg: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in get_dex_class: missing required parameter 'path'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'path'.","next":null,"partial":null,"details":{"parameter":"path"}}
+Error (not_found) in get_dex_class: file not found: C:\work\inputs\nope-missing\get_dex_class\missing.dll
+
+
+error (json): {"code":"not_found","retryable":false,"message":"file not found: C:\\work\\inputs\\nope-missing\\get_dex_class\\missing.dll","next":null,"partial":null,"details":null}
+Error (invalid_argument) in get_engine_status: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in get_engine_status: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in get_exception_info: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in get_exception_info: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in get_il: missing required parameter 'symbol'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'symbol'.","next":null,"partial":null,"details":{"parameter":"symbol"}}
+Error (invalid_argument) in get_il2cpp_info: missing required parameter 'symbol'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'symbol'.","next":null,"partial":null,"details":{"parameter":"symbol"}}
+Error (invalid_argument) in get_native_frame: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in get_native_frame: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in get_native_type: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_found) in get_native_type: No loaded native image matches 'C:\work\inputs\nope-missing\get_native_type\missing.dll'. Loaded: conpty.node
+
+
+error (json): {"code":"not_found","retryable":false,"message":"No loaded native image matches 'C:\\work\\inputs\\nope-missing\\get_native_type\\missing.dll'. Loaded: conpty.node","next":null,"partial":null,"details":null}
+Error (invalid_argument) in get_nativeaot_info: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in get_nativeaot_info: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in get_pe_info: missing required parameter 'image'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'image'.","next":null,"partial":null,"details":{"parameter":"image"}}
+Error (not_loaded) in get_pe_info: No native images are loaded.
+Next: load_assembly with the path of a native .exe or .dll
+
+
+error (json): {"code":"not_loaded","retryable":false,"message":"No native images are loaded.","next":"load_assembly with the path of a native .exe or .dll","partial":null,"details":null}
+Error (invalid_argument) in get_r2r_code: missing required parameter 'method'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'method'.","next":null,"partial":null,"details":{"parameter":"method"}}
+Error (not_found) in get_r2r_code: No loaded assembly matches 'C:\work\inputs\nope-missing\get_r2r_code\missing.dll'. Loaded: TestFixture, TestFixture.Consumer
+
+
+error (json): {"code":"not_found","retryable":false,"message":"No loaded assembly matches 'C:\\work\\inputs\\nope-missing\\get_r2r_code\\missing.dll'. Loaded: TestFixture, TestFixture.Consumer","next":null,"partial":null,"details":null}
+Error (invalid_argument) in get_resource: missing required parameter 'assembly'.
+
+
+error (json): {"code":"invalid_argument","retryable":false,"message":"missing required parameter 'assembly'.","next":null,"partial":null,"details":{"parameter":"assembly"}}
+Error (not_found) in get_resource: No loaded assembly matches 'C:\work\inputs\nope-missing\get_resource\missing.dll'. Loaded: TestFixture, TestFixture.Consumer
+
+
+error (json): {"code":"not_found","retryable":false,"message":"No loaded assembly matches 'C:\\work\\inputs\\nope-missing\\get_resource\\missing.dll'. Loaded: TestFixture, TestFixture.Consumer","next":null,"partial":null,"details":null}

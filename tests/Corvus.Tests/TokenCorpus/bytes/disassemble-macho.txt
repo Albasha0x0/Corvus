@@ -1,0 +1,47 @@
+; Engine: ours (engine=ours: the built-in index; no engine consulted)
+Note: no relocations: data pointers are runs of values that are function starts, unconfirmed
+; _usage at 0x100002784, 156 bytes, 1 block  [noreturn]
+_usage:
+  100002784  FF0301D1                 sub    sp, sp, #64
+  100002788  F65701A9                 stp    x22, x21, [sp, #16]
+  10000278C  F44F02A9                 stp    x20, x19, [sp, #32]
+  100002790  FD7B03A9                 stp    x29, x30, [sp, #48]
+  100002794  FDC30091                 add    x29, sp, #48
+  100002798  F30301AA                 mov    x19, x1
+  10000279C  F40300AA                 mov    x20, x0
+  1000027A0  280000D0                 adrp   x8, 0x100008000
+  1000027A4  08C940F9                 ldr    x8, [x8, #400]  ; /usr/lib/libSystem.B.dylib!___stdoutp
+  1000027A8  290000D0                 adrp   x9, 0x100008000
+  1000027AC  29C540F9                 ldr    x9, [x9, #392]  ; /usr/lib/libSystem.B.dylib!___stderrp
+  1000027B0  1F000071                 cmp    w0, #0
+  1000027B4  0801899A                 csel   x8, x8, x9, eq
+  1000027B8  150140F9                 ldr    x21, [x8]
+  1000027BC  080000B0                 adrp   x8, 0x100003000
+  1000027C0  08DD1191                 add    x8, x8, #1143  ; "1.8.2"
+  1000027C4  E80300F9                 str    x8, [sp]
+  1000027C8  010000B0                 adrp   x1, 0x100003000
+  1000027CC  21741D91                 add    x1, x1, #1885  ; "jq - commandline JSON processor [version %s]\n\nUsage:\tjq [options] <jq filter> [file...]\n\tjq [options] --args <jq filter>"...
+  1000027D0  E00315AA                 mov    x0, x21
+  1000027D4  9D010094                 bl     j__fprintf  ; _fprintf(?, "jq - commandline JSON processor [version %s]\n\nUsage:\tjq [options] <jq fil...)
+  1000027D8  F60300AA                 mov    x22, x0
+  1000027DC  7F020071                 cmp    w19, #0
+  1000027E0  08068052                 mov    w8, #48
+  1000027E4  89288152                 mov    w9, #2372
+  1000027E8  2101889A                 csel   x1, x9, x8, eq
+  1000027EC  080000B0                 adrp   x8, 0x100003000
+  1000027F0  08A12691                 add    x8, x8, #2472  ; "For listing the command options, use jq --help.\n"
+  1000027F4  090000B0                 adrp   x9, 0x100003000
+  1000027F8  29652791                 add    x9, x9, #2521  ; "Command options:\n  -n, --null-input          use `null` as the single input value;\n  -R, --raw-input           read each"...
+  1000027FC  2001889A                 csel   x0, x9, x8, eq
+  100002800  22008052                 mov    w2, #1
+  100002804  E30315AA                 mov    x3, x21
+  100002808  9C010094                 bl     j__fwrite  ; _fwrite(?, ?, 1, ?)
+  10000280C  DF020071                 cmp    w22, #0
+  100002810  80BA407A                 ccmp   w20, #0, #0, lt
+  100002814  48008052                 mov    w8, #2
+  100002818  0001941A                 csel   w0, w8, w20, eq
+  10000281C  7F010094                 bl     j__exit  ; _exit(?)
+; imports called, bound to:
+;   /usr/lib/libSystem.B.dylib!_fprintf -> /usr/lib/libSystem.B.dylib: unresolved (dll_not_found): searched C:\work\corpus\apple\jq-1.8.2-bottle-arm64\x\jq\1.8.2\bin; C:\WINDOWS\system32; C:\WINDOWS
+;   /usr/lib/libSystem.B.dylib!_fwrite -> /usr/lib/libSystem.B.dylib: unresolved (dll_not_found): searched C:\work\corpus\apple\jq-1.8.2-bottle-arm64\x\jq\1.8.2\bin; C:\WINDOWS\system32; C:\WINDOWS
+;   /usr/lib/libSystem.B.dylib!_exit -> /usr/lib/libSystem.B.dylib: unresolved (dll_not_found): searched C:\work\corpus\apple\jq-1.8.2-bottle-arm64\x\jq\1.8.2\bin; C:\WINDOWS\system32; C:\WINDOWS

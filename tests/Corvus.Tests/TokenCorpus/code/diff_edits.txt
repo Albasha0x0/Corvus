@@ -1,0 +1,227 @@
+=== #1 simplify_methods: simplify Newtonsoft.Json (fold,cfg,inline): 173 method(s)
+--- original Newtonsoft.Json.JsonConvert::EnsureDecimalPlace(double, string)
++++ current Newtonsoft.Json.JsonConvert::EnsureDecimalPlace(double, string)
+@@ -1,9 +1,7 @@
+ // Newtonsoft.Json.JsonConvert::EnsureDecimalPlace(double, string)  [token 0x0600004E]
+-using Newtonsoft.Json.Utilities;
+-
+ private static string EnsureDecimalPlace(double value, string text)
+ {
+-	if (double.IsNaN(value) || double.IsInfinity(value) || StringUtils.IndexOf(text, '.') != -1 || StringUtils.IndexOf(text, 'E') != -1 || StringUtils.IndexOf(text, 'e') != -1)
++	if (double.IsNaN(value) || double.IsInfinity(value) || text.IndexOf('.') != -1 || text.IndexOf('E') != -1 || text.IndexOf('e') != -1)
+ 	{
+ 		return text;
+ 	}
+
+--- original Newtonsoft.Json.JsonConvert::EnsureDecimalPlace(string)
++++ current Newtonsoft.Json.JsonConvert::EnsureDecimalPlace(string)
+@@ -1,9 +1,7 @@
+ // Newtonsoft.Json.JsonConvert::EnsureDecimalPlace(string)  [token 0x0600004F]
+-using Newtonsoft.Json.Utilities;
+-
+ private static string EnsureDecimalPlace(string text)
+ {
+-	if (StringUtils.IndexOf(text, '.') != -1)
++	if (text.IndexOf('.') != -1)
+ 	{
+ 		return text;
+ 	}
+
+--- original Newtonsoft.Json.JsonConvert::SerializeObjectInternal(object, Type, JsonSerializer)
++++ current Newtonsoft.Json.JsonConvert::SerializeObjectInternal(object, Type, JsonSerializer)
+@@ -10,7 +10,7 @@
+ 	using (JsonTextWriter jsonTextWriter = new JsonTextWriter(stringWriter))
+ 	{
+ 		jsonTextWriter.Formatting = jsonSerializer.Formatting;
+-		jsonSerializer.Serialize(jsonTextWriter, value, type);
++		jsonSerializer.SerializeInternal(jsonTextWriter, value, type);
+ 	}
+ 	return stringWriter.ToString();
+ }
+
+--- original Newtonsoft.Json.JsonConvert::DeserializeObject(string, Type, JsonSerializerSettings)
++++ current Newtonsoft.Json.JsonConvert::DeserializeObject(string, Type, JsonSerializerSettings)
+@@ -12,5 +12,5 @@
+ 		jsonSerializer.CheckAdditionalContent = true;
+ 	}
+ 	using JsonTextReader reader = new JsonTextReader(new StringReader(value));
+-	return jsonSerializer.Deserialize(reader, type);
++	return jsonSerializer.DeserializeInternal(reader, type);
+ }
+
+--- original Newtonsoft.Json.JsonConvert::PopulateObject(string, object, JsonSerializerSettings)
++++ current Newtonsoft.Json.JsonConvert::PopulateObject(string, object, JsonSerializerSettings)
+@@ -5,7 +5,7 @@
+ {
+ 	JsonSerializer jsonSerializer = JsonSerializer.CreateDefault(settings);
+ 	using JsonReader jsonReader = new JsonTextReader(new StringReader(value));
+-	jsonSerializer.Populate(jsonReader, target);
++	jsonSerializer.PopulateInternal(jsonReader, target);
+ 	if (settings == null || !settings.CheckAdditionalContent)
+ 	{
+ 		return;
+
+--- original Newtonsoft.Json.JsonReader::ReadInt32String(string)
++++ current Newtonsoft.Json.JsonReader::ReadInt32String(string)
+@@ -4,7 +4,7 @@
+ 
+ internal int? ReadInt32String(string? s)
+ {
+-	if (StringUtils.IsNullOrEmpty(s))
++	if (string.IsNullOrEmpty(s))
+ 	{
+ 		SetToken(JsonToken.Null, null, updateIndex: false);
+ 		return null;
+
+--- original Newtonsoft.Json.JsonReader::ReadDoubleString(string)
++++ current Newtonsoft.Json.JsonReader::ReadDoubleString(string)
+@@ -4,7 +4,7 @@
+ 
+ internal double? ReadDoubleString(string? s)
+ {
+-	if (StringUtils.IsNullOrEmpty(s))
++	if (string.IsNullOrEmpty(s))
+ 	{
+ 		SetToken(JsonToken.Null, null, updateIndex: false);
+ 		return null;
+
+--- original Newtonsoft.Json.JsonReader::ReadBooleanString(string)
++++ current Newtonsoft.Json.JsonReader::ReadBooleanString(string)
+@@ -4,7 +4,7 @@
+ 
+ internal bool? ReadBooleanString(string? s)
+ {
+-	if (StringUtils.IsNullOrEmpty(s))
++	if (string.IsNullOrEmpty(s))
+ 	{
+ 		SetToken(JsonToken.Null, null, updateIndex: false);
+ 		return null;
+
+--- original Newtonsoft.Json.JsonReader::ReadDecimalString(string)
++++ current Newtonsoft.Json.JsonReader::ReadDecimalString(string)
+@@ -4,7 +4,7 @@
+ 
+ internal decimal? ReadDecimalString(string? s)
+ {
+-	if (StringUtils.IsNullOrEmpty(s))
++	if (string.IsNullOrEmpty(s))
+ 	{
+ 		SetToken(JsonToken.Null, null, updateIndex: false);
+ 		return null;
+
+--- original Newtonsoft.Json.JsonReader::ReadDateTimeString(string)
++++ current Newtonsoft.Json.JsonReader::ReadDateTimeString(string)
+@@ -5,7 +5,7 @@
+ 
+ internal DateTime? ReadDateTimeString(string? s)
+ {
+-	if (StringUtils.IsNullOrEmpty(s))
++	if (string.IsNullOrEmpty(s))
+ 	{
+ 		SetToken(JsonToken.Null, null, updateIndex: false);
+ 		return null;
+
+--- original Newtonsoft.Json.JsonReader::ReadDateTimeOffsetString(string)
++++ current Newtonsoft.Json.JsonReader::ReadDateTimeOffsetString(string)
+@@ -5,7 +5,7 @@
+ 
+ internal DateTimeOffset? ReadDateTimeOffsetString(string? s)
+ {
+-	if (StringUtils.IsNullOrEmpty(s))
++	if (string.IsNullOrEmpty(s))
+ 	{
+ 		SetToken(JsonToken.Null, null, updateIndex: false);
+ 		return null;
+
+--- original Newtonsoft.Json.JsonSerializer::Create(JsonSerializerSettings)
++++ current Newtonsoft.Json.JsonSerializer::Create(JsonSerializerSettings)
+@@ -1,7 +1,7 @@
+ // Newtonsoft.Json.JsonSerializer::Create(JsonSerializerSettings)  [token 0x0600017F]
+ public static JsonSerializer Create(JsonSerializerSettings? settings)
+ {
+-	JsonSerializer jsonSerializer = Create();
++	JsonSerializer jsonSerializer = new JsonSerializer();
+ 	if (settings != null)
+ 	{
+ 		ApplySerializerSettings(jsonSerializer, settings);
+
+--- original Newtonsoft.Json.JsonSerializer::Populate(TextReader, object)
++++ current Newtonsoft.Json.JsonSerializer::Populate(TextReader, object)
+@@ -5,5 +5,5 @@
+ [DebuggerStepThrough]
+ public void Populate(TextReader reader, object target)
+ {
+-	Populate(new JsonTextReader(reader), target);
++	PopulateInternal(new JsonTextReader(reader), target);
+ }
+
+--- original Newtonsoft.Json.JsonSerializer::Deserialize(JsonReader)
++++ current Newtonsoft.Json.JsonSerializer::Deserialize(JsonReader)
+@@ -4,5 +4,5 @@
+ [DebuggerStepThrough]
+ public object? Deserialize(JsonReader reader)
+ {
+-	return Deserialize(reader, null);
++	return DeserializeInternal(reader, null);
+ }
+
+--- original Newtonsoft.Json.JsonSerializer::Deserialize(TextReader, Type)
++++ current Newtonsoft.Json.JsonSerializer::Deserialize(TextReader, Type)
+@@ -6,5 +6,5 @@
+ [DebuggerStepThrough]
+ public object? Deserialize(TextReader reader, Type objectType)
+ {
+-	return Deserialize(new JsonTextReader(reader), objectType);
++	return DeserializeInternal(new JsonTextReader(reader), objectType);
+ }
+
+--- original Newtonsoft.Json.JsonSerializer::Deserialize<T>(JsonReader)
++++ current Newtonsoft.Json.JsonSerializer::Deserialize<T>(JsonReader)
+@@ -4,5 +4,5 @@
+ [DebuggerStepThrough]
+ public T? Deserialize<T>(JsonReader reader)
+ {
+-	return (T)Deserialize(reader, typeof(T));
++	return (T)DeserializeInternal(reader, typeof(T));
+ }
+
+--- original Newtonsoft.Json.JsonSerializer::Serialize(TextWriter, object, Type)
++++ current Newtonsoft.Json.JsonSerializer::Serialize(TextWriter, object, Type)
+@@ -4,5 +4,5 @@
+ 
+ public void Serialize(TextWriter textWriter, object? value, Type objectType)
+ {
+-	Serialize(new JsonTextWriter(textWriter), value, objectType);
++	SerializeInternal(new JsonTextWriter(textWriter), value, objectType);
+ }
+
+--- original Newtonsoft.Json.JsonTextReader::ReadStringIntoBuffer(char)
++++ current Newtonsoft.Json.JsonTextReader::ReadStringIntoBuffer(char)
+@@ -62,11 +62,11 @@
+ 			case 'u':
+ 				_charPos = num;
+ 				c2 = ParseUnicode();
+-				if (StringUtils.IsLowSurrogate(c2))
++				if (char.IsLowSurrogate(c2))
+ 				{
+ 					c2 = '\ufffd';
+ 				}
+-				else if (StringUtils.IsHighSurrogate(c2))
++				else if (char.IsHighSurrogate(c2))
+ 				{
+ 					bool flag;
+ 					do
+@@ -77,9 +77,9 @@
+ 							char writeChar = c2;
+ 							_charPos += 2;
+ 							c2 = ParseUnicode();
+-							if (!StringUtils.IsLowSurrogate(c2))
++							if (!char.IsLowSurrogate(c2))
+ 							{
+-								if (StringUtils.IsHighSurrogate(c2))
++								if (char.IsHighSurrogate(c2))
+ 								{
+ 									writeChar = '\ufffd';
+ 									flag = true;
+
+--- original Newtonsoft.Json.JsonTextReader/<ReadStringIntoBufferAsync>d__9::MoveNext()

@@ -1,0 +1,64 @@
+conpty.node (conpty.pdb): 4225 symbols (showing 1-200):
+  0x180001000  static       12  `dynamic initializer for 'ptyHandles''  (conpty.obj)
+  0x180001010  static       32  std::`dynamic initializer for 'initlocks''  (xlock.obj)
+  0x180001030  static       12  std::`dynamic initializer for '_Fac_tidy_reg''  (locale0.obj)
+  0x180001040  static       12  std::`dynamic initializer for 'classic_locale''  (locale0.obj)
+  0x180001050  static       12  `dynamic initializer for 'init_atexit''  (iosptrs.obj)
+  0x180001060  static       32  std::`dynamic initializer for 'initlocks''  (iosptrs.obj)
+  0x180001080  static       52  load_exe_hook  (win_delay_load_hook.obj)
+  0x1800010C0  function     50  std::exception::exception  (conpty.obj)
+  0x1800010C0  public           std::exception::exception  [public: __cdecl std::exception::exception(class std::exception const &)]
+  0x180001100  public           std::exception::what  [public: virtual char const * __cdecl std::exception::what(void) const]
+  0x180001100  function     19  std::exception::what  (conpty.obj)
+  0x180001120  public           std::length_error::`vector deleting destructor'  [public: virtual void * __cdecl std::length_error::`vector deleting destructor'(unsigned int)]
+  0x180001120  public           std::bad_cast::`vector deleting destructor'  [public: virtual void * __cdecl std::bad_cast::`vector deleting destructor'(unsigned int)]
+  0x180001120  public           std::bad_array_new_length::`vector deleting destructor'  [public: virtual void * __cdecl std::bad_array_new_length::`vector deleting destructor'(unsigned int)]
+  0x180001120  function     66  std::runtime_error::`scalar deleting destructor'  (conpty.obj)
+  0x180001120  function     66  std::exception::`scalar deleting destructor'  (conpty.obj)
+  0x180001120  function     66  std::bad_cast::`scalar deleting destructor'  (conpty.obj)
+  0x180001120  public           std::out_of_range::`scalar deleting destructor'  [public: virtual void * __cdecl std::out_of_range::`scalar deleting destructor'(unsigned int)]
+  0x180001120  public           std::bad_function_call::`vector deleting destructor'  [public: virtual void * __cdecl std::bad_function_call::`vector deleting destructor'(unsigned int)]
+  0x180001120  public           std::logic_error::`scalar deleting destructor'  [public: virtual void * __cdecl std::logic_error::`scalar deleting destructor'(unsigned int)]
+  0x180001120  public           std::bad_exception::`scalar deleting destructor'  [public: virtual void * __cdecl std::bad_exception::`scalar deleting destructor'(unsigned int)]
+  0x180001120  public           std::runtime_error::`scalar deleting destructor'  [public: virtual void * __cdecl std::runtime_error::`scalar deleting destructor'(unsigned int)]
+  0x180001120  public           std::out_of_range::`vector deleting destructor'  [public: virtual void * __cdecl std::out_of_range::`vector deleting destructor'(unsigned int)]
+  0x180001120  function     66  std::bad_alloc::`scalar deleting destructor'  (conpty.obj)
+  0x180001120  public           std::exception::`vector deleting destructor'  [public: virtual void * __cdecl std::exception::`vector deleting destructor'(unsigned int)]
+  0x180001120  public           std::bad_cast::`scalar deleting destructor'  [public: virtual void * __cdecl std::bad_cast::`scalar deleting destructor'(unsigned int)]
+  0x180001120  function     66  std::bad_array_new_length::`scalar deleting destructor'  (conpty.obj)
+  0x180001120  public           std::bad_alloc::`scalar deleting destructor'  [public: virtual void * __cdecl std::bad_alloc::`scalar deleting destructor'(unsigned int)]
+  0x180001120  public           std::bad_exception::`vector deleting destructor'  [public: virtual void * __cdecl std::bad_exception::`vector deleting destructor'(unsigned int)]
+  0x180001120  public           std::bad_alloc::`vector deleting destructor'  [public: virtual void * __cdecl std::bad_alloc::`vector deleting destructor'(unsigned int)]
+  0x180001120  function     66  std::bad_function_call::`scalar deleting destructor'  (xthrow.obj)
+  0x180001120  function     66  std::length_error::`scalar deleting destructor'  (xthrow.obj)
+  0x180001120  function     66  std::logic_error::`scalar deleting destructor'  (xthrow.obj)
+  0x180001120  function     66  std::out_of_range::`scalar deleting destructor'  (xthrow.obj)
+  0x180001120  public           std::bad_array_new_length::`scalar deleting destructor'  [public: virtual void * __cdecl std::bad_array_new_length::`scalar deleting destructor'(unsigned int)]
+  0x180001120  function     66  std::bad_exception::`scalar deleting destructor'  (frame.obj)
+  0x180001120  public           std::length_error::`scalar deleting destructor'  [public: virtual void * __cdecl std::length_error::`scalar deleting destructor'(unsigned int)]
+  0x180001120  public           std::runtime_error::`vector deleting destructor'  [public: virtual void * __cdecl std::runtime_error::`vector deleting destructor'(unsigned int)]
+  0x180001120  public           std::logic_error::`vector deleting destructor'  [public: virtual void * __cdecl std::logic_error::`vector deleting destructor'(unsigned int)]
+  0x180001120  public           std::exception::`scalar deleting destructor'  [public: virtual void * __cdecl std::exception::`scalar deleting destructor'(unsigned int)]
+  0x180001120  public           std::bad_function_call::`scalar deleting destructor'  [public: virtual void * __cdecl std::bad_function_call::`scalar deleting destructor'(unsigned int)]
+  0x180001170  public           std::bad_alloc::~bad_alloc  [public: virtual __cdecl std::bad_alloc::~bad_alloc(void)]
+  0x180001170  function     19  std::bad_exception::~bad_exception  (frame.obj)
+  0x180001170  public           std::system_error::~system_error  [public: virtual __cdecl std::system_error::~system_error(void)]
+  0x180001170  public           std::ios_base::failure::~failure  [public: virtual __cdecl std::ios_base::failure::~failure(void)]
+  0x180001170  public           std::length_error::~length_error  [public: virtual __cdecl std::length_error::~length_error(void)]
+  0x180001170  function     19  std::system_error::~system_error  (conpty.obj)
+  0x180001170  public           std::bad_exception::~bad_exception  [public: virtual __cdecl std::bad_exception::~bad_exception(void)]
+  0x180001170  function     19  std::length_error::~length_error  (xthrow.obj)
+  0x180001170  public           std::bad_function_call::~bad_function_call  [public: virtual __cdecl std::bad_function_call::~bad_function_call(void)]
+  0x180001170  public           std::bad_array_new_length::~bad_array_new_length  [public: virtual __cdecl std::bad_array_new_length::~bad_array_new_length(void)]
+  0x180001170  function     19  std::bad_alloc::~bad_alloc  (conpty.obj)
+  0x180001170  function     19  std::bad_array_new_length::~bad_array_new_length  (conpty.obj)
+  0x180001170  function     19  std::bad_cast::~bad_cast  (conpty.obj)
+  0x180001170  function     19  std::out_of_range::~out_of_range  (xthrow.obj)
+  0x180001170  function     19  std::ios_base::failure::~failure  (conpty.obj)
+  0x180001170  public           std::out_of_range::~out_of_range  [public: virtual __cdecl std::out_of_range::~out_of_range(void)]
+  0x180001170  function     19  std::bad_function_call::~bad_function_call  (xthrow.obj)
+  0x180001170  function     19  std::runtime_error::~runtime_error  (conpty.obj)
+  0x180001170  public           std::bad_cast::~bad_cast  [public: virtual __cdecl std::bad_cast::~bad_cast(void)]
+  0x180001170  public           std::runtime_error::~runtime_error  [public: virtual __cdecl std::runtime_error::~runtime_error(void)]
+  0x180001190  function     33  std::bad_array_new_length::bad_array_new_length  (conpty.obj)
+  0x180001190  public           std::bad_array_new_length::bad_array_new_length  [public: __cdecl std::bad_array_new_length::bad_array_new_length(void)]

@@ -1,0 +1,150 @@
+References to type System.String [System.Private.CoreLib]: 12393 (showing 300; raise limit or refine)
+  Il2CppDummyDll.AddressAttribute::RVA  [TestFixture] 0x04000001
+      field type
+  Il2CppDummyDll.AddressAttribute::Offset  [TestFixture] 0x04000002
+      field type
+  Il2CppDummyDll.AddressAttribute::VA  [TestFixture] 0x04000003
+      field type
+  Il2CppDummyDll.AddressAttribute::Slot  [TestFixture] 0x04000004
+      field type
+  Il2CppDummyDll.FieldOffsetAttribute::Offset  [TestFixture] 0x04000005
+      field type
+  Il2CppDummyDll.TokenAttribute::Token  [TestFixture] 0x04000006
+      field type
+  Fixture.Model.TagsAttribute::<Names>k__BackingField  [TestFixture] 0x04000008
+      field type
+  Fixture.Model.TagsAttribute::Names  [TestFixture] 0x17000001
+      property type
+  Fixture.Model.TagsAttribute::get_Names()  [TestFixture] 0x06000009
+      return type
+  Fixture.Model.TagsAttribute::set_Names(string[])  [TestFixture] 0x0600000A
+      parameter type
+  Fixture.Model.Entity::Name  [TestFixture] 0x04000009
+      field type
+  Fixture.Model.Account::.ctor(string)  [TestFixture] 0x06000014
+      parameter type
+  Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000019
+      parameter type
+      IL_0006 call Concat
+  Fixture.Model.Account::Log(string)  [TestFixture] 0x06000020
+      parameter type
+      IL_0006 call Concat
+  Fixture.Model.Account/Inventory::Items  [TestFixture] 0x0400001B
+      field type
+  Fixture.Model.Account/Inventory::get_Count()  [TestFixture] 0x0600003D
+      IL_0006 callvirt get_Count
+  Fixture.Model.Account/Inventory::.ctor()  [TestFixture] 0x0600003E
+      IL_0001 newobj .ctor
+  Fixture.Model.Secret::Validate(string)  [TestFixture] 0x06000025
+      parameter type
+      IL_0006 callvirt StartsWith
+      IL_000E callvirt get_Length
+  Fixture.Model.Shop::_prices  [TestFixture] 0x04000015
+      field type
+  Fixture.Model.Shop::get_Item(string)  [TestFixture] 0x0600002B
+      parameter type
+  Fixture.Model.Shop::Buy(string)  [TestFixture] 0x0600002C
+      parameter type
+      IL_0009 callvirt TryGetValue
+  Fixture.Model.Shop::PriceOf(string)  [TestFixture] 0x0600002D
+      parameter type
+      IL_0009 callvirt TryGetValue
+  Fixture.Model.Shop::PriceOf(string, int)  [TestFixture] 0x0600002E
+      parameter type
+  Fixture.Model.Shop::Describe()  [TestFixture] 0x0600002F
+      return type
+      IL_000B callvirt get_Keys
+      IL_0024 newobj .ctor
+      IL_0034 call Join
+  Fixture.Model.Shop::Apply(string)  [TestFixture] 0x06000033
+      parameter type
+      IL_0001 callvirt get_Length
+  Fixture.Model.Shop::.ctor()  [TestFixture] 0x06000034
+      IL_0009 newobj .ctor
+      IL_0016 callvirt set_Item
+      IL_0023 callvirt set_Item
+  Fixture.Model.Shop/<>c::<>9__13_0  [TestFixture] 0x04000026
+      field type
+  Fixture.Model.Shop/<>c::<Describe>b__13_0(string)  [TestFixture] 0x0600004E
+      return type
+      parameter type
+      IL_0001 callvirt ToUpperInvariant
+  Consumer.Branch::NameOf(Entity)  [TestFixture.Consumer] 0x06000005
+      return type
+  <>f__AnonymousType0`2::ToString()  [System.Private.CoreLib] 0x06000006
+      return type
+      IL_005C call Format
+  Interop::CallStringMethod<TArg1, TArg2, TArg3>(SpanFunc<char, TArg1, TArg2, TArg3, ResultCode>, TArg1, TArg2, TArg3, ref string)  [System.Private.CoreLib] 0x06000007
+      parameter type
+  Interop/Globalization::GetCalendars(string, CalendarId[], int)  [System.Private.CoreLib] 0x06000011
+      parameter type
+  Interop/Globalization::GetCalendarInfo(string, CalendarId, CalendarDataType, char*, int)  [System.Private.CoreLib] 0x06000012
+      parameter type
+  Interop/Globalization::EnumCalendarInfo(delegate*, string, CalendarId, CalendarDataType, nint)  [System.Private.CoreLib] 0x06000013
+      parameter type
+  Interop/Globalization::EnumCalendarInfo(nint, string, CalendarId, CalendarDataType, nint)  [System.Private.CoreLib] 0x06000014
+      parameter type
+  Interop/Globalization::GetSortHandle(string, ref nint)  [System.Private.CoreLib] 0x0600001B
+      parameter type
+      local variable
+  Interop/Globalization::InitICUFunctions(nint, nint, string, string)  [System.Private.CoreLib] 0x06000026
+      parameter type
+      local variable
+  Interop/Globalization::GetLocaleName(string, char*, int)  [System.Private.CoreLib] 0x0600002A
+      parameter type
+  Interop/Globalization::GetLocaleInfoString(string, uint, char*, int, string)  [System.Private.CoreLib] 0x0600002B
+      parameter type
+  Interop/Globalization::IsPredefinedLocale(string)  [System.Private.CoreLib] 0x0600002C
+      parameter type
+  Interop/Globalization::GetLocaleTimeFormat(string, bool, char*, int)  [System.Private.CoreLib] 0x0600002D
+      parameter type
+  Interop/Globalization::GetLocaleInfoInt(string, uint, ref int)  [System.Private.CoreLib] 0x0600002E
+      parameter type
+  Interop/Globalization::GetLocaleInfoGroupingSizes(string, uint, ref int, ref int)  [System.Private.CoreLib] 0x0600002F
+      parameter type
+  Interop/Globalization::WindowsIdToIanaId(string, nint, char*, int)  [System.Private.CoreLib] 0x06000033
+      parameter type
+  Interop/Globalization::IanaIdToWindowsId(string, char*, int)  [System.Private.CoreLib] 0x06000034
+      parameter type
+  Interop/Kernel32::LocaleNameToLCID(string, uint)  [System.Private.CoreLib] 0x0600004A
+      parameter type
+  Interop/Kernel32::LCMapStringEx(string, uint, char*, int, void*, int, void*, void*, nint)  [System.Private.CoreLib] 0x0600004B
+      parameter type
+  Interop/Kernel32::GetLocaleInfoEx(string, uint, void*, int)  [System.Private.CoreLib] 0x06000052
+      parameter type
+  Interop/Kernel32::EnumTimeFormatsEx(delegate*, string, uint, void*)  [System.Private.CoreLib] 0x06000054
+      parameter type
+  Interop/Kernel32::GetCalendarInfoEx(string, uint, nint, uint, nint, int, ref int)  [System.Private.CoreLib] 0x06000055
+      parameter type
+  Interop/Kernel32::GetCalendarInfoEx(string, uint, nint, uint, nint, int, nint)  [System.Private.CoreLib] 0x06000056
+      parameter type
+  Interop/Kernel32::EnumCalendarInfoExEx(delegate*, string, uint, string, uint, void*)  [System.Private.CoreLib] 0x06000059
+      parameter type
+  Interop/Kernel32::GetNLSVersionEx(int, string, NlsVersionInfoEx*)  [System.Private.CoreLib] 0x0600005A
+      parameter type
+  Interop/Kernel32::ResolveLocaleName(string, char*, int)  [System.Private.CoreLib] 0x0600005B
+      parameter type
+  Interop/Kernel32::CopyFile(string, string, bool)  [System.Private.CoreLib] 0x06000065
+      parameter type
+  Interop/Kernel32::CopyFileExPrivate(string, string, nint, nint, ref int, int)  [System.Private.CoreLib] 0x06000066
+      parameter type
+  Interop/Kernel32::CopyFileEx(string, string, nint, nint, ref int, int)  [System.Private.CoreLib] 0x06000067
+      parameter type
+  Interop/Kernel32::CreateDirectoryPrivate(string, SECURITY_ATTRIBUTES*)  [System.Private.CoreLib] 0x06000068
+      parameter type
+  Interop/Kernel32::CreateDirectory(string, SECURITY_ATTRIBUTES*)  [System.Private.CoreLib] 0x06000069
+      parameter type
+  Interop/Kernel32::CreateFilePrivate(string, int, FileShare, SECURITY_ATTRIBUTES*, FileMode, int, nint)  [System.Private.CoreLib] 0x0600006A
+      parameter type
+  Interop/Kernel32::CreateFile(string, int, FileShare, SECURITY_ATTRIBUTES*, FileMode, int, nint)  [System.Private.CoreLib] 0x0600006B
+      parameter type
+  Interop/Kernel32::CreateFile(string, int, FileShare, FileMode, int)  [System.Private.CoreLib] 0x0600006C
+      parameter type
+  Interop/Kernel32::DeleteFilePrivate(string)  [System.Private.CoreLib] 0x0600007A
+      parameter type
+  Interop/Kernel32::DeleteFile(string)  [System.Private.CoreLib] 0x0600007B
+      parameter type
+  Interop/Kernel32::DeleteVolumeMountPointPrivate(string)  [System.Private.CoreLib] 0x0600007C
+      parameter type
+  Interop/Kernel32::DeleteVolumeMountPoint(string)  [System.Private.CoreLib] 0x0600007D
+      parameter type

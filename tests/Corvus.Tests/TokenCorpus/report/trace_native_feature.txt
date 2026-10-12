@@ -1,0 +1,130 @@
+Feature trace of "sqlite3" in e_sqlite3.dll: 591 matches, 50 seeds followed, 50 functions, 0 hubs
+
+Seeds:
+  [0] string  0x18017A6F8  "sqlite3_extension_init"  (1 reference)
+  [1] string  0x18017B2A0  "sqlite3_get_table() called with two or more incompatible queries"  (1 reference)
+  [2] name    0x1800043D0  sqlite3_global_recover  (1 reference)
+  [3] name    0x18000D8A0  sqlite3_backup_pagecount  (1 reference)
+  [4] name    0x180013120  sqlite3_libversion  (1 reference)
+  [5] name    0x180013140  sqlite3_sourceid  (1 reference)
+  [6] name    0x180013150  sqlite3_libversion_number  (1 reference)
+  [7] name    0x180013160  sqlite3_compileoption_used  (1 reference)
+  [8] name    0x1800132E0  sqlite3_compileoption_get  (1 reference)
+  [9] name    0x180013300  sqlite3_key  (1 reference)
+  [10] name    0x180013310  sqlite3_close  (1 reference)
+  [11] name    0x180013320  sqlite3_close_v2  (1 reference)
+  [12] name    0x180013330  sqlite3_exec  (1 reference)
+  [13] name    0x180013F40  sqlite3_db_config  (1 reference)
+  [14] name    0x180014080  sqlite3_thread_cleanup  (1 reference)
+  [15] name    0x1800141D0  sqlite3_extended_result_codes  (1 reference)
+  [16] name    0x180014230  sqlite3_last_insert_rowid  (1 reference)
+  [17] name    0x180014240  sqlite3_set_last_insert_rowid  (1 reference)
+  [18] name    0x180014290  sqlite3_changes  (1 reference)
+  [19] name    0x1800142A0  sqlite3_changes64  (1 reference)
+  [20] name    0x1800142B0  sqlite3_total_changes  (1 reference)
+  [21] name    0x1800142C0  sqlite3_total_changes64  (1 reference)
+  [22] name    0x1800142D0  sqlite3_interrupt  (1 reference)
+  [23] name    0x1800142E0  sqlite3_is_interrupted  (1 reference)
+  [24] name    0x1800142F0  sqlite3_complete  (1 reference)
+  [25] name    0x180014870  sqlite3_complete16  (1 reference)
+  [26] name    0x1800149E0  sqlite3_busy_handler  (1 reference)
+  [27] name    0x180014A60  sqlite3_busy_timeout  (1 reference)
+  [28] name    0x180014B00  sqlite3_get_table  (1 reference)
+  [29] name    0x180014E20  sqlite3_free_table  (1 reference)
+  [30] name    0x180014F80  sqlite3_mprintf  (1 reference)
+  [31] name    0x180014FC0  sqlite3_vmprintf  (1 reference)
+  [32] name    0x180015090  sqlite3_snprintf  (1 reference)
+  [33] name    0x1800150F0  sqlite3_vsnprintf  (1 reference)
+  [34] name    0x180015140  sqlite3_malloc  (1 reference)
+  [35] name    0x180015170  sqlite3_malloc64  (1 reference)
+  [36] name    0x1800151A0  sqlite3_realloc  (1 reference)
+  [37] name    0x1800151F0  sqlite3_realloc64  (1 reference)
+  [38] name    0x180015230  sqlite3_free  (1 reference)
+  [39] name    0x1800152D0  sqlite3_msize  (1 reference)
+  [40] name    0x180015300  sqlite3_memory_used  (1 reference)
+  [41] name    0x180015350  sqlite3_memory_highwater  (1 reference)
+  [42] name    0x1800153C0  sqlite3_randomness  (1 reference)
+  [43] name    0x180015610  sqlite3_set_authorizer  (1 reference)
+  [44] name    0x1800156A0  sqlite3_trace  (1 reference)
+  [45] name    0x180015730  sqlite3_profile  (1 reference)
+  [46] name    0x1800157C0  sqlite3_trace_v2  (1 reference)
+  [47] name    0x180015850  sqlite3_progress_handler  (1 reference)
+  [48] name    0x1800158E0  sqlite3_open  (1 reference)
+  [49] name    0x1800158F0  sqlite3_open16  (1 reference)
+
+Functions (ranked; 1-50 of 50):
+  0x1800043D0  sqlite3_global_recover  score 5, seeds 2  [entry or export]
+      0x1800043D0  named: named sqlite3_global_recover
+  0x18000D8A0  sqlite3_backup_pagecount  score 5, seeds 3  [entry or export]
+      0x18000D8A0  named: named sqlite3_backup_pagecount
+  0x180013120  sqlite3_libversion  score 5, seeds 4  [entry or export]
+      0x180013120  named: named sqlite3_libversion
+  0x180013140  sqlite3_sourceid  score 5, seeds 5  [entry or export]
+      0x180013140  named: named sqlite3_sourceid
+  0x180013150  sqlite3_libversion_number  score 5, seeds 6  [entry or export]
+      0x180013150  named: named sqlite3_libversion_number
+  0x180013160  sqlite3_compileoption_used  score 5, seeds 7  [entry or export]
+      0x180013160  named: named sqlite3_compileoption_used
+  0x1800132E0  sqlite3_compileoption_get  score 5, seeds 8  [entry or export]
+      0x1800132E0  named: named sqlite3_compileoption_get
+  0x180013300  sqlite3_key  score 5, seeds 9  [entry or export]
+      0x180013300  named: named sqlite3_key
+  0x180013310  sqlite3_close  score 5, seeds 10  [entry or export]
+      0x180013310  named: named sqlite3_close
+  0x180013320  sqlite3_close_v2  score 5, seeds 11  [entry or export]
+      0x180013320  named: named sqlite3_close_v2
+  0x180013330  sqlite3_exec  score 5, seeds 12  [entry or export]
+      0x180013330  named: named sqlite3_exec
+  0x180013F40  sqlite3_db_config  score 5, seeds 13  [entry or export]
+      0x180013F40  named: named sqlite3_db_config
+  0x180014080  sqlite3_thread_cleanup  score 5, seeds 14  [entry or export]
+      0x180014080  named: named sqlite3_thread_cleanup
+  0x1800141D0  sqlite3_extended_result_codes  score 5, seeds 15  [entry or export]
+      0x1800141D0  named: named sqlite3_extended_result_codes
+  0x180014230  sqlite3_last_insert_rowid  score 5, seeds 16  [entry or export]
+      0x180014230  named: named sqlite3_last_insert_rowid
+  0x180014240  sqlite3_set_last_insert_rowid  score 5, seeds 17  [entry or export]
+      0x180014240  named: named sqlite3_set_last_insert_rowid
+  0x180014290  sqlite3_changes  score 5, seeds 18  [entry or export]
+      0x180014290  named: named sqlite3_changes
+  0x1800142A0  sqlite3_changes64  score 5, seeds 19  [entry or export]
+      0x1800142A0  named: named sqlite3_changes64
+  0x1800142B0  sqlite3_total_changes  score 5, seeds 20  [entry or export]
+      0x1800142B0  named: named sqlite3_total_changes
+  0x1800142C0  sqlite3_total_changes64  score 5, seeds 21  [entry or export]
+      0x1800142C0  named: named sqlite3_total_changes64
+  0x1800142D0  sqlite3_interrupt  score 5, seeds 22  [entry or export]
+      0x1800142D0  named: named sqlite3_interrupt
+  0x1800142E0  sqlite3_is_interrupted  score 5, seeds 23  [entry or export]
+      0x1800142E0  named: named sqlite3_is_interrupted
+  0x1800142F0  sqlite3_complete  score 5, seeds 24  [entry or export]
+      0x1800142F0  named: named sqlite3_complete
+  0x180014870  sqlite3_complete16  score 5, seeds 25  [entry or export]
+      0x180014870  named: named sqlite3_complete16
+  0x1800149E0  sqlite3_busy_handler  score 5, seeds 26  [entry or export]
+      0x1800149E0  named: named sqlite3_busy_handler
+  0x180014A60  sqlite3_busy_timeout  score 5, seeds 27  [entry or export]
+      0x180014A60  named: named sqlite3_busy_timeout
+  0x180014B00  sqlite3_get_table  score 5, seeds 28  [entry or export]
+      0x180014B00  named: named sqlite3_get_table
+  0x180014E20  sqlite3_free_table  score 5, seeds 29  [entry or export]
+      0x180014E20  named: named sqlite3_free_table
+  0x180014F80  sqlite3_mprintf  score 5, seeds 30  [entry or export]
+      0x180014F80  named: named sqlite3_mprintf
+  0x180014FC0  sqlite3_vmprintf  score 5, seeds 31  [entry or export]
+      0x180014FC0  named: named sqlite3_vmprintf
+  0x180015090  sqlite3_snprintf  score 5, seeds 32  [entry or export]
+      0x180015090  named: named sqlite3_snprintf
+  0x1800150F0  sqlite3_vsnprintf  score 5, seeds 33  [entry or export]
+      0x1800150F0  named: named sqlite3_vsnprintf
+  0x180015140  sqlite3_malloc  score 5, seeds 34  [entry or export]
+      0x180015140  named: named sqlite3_malloc
+  0x180015170  sqlite3_malloc64  score 5, seeds 35  [entry or export]
+      0x180015170  named: named sqlite3_malloc64
+  0x1800151A0  sqlite3_realloc  score 5, seeds 36  [entry or export]
+      0x1800151A0  named: named sqlite3_realloc
+  0x1800151F0  sqlite3_realloc64  score 5, seeds 37  [entry or export]
+      0x1800151F0  named: named sqlite3_realloc64
+  0x180015230  sqlite3_free  score 5, seeds 38  [entry or export]
+      0x180015230  named: named sqlite3_free
+  0x1800152D0  sqlite3_msize  score 5, seeds 39  [entry or export]

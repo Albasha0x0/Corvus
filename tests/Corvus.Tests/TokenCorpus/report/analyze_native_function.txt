@@ -1,0 +1,136 @@
+sub_112F40 at 0x180112F40 [e_sqlite3.dll]: 36,067 bytes, ends at 0x18011BC23 (ends are exclusive throughout)
+
+== identity (5) ==
+  0x180112F40  name sub_112F40 (discovered)
+  0x180112F40  range 0x180112F40-0x18011BC23 (36067 bytes)
+  2050 blocks, 8958 instructions
+  xrefs: 2 references to it (2 call sites in 2 callers), 422 calls out
+  found by: Pdata, Call
+
+== signature (3) ==
+  parameters read at entry: 1 (rcx): at least 1 arguments
+  argument registers read before written: rcx
+  2 of 2 call sites checked use the returned value
+
+== frame (40) ==
+  0x180112F40  unwind data (x64 UNWIND_INFO, 0x180112F40-0x180112F70): allocates 0x480 bytes, prolog 39 bytes
+  unwind data saves: r13, r12, rbp
+  unwind data: has an exception handler
+  0x180112F4F  allocates 0x480 bytes of stack (sub rsp,480h)
+  saved registers: rbp, r12, r13
+  no frame pointer
+  0x180115054  address taken: local [rbp+0x0] (3 sites)
+  0x1801150C7  address taken: local [rbp-12x0] (7 sites)
+  0x180116390  address taken: local [rbp-8x4] (1 site)
+  0x1801164F3  address taken: local [rbp-4x8] (1 site)
+  0x180116C48  address taken: local [rbp-10x8] (3 sites)
+  0x180116CF4  address taken: local [rbp+46x4] (1 site)
+  0x180116F55  address taken: local [rbp+19x2] (2 sites)
+  0x180116F81  address taken: local [rbp+56x0] (1 site)
+  0x180117168  address taken: local [rbp+15x2] (1 site)
+  0x18011736A  address taken: local [rbp+50x4] (2 sites)
+  0x180117522  address taken: local [rbp-11x2] (2 sites)
+  0x180117737  address taken: local [rbp+30x4] (1 site)
+  0x180117CAF  address taken: local [rbp-4x0] (1 site)
+  0x18011823A  address taken: local [rbp+68x0] (1 site)
+  0x1801182D6  address taken: local [rbp-4x4] (1 site)
+  0x1801182DF  address taken: local [rbp+60x0] (1 site)
+  0x1801183F3  address taken: local [rbp-9x6] (2 sites)
+  0x180118602  address taken: local [rbp+24x8] (2 sites)
+  0x180118636  address taken: local [rbp+64x0] (1 site)
+  0x1801187C6  address taken: local [rbp-3x2] (1 site)
+  0x180118ABA  address taken: local [rbp+5x6] (1 site)
+  0x180118DAD  address taken: local [rbp-0x8] (1 site)
+  0x180118DB6  address taken: local [rbp-6x4] (1 site)
+  0x1801198A2  address taken: local [rbp+35x2] (1 site)
+  0x180119949  address taken: local [rbp+82x4] (1 site)
+  0x180119950  address taken: local [rbp+82x0] (1 site)
+  0x180119B8D  address taken: local [rbp-6x8] (1 site)
+  0x18011A1D7  address taken: local [rbp+9x6] (3 sites)
+  0x18011A4E9  address taken: local [rbp-5x6] (1 site)
+  0x18011A59D  address taken: local [rbp-2x4] (1 site)
+  0x18011A812  address taken: local [rbp+73x6] (1 site)
+  0x18011A897  address taken: local [rbp+40x8] (1 site)
+  0x18011AB16  address taken: local [rbp-1x6] (1 site)
+  exception handling: GsOnly, 0 try blocks, 0 unwind states, 0 SEH scopes, 0 funclets, GS cookie at +108x8 (get_exception_info)
+
+== callers (2) ==
+  0x1800322D7  call from sub_32280+0x57
+  0x18010B55D  call from sub_10B460+0xFD
+
+== callees (449; first 40) ==
+  0x180112FD1  sub_112DF0()  [direct, direct]
+  0x18011323A  sub_11C9B0()  [direct, direct]
+  0x180113299  sub_A2DC0()  [direct, direct]
+  0x1801132EC  sub_A2DC0(?)  [direct, direct]
+  0x18011333D  sub_A2DC0(?)  [direct, direct]
+  0x18011336B  sub_A2DC0(?)  [direct, direct]
+  0x1801133C6  sub_11E800(?, ?, -1, ?, ?)  [direct, direct]
+  0x1801133F3  sub_11EC90(?, ?)  [direct, direct]
+  0x18011346E  sub_9E030(?, ?)  [direct, direct]
+  0x180113475  sqlite3_free()  [direct, direct]
+  0x1801134BF  sub_A2DC0(?)  [direct, direct]
+  0x180113533  sub_A2DC0()  [direct, direct]
+  0x18011358F  sub_136200(?)  [direct, direct]
+  0x1801135F3  sub_A2DC0(?)  [direct, direct]
+  0x18011362B  sub_136130(?)  [direct, direct]
+  0x18011365F  sub_11E210(?, ?, 1)  [direct, direct]
+  0x180113679  sub_150E80(?, 0, ?)  [direct, direct]
+  0x18011369C  sub_11E800(?, ?, ?, 0, ?)  [direct, direct]
+  0x180113710  sub_136200(?)  [direct, direct]
+  0x1801137A4  sub_136130(?)  [direct, direct]
+  0x180113811  sub_11E210(?, ?, 1)  [direct, direct]
+  0x18011382B  sub_150E80(?, 0, ?)  [direct, direct]
+  0x180113851  sub_1360D0(?)  [direct, direct]
+  0x1801138DB  sub_134C10(?, ?, 0x4000)  [direct, direct]
+  0x18011394A  sub_11E210(?, ?, 1)  [direct, direct]
+  0x180113964  sub_150E80(?, 0, ?)  [direct, direct]
+  0x18011398A  sub_1360D0(?)  [direct, direct]
+  0x180113A03  sub_134C10(?, ?, 0x4000)  [direct, direct]
+  0x180113A85  sub_1375D0(?, ?)  [direct, direct]
+  0x180113B12  sub_136200(?)  [direct, direct]
+  0x180113B4F  sub_11E210(?, 0x20, 0)  [direct, direct]
+  0x180113B83  sub_136250(0x20, ?, ?)  [direct, direct]
+  0x180113BAC  sub_11EC90(?, ?)  [direct, direct]
+  0x180113BF4  sub_11E210(?, ?, 1)  [direct, direct]
+  0x180113C0E  sub_150E80(?, 0, ?)  [direct, direct]
+  0x180113C58  sub_11E210(?, 0x20, 0)  [direct, direct]
+  0x180113C7B  sub_F6730(?)  [direct, direct]
+  0x180113C8A  sub_112E90(?, "out of memory")  [direct, direct]
+  0x180113CB6  sub_136250(0x20, ?, ?)  [direct, direct]
+  0x180113CD9  sub_11EC90(?, ?)  [direct, direct]
+
+== data (45; first 40) ==
+  0x180000000  address constant data 0x180000000 (20 sites, first at 0x18011306F)
+  0x1801683F8  read constant data 0x1801683F8 (27 sites, first at 0x180115DD5)
+  0x18016BE90  address constant data 0x18016BE90 (1 site, first at 0x180115461)
+  0x18016C12C  address constant data 0x18016C12C (1 site, first at 0x180119AAD)
+  0x1801730DC  address constant data 0x1801730DC (7 sites, first at 0x180119775)
+  0x180175DAF  address constant data 0x180175DAF (1 site, first at 0x18011686F)
+  0x180176B68  address string "out of memory" (1 site, first at 0x180113C80)
+  0x180177BB0  address string "FOREIGN KEY constraint failed" (2 sites, first at 0x18011B2C5)
+  0x180177C90  address string "string or blob too big" (1 site, first at 0x18011B691)
+  0x180177D68  address string "%s constraint failed" (1 site, first at 0x18011B1DE)
+  0x180177D80  address string "%z: %s" (1 site, first at 0x18011B20D)
+  0x180177D88  address string "abort at %d in [%s]: %s" (1 site, first at 0x18011B274)
+  0x180177DA0  address string "cannot store %s value in %s column %s.%s" (1 site, first at 0x18011B34A)
+  0x180177DD0  address string "cannot open savepoint - SQL statements in progress" (1 site, first at 0x18011B38E)
+  0x180177E08  address string "no such savepoint: %s" (1 site, first at 0x180115FE2)
+  0x180177E20  address string "cannot release savepoint - SQL statements in progress" (1 site, first at 0x18011B3B7)
+  0x180177E58  address string "cannot commit transaction - SQL statements in progress" (1 site, first at 0x18011B957)
+  0x180177E90  address string "cannot start a transaction within a transaction" (1 site, first at 0x18011BA10)
+  0x180177EC0  address string "cannot rollback - no transaction is active" (1 site, first at 0x18011BA1B)
+  0x180177EF0  address string "cannot commit - no transaction is active" (1 site, first at 0x18011BA22)
+  0x180177F20  read string "database schema has changed" (1 site, first at 0x18011B559)
+  0x180177F30  read string "has changed" (1 site, first at 0x18011B563)
+  0x180177F38  read constant data 0x180177F38 (1 site, first at 0x18011B570)
+  0x180177F40  address string "index corruption" (1 site, first at 0x18011B6C6)
+  0x180177F58  address string "sqlite_master" (1 site, first at 0x180118A5B)
+  0x180177F68  address string "SELECT*FROM"%w".%s WHERE %s ORDER BY rowid" (1 site, first at 0x180118A98)
+  0x180177F98  address string "too many levels of trigger recursion" (1 site, first at 0x18011B761)
+  0x180177FC0  address string "into" (1 site, first at 0x18011B79A)
+  0x180177FC8  address string "out of" (1 site, first at 0x18011B7A4)
+  0x180177FD0  address string "cannot change %s wal mode from within a transaction" (1 site, first at 0x18011B7B1)
+  0x180178008  address string "database table is locked: %s" (1 site, first at 0x18011B7EC)
+  0x180178028  address string "ValueList" (1 site, first at 0x18011A6AB)
+  0x180178034  address string "-- %s" (1 site, first at 0x18011B06B)

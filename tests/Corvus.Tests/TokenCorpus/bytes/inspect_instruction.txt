@@ -1,0 +1,171 @@
+Engine: ours (server default auto: the built-in decoder)
+0x1800158E0  decoded  in sqlite3_open  block 0x1800158E0  section .text
+  4533C9                   xor    r9d, r9d
+  xor, legacy encoding, cpuid intel386
+  op0 register r9d (4 bytes, write, part of r9)
+  op1 register r9d (4 bytes, none, part of r9)
+  registers read -; written r9
+  flags read -; written cf, pf, af, zf, sf, of; undefined af
+  flow next, fallthrough 0x1800158E3
+  references to: 1 (Pointer from 0x18016A9C0)
+0x1800158E3  decoded  in sqlite3_open+0x3  block 0x1800158E0  section .text
+  458D4106                 lea    r8d, [r9+6]
+  lea, legacy encoding, cpuid intel386
+  op0 register r8d (4 bytes, write, part of r8)
+  op1 memory [r9+6] (none, base r9, displacement 0x6)
+  registers read r9d; written r8
+  flow next, fallthrough 0x1800158E7
+0x1800158E7  decoded  in sqlite3_open+0x7  block 0x1800158E0  section .text
+  E9B4C80800               jmp    sub_A21A0
+  jmp, legacy encoding, cpuid x64
+  op0 near_branch 1800A21A0h (read) -> 0x1800A21A0 sub_A21A0 [function]
+  flow jump, target 0x1800A21A0 sub_A21A0, no fallthrough
+  references from: TailCall 0x1800A21A0 sub_A21A0
+  call sub_A21A0() [function, arguments guessed]
+0x1800158EC  not_in_function  section .text
+  no known function contains it: unowned code or data
+  CC                       int    3
+  int3, legacy encoding, cpuid intel8086
+  flow trap, no fallthrough
+0x1800158ED  not_in_function  section .text
+  no known function contains it: unowned code or data
+  CC                       int    3
+  int3, legacy encoding, cpuid intel8086
+  flow trap, no fallthrough
+0x1800158EE  not_in_function  section .text
+  no known function contains it: unowned code or data
+  CC                       int    3
+  int3, legacy encoding, cpuid intel8086
+  flow trap, no fallthrough
+0x1800158EF  not_in_function  section .text
+  no known function contains it: unowned code or data
+  CC                       int    3
+  int3, legacy encoding, cpuid intel8086
+  flow trap, no fallthrough
+0x1800158F0  decoded  in sqlite3_open16  block 0x1800158F0  section .text
+  48895C2410               mov    [rsp+10h], rbx
+  mov, legacy encoding, cpuid x64
+  op0 memory [rsp+10h] (8 bytes, write, base rsp, displacement 0x10)
+  op1 register rbx (8 bytes, read)
+  registers read rsp, rbx; written -
+  memory write 8 bytes at [rsp+0x10]
+  flow next, fallthrough 0x1800158F5
+  references to: 1 (Pointer from 0x18016A9C8)
+0x1800158F5  decoded  in sqlite3_open16+0x5  block 0x1800158F0  section .text
+  57                       push   rdi
+  push, legacy encoding, cpuid x64
+  op0 register rdi (8 bytes, read)
+  registers read rdi, rsp; written rsp
+  memory write 8 bytes at [rsp-0x8]
+  stack pointer -8
+  flow next, fallthrough 0x1800158F6
+0x1800158F6  decoded  in sqlite3_open16+0x6  block 0x1800158F0  section .text
+  4883EC30                 sub    rsp, 30h
+  sub, legacy encoding, cpuid x64
+  op0 register rsp (8 bytes, read_write)
+  op1 immediate 30h (8 bytes, read, 0x30)
+  registers read rsp; written rsp
+  flags read -; written cf, pf, af, zf, sf, of; undefined -
+  flow next, fallthrough 0x1800158FA
+0x1800158FA  decoded  in sqlite3_open16+0xA  block 0x1800158F0  section .text
+  488BFA                   mov    rdi, rdx
+  mov, legacy encoding, cpuid x64
+  op0 register rdi (8 bytes, write)
+  op1 register rdx (8 bytes, read)
+  registers read rdx; written rdi
+  flow next, fallthrough 0x1800158FD
+0x1800158FD  decoded  in sqlite3_open16+0xD  block 0x1800158F0  section .text
+  48C70200000000           mov    qword ptr [rdx], 0
+  mov, legacy encoding, cpuid x64
+  op0 memory qword ptr [rdx] (8 bytes, write, base rdx)
+  op1 immediate 0 (8 bytes, read, 0x0)
+  registers read rdx; written -
+  memory write 8 bytes at [rdx]
+  flow next, fallthrough 0x180015904
+0x180015904  decoded  in sqlite3_open16+0x14  block 0x1800158F0  section .text
+  488BD9                   mov    rbx, rcx
+  mov, legacy encoding, cpuid x64
+  op0 register rbx (8 bytes, write)
+  op1 register rcx (8 bytes, read)
+  registers read rcx; written rbx
+  flow next, fallthrough 0x180015907
+0x180015907  decoded  in sqlite3_open16+0x17  block 0x1800158F0  section .text
+  E8E4981100               call   sqlite3_initialize
+  call, legacy encoding, cpuid x64
+  op0 near_branch 18012F1F0h (read) -> 0x18012F1F0 sqlite3_initialize [function]
+  registers read rsp; written rsp
+  memory write 8 bytes at [rsp-0x8]
+  stack pointer -8
+  flow call, target 0x18012F1F0 sqlite3_initialize, fallthrough 0x18001590C
+  references from: Call 0x18012F1F0 sqlite3_initialize
+  call sqlite3_initialize() [function, arguments guessed]
+0x18001590C  decoded  in sqlite3_open16+0x1C  block 0x1800158F0  section .text
+  85C0                     test   eax, eax
+  test, legacy encoding, cpuid intel386
+  op0 register eax (4 bytes, read, part of rax)
+  op1 register eax (4 bytes, read, part of rax)
+  registers read eax; written -
+  flags read -; written cf, pf, af, zf, sf, of; undefined af
+  flow next, fallthrough 0x18001590E
+0x18001590E  decoded  in sqlite3_open16+0x1E  block 0x1800158F0  section .text
+  0F8563010000             jne    180015A77h
+  jne, legacy encoding, cpuid x64
+  op0 near_branch 180015A77h (read) -> 0x180015A77 [inside sqlite3_open16+0x187]
+  flags read zf; written -; undefined -
+  flow conditional_jump if ne, target 0x180015A77, fallthrough 0x180015914
+  references from: ConditionalJump 0x180015A77
+0x180015914  decoded  in sqlite3_open16+0x24  block 0x180015914  section .text
+  4889742440               mov    [rsp+40h], rsi
+  mov, legacy encoding, cpuid x64
+  op0 memory [rsp+40h] (8 bytes, write, base rsp, displacement 0x40)
+  op1 register rsi (8 bytes, read)
+  registers read rsp, rsi; written -
+  memory write 8 bytes at [rsp+0x40]
+  flow next, fallthrough 0x180015919
+0x180015919  decoded  in sqlite3_open16+0x29  block 0x180015914  section .text
+  8D4838                   lea    ecx, [rax+38h]
+  lea, legacy encoding, cpuid intel386
+  op0 register ecx (4 bytes, write, part of rcx)
+  op1 memory [rax+38h] (none, base rax, displacement 0x38)
+  registers read eax; written rcx
+  flow next, fallthrough 0x18001591C
+0x18001591C  decoded  in sqlite3_open16+0x2C  block 0x180015914  section .text
+  4885DB                   test   rbx, rbx
+  test, legacy encoding, cpuid x64
+  op0 register rbx (8 bytes, read)
+  op1 register rbx (8 bytes, read)
+  registers read rbx; written -
+  flags read -; written cf, pf, af, zf, sf, of; undefined af
+  flow next, fallthrough 0x18001591F
+0x18001591F  decoded  in sqlite3_open16+0x2F  block 0x180015914  section .text
+  488D35EA6B1600           lea    rsi, [18017C510h]
+  lea, legacy encoding, cpuid x64
+  op0 register rsi (8 bytes, write)
+  op1 memory [18017C510h] (none, rip-relative, displacement 0x166BEA) -> 0x18017C510 [.rdata data; 1 address]
+  registers read -; written rsi
+  flow next, fallthrough 0x180015926
+  references from: Address 0x18017C510
+0x180015926  decoded  in sqlite3_open16+0x36  block 0x180015914  section .text
+  480F45F3                 cmovne rsi, rbx
+  cmovne, legacy encoding, cpuid cmov
+  op0 register rsi (8 bytes, cond_write)
+  op1 register rbx (8 bytes, read)
+  registers read rbx; written rsi (conditional)
+  flags read zf; written -; undefined -
+  flow next if ne, fallthrough 0x18001592A
+0x18001592A  decoded  in sqlite3_open16+0x3A  block 0x180015914  section .text
+  E891FD0D00               call   sub_F56C0
+  call, legacy encoding, cpuid x64
+  op0 near_branch 1800F56C0h (read) -> 0x1800F56C0 sub_F56C0 [function]
+  registers read rsp; written rsp
+  memory write 8 bytes at [rsp-0x8]
+  stack pointer -8
+  flow call, target 0x1800F56C0 sub_F56C0, fallthrough 0x18001592F
+  references from: Call 0x1800F56C0 sub_F56C0
+  call sub_F56C0(?) [function, arguments guessed]
+0x18001592F  decoded  in sqlite3_open16+0x3F  block 0x180015914  section .text
+  488BD8                   mov    rbx, rax
+  mov, legacy encoding, cpuid x64
+  op0 register rbx (8 bytes, write)
+  op1 register rax (8 bytes, read)
+  registers read rax; written rbx

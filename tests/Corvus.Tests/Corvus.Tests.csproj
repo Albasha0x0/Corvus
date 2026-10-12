@@ -32,6 +32,7 @@
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="NativeFormats\ItaniumCorpus.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="NativeFormats\SwiftManglings.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="TokenCorpus\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Real libraries the tests decompile, compare and export (downloaded on restore, not referenced). -->

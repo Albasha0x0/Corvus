@@ -1,0 +1,36 @@
+libSkiaSharp.dll: AMD64 DLL (PE32+), WINDOWS_GUI
+  C:\work\inputs\native\libSkiaSharp.dll
+  12,171,104 bytes, sha256 cae1dc04211d665d8bfacfc1d518eea73a587d0e4cc3d55d947d8b053545006d
+  image base 0x180000000, size 0xBA6000, entry point rva 0x8DF2D0, va 0x1808DF2D0, file 0x8DE6D0
+  linker 14.0, OS 6.0, subsystem 6.0, timestamp 0x6A39BA2D (2026-06-22 22:41 UTC)
+  characteristics: EXECUTABLE_IMAGE, LARGE_ADDRESS_AWARE, DLL
+  DLL characteristics: HIGH_ENTROPY_VA, DYNAMIC_BASE, NX_COMPAT, GUARD_CF
+Mitigations: on: ASLR, high-entropy VA, DEP, CFG, GS cookie; off: SafeSEH, CET, XFG, EH continuation, force integrity
+Sections (8):
+  .text    rva 0x00001000 vsize 0x00917E04 raw 0x00000400+0x918000 r-x entropy 6.48  [CNT_CODE, MEM_EXECUTE, MEM_READ]
+  .rdata   rva 0x00919000 vsize 0x0020C034 raw 0x00918400+0x20C200 r-- entropy 5.91  [CNT_INITIALIZED_DATA, MEM_READ]
+  .data    rva 0x00B26000 vsize 0x0000EAA4 raw 0x00B24600+0x7600 rw- entropy 4.91  [CNT_INITIALIZED_DATA, MEM_READ, MEM_WRITE]
+  .pdata   rva 0x00B35000 vsize 0x000650F4 raw 0x00B2BC00+0x65200 r-- entropy 6.53  [CNT_INITIALIZED_DATA, MEM_READ]
+  .retplne rva 0x00B9B000 vsize 0x00000018 raw 0x00B90E00+0x200 --- entropy 0.40
+  .tls     rva 0x00B9C000 vsize 0x00000029 raw 0x00B91000+0x200 rw- entropy 0.02  [CNT_INITIALIZED_DATA, MEM_READ, MEM_WRITE]
+  _RDATA   rva 0x00B9D000 vsize 0x00000280 raw 0x00B91200+0x400 r-- entropy 3.19  [CNT_INITIALIZED_DATA, MEM_READ]
+  .reloc   rva 0x00B9E000 vsize 0x00007A00 raw 0x00B91600+0x7A00 r-- entropy 5.46  [CNT_INITIALIZED_DATA, MEM_DISCARDABLE, MEM_READ]
+Imports: 4 modules, 119 functions; delay-loaded: 2 modules, 2 functions (list_imports)
+Dynamic imports: not computed yet (the code index is still building; list_imports includeDynamic=true waits for it)
+Exports: 932 entries (name libSkiaSharp.dll, 0 forwarders) (list_exports)
+Exception directory: 34495 function ranges
+Debug: CODEVIEW
+  PDB: C:\a\_work\1\s\externals\skia\out\windows\x64\libSkiaSharp.pdb (RSDS, GUID f64f1be8-5b35-b650-4c4c-44205044422e, age 1)
+  PDB not found locally (8 places searched); load_pdb with a path, or download=true
+Load config: version 0.0, size 320, security cookie at 0x180B28240, 9365 CFG targets; guard flags: CF_INSTRUMENTED, CF_FUNCTION_TABLE_PRESENT, CF_LONGJUMP_TABLE_PRESENT
+Checksum: stored 0x00BA34C6, computed 0x00BA34C6 (matches)
+Overlay: 10,080 bytes at file 0xB99000 (the signature only)
+Signature: CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US (issuer CN=Microsoft Code Signing PCA 2024, O=Microsoft Corporation, C=US, thumbprint 1D77A9B9E8FE2075D9AD15123257FB90DB0DA4A1)
+Capabilities (from static imports):
+  files              10  CreateFileMapping, CreateFile, FindFirstFile, FindNextFile, FlushFileBuffers, GetFileSize, ...
+  dynamic_loading     4  FreeLibrary, GetModuleHandle, GetProcAddress, LoadLibrary
+  debug               3  IsDebuggerPresent, OutputDebugString, SetUnhandledExceptionFilter
+  com                 2  CoCreateGuid, CoCreateInstance
+  process_thread      1  TerminateProcess
+  ui                  1  SystemParametersInfo
+Code: the code index is still building (list_functions waits for it; get_pe_info shows this section once it is ready)

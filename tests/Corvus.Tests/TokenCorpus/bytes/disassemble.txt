@@ -1,0 +1,148 @@
+; Engine: ours (server default auto: IDA's saved analysis of this image is not loaded in this session; engine=ida loads it without analyzing again)
+; sub_112F40 at 0x180112F40, 36067 bytes, 2050 blocks
+sub_112F40:
+  180112F40  4C8BDC                   mov    r11, rsp
+  180112F43  55                       push   rbp
+  180112F44  4154                     push   r12
+  180112F46  4155                     push   r13
+  180112F48  498DAB68FCFFFF           lea    rbp, [r11-398h]
+  180112F4F  4881EC80040000           sub    rsp, 480h
+  180112F56  488B05F33F0900           mov    rax, [1801A6F50h]
+  180112F5D  4833C4                   xor    rax, rsp
+  180112F60  48898540030000           mov    [rbp+340h], rax
+  180112F67  4C8B9188000000           mov    r10, [rcx+88h]
+  180112F6E  32C0                     xor    al, al
+  180112F70  49895B10                 mov    [r11+10h], rbx
+  180112F74  4C8BE9                   mov    r13, rcx
+  180112F77  49897318                 mov    [r11+18h], rsi
+  180112F7B  488B31                   mov    rsi, [rcx]
+  180112F7E  49897B20                 mov    [r11+20h], rdi
+  180112F82  4D8973E0                 mov    [r11-20h], r14
+  180112F86  4533F6                   xor    r14d, r14d
+  180112F89  4C8B5968                 mov    r11, [rcx+68h]
+  180112F8D  418BFE                   mov    edi, r14d
+  180112F90  458BE6                   mov    r12d, r14d
+  180112F93  440FB64E64               movzx  r9d, byte ptr [rsi+64h]
+  180112F98  458BC6                   mov    r8d, r14d
+  180112F9B  44884C2440               mov    [rsp+40h], r9b
+  180112FA0  48894D80                 mov    [rbp-80h], rcx
+  180112FA4  4C89542460               mov    [rsp+60h], r10
+  180112FA9  4C89542448               mov    [rsp+48h], r10
+  180112FAE  4489742450               mov    [rsp+50h], r14d
+  180112FB3  4889742468               mov    [rsp+68h], rsi
+  180112FB8  884598                   mov    [rbp-68h], al
+  180112FBB  4489742454               mov    [rsp+54h], r14d
+  180112FC0  4C895C2458               mov    [rsp+58h], r11
+  180112FC5  448975A8                 mov    [rbp-58h], r14d
+  180112FC9  39B9D0000000             cmp    [rcx+0D0h], edi
+  180112FCF  7418                     je     loc_112FE9
+loc_112FD1:
+  180112FD1  E81AFEFFFF               call   sub_112DF0
+  180112FD6  4C8B5C2458               mov    r11, [rsp+58h]
+  180112FDB  448BC7                   mov    r8d, edi
+  180112FDE  440FB64C2440             movzx  r9d, byte ptr [rsp+40h]
+  180112FE4  4C8B542460               mov    r10, [rsp+60h]
+loc_112FE9:
+  180112FE9  4839BE10020000           cmp    [rsi+210h], rdi
+  180112FF0  7417                     je     loc_113009
+loc_112FF2:
+  180112FF2  8B8E20020000             mov    ecx, [rsi+220h]
+  180112FF8  33D2                     xor    edx, edx
+  180112FFA  418B85E4000000           mov    eax, [r13+0E4h]
+  180113001  F7F1                     div    ecx
+  180113003  2BCA                     sub    ecx, edx
+  180113005  8BD9                     mov    ebx, ecx
+  180113007  EB07                     jmp    loc_113010
+loc_113009:
+  180113009  48C7C3FFFFFFFF           mov    rbx, 0FFFFFFFFFFFFFFFFh
+loc_113010:
+  180113010  41837D3407               cmp    dword ptr [r13+34h], 7
+  180113015  BA01000000               mov    edx, 1
+  18011301A  4C89BC2470040000         mov    [rsp+470h], r15
+  180113022  0F29B42460040000         movaps [rsp+460h], xmm6
+  18011302A  0F29BC2450040000         movaps [rsp+450h], xmm7
+  180113032  48895C2470               mov    [rsp+70h], rbx
+  180113037  0F843B0C0000             je     loc_113C78
+loc_11303D:
+  18011303D  45897534                 mov    [r13+34h], r14d
+  180113041  4D897548                 mov    [r13+48h], r14
+  180113045  4489B698020000           mov    [rsi+298h], r14d
+  18011304C  8B8698010000             mov    eax, [rsi+198h]
+  180113052  85C0                     test   eax, eax
+  180113054  0F85F8870000             jne    loc_11B852
+loc_11305A:
+  18011305A  49634530                 movsxd rax, dword ptr [r13+30h]
+  18011305E  0F57FF                   xorps  xmm7, xmm7
+  180113061  488D0C40                 lea    rcx, [rax+rax*2]
+  180113065  8B45C0                   mov    eax, [rbp-40h]
+  180113068  4D8D3CCA                 lea    r15, [r10+rcx*8]
+  18011306C  8945B8                   mov    [rbp-48h], eax
+  18011306F  488D0D8ACFEEFF           lea    rcx, [180000000h]
+loc_113076:
+  180113076  410FB61F                 movzx  ebx, byte ptr [r15]
+  18011307A  48FFC7                   inc    rdi
+  18011307D  4C897C2448               mov    [rsp+48h], r15
+  180113082  48897C2478               mov    [rsp+78h], rdi
+  180113087  81FBB8000000             cmp    ebx, 0B8h
+  18011308D  0F87A5180000             ja     loc_114938
+loc_113093:
+  180113093  4863C3                   movsxd rax, ebx
+  180113096  8B8C8124BC1100           mov    ecx, [rcx+rax*4+11BC24h]
+  18011309D  488D055CCFEEFF           lea    rax, [180000000h]
+  1801130A4  4803C8                   add    rcx, rax
+  1801130A7  FFE1                     jmp    rcx
+loc_1130A9:
+  1801130A9  488B4C2448               mov    rcx, [rsp+48h]
+  1801130AE  48634104                 movsxd rax, dword ptr [rcx+4]
+  1801130B2  492BCA                   sub    rcx, r10
+  1801130B5  4C6BC038                 imul   r8, rax, 38h
+  1801130B9  B804000000               mov    eax, 4
+  1801130BE  664389441814             mov    [r8+r11+14h], ax
+  1801130C4  48B8ABAAAAAAAAAAAA2A     mov    rax, 2AAAAAAAAAAAAAABh
+  1801130CE  48F7E9                   imul   rcx
+  1801130D1  48C1FA02                 sar    rdx, 2
+  1801130D5  488BC2                   mov    rax, rdx
+  1801130D8  48C1E83F                 shr    rax, 3Fh
+  1801130DC  4803C2                   add    rax, rdx
+  1801130DF  4898                     cdqe
+  1801130E1  4B890418                 mov    [r8+r11], rax
+  1801130E5  E9DE780000               jmp    loc_11A9C8
+loc_1130EA:
+  1801130EA  49634704                 movsxd rax, dword ptr [r15+4]
+  1801130EE  486BC038                 imul   rax, 38h
+  1801130F2  42F644181404             test   byte ptr [rax+r11+14h], 4
+  1801130F8  0F8433180000             je     loc_114931
+loc_1130FE:
+  1801130FE  4A8B0418                 mov    rax, [rax+r11]
+  180113102  488D0C40                 lea    rcx, [rax+rax*2]
+  180113106  4D8D3CCA                 lea    r15, [r10+rcx*8]
+  18011310A  E922180000               jmp    loc_114931
+loc_11310F:
+  18011310F  49634704                 movsxd rax, dword ptr [r15+4]
+  180113113  486BC838                 imul   rcx, rax, 38h
+  180113117  418B470C                 mov    eax, [r15+0Ch]
+  18011311B  FFC8                     dec    eax
+  18011311D  4898                     cdqe
+  18011311F  4A890419                 mov    [rcx+r11], rax
+  180113123  B804000000               mov    eax, 4
+  180113128  664289441914             mov    [rcx+r11+14h], ax
+  18011312E  41837F0800               cmp    dword ptr [r15+8], 0
+  180113133  0F851B3F0000             jne    loc_117054
+loc_113139:
+  180113139  E9F3170000               jmp    loc_114931
+loc_11313E:
+  18011313E  488B5C2448               mov    rbx, [rsp+48h]
+  180113143  48634304                 movsxd rax, dword ptr [rbx+4]
+  180113147  492B9D88000000           sub    rbx, [r13+88h]
+  18011314E  4C6BC038                 imul   r8, rax, 38h
+  180113152  4B8B0418                 mov    rax, [r8+r11]
+  180113156  488D0C40                 lea    rcx, [rax+rax*2]
+  18011315A  48B8ABAAAAAAAAAAAA2A     mov    rax, 2AAAAAAAAAAAAAABh
+  180113164  48F7EB                   imul   rbx
+  180113167  48C1FA02                 sar    rdx, 2
+  18011316B  488BC2                   mov    rax, rdx
+  18011316E  48C1E83F                 shr    rax, 3Fh
+  180113172  4803C2                   add    rax, rdx
+  180113175  FFC8                     dec    eax
+  180113177  4898                     cdqe
+  180113179  4B890418                 mov    [r8+r11], rax

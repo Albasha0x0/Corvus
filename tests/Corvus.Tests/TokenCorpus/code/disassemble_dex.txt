@@ -1,0 +1,369 @@
+# Lcom/github/ashutoshgngwr/noice/activity/MainActivity; in classes.dex
+.class public final Lcom/github/ashutoshgngwr/noice/activity/MainActivity;
+.super Lv3/e;
+.source "SourceFile"
+
+# interfaces
+.implements Lw3/e;
+
+
+# annotations
+.annotation system Ldalvik/annotation/MemberClasses;
+    value = {
+        Lcom/github/ashutoshgngwr/noice/activity/MainActivity$a;
+    }
+.end annotation
+
+
+# instance fields
+.field public final A:Lf7/b;
+
+.field public r:Lx3/e;
+
+.field public s:Lh2/t;
+
+.field public t:Lw3/c;
+
+.field public u:Lcom/github/ashutoshgngwr/noice/billing/b;
+
+.field public v:Lcom/github/ashutoshgngwr/noice/service/a;
+
+.field public w:Lcom/github/ashutoshgngwr/noice/repository/i;
+
+.field public x:Lg4/a;
+
+.field public y:Z
+
+.field public final z:Landroid/os/Handler;
+
+
+# direct methods
+.method public constructor <init>()V
+    .registers 3
+
+    .line 1
+    const/4 v0, 0x1
+
+    .line 2
+    invoke-direct {p0, v0}, Lv3/e;-><init>(I)V
+
+    .line 5
+    new-instance v0, Landroid/os/Handler;
+
+    .line 7
+    invoke-static {}, Landroid/os/Looper;->getMainLooper()Landroid/os/Looper;
+
+    .line 10
+    move-result-object v1
+
+    .line 11
+    invoke-direct {v0, v1}, Landroid/os/Handler;-><init>(Landroid/os/Looper;)V
+
+    .line 14
+    iput-object v0, p0, Lcom/github/ashutoshgngwr/noice/activity/MainActivity;->z:Landroid/os/Handler;
+
+    .line 16
+    new-instance v0, Lcom/github/ashutoshgngwr/noice/activity/MainActivity$settingsRepository$2;
+
+    .line 18
+    invoke-direct {v0, p0}, Lcom/github/ashutoshgngwr/noice/activity/MainActivity$settingsRepository$2;-><init>(Lcom/github/ashutoshgngwr/noice/activity/MainActivity;)V
+
+    .line 21
+    invoke-static {v0}, Lkotlin/a;->c(Lp7/a;)Lf7/b;
+
+    .line 24
+    move-result-object v0
+
+    .line 25
+    iput-object v0, p0, Lcom/github/ashutoshgngwr/noice/activity/MainActivity;->A:Lf7/b;
+
+    .line 27
+    return-void
+.end method
+
+
+# virtual methods
+.method public final n()Landroid/view/View;
+    .registers 3
+
+    .line 1
+    const v0, 0x7f09007d
+
+    .line 4
+    invoke-virtual {p0, v0}, Le/q;->findViewById(I)Landroid/view/View;
+
+    .line 7
+    move-result-object v0
+
+    .line 8
+    if-nez v0, :cond_1b
+
+    .line 10
+    const v0, 0x7f0901b7
+
+    .line 13
+    invoke-virtual {p0, v0}, Le/q;->findViewById(I)Landroid/view/View;
+
+    .line 16
+    move-result-object v0
+
+    .line 17
+    invoke-static {v0}, Lcom/google/gson/internal/a;->g(Ljava/lang/Object;)V
+
+    .line 20
+    invoke-virtual {v0}, Landroid/view/View;->getVisibility()I
+
+    .line 23
+    move-result v1
+
+    .line 24
+    if-nez v1, :cond_1a
+
+    .line 26
+    goto :goto_1b
+
+    .line 27
+    :cond_1a
+    const/4 v0, 0x0
+
+    .line 28
+    :cond_1b
+    :goto_1b
+    return-object v0
+.end method
+
+.method public final o()V
+    .registers 4
+
+    .line 1
+    sget-object v0, Lcom/github/ashutoshgngwr/noice/fragment/DialogFragment;->F:Lcom/github/ashutoshgngwr/noice/fragment/DialogFragment$Companion;
+
+    .line 3
+    invoke-virtual {p0}, Landroidx/fragment/app/d0;->getSupportFragmentManager()Landroidx/fragment/app/u0;
+
+    .line 6
+    move-result-object v1
+
+    .line 7
+    const-string v2, "getSupportFragmentManager(...)"
+
+    .line 9
+    invoke-static {v2, v1}, Lcom/google/gson/internal/a;->i(Ljava/lang/String;Ljava/lang/Object;)V
+
+    .line 12
+    invoke-virtual {v0}, Ljava/lang/Object;->getClass()Ljava/lang/Class;
+
+    .line 15
+    sget-object v0, Lcom/github/ashutoshgngwr/noice/activity/MainActivity$onSubscriptionPurchasePending$1;->n:Lcom/github/ashutoshgngwr/noice/activity/MainActivity$onSubscriptionPurchasePending$1;
+
+    .line 17
+    invoke-static {v1, v0}, Lcom/github/ashutoshgngwr/noice/fragment/DialogFragment$Companion;->a(Landroidx/fragment/app/u0;Lp7/l;)V
+
+    .line 20
+    return-void
+.end method
+
+.method public final onCreate(Landroid/os/Bundle;)V
+    .registers 9
+
+    .line 1
+    iget-object v0, p0, Lcom/github/ashutoshgngwr/noice/activity/MainActivity;->A:Lf7/b;
+
+    .line 3
+    invoke-interface {v0}, Lf7/b;->getValue()Ljava/lang/Object;
+
+    .line 6
+    move-result-object v0
+
+    .line 7
+    check-cast v0, Lcom/github/ashutoshgngwr/noice/repository/p;
+
+    .line 9
+    iget-object v1, v0, Lcom/github/ashutoshgngwr/noice/repository/p;->a:Landroid/content/Context;
+
+    .line 11
+    const v2, 0x7f13005c
+
+    .line 14
+    invoke-virtual {v1, v2}, Landroid/content/Context;->getString(I)Ljava/lang/String;
+
+    .line 17
+    move-result-object v1
+
+    .line 18
+    iget-object v0, v0, Lcom/github/ashutoshgngwr/noice/repository/p;->b:Landroid/content/SharedPreferences;
+
+    .line 20
+    const/4 v2, 0x2
+
+    .line 21
+    invoke-interface {v0, v1, v2}, Landroid/content/SharedPreferences;->getInt(Ljava/lang/String;I)I
+
+    .line 24
+    move-result v0
+
+    .line 25
+    const/4 v1, 0x1
+
+    .line 26
+    if-eqz v0, :cond_24
+
+    .line 28
+    if-eq v0, v1, :cond_25
+
+    .line 30
+    if-eq v0, v2, :cond_22
+
+    .line 32
+    const/16 v2, -0x64
+
+    .line 34
+    goto :goto_25
+
+    .line 35
+    :cond_22
+    const/4 v2, -0x1
+
+    .line 36
+    goto :goto_25
+
+    .line 37
+    :cond_24
+    const/4 v2, 0x1
+
+    .line 38
+    :cond_25
+    :goto_25
+    invoke-static {v2}, Le/v;->m(I)V
+
+    .line 41
+    invoke-super {p0, p1}, Lv3/e;->onCreate(Landroid/os/Bundle;)V
+
+    .line 44
+    invoke-virtual {p0}, Landroid/app/Activity;->getLayoutInflater()Landroid/view/LayoutInflater;
+
+    .line 47
+    move-result-object p1
+
+    .line 48
+    const v0, 0x7f0c0055
+
+    .line 51
+    const/4 v2, 0x0
+
+    .line 52
+    const/4 v3, 0x0
+
+    .line 53
+    invoke-virtual {p1, v0, v2, v3}, Landroid/view/LayoutInflater;->inflate(ILandroid/view/ViewGroup;Z)Landroid/view/View;
+
+    .line 56
+    move-result-object p1
+
+    .line 57
+    const v0, 0x7f090167
+
+    .line 60
+    invoke-static {p1, v0}, Lx3/f;->p(Landroid/view/View;I)Landroid/view/View;
+
+    .line 63
+    move-result-object v4
+
+    .line 64
+    check-cast v4, Landroidx/fragment/app/FragmentContainerView;
+
+    .line 66
+    if-eqz v4, :cond_10f
+
+    .line 68
+    const v0, 0x7f0901b7
+
+    .line 71
+    invoke-static {p1, v0}, Lx3/f;->p(Landroid/view/View;I)Landroid/view/View;
+
+    .line 74
+    move-result-object v5
+
+    .line 75
+    check-cast v5, Landroid/widget/TextView;
+
+    .line 77
+    if-eqz v5, :cond_10f
+
+    .line 79
+    new-instance v0, Lx3/e;
+
+    .line 81
+    check-cast p1, Landroid/widget/LinearLayout;
+
+    .line 83
+    const/4 v6, 0x7
+
+    .line 84
+    invoke-direct {v0, v6, p1, v4, v5}, Lx3/e;-><init>(ILjava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V
+
+    .line 87
+    iput-object v0, p0, Lcom/github/ashutoshgngwr/noice/activity/MainActivity;->r:Lx3/e;
+
+    .line 89
+    invoke-virtual {p0, p1}, Le/q;->setContentView(Landroid/view/View;)V
+
+    .line 92
+    iget-object p1, p0, Lcom/github/ashutoshgngwr/noice/activity/MainActivity;->r:Lx3/e;
+
+    .line 94
+    if-eqz p1, :cond_109
+
+    .line 96
+    iget-object p1, p1, Lx3/e;->c:Ljava/lang/Object;
+
+    .line 98
+    check-cast p1, Landroidx/fragment/app/FragmentContainerView;
+
+    .line 100
+    invoke-virtual {p1}, Landroidx/fragment/app/FragmentContainerView;->getFragment()Landroidx/fragment/app/Fragment;
+
+    .line 103
+    move-result-object p1
+
+    .line 104
+    if-eqz p1, :cond_fd
+
+    .line 106
+    check-cast p1, Landroidx/navigation/fragment/NavHostFragment;
+
+    .line 108
+    invoke-virtual {p1}, Landroidx/navigation/fragment/NavHostFragment;->m()Lh2/t;
+
+    .line 111
+    move-result-object p1
+
+    .line 112
+    iput-object p1, p0, Lcom/github/ashutoshgngwr/noice/activity/MainActivity;->s:Lh2/t;
+
+    .line 114
+    if-eqz p1, :cond_f7
+
+    .line 116
+    invoke-virtual {p1}, Landroidx/navigation/d;->j()Lh2/r;
+
+    .line 119
+    move-result-object v0
+
+    .line 120
+    new-instance v4, Lx3/l;
+
+    .line 122
+    invoke-direct {v4}, Ljava/lang/Object;-><init>()V
+
+    .line 125
+    new-instance v5, Ljava/util/HashSet;
+
+    .line 127
+    invoke-direct {v5}, Ljava/util/HashSet;-><init>()V
+
+    .line 130
+    iput-object v5, v4, Lx3/l;->m:Ljava/lang/Object;
+
+    .line 132
+    sget v6, Lh2/r;->A:I

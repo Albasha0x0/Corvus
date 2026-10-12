@@ -1,0 +1,294 @@
+{
+ "about": "Token counts of the TokenCorpus files (LF newlines, UTF-8). source o200k: OpenAI o200k_base via tiktoken (a reference; Claude counts run higher).",
+ "refresh": "With CORVUS_TOKEN_COUNT_KEY set, recount each file with POST /v1/messages/count_tokens (one user message holding the file), subtract the count of a one-character message, and store the result with source 'anthropic:<model>'.",
+ "files": [
+  {
+   "file": "bytes/disassemble-macho.txt",
+   "chars": 3635,
+   "tokens": 1410,
+   "source": "o200k"
+  },
+  {
+   "file": "bytes/disassemble.txt",
+   "chars": 7950,
+   "tokens": 3221,
+   "source": "o200k"
+  },
+  {
+   "file": "bytes/get_cfg.json",
+   "chars": 7976,
+   "tokens": 2742,
+   "source": "o200k"
+  },
+  {
+   "file": "bytes/get_cfg.txt",
+   "chars": 7901,
+   "tokens": 3393,
+   "source": "o200k"
+  },
+  {
+   "file": "bytes/get_resource.txt",
+   "chars": 7910,
+   "tokens": 1984,
+   "source": "o200k"
+  },
+  {
+   "file": "bytes/inspect_instruction.json",
+   "chars": 7991,
+   "tokens": 2330,
+   "source": "o200k"
+  },
+  {
+   "file": "bytes/inspect_instruction.txt",
+   "chars": 7992,
+   "tokens": 2815,
+   "source": "o200k"
+  },
+  {
+   "file": "bytes/read_bytes.txt",
+   "chars": 7985,
+   "tokens": 4742,
+   "source": "o200k"
+  },
+  {
+   "file": "bytes/read_dump_memory.txt",
+   "chars": 2119,
+   "tokens": 1204,
+   "source": "o200k"
+  },
+  {
+   "file": "code/decompile_member.txt",
+   "chars": 5756,
+   "tokens": 1804,
+   "source": "o200k"
+  },
+  {
+   "file": "code/decompile_native.txt",
+   "chars": 7931,
+   "tokens": 3392,
+   "source": "o200k"
+  },
+  {
+   "file": "code/decompile_type.txt",
+   "chars": 7980,
+   "tokens": 2179,
+   "source": "o200k"
+  },
+  {
+   "file": "code/diff_edits.txt",
+   "chars": 7986,
+   "tokens": 1945,
+   "source": "o200k"
+  },
+  {
+   "file": "code/diff_function.txt",
+   "chars": 8000,
+   "tokens": 3023,
+   "source": "o200k"
+  },
+  {
+   "file": "code/disassemble_dex.txt",
+   "chars": 7994,
+   "tokens": 2832,
+   "source": "o200k"
+  },
+  {
+   "file": "code/get_dex_class.json",
+   "chars": 4610,
+   "tokens": 1257,
+   "source": "o200k"
+  },
+  {
+   "file": "code/get_il.txt",
+   "chars": 7887,
+   "tokens": 3333,
+   "source": "o200k"
+  },
+  {
+   "file": "code/get_r2r_code.txt",
+   "chars": 7029,
+   "tokens": 2466,
+   "source": "o200k"
+  },
+  {
+   "file": "edit/rename_namespace.txt",
+   "chars": 1498,
+   "tokens": 273,
+   "source": "o200k"
+  },
+  {
+   "file": "edit/simplify_methods.txt",
+   "chars": 7973,
+   "tokens": 1931,
+   "source": "o200k"
+  },
+  {
+   "file": "edit/small-outcomes.txt",
+   "chars": 4359,
+   "tokens": 1206,
+   "source": "o200k"
+  },
+  {
+   "file": "edit/unpack_container.json",
+   "chars": 2257,
+   "tokens": 830,
+   "source": "o200k"
+  },
+  {
+   "file": "error/errors-1.txt",
+   "chars": 7264,
+   "tokens": 1768,
+   "source": "o200k"
+  },
+  {
+   "file": "error/errors-2.txt",
+   "chars": 7571,
+   "tokens": 1839,
+   "source": "o200k"
+  },
+  {
+   "file": "error/errors-3.txt",
+   "chars": 7628,
+   "tokens": 1806,
+   "source": "o200k"
+  },
+  {
+   "file": "list/find_references.json",
+   "chars": 7984,
+   "tokens": 2172,
+   "source": "o200k"
+  },
+  {
+   "file": "list/find_references.txt",
+   "chars": 7883,
+   "tokens": 2389,
+   "source": "o200k"
+  },
+  {
+   "file": "list/get_call_arguments-macho.txt",
+   "chars": 2132,
+   "tokens": 698,
+   "source": "o200k"
+  },
+  {
+   "file": "list/get_call_tree.json",
+   "chars": 7997,
+   "tokens": 1876,
+   "source": "o200k"
+  },
+  {
+   "file": "list/list_exports.json",
+   "chars": 7993,
+   "tokens": 2230,
+   "source": "o200k"
+  },
+  {
+   "file": "list/list_exports.txt",
+   "chars": 7963,
+   "tokens": 2570,
+   "source": "o200k"
+  },
+  {
+   "file": "list/list_functions.txt",
+   "chars": 7993,
+   "tokens": 3383,
+   "source": "o200k"
+  },
+  {
+   "file": "list/list_imports-macho.txt",
+   "chars": 5094,
+   "tokens": 2515,
+   "source": "o200k"
+  },
+  {
+   "file": "list/list_types.txt",
+   "chars": 7958,
+   "tokens": 2444,
+   "source": "o200k"
+  },
+  {
+   "file": "list/search_constants.txt",
+   "chars": 7924,
+   "tokens": 2787,
+   "source": "o200k"
+  },
+  {
+   "file": "list/search_native_strings.txt",
+   "chars": 7911,
+   "tokens": 3411,
+   "source": "o200k"
+  },
+  {
+   "file": "list/search_pdb_symbols.txt",
+   "chars": 7938,
+   "tokens": 2171,
+   "source": "o200k"
+  },
+  {
+   "file": "list/search_strings.txt",
+   "chars": 7994,
+   "tokens": 2486,
+   "source": "o200k"
+  },
+  {
+   "file": "report/analyze_native_function.json",
+   "chars": 7984,
+   "tokens": 2721,
+   "source": "o200k"
+  },
+  {
+   "file": "report/analyze_native_function.txt",
+   "chars": 7936,
+   "tokens": 3295,
+   "source": "o200k"
+  },
+  {
+   "file": "report/get_assembly_info.txt",
+   "chars": 3064,
+   "tokens": 1000,
+   "source": "o200k"
+  },
+  {
+   "file": "report/get_pe_info.txt",
+   "chars": 3212,
+   "tokens": 1156,
+   "source": "o200k"
+  },
+  {
+   "file": "report/get_type_info.json",
+   "chars": 7993,
+   "tokens": 2141,
+   "source": "o200k"
+  },
+  {
+   "file": "report/get_type_info.txt",
+   "chars": 7919,
+   "tokens": 2451,
+   "source": "o200k"
+  },
+  {
+   "file": "report/open_minidump.json",
+   "chars": 7398,
+   "tokens": 2699,
+   "source": "o200k"
+  },
+  {
+   "file": "report/server_status.txt",
+   "chars": 7830,
+   "tokens": 2065,
+   "source": "o200k"
+  },
+  {
+   "file": "report/summarize_file.json",
+   "chars": 7937,
+   "tokens": 2295,
+   "source": "o200k"
+  },
+  {
+   "file": "report/trace_native_feature.txt",
+   "chars": 7962,
+   "tokens": 2887,
+   "source": "o200k"
+  }
+ ]
+}

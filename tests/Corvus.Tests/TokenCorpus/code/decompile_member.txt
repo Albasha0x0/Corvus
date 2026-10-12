@@ -1,0 +1,226 @@
+// [System.Private.CoreLib]
+// System.DateTimeFormat::FormatCustomized<TChar>(DateTime, ReadOnlySpan<char>, DateTimeFormatInfo, TimeSpan, ref ValueListBuilder<TChar>)  [token 0x06001386]
+using System.Collections.Generic;
+using System.Globalization;
+
+private static void FormatCustomized<TChar>(DateTime dateTime, scoped ReadOnlySpan<char> format, DateTimeFormatInfo dtfi, TimeSpan offset, ref ValueListBuilder<TChar> result) where TChar : unmanaged, IUtfChar<TChar>
+{
+	Calendar calendar = dtfi.Calendar;
+	bool flag = calendar.ID == CalendarId.HEBREW;
+	bool flag2 = calendar.ID == CalendarId.JAPAN;
+	bool timeOnly = true;
+	int num;
+	for (int i = 0; i < format.Length; i += num)
+	{
+		char c = format[i];
+		switch (c)
+		{
+		case 'g':
+			num = ParseRepeatPattern(format, i, c);
+			AppendString(ref result, dtfi.GetEraName(calendar.GetEra(dateTime)));
+			break;
+		case 'h':
+		{
+			num = ParseRepeatPattern(format, i, c);
+			int num5 = dateTime.Hour;
+			if (num5 > 12)
+			{
+				num5 -= 12;
+			}
+			else if (num5 == 0)
+			{
+				num5 = 12;
+			}
+			FormatDigits(ref result, num5, Math.Min(num, 2));
+			break;
+		}
+		case 'H':
+			num = ParseRepeatPattern(format, i, c);
+			FormatDigits(ref result, dateTime.Hour, Math.Min(num, 2));
+			break;
+		case 'm':
+			num = ParseRepeatPattern(format, i, c);
+			FormatDigits(ref result, dateTime.Minute, Math.Min(num, 2));
+			break;
+		case 's':
+			num = ParseRepeatPattern(format, i, c);
+			FormatDigits(ref result, dateTime.Second, Math.Min(num, 2));
+			break;
+		case 'F':
+		case 'f':
+			num = ParseRepeatPattern(format, i, c);
+			if (num <= 7)
+			{
+				int num3 = (int)(dateTime.Ticks % 10000000);
+				num3 /= TimeSpanParse.Pow10UpToMaxFractionDigits(7 - num);
+				if (c == 'f')
+				{
+					FormatFraction(ref result, num3, fixedNumberFormats[num - 1]);
+					break;
+				}
+				int num4 = num;
+				while (num4 > 0 && num3 % 10 == 0)
+				{
+					num3 /= 10;
+					num4--;
+				}
+				if (num4 > 0)
+				{
+					FormatFraction(ref result, num3, fixedNumberFormats[num4 - 1]);
+				}
+				else if (result.Length > 0)
+				{
+					if (result[result.Length - 1] == TChar.CastFrom('.'))
+					{
+						result.Length--;
+					}
+				}
+				break;
+			}
+			throw new FormatException(SR.Format_InvalidString);
+		case 't':
+			num = ParseRepeatPattern(format, i, c);
+			if (num == 1)
+			{
+				string text = ((dateTime.Hour < 12) ? dtfi.AMDesignator : dtfi.PMDesignator);
+				if (text.Length >= 1)
+				{
+					AppendChar(ref result, text[0]);
+				}
+			}
+			else
+			{
+				result.Append((dateTime.Hour < 12) ? dtfi.AMDesignatorTChar<TChar>() : dtfi.PMDesignatorTChar<TChar>());
+			}
+			break;
+		case 'd':
+			num = ParseRepeatPattern(format, i, c);
+			if (num <= 2)
+			{
+				int dayOfMonth = calendar.GetDayOfMonth(dateTime);
+				if (flag)
+				{
+					HebrewNumber.Append(ref result, dayOfMonth);
+				}
+				else
+				{
+					FormatDigits(ref result, dayOfMonth, num);
+				}
+			}
+			else
+			{
+				int dayOfWeek = (int)calendar.GetDayOfWeek(dateTime);
+				AppendString(ref result, FormatDayOfWeek(dayOfWeek, num, dtfi));
+			}
+			timeOnly = false;
+			break;
+		case 'M':
+		{
+			num = ParseRepeatPattern(format, i, c);
+			int month = calendar.GetMonth(dateTime);
+			if (num <= 2)
+			{
+				if (flag)
+				{
+					HebrewNumber.Append(ref result, month);
+				}
+				else
+				{
+					FormatDigits(ref result, month, num);
+				}
+			}
+			else if (flag)
+			{
+				AppendString(ref result, FormatHebrewMonthName(dateTime, month, num, dtfi));
+			}
+			else if ((dtfi.FormatFlags & DateTimeFormatFlags.UseGenitiveMonth) != 0)
+			{
+				AppendString(ref result, dtfi.InternalGetMonthName(month, IsUseGenitiveForm(format, i, num, 'd') ? MonthNameStyles.Genitive : MonthNameStyles.Regular, num == 3));
+			}
+			else
+			{
+				AppendString(ref result, FormatMonth(month, num, dtfi));
+			}
+			timeOnly = false;
+			break;
+		}
+		case 'y':
+		{
+			int year = calendar.GetYear(dateTime);
+			num = ParseRepeatPattern(format, i, c);
+			if (flag2 && !LocalAppContextSwitches.FormatJapaneseFirstYearAsANumber && year == 1 && ((i + num < format.Length && format[i + num] == '年') || (i + num < format.Length - 1 && format[i + num] == '\'' && format[i + num + 1] == '年')))
+			{
+				AppendChar(ref result, "元"[0]);
+			}
+			else if (dtfi.HasForceTwoDigitYears)
+			{
+				FormatDigits(ref result, year, Math.Min(num, 2));
+			}
+			else if (calendar.ID == CalendarId.HEBREW)
+			{
+				HebrewNumber.Append(ref result, year);
+			}
+			else if (num <= 2)
+			{
+				FormatDigits(ref result, year % 100, num);
+			}
+			else if (num <= 16)
+			{
+				FormatDigits(ref result, year, num);
+			}
+			else
+			{
+				AppendString(ref result, year.ToString("D" + num.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture));
+			}
+			timeOnly = false;
+			break;
+		}
+		case 'z':
+			num = ParseRepeatPattern(format, i, c);
+			FormatCustomizedTimeZone(dateTime, offset, num, timeOnly, ref result);
+			break;
+		case 'K':
+			num = 1;
+			FormatCustomizedRoundripTimeZone(dateTime, offset, ref result);
+			break;
+		case ':':
+			result.Append(dtfi.TimeSeparatorTChar<TChar>());
+			num = 1;
+			break;
+		case '/':
+			result.Append(dtfi.DateSeparatorTChar<TChar>());
+			num = 1;
+			break;
+		case '"':
+		case '\'':
+			num = ParseQuoteString(format, i, ref result);
+			break;
+		case '%':
+		{
+			int num2 = ParseNextChar(format, i);
+			if (num2 >= 0 && num2 != 37)
+			{
+				FormatCustomized(dateTime, new ReadOnlySpan<char>((char)num2), dtfi, offset, ref result);
+				num = 2;
+				break;
+			}
+			throw new FormatException(SR.Format_InvalidString);
+		}
+		case '\\':
+		{
+			int num2 = ParseNextChar(format, i);
+			if (num2 >= 0)
+			{
+				result.Append(TChar.CastFrom(num2));
+				num = 2;
+				break;
+			}
+			throw new FormatException(SR.Format_InvalidString);
+		}
+		default:
+			AppendChar(ref result, c);
+			num = 1;
+			break;
+		}
+	}
+}

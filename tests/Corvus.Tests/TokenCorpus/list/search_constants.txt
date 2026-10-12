@@ -1,0 +1,65 @@
+14447 occurrences of 1 (showing 200; raise limit or refine):
+  <>f__AnonymousType0`2::Equals(object) @IL_003F  ldc.i4.1 1  [System.Private.CoreLib] 0x06000004
+  <>f__AnonymousType0`2::ToString() @IL_0035  ldc.i4.1 1  [System.Private.CoreLib] 0x06000006
+  Interop::CallStringMethod<TArg1, TArg2, TArg3>(SpanFunc<char, TArg1, TArg2, TArg3, ResultCode>, TArg1, TArg2, TArg3, ref string) @IL_0046  ldc.i4.1 1  [System.Private.CoreLib] 0x06000007
+  Interop::CallStringMethod<TArg1, TArg2, TArg3>(SpanFunc<char, TArg1, TArg2, TArg3, ResultCode>, TArg1, TArg2, TArg3, ref string) @IL_008D  ldc.i4.1 1  [System.Private.CoreLib] 0x06000007
+  Interop/Globalization::GetSortHandle(string, ref nint)  attribute [LibraryImportAttribute] 1  [System.Private.CoreLib] 0x0600001B
+  Interop/Globalization::InitICUFunctions(nint, nint, string, string)  attribute [LibraryImportAttribute] 1  [System.Private.CoreLib] 0x06000026
+  Interop/Globalization/ResultCode::UnknownError  enum member 1  [System.Private.CoreLib] 0x04000005
+  Interop/BOOL::TRUE  enum member 1  [System.Private.CoreLib] 0x0400000B
+  Interop/Kernel32::CreateFilePrivate(string, int, FileShare, SECURITY_ATTRIBUTES*, FileMode, int, nint) @IL_003F  ldc.i4.1 1  [System.Private.CoreLib] 0x0600006A
+  Interop/Kernel32::CreateThreadpoolIo(SafeHandle, delegate*, nint, nint) @IL_003A  ldc.i4.1 1  [System.Private.CoreLib] 0x0600006F
+  Interop/Kernel32::CreateSymbolicLink(string, string, bool) @IL_0048  ldc.i4.1 1  [System.Private.CoreLib] 0x06000081
+  Interop/Kernel32::CreateSymbolicLink(string, string, bool) @IL_0051  ldc.i4.1 1  [System.Private.CoreLib] 0x06000081
+  Interop/Kernel32::FindFirstFileExPrivate(string, FINDEX_INFO_LEVELS, ref WIN32_FIND_DATA, FINDEX_SEARCH_OPS, nint, int) @IL_004B  ldc.i4.1 1  [System.Private.CoreLib] 0x0600008B
+  Interop/Kernel32::FindFirstFile(string, ref WIN32_FIND_DATA) @IL_0009  ldc.i4.1 1  [System.Private.CoreLib] 0x0600008C
+  Interop/Kernel32::MoveFile(string, string, bool) @IL_0016  ldc.i4.1 1  [System.Private.CoreLib] 0x060000BA
+  Interop/Kernel32::OpenThread(int, bool, int) @IL_002C  ldc.i4.1 1  [System.Private.CoreLib] 0x060000BB
+  Interop/Kernel32::CreateEventEx(nint, string, uint, uint) @IL_0039  ldc.i4.1 1  [System.Private.CoreLib] 0x060000E3
+  Interop/Kernel32::OpenEvent(uint, bool, string) @IL_0041  ldc.i4.1 1  [System.Private.CoreLib] 0x060000E4
+  Interop/Kernel32::GetMessage(int, nint) @IL_00B5  ldc.i4.1 1  [System.Private.CoreLib] 0x060000EA
+  Interop/Kernel32::GetAndTrimString(ReadOnlySpan<char>) @IL_000B  ldc.i4.1 1  [System.Private.CoreLib] 0x060000EB
+  Interop/Kernel32::GetAndTrimString(ReadOnlySpan<char>) @IL_0015  ldc.i4.1 1  [System.Private.CoreLib] 0x060000EB
+  Interop/Kernel32::OpenMutex(uint, bool, string) @IL_0041  ldc.i4.1 1  [System.Private.CoreLib] 0x060000EC
+  Interop/Kernel32::CreateMutexEx(nint, string, uint, uint) @IL_0039  ldc.i4.1 1  [System.Private.CoreLib] 0x060000ED
+  Interop/Kernel32::OpenSemaphore(uint, bool, string) @IL_0041  ldc.i4.1 1  [System.Private.CoreLib] 0x060000EF
+  Interop/Kernel32::CreateSemaphoreEx(nint, int, int, string, uint, uint) @IL_003D  ldc.i4.1 1  [System.Private.CoreLib] 0x060000F0
+  Interop/Kernel32/FINDEX_INFO_LEVELS::FindExInfoBasic  enum member 1  [System.Private.CoreLib] 0x04000036
+  Interop/Kernel32/FINDEX_SEARCH_OPS::FindExSearchLimitToDirectories  enum member 1  [System.Private.CoreLib] 0x0400003A
+  Interop/Kernel32/GET_FILEEX_INFO_LEVELS::GetFileExMaxInfoLevel  enum member 1  [System.Private.CoreLib] 0x0400003F
+  Interop/Advapi32::SetEntriesInAcl(int, EXPLICIT_ACCESS*, nint, ref SafeLocalAllocHandle) @IL_0029  ldc.i4.1 1  [System.Private.CoreLib] 0x0600016D
+  Interop/Advapi32::OpenProcessToken(nint, int, ref SafeTokenHandle) @IL_0027  ldc.i4.1 1  [System.Private.CoreLib] 0x06000184
+  Interop/Advapi32::OpenThreadToken(nint, int, bool, ref SafeTokenHandle) @IL_0030  ldc.i4.1 1  [System.Private.CoreLib] 0x06000185
+  Interop/Advapi32::RegOpenKeyEx(SafeRegistryHandle, string, int, int, ref SafeRegistryHandle) @IL_004A  ldc.i4.1 1  [System.Private.CoreLib] 0x0600018A
+  Interop/Advapi32/ActivityControl::EVENT_ACTIVITY_CTRL_GET_ID  enum member 1  [System.Private.CoreLib] 0x040000B9
+  Interop/Advapi32/EVENT_INFO_CLASS::SetEnableAllKeywords  enum member 1  [System.Private.CoreLib] 0x040000C3
+  Interop/Advapi32/ACCESS_MODE::GRANT_ACCESS  enum member 1  [System.Private.CoreLib] 0x040000DB
+  Interop/Advapi32/TRUSTEE_FORM::TRUSTEE_IS_NAME  enum member 1  [System.Private.CoreLib] 0x040000E3
+  Interop/Advapi32/TRUSTEE_TYPE::TRUSTEE_IS_USER  enum member 1  [System.Private.CoreLib] 0x040000E9
+  Interop/Advapi32/TRACE_QUERY_INFO_CLASS::TraceGuidQueryInfo  enum member 1  [System.Private.CoreLib] 0x040000F3
+  Interop/Advapi32/TOKEN_INFORMATION_CLASS::TokenUser  enum member 1  [System.Private.CoreLib] 0x04000107
+  Interop/BOOLEAN::TRUE  enum member 1  [System.Private.CoreLib] 0x0400013A
+  Interop/NtDll/CreateDisposition::FILE_OPEN  enum member 1  [System.Private.CoreLib] 0x0400013D
+  Interop/NtDll/CreateOptions::FILE_DIRECTORY_FILE  enum member 1  [System.Private.CoreLib] 0x04000143
+  Interop/NtDll/DesiredAccess::FILE_READ_DATA  enum member 1  [System.Private.CoreLib] 0x04000159
+  Interop/NtDll/DesiredAccess::FILE_LIST_DIRECTORY  enum member 1  [System.Private.CoreLib] 0x0400015A
+  Interop/NtDll/FILE_INFORMATION_CLASS::FileDirectoryInformation  enum member 1  [System.Private.CoreLib] 0x04000184
+  Interop/ImpersonationLevel::Identification  enum member 1  [System.Private.CoreLib] 0x040001DA
+  Interop/ContextTrackingMode::Dynamic  enum member 1  [System.Private.CoreLib] 0x040001DF
+  Interop/Shell32::SHGetKnownFolderPath(ref Guid, uint, nint, ref string) @IL_0024  ldc.i4.1 1  [System.Private.CoreLib] 0x060001CE
+  Microsoft.Win32.SafeHandles.CriticalHandleZeroOrMinusOneIsInvalid::get_IsInvalid() @IL_001C  ldc.i4.1 1  [System.Private.CoreLib] 0x06000212
+  Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid::get_IsInvalid() @IL_001C  ldc.i4.1 1  [System.Private.CoreLib] 0x06000216
+  Microsoft.Win32.SafeHandles.SafeFileHandle::.ctor() @IL_001B  ldc.i4.1 1  [System.Private.CoreLib] 0x06000219
+  Microsoft.Win32.SafeHandles.SafeFileHandle::get_CanSeek() @IL_000E  ldc.i4.1 1  [System.Private.CoreLib] 0x0600021C
+  Microsoft.Win32.SafeHandles.SafeFileHandle::CreateFile(string, FileMode, FileAccess, FileShare, FileOptions) @IL_0025  ldc.i4.1 1  [System.Private.CoreLib] 0x06000221
+  Microsoft.Win32.SafeHandles.SafeFileHandle::CreateFile(string, FileMode, FileAccess, FileShare, FileOptions) @IL_002F  ldc.i4.1 1  [System.Private.CoreLib] 0x06000221
+  Microsoft.Win32.SafeHandles.SafeFileHandle::CreateFile(string, FileMode, FileAccess, FileShare, FileOptions) @IL_0031  ldc.i4.1 1  [System.Private.CoreLib] 0x06000221
+  Microsoft.Win32.SafeHandles.SafeFileHandle::Preallocate(string, long, SafeFileHandle) @IL_003C  ldc.i4.1 1  [System.Private.CoreLib] 0x06000222
+  Microsoft.Win32.SafeHandles.SafeFileHandle::<GetFileLength>g__GetFileLengthCore|28_0() @IL_0001  ldc.i4.1 1  [System.Private.CoreLib] 0x0600022C
+  Microsoft.Win32.SafeHandles.SafeFileHandle/OverlappedValueTaskSource::.ctor(SafeFileHandle) @IL_0013  ldc.i4.1 1  [System.Private.CoreLib] 0x0600022D
+  Microsoft.Win32.SafeHandles.SafeFileHandle/OverlappedValueTaskSource::FinishedScheduling() @IL_0006  ldc.i4.1 1  [System.Private.CoreLib] 0x06000238
+  Microsoft.Win32.SafeHandles.SafeWaitHandle::.ctor() @IL_0001  ldc.i4.1 1  [System.Private.CoreLib] 0x0600023F
+  Microsoft.Win32.SafeHandles.SafeLocalAllocHandle::.ctor() @IL_0001  ldc.i4.1 1  [System.Private.CoreLib] 0x06000242
+  Microsoft.Win32.SafeHandles.SafeLocalAllocHandle::ReleaseHandle() @IL_000B  ldc.i4.1 1  [System.Private.CoreLib] 0x06000244
+  Microsoft.Win32.SafeHandles.SafeTokenHandle::.ctor() @IL_0006  ldc.i4.1 1  [System.Private.CoreLib] 0x06000245
+  Microsoft.Win32.SafeHandles.SafeTokenHandle::get_IsInvalid() @IL_001D  ldc.i4.1 1  [System.Private.CoreLib] 0x06000246

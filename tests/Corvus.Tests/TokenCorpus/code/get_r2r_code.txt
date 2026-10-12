@@ -1,0 +1,118 @@
+System.Linq.Enumerable::Any<__Canon>(IEnumerable<TSource>)  [System.Linq] 0x0600001D
+  native code in System.Linq.dll (ReadyToRun 16.0, AMD64): entry 0x1800455B0 (rva 0x455B0), 335 bytes in 2 ranges
+  fixups resolved before the code first runs: 1
+    [0x18009A5A8] type handle System.Linq.ExceptionArgument
+; hot code 0x1800455B0-0x1800456E2 (306 bytes)
+  1800455B0  55                       push   rbp
+  1800455B1  57                       push   rdi
+  1800455B2  56                       push   rsi
+  1800455B3  53                       push   rbx
+  1800455B4  4883EC38                 sub    rsp, 38h
+  1800455B8  488D6C2450               lea    rbp, [rsp+50h]
+  1800455BD  48894DE0                 mov    [rbp-20h], rcx
+  1800455C1  488BD9                   mov    rbx, rcx
+  1800455C4  488BF2                   mov    rsi, rdx
+  1800455C7  4885F6                   test   rsi, rsi
+  1800455CA  0F8406010000             je     loc_456D6
+  1800455D0  488BCB                   mov    rcx, rbx
+  1800455D3  FF15AF1D0500             call   qword ptr [dictionary lookup (method)]
+  1800455D9  488BC8                   mov    rcx, rax
+  1800455DC  488BD6                   mov    rdx, rsi
+  1800455DF  FF1503010500             call   qword ptr [helper CheckInstanceAny]
+  1800455E5  488BF8                   mov    rdi, rax
+  1800455E8  4885FF                   test   rdi, rdi
+  1800455EB  0F85BD000000             jne    loc_456AE
+  1800455F1  FF1539010500             call   qword ptr [static base (non-GC) System.Linq.Enumerable]
+  1800455F7  803800                   cmp    byte ptr [rax], 0
+  1800455FA  751D                     jne    loc_45619
+  1800455FC  488BCB                   mov    rcx, rbx
+  1800455FF  FF157B1D0500             call   qword ptr [dictionary lookup (method)]
+  180045605  488BC8                   mov    rcx, rax
+  180045608  488BD6                   mov    rdx, rsi
+  18004560B  FF15D7000500             call   qword ptr [helper CheckInstanceAny]
+  180045611  488BF8                   mov    rdi, rax
+  180045614  4885FF                   test   rdi, rdi
+  180045617  755B                     jne    loc_45674
+loc_45619:
+  180045619  488BCE                   mov    rcx, rsi
+  18004561C  FF15CE340500             call   qword ptr [isinst System.Collections.ICollection]
+  180045622  4885C0                   test   rax, rax
+  180045625  7534                     jne    loc_4565B
+  180045627  488BCB                   mov    rcx, rbx
+  18004562A  FF15802D0500             call   qword ptr [dictionary lookup (method)]
+  180045630  488BCE                   mov    rcx, rsi
+  180045633  4C8BD8                   mov    r11, rax
+  180045636  FF10                     call   qword ptr [rax]
+  180045638  488945D0                 mov    [rbp-30h], rax
+  18004563C  488BC8                   mov    rcx, rax
+  18004563F  4C8D1D92FA0400           lea    r11, [virtual call System.Collections.IEnumerator::MoveNext()]
+  180045646  41FF13                   call   qword ptr [r11]
+  180045649  8BF0                     mov    esi, eax
+  18004564B  488B4DD0                 mov    rcx, [rbp-30h]
+  18004564F  4C8D1D42FA0400           lea    r11, [virtual call System.IDisposable::Dispose()]
+  180045656  41FF13                   call   qword ptr [r11]
+  180045659  EB6E                     jmp    loc_456C9
+loc_4565B:
+  18004565B  488BC8                   mov    rcx, rax
+  18004565E  4C8D1D63FA0400           lea    r11, [virtual call System.Collections.ICollection::get_Count()]
+  180045665  41FF13                   call   qword ptr [r11]
+  180045668  85C0                     test   eax, eax
+  18004566A  400F95C6                 setne  sil
+  18004566E  400FB6F6                 movzx  esi, sil
+  180045672  EB55                     jmp    loc_456C9
+loc_45674:
+  180045674  488BCF                   mov    rcx, rdi
+  180045677  4C8D1D02FE0400           lea    r11, [virtual call System.Linq.Enumerable/Iterator`1<__Canon>::GetCount(bool)]
+  18004567E  BA01000000               mov    edx, 1
+  180045683  41FF13                   call   qword ptr [r11]
+  180045686  85C0                     test   eax, eax
+  180045688  7D18                     jge    loc_456A2
+  18004568A  488D55D8                 lea    rdx, [rbp-28h]
+  18004568E  488BCF                   mov    rcx, rdi
+  180045691  4C8D1D28FE0400           lea    r11, [virtual call System.Linq.Enumerable/Iterator`1<__Canon>::TryGetFirst(ref bool)]
+  180045698  41FF13                   call   qword ptr [r11]
+  18004569B  400FB675D8               movzx  esi, byte ptr [rbp-28h]
+  1800456A0  EB27                     jmp    loc_456C9
+loc_456A2:
+  1800456A2  85C0                     test   eax, eax
+  1800456A4  400F95C6                 setne  sil
+  1800456A8  400FB6F6                 movzx  esi, sil
+  1800456AC  EB1B                     jmp    loc_456C9
+loc_456AE:
+  1800456AE  488BCB                   mov    rcx, rbx
+  1800456B1  FF15F12C0500             call   qword ptr [dictionary lookup (method)]
+  1800456B7  488BCF                   mov    rcx, rdi
+  1800456BA  4C8BD8                   mov    r11, rax
+  1800456BD  FF10                     call   qword ptr [rax]
+  1800456BF  85C0                     test   eax, eax
+  1800456C1  400F95C6                 setne  sil
+  1800456C5  400FB6F6                 movzx  esi, sil
+loc_456C9:
+  1800456C9  400FB6C6                 movzx  eax, sil
+  1800456CD  4883C438                 add    rsp, 38h
+  1800456D1  5B                       pop    rbx
+  1800456D2  5E                       pop    rsi
+  1800456D3  5F                       pop    rdi
+  1800456D4  5D                       pop    rbp
+  1800456D5  C3                       ret
+loc_456D6:
+  1800456D6  B911000000               mov    ecx, 11h
+  1800456DB  FF15C73E0500             call   qword ptr [System.Linq.ThrowHelper::ThrowArgumentNullException(ExceptionArgument)]
+  1800456E1  CC                       int    3
+; funclet code 0x1800456E2-0x1800456FF (29 bytes)
+  1800456E2  4883EC28                 sub    rsp, 28h
+  1800456E6  488B4DD0                 mov    rcx, [rbp-30h]
+  1800456EA  4885C9                   test   rcx, rcx
+  1800456ED  740A                     je     loc_456F9
+  1800456EF  4C8D1DA2F90400           lea    r11, [virtual call System.IDisposable::Dispose()]
+  1800456F6  41FF13                   call   qword ptr [r11]
+loc_456F9:
+  1800456F9  90                       nop
+  1800456FA  4883C428                 add    rsp, 28h
+  1800456FE  C3                       ret
+
+(not disassembled) System.Linq.Enumerable::Any<bool>(IEnumerable<TSource>)  entry 0x180042430, 294 bytes
+(not disassembled) System.Linq.Enumerable::Any<int>(IEnumerable<TSource>)  entry 0x180043E60, 294 bytes
+(not disassembled) System.Linq.Enumerable::Any<__Canon>(IEnumerable<TSource>, Func<TSource, bool>)  entry 0x180045700, 438 bytes
+(not disassembled) System.Linq.Enumerable::Any<char>(IEnumerable<TSource>, Func<TSource, bool>)  entry 0x180042D70, 349 bytes
+(4 more bodies not disassembled; raise maxBodies or filter with instantiation)
