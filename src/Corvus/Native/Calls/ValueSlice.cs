@@ -98,6 +98,8 @@ public sealed record SliceNode(SliceNodeKind Kind, uint Address, string Text, st
     public long? Offset { get; init; }
     /// <summary>Forward "stored to [base + offset]": the base register at the store (its type names the field).</summary>
     public string? Base { get; init; }
+    /// <summary>A constant that is a floating-point number's bits: <see cref="Text"/> shows the number.</summary>
+    public bool Float { get; init; }
 }
 
 public enum SliceEdgeKind : byte { Copy, Merge, Loop, Field, Use }

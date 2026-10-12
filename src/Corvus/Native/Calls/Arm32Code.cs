@@ -4,10 +4,12 @@ using Corvus.Native.Code;
 namespace Corvus.Native.Calls;
 
 /// <summary>A 32-bit ARM value location: a core register r0-r14, or a stack slot as an offset from the stack pointer at function entry.</summary>
+/// <summary>A register (r0-r15; s0-s31 as 16-47, d0-d31 as 48-79) or an entry-relative stack slot.</summary>
 internal readonly record struct A32Loc(bool IsSlot, int Value)
 {
     public static A32Loc Reg(int index) => new(false, index);
     public static A32Loc Slot(int offset) => new(true, offset);
+    public bool IsVfp => !IsSlot && Value >= A32Function.VfpS;
 }
 
 /// <summary>One decoded instruction of a function, with the stack and frame pointer offsets before it (from entry SP; null when unknown).</summary>
@@ -25,6 +27,8 @@ internal sealed record A32Step(uint Rva, ArmInstruction I, Insn Facts, int? Sp, 
 internal sealed class A32Function
 {
     public const int Sp = 13, Lr = 14, Pc = 15;
+    /// <summary>Location numbers of s0 and d0.</summary>
+    public const int VfpS = 16, VfpD = 48;
 
     public NativeFunction Function { get; }
     public FunctionGraph Graph { get; }
@@ -163,8 +167,36 @@ internal sealed class A32Function
 
     public static bool IsCall(in ArmInstruction i) => i.Flow is ArmFlow.Call or ArmFlow.IndirectCall;
 
-    /// <summary>Caller-saved under the AAPCS: r0-r3, r12 and lr.</summary>
-    public static bool IsVolatile(int reg) => reg is >= 0 and <= 3 or 12 or 14;
+    /// <summary>Caller-saved under the AAPCS: r0-r3, r12, lr, s0-s15 (d0-d7) and d16-d31.</summary>
+    public static bool IsVolatile(int reg) => reg is >= 0 and <= 3 or 12 or 14 or >= VfpS and < VfpS + 16 or >= VfpD and < VfpD + 8 or >= VfpD + 16 and < VfpD + 32;
+
+    /// <summary>A whole S or D register operand as a location, or null.</summary>
+    public static A32Loc? Vfp(in ArmOperand op) => op is { Kind: ArmOperandKind.VectorRegister, Count: 0 }
+        ? op.Vector switch { ArmVector.S => A32Loc.Reg(VfpS + op.Reg), ArmVector.D => A32Loc.Reg(VfpD + op.Reg), _ => null }
+        : null;
+
+    /// <summary>Whether two VFP registers share bits (d n holds s 2n and s 2n+1).</summary>
+    public static bool Overlaps(A32Loc a, A32Loc b)
+    {
+        if (a == b) return true;
+        if (!a.IsVfp || !b.IsVfp) return false;
+        (A32Loc s, A32Loc d) = a.Value < VfpD ? (a, b) : (b, a);
+        return s.Value < VfpD && d.Value >= VfpD && (s.Value - VfpS) / 2 == d.Value - VfpD;
+    }
+
+    /// <summary>The VFP register an instruction writes as its first operand (not a store), or null.</summary>
+    public static A32Loc? VfpDest(in ArmInstruction i) => !i.Stores && i.OperandCount > 0 ? Vfp(i.Op(0)) : null;
+
+    /// <summary>VFP registers a vpop / vldm list loads, as (first, count, double).</summary>
+    public static bool ListCovers(in ArmInstruction i, A32Loc loc)
+    {
+        if (!i.Loads || !loc.IsVfp) return false;
+        for (int k = 0; k < i.OperandCount; k++)
+            if (i.Op(k) is { Kind: ArmOperandKind.VectorList } list)
+                for (int n = 0; n < list.Count; n++)
+                    if (Overlaps(A32Loc.Reg((list.Vector == ArmVector.D ? VfpD : VfpS) + list.Reg + n), loc)) return true;
+        return false;
+    }
 
     /// <summary>The register operand 0 writes, when it is one.</summary>
     public static int Dest(in ArmInstruction i) =>
@@ -188,6 +220,8 @@ internal sealed class A32Function
             int? origin = reg == "sp" ? at == null ? 0 : at.Sp : Register(reg) == fpReg || reg == "fp" ? at?.Fp : null;
             return origin is { } o ? A32Loc.Slot(o + (int)off) : null;
         }
+        if (t.Length >= 2 && t[0] is 's' or 'd' && int.TryParse(t.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out int v) && v is >= 0 and < 32)
+            return A32Loc.Reg((t[0] == 's' ? VfpS : VfpD) + v);
         int r = Register(t);
         return r is >= 0 and < Sp or Lr ? A32Loc.Reg(r) : null;
     }
@@ -209,6 +243,7 @@ internal sealed class A32Function
     /// <summary>A location as text at <paramref name="at"/> (slots relative to sp there; at entry when null).</summary>
     public static string Name(A32Loc loc, A32Step? at)
     {
+        if (loc.IsVfp) return loc.Value >= VfpD ? $"d{loc.Value - VfpD}" : $"s{loc.Value - VfpS}";
         if (!loc.IsSlot) return ArmInstruction.RegisterNames[loc.Value & 15];
         int origin = at == null ? 0 : at.Sp ?? 0;
         int off = loc.Value - origin;

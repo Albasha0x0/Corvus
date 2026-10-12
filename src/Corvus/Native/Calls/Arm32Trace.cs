@@ -128,7 +128,7 @@ internal sealed class Arm32Trace : ITraceHost
         {
             if (fn == null && index.Image.SectionAt(rva) is { } section && (section.Access & SectionAccess.Write) != 0)
                 return new TraceSeed(TraceSeedKind.Global, rva, null, null, $"global [{index.NameAt(rva) ?? Va(rva)}]");
-            throw new ToolError(ErrorCode.InvalidArgument, "Pass location (a register r0-r12 / lr, a stack slot [sp+10h] or [r7-8], op1 / op2 or result) or argument; " +
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass location (a register r0-r12 / lr / s0-s31 / d0-d31, a stack slot [sp+10h] or [r7-8], op1 / op2 or result) or argument; " +
                 "address alone is for a writable global.", "for example location=r0, or argument=1 at a call");
         }
         if (fn == null) throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(rva)}.", "list_functions shows the functions; a writable global needs no location");
@@ -150,6 +150,7 @@ internal sealed class Arm32Trace : ITraceHost
             if (k < 0 || k >= x.OperandCount) throw new ToolError(ErrorCode.InvalidArgument, $"{step.Text} has {x.OperandCount} operands.", "op1 is the first operand");
             var op = x.Op(k);
             if (op.Kind is ArmOperandKind.Register or ArmOperandKind.ShiftedRegister && op.Reg is < A32Function.Sp or A32Function.Lr) loc = ArmInstruction.RegisterNames[op.Reg];
+            else if (A32Function.Vfp(op) is { } vfp) loc = A32Function.Name(vfp, null);
             else if (op.Kind == ArmOperandKind.Memory && step.Facts.HasMem && index.Image.SectionAt(step.Facts.MemTarget) is { } s && (s.Access & SectionAccess.Write) != 0)
                 return new TraceSeed(TraceSeedKind.Global, step.Facts.MemTarget, null, null, $"global [{index.NameAt(step.Facts.MemTarget) ?? Va(step.Facts.MemTarget)}] ({step.Text} at {Where(rva)})");
             else if (op.Kind == ArmOperandKind.Memory && code.Slot(step) is { } slot) loc = A32Function.Name(A32Loc.Slot(slot), step);
@@ -157,7 +158,7 @@ internal sealed class Arm32Trace : ITraceHost
                 throw new ToolError(ErrorCode.InvalidArgument, $"Operand {k + 1} of {step.Text} is not a register, stack slot or writable global.",
                     "trace the base register of a memory operand instead (location=<register>)");
         }
-        var parsed = code.Parse(loc, step) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown location '{location}'.", "use r0-r12, lr, [sp+10h] or [r7-8]");
+        var parsed = code.Parse(loc, step) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown location '{location}'.", "use r0-r12, lr, s0-s31, d0-d31, [sp+10h] or [r7-8]");
         var name = A32Function.Name(parsed, step);
         return new TraceSeed(TraceSeedKind.Location, rva, fn, name, $"{name} at {Va(rva)} ({Where(rva)}: {step.Text})");
     }
@@ -290,7 +291,7 @@ internal sealed class Arm32SliceProvider(Arm32Trace host) : IFunctionSliceProvid
             switch (v.Kind)
             {
                 case A64Kind.Const:
-                    return Node(new SliceNode(SliceNodeKind.Constant, v.At, $"0x{v.Num:X}", why) { Value = v.Num });
+                    return Node(new SliceNode(SliceNodeKind.Constant, v.At, v.Text ?? $"0x{v.Num:X}", why) { Value = v.Num, Float = v.Text != null });
                 case A64Kind.Addr:
                     return Node(new SliceNode(SliceNodeKind.Address, v.At, host.FormatAddress(v.Rva, null).Text, why) { Rva = v.Rva });
                 case A64Kind.StackAddr:
@@ -351,7 +352,8 @@ internal sealed class Arm32SliceProvider(Arm32Trace host) : IFunctionSliceProvid
 /// <summary>
 /// Forward slice in a 32-bit ARM function: the registers and stack slots holding the value are followed over the blocks
 /// through copies and arithmetic until overwritten; each use is a node: call argument (r0-r3, stack slots at the call),
-/// call target, store to a global or through a pointer, compare (cmp, tst, cbz), switch index, dereference, return in r0.
+/// call target, store to a global or through a pointer, compare (cmp, tst, cbz, vcmp), switch index, dereference, return in
+/// r0 (s0 / d0 for a float). VFP registers follow vmov, vldr / vstr of locals and arithmetic.
 /// </summary>
 internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
 {
@@ -408,7 +410,7 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
     }
 
     private bool Defines(A32Step s, A32Loc loc) =>
-        loc.IsSlot ? s.I.Stores && code.Slot(s) == loc.Value : (s.I.Writes & (1 << loc.Value)) != 0;
+        loc.IsSlot ? s.I.Stores && code.Slot(s) == loc.Value : loc.IsVfp ? A32Function.VfpDest(s.I) == loc : (s.I.Writes & (1 << loc.Value)) != 0;
 
     private void Walk(int startBlock, int startIndex, Dictionary<A32Loc, Live> start, CancellationToken ct)
     {
@@ -470,9 +472,19 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
             }
             if (flow == FlowKind.Return)
             {
-                if (live.TryGetValue(A32Loc.Reg(0), out var r0))
-                    Use(new SliceNode(SliceNodeKind.Return, s.Rva, "returned in r0", r0.Path) { Location = "r0", Derived = r0.Derived });
+                foreach (var ret in new[] { A32Loc.Reg(0), A32Loc.Reg(A32Function.VfpS), A32Loc.Reg(A32Function.VfpD) })
+                    if (live.TryGetValue(ret, out var r0))
+                    {
+                        var name = A32Function.Name(ret, null);
+                        Use(new SliceNode(SliceNodeKind.Return, s.Rva, $"returned in {name}", r0.Path) { Location = name, Derived = r0.Derived });
+                    }
                 if (!s.Facts.Conditional) return false;
+                continue;
+            }
+            if (i.Mnemonic is "vcmp" or "vcmpe")
+            {
+                if (A32Function.Vfp(i.Op(0)) is { } v && live.TryGetValue(v, out var l))
+                    Use(new SliceNode(SliceNodeKind.Compare, s.Rva, s.Text, Step(l.Path, s)) { Derived = l.Derived, Truncated = i.OperandCount < 2 || i.Op(1).Kind != ArmOperandKind.Text });
                 continue;
             }
             if (i.Mnemonic is "cbz" or "cbnz" or "cmp" or "cmn" or "tst" or "teq")
@@ -508,7 +520,8 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
         for (int k = i.Stores ? 0 : 1; k < i.OperandCount; k++)
         {
             var op = i.Op(k);
-            if (op.Kind is ArmOperandKind.Register or ArmOperandKind.ShiftedRegister && op.Reg < A32Function.Sp && live.TryGetValue(A32Loc.Reg(op.Reg), out var l))
+            if ((op.Kind is ArmOperandKind.Register or ArmOperandKind.ShiftedRegister && op.Reg < A32Function.Sp && live.TryGetValue(A32Loc.Reg(op.Reg), out var l))
+                || A32Function.Vfp(op) is { } v && live.TryGetValue(v, out l))
             {
                 source ??= l;
                 if (i.Stores) break;
@@ -550,7 +563,14 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
         }
 
         // destinations: written registers get the value (derived unless a copy) or lose it
-        bool copy = i.Mnemonic is "mov" or "uxtb" or "uxth" or "sxtb" or "sxth" || i.Loads && slot != null;
+        bool copy = i.Mnemonic is "mov" or "uxtb" or "uxth" or "sxtb" or "sxth" or "vmov" || i.Loads && slot != null;
+        foreach (var gone in live.Keys.Where(l => l.IsVfp && (A32Function.ListCovers(i, l) || A32Function.VfpDest(i) is { } d && d != l && A32Function.Overlaps(d, l))).ToList())
+            live.Remove(gone);
+        if (A32Function.VfpDest(i) is { } vd)
+        {
+            if (source is { } src) live[vd] = new Live(src.Derived || !copy, Step(src.Path, s));
+            else if (!i.IsConditional) live.Remove(vd);
+        }
         for (int r = 0; r < A32Function.Sp; r++)
         {
             if ((i.Writes & (1 << r)) == 0) continue;
@@ -583,7 +603,7 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
         foreach (var (loc, l) in live.OrderBy(l => l.Key.IsSlot).ThenBy(l => l.Key.Value).ToList())
         {
             A32Loc entry;
-            if (!loc.IsSlot) { if (loc.Value >= 4) continue; entry = loc; }
+            if (!loc.IsSlot) { if (!(loc.Value < 4 || loc.IsVfp && A32Function.IsVolatile(loc.Value) && loc.Value < A32Function.VfpD + 8)) continue; entry = loc; }
             else if (s.Sp is { } sp && loc.Value - sp is var off and >= 0 && off < 4 * 16 && off % 4 == 0) entry = A32Loc.Slot(off);
             else continue;
             if (!looked) { call = host.CallAt(s.Rva, default); looked = true; }
@@ -593,7 +613,7 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
             var calleeName = call?.Callee ?? s.Text;
             var name = sig != null && index >= 0 && index < sig.Params.Count ? $" {sig.Params[index].Name}" : "";
             uint? target = call is { Kind: CalleeKind.Function } ? call.Target : null;
-            Use(new SliceNode(SliceNodeKind.Argument, s.Rva, $"argument {index + 1}{name} of {calleeName}", Step(l.Path, s))
+            Use(new SliceNode(SliceNodeKind.Argument, s.Rva, $"argument {(index >= 0 ? (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : A32Function.Name(entry, null))}{name} of {calleeName}", Step(l.Path, s))
             {
                 Site = s.Rva, Location = A32Function.Name(entry, null), Index = index, Callee = calleeName, CallKind = call?.Kind ?? CalleeKind.Indirect,
                 Target = target, Derived = l.Derived,

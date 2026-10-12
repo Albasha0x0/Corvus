@@ -140,6 +140,58 @@ public class Arm32TraceTests
     }
 
     [Fact]
+    public void Vfp_registers_trace_through_vldr_vmov_and_into_the_callee()
+    {
+        // caller: vldr d1, [pc, #20]; vmov.f64 d0, d1; mov r0, #5; vmov s4, r0; bl callee; pop {r7, pc}; literal 2.5
+        // callee: vmov.f64 d2, #1.5; vcmp.f64 d0, d2; bx lr
+        var at = new Dictionary<string, uint>();
+        var a = new A32Code(Code);
+        at["caller"] = a.Here;
+        a.H(A32Code.PushLr(0x80));
+        a.T(0xED9F1B05);
+        a.T(0xEEB00B41);
+        a.H(A32Code.MovImm(0, 5));
+        at["vmovS"] = a.Here;
+        a.T(0xEE020A10);
+        at["call"] = a.Here;
+        a.Later(-4, x => A32Code.Bl(x, at["callee"]));
+        a.H(A32Code.PopPc(0x80));
+        a.Align4();
+        a.W((uint)BitConverter.DoubleToInt64Bits(2.5)).W((uint)(BitConverter.DoubleToInt64Bits(2.5) >> 32));
+        at["callee"] = a.Here;
+        a.T(0xEEB72B08);
+        at["vcmp"] = a.Here;
+        a.T(0xEEB40B42);
+        a.H(A32Code.BxLr);
+        var image = CodeTestImage.Synthetic(NativeArch.Arm, a.Bytes(), new byte[0x40], [], entry: Code,
+            exports: [new NativeExport("caller", 1, at["caller"], null), new NativeExport("callee", 2, at["callee"], null)]);
+        var s = new Sample(NativeCodeIndex.Build(image), at);
+
+        var seed = Seed(s, at["call"], "d0", null);
+        Assert.Equal("d0", seed.Location);
+        Assert.Equal(["2.5"], Trace(s, seed).Values.Select(v => v.Text));
+        Assert.Equal(["5"], Trace(s, Seed(s, at["call"], "s4", null)).Values.Select(v => v.Text));
+
+        var forward = Trace(s, Seed(s, at["call"], "d0", null), TraceDirection.Forward);
+        Assert.Contains(forward.Nodes, n => n.Kind == TraceNodeKind.Argument && n.Text.Contains("argument d0 of callee", StringComparison.Ordinal));
+        Assert.Contains(forward.Nodes, n => n.Text.StartsWith("vcmp", StringComparison.Ordinal));
+        Assert.Equal(["1.5"], Trace(s, Seed(s, at["vcmp"], "op2", null)).Values.Select(v => v.Text));
+    }
+
+    [Fact]
+    public void Feature_trace_seeds_constants_in_arm32_code()
+    {
+        var s = Build();
+        var r = FeatureTrace.Run(s.Index, "0x20", false, FeatureKinds.Constants, 10, 0, [], default);
+        var seed = Assert.Single(r.Seeds);
+        Assert.Equal("constant", seed.Kind);
+        var hit = Assert.Single(r.Functions);
+        Assert.Equal(s.At["other"], hit.Function.Start);
+        Assert.Contains("-> ", hit.Evidence.Single().Detail);
+        Assert.DoesNotContain(r.Notes, n => n.Contains("constants in code", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_call_result_is_bound_to_the_callee_returns()
     {
         var s = Build();

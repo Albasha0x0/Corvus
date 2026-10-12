@@ -1222,7 +1222,7 @@ Traces a value through native code (x86 / x64 / ARM) across functions. Backward 
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `address` | string | yes |  | An instruction, a call, a function start (with argument) or a writable global. Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `location` | string |  |  | The value at address: a register (rdx, ecx, xmm1; ARM64 x1, w2, d0), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), op1 / op2 (an operand of the instruction) or result (the value the call at address returns). |
+| `location` | string |  |  | The value at address: a register (rdx, ecx, xmm1; ARM64 x1, w2, d0; ARM32 r1, s0, d0), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), op1 / op2 (an operand of the instruction) or result (the value the call at address returns). |
 | `argument` | string |  |  | An argument of the call at address, or a parameter of the function starting there: 1-based position or API parameter name. |
 | `direction` | string |  |  | backward (default: the values that reach it), forward (its uses) or both. Values: backward, forward, both. |
 | `maxDepth` | integer |  | `3` | Function boundaries to cross (0-8). |

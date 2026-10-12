@@ -11,6 +11,8 @@ internal sealed record A32Val(A64Kind Kind, uint At, string Why)
     public A32Loc Loc { get; init; }
     public A32Val[]? Inputs { get; init; }
     public bool Truncated { get; init; }
+    /// <summary>A floating-point constant's number; null for integers.</summary>
+    public string? Text { get; init; }
 
     public static A32Val Unknown(string why, uint at = 0) => new(A64Kind.Unknown, at, why);
 
@@ -22,7 +24,8 @@ internal sealed record A32Val(A64Kind Kind, uint At, string Why)
 /// copies, constants (mov, mvn, movw / movt), address forming (adr, ADD of PC and a literal-pool offset, relocated MOVW /
 /// MOVT), loads (literal pools, globals, GOT slots, stack slots, fields), push / pop of saved registers, call results in
 /// r0, conditional (IT or A32 condition) writes as merges with the prior value, and the merges of predecessor paths; loops
-/// end in a cycle value.
+/// end in a cycle value. VFP registers (s0-s31, d0-d31): vmov of constants, core registers and other VFP registers, vldr of
+/// literal pools, locals and globals, results in s0 / d0.
 /// </summary>
 internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
 {
@@ -45,7 +48,7 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
             var s = steps[k];
             if (A32Function.IsCall(s.I))
             {
-                if (!loc.IsSlot && loc.Value == 0) return new A32Val(A64Kind.Result, s.Rva, $"{s.Text} @{host.Va(s.Rva)}") { Rva = s.Rva };
+                if (!loc.IsSlot && loc.Value is 0 or A32Function.VfpS or A32Function.VfpD) return new A32Val(A64Kind.Result, s.Rva, $"{s.Text} @{host.Va(s.Rva)}") { Rva = s.Rva };
                 if (!loc.IsSlot && A32Function.IsVolatile(loc.Value)) return A32Val.Unknown($"clobbered by the call {s.Text} @{host.Va(s.Rva)}", s.Rva);
                 continue;
             }
@@ -132,6 +135,7 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
         var i = s.I;
         string at = $"{s.Text} @{host.Va(s.Rva)}";
         if (loc.IsSlot) return SlotWrite(loc, s, block, k, depth, at);
+        if (loc.IsVfp) return VfpWrite(loc, s, block, k, depth, at);
 
         int r = loc.Value;
         if ((i.Writes & (1 << r)) == 0) return null;
@@ -184,6 +188,56 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
         return A32Val.Unknown($"set by {at}", s.Rva);
     }
 
+    /// <summary>The value a VFP instruction gives an S or D register, or null when it leaves it alone.</summary>
+    private A32Val? VfpWrite(A32Loc loc, A32Step s, int block, int k, int depth, string at)
+    {
+        var i = s.I;
+        if (A32Function.ListCovers(i, loc)) return A32Val.Unknown($"loaded by {at}", s.Rva);
+        if (A32Function.VfpDest(i) is not { } dest) return null;
+        if (dest != loc) return A32Function.Overlaps(dest, loc) ? A32Val.Unknown($"partly set by {at}", s.Rva) : null;
+        bool dbl = loc.Value >= A32Function.VfpD;
+        if (i.Mnemonic == "vmov" && i.OperandCount == 2)
+        {
+            var src = i.Op(1);
+            if (src.Kind == ArmOperandKind.Text && src.Text is ['#', ..] imm
+                && double.TryParse(imm[1..], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double f))
+                return Float(dbl ? (ulong)BitConverter.DoubleToInt64Bits(f) : (uint)BitConverter.SingleToInt32Bits((float)f), dbl, s.Rva, at);
+            if (src.Kind == ArmOperandKind.Register && !dbl) return Chain(Value(src.Reg, s, block, k, depth), at);
+            if (A32Function.Vfp(src) is { } from) return Chain(Before(from, block, k, depth), at);
+        }
+        if (i.Mnemonic == "vmov" && i.OperandCount == 3 && dbl && i.Op(1).Kind == ArmOperandKind.Register && i.Op(2).Kind == ArmOperandKind.Register)
+        {
+            var lo = Value(i.Op(1).Reg, s, block, k, depth);
+            var hi = Value(i.Op(2).Reg, s, block, k, depth);
+            return lo.Kind == A64Kind.Const && hi.Kind == A64Kind.Const ? Float((uint)lo.Num | (ulong)(uint)hi.Num << 32, true, s.Rva, at)
+                : A32Val.Unknown($"set from {Describe(lo)} and {Describe(hi)}: {at}", s.Rva);
+        }
+        if (i.Mnemonic == "vldr" && A32Function.Memory(i) is { } m)
+        {
+            int size = dbl ? 8 : 4;
+            if (m.Reg == Pc && s.Facts.HasMem || s.Facts.HasMem && !(Image.SectionAt(s.Facts.MemTarget) is { } sec && (sec.Access & SectionAccess.Write) != 0))
+            {
+                Span<byte> b = stackalloc byte[8];
+                b.Clear();
+                if (Image.Read(s.Facts.MemTarget, b[..size]) != size) return A32Val.Unknown($"reads 0x{Image.ImageBase + s.Facts.MemTarget:X}: {at}", s.Rva);
+                return Float(BinaryPrimitives.ReadUInt64LittleEndian(b), dbl, s.Rva, $"{at} (contents of 0x{Image.ImageBase + s.Facts.MemTarget:X})");
+            }
+            if (s.Facts.HasMem) return new A32Val(A64Kind.Global, s.Rva, at) { Rva = s.Facts.MemTarget };
+            if (code.Slot(s) is { } slot)
+                return dbl ? A32Val.Unknown($"a double read from local {A32Function.Name(A32Loc.Slot(slot), null)}: {at}", s.Rva)
+                    : Chain(Before(A32Loc.Slot(slot), block, k, depth), at);
+            return new A32Val(A64Kind.Field, s.Rva, at) { Num = (ulong)(m.Subtract ? -m.Value : m.Value), Inputs = [Value(m.Reg, s, block, k, depth)] };
+        }
+        return A32Val.Unknown($"set by {at}", s.Rva);
+    }
+
+    private static A32Val Float(ulong bits, bool dbl, uint at, string why) => new(A64Kind.Const, at, why)
+    {
+        Num = bits,
+        Text = (dbl ? BitConverter.Int64BitsToDouble((long)bits) : BitConverter.Int32BitsToSingle((int)(uint)bits)).ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+               (dbl ? "" : "f"),
+    };
+
     /// <summary>A store into a stack slot: str / strd / push of a register, a partial or vector store that overlaps it.</summary>
     private A32Val? SlotWrite(A32Loc loc, A32Step s, int block, int k, int depth, string at)
     {
@@ -210,6 +264,10 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
         if (code.Slot(s) is not { } slot) return null;
         int bytes = i.Mnemonic is "strd" ? 8 : i.AccessSize;
         if (loc.Value < slot || loc.Value >= slot + bytes) return null;
+        // vstr s: the single register's value; vstr d: its low and high words
+        if (i.Mnemonic == "vstr" && A32Function.Vfp(i.Op(0)) is { } stored)
+            return stored.Value < A32Function.VfpD && loc.Value == slot ? Chain(Before(stored, block, k, depth), at)
+                : A32Val.Unknown($"part of {A32Function.Name(stored, null)} stored there by {at}", s.Rva);
         if (i.Op(0).Kind != ArmOperandKind.Register) return A32Val.Unknown($"a vector register is stored there by {at}", s.Rva);
         if (i.AccessSize < 4) return A32Val.Unknown($"partly overwritten by {at}", s.Rva);
         int reg2 = loc.Value == slot ? i.Op(0).Reg : i.Mnemonic == "strd" && loc.Value == slot + 4 ? i.Op(1).Reg : -1;

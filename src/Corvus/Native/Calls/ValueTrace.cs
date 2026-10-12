@@ -386,6 +386,8 @@ public sealed class ValueTrace
             AddNode(kind, n.Address, f, location ?? n.Location, text, value, rva, decoded, depth, n.Derivation, parent, backward);
         switch (n.Kind)
         {
+            case SliceNodeKind.Constant when n.Float:
+                return Add(TraceNodeKind.Const, n.Text, n.Value);
             case SliceNodeKind.Constant:
             {
                 var text = CallAnalysis.FormatNumber(n.Value, param);

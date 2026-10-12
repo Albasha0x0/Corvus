@@ -205,10 +205,10 @@ public sealed class FeatureTrace
         var text = value < 10 ? value.ToString(System.Globalization.CultureInfo.InvariantCulture) : $"0x{value:X}";
         List<(uint Site, string Detail)> hits;
         Exception? failure = null;
-        bool supported = _calls != null || Arm64Trace.Supports(_index);
-        try { hits = _calls != null ? X86Constants(value, ct) : supported ? Arm64Constants(value, ct) : []; }
+        bool supported = _calls != null || Arm64Trace.Supports(_index) || Arm32Trace.Supports(_index);
+        try { hits = _calls != null ? X86Constants(value, ct) : Arm64Trace.Supports(_index) ? Arm64Constants(value, ct) : supported ? Arm32Constants(value, ct) : []; }
         catch (Exception e) when (e is not OperationCanceledException) { (hits, failure) = ([], e); }
-        if (!supported) _notes.Add("constants in code are searched on x86 / x64 and ARM64 only");
+        if (!supported) _notes.Add("constants in code are searched on x86 / x64 and ARM only");
         // no instruction holds it: no seed (one at address 0 with no references reads as a match)
         if (hits.Count == 0 && failure == null) return;
         Seed("constant", hits.Count > 0 ? hits[0].Site : 0, text, id =>
@@ -305,6 +305,40 @@ public sealed class FeatureTrace
                 // mov / movk sequences build wider constants
                 if (!holds && s.I.Mnemonic == AsmArm64.Arm64Mnemonic.MOVK && A64Function.Gpr(s.I, 0) is var r and >= 0 and < 31)
                     holds = trace.ConstantAfter(f, s.Rva, $"x{r}", ct) is { } built && (built == value || (uint)built == (uint)value && value <= uint.MaxValue);
+                if (!holds) continue;
+                calls ??= trace.Calls.CallsIn(f, ct);
+                result.Add((s.Rva, Feeds(s.Text, s.Rva, value, calls)));
+                if (result.Count >= MaxEvidencePerSeed) return result;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>ARM32: immediates, movw / movt pairs and literal-pool words equal to the value (its low 32 bits).</summary>
+    private List<(uint, string)> Arm32Constants(ulong value, CancellationToken ct)
+    {
+        var result = new List<(uint, string)>();
+        if (value > uint.MaxValue && value >> 31 != 0x1_FFFF_FFFF) return result;
+        uint want = (uint)value;
+        var trace = Arm32Trace.For(_index);
+        Span<byte> word = stackalloc byte[4];
+        int scanned = 0;
+        foreach (var f in _index.Functions)
+        {
+            ct.ThrowIfCancellationRequested();
+            var code = trace.Code(f, ct);
+            IReadOnlyList<CallSiteInfo>? calls = null;
+            foreach (var s in code.Blocks.SelectMany(b => b))
+            {
+                if (++scanned > MaxScannedInstructions) { _notes.Add($"the constant search stopped after {MaxScannedInstructions:N0} instructions"); return result; }
+                var i = s.I;
+                bool holds = false;
+                for (int k = 1; k < i.OperandCount && !holds; k++) holds = i.Op(k).Kind == ArmOperandKind.Immediate && (uint)i.Op(k).Value == want && i.Mnemonic != "movt";
+                if (!holds && i.Mnemonic == "movt" && A32Function.Dest(i) is var r and >= 0)
+                    holds = trace.ConstantAfter(f, s.Rva, ArmInstruction.RegisterNames[r], ct) == want;
+                if (!holds && want >= 0x100 && i.Loads && s.Facts.HasMem && A32Function.Memory(i) is { Reg: A32Function.Pc } && i.AccessSize == 4
+                    && _index.Image.Read(s.Facts.MemTarget, word) == 4)
+                    holds = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(word) == want;
                 if (!holds) continue;
                 calls ??= trace.Calls.CallsIn(f, ct);
                 result.Add((s.Rva, Feeds(s.Text, s.Rva, value, calls)));
