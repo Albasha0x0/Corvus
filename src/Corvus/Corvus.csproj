@@ -26,6 +26,14 @@
     <RepositoryUrl>https://github.com/Albasha0x0/Corvus</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
+  <!-- RID-specific publishes (release archives, publish.ps1) are precompiled: about 0.4 s less per cold CLI call. Roslyn
+       serves only patch_method_csharp and would add 16 MB. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <PublishReadyToRunExclude Include="Microsoft.CodeAnalysis.dll;Microsoft.CodeAnalysis.CSharp.dll" />
+  </ItemGroup>
   <ItemGroup>
     <!-- The MCP Registry entry nuget.org reads from the package; a test keeps its versions and id equal to the above. -->
     <None Include=".mcp\server.json" Pack="true" PackagePath="/.mcp/" />
