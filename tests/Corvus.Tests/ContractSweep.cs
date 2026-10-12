@@ -264,7 +264,11 @@ public static partial class ContractSweep
     }
 
     /// <summary>What one call did: null <see cref="Failure"/> when it kept the contract; <see cref="Outcome"/> is "ok" or the error code.</summary>
-    public sealed record Result(Case Case, string? Failure, string Outcome, TimeSpan Elapsed);
+    public sealed record Result(Case Case, string? Failure, string Outcome, TimeSpan Elapsed)
+    {
+        /// <summary>The error text of a limit_exceeded outcome, for the summary.</summary>
+        public string? Detail { get; init; }
+    }
 
     /// <summary>
     /// Runs the cases tool by tool (calls of one tool in parallel), restoring the workspace between tools; or, when
@@ -331,7 +335,8 @@ public static partial class ContractSweep
         string.Join(", ", results.GroupBy(r => r.Outcome).OrderByDescending(g => g.Count()).Select(g => $"{g.Key}: {g.Count()}")) +
         "\nslowest tools (sum of call times):\n" +
         string.Join("\n", results.GroupBy(r => r.Case.Tool).Select(g => (Tool: g.Key, Ms: g.Sum(r => r.Elapsed.TotalMilliseconds), Max: g.MaxBy(r => r.Elapsed)!))
-            .OrderByDescending(t => t.Ms).Take(10).Select(t => $"  {t.Tool}: {t.Ms:0} ms (slowest {t.Max.Case.Label}: {t.Max.Elapsed.TotalMilliseconds:0} ms)"));
+            .OrderByDescending(t => t.Ms).Take(10).Select(t => $"  {t.Tool}: {t.Ms:0} ms (slowest {t.Max.Case.Label}: {t.Max.Elapsed.TotalMilliseconds:0} ms)")) +
+        string.Concat(results.Where(r => r.Detail != null).Select(r => $"\nlimit_exceeded {r.Case.Tool} [{r.Case.Label}]: {r.Detail}"));
 
     /// <summary>Undoes what the cases of one tool did to the workspace: edits discarded, the fixtures loaded.</summary>
     public static async Task RestoreAsync(McpClient client)
@@ -372,7 +377,11 @@ public static partial class ContractSweep
             var code = System.Text.RegularExpressions.Regex.Match(text, @"^Error \(([a-z_]+)");
             if (!code.Success || code.Groups[1].Value == "internal") return Fail("internal", Clip(text));
             if (McpProtocolTests.ErrorShapeProblems(result) is { Count: > 0 } shape) return Fail("bad error", $"{string.Join("; ", shape)}: {Clip(text)}");
-            return new Result(c, null, code.Groups[1].Value, watch.Elapsed);
+            // D2: a result too large is a page, never an error; limit_exceeded is left for requests no page can serve.
+            if (code.Groups[1].Value == "limit_exceeded" && McpProtocolTests.ErrorJson(result).TryGetProperty("details", out var d) && d.ValueKind == JsonValueKind.Object
+                && d.TryGetProperty("resultId", out _))
+                return Fail("size error", $"a result too large became limit_exceeded: {Clip(text)}");
+            return new Result(c, null, code.Groups[1].Value, watch.Elapsed) { Detail = code.Groups[1].Value == "limit_exceeded" ? Clip(text) : null };
         }
         if (outputSchema is { } schema)
         {
