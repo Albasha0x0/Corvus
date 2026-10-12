@@ -65,6 +65,20 @@ public sealed class DumpImageIdentityTests : IDisposable
         Assert.Equal("missing", missing.Modules[0].LocalImage);
     }
 
+    /// <summary>dump_stack after open_minidump with imageDirectories: the dump's folders are kept, so the stack is named without passing them again.</summary>
+    [Fact]
+    public async Task LaterCallsReuseTheImageFolders()
+    {
+        var dump = Dump();
+        var folder = Directory.CreateDirectory(_dir.File("bin")).FullName;
+        System.IO.File.WriteAllBytes(Path.Combine(folder, "synth_1.2.3.dll"), File());
+        var service = new MinidumpService();
+        var summary = await service.Summarize(dump, folder, 0, 50, 0, 50, default);
+        Assert.Equal("matches", summary.Modules[0].LocalImage);
+        Assert.Equal("synth!Crash+0x5", (await service.Stack(summary.Id, null, true, 64, 0, 64, null, default)).Frames[0].Symbol);
+        Assert.Equal("synth!Crash+0x5", (await service.Stack(dump, null, true, 64, 0, 64, null, default)).Frames[0].Symbol);
+    }
+
     [Fact]
     public async Task SymbolStoreByKeyAndUnderAnotherName()
     {

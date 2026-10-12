@@ -11,7 +11,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
 {
     private const string DumpDescription = "A .dmp path or the id open_minidump returned.";
     private const string ImageDirectoriesDescription =
-        "Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; the dump's folder is always searched.";
+        "Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; kept for later calls on the dump. The dump's folder is always searched.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true)]
     [Description("Summary of a Windows minidump (.dmp): OS, CPU, process; the exception (code, faulting thread, module!function, instruction, " +

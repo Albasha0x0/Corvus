@@ -2348,7 +2348,7 @@ Summary of a Windows minidump (.dmp): OS, CPU, process; the exception (code, fau
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | The .dmp path (or an open dump's id). |
-| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; the dump's folder is always searched. |
+| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; kept for later calls on the dump. The dump's folder is always searched. |
 | `modulesOffset` | integer |  | `0` | First module listed. |
 | `modulesLimit` | integer |  | `50` | Max modules listed. |
 | `threadsOffset` | integer |  | `0` | First thread listed. |
@@ -2372,7 +2372,7 @@ Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP c
 | `maxFrames` | integer |  | `256` | Max frames walked (up to 1024). |
 | `offset` | integer |  | `0` | First frame returned. |
 | `limit` | integer |  | `100` | Max frames returned. |
-| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; the dump's folder is always searched. |
+| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; kept for later calls on the dump. The dump's folder is always searched. |
 | `managed` | string |  | `auto` | auto: .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only. Values: auto, off. |
 
 Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `truncated`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`.

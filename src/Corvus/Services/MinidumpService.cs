@@ -23,6 +23,8 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     private static readonly TimeSpan IndexWait = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<string, string> _ids = new(StringComparer.OrdinalIgnoreCase);
+    // imageDirectories given for a dump file, reused by later calls on it that pass none
+    private readonly ConcurrentDictionary<string, string> _imageDirectories = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _cacheGate = new();
     private readonly Dictionary<string, ModuleCode> _cache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -149,7 +151,9 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         }
         var file = MinidumpFile.Open(path);
         string id = Register(path);
+        if (string.IsNullOrWhiteSpace(imageDirectories)) imageDirectories = _imageDirectories.GetValueOrDefault(path);
         var dirs = Directories(imageDirectories, path);
+        if (!string.IsNullOrWhiteSpace(imageDirectories)) _imageDirectories[path] = imageDirectories;
         return new Session(this, id, file, dirs, LoadedImagePaths());
     }
 
