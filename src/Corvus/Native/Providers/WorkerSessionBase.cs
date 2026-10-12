@@ -45,6 +45,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     private int _failures;
     private int _restarts;
     private int _calls;
+    private long _generation;
     private (string Op, DateTime Since)? _starting;
     private string? _startStage;
     private volatile bool _closed;
@@ -65,6 +66,14 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     protected virtual bool ConcurrentRequests => false;
     /// <summary>Unsaved edits after which the database is saved, so a restart replays a bounded journal.</summary>
     protected virtual int JournalSaveThreshold => int.MaxValue;
+    /// <summary>Whether <paramref name="op"/> leaves the database as it is; every other request advances <see cref="Generation"/>.</summary>
+    protected virtual bool ReadsOnly(string op) => false;
+
+    /// <summary>
+    /// Advances before and after every request that may change the database and on each worker start: engine output
+    /// cached under one value is current while it holds.
+    /// </summary>
+    internal long Generation => Interlocked.Read(ref _generation);
 
     public string ImagePath { get; private set; } = "";
     public string Sha256 => Entry?.Sha256 ?? "";
@@ -158,6 +167,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     {
         _starting = (firstOpen ? "open" : "restart", DateTime.UtcNow);
         _startStage = null;
+        Interlocked.Increment(ref _generation);
         if (!firstOpen) Interlocked.Increment(ref _restarts);
         try { await StartCoreAsync(firstOpen, cancellationToken).ConfigureAwait(false); }
         finally { _starting = null; }
@@ -236,6 +246,8 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         }
         var held = true;
         if (ReadOnlySnapshot) journal = false;
+        bool changes = !ReadsOnly(op);
+        if (changes) Interlocked.Increment(ref _generation);
         try
         {
             if (_closed) throw new ToolError(ErrorCode.NotLoaded, $"The {EngineName} session for {ImagePath} is closed.", "Open the image again.");
@@ -294,6 +306,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         }
         finally
         {
+            if (changes) Interlocked.Increment(ref _generation);
             Interlocked.Decrement(ref _calls);
             if (held) _gate.Release();
         }

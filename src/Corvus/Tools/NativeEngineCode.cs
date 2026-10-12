@@ -162,8 +162,29 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         }
     }
 
+    /// <summary>Rows formatted when read, so a page of a long list formats only its own rows.</summary>
+    private sealed class RowView<T>(IReadOnlyList<T> source, Func<T, string> format) : IList<string>, IReadOnlyList<string>
+    {
+        public string this[int index] { get => format(source[index]); set => throw new NotSupportedException(); }
+        public int Count => source.Count;
+        public bool IsReadOnly => true;
+        public IEnumerator<string> GetEnumerator() { foreach (var x in source) yield return format(x); }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        public int IndexOf(string item) => throw new NotSupportedException();
+        public bool Contains(string item) => throw new NotSupportedException();
+        public void CopyTo(string[] array, int arrayIndex) { foreach (var s in this) array[arrayIndex++] = s; }
+        public void Add(string item) => throw new NotSupportedException();
+        public void Insert(int index, string item) => throw new NotSupportedException();
+        public bool Remove(string item) => throw new NotSupportedException();
+        public void RemoveAt(int index) => throw new NotSupportedException();
+        public void Clear() => throw new NotSupportedException();
+    }
+
+    /// <summary>Lookups built once per list: a session returns the same list while the database is unchanged.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyList<NativeFunctionInfo>, Functions> Built = new();
+
     private static async Task<Functions> LoadFunctions(INativeDecompilerSession session, bool references, CancellationToken ct) =>
-        new((await session.ListFunctionsAsync(references, ct)).OrderBy(f => f.StartRva).ToList());
+        Built.GetValue(await session.ListFunctionsAsync(references, ct), list => new(list.OrderBy(f => f.StartRva).ToList()));
 
     /// <summary>Whether the built-in index decodes the image's instructions (its virtual call edges can be merged in).</summary>
     private static bool Decoded(NativeCodeIndex index) => index.Support != CodeSupport.DeclaredFunctionsOnly;
@@ -176,7 +197,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         var list = query.Apply(functions.List.Select(f => (f, Name: Name(index, f.StartRva, f.Name))), x => x.f.StartRva, x => x.f.EndRva - x.f.StartRva,
             x => x.Name, x => x.f.References ?? 0, x => x.f.Flags.HasFlag(NativeFunctionFlags.Typed));
         string Sources(NativeFunctionInfo f) => index.FunctionByStart(f.StartRva)?.Sources is { } declared ? $"{choice.Engine}, {declared}" : choice.Engine;
-        var lines = list.Select(x => $"{Va(index, x.f.StartRva)}  {x.f.EndRva - x.f.StartRva,7}  {x.Name}{Flags(x.f.Flags)}  ({Sources(x.f)}; {x.f.References ?? 0} refs)").ToList();
+        var lines = new RowView<(NativeFunctionInfo f, string Name)>(list, x => $"{Va(index, x.f.StartRva)}  {x.f.EndRva - x.f.StartRva,7}  {x.Name}{Flags(x.f.Flags)}  ({Sources(x.f)}; {x.f.References ?? 0} refs)");
         int thunks = functions.List.Count(f => f.Flags.HasFlag(NativeFunctionFlags.Thunk));
         int library = functions.List.Count(f => f.Flags.HasFlag(NativeFunctionFlags.Library));
         var display = NativeEngineService.DisplayName(choice.Engine);

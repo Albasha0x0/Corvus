@@ -74,6 +74,22 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     public Task X64_open_list_decompile_disassemble_xrefs() => Walk(System64, NativeArch.X64);
 
     [IdaFact]
+    public async Task The_function_list_is_kept_until_an_edit()
+    {
+        await using var s = (IdaSession)await Isolated().OpenAsync(System64, null, Offline);
+        var exportRva = ExportRva(System64, Export);
+        var first = await s.ListFunctionsAsync(withReferences: true);
+        Assert.Same(first, await s.ListFunctionsAsync(withReferences: true));
+        Assert.Same(first, await s.ListFunctionsAsync(withReferences: false)); // a list with references serves one without
+        await s.SetNameAsync(exportRva, "kept_list_renamed");
+        var after = await s.ListFunctionsAsync(withReferences: false);
+        Assert.NotSame(first, after);
+        Assert.Equal("kept_list_renamed", after.Single(f => f.StartRva == exportRva).Name);
+        await s.RunScriptAsync("1"); // scripts may change anything
+        Assert.NotSame(after, await s.ListFunctionsAsync(withReferences: false));
+    }
+
+    [IdaFact]
     public async Task A_deep_cache_folder_opens_and_a_too_deep_one_names_the_path_length()
     {
         var dir = new TempDir();

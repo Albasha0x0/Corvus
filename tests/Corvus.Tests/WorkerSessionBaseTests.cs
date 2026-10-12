@@ -38,6 +38,22 @@ public sealed class WorkerSessionBaseTests : IDisposable
     }
 
     [Fact]
+    public async Task The_generation_holds_over_reads_and_advances_on_changes_and_restarts()
+    {
+        await using var s = await Open();
+        long g = s.Generation;
+        await s.CallAsync("get", Get("a"), default);
+        await s.CallAsync("echo", new JsonObject(), default);
+        Assert.Equal(g, s.Generation);
+        await s.CallAsync("set", Set("a", "1"), default, journal: true);
+        Assert.True(s.Generation > g);
+        g = s.Generation;
+        await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("crash", new JsonObject(), default));
+        await s.CallAsync("get", Get("a"), default); // restarts the worker
+        Assert.True(s.Generation > g);
+    }
+
+    [Fact]
     public async Task A_call_s_time_limit_reaches_the_worker()
     {
         await using var s = await Open();
@@ -153,6 +169,7 @@ public sealed class WorkerSessionBaseTests : IDisposable
         protected override bool ConcurrentRequests => concurrent;
         protected override int JournalSaveThreshold => SaveThreshold;
         protected override bool DatabaseExists => HasDatabase;
+        protected override bool ReadsOnly(string op) => op is "get" or "echo";
 
         protected override CacheEntry AcquireEntry(string imagePath, string? sha256) => cache.Acquire(ProviderId, imagePath, sha256);
         protected override void PrepareOpen() { }

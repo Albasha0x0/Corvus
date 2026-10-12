@@ -173,10 +173,27 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>
         ListFunctionsAsync(false, cancellationToken);
 
+    /// <summary>Worker requests that leave the database unchanged (with auto-analysis: without it, reads may create functions).</summary>
+    private static readonly HashSet<string> ReadOps =
+    [
+        "hello", "functions", "decompile", "decompile_many", "decompile_refs", "disasm", "disasm_range", "blocks", "insn", "xrefs_to", "xrefs_from",
+        "xrefs_to_many", "types", "type", "frame", "field_xrefs", "virtual_targets", "value_slice", "type_guess", "get_stamp", "image_info",
+        "defined_data", "defined_strings", "function_info", "analyzers", "function_candidates", "classes", "save", "save_as", "search_bytes",
+    ];
+
+    protected override bool ReadsOnly(string op) => AnalysisComplete && ReadOps.Contains(op);
+
+    private (long Generation, bool References, IReadOnlyList<NativeFunctionInfo> List)? _functions;
+
+    /// <summary>The engine's functions, kept until a request may have changed the database (37k functions take the worker about a second).</summary>
     public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default)
     {
-        return await WorkerRows.FunctionsPaged(start =>
+        long generation = Generation;
+        if (_functions is { } c && c.Generation == generation && (c.References || !withReferences)) return c.List;
+        var list = await WorkerRows.FunctionsPaged(start =>
             CallAsync("functions", IdaProvider.Args(("refs", withReferences), ("start", start)), cancellationToken)).ConfigureAwait(false);
+        if (ReadsOnly("functions")) _functions = (generation, withReferences, list);
+        return list;
     }
 
     public async Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default)
