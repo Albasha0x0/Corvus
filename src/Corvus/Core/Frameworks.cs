@@ -152,6 +152,21 @@ internal static class Frameworks
             : null;
     }
 
+    /// <summary>
+    /// The facade of <paramref name="name"/> beside netstandard.dll (System.Runtime.InteropServices forwarding to
+    /// netstandard) for a .NET Standard 2.x requester; null for other requesters or names outside the standard.
+    /// </summary>
+    public static string? NetStandardFacade(string name, string? requesterFramework)
+    {
+        if (name.Equals("netstandard", StringComparison.OrdinalIgnoreCase)
+            || requesterFramework?.Split(",Version=v", 2) is not [var id, var ver]
+            || !id.Equals(".NETStandard", StringComparison.OrdinalIgnoreCase) || !Version.TryParse(ver, out var v)
+            || NetStandardFile(v) is not { } standard)
+            return null;
+        var facade = Path.Combine(Path.GetDirectoryName(standard)!, name + ".dll");
+        return File.Exists(facade) ? facade : null;
+    }
+
     /// <summary>The <paramref name="file"/> path in the newest version subfolder of <paramref name="dir"/> where it exists.</summary>
     private static string? FirstExisting(string dir, Func<string, string> file)
     {

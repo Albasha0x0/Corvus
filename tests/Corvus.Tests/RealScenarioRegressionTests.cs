@@ -355,6 +355,19 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// A .NET Standard 2.0 library's System.Runtime.InteropServices bound to the runtime facade, which put System.Private.CoreLib
+    /// beside netstandard: the engine looked ExceptionDispatchInfo up there, so await in catch showed as catch (object) (System.Text.Json).
+    /// </summary>
+    [Fact]
+    public void AwaitInCatchOfANetStandardLibraryDecompilesAsCatchException()
+    {
+        using var env = new Env(RealPackages.Lib("system.text.json", "10.0.1", "netstandard2.0", "System.Text.Json.dll"));
+        var code = env.Decompile("System.Text.Json.Serialization.Metadata.JsonTypeInfo`1::SerializeAsync(PipeWriter, T, int, CancellationToken, object)");
+        Assert.Contains("await state.DisposePendingDisposablesOnExceptionAsync()", code);
+        Assert.DoesNotContain("catch (object", code);
+    }
+
+    /// <summary>
     /// References are imported with their internals, and a global-namespace type bound before the decompiled file's
     /// usings: an internal global 'Exception' in a .NET Framework assembly took every 'catch (Exception)' (CS0155; Greenshot).
     /// </summary>

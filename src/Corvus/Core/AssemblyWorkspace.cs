@@ -651,6 +651,10 @@ public sealed class AssemblyWorkspace : IDisposable
         if (string.Equals(name, "netstandard", StringComparison.OrdinalIgnoreCase) && Frameworks.NetStandardFile(version) is { } ns
             && FrameworkUnlessLocal(ns) is { } standard)
             return standard;
+        // So do its facades: a runtime facade brings System.Private.CoreLib in beside netstandard, and the engine then
+        // matches types it looks up by name (ExceptionDispatchInfo, for await in catch) against the wrong copy.
+        if (!netFramework && Frameworks.NetStandardFacade(name, requesterFramework) is { } facade && FrameworkUnlessLocal(facade) is { } standardFacade)
+            return standardFacade;
         // Windows Runtime contracts resolve from Windows SDK metadata.
         if (Frameworks.WindowsMetadataFile(name, version) is { } winmd && FindReference(name, version, token, requesterPath, sameMajor: true) == null)
             return new(null, winmd, null, null);
