@@ -125,7 +125,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var (full, bytes) = ReadFile(path!);
         var kind = Blob.Identify(bytes);
         if (kind != ".NET assembly")
-            throw new ToolError(ErrorCode.Unsupported, $"{full} is not a .NET assembly ({kind}). For a container (bundle, package, APK) use summarize_file, or unpack_container and pass one of its assemblies.");
+            throw new ToolError(ErrorCode.Unsupported, $"{full} is not a .NET assembly ({kind}).", kind is "native PE" or "NativeAOT executable" or "elf" or "mach-o"
+                ? $"this tool reads .NET metadata; for a native image: search_native_strings image={full}, survey_features path={full}"
+                : $"unpack_container path={full} extracts a container's assemblies (pass one of them here); summarize_file path={full} describes the file");
         using var module = LoadModule(bytes, full);
         return Guard(Path.GetFileName(full), () => work(new Scanned(module, ModuleScan.Of(module, Limits, ct), bytes, Path.GetFileName(full))));
     }

@@ -115,6 +115,23 @@ public class TargetsTests
     }
 
     [Fact]
+    public void AFileOfTheOtherKindNamesTheToolsThatReadIt()
+    {
+        var (dir, _, native) = Files();
+        using var _d = dir;
+        using var ws = new AssemblyWorkspace();
+        var inspection = new Corvus.Services.Analysis.InspectionService(ws);
+        var e = Assert.Throws<ToolError>(() => inspection.ExtractStrings(null, native, null, null, null, false, default));
+        Assert.Equal(ErrorCode.Unsupported, e.Code);
+        Assert.StartsWith($"this tool reads .NET metadata; for a native image: search_native_strings image={native}", e.Remediation);
+        var zip = dir.File("app.apk");
+        File.WriteAllBytes(zip, [0x50, 0x4B, 0x05, 0x06, .. new byte[18]]); // an empty zip
+        e = Assert.Throws<ToolError>(() => inspection.ExtractEmbedded(null, zip, false, null, false, default));
+        Assert.Equal(ErrorCode.Unsupported, e.Code);
+        Assert.StartsWith($"unpack_container path={zip}", e.Remediation);
+    }
+
+    [Fact]
     public void AnAssemblyOverTheCapIsRefusedBeforeItIsRead()
     {
         var e = Assert.Throws<ToolError>(() => AssemblyWorkspace.CheckSize("big.dll", AssemblyWorkspace.MaxAssemblyBytes + 1));
