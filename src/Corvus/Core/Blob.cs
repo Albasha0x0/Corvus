@@ -53,6 +53,7 @@ public static class Blob
         if (StartsWith(b, "\0asm"u8)) return "wasm";
         if (StartsWith(b, "WbIL"u8)) return "webcil";
         if (StartsWith(b, "Microsoft C/C++ MSF 7.00"u8)) return "pdb";
+        if (AsarArchive.Looks(b)) return "asar";
         if (LooksLikeText(b)) return "text";
         return "data";
     }
@@ -227,7 +228,7 @@ public static class Blob
     /// Sanitizes a name into a relative path that cannot escape the output directory. Runnable extensions get a ".bin"
     /// suffix; ".dll" is kept so extracted assemblies resolve by name.
     /// </summary>
-    public static string SafeRelativePath(string name, string fallback)
+    public static string SafeRelativePath(string name, string fallback, int maxParts = 8)
     {
         var invalid = Path.GetInvalidFileNameChars().Concat(['<', '>', ':', '"', '|', '?', '*']).ToHashSet();
         var parts = name.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries)
@@ -241,7 +242,7 @@ public static class Blob
         if (RunnableExtensions.Contains(Path.GetExtension(file))) parts[^1] = file + ".bin";
         for (int i = 0; i < parts.Count; i++)
             if (SafeFile.IsReservedName(parts[i])) parts[i] = "_" + parts[i];
-        if (parts.Count > 8) parts = [.. parts.Take(7), parts[^1]];
+        if (parts.Count > maxParts) parts = [.. parts.Take(maxParts - 1), parts[^1]];
         return Path.Combine([.. parts]);
     }
 

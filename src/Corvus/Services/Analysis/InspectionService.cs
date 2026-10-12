@@ -281,7 +281,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             fileHighlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
         var android = Blob.Identify(bytes) == "zip" ? Mobile.AndroidPackageService.Facts(full, bytes, ct) : null;
         if (android != null) fileHighlights.AddRange(android.Highlights);
-        (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes) managed;
+        (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) managed;
         try { managed = UnpackService.Managed(full, Limits, ct); }
         catch (ToolError ex)
         {

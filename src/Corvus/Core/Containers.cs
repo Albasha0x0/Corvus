@@ -9,8 +9,15 @@ namespace Corvus.Core;
 /// <summary>A file extracted from a container; Origin describes its location and decoding.</summary>
 public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin);
 
+/// <summary>An entry of an archive container (ASAR, UnityWebData, HAR, flows), listed without extracting it.</summary>
+public sealed record ContainerEntry(string Path, long Size, string? Detail = null);
+
 /// <summary>Container kind, its items (one level deep), and notes on skipped or unusual entries.</summary>
-public sealed record ContainerContents(string Kind, List<ExtractedItem> Items, List<string> Notes);
+public sealed record ContainerContents(string Kind, List<ExtractedItem> Items, List<string> Notes)
+{
+    /// <summary>Every entry of an archive container; null for the others, whose items are what they hold.</summary>
+    public List<ContainerEntry>? Entries { get; init; }
+}
 
 /// <summary>
 /// Opens one container level (callers recurse): .NET single-file bundles, Costura.Fody resources, ZIP-based packages
@@ -41,11 +48,16 @@ public static class Containers
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException) { return null; }
     }
 
-    /// <summary>Returns Kind "none" with notes when the data is not a known container.</summary>
-    public static ContainerContents Open(byte[] data, string name, AnalysisLimits limits, CancellationToken ct)
+    /// <summary>
+    /// Returns Kind "none" with notes when the data is not a known container. <paramref name="location"/> is the file on disk
+    /// (for data kept beside it, like an ASAR's .unpacked folder); <paramref name="allFiles"/> extracts every file of an
+    /// archive container rather than only assemblies and nested packages.
+    /// </summary>
+    public static ContainerContents Open(byte[] data, string name, AnalysisLimits limits, CancellationToken ct, string? location = null, bool allFiles = false)
     {
         ct.ThrowIfCancellationRequested();
         var kind = Blob.Identify(data);
+        if (kind == "asar") return AsarContainer.Open(data, location, allFiles, limits, ct);
         if (kind == "zip") return OpenZip(data, name, limits, ct);
         if (kind is "wasm" or "webcil")
         {
@@ -416,7 +428,7 @@ public static class Containers
     }
 
     /// <summary>Entries worth extracting: assemblies, assembly stores, nested packages and .NET manifests.</summary>
-    private static bool IsInteresting(string path)
+    internal static bool IsInteresting(string path)
     {
         var file = Path.GetFileName(path).ToLowerInvariant();
         if (file.StartsWith("libassemblies.", StringComparison.Ordinal) && file.EndsWith(".blob.so", StringComparison.Ordinal) || file == "libassembly-store.so") return true;

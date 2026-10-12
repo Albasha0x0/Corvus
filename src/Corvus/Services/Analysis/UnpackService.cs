@@ -30,11 +30,20 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     {
         /// <summary>Assemblies in the container that match the filter; Assemblies holds one page.</summary>
         public int Total { get; init; }
+
+        /// <summary>Archive containers (ASAR, UnityWebData, HAR, flows): one page of the entries matching the filter, with size and flags.</summary>
+        public List<ContainerEntry>? Files { get; init; }
+
+        /// <summary>Entries of an archive container that match the filter.</summary>
+        public int? FileTotal { get; init; }
     }
 
     private sealed record Found(string Relative, byte[] Bytes, string Kind, string Sha256, string Origin);
 
-    private sealed record Walked(string Container, List<Found> Items, List<string> Notes);
+    private sealed record Walked(string Container, List<Found> Items, List<string> Notes)
+    {
+        public List<ContainerEntry>? Entries { get; init; }
+    }
 
     public UnpackReport Unpack(string path, string? outputDirectory, bool load, AnalysisLimits limits, CancellationToken ct)
     {
@@ -45,7 +54,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         else
         {
             (source, data, sha) = ReadSource(path, limits);
-            walked = Walk(data, sha, Path.GetFileName(source), limits, ct);
+            walked = Walk(data, sha, source, limits, ct, allFiles: true);
         }
         var root = PrepareOutput(outputDirectory ?? DefaultOutput(source, sha), source, sha);
         var notes = walked.Notes;
@@ -102,6 +111,16 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             : managed.Assemblies.Where(a => a.Path.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
         int total = assemblies.Count, take = Math.Clamp(limit, 1, MaxListed);
         offset = Math.Max(0, offset);
+        List<ContainerEntry>? files = null;
+        int? fileTotal = null;
+        if (managed.Entries is { } entries)
+        {
+            var matching = filter == null ? entries : entries.Where(e => e.Path.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+            fileTotal = matching.Count;
+            files = matching.Skip(offset).Take(take).ToList();
+            if (offset + files.Count < matching.Count)
+                managed.Notes.Add($"{matching.Count} entries; {files.Count} listed from {offset} (offset and limit page through them, filter matches paths). unpack_container extracts them all.");
+        }
         if (offset > 0 || total > take)
         {
             assemblies = assemblies.OrderBy(a => ListOrder(a.Origin, a.Path, true)).Skip(offset).Take(take).ToList();
@@ -109,7 +128,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                               "offset and limit page through them). search_container finds types and members in all of them; unpack_container extracts them.");
         }
         return new ContainerListing(managed.Source, managed.Container,
-            assemblies.Select(a => Describe(a.Path, a.Bytes, a.Sha256, a.Origin)).ToList(), managed.Notes) { Total = total };
+            assemblies.Select(a => Describe(a.Path, a.Bytes, a.Sha256, a.Origin)).ToList(), managed.Notes) { Total = total, Files = files, FileTotal = fileTotal };
     }
 
     public sealed record ContainerSymbol(string Path, string Assembly, string Name, string Kind);
@@ -189,13 +208,14 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     internal sealed record ManagedAssembly(string Path, byte[] Bytes, string Sha256, string Origin);
 
     /// <summary>Managed assemblies in a file; a plain assembly yields itself.</summary>
-    internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes) Managed(string path, AnalysisLimits limits, CancellationToken ct)
+    internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) Managed(
+        string path, AnalysisLimits limits, CancellationToken ct)
     {
         if (WebcilFolder(path, limits, ct) is { } folder)
             return (folder.Source, folder.Walked.Container,
-                folder.Walked.Items.Select(i => new ManagedAssembly(i.Relative, i.Bytes, i.Sha256, i.Origin)).ToList(), folder.Walked.Notes);
+                folder.Walked.Items.Select(i => new ManagedAssembly(i.Relative, i.Bytes, i.Sha256, i.Origin)).ToList(), folder.Walked.Notes, null);
         var (source, data, sha) = ReadSource(path, limits);
-        var walked = Walk(data, sha, Path.GetFileName(source), limits, ct);
+        var walked = Walk(data, sha, source, limits, ct);
         var assemblies = walked.Items.Where(i => i.Kind == DotNet)
             .Select(i => new ManagedAssembly(i.Relative.Replace(System.IO.Path.DirectorySeparatorChar, '/'), i.Bytes, i.Sha256, i.Origin)).ToList();
         var container = walked.Container;
@@ -215,7 +235,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             assemblies.Insert(0, new ManagedAssembly(Path.GetFileName(app.Path), app.Bytes, Blob.Sha256(app.Bytes), ApphostAppOrigin));
             walked.Notes.Add($"Using the application next to the launcher: {Path.GetFileName(app.Path)}.");
         }
-        return (source, container, assemblies, walked.Notes);
+        return (source, container, assemblies, walked.Notes, walked.Entries);
     }
 
     internal const string ApphostAppOrigin = "the application next to the apphost launcher";
@@ -319,23 +339,26 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         return (source, data, Blob.Sha256(data));
     }
 
-    /// <summary>Breadth-first walk of nested containers; duplicate content (same hash) appears once.</summary>
-    private static Walked Walk(byte[] data, string sha, string name, AnalysisLimits limits, CancellationToken ct)
+    /// <summary>
+    /// Breadth-first walk of nested containers; duplicate content (same hash) appears once, except files of an archive
+    /// container (ASAR, UnityWebData, HAR, flows), which keep their own paths. allFiles extracts every archive file.
+    /// </summary>
+    private static Walked Walk(byte[] data, string sha, string source, AnalysisLimits limits, CancellationToken ct, bool allFiles = false)
     {
         var notes = new List<string>();
         var found = new List<Found>();
         var seen = new HashSet<string> { sha };
         long total = 0;
 
-        var top = Containers.Open(data, name, limits, ct);
+        var top = Containers.Open(data, Path.GetFileName(source), limits, ct, source, allFiles);
         notes.AddRange(top.Notes);
-        var queue = new Queue<(ExtractedItem Item, string Prefix, int Depth)>(top.Items.Select(i => (i, "", 1)));
+        var queue = new Queue<(ExtractedItem Item, string Prefix, int Depth, bool Archived)>(top.Items.Select(i => (i, "", 1, top.Entries != null)));
         while (queue.Count > 0)
         {
             ct.ThrowIfCancellationRequested();
-            var (item, prefix, depth) = queue.Dequeue();
+            var (item, prefix, depth, archived) = queue.Dequeue();
             var itemSha = Blob.Sha256(item.Bytes);
-            if (!seen.Add(itemSha)) continue; // e.g. identical per-ABI assembly stores
+            if (!seen.Add(itemSha) && !archived) continue; // e.g. identical per-ABI assembly stores
             if (found.Count >= limits.MaxItems || (total += item.Bytes.Length) > limits.MaxTotalBytes)
             {
                 notes.Add("Stopped: the extraction limit was reached; some files were not extracted.");
@@ -344,31 +367,34 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
             var kind = Blob.Identify(item.Bytes);
             // String concatenation, not Path.Combine: a rooted item name would drop the prefix.
-            var relative = Blob.SafeRelativePath(prefix + "/" + item.Name, $"item_{found.Count}");
+            var relative = Blob.SafeRelativePath(prefix + "/" + item.Name, $"item_{found.Count}", archived ? MaxArchiveDepth : 8);
             if (kind == DotNet && !relative.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && !relative.EndsWith(".exe.bin", StringComparison.OrdinalIgnoreCase))
                 relative += ".dll"; // so carved assemblies resolve by name
             found.Add(new Found(relative, item.Bytes, kind, itemSha, item.Origin));
 
-            if (depth >= limits.MaxDepth || !MayContainMore(kind)) continue;
+            if (depth >= limits.MaxDepth || !MayContainMore(kind) || (archived && kind == "data")) continue;
             try
             {
-                var inner = Containers.Open(item.Bytes, item.Name, limits, ct);
+                var inner = Containers.Open(item.Bytes, item.Name, limits, ct, allFiles: allFiles);
                 if (inner.Kind == "none") continue;
                 notes.Add($"{item.Name}: {inner.Kind}.");
                 notes.AddRange(inner.Notes.Select(n => $"{item.Name}: {n}"));
                 var innerPrefix = prefix + "/" + item.Name + "_unpacked"; // sanitized when used
-                foreach (var i in inner.Items) queue.Enqueue((i, innerPrefix, depth + 1));
+                foreach (var i in inner.Items) queue.Enqueue((i, innerPrefix, depth + 1, inner.Entries != null));
             }
             catch (ToolError ex)
             {
                 notes.Add($"{item.Name}: {ex.Message}");
             }
         }
-        return new Walked(top.Kind, found, notes);
+        return new Walked(top.Kind, found, notes) { Entries = top.Entries };
     }
 
+    /// <summary>Path components kept for an archive file (node_modules trees run deep).</summary>
+    private const int MaxArchiveDepth = 48;
+
     private static bool MayContainMore(string kind) =>
-        kind is "zip" or ".NET assembly" or "native PE" or "data" || kind.StartsWith("xa", StringComparison.Ordinal);
+        kind is "zip" or ".NET assembly" or "native PE" or "data" or "asar" || kind.StartsWith("xa", StringComparison.Ordinal);
 
     private void LoadAssemblies(List<UnpackedFile> files, List<string> notes)
     {

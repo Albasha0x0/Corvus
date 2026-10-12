@@ -8,6 +8,9 @@ survey_features, extract_strings and extract_embedded give the details.
 An app wrapped in a container (single-file .exe, Costura, .nupkg, Xamarin/MAUI .apk): list_assemblies with path shows the
 assemblies inside, search_container finds types/members in them by name, and unpack_container extracts and loads them.
 list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepack) assemblies.
+Electron .asar archives: list_assemblies with path lists every entry (filter / offset / limit page them) with its integrity
+verdict (ok, hash_mismatch, block_mismatch, no_integrity, unpacked_missing) and the header hash against the one the app
+declares (good, bad, absent); unsafe names are listed, never extracted; unpack_container writes every file, .unpacked ones too.
 Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read these yet; unpack_container on the _framework folder converts them to PEs that load; save_assembly to a .wasm path writes Webcil back.
 Unity builds: unity_overview first.
 Android packages (.apk, .aab, split sets), read natively: get_android_manifest (components, exported state, permissions, deep links),
