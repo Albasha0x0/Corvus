@@ -52,7 +52,10 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
     ];
 
     /// <summary>Maps <paramref name="symbol"/> (a Java descriptor or id, or a .NET type or member) to the other side.</summary>
-    public JavaDotNetResult Map(string symbol, string? path, CancellationToken ct)
+    /// <remarks>Under the shared lock: the index holds the loaded modules' types, which an edit or reload disposes.</remarks>
+    public JavaDotNetResult Map(string symbol, string? path, CancellationToken ct) => workspace.Read(() => MapCore(symbol, path, ct), ct);
+
+    private JavaDotNetResult MapCore(string symbol, string? path, CancellationToken ct)
     {
         symbol = symbol.Trim();
         if (path != null && !File.Exists(path) && !Directory.Exists(path)) throw Targets.FileNotFound(path);
@@ -122,7 +125,9 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
     }
 
     /// <summary>The .NET type behind each Java class name of a package's assemblies (for manifest components); empty without .NET code.</summary>
-    public IReadOnlyDictionary<string, string> ComponentTypes(string path, CancellationToken ct)
+    public IReadOnlyDictionary<string, string> ComponentTypes(string path, CancellationToken ct) => workspace.Read(() => ComponentTypesCore(path, ct), ct);
+
+    private IReadOnlyDictionary<string, string> ComponentTypesCore(string path, CancellationToken ct)
     {
         Index index;
         try { index = Build(path, ct); }
