@@ -44,6 +44,8 @@ public static partial class ToolOutput
         else if (call.TextPage is { } page && record != null)
             PageRecord(call, record, page, ref text, call.RecordHasBody || ToolContract.Of(tool).Output is OutputClass.Code or OutputClass.Bytes);
         else if (bare) text = RecordText.Render(record!, null);
+        // D3: a code or bytes record carries the text it stands beside.
+        else if (record != null && record["code"] is null && ToolContract.Of(tool).Output is OutputClass.Code or OutputClass.Bytes) record["code"] = text;
 
         Annotate(call, record, ref text);
         Bound(call, tool, record, ref text, store, readOnly, origin);
