@@ -85,8 +85,20 @@ public sealed class TempDir : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(Path, true); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort */ }
+        // A server just told to stop may still run in the folder (its working directory on Windows): retry briefly.
+        for (var clock = System.Diagnostics.Stopwatch.StartNew(); ; Thread.Sleep(100))
+        {
+            try
+            {
+                Directory.Delete(Path, true);
+                return;
+            }
+            catch (DirectoryNotFoundException) { return; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (clock.Elapsed > TimeSpan.FromSeconds(3)) return; // best effort; the leak guard reports what stays
+            }
+        }
     }
 }
 
