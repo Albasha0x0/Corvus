@@ -236,7 +236,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["list_dex_classes"] = (new() { ["path"] = dir.File("app.apk"), ["query"] = "Main" }, "com.example.app.Main"),
         ["get_dex_class"] = (new() { ["path"] = dir.File("app.apk"), ["class"] = "com.example.app.Main" }, "compute(I)I"),
         ["disassemble_dex"] = (new() { ["path"] = dir.File("app.apk"), ["symbol"] = AndroidSamples.ComputeInt }, "add-int/lit8 v0, p1, 0x2a"),
-        ["decompile_java"] = (new() { ["path"] = dir.File("app.apk"), ["symbol"] = "com.example.app.Main" }, "Error (provider_unavailable, retryable) in decompile_java"),
+        ["decompile_java"] = (new() { ["path"] = dir.File("app.apk"), ["symbol"] = "com.example.app.Main" }, "Error (provider_unavailable) in decompile_java"),
         ["map_java_dotnet"] = (new() { ["symbol"] = AndroidSamples.Link, ["path"] = AndroidSamples.SaveXamarin(dir) }, "MyApp.LinkActivity"),
         ["list_jni_bindings"] = (new() { ["path"] = dir.File("app.apk") }, "\"kind\":\"unresolved\""),
         ["list_android_devices"] = (new(), "\"serial\":\"emulator-5554\""),
