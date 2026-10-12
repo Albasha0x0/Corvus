@@ -49,7 +49,9 @@ public class BackgroundTests
         ws.Load(path);
         File.Copy(patched, path, overwrite: true);
         Assert.True(await Eventually(() => ws.Read(() => ws.Assemblies.Single().Module.Find("Fixture.Model.Shop", false)?.FindMethod("DescribeV2") != null)));
-        Assert.Contains(ws.DrainNotices(), n => n.Contains("reloaded"));
+        // the notice follows the reload, so the new assembly can be seen a moment before it
+        var notices = new List<string>();
+        Assert.True(await Eventually(() => { notices.AddRange(ws.DrainNotices()); return notices.Any(n => n.Contains("reloaded")); }), string.Join("\n", notices));
 
         // With unsaved edits the assembly is not reloaded; the client is told instead.
         var edits = new EditService(ws, new IlAssembler(ws), new CSharpPatcher(ws, new DecompilerService(ws, new ServerOptions())));
@@ -76,7 +78,8 @@ public class BackgroundTests
         File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
         File.Copy(Path.Combine(wow, "version.dll"), path, overwrite: true);
         Assert.True(await Eventually(() => ws.Read(() => ws.FindNative(path)?.Image.Arch == Corvus.Native.NativeArch.X86)));
-        Assert.Contains(ws.DrainNotices(), n => n.Contains("reloaded"));
+        var notices = new List<string>();
+        Assert.True(await Eventually(() => { notices.AddRange(ws.DrainNotices()); return notices.Any(n => n.Contains("reloaded")); }), string.Join("\n", notices));
 
         // With unsaved patches the image is not reloaded; the client is told instead.
         var current = ws.Read(() => ws.FindNative(path)!);
