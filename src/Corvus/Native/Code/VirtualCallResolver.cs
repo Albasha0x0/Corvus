@@ -421,7 +421,9 @@ internal sealed class VirtualCallResolver
         foreach (var flow in flows)
             foreach (var s in flow.AllSites) { keys[n] = (ulong)s.Rva << 32 | s.Function; all[n++] = s; }
         // a site in code two functions share is reported once, for the lower function (one site per function and address)
-        Array.Sort(keys, all);
+        KeySort.Sort(ref keys, ref all, total, options.MaxParallelism);
+        // a function's walk can reach one address twice (overlapping blocks): ties ordered so the kept site does not depend on the schedule
+        KeySort.OrderTies(keys, all, total, SiteOrder.Instance);
         int w = 0;
         for (int k = 0; k < all.Length; k++)
             if (w == 0 || all[w - 1].Rva != all[k].Rva) all[w++] = all[k];
@@ -466,6 +468,26 @@ internal sealed class VirtualCallResolver
     }
 
     /// <summary>Edges by source, target, then kind.</summary>
+    private sealed class SiteOrder : IComparer<VirtualCallSite>
+    {
+        public static readonly SiteOrder Instance = new();
+
+        public int Compare(VirtualCallSite a, VirtualCallSite b)
+        {
+            int c = a.Slot.CompareTo(b.Slot);
+            if (c == 0) c = a.VfptrOffset.CompareTo(b.VfptrOffset);
+            if (c == 0) c = a.Status.CompareTo(b.Status);
+            if (c == 0) c = a.Reason.CompareTo(b.Reason);
+            if (c == 0) c = a.Receiver.CompareTo(b.Receiver);
+            if (c == 0) c = a.ClassTypeDescriptor.CompareTo(b.ClassTypeDescriptor);
+            if (c == 0) c = a.VftableRva.CompareTo(b.VftableRva);
+            if (c == 0) c = a.TargetCount.CompareTo(b.TargetCount);
+            if (c == 0) c = a.TailCall.CompareTo(b.TailCall);
+            if (c == 0) c = a.Incomplete.CompareTo(b.Incomplete);
+            return c;
+        }
+    }
+
     private sealed class EdgeOrder : IComparer<CodeXref>
     {
         public static readonly EdgeOrder Instance = new();
