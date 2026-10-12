@@ -156,7 +156,11 @@ public sealed class JadxServer : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _process.Dispose();
-        try { Directory.Delete(_temp, true); }
+        try
+        {
+            Directory.Delete(_temp, true);
+            Directory.Delete(Path.GetDirectoryName(_temp)!); // the shared parent, once no other server uses it
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 }

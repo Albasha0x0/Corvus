@@ -96,9 +96,11 @@ public sealed class AndroidPackage : IDisposable
         var full = InputFiles.RequireRegularFile(path, "Android package");
         if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"file not found: {full}");
         ZipArchive zip;
-        try { zip = new ZipArchive(File.OpenRead(full), ZipArchiveMode.Read); _ = zip.Entries; }
+        FileStream? stream = null;
+        try { stream = File.OpenRead(full); zip = new ZipArchive(stream, ZipArchiveMode.Read); _ = zip.Entries; }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or NotSupportedException)
         {
+            stream?.Dispose(); // a corrupt archive leaves it open until finalization, holding the file
             throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a readable zip ({ex.Message}); pass an .apk, .aab, .apks, .xapk or .apkm file.");
         }
         var names = zip.Entries.Select(e => e.FullName).ToHashSet(StringComparer.Ordinal);

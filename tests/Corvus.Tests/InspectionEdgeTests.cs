@@ -39,9 +39,12 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(64, truncated.File.Sha256.Length);
 
         var zip = ContainerFixtures.Zip(("lib/A.dll", ContainerFixtures.Module("A", _ => { })), ("lib/B.dll", ContainerFixtures.Module("B", _ => { })));
-        var cut = Inspection.Summarize(null, Save("cut.nupkg", zip[..20]), default);
+        var cutPath = Save("cut.nupkg", zip[..20]);
+        var cut = Inspection.Summarize(null, cutPath, default);
         Assert.Equal("unreadable container", cut.Container);
         Assert.Contains(cut.Highlights, h => h.StartsWith("The file is damaged:", StringComparison.Ordinal));
+        File.Delete(cutPath); // no handle left open (Windows refuses the delete otherwise)
+        Assert.False(File.Exists(cutPath));
     }
 
     [Fact]

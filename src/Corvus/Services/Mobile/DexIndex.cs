@@ -113,7 +113,7 @@ public sealed class DexIndex
             }
             catch (ToolError e) when (e.Code == ErrorCode.Unsupported)
             {
-                zip = new ZipArchive(File.OpenRead(full), ZipArchiveMode.Read);
+                zip = ZipFile.OpenRead(full); // closes the file when the archive is unreadable
                 var entries = zip.Entries.Where(x => !x.FullName.Contains('/') && x.FullName.StartsWith("classes", StringComparison.Ordinal) && x.FullName.EndsWith(".dex", StringComparison.Ordinal))
                     .ToDictionary(x => x.FullName, StringComparer.Ordinal);
                 names = [.. entries.Keys.OrderBy(n => n.Length).ThenBy(n => n, StringComparer.Ordinal)];

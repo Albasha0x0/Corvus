@@ -270,7 +270,13 @@ public static class StreamingInventory
                 default:
                     if (_zip == null)
                     {
-                        _zip = new ZipArchive(new FileStream(inv.Root, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), ZipArchiveMode.Read);
+                        var stream = new FileStream(inv.Root, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                        try { _zip = new ZipArchive(stream, ZipArchiveMode.Read); }
+                        catch
+                        {
+                            stream.Dispose();
+                            throw;
+                        }
                         _byPath = _zip.Entries.GroupBy(x => x.FullName.Replace('\\', '/'), StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
                     }
                     if (!_byPath!.TryGetValue(e.Path, out var entry)) return null;
