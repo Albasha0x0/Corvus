@@ -74,6 +74,9 @@
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.win-arm" Version="[9.0.553101]" />
     <PackageDownload Include="Microsoft.NETCore.App.Host.osx-arm64" Version="[10.0.11]" />
     <PackageDownload Include="SkiaSharp.NativeAssets.macOS" Version="[2.88.9]" />
+    <!-- Objective-C (classes, categories on Foundation classes, ivars) and Swift (types, fields, conformances) metadata. -->
+    <PackageDownload Include="Microsoft.macOS.Runtime.osx-arm64" Version="[14.2.8078]" />
+    <PackageDownload Include="SwiftBindings.Stripe.UICore" Version="[26.11.0]" />
   </ItemGroup>
   <!-- Large runtime packs for the slow native format tests only. -->
   <ItemGroup Condition="'$(CORVUS_ALL_TESTS)' == '1'">

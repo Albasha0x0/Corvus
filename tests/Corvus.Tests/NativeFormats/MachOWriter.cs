@@ -73,6 +73,8 @@ internal sealed class MachOWriter
     public List<(uint Start, uint Size)> EhFdes { get; set; } = [];
     /// <summary>Extra load commands, written as given (cmd and cmdsize included).</summary>
     public List<byte[]> ExtraCommands { get; set; } = [];
+    /// <summary>Extra sections at offsets inside their segment's free space (__TEXT 0x2000-0x3000, __DATA_CONST 0x5000-0x8000, __DATA 0xA100-0xC000).</summary>
+    public List<(string Seg, string Name, uint Offset, byte[] Bytes, uint Flags)> ExtraSections { get; set; } = [];
 
     private bool IsExecute => FileType == 2;
     public ulong TextVm => IsExecute ? 0x1_0000_0000UL : 0;
@@ -144,6 +146,11 @@ internal sealed class MachOWriter
             indirect.AddRange(StubSymbols.Select(n => (uint)SymbolIndex(n)));
         }
         sections.Add(new("__DATA", "__bss", BssOffset, 0x100, 1, ZeroFill: true));
+        foreach (var (seg, name, offset, bytes, flags) in ExtraSections)
+        {
+            Put(offset, bytes, (uint)bytes.Length);
+            sections.Add(new(seg, name, offset, (uint)bytes.Length, flags));
+        }
 
         // Chained fixups are written into the data before __LINKEDIT is laid out.
         byte[]? chained = ChainedFormat is { } format ? BuildChainedFixups(w, format) : null;
