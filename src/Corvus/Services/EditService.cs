@@ -19,6 +19,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             throw new ToolError(ErrorCode.InvalidArgument, "New name is empty.");
         var member = symbol.Member;
         var oldLabel = symbol.Label;
+        if (member is TypeDef generic) newName = KeepArity(generic.Name, newName);
         if (dryRun)
             return $"Dry run — would rename {symbol.Kind} {oldLabel} -> {newName}" +
                    (member is PropertyDef or EventDef ? " (accessor methods renamed to match)" : "");
@@ -53,6 +54,23 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         args["newName"] = newName;
         symbol.Assembly.RecordEdit(new EditRecord("rename_symbol", args, description, [Format.MemberLabel(member)]));
         return description;
+    }
+
+    /// <summary>
+    /// A generic type keeps its arity suffix (`N): reflection names, the decompiled source and later C# edits depend on it.
+    /// </summary>
+    internal static string KeepArity(string oldName, string newName)
+    {
+        int tick = oldName.LastIndexOf('`');
+        if (tick < 0 || !int.TryParse(oldName.AsSpan(tick + 1), NumberStyles.None, CultureInfo.InvariantCulture, out _)) return newName;
+        var arity = oldName[tick..];
+        int newTick = newName.LastIndexOf('`');
+        if (newTick < 0 || !int.TryParse(newName.AsSpan(newTick + 1), NumberStyles.None, CultureInfo.InvariantCulture, out _))
+            return newName + arity;
+        if (newName[newTick..] != arity)
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{newName}' changes the generic arity of {oldName}; a rename keeps {arity}.",
+                $"pass newName '{newName[..newTick]}' (the suffix {arity} is kept)");
+        return newName;
     }
 
     public string RenameNamespace(LoadedAssembly asm, string oldNamespace, string newNamespace, bool includeSubNamespaces, bool dryRun = false)

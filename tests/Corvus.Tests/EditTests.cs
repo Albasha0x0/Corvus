@@ -37,6 +37,16 @@ public class EditTests : IDisposable
     }
 
     [Fact]
+    public void RenameKeepsTheGenericAritySuffix()
+    {
+        Assert.Contains("-> Box`1", _env.Edit(() => _env.Edits.Rename(_env.One("Container", SymbolKind.Type), "Box")));
+        Assert.Equal("Box`1", _env.Def<TypeDef>("Box", SymbolKind.Type).Name);
+        Assert.Throws<ToolError>(() => _env.Edit(() => _env.Edits.Rename(_env.One("Box", SymbolKind.Type), "Box`2")));
+        _env.Edit(() => _env.Edits.AddMembersCSharp(_env.One("Box", SymbolKind.Type), "public int Twice(int x) { return x * 2; }", false, default));
+        Assert.Contains("Twice", _env.Decompile("Fixture.Model.Box`1"));
+    }
+
+    [Fact]
     public void StubsEveryReturnKind()
     {
         _env.Edit(() => _env.Edits.StubMethod(_env.One("Secret::Validate"), "true"));
