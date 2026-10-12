@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using Corvus.Core;
 using Corvus.Native;
 
@@ -35,11 +34,11 @@ internal static class FormatFuzz
                         break;
                 }
             }
-            var timer = Stopwatch.StartNew();
+            var cpu = ThreadCpuClock.Now();
             try { parse(bytes); }
             catch (ToolError ex) when (ex.Code is ErrorCode.MalformedInput or ErrorCode.LimitExceeded) { }
             catch (Exception ex) { failures.Add($"iteration {i} (seed {which}): {ex}"); }
-            if (timer.Elapsed > TimeBound) failures.Add($"iteration {i} (seed {which}): took {timer.Elapsed.TotalSeconds:0.0} s");
+            if (ThreadCpuClock.Now() - cpu is var took && took > TimeBound) failures.Add($"iteration {i} (seed {which}): took {took.TotalSeconds:0.0} s of CPU");
         });
         return [.. failures];
     }
