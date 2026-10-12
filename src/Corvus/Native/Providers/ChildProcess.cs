@@ -92,16 +92,17 @@ internal sealed class PosixGroupProcess : ChildProcess
     }
 
     /// <summary>
-    /// Runs "$@" with this shell as its parent, so its id is not reused while the watcher looks at it. Job control (set -m)
-    /// makes the child lead a process group of its own; its first output line is its id, written before it execs. Background
+    /// Runs "$@" with this shell as its parent, so its id is not reused while the watcher looks at it. setsid makes the child
+    /// lead a process group of its own (as a background child it leads none, so setsid does not fork); set -m is the fallback
+    /// only, as dash turns job control off without a controlling terminal. Its first output line is its id, written before it execs. Background
     /// jobs of a non-interactive shell read /dev/null, hence stdin through fd 3; the shell's own stderr (job notices) is
     /// dropped, the child's goes through fd 4. The watcher kills the child's group and the child once process $1 is gone.
     /// </summary>
     internal const string WatchScript = """
         w=$1; shift
         exec 3<&0 4>&2
-        set -m
-        /bin/sh -c 'echo "$$"; exec "$@"' corvus-worker "$@" 0<&3 2>&4 3<&- 4>&- &
+        if command -v setsid >/dev/null 2>&1; then g=setsid; else g=; set -m 2>/dev/null; fi
+        $g /bin/sh -c 'echo "$$"; exec "$@"' corvus-worker "$@" 0<&3 2>&4 3<&- 4>&- &
         c=$!
         set +m
         exec 3<&- 4>&- 2>/dev/null

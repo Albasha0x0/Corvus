@@ -227,6 +227,8 @@ public class NativeProviderTests
         using var reader = new StreamReader(child.StandardOutput);
         Assert.Equal(child.Id, int.Parse(reader.ReadLine()!)); // the worker's own id, not its shell parent's
         int grandchild = int.Parse(reader.ReadLine()!);
+        // also without a controlling terminal (CI, MCP clients), where dash ignores set -m
+        if (OperatingSystem.IsLinux()) Assert.Equal(child.Id, ProcessGroup(child.Id));
         Assert.True(Running(grandchild));
         stand.Kill();
         stand.WaitForExit();
@@ -248,6 +250,12 @@ public class NativeProviderTests
         var clock = Stopwatch.StartNew();
         while (Running(grandchild) && clock.ElapsedMilliseconds < 5_000) Thread.Sleep(20);
         Assert.False(Running(grandchild), "the child's child outlived Kill");
+    }
+
+    private static int ProcessGroup(int pid)
+    {
+        var stat = File.ReadAllText($"/proc/{pid}/stat");
+        return int.Parse(stat[(stat.LastIndexOf(')') + 2)..].Split(' ')[2], System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>Running, not a zombie waiting for its parent.</summary>
