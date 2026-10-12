@@ -115,8 +115,9 @@ public static class ItaniumEh
             if (!Rva(image, f.Start, out uint begin)) continue;
             var personality = f.Cie.Personality is { } p ? lsda.PointerName(p, (f.Cie.PersonalityEncoding & 0x80) != 0) : null;
             uint? lsdaRva = f.Lsda is { } l && Rva(image, l, out uint r) ? r : null;
-            var sites = lsdaRva is { } at ? lsda.CallSites(at, begin, out var why) : (List<ItaniumCallSite>?)null;
-            list.Add(new ItaniumEhFunction(begin, begin + (uint)Math.Min(f.Range, uint.MaxValue - begin), "DWARF CFI", personality, lsdaRva, sites ?? [],
+            uint end = begin + (uint)Math.Min(f.Range, uint.MaxValue - begin);
+            var sites = lsdaRva is { } at ? lsda.CallSites(at, begin, end, out var why) : (List<ItaniumCallSite>?)null;
+            list.Add(new ItaniumEhFunction(begin, end, "DWARF CFI", personality, lsdaRva, sites ?? [],
                 sites == null && lsdaRva != null ? ["LSDA not readable"] : []));
         }
         int compact = 0;
@@ -126,7 +127,7 @@ public static class ItaniumEh
                 compact++;
                 if (e.Lsda == null && e.Personality == null) continue;
                 var personality = e.Personality is { } p ? lsda.PointerName(image.ImageBase + p, indirect: true) : null;
-                var sites = e.Lsda is { } at ? lsda.CallSites(at, e.Start, out _) : null;
+                var sites = e.Lsda is { } at ? lsda.CallSites(at, e.Start, e.End, out _) : null;
                 list.Add(new ItaniumEhFunction(e.Start, e.End, "compact unwind", personality, e.Lsda, sites ?? [], []));
             }
         var exidx = Exidx(image);
@@ -135,7 +136,7 @@ public static class ItaniumEh
             var eh = new List<string>();
             if (e.CantUnwind) eh.Add("EXIDX_CANTUNWIND: the function cannot be unwound through");
             if (e.Note != null) eh.Add(e.Note);
-            var sites = e.Lsda is not { } at ? null : e.PersonalityIndex is 1 or 2 ? lsda.ArmScopes(at, e.Begin, wide: e.PersonalityIndex == 2) : lsda.CallSites(at, e.Begin, out _);
+            var sites = e.Lsda is not { } at ? null : e.PersonalityIndex is 1 or 2 ? lsda.ArmScopes(at, e.Begin, wide: e.PersonalityIndex == 2) : lsda.CallSites(at, e.Begin, e.End, out _);
             if (sites == null && e.Lsda != null) eh.Add(e.PersonalityIndex is 1 or 2 ? "scope descriptors not readable" : "LSDA not readable");
             var personality = e.PersonalityIndex is { } k ? $"__aeabi_unwind_cpp_pr{k}" : e.Personality is { } p ? lsda.PointerName(p, indirect: false) : null;
             list.Add(new ItaniumEhFunction(e.Begin, e.End, "ARM EHABI", personality, e.Lsda, sites ?? [], eh));
@@ -157,6 +158,14 @@ public static class ItaniumEh
     private sealed class Lsda(INativeImage image, Dictionary<uint, NativeImport> imports, Dictionary<uint, string> types, bool names)
     {
         private readonly int _ptr = image.Is64Bit ? 8 : 4;
+        // read once per section: a large image has hundreds of thousands of LSDAs in one section
+        private readonly Dictionary<uint, byte[]> _sections = [];
+
+        private byte[] SectionBytes(NativeSection s)
+        {
+            if (!_sections.TryGetValue(s.Rva, out var bytes)) _sections[s.Rva] = bytes = Bytes(image, s);
+            return bytes;
+        }
 
         /// <summary>The name of what a (possibly indirect) pointer leads to: an import bound at the slot, a typeinfo, a symbol ("?" without names).</summary>
         public string PointerName(ulong va, bool indirect)
@@ -204,15 +213,14 @@ public static class ItaniumEh
             return ItaniumDemangler.Demangle(bare) ?? bare;
         }
 
-        public List<ItaniumCallSite>? CallSites(uint at, uint functionStart, out string? why)
+        public List<ItaniumCallSite>? CallSites(uint at, uint functionStart, uint functionEnd, out string? why)
         {
             why = null;
             var section = image.SectionAt(at);
             if (section == null) { why = "outside the image"; return null; }
-            uint avail = section.Rva + section.MappedSize - at;
-            var bytes = new byte[Math.Min(avail, 1u << 20)];
-            int n = image.Read(at, bytes);
-            var d = new ByteView(bytes, 0, n, false);
+            var bytes = SectionBytes(section);
+            var d = new ByteView(bytes, at - section.Rva, Math.Min(bytes.Length - (long)(at - section.Rva), 1 << 20), false);
+            int n = (int)d.Length;
             ulong va = image.ImageBase + at;
             long pos = 0;
             byte lpEnc = d.U8(pos++);
@@ -242,7 +250,8 @@ public static class ItaniumEh
                 ulong action = ar.Uleb();
                 pos += ar.Position;
                 ulong s = lpStart + start;
-                if (!Rva(image, s, out uint sr)) continue;
+                // call sites lie in their function: one outside is not a GCC table (NativeAOT's own EH data has the same slot)
+                if (!Rva(image, s, out uint sr) || sr < functionStart || sr >= functionEnd) { why = "call-site table"; break; }
                 uint? padRva = pad != 0 && Rva(image, lpStart + pad, out uint pr) ? pr : null;
                 var names = new List<string>();
                 if (padRva != null && action == 0) names.Add("cleanup");

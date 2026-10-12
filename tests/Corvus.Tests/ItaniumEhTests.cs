@@ -106,6 +106,20 @@ public class ItaniumEhTests
         Assert.Contains("EXIDX_CANTUNWIND", table.At(Text + 0x18)!.Notes.Single());
     }
 
+    /// <summary>An LSDA slot holding other data (NativeAOT's EH info): a call site outside the function ends the table.</summary>
+    [Fact]
+    public void Call_site_outside_its_function_ends_the_table()
+    {
+        const uint Text = ElfWriter.TextRva;
+        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = new byte[0x20] };
+        w.Symbols.Add(new ElfWriter.Symbol("__gxx_personality_v0", Text + 0x1C | 1, 2, Type: 2));
+        // a 127-byte call-site table whose first site starts 0x40 past the function, then a site that would be valid
+        w.Extab.Add((Text + 0x10 | 1, Text + 0x1C, [0x00A8B0B0, 0x7F01FFFF, 0x00080440, 0x00080404]));
+        w.Exidx.Add((Text + 0x18 | 1, true));
+        var table = ItaniumEh.Of(ElfFile.FromBytes(w.Build(), "lib.so"));
+        Assert.Empty(table.At(Text + 0x12)!.CallSites);
+    }
+
     /// <summary>pr1 (16-bit scopes) and pr2 (32-bit scopes) descriptors: cleanup, catch (...), a typed catch by reference, a no-throw region, an exception specification.</summary>
     [Fact]
     public void Arm32_pr1_and_pr2_scope_descriptors()
