@@ -295,12 +295,10 @@ internal sealed partial class FunctionDiscovery
         if (!inCode)
             foreach (var (_, t) in _ctx.UnrelocatedPointers())
             {
-                uint target = t;
-                if (_ctx.ArmModes is { } modes && (target & 1) != 0)
-                {
-                    target &= ~1u;
-                    modes.HintUnconfirmed(target, true);
-                }
+                uint target = _ctx.ArmModes != null ? t & ~1u : t;
+                // a small integer or an offset where the image base is low: inside a function the image declares, no start
+                if (_ctx.InsideDeclared(target)) continue;
+                if (target != t) _ctx.ArmModes!.HintUnconfirmed(target, true);
                 result.Add(target);
             }
         return result;
@@ -587,7 +585,7 @@ internal sealed partial class FunctionDiscovery
                         sawCode = false;
                         if (PaddingLength(bytes, p, bytes.Length) is var nops and > 0) { p += nops; continue; }
                     }
-                    if (afterCode && !InsideDeclared(region.Rva + (uint)p) && TryCandidate(region.Rva + (uint)p, FunctionSource.CodeGap)) { Drain(); continue; }
+                    if (afterCode && !_ctx.InsideDeclared(region.Rva + (uint)p) && TryCandidate(region.Rva + (uint)p, FunctionSource.CodeGap)) { Drain(); continue; }
                     afterCode = sawCode = false;
                     p++;
                     continue;
@@ -625,7 +623,7 @@ internal sealed partial class FunctionDiscovery
                 bool? thumb = arm64 ? ((p & 3) == 0 && IsArm64Prologue(bytes, p) ? false : null) : Arm32Prologue(bytes, p, armState);
                 if (thumb is not { } t) continue;
                 uint rva = region.Rva + (uint)p;
-                if (InsideDeclared(rva) || InDataInCode(rva)) continue;
+                if (_ctx.InsideDeclared(rva) || InDataInCode(rva)) continue;
                 if (!arm64) _ctx.ArmModes?.Hint(rva, t);
                 if (TryCandidate(rva, FunctionSource.CodeGap)) Drain();
                 else if (t == false && !arm64) p += 2; // the A32 word's upper half is no Thumb start
@@ -673,26 +671,6 @@ internal sealed partial class FunctionDiscovery
             bool sub = (w & 0xFF8003FF) == 0xD10003FF;                            // sub sp, sp, #imm
             if (!(stp || (pac && k == 0) || sub)) return false;
         }
-        return false;
-    }
-
-    private (uint Start, uint End)[]? _declared;
-
-    /// <summary>Inside, not at the start of, a function whose extent the image declares (unwind sizes, the Go function table).</summary>
-    private bool InsideDeclared(uint rva)
-    {
-        if (_declared == null)
-        {
-            var list = _ctx.Image.DeclaredFunctions.Where(d => d.Size is > 0).Select(d => (d.Rva, d.Rva + d.Size!.Value)).ToList();
-            if (Go.GoFunctionTable.Of(_ctx.Image) is { } go) list.AddRange(go.Functions.Where(f => f.Size > 0).Select(f => (f.Rva, f.Rva + f.Size)));
-            list.Sort();
-            _declared = [.. list];
-        }
-        int lo = 0, hi = _declared.Length - 1, best = -1;
-        while (lo <= hi) { int mid = (lo + hi) >>> 1; if (_declared[mid].Start <= rva) { best = mid; lo = mid + 1; } else hi = mid - 1; }
-        // extents may nest (an unwind entry inside a Go function): look back over a few
-        for (int i = best; i >= 0 && i > best - 8; i--)
-            if (rva > _declared[i].Start && rva < _declared[i].End) return true;
         return false;
     }
 

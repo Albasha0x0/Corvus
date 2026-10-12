@@ -13,7 +13,7 @@ public sealed partial class NativeCodeIndex
     /// (new fields, new cross-reference kinds such as virtual-call edges) or the analysis gives different results for the
     /// same bytes: saved indexes of another version are ignored and rebuilt.
     /// </summary>
-    public const int PersistFormatVersion = 10;
+    public const int PersistFormatVersion = 11;
 
     /// <summary>Read from the code index cache instead of built; <see cref="CacheLoadTime"/> says how long that took.</summary>
     public bool LoadedFromCache { get; private set; }

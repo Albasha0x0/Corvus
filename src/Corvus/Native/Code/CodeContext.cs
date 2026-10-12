@@ -202,6 +202,26 @@ internal sealed class CodeContext
         return _unrelocatedPointers = [.. result];
     }
 
+    private (uint Start, uint End)[]? _declared;
+
+    /// <summary>Inside, not at the start of, a function whose extent the image declares (unwind sizes, the Go function table).</summary>
+    public bool InsideDeclared(uint rva)
+    {
+        if (_declared == null)
+        {
+            var list = Image.DeclaredFunctions.Where(d => d.Size is > 0).Select(d => (d.Rva, d.Rva + d.Size!.Value)).ToList();
+            if (Go.GoFunctionTable.Of(Image) is { } go) list.AddRange(go.Functions.Where(f => f.Size > 0).Select(f => (f.Rva, f.Rva + f.Size)));
+            list.Sort();
+            _declared = [.. list];
+        }
+        int lo = 0, hi = _declared.Length - 1, best = -1;
+        while (lo <= hi) { int mid = (lo + hi) >>> 1; if (_declared[mid].Start <= rva) { best = mid; lo = mid + 1; } else hi = mid - 1; }
+        // extents may nest (an unwind entry inside a Go function): look back over a few
+        for (int i = best; i >= 0 && i > best - 8; i--)
+            if (rva > _declared[i].Start && rva < _declared[i].End) return true;
+        return false;
+    }
+
     /// <summary>The file name alone marks a kernel-mode image (a driver, or the kernel): the one input besides the bytes.</summary>
     public static bool KernelModeByName(string path) =>
         path.EndsWith(".sys", StringComparison.OrdinalIgnoreCase) || System.IO.Path.GetFileName(path).Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase);

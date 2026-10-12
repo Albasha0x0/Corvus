@@ -979,13 +979,13 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             }
             // no relocations (PointersUnconfirmed): runs of at least two values that are function starts. A value merely
             // inside code is too often a small integer or an offset where the image base is low. A Go function table lists
-            // every Go function: other starts found only through such values are not believed.
+            // every Go function: other starts found only through such values, or inside a declared function, are not believed.
             bool go = Go.GoFunctionTable.Of(image) != null;
             var starts = new Dictionary<uint, uint>();
             foreach (var (slot, value) in _ctx.UnrelocatedPointers())
             {
                 uint target = _ctx.ArmModes != null ? value & ~1u : value;
-                if (_sources.TryGetValue(target, out var source) && (!go || (source & ~(FunctionSource.DataPointer | FunctionSource.CodeAddress)) != 0))
+                if (_sources.TryGetValue(target, out var source) && (!go || (source & ~(FunctionSource.DataPointer | FunctionSource.CodeAddress)) != 0) && !_ctx.InsideDeclared(target))
                     starts[slot] = target;
             }
             uint size = (uint)_ctx.PointerSize;
