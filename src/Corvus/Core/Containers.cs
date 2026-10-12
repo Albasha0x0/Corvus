@@ -58,6 +58,9 @@ public static class Containers
         ct.ThrowIfCancellationRequested();
         var kind = Blob.Identify(data);
         if (kind == "asar") return AsarContainer.Open(data, location, allFiles, limits, ct);
+        if (kind == "unitywebdata") return UnityWebData.Open(data, name, location, allFiles, limits, ct);
+        if ((kind == "gzip" || kind == "data") && UnityWebData.Decompress(data, name, limits.MaxItemBytes) is { } web)
+            return UnityWebData.Open(web, name, location, allFiles, limits, ct, kind == "gzip" ? "gzip" : "Brotli");
         if (kind == "zip") return OpenZip(data, name, limits, ct);
         if (kind is "wasm" or "webcil")
         {

@@ -11,6 +11,8 @@ list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepac
 Electron .asar archives: list_assemblies with path lists every entry (filter / offset / limit page them) with its integrity
 verdict (ok, hash_mismatch, block_mismatch, no_integrity, unpacked_missing) and the header hash against the one the app
 declares (good, bad, absent); unsafe names are listed, never extracted; unpack_container writes every file, .unpacked ones too.
+Unity WebGL Build/<name>.data (also .gz, .br): list_assemblies with path lists its files with their roles (Il2Cpp metadata
+and version, serialized files, bundles), the Unity version and the .wasm / .framework.js beside it; unpack_container extracts them.
 summarize_file on an Electron executable or its .asar adds Electron / Chromium / Node versions, fuses, archive integrity,
 the package.json main entry and webPreferences values (nodeIntegration, contextIsolation, sandbox...) with file:line:column.
 Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read these yet; unpack_container on the _framework folder converts them to PEs that load; save_assembly to a .wasm path writes Webcil back.
