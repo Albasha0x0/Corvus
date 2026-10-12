@@ -55,10 +55,10 @@ public class SearchTests : IDisposable
         Assert.Equal(0, json.GetProperty("partial").GetProperty("results").GetArrayLength());
 
         // A partial result too large to send with an error is dropped and its size reported.
-        var big = System.Text.Json.JsonDocument.Parse(ToolError.ErrorJson("timeout", true, "m", null, new { text = new string('x', ToolError.MaxPartialChars) }, new { a = 1 })).RootElement;
+        var big = System.Text.Json.JsonDocument.Parse(ToolError.ErrorJson("timeout", true, "m", null, new { text = new string('x', 3 * ToolError.MaxPartialTokens) }, new { a = 1 })).RootElement;
         Assert.Equal(System.Text.Json.JsonValueKind.Null, big.GetProperty("partial").ValueKind);
         Assert.Equal(1, big.GetProperty("details").GetProperty("a").GetInt32());
-        Assert.True(big.GetProperty("details").GetProperty("partialOmittedChars").GetInt32() > ToolError.MaxPartialChars);
+        Assert.True(big.GetProperty("details").GetProperty("partialOmittedChars").GetInt32() > 3 * ToolError.MaxPartialTokens);
     }
 
     [Fact]

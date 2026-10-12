@@ -24,7 +24,7 @@ public static class ArgumentCheck
         foreach (var name in arguments.Keys)
             if (!declared.Contains(name, StringComparer.Ordinal))
                 throw UnknownParameter(name, declared);
-        var required = inputSchema.TryGetProperty("required", out var r) ? r.EnumerateArray().Select(e => e.GetString()).ToHashSet() : [];
+        var required = Required(inputSchema);
         foreach (var (name, value) in arguments.ToList())
         {
             if (!properties.TryGetProperty(name, out var property) || !property.TryGetProperty("type", out var type)) continue;
@@ -32,7 +32,10 @@ public static class ArgumentCheck
             if (value.ValueKind == JsonValueKind.Null && !types.Contains("null"))
             {
                 if (required.Contains(name))
-                    throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' must be {Describe(types)}, not null.");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' must be {Describe(types)}, not null.", PassHint(name, property, tool))
+                    {
+                        Details = new { parameter = name },
+                    };
                 arguments.Remove(name);
                 continue;
             }
@@ -50,8 +53,58 @@ public static class ArgumentCheck
             var detail = types.Contains("integer") && value.ValueKind == JsonValueKind.Number
                 ? $"a whole number from {int.MinValue} to {int.MaxValue}, not {value.GetRawText()}"
                 : $"{Describe(types)}, not {Kind(value)}";
-            throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' must be {detail}.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' must be {detail}.", PassHint(name, property, tool))
+            {
+                Details = new { parameter = name },
+            };
         }
+    }
+
+    /// <summary>
+    /// Throws <see cref="MissingParameter"/> for the first required parameter the call does not pass. Runs after
+    /// <see cref="Apply"/>, so a misspelt name is reported as unknown (with the intended name) rather than as missing.
+    /// </summary>
+    public static void RequireAll(JsonElement inputSchema, IDictionary<string, JsonElement>? arguments, string? tool = null)
+    {
+        foreach (var name in Required(inputSchema))
+            if (arguments == null || !arguments.ContainsKey(name))
+                throw MissingParameter(inputSchema, name, tool);
+    }
+
+    private static List<string> Required(JsonElement inputSchema) =>
+        inputSchema.TryGetProperty("required", out var r) && r.ValueKind == JsonValueKind.Array
+            ? r.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToList() : [];
+
+    /// <summary>The error for a required parameter the call did not pass; Next names its type or values and range.</summary>
+    public static ToolError MissingParameter(JsonElement inputSchema, string name, string? tool) =>
+        new(ErrorCode.InvalidArgument, $"missing required parameter '{name}'.",
+            PassHint(name, inputSchema.ValueKind == JsonValueKind.Object && inputSchema.TryGetProperty("properties", out var p) && p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var property) ? property : default, tool))
+        {
+            Details = new { parameter = name },
+        };
+
+    /// <summary>"pass name: a string; `corvus describe tool` ...": what the parameter takes and where every parameter is listed.</summary>
+    private static string PassHint(string name, JsonElement property, string? tool)
+    {
+        var expected = Expected(property);
+        return $"pass {name}{(expected.Length > 0 ? ": " + expected : "")}; " +
+               (tool != null ? $"`corvus describe {tool}` or the tool's input schema lists every parameter" : "the tool's input schema lists every parameter");
+    }
+
+    /// <summary>A parameter's listed values, or its type and range ("a whole number from 1 to 500"); "" when the schema says neither.</summary>
+    private static string Expected(JsonElement property)
+    {
+        if (property.ValueKind != JsonValueKind.Object) return "";
+        if (property.TryGetProperty("enum", out var values) && values.ValueKind == JsonValueKind.Array)
+        {
+            var listed = values.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+            if (listed.Count > 0) return "one of " + string.Join(", ", listed.Count > 12 ? [.. listed.Take(12), "..."] : listed);
+        }
+        if (!property.TryGetProperty("type", out var type)) return "";
+        var types = type.ValueKind == JsonValueKind.Array ? type.EnumerateArray().Select(t => t.GetString()).ToList() : [type.GetString()];
+        string? min = property.TryGetProperty("minimum", out var lo) ? lo.GetRawText() : null;
+        string? max = property.TryGetProperty("maximum", out var hi) ? hi.GetRawText() : null;
+        return Describe(types) + (min != null && max != null ? $" from {min} to {max}" : min != null ? $", at least {min}" : max != null ? $", at most {max}" : "");
     }
 
     /// <summary>Native tools (the native, native-edit and engine families, and tools named *native*), whose paged lists reject a limit below 1.</summary>

@@ -138,7 +138,7 @@ public class EditHistoryTests : IDisposable
     {
         Assert.Equal("(not_found) Account::X not found.", Services.EditHistoryService.FailureText(new ToolError(ErrorCode.NotFound, "Account::X not found.")));
         var fault = Services.EditHistoryService.FailureText(new InvalidOperationException("collection was modified"));
-        Assert.StartsWith("(internal) InvalidOperationException: collection was modified\nNext: a fault in Corvus", fault);
+        Assert.Equal("(internal) InvalidOperationException: collection was modified\nNext: " + ToolError.InternalNext, fault);
     }
 
     [Trait("Speed", "Slow")]

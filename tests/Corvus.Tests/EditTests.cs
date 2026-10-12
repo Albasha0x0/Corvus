@@ -146,7 +146,7 @@ public class EditTests : IDisposable
         var result = Mcp.ErrorResult.Internal(ex, "save_assembly");
         var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
         Assert.StartsWith("Error (internal) in save_assembly", text);
-        Assert.Contains("Next: a fault in Corvus", text);
+        Assert.Contains("Next: " + ToolError.InternalNext, text);
     }
 
     [Fact]

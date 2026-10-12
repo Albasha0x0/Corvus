@@ -558,11 +558,13 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         async Task<string> Call(string tool, Dictionary<string, object?> args) =>
             (await _client.CallToolAsync(tool, args)).Content.OfType<TextContentBlock>().First(b => !b.Text.StartsWith("[workspace]", StringComparison.Ordinal)).Text;
 
-        Assert.Equal("Error (invalid_argument) in get_type_info: parameter 'type' must be a string, not a number.",
+        // Next names the parameter, what it takes and where every parameter is listed.
+        const string typeNext = "\nNext: pass type: a string; `corvus describe get_type_info` or the tool's input schema lists every parameter";
+        Assert.Equal("Error (invalid_argument) in get_type_info: parameter 'type' must be a string, not a number." + typeNext,
             await Call("get_type_info", new() { ["type"] = 42 }));
-        Assert.Equal("Error (invalid_argument) in list_types: parameter 'limit' must be a whole number from -2147483648 to 2147483647, not 9999999999.",
+        Assert.StartsWith("Error (invalid_argument) in list_types: parameter 'limit' must be a whole number from -2147483648 to 2147483647, not 9999999999.\nNext: pass limit: a whole number",
             await Call("list_types", new() { ["limit"] = 9_999_999_999L }));
-        Assert.Equal("Error (invalid_argument) in get_type_info: parameter 'type' must be a string, not null.",
+        Assert.Equal("Error (invalid_argument) in get_type_info: parameter 'type' must be a string, not null." + typeNext,
             await Call("get_type_info", new() { ["type"] = null }));
         // null for an optional parameter means "not given".
         Assert.Contains("Charge", await Call("get_type_info", new() { ["type"] = "Account", ["includeCompilerGenerated"] = null }));

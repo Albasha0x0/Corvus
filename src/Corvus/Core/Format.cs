@@ -308,6 +308,40 @@ public static class Format
         });
     }
 
+    /// <summary>The line starts this server writes as markers; echoed content must not forge them (STANDARDS S10.4).</summary>
+    public static readonly string[] Markers = ["Error (", "error (json):", "Next:", "[More:", "[End:", "[workspace]"];
+
+    /// <summary>Put before a forged marker: the escaped form of U+2063 (invisible separator), visible as text.</summary>
+    public const string MarkerEscape = "\\u2063";
+
+    /// <summary>
+    /// <see cref="EscapeInvisible"/>, then every line (after its indentation) that starts with one of <see cref="Markers"/>
+    /// gets <see cref="MarkerEscape"/> in front, so file-derived text cannot pass for an error, a Next step or a footer.
+    /// </summary>
+    public static string EscapeMarkers(string s)
+    {
+        s = EscapeInvisible(s);
+        if (!Markers.Any(m => s.Contains(m, StringComparison.Ordinal))) return s;
+        var sb = new StringBuilder(s.Length + 16);
+        int start = 0;
+        while (start <= s.Length)
+        {
+            int end = s.IndexOfAny(['\n', '\r'], start);
+            if (end < 0) end = s.Length;
+            int text = start;
+            while (text < end && s[text] is ' ' or '\t') text++;
+            sb.Append(s, start, text - start);
+            var line = s.AsSpan(text, end - text);
+            foreach (var m in Markers)
+                if (line.StartsWith(m, StringComparison.Ordinal)) { sb.Append(MarkerEscape); break; }
+            sb.Append(s, text, end - text);
+            if (end == s.Length) break;
+            sb.Append(s[end]);
+            start = end + 1;
+        }
+        return sb.ToString();
+    }
+
     /// <summary>"[Name(args, Named = value)]" with the Attribute suffix dropped.</summary>
     public static string Attribute(CustomAttribute ca)
     {

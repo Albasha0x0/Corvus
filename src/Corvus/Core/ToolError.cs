@@ -27,7 +27,8 @@ public enum ErrorCode
 
 /// <summary>
 /// A user-facing error, returned to the client as an IsError result (<see cref="Mcp.ErrorResult"/>): the rendered text,
-/// then the same error as JSON. <see cref="Code"/> classifies it; <see cref="Remediation"/> names the next step that can succeed.
+/// then the same error as JSON. <see cref="Code"/> classifies it; <see cref="Remediation"/> names the next step that can
+/// succeed, and without one the code's <see cref="DefaultNext(ErrorCode, string?)"/> applies, so every error has a next step.
 /// </summary>
 public sealed class ToolError : McpException
 {
@@ -40,22 +41,31 @@ public sealed class ToolError : McpException
     }
 
     public ErrorCode Code { get; }
+
+    /// <summary>The throw site's next step, or null for the code's default (<see cref="NextFor"/>).</summary>
     public string? Remediation { get; }
 
     /// <summary>
     /// Results produced before the failure (matches found before a time limit, files written before a timeout, the phase an
-    /// index build reached); serialized as the "partial" member of the error's JSON. Keep it bounded: larger than
-    /// <see cref="MaxPartialChars"/> serialized, it is dropped and only its size reported.
+    /// index build reached); serialized as the "partial" member of the error's JSON. Above <see cref="MaxPartialTokens"/> it is
+    /// kept for read_result (details.partialResultId) when the caller can keep results, else dropped with its size reported.
     /// </summary>
     public object? Partial { get; set; }
 
     /// <summary>Further machine-readable facts (limits, ids, candidates); the "details" member of the error's JSON.</summary>
     public object? Details { get; set; }
 
-    public const int MaxPartialChars = 32_000;
+    /// <summary>
+    /// When the same call can succeed after a wait (details.retryAfterMs). Sent only for <see cref="TakesRetryAfter"/> codes:
+    /// an engine restarting or a busy server, a database lock held by another process, a timeout whose work still runs.
+    /// </summary>
+    public TimeSpan? RetryAfter { get; init; }
+
+    /// <summary>The error budget (STANDARDS S1.3) of the partial result sent with an error.</summary>
+    public const int MaxPartialTokens = 4_000;
 
     /// <summary>The next step of an "internal" error (an exception no tool classified), also per item where a tool collects failures.</summary>
-    public const string InternalNext = "a fault in Corvus, not in the input: report it with the tool, its arguments and this message; the same call fails the same way";
+    public const string InternalNext = "retry once; if it repeats, report it with the tool and its arguments (server_status shows the version)";
 
     /// <summary>
     /// Whether repeating the same call can succeed without changing its arguments: by code, unless the thrower knows better
@@ -66,6 +76,48 @@ public sealed class ToolError : McpException
     private readonly bool? _retryable;
 
     public static bool IsRetryable(ErrorCode code) => code is ErrorCode.Timeout or ErrorCode.Cancelled or ErrorCode.IoError or ErrorCode.ProviderUnavailable;
+
+    /// <summary>The codes that may carry details.retryAfterMs (STANDARDS S6.4).</summary>
+    public static bool TakesRetryAfter(ErrorCode code) => code is ErrorCode.ProviderUnavailable or ErrorCode.Conflict or ErrorCode.Timeout;
+
+    /// <summary>The next step: the throw site's, else the code's default; never empty.</summary>
+    public string NextFor(string? tool) => Remediation is { Length: > 0 } r ? r : DefaultNext(Code, tool);
+
+    /// <summary>The next step of a code when the throw site gives none; <paramref name="tool"/> is the failed tool, if known.</summary>
+    public static string DefaultNext(ErrorCode code, string? tool) => code switch
+    {
+        ErrorCode.InvalidArgument => tool != null
+            ? $"fix the argument the message names; `corvus describe {tool}` or the tool's input schema lists its parameters, types and ranges"
+            : "fix the argument the message names; the tool's input schema lists its parameters, types and ranges",
+        ErrorCode.NotFound => "check the name, address or path: list_assemblies shows what is loaded, search_symbols and list_functions find names, and a relative path resolves against the server's working directory",
+        ErrorCode.Ambiguous => "call again with one of the candidates (a full name, a token, or the assembly or image parameter)",
+        ErrorCode.NotLoaded => "load_assembly path=<file> loads it (a target parameter also takes the file's path); list_assemblies shows what is loaded",
+        ErrorCode.Unsupported => "summarize_file names the kind of the target and the tools that read it",
+        ErrorCode.MalformedInput => "check that the file is complete and of the expected kind; summarize_file reports what it is",
+        ErrorCode.LimitExceeded => "narrow the call (a smaller limit, a filter, one member instead of a type); a kept result is paged with read_result",
+        ErrorCode.Conflict => "read the current state and repeat the change against it; for an existing output file pass overwrite=true or another path",
+        ErrorCode.ChangedOnDisk => "reload_assembly reads the file on disk (in-memory edits are dropped), or save to another path",
+        ErrorCode.IoError => "check that the path is reachable and not locked by another program, then call again",
+        ErrorCode.Timeout => "narrow the call (one member instead of a type, a smaller limit or scope); partial holds what finished",
+        ErrorCode.Cancelled => "call again; if the target was unloaded or reloaded, list_assemblies shows what is loaded",
+        ErrorCode.ProviderUnavailable => "server_status names the missing engine or download and how to enable it; when details.retryAfterMs is given, retry after it",
+        ErrorCode.AccessDenied => "pick a target this user may read, or run the server with the rights it needs",
+        _ => "read the message for the cause, change the arguments or the target, and call again",
+    };
+
+    /// <summary>The default next step of a code name, "internal" included.</summary>
+    public static string DefaultNext(string code, string? tool) =>
+        code == "internal" ? InternalNext : DefaultNext(Enum.GetValues<ErrorCode>().FirstOrDefault(c => CodeName(c) == code), tool);
+
+    /// <summary>The standard error for a path that names no file.</summary>
+    public static ToolError FileNotFound(string path) =>
+        new(ErrorCode.NotFound, $"File not found: '{path}'.", "pass the path of an existing file; a relative path resolves against the server's working directory")
+        {
+            Details = new { path },
+        };
+
+    /// <summary>The standard error for a call that needs a loaded target; <paramref name="what"/> names it ("No native images are").</summary>
+    public static ToolError NotLoaded(string what, string? next = null) => new(ErrorCode.NotLoaded, $"{what} loaded.", next);
 
     /// <summary>What a code means, for client authors.</summary>
     public static string Meaning(ErrorCode code) => code switch
@@ -78,12 +130,12 @@ public sealed class ToolError : McpException
         ErrorCode.Unsupported => "The target kind, architecture or construct is not handled.",
         ErrorCode.MalformedInput => "The input is corrupt or not of the expected format.",
         ErrorCode.LimitExceeded => "A size or count limit was reached; an oversized result is kept for read_result.",
-        ErrorCode.Conflict => "The change conflicts with the current state (stale edit, existing file, failed compile).",
+        ErrorCode.Conflict => "The change conflicts with the current state (stale edit, existing file, failed compile, a database another process holds).",
         ErrorCode.ChangedOnDisk => "The file changed on disk since it was loaded; writing would lose those changes.",
         ErrorCode.IoError => "Reading or writing a file failed.",
         ErrorCode.Timeout => "The operation or the call took longer than its time limit; partial holds what was done.",
         ErrorCode.Cancelled => "The server cancelled the work (the target was unloaded, reloaded or superseded).",
-        ErrorCode.ProviderUnavailable => "An external engine (IDA, a reference pack download) is missing or failed, or the server is busy (retry after details.retryAfterMs).",
+        ErrorCode.ProviderUnavailable => "An external engine (IDA, a reference pack download) is missing or failed, or the server is busy.",
         ErrorCode.AccessDenied => "The operating system refused access (another user's or a protected process, missing privileges).",
         _ => "Not classified.",
     };
@@ -108,16 +160,17 @@ public sealed class ToolError : McpException
         _ => "failed",
     };
 
-    /// <summary>The error text sent to the client: code and message, then the next step when there is one.</summary>
-    public string Render(string? tool)
-    {
-        var head = $"Error ({CodeName(Code)}{(Retryable ? ", retryable" : "")}){(tool != null ? " in " + tool : "")}: {Message}";
-        return Remediation is { Length: > 0 } r ? head + "\nNext: " + r : head;
-    }
+    /// <summary>The error text sent to the client: code and message, then the next step; echoed markers escaped.</summary>
+    public string Render(string? tool) =>
+        $"Error ({CodeName(Code)}{(Retryable ? ", retryable" : "")}){(tool != null ? " in " + tool : "")}: {Format.EscapeMarkers(Message)}\nNext: {Format.EscapeMarkers(NextFor(tool))}";
 
-    /// <summary>The error as JSON: { code, retryable, message, next, partial, details }; invisible characters escaped as in the text.</summary>
-    public string ToJson() =>
-        ErrorJson(CodeName(Code), Retryable, Format.EscapeInvisible(Message), Remediation is { Length: > 0 } r ? Format.EscapeInvisible(r) : null, Partial, Details);
+    /// <summary>
+    /// The error as JSON: { code, retryable, message, next, partial, details }, escaped as in the text. <paramref name="keep"/>
+    /// keeps an oversized partial (given as JSON) for read_result and returns the kept id.
+    /// </summary>
+    public string ToJson(string? tool = null, Func<string, string>? keep = null) =>
+        ErrorJson(CodeName(Code), Retryable, Format.EscapeMarkers(Message), Format.EscapeMarkers(NextFor(tool)), Partial, Details,
+            TakesRetryAfter(Code) && RetryAfter is { } wait ? (long)wait.TotalMilliseconds : null, keep);
 
     private static readonly System.Text.Json.JsonSerializerOptions JsonOptions = new(System.Text.Json.JsonSerializerDefaults.Web)
     {
@@ -127,39 +180,46 @@ public sealed class ToolError : McpException
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    /// <summary>The error JSON for any code (also "internal", which has no <see cref="ErrorCode"/>).</summary>
-    public static string ErrorJson(string code, bool retryable, string message, string? next, object? partial = null, object? details = null)
+    // Stand-in until the shared token estimator (TokenEstimate.Of) lands: JSON runs about 3 characters per token.
+    internal static int EstimateTokens(string text) => (text.Length + 2) / 3;
+
+    /// <summary>The error JSON for any code (also "internal", which has no <see cref="ErrorCode"/>); an empty next gets the code's default.</summary>
+    public static string ErrorJson(string code, bool retryable, string message, string? next, object? partial = null, object? details = null,
+        long? retryAfterMs = null, Func<string, string>? keep = null)
     {
-        var partialNode = Serialize(partial, out var partialChars);
+        var partialNode = Serialize(partial, out var partialText);
         var detailsNode = Serialize(details, out _);
-        if (partialNode != null && partialChars > MaxPartialChars)
+        System.Text.Json.Nodes.JsonObject Extended()
         {
-            // Too large to send with an error: report that there was one.
-            partialNode = null;
-            var extended = detailsNode as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
-            extended["partialOmittedChars"] = partialChars;
-            detailsNode = extended;
+            if (detailsNode is not System.Text.Json.Nodes.JsonObject obj) detailsNode = obj = [];
+            return obj;
         }
+        if (partialNode != null && EstimateTokens(partialText) > MaxPartialTokens)
+        {
+            partialNode = null;
+            if (keep?.Invoke(partialText) is { } id) Extended()["partialResultId"] = id;
+            else Extended()["partialOmittedChars"] = partialText.Length;
+        }
+        if (retryAfterMs is { } wait) Extended()["retryAfterMs"] = Math.Max(0, wait);
         var json = new System.Text.Json.Nodes.JsonObject
         {
             ["code"] = code,
             ["retryable"] = retryable,
             ["message"] = message,
-            ["next"] = next,
+            ["next"] = next is { Length: > 0 } ? next : DefaultNext(code, null),
             ["partial"] = partialNode,
             ["details"] = detailsNode,
         };
         return json.ToJsonString(JsonOptions);
     }
 
-    private static System.Text.Json.Nodes.JsonNode? Serialize(object? value, out int chars)
+    private static System.Text.Json.Nodes.JsonNode? Serialize(object? value, out string text)
     {
-        chars = 0;
+        text = "";
         if (value == null) return null;
         try
         {
-            var text = System.Text.Json.JsonSerializer.Serialize(value, value.GetType(), JsonOptions);
-            chars = text.Length;
+            text = System.Text.Json.JsonSerializer.Serialize(value, value.GetType(), JsonOptions);
             return System.Text.Json.Nodes.JsonNode.Parse(text);
         }
         catch (Exception ex) when (ex is NotSupportedException or System.Text.Json.JsonException or InvalidOperationException)

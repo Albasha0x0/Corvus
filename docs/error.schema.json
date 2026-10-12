@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Corvus tool error",
+  "description": "The JSON after 'error (json): ' in the second text block of an error result. Generated from Core/ToolError.cs.",
+  "type": "object",
+  "required": [
+    "code",
+    "retryable",
+    "message",
+    "next",
+    "partial",
+    "details"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "failed",
+        "invalid_argument",
+        "not_found",
+        "ambiguous",
+        "not_loaded",
+        "unsupported",
+        "malformed_input",
+        "limit_exceeded",
+        "conflict",
+        "changed_on_disk",
+        "io_error",
+        "timeout",
+        "cancelled",
+        "provider_unavailable",
+        "access_denied",
+        "internal"
+      ]
+    },
+    "retryable": {
+      "type": "boolean",
+      "description": "The same call can succeed unchanged."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "next": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The next step that can succeed."
+    },
+    "partial": {
+      "description": "What finished before the failure, or null."
+    },
+    "details": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "retryAfterMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "partialResultId": {
+          "type": "string",
+          "description": "The kept partial result, for read_result."
+        },
+        "partialOmittedChars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resultId": {
+          "type": "string",
+          "description": "The kept full result or error, for read_result."
+        },
+        "parameter": {
+          "type": "string",
+          "description": "The argument at fault."
+        }
+      }
+    }
+  },
+  "if": {
+    "required": [
+      "details"
+    ],
+    "properties": {
+      "details": {
+        "type": "object",
+        "required": [
+          "retryAfterMs"
+        ]
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "code": {
+        "enum": [
+          "conflict",
+          "timeout",
+          "provider_unavailable"
+        ]
+      }
+    }
+  }
+}
