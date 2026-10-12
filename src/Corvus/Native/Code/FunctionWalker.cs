@@ -35,15 +35,15 @@ internal sealed class FunctionWalker
 
     private readonly CodeContext _ctx;
     private readonly ICodeDecoder _dec;
-    private readonly HashSet<uint> _visited = [];
+    private readonly ScratchSet _visited = new();
     private readonly List<uint> _insns = [];
     private readonly List<Run> _runs = [];
-    private readonly HashSet<uint> _leaders = [];
+    private readonly ScratchSet _leaders = new();
     private readonly Stack<(uint Rva, IndexBound Bound)> _work = new();
     private readonly List<CodeXref> _xrefs = [];
-    private readonly HashSet<uint> _callees = [];
+    private readonly ScratchSet _callees = new();
     private readonly List<(uint Insn, uint To, EdgeKind Kind)> _branches = [];
-    private readonly HashSet<uint> _conditionals = [];
+    private readonly ScratchSet _conditionals = new();
     private readonly List<SwitchTable> _switches = [];
     private readonly List<UnresolvedJump> _unresolved = [];
     private readonly List<uint> _tails = [];
@@ -349,7 +349,7 @@ internal sealed class FunctionWalker
         // a tail call (or falling into the next function) returns when its target does
         foreach (var t in _tails)
             if (!_ctx.NoReturn.Contains(t)) returns = true;
-        foreach (var c in _callees)
+        foreach (var c in _callees.Items)
             if (_ctx.ImportSlots.ContainsKey(c) && !_ctx.NoReturn.Contains(c)) returns = true; // jmp [import]
         result.Returns = returns;
         result.Instructions = _insns.Count;
@@ -382,12 +382,11 @@ internal sealed class FunctionWalker
         result.RangeStarts = starts.ToArray();
         result.RangeEnds = ends.ToArray();
         int blocks = 0;
-        foreach (var l in _leaders) if (_visited.Contains(l)) blocks++;
+        foreach (var l in _leaders.Items) if (_visited.Contains(l)) blocks++;
         result.Blocks = Math.Max(blocks, _runs.Count(r => r.InsnCount > 0));
         result.Xrefs = _xrefs.ToArray();
         result.FallsInto = _fallsInto.ToArray();
-        _callees.Remove(start);
-        result.Callees = _callees.Where(c => !_ctx.ImportSlots.ContainsKey(c)).ToArray();
+        result.Callees = _callees.Items.Where(c => c != start && !_ctx.ImportSlots.ContainsKey(c)).ToArray();
     }
 
     private FunctionGraph BuildGraph(NativeFunction function, WalkResult result)
@@ -457,4 +456,74 @@ internal sealed class FunctionWalker
         RunEnd.EndOfCode => BlockEnd.EndOfCode,
         _ => BlockEnd.Truncated,
     };
+}
+
+/// <summary>
+/// A set of 32-bit values that empties in constant time: scratch reused across hundreds of thousands of walks, where clearing a
+/// hash set zeroes its whole capacity. Items keeps insertion order.
+/// </summary>
+internal sealed class ScratchSet
+{
+    private uint[] _keys = new uint[64];
+    private int[] _stamps = new int[64];
+    private int _stamp = 1;
+    private int _shift = 64 - 6;
+
+    public List<uint> Items { get; } = [];
+
+    public int Count => Items.Count;
+
+    public void Clear()
+    {
+        Items.Clear();
+        if (++_stamp == int.MaxValue)
+        {
+            Array.Clear(_stamps);
+            _stamp = 1;
+        }
+    }
+
+    private int Slot(uint key) => (int)((key * 0x9E3779B97F4A7C15UL) >> _shift);
+
+    public bool Contains(uint key)
+    {
+        int mask = _keys.Length - 1;
+        for (int i = Slot(key); ; i = (i + 1) & mask)
+        {
+            if (_stamps[i] != _stamp) return false;
+            if (_keys[i] == key) return true;
+        }
+    }
+
+    public bool Add(uint key)
+    {
+        if (Items.Count * 2 >= _keys.Length) Grow();
+        if (!Insert(key)) return false;
+        Items.Add(key);
+        return true;
+    }
+
+    private bool Insert(uint key)
+    {
+        int mask = _keys.Length - 1;
+        for (int i = Slot(key); ; i = (i + 1) & mask)
+        {
+            if (_stamps[i] != _stamp)
+            {
+                _stamps[i] = _stamp;
+                _keys[i] = key;
+                return true;
+            }
+            if (_keys[i] == key) return false;
+        }
+    }
+
+    private void Grow()
+    {
+        _keys = new uint[_keys.Length * 2];
+        _stamps = new int[_keys.Length];
+        _stamp = 1;
+        _shift--;
+        foreach (uint k in Items) Insert(k);
+    }
 }

@@ -125,6 +125,14 @@ internal sealed class CodeBitmap
 
     public void SetRange(long start, int count)
     {
-        for (long i = start; i < start + count; i++) this[i] = true;
+        long end = start + count;
+        if (start < 0) start = 0;
+        while (start < end)
+        {
+            int bit = (int)(start & 63);
+            int n = (int)Math.Min(64 - bit, end - start);
+            _bits[start >> 6] |= (n == 64 ? ulong.MaxValue : (1UL << n) - 1) << bit;
+            start += n;
+        }
     }
 }
