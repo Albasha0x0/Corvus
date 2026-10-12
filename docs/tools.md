@@ -900,7 +900,7 @@ Native PE analysis, symbols and decompilation.
 
 **Native image overview** (read-only, idempotent)
 
-Overview of a native image. PE: machine, kind, subsystem, base, entry point, timestamps, linker, sections (flags, entropy), packers, mitigations (ASLR, DEP, CFG, CET...), import / export counts, TLS callbacks, PDB identity, load config, version, manifest, rich header, checksum, overlay, signature, anything malformed. ELF: program headers, soname, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, entitlements, encryption. Go build info. Capabilities the imports imply. With the code index (not waited for): function statistics, RTTI classes, the most called and largest functions.
+Overview of a native image. PE: machine, kind, subsystem, base, entry point, timestamps, linker, sections (flags, entropy), packers, mitigations (ASLR, DEP, CFG, CET...), import / export counts, TLS callbacks, PDB identity, load config, version, manifest, rich header, checksum, overlay, signature, anything malformed. ELF: program headers, soname, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, entitlements, encryption. Go build info. Capabilities the static imports imply (never the code index: list_functions has its statistics).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

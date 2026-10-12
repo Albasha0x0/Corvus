@@ -63,27 +63,24 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     [Description("Overview of a native image. PE: machine, kind, subsystem, base, entry point, timestamps, linker, sections (flags, entropy), packers, " +
                  "mitigations (ASLR, DEP, CFG, CET...), import / export counts, TLS callbacks, PDB identity, load config, version, manifest, rich " +
                  "header, checksum, overlay, signature, anything malformed. ELF: program headers, soname, build id, relocations, hardening. Mach-O: " +
-                 "slice, segments, libraries, fixups, code signature, entitlements, encryption. Go build info. Capabilities the imports imply. With the code index " +
-                 "(not waited for): function statistics, RTTI classes, the most called and largest functions.")]
+                 "slice, segments, libraries, fixups, code signature, entitlements, encryption. Go build info. Capabilities the static imports imply " +
+                 "(never the code index: list_functions has its statistics).")]
     public Task<string> GetPeInfo(
         [Description(ImageDescription)] string image,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
-        var index = code?.Ready(native);
-        var capabilities = Capabilities(native.Image, index, cancellationToken);
-        var decoded = index is { Support: not CodeSupport.DeclaredFunctionsOnly } ? index : null;
-        var text = pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}|{index != null}|{index?.Sourced.Version}",
-            () => PeInfo(native, code == null ? "" : NativeCallTools.DynamicSection(index, cancellationToken)) + (code == null ? "" : CodeText(index, capabilities)));
+        var capabilities = Capabilities(native.Image);
+        var text = pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}",
+            () => PeInfo(native) + CodeText(native.Image, capabilities));
         return StructuredOutput.With(pager.Page(text, offset, maxChars), Summary(native) with
         {
             Capabilities = capabilities.Select(c => new CapabilityEntry(c.Group, c.Count, c.Apis)).ToList(),
-            Code = decoded != null ? Overview(decoded) : null,
         });
     }, cancellationToken);
 
-    private static string PeInfo(LoadedNative native, string dynamicImports = "")
+    private static string PeInfo(LoadedNative native)
     {
         if (native.Pe == null) return FormatInfo(native);
         var pe = native.RequirePe("get_pe_info");
@@ -116,7 +113,6 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         sb.AppendLine($"Imports: {Plural(pe.ImportModules.Count, "module")}, {Plural(pe.ImportModules.Sum(i => i.Functions.Count), "function")}" +
                       (pe.DelayImportModules.Count > 0 ? $"; delay-loaded: {Plural(pe.DelayImportModules.Count, "module")}, {Plural(pe.DelayImportModules.Sum(i => i.Functions.Count), "function")}" : "") +
                       (pe.BoundImports.Count > 0 ? $"; {Plural(pe.BoundImports.Count, "bound module")}" : "") + " (list_imports)");
-        sb.Append(dynamicImports);
         sb.AppendLine($"Exports: {Plural(pe.Exports.Count, "entry")}" +
                       (pe.ExportDirectory is { } ed ? $" (name {ed.DllName ?? "none"}, {Plural(pe.Exports.Count(e => e.ForwardedTo != null), "forwarder")})" : "") + " (list_exports)");
         if (pe.RuntimeFunctions.Count > 0) sb.AppendLine($"Exception directory: {Plural(pe.RuntimeFunctions.Count, "function range")}");

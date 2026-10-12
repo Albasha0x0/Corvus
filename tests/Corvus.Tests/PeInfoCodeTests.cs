@@ -1,11 +1,12 @@
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native.Calls;
 using Corvus.Services;
 using Corvus.Tools;
 
 namespace Corvus.Tests;
 
-/// <summary>get_pe_info: capability groups from imports, and the code section once the index is built (never waited for).</summary>
+/// <summary>get_pe_info: capability groups from imports; the answer is the same whether or not the code index is built.</summary>
 public sealed class PeInfoCodeTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -13,28 +14,25 @@ public sealed class PeInfoCodeTests : IDisposable
     public void Dispose() => _dir.Dispose();
 
     [Fact]
-    public async Task Code_section_appears_once_the_index_is_ready()
+    public async Task The_answer_does_not_depend_on_the_code_index()
     {
         var options = new ServerOptions { BackgroundIndexing = false };
         using var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
         var tools = new NativeTools(workspace, new OutputPager(options), code);
         var path = McpProtocolTests.NativeSample(_dir);
+        var collector = StructuredOutput.Begin();
         var before = await tools.GetPeInfo(path);
-        Assert.Contains("Code: the code index is still building", before);
+        var beforeRecord = System.Text.Json.JsonSerializer.Serialize(collector.Value);
         Assert.Contains("Capabilities (from static imports):", before);
         Assert.Matches(@"  ui +1  MessageBox", before); // delay-loaded USER32!MessageBoxW
+        Assert.Contains("Code: list_functions gives the function statistics", before);
 
         var native = workspace.Read(() => workspace.Natives[0]);
         await code.Index(native, null, default);
-        var after = await tools.GetPeInfo(native.Id);
-        Assert.Matches(@"Code: \d+ functions \(\d+ thunks, \d+ noreturn\), [\d,]+ instructions", after);
-        Assert.Contains("% of executable bytes in functions", after);
-        Assert.Contains("entry points: entry, 2 exports, 1 TLS callback", after);
-        Assert.Contains("largest: ", after);
-        var overview = NativeTools.Overview(code.Ready(native)!);
-        Assert.Equal(2, overview.Exports);
-        Assert.Same(overview, NativeTools.Overview(code.Ready(native)!)); // computed once per name version
+        collector = StructuredOutput.Begin();
+        Assert.Equal(before, await tools.GetPeInfo(native.Id));
+        Assert.Equal(beforeRecord, System.Text.Json.JsonSerializer.Serialize(collector.Value));
     }
 
     [Fact]

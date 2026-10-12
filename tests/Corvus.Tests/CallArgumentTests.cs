@@ -541,7 +541,6 @@ public class CallArgumentTests(ITestOutputHelper output)
         var native = env.Workspace.Read(() => env.Workspace.GetNative("kernel32.dll"));
         var index = await service.Index(native, null, default);
         var set = CallAnalysis.For(index).DynamicImports();
-        Assert.Contains("Dynamic imports (GetProcAddress):", await peTools.GetPeInfo(kernel32));
         Assert.Contains("[dynamic: GetProcAddress at", await peTools.ListImports(kernel32, filter: set.Imports[0].Name, includeDynamic: true));
         var called = set.Imports.FirstOrDefault(i => i.PointerCalls.Count > 0);
         if (called != null)
