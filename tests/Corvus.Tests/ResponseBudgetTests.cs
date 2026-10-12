@@ -33,11 +33,12 @@ public class ResponseBudgetTests
         Assert.Equal(id, json.GetProperty("details").GetProperty("resultId").GetString());
         Assert.Equal(100_000, json.GetProperty("details").GetProperty("chars").GetInt64());
 
-        var tools = new Corvus.Tools.SessionTools(null!, null!, options, store, new OutputPager(options));
+        var tools = new Corvus.Tools.SessionTools(null!, null!, options, store);
         var page = tools.ReadResult(id);
-        Assert.StartsWith($"[{id}: decompile_type result, 100,000 chars]", page);
-        Assert.Contains("Call again with offset=10000", page);
-        Assert.Contains("chars 90000-100000 of 100000", tools.ReadResult(id.ToUpperInvariant(), offset: 90_000));
+        Assert.StartsWith($"[{id}: decompile_type result, text, 100,000 chars]", page);
+        // one line of letters: 4 characters a token, so the default 6,000-token page holds 24,000
+        Assert.EndsWith("[More: offset=24000]", page);
+        Assert.EndsWith("[End: 100,000 chars]", tools.ReadResult(id.ToUpperInvariant(), offset: 90_000));
         Assert.StartsWith("Error (not_found)", Assert.Throws<ToolError>(() => tools.ReadResult("r-000000000000")).Render(null));
     }
 

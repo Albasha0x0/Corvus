@@ -10,7 +10,7 @@ using static Corvus.Tools.ToolSupport;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService indexing, ServerOptions options, ResultStore results, OutputPager pager,
+public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService indexing, ServerOptions options, ResultStore results,
     NativeEngineService? engines = null, NotesService? notes = null)
 {
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
@@ -158,14 +158,33 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         return new NoteCounts(open, total, notes.Root);
     }
 
+    /// <summary>Page size of read_result when maxTokens is not given.</summary>
+    public const int ReadResultTokens = 6_000;
+
     [McpServerTool(Name = "read_result", Title = "Read a kept result")]
-    [Description("Page through a result too large to send (named by a limit_exceeded error); kept while memory allows.")]
+    [Description("Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath.")]
     public string ReadResult(
-        [Description("Result id from the error, e.g. r3.")] string id,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null)
+        [Description("Result id, e.g. r-0123456789ab.")] string id,
+        [Description("Character offset (nextOffset).")] int offset = 0,
+        [Description("Page size in tokens (default 6000).")] int? maxTokens = null,
+        [Description("Only lines containing this text (/regex/ for a pattern), with their offsets.")] string? query = null,
+        [Description("text; json: the structured record; jsonl: its items, one per line.")] string format = "text",
+        [Description("Write the whole result to this file; returns path, bytes and SHA-256.")] string? outputPath = null,
+        bool overwrite = false)
     {
+        if (offset < 0) throw new ToolError(ErrorCode.InvalidArgument, $"offset must be 0 or more, not {offset}.", "pass a nextOffset from an earlier page");
+        if (maxTokens is < 1) throw new ToolError(ErrorCode.InvalidArgument, $"maxTokens must be 1 or more, not {maxTokens}.", "omit maxTokens for the default page");
         var kept = results.Read(id);
-        return $"[{kept.Id}: {kept.Info.Tool} result, {kept.Text.Length:N0} chars]\n" + pager.Page(kept.Text, offset, maxChars);
+        var body = ReadResultView.Body(kept, format);
+        if (!string.IsNullOrWhiteSpace(outputPath))
+        {
+            if (query != null) throw new ToolError(ErrorCode.InvalidArgument, "query and outputPath cannot be combined.", "write the whole result, then search the file; or drop outputPath");
+            var bytes = System.Text.Encoding.UTF8.GetBytes(body);
+            var path = SafeFile.WriteAllBytes(outputPath, bytes, overwrite);
+            return $"Wrote {kept.Id} ({kept.Info.Tool}, {format}) to {path}: {bytes.Length:N0} bytes, SHA-256 {Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes))}.";
+        }
+        var header = $"[{kept.Id}: {kept.Info.Tool} result, {format}, {body.Length:N0} chars]\n";
+        long budget = maxTokens ?? ReadResultTokens;
+        return header + (query != null ? ReadResultView.Search(body, query, offset, budget) : ReadResultView.Page(body, offset, budget));
     }
 }

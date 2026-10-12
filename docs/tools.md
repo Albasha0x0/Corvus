@@ -99,15 +99,19 @@ Structured output: `server`, `version`, `informationalVersion`, `executable`, `e
 
 ### read_result
 
-**Read a kept result** (read-only, idempotent)
+**Read a kept result** (destructive, idempotent)
 
-Page through a result too large to send (named by a limit_exceeded error); kept while memory allows.
+Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `id` | string | yes |  | Result id from the error, e.g. r3. |
-| `offset` | integer |  | `0` | Character offset from the truncation footer. |
-| `maxChars` | integer |  |  | Page size in characters (default ~60000). |
+| `id` | string | yes |  | Result id, e.g. r-0123456789ab. |
+| `offset` | integer |  | `0` | Character offset (nextOffset). |
+| `maxTokens` | integer |  |  | Page size in tokens (default 6000). |
+| `query` | string |  |  | Only lines containing this text (/regex/ for a pattern), with their offsets. |
+| `format` | string |  | `text` | text; json: the structured record; jsonl: its items, one per line. Values: text, json, jsonl. |
+| `outputPath` | string |  |  | Write the whole result to this file; returns path, bytes and SHA-256. |
+| `overwrite` | boolean |  | `false` |  |
 
 ### save_session
 

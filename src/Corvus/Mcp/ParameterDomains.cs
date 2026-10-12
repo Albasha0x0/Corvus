@@ -49,6 +49,7 @@ public static class ParameterDomains
         ["apply_edits"] = new Dictionary<string, Domain> { ["targetBuild"] = Of(["same", "other"]) },
         ["load_session"] = new Dictionary<string, Domain> { ["targetBuild"] = Of(["same", "other"]) },
         ["extract_strings"] = new Dictionary<string, Domain> { ["format"] = Of(["json", "csv"]) },
+        ["read_result"] = new Dictionary<string, Domain> { ["format"] = Of(["text", "json", "jsonl"]) },
         ["verify_native_imports"] = new Dictionary<string, Domain> { ["platform"] = Of(["auto", "windows", "linux", "osx", "android", "ios"], "macos") },
         ["load_assembly"] = new Dictionary<string, Domain>
         {

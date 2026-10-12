@@ -36,6 +36,7 @@ public static class ContractSweep
         ["pull_android_package"] = ["outputDirectory"],
         ["pull_android_file"] = ["outputPath"],
         ["extract_strings"] = ["savePath"],
+        ["read_result"] = ["outputPath"],
         ["export_native_annotations"] = ["outputPath"],
         ["save_native"] = ["outputPath"],
         ["export_native_patches"] = ["outputPath"],

@@ -134,6 +134,68 @@ public sealed class ResultStoreTests : IDisposable
         Assert.Equal((_dir.Path, 16L << 20, TimeSpan.FromDays(2)), (custom.Root, custom.MaxBytes, custom.MaxAge));
     }
 
+    private Corvus.Tools.SessionTools Tools(ResultStore store) => new(null!, null!, new ServerOptions(), store);
+
+    [Fact]
+    public void ReadResultPagesByTokensAtLineEnds()
+    {
+        var store = new ResultStore(Disk());
+        var text = string.Concat(Enumerable.Range(0, 1_000).Select(i => $"line {i:D4} alpha\n"));
+        var id = store.Keep(text, Origin());
+        var tools = Tools(store);
+        var pages = new StringBuilder();
+        int offset = 0, calls = 0;
+        while (true)
+        {
+            var page = tools.ReadResult(id, offset, maxTokens: 500);
+            calls++;
+            var body = page[(page.IndexOf('\n') + 1)..];
+            var footer = body[(body.LastIndexOf('[')..)];
+            body = body[..body.LastIndexOf('[')];
+            Assert.True(CallLog.EstimateTokens(body) <= 500);
+            Assert.EndsWith("\n", body);
+            pages.Append(body);
+            if (footer.StartsWith("[End:")) break;
+            offset = int.Parse(footer["[More: offset=".Length..^1]);
+        }
+        Assert.Equal(text, pages.ToString());
+        Assert.True(calls > 2);
+    }
+
+    [Fact]
+    public void ReadResultSearchesLinesWithOffsets()
+    {
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        var id = store.Keep("alpha\nBeta one\ngamma\nbeta two\n", Origin());
+        var tools = Tools(store);
+        Assert.EndsWith("6: Beta one\n21: beta two\n[End: 2 matching lines from offset 0]", tools.ReadResult(id, query: "beta"));
+        Assert.EndsWith("21: beta two\n[End: 1 matching line from offset 7]", tools.ReadResult(id, offset: 7, query: "beta"));
+        Assert.EndsWith("0: alpha\n15: gamma\n[End: 2 matching lines from offset 0]", tools.ReadResult(id, query: "/^[ag]/"));
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => tools.ReadResult(id, query: "/(/")).Code);
+    }
+
+    [Fact]
+    public void ReadResultWritesTheExactBytesToOutputPath()
+    {
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        var text = "résumé\r\nline 2\n" + new string('z', 50_000);
+        var id = store.Keep(text, Origin(), record: """{"total":2,"items":[{"a":1},{"b":[2,3]}]}""");
+        var tools = Tools(store);
+        var path = _dir.File("out.txt");
+        var answer = tools.ReadResult(id, outputPath: path);
+        var sha = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text))), sha);
+        Assert.Contains($"SHA-256 {sha}", answer);
+        Assert.DoesNotContain("zzz", answer);
+        Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => tools.ReadResult(id, outputPath: path)).Code);
+
+        tools.ReadResult(id, format: "jsonl", outputPath: path, overwrite: true);
+        Assert.Equal("{\"a\":1}\n{\"b\":[2,3]}\n", File.ReadAllText(path));
+        Assert.Contains("\"total\":2", tools.ReadResult(id, format: "json"));
+        var textOnly = store.Keep("plain", Origin());
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => tools.ReadResult(textOnly, format: "json")).Code);
+    }
+
     /// <summary>A second server process (here the command line) reads an id the first one kept.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
