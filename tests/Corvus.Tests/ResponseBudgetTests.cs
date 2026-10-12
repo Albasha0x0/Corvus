@@ -36,8 +36,9 @@ public class ResponseBudgetTests
         var tools = new Corvus.Tools.SessionTools(null!, null!, options, store);
         var page = tools.ReadResult(id);
         Assert.StartsWith($"[{id}: decompile_type result, text, 100,000 chars]", page);
-        // one line of letters: 4 characters a token, so the default 6,000-token page holds 24,000
-        Assert.EndsWith("[More: offset=24000]", page);
+        // one line of letters: the default page holds the longest prefix within 6,000 estimated tokens
+        int next = int.Parse(System.Text.RegularExpressions.Regex.Match(page, @"\[More: offset=(\d+)\]$").Groups[1].Value);
+        Assert.InRange(TokenEstimate.Of(new string('x', next)), 5_900, 6_000);
         Assert.EndsWith("[End: 100,000 chars]", tools.ReadResult(id.ToUpperInvariant(), offset: 90_000));
         Assert.StartsWith("Error (not_found)", Assert.Throws<ToolError>(() => tools.ReadResult("r-000000000000")).Render(null));
     }

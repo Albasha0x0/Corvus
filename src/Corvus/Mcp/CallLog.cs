@@ -101,40 +101,5 @@ public sealed class CallLog
         return new KeptOrigin(tool ?? "?", Json(masked: true), Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Json(masked: false)))));
     }
 
-    /// <summary>
-    /// Token estimate of S1.2 (letter runs /4, digit runs /3, symbols, newlines and non-ASCII 1 each, space runs /8); a
-    /// local stand-in until the shared estimator lands.
-    /// </summary>
-    internal static long EstimateTokens(ReadOnlySpan<char> text)
-    {
-        long tokens = 0;
-        int i = 0;
-        while (i < text.Length)
-        {
-            char c = text[i];
-            int start = i;
-            if (char.IsAsciiLetter(c))
-            {
-                while (i < text.Length && char.IsAsciiLetter(text[i])) i++;
-                tokens += (i - start + 3) / 4;
-            }
-            else if (char.IsAsciiDigit(c))
-            {
-                while (i < text.Length && char.IsAsciiDigit(text[i])) i++;
-                tokens += (i - start + 2) / 3;
-            }
-            else if (c == ' ')
-            {
-                while (i < text.Length && text[i] == ' ') i++;
-                tokens += (i - start + 7) / 8;
-            }
-            else
-            {
-                if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++;
-                i++;
-                tokens++;
-            }
-        }
-        return tokens;
-    }
+    internal static long EstimateTokens(ReadOnlySpan<char> text) => TokenEstimate.Of(text);
 }

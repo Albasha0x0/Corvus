@@ -71,7 +71,7 @@ public class CallLogTests
         Assert.Equal(["Tool", "Outcome", "Ms", "TextTokens", "StructuredTokens", "Engine", "{OriginalFormat}"], fields.Keys);
         Assert.Equal("list_types", fields["Tool"]);
         Assert.Equal("ok", fields["Outcome"]);
-        Assert.Equal(7L, fields["TextTokens"]); // 3 letter runs, 2 spaces
+        Assert.Equal((long)TokenEstimate.Of("three words here"), fields["TextTokens"]);
         Assert.Equal(CallLog.EstimateTokens("""{"items":["abcd"]}"""), fields["StructuredTokens"]);
         Assert.DoesNotContain(fields.Values, v => v?.ToString()?.Contains("Secret") == true);
     }
@@ -129,7 +129,7 @@ public class CallLogTests
         Assert.DoesNotContain("Ns.Type", File.ReadAllText(path));
         Assert.Equal(System.Text.Json.JsonValueKind.Null, lines[0].GetProperty("error").ValueKind);
         Assert.Equal(5, lines[0].GetProperty("chars").GetInt64());
-        Assert.Equal(2, lines[0].GetProperty("textTokens").GetInt64()); // "12345": a digit run of 5
+        Assert.Equal(TokenEstimate.Of("12345"), lines[0].GetProperty("textTokens").GetInt64());
         Assert.Equal(CallLog.RunId, lines[0].GetProperty("run").GetString());
         Assert.True(lines[0].GetProperty("ms").GetDouble() >= 0);
         Assert.Equal("not_found", lines[1].GetProperty("error").GetString());

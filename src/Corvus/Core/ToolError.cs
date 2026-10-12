@@ -180,8 +180,7 @@ public sealed class ToolError : McpException
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    // Stand-in until the shared token estimator (TokenEstimate.Of) lands: JSON runs about 3 characters per token.
-    internal static int EstimateTokens(string text) => (text.Length + 2) / 3;
+    internal static int EstimateTokens(string text) => TokenEstimate.Of(text);
 
     /// <summary>The error JSON for any code (also "internal", which has no <see cref="ErrorCode"/>); an empty next gets the code's default.</summary>
     public static string ErrorJson(string code, bool retryable, string message, string? next, object? partial = null, object? details = null,
