@@ -1332,7 +1332,7 @@ Exception handling of the native function containing an address. ELF / Mach-O: F
 
 **C++ classes from RTTI** (read-only, idempotent, open-world)
 
-C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, base classes (offsets, virtual and multiple inheritance) and vftables with slot targets; rejects are counted with the reason. engine=ghidra lists Ghidra's class namespaces instead (PDB classes too), ida its C++ structs.
+C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, base classes (offsets, virtual and multiple inheritance) and vftables with slot targets; rejects are counted with the reason. Mach-O: also ObjC classes, categories, protocols and Swift types. engine=ghidra lists Ghidra's class namespaces instead (PDB classes too), ida its C++ structs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1348,7 +1348,7 @@ C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled
 
 **Native type layout** (read-only, idempotent, open-world, long-running)
 
-A native type's layout (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI (bases, vftables with named slots), Il2Cpp layouts (after apply_il2cpp_names) or the engine's types (source=engine opens IDA or Ghidra; auto reads an analyzed one for names the others lack). By name (exact, case-insensitive, then substring candidates), id, or typed address (a PDB global gives the field path, e.g. g.players[3].pos.y; also vftables and Il2Cpp metadata slots). read=true adds each field's value from the image's bytes (pointers named, strings, enumerators, bit fields); no engine needed.
+A native type's layout (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI (bases, vftables with named slots), Il2Cpp layouts (after apply_il2cpp_names), Mach-O ObjC classes and Swift types or the engine's types (source=engine opens IDA or Ghidra; auto reads an analyzed one for names the others lack). By name (exact, case-insensitive, then substring candidates), id, or typed address (a PDB global gives the field path, e.g. g.players[3].pos.y; also vftables and Il2Cpp metadata slots). read=true adds each field's value from the image's bytes (pointers named, strings, enumerators, bit fields); no engine needed.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1358,7 +1358,7 @@ A native type's layout (fields with offset, size and bit fields, bases, padding;
 | `address` | string |  |  | A typed address: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `at` | string |  |  | Hex offset of a field to name (all union members); 0x48.0x10 reads through the pointer at 0x48. |
 | `depth` | integer |  | `0` | Levels of by-value members to inline (0-4). |
-| `source` | string |  |  | Type source (default auto). Values: auto, pdb, rtti, il2cpp, engine. |
+| `source` | string |  |  | Type source (default auto). Values: auto, pdb, rtti, il2cpp, objc, swift, engine. |
 | `format` | string |  |  | table (default) or c (a C declaration). Values: table, c. |
 | `offset` | integer |  | `0` | Index of the first row (field, enumerator, slot, candidate). |
 | `limit` | integer |  | `200` | Max rows (max 5000). |

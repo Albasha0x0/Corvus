@@ -1,4 +1,5 @@
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native.Annotations;
 using Corvus.Native.Code;
 using Corvus.Services;
@@ -74,5 +75,41 @@ public sealed class AppleNameLayerTests
             Assert.Null(index.Sourced.NameAt(0x1010));
         }
         finally { Environment.SetEnvironmentVariable(AppleNames.AutoVariable, null); }
+    }
+
+    [Fact]
+    public async Task ListCppClasses_And_GetNativeType_ShowObjcAndSwift()
+    {
+        using var dir = new TempDir();
+        var options = new ServerOptions { BackgroundIndexing = false };
+        using var ws = new AssemblyWorkspace(options);
+        var code = new NativeCodeService(ws, options, null, new AnnotationStore(dir.File("ann")));
+        var analysis = new NativeAnalysisTools(ws, new NativeEngineService(), new OutputPager(options), code: code);
+        var types = new NativeTypeInfoTools(ws, code);
+
+        var objcPath = dir.File("objc.dylib");
+        File.WriteAllBytes(objcPath, AppleObjcTests.Sample().Bytes);
+        var classes = await analysis.ListCppClasses(objcPath, slots: true);
+        Assert.Contains("Objective-C: 2 classes, 1 categories, 1 protocols", classes);
+        Assert.Contains("objc class Dog : Animal  (Swift)  1 methods, 0 ivars, 0 properties, size 12", classes);
+        Assert.Contains("    +[Animal create]  0x1030", classes);
+        Assert.Contains("objc category NSString(Fancy)  1 methods, class in another image", classes);
+        Assert.DoesNotContain("Dog", await analysis.ListCppClasses(objcPath, filter: "Fancy"));
+
+        var animal = await types.GetNativeType(objcPath, name: "Animal");
+        Assert.Contains("objc:Animal", animal);
+        Assert.Matches(@"0x8\s+.*_age\s+int", animal);
+        Assert.Contains("-[Animal speak] at 0x1010", animal);
+
+        var swiftPath = dir.File("swift.dylib");
+        File.WriteAllBytes(swiftPath, AppleSwiftTests.Sample().Bytes);
+        var swiftClasses = await analysis.ListCppClasses(swiftPath, slots: true);
+        Assert.Contains("swift struct Zoo.Animal  2 fields  <Swift.Hashable>", swiftClasses);
+        Assert.Contains("swift class Zoo.Keeper : Base.Parent  1 fields, vtable 1  <Zoo.Feeder>", swiftClasses);
+        Assert.Contains("    [0] method  0x1080  Zoo.Keeper.feed() -> ()", swiftClasses);
+        var keeper = await types.GetNativeType(swiftPath, id: "swift:Zoo.Keeper");
+        Assert.Contains("name", keeper);
+        Assert.Contains("Swift.String", keeper);
+        Assert.Contains("conforms to Zoo.Feeder", keeper);
     }
 }

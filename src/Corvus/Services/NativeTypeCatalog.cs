@@ -81,9 +81,9 @@ public sealed record NativeFieldPath(
 /// class layouts (after apply_il2cpp_names) and the decompiler engine's database (IDA local types, incl. the user's
 /// declarations). Lookup by name, id or typed address; field paths at an offset; nested expansion of by-value members.
 /// </summary>
-public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeService? code = null)
+public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeService? code = null)
 {
-    public const string Pdb = "pdb", Rtti = "rtti", Il2Cpp = "il2cpp", Engine = "engine";
+    public const string Pdb = "pdb", Rtti = "rtti", Il2Cpp = "il2cpp", Engine = "engine", ObjC = "objc", Swift = "swift";
     /// <summary>Most rows of a substring search; most nested fields an expansion adds.</summary>
     public const int MaxCandidates = 5000, MaxExpandedFields = 20_000;
     private const int MaxPathDepth = 16, MaxPaths = 64;
@@ -241,6 +241,7 @@ public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeSer
             hits.Add(new Hit(new NativeTypeCandidate(Il2Cpp + ":" + key, key, t.IsValueType ? "struct" : t.IsInterface ? "interface" : "class", -1, Il2Cpp),
                 () => Il2CppView(c, type, statics: false)));
         }
+        CollectApple(c, match, hits, ct);
         if (c.Session is { } session)
         {
             var known = hits.Select(h => h.Candidate.Name).ToHashSet(StringComparer.Ordinal);
@@ -321,6 +322,8 @@ public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeSer
                 var rva = va - c.Native.Image.ImageBase;
                 return rtti.Classes.FirstOrDefault(x => x.TypeDescriptorRva == rva) is { } cls
                     ? (PdbClass(c, cls.Name) is { } pdb ? WithRtti(c, PdbView(c, pdb), cls) : RttiView(c, cls)) : null;
+            case ObjC or Swift:
+                return AppleView(c, prefix, rest, ct);
             case Il2Cpp:
             {
                 bool statics = rest.EndsWith("#statics", StringComparison.Ordinal);

@@ -189,4 +189,17 @@ public sealed class AppleObjcTests
         var objc = AppleObjcMetadata.Read(MachOFile.FromBytes(new MachOWriter().Build()));
         Assert.True(objc.IsEmpty);
     }
+
+    [Theory]
+    [InlineData("i", "int")]
+    [InlineData("@\"NSString\"", "NSString *")]
+    [InlineData("@\"<NSCopying>\"", "id<NSCopying>")]
+    [InlineData("^{CGPoint=dd}", "struct CGPoint *")]
+    [InlineData("[4c]", "char[4]")]
+    [InlineData("r*", "char *")]
+    [InlineData("b3", "unsigned int : 3")]
+    [InlineData("@?", "id /* block */")]
+    [InlineData("{?=ii}", "struct anonymous")]
+    [InlineData("^", "^")]
+    public void TypeEncodings(string encoding, string c) => Assert.Equal(c, ObjcTypeEncoding.ToC(encoding));
 }

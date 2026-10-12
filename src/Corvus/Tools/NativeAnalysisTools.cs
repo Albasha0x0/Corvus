@@ -366,7 +366,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
 
     [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI")]
     [Description("C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, base classes (offsets, virtual and multiple " +
-                 "inheritance) and vftables with slot targets; rejects are counted with the reason. engine=ghidra lists Ghidra's class namespaces " +
+                 "inheritance) and vftables with slot targets; rejects are counted with the reason. Mach-O: also ObjC classes, categories, protocols and Swift types. engine=ghidra lists Ghidra's class namespaces " +
                  "instead (PDB classes too), ida its C++ structs.")]
     public async Task<string> ListCppClasses(
         [Description(NativeTools.ImageDescription)] string image,
@@ -464,6 +464,8 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
             }
             foreach (var issue in c.Issues) sb.AppendLine($"  issue: {issue}");
         }
+        if (pe.Format == ImageFormat.MachO)
+            foreach (var line in AppleNames.ClassLines(native, filter, slots, rva => index?.NameAt(rva) is { } n ? NativeTools.DisplayName(n, ImageFormat.MachO) : null, cancellationToken)) sb.AppendLine(line);
         return pager.Page(sb.ToString(), offset, maxChars);
     }
 

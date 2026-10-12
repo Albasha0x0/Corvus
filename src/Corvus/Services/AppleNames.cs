@@ -67,4 +67,64 @@ public static class AppleNames
         }
         return starts;
     }
+
+    /// <summary>
+    /// list_cpp_classes lines for a Mach-O image: ObjC classes (superclass, Swift name, counts, protocols), categories and
+    /// protocols, then Swift types (superclass, fields, vtable, conformances); with <paramref name="slots"/> the methods
+    /// and vtable entries with their implementations. Empty for images without the metadata.
+    /// </summary>
+    public static List<string> ClassLines(LoadedNative native, string? filter, bool slots, Func<uint, string?> nameAt, CancellationToken ct)
+    {
+        var lines = new List<string>();
+        var (objc, swift) = Metadata(native, ct);
+        ulong imageBase = native.Image.ImageBase;
+        bool Match(params string?[] names) => filter == null || names.Any(n => n != null && n.Contains(filter, StringComparison.OrdinalIgnoreCase));
+        string Va(ulong va) => $"0x{va:X}";
+        void Methods(string owner, IReadOnlyList<ObjcMethod> methods)
+        {
+            if (!slots) return;
+            foreach (var m in methods)
+                lines.Add($"    {(m.IsClassMethod ? '+' : '-')}[{owner} {m.Selector}]{(m.Imp != 0 ? "  " + Va(m.Imp) : "")}{(m.Optional ? "  (optional)" : "")}");
+        }
+        if (objc != null)
+        {
+            lines.Add($"Objective-C: {objc.Classes.Count} classes, {objc.Categories.Count} categories, {objc.Protocols.Count} protocols");
+            foreach (var c in objc.Classes.Where(c => Match(c.Name, c.SwiftName)))
+            {
+                lines.Add($"objc class {c.Name}{(c.Superclass != null ? " : " + c.Superclass : "")}{(c.SwiftName != null ? $"  (Swift {c.SwiftName})" : c.IsSwift ? "  (Swift)" : "")}  " +
+                          $"{c.Methods.Count} methods, {c.Ivars.Count} ivars, {c.Properties.Count} properties, size {c.InstanceSize}" +
+                          (c.Protocols.Count > 0 ? "  <" + string.Join(", ", c.Protocols) + ">" : "") + $"  at {Va(c.Va)}");
+                Methods(c.Name, c.Methods);
+            }
+            foreach (var c in objc.Categories.Where(c => Match(c.Name, c.ClassName)))
+            {
+                lines.Add($"objc category {c.ClassName}({c.Name})  {c.Methods.Count} methods{(c.ClassExternal ? ", class in another image" : "")}  at {Va(c.Va)}");
+                Methods($"{c.ClassName}({c.Name})", c.Methods);
+            }
+            foreach (var p in objc.Protocols.Where(p => Match(p.Name)))
+            {
+                lines.Add($"objc protocol {p.Name}  {p.Methods.Count} methods{(p.Protocols.Count > 0 ? "  <" + string.Join(", ", p.Protocols) + ">" : "")}");
+                Methods(p.Name, p.Methods);
+            }
+        }
+        if (swift != null)
+        {
+            lines.Add($"Swift: {swift.Types.Count} types, {swift.Protocols.Count} protocols, {swift.Conformances.Count} conformances");
+            var conformances = swift.Conformances.GroupBy(c => c.Type).ToDictionary(g => g.Key, g => g.Select(c => c.Protocol).Distinct().ToList());
+            foreach (var t in swift.Types.Concat(swift.Protocols).Where(t => Match(t.Name)))
+            {
+                lines.Add($"swift {t.Kind} {t.Name}{(t.Superclass != null ? " : " + t.Superclass : "")}{(t.IsGeneric ? "  (generic)" : "")}  " +
+                          $"{t.Fields.Count} {(t.Kind == "enum" ? "cases" : "fields")}{(t.Methods.Count > 0 ? $", vtable {t.Methods.Count}" : "")}" +
+                          (conformances.TryGetValue(t.Name, out var protocols) ? "  <" + string.Join(", ", protocols) + ">" : "") + $"  at {Va(t.DescriptorVa)}");
+                if (!slots) continue;
+                for (int i = 0; i < t.Methods.Count; i++)
+                {
+                    var m = t.Methods[i];
+                    string? name = m.Impl >= imageBase && m.Impl != 0 ? nameAt((uint)(m.Impl - imageBase)) : null;
+                    lines.Add($"    [{i}] {(m.IsInstance ? "" : "static ")}{m.Kind}{(m.Impl != 0 ? "  " + Va(m.Impl) : "")}{(name != null ? "  " + name : "")}");
+                }
+            }
+        }
+        return lines;
+    }
 }

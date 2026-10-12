@@ -37,7 +37,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
 
     [McpServerTool(Name = "get_native_type", Title = "Native type layout", UseStructuredContent = true, OutputSchemaType = typeof(NativeTypeReport))]
     [Description("A native type's layout (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI (bases, " +
-                 "vftables with named slots), Il2Cpp layouts (after apply_il2cpp_names) or the engine's types (source=engine opens IDA or Ghidra; auto " +
+                 "vftables with named slots), Il2Cpp layouts (after apply_il2cpp_names), Mach-O ObjC classes and Swift types or the engine's types (source=engine opens IDA or Ghidra; auto " +
                  "reads an analyzed one for names the others lack). By name (exact, case-insensitive, then substring candidates), id, or typed address " +
                  "(a PDB global gives the field path, e.g. g.players[3].pos.y; also vftables and Il2Cpp metadata slots). read=true adds each field's " +
                  "value from the image's bytes (pointers named, strings, enumerators, bit fields); no engine needed.")]
@@ -70,10 +70,10 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         var src = (source ?? "").Trim().ToLowerInvariant();
         var sources = src switch
         {
-            "" or "auto" => new HashSet<string> { NativeTypeCatalog.Pdb, NativeTypeCatalog.Rtti, NativeTypeCatalog.Il2Cpp },
-            NativeTypeCatalog.Pdb or NativeTypeCatalog.Rtti or NativeTypeCatalog.Il2Cpp => new HashSet<string> { src },
+            "" or "auto" => new HashSet<string> { NativeTypeCatalog.Pdb, NativeTypeCatalog.Rtti, NativeTypeCatalog.Il2Cpp, NativeTypeCatalog.ObjC, NativeTypeCatalog.Swift },
+            NativeTypeCatalog.Pdb or NativeTypeCatalog.Rtti or NativeTypeCatalog.Il2Cpp or NativeTypeCatalog.ObjC or NativeTypeCatalog.Swift => new HashSet<string> { src },
             NativeTypeCatalog.Engine => new HashSet<string>(),
-            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown source '{source}'.", "use auto, pdb, rtti, il2cpp or engine"),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown source '{source}'.", "use auto, pdb, rtti, il2cpp, objc, swift or engine"),
         };
         bool c = (format ?? "").Trim().ToLowerInvariant() switch
         {
