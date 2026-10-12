@@ -86,7 +86,8 @@ public sealed partial class CSharpPatcher
         var merger = new ModuleMerger(target, compiled, asm.AssemblyName);
         var targetType = jobs[0].Target.DeclaringType;
         merger.Alias(helperType, targetType);
-        DeclareGenerated(merger, compiled);
+        // State machines and lambdas carry their method's name: <Many__patch0>d__0 becomes <Many>d__0.
+        DeclareGenerated(merger, compiled, generated => methods.Aggregate(generated, (n, m) => n.Replace($"<{m.Name}>", $"<{m.Symbol.MetadataName}>", StringComparison.Ordinal)));
         merger.Fill();
 
         var listing = new StringBuilder();

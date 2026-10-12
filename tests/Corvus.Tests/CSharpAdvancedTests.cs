@@ -209,6 +209,20 @@ public class CSharpAdvancedTests : IDisposable
         Assert.Equal(nested, account.NestedTypes.Select(t => t.Name.String).ToList());
     }
 
+    /// <summary>Added iterators and lambdas were named after the helper method they were compiled in (&lt;Many__patch0&gt;d__0).</summary>
+    [Fact]
+    public void AddedMembersNameTheirStateMachinesAndLambdasAfterThemselves()
+    {
+        var account = (dnlib.DotNet.TypeDef)_env.One("Fixture.Model.Account", SymbolKind.Type).Member;
+        AddMembers("Fixture.Model.Account", "public System.Collections.Generic.IEnumerable<int> Many(int n) { for (int i = 0; i < n; i++) yield return i; } " +
+                                            "public System.Func<int, int> Adder(int k) { return x => x + k; }");
+        var names = account.NestedTypes.Select(t => t.Name.String)
+            .Concat(account.NestedTypes.Prepend(account).SelectMany(t => t.Methods).Select(m => m.Name.String)).ToList();
+        Assert.Contains(names, n => n.StartsWith("<Many>d__", StringComparison.Ordinal));
+        Assert.Contains(names, n => n.StartsWith("<Adder>b__", StringComparison.Ordinal));
+        Assert.DoesNotContain(names, n => n.Contains("__patch", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void AddMembersRejectsDuplicatesAndInitializers()
     {

@@ -76,9 +76,13 @@ internal sealed class ModuleMerger
         return MapType(compiled.DeclaringType)?.Fields.FirstOrDefault(x => x.Name == compiled.Name);
     }
 
-    /// <summary>Declares a copy of a compiled type (with its nested types and members) under <paramref name="parent"/> or at top level.</summary>
-    public TypeDef AddTypeTree(TypeDef compiled, TypeDef? parent, string name)
+    /// <summary>
+    /// Declares a copy of a compiled type (with its nested types and members) under <paramref name="parent"/> or at top level;
+    /// <paramref name="rename"/> maps the names of its nested types, fields and methods.
+    /// </summary>
+    public TypeDef AddTypeTree(TypeDef compiled, TypeDef? parent, string name, Func<string, string>? rename = null)
     {
+        rename ??= n => n;
         var type = new TypeDefUser(parent == null ? compiled.Namespace : UTF8String.Empty, name) { Attributes = compiled.Attributes };
         if (compiled.ClassLayout != null)
             type.ClassLayout = new ClassLayoutUser(compiled.PackingSize, compiled.ClassSize);
@@ -93,11 +97,11 @@ internal sealed class ModuleMerger
         ResetTypeIndex();
 
         foreach (var nested in compiled.NestedTypes.ToList())
-            AddTypeTree(nested, type, nested.Name);
+            AddTypeTree(nested, type, rename(nested.Name), rename);
         foreach (var field in compiled.Fields)
-            DeclareField(field, type, field.Name);
+            DeclareField(field, type, rename(field.Name));
         foreach (var method in compiled.Methods)
-            DeclareMethod(method, type, method.Name);
+            DeclareMethod(method, type, rename(method.Name));
         foreach (var property in compiled.Properties)
             _newProperties.Add((property, type));
         foreach (var ev in compiled.Events)

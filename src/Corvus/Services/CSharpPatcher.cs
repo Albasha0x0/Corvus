@@ -195,10 +195,12 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
     /// state machines) and '&lt;...&gt;' methods/fields on existing types (lambda bodies, local functions, caches), plus
     /// &lt;PrivateImplementationDetails&gt;. They are always copied under fresh names: an existing helper with the same
     /// name belongs to the original code and has different contents. Auto-property backing fields that exist are reused.
+    /// <paramref name="rename"/> maps a generated name to the one it gets (helper method names back to the method's own).
     /// </summary>
-    private static void DeclareGenerated(ModuleMerger merger, ModuleDef compiled)
+    private static void DeclareGenerated(ModuleMerger merger, ModuleDef compiled, Func<string, string>? rename = null)
     {
         var target = merger.Target;
+        rename ??= n => n;
         foreach (var t in compiled.GetTypes().ToList())
         {
             if (merger.IsNew(t)) continue;
@@ -210,19 +212,19 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
             }
             if (!t.Name.String.StartsWith('<') || merger.IsNew(t.DeclaringType)) continue;
             if (merger.MapType(t.DeclaringType) is { } parent)
-                merger.AddTypeTree(t, parent, ModuleMerger.UniqueName(t.Name, parent.NestedTypes.Select(x => x.Name.String)));
+                merger.AddTypeTree(t, parent, ModuleMerger.UniqueName(rename(t.Name), parent.NestedTypes.Select(x => x.Name.String)), rename);
         }
 
         foreach (var t in compiled.GetTypes().ToList())
         {
             if (merger.IsNew(t) || t.Name.String.StartsWith('<') || merger.MapType(t) is not { } existing) continue;
             foreach (var m in t.Methods.Where(m => m.Name.String.StartsWith('<') && merger.MapMethodIfDeclared(m) == null))
-                merger.AddMethod(m, existing, ModuleMerger.UniqueName(m.Name, existing.Methods.Select(x => x.Name.String)));
+                merger.AddMethod(m, existing, ModuleMerger.UniqueName(rename(m.Name), existing.Methods.Select(x => x.Name.String)));
             foreach (var f in t.Fields.Where(f => f.Name.String.StartsWith('<') && merger.MapFieldIfDeclared(f) == null))
             {
                 bool existingBackingField = f.Name.String.EndsWith("k__BackingField", StringComparison.Ordinal) && existing.Fields.Any(x => x.Name == f.Name);
                 if (!existingBackingField)
-                    merger.AddField(f, existing, ModuleMerger.UniqueName(f.Name, existing.Fields.Select(x => x.Name.String)));
+                    merger.AddField(f, existing, ModuleMerger.UniqueName(rename(f.Name), existing.Fields.Select(x => x.Name.String)));
             }
         }
     }
