@@ -293,6 +293,17 @@ public class ToolOutputTests
         Assert.Null(ContractSweep.Incomplete("get_call_tree", Text(r), json));
     }
 
+    /// <summary>Timings (compare_folders' seconds) leave the record for _meta, so equal calls give equal records.</summary>
+    [Fact]
+    public async Task TimingsMoveToMeta()
+    {
+        using var services = Services();
+        var record = JsonSerializer.SerializeToElement(new { view = "changed", seconds = 1.25 });
+        var r = await Call(services, "compare_folders", _ => new CallToolResult { Content = [new TextContentBlock { Text = record.GetRawText() }], StructuredContent = record });
+        Assert.False(Record(r).TryGetProperty("seconds", out _));
+        Assert.Equal(1.25, (double)r.Meta!["corvus/timings"]!["seconds"]!);
+    }
+
     /// <summary>Every list-shaped output schema has its rows where the filter looks for them.</summary>
     [Fact]
     public void EveryPagedSchemaNamesItsRows()

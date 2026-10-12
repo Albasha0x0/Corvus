@@ -11,7 +11,7 @@ public static partial class ToolOutput
     internal sealed record Finished(CallToolResult Result, int? RetryLimit);
 
     /// <summary>Top-level record fields that hold timings: moved to _meta (results stay deterministic).</summary>
-    private static readonly string[] TimingFields = ["elapsed", "elapsedSeconds", "elapsedMs", "durationMs"];
+    private static readonly string[] TimingFields = ["elapsed", "elapsedSeconds", "elapsedMs", "durationMs", "seconds"];
 
     /// <summary>
     /// Fits a successful result to the call's budget, each part on its own: a list record and its text keep the same rows

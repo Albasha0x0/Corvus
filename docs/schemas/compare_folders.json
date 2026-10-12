@@ -293,9 +293,6 @@
         "type": "string"
       }
     },
-    "seconds": {
-      "type": "number"
-    },
     "limit": {
       "type": "integer"
     },
@@ -337,7 +334,6 @@
     "offset",
     "total",
     "entries",
-    "notes",
-    "seconds"
+    "notes"
   ]
 }

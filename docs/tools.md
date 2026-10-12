@@ -1685,7 +1685,7 @@ Two folders, zip-family archives (by central-directory CRC) or files, per entry:
 | `offset` | integer |  | `0` |  |
 | `limit` | integer |  | `100` |  |
 
-Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `entries`, `notes`, `seconds`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `entries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### compare_native_images
 
