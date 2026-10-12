@@ -23,8 +23,17 @@
     "entry_point": "server/corvus",
     "mcp_config": {
       "command": "${__dirname}/server/corvus",
-      "args": [],
+      "args": ["--client", "claude-desktop", "--toolsets", "${user_config.profile}"],
       "env": {}
+    }
+  },
+  "user_config": {
+    "profile": {
+      "type": "string",
+      "title": "Tool profile",
+      "description": "full (every tool), core (the main families) or lean (the 40 most used tools).",
+      "default": "full",
+      "required": false
     }
   },
   "tools_generated": true,

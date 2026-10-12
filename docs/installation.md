@@ -80,7 +80,8 @@ Each release also has an MCP bundle per desktop target, `corvus-<rid>.mcpb` (win
 linux-x64, linux-arm64), listed in `SHA256SUMS` like the archives. Clients that install bundles (Claude Desktop:
 open the file, or Settings, Extensions) unpack it and run the server inside; the bundle carries the same
 self-contained build as the archive, so it needs no .NET. A bundle is updated by installing the next release's
-bundle; `corvus update` and the install scripts manage only the script install.
+bundle; `corvus update` and the install scripts manage only the script install. The bundle runs with the Claude
+Desktop profile (`--client claude-desktop`) and asks for a tool profile: `full` (default), `core` or `lean`.
 
 ## .NET tool
 

@@ -98,5 +98,19 @@ public sealed class ClientProfileTests
         Assert.Equal(ClientProfiles.LeanTools, lean.ToolAllowList);
         Assert.Equal(40, ClientProfiles.LeanTools.Count);
         Assert.Equal("lean", ClientProfiles.Resolve(lean, "claude-code").Toolsets);
+        Assert.Equal(Toolsets.All, ServerOptions.Parse(["--toolsets", "full"]).Toolsets);
+        Assert.Null(ServerOptions.Parse(["--toolsets", "full"]).ToolAllowList);
+    }
+
+    [Fact]
+    public void TheBundle_AsksForAProfile_AndNamesItsClient()
+    {
+        var root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "Corvus.slnx"))) root = Path.GetDirectoryName(root)!;
+        var manifest = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(root, "mcpb", "manifest.json")))!;
+        var args = manifest["server"]!["mcp_config"]!["args"]!.AsArray().Select(a => (string)a!).ToList();
+        Assert.Equal(["--client", "claude-desktop", "--toolsets", "${user_config.profile}"], args);
+        Assert.Equal("full", (string?)manifest["user_config"]!["profile"]!["default"]);
+        foreach (var profile in new[] { "full", "core", "lean" }) ServerOptions.Parse([.. args.Take(3), profile]);
     }
 }

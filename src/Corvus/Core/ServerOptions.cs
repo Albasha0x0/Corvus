@@ -188,6 +188,7 @@ public sealed class ServerOptions
         // Interim until the contract table carries the lean flag (P1-F): lean is the fixed tool list of ClientProfiles.LeanTools.
         if (toolsets?.Trim().Equals(ClientProfiles.Lean, StringComparison.OrdinalIgnoreCase) == true)
             (o.ToolAllowList, o.ToolAllowListSource) = (ClientProfiles.LeanTools, ClientProfiles.Lean);
+        else if (toolsets?.Trim().Equals(ClientProfiles.Full, StringComparison.OrdinalIgnoreCase) == true) o.Toolsets = Core.Toolsets.All;
         else if (toolsets != null) o.Toolsets = Core.Toolsets.Parse(toolsets);
         o.ParseProductOptions(toolsFile, trace);
         o.ParseClientOptions(client, clientTimeout);
