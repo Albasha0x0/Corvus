@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -636,7 +637,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         [Fact]
         public async Task SubscribedResourcesGetUpdatesAndTheListNeverChanges()
         {
-            // resources/subscribe is the 2025 protocols' form; newer ones use subscriptions/listen, which the SDK handles.
+            // resources/subscribe is the 2025 protocols' form; newer ones use subscriptions/listen (ListenStreamsWithResourceSubscriptionsGetUpdates).
             await using var client = await StartServerAsync(null, "2025-06-18", ["--load", Env.FixturePath]);
             Assert.True(client.ServerCapabilities.Resources?.Subscribe);
             var updated = new ConcurrentQueue<string>();
@@ -663,6 +664,55 @@ public abstract class McpProtocolTests : IAsyncLifetime
             await Task.Delay(300);
             Assert.Single(updated);
             Assert.Equal(0, listChanged);
+        }
+
+        /// <summary>
+        /// On 2026-07-28 resources are subscribed by the resourceSubscriptions of a listen stream: the SDK granted them but
+        /// no update was ever sent; updates now go on that stream, tagged with its subscription id, until it closes.
+        /// </summary>
+        [Fact]
+        public async Task ListenStreamsWithResourceSubscriptionsGetUpdates()
+        {
+            await using var client = await StartServerAsync(null, "2026-07-28", ["--load", Env.FixturePath]);
+            Assert.Equal("2026-07-28", client.NegotiatedProtocolVersion);
+            var updated = new ConcurrentQueue<JsonNode?>();
+            int acks = 0;
+            await using var ack = client.RegisterNotificationHandler(NotificationMethods.SubscriptionsAcknowledgedNotification, (_, _) =>
+            {
+                Interlocked.Increment(ref acks);
+                return ValueTask.CompletedTask;
+            });
+            await using var handler = client.RegisterNotificationHandler(NotificationMethods.ResourceUpdatedNotification, (n, _) =>
+            {
+                updated.Enqueue(n.Params?.DeepClone());
+                return ValueTask.CompletedTask;
+            });
+            using var listenEnd = new CancellationTokenSource();
+            var listen = new JsonRpcRequest
+            {
+                Id = new RequestId("listen-1"),
+                Method = RequestMethods.SubscriptionsListen,
+                Params = new JsonObject { ["notifications"] = new JsonObject { ["resourceSubscriptions"] = new JsonArray("corvus://assemblies") } },
+            };
+            var stream = client.SendRequestAsync(listen, listenEnd.Token).ContinueWith(_ => { }, TaskScheduler.Default);
+            for (int i = 0; i < 200 && Volatile.Read(ref acks) == 0; i++) await Task.Delay(20);
+            Assert.Equal(1, acks);
+
+            await client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Account" }); // reads change nothing
+            await client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = NativeSample(_dir) });
+            for (int i = 0; i < 100 && updated.IsEmpty; i++) await Task.Delay(20);
+            var update = Assert.Single(updated);
+            Assert.Equal("corvus://assemblies", update?["uri"]?.GetValue<string>());
+            Assert.Equal("listen-1", update?["_meta"]?["io.modelcontextprotocol/subscriptionId"]?.GetValue<string>());
+
+            // Sent by hand: the SDK client's own cancellation of the request may not send it (its registration is disposed first).
+            await client.SendNotificationAsync(NotificationMethods.CancelledNotification, new CancelledNotificationParams { RequestId = listen.Id });
+            await listenEnd.CancelAsync();
+            await stream;
+            await Task.Delay(200);
+            await client.CallToolAsync("unload_assembly", new Dictionary<string, object?> { ["assembly"] = "native.dll" });
+            await Task.Delay(300);
+            Assert.True(updated.Count == 1, string.Join("\n", updated.Select(u => u?.ToJsonString())));
         }
 
         [Trait("Speed", "Slow")]

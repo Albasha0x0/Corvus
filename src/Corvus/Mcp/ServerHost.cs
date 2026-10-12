@@ -104,7 +104,9 @@ public static class ServerHost
                 context.Services!.GetRequiredService<ResourceSubscriptions>().Unsubscribe(context.Params!.Uri);
                 return ValueTask.FromResult(new EmptyResult());
             })
-            .WithRequestFilters(filters => filters.AddCallToolFilter(CallFilter.Wrap));
+            .WithRequestFilters(filters => filters.AddCallToolFilter(CallFilter.Wrap))
+            .WithMessageFilters(filters => filters.AddIncomingFilter(next => async (context, ct) =>
+                await context.Services!.GetRequiredService<ResourceSubscriptions>().ListenFilter(next)(context, ct)));
 
         var host = builder.Build();
         // Resolve before preloading so preloaded assemblies are indexed and watched.
