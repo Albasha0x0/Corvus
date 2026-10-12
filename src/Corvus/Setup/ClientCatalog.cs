@@ -43,6 +43,20 @@ internal static class ClientCatalog
                 yield return (project, new JsonTarget(client.Target.Path, ["projects", project, "mcpServers"], ClaudeCode));
     }
 
+    /// <summary>
+    /// <paramref name="launch"/> for one client: --client &lt;id&gt;, --toolsets lean for clients that cap the tool count, and
+    /// --client-timeout when the client's entry sets a per-call limit other than its default (Codex tool_timeout_sec).
+    /// </summary>
+    public static ServerLaunch LaunchFor(McpClient client, ServerLaunch launch)
+    {
+        var profile = Core.ClientProfiles.Find(client.Id) ?? Core.ClientProfiles.Unknown;
+        List<string> args = [.. launch.Args, Core.ClientProfiles.ClientOption, profile.Id];
+        if (profile.DefaultProfile != Core.ClientProfiles.Full) args.AddRange([Core.Toolsets.Option, profile.DefaultProfile]);
+        if (client.Target.Current(ServerName)?.ToolTimeout is { } seconds && (int)Math.Ceiling(seconds) is var s and > 0 && s != profile.DeadlineSeconds)
+            args.AddRange([Core.ClientProfiles.ClientTimeoutOption, s.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+        return launch with { Args = args };
+    }
+
     private static JsonArray Strings(IEnumerable<string> items) => new([.. items.Select(i => (JsonNode)JsonValue.Create(i)!)]);
 
     private static JsonObject Plain(ServerLaunch l) => new() { ["command"] = l.Command, ["args"] = Strings(l.Args) };

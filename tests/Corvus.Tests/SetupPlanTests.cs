@@ -80,7 +80,7 @@ public sealed class SetupPlanTests : IDisposable
         Assert.True(code == 0, output);
         var cursor = ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!;
         Assert.Equal(SetupHome.Launch.Command, cursor["command"]!.GetValue<string>());
-        Assert.Equal(["--load", "x"], cursor["args"]!.AsArray().Select(a => a!.GetValue<string>()));
+        Assert.Equal(["--client", "cursor", "--load", "x"], cursor["args"]!.AsArray().Select(a => a!.GetValue<string>()));
         Assert.False(File.Exists(_home.Path(".codex", "config.toml")));
         Assert.False(File.Exists(_home.Path(".kiro", "settings", "mcp.json")));
         Assert.Contains("install --all-detected", output);

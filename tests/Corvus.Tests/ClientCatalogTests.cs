@@ -88,6 +88,53 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
+    public void EveryClientEntry_CarriesItsClientId()
+    {
+        var env = _home.Env(os: HostOs.Windows);
+        var all = ClientCatalog.All(env);
+        Assert.Equal(27, all.Count);
+        var output = new StringWriter();
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "--client", string.Join(",", all.Select(c => c.Id))], output, env, SetupHome.Launch));
+        foreach (var client in ClientCatalog.All(env))
+        {
+            var args = client.Target.Current("corvus")?.Args ?? throw new Xunit.Sdk.XunitException($"{client.Id}: not registered\n{output}");
+            Assert.True(args.Count >= 2 && args[0] == "--client" && args[1] == client.Id, $"{client.Id}: {string.Join(" ", args)}");
+            bool lean = Corvus.Core.ClientProfiles.Find(client.Id)!.DefaultProfile == "lean";
+            Assert.Equal(lean, args.SequenceEqual(["--client", client.Id, "--toolsets", "lean"]));
+            if (!lean) Assert.Equal(["--client", client.Id], args);
+        }
+        // A second install changes nothing.
+        output = new StringWriter();
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check"], output, env, SetupHome.Launch));
+        Assert.DoesNotContain("registered ", output.ToString().Replace("already registered", ""));
+    }
+
+    [Fact]
+    public void ClientOptions_ReplaceStaleOnes_AndAUsersToolsetsWins()
+    {
+        _home.Write("""{ "servers": { "corvus": { "type": "stdio", "command": "old", "args": ["--client", "cursor", "--toolsets", "core", "--load", "x"] } } }""",
+            "AppData", "Roaming", "Code", "User", "mcp.json");
+        var (code, output) = _home.Run(_home.Env(os: HostOs.Windows), "install", "--no-check", "--client", "vscode");
+        Assert.True(code == 0, output);
+        Assert.Equal(["--client", "vscode", "--toolsets", "core", "--load", "x"], Client("vscode").Target.Current("corvus")!.Args);
+    }
+
+    [Fact]
+    public void ARaisedCodexToolTimeout_IsPassedOn_ButNeverWritten()
+    {
+        var before = "[mcp_servers.corvus]\ncommand = \"old\"\nargs = [\"--client\", \"codex\", \"--client-timeout\", \"90\"]\ntool_timeout_sec = 300\n";
+        _home.Write(before, ".codex", "config.toml");
+        var (code, output) = _home.Run("install", "--no-check", "--client", "codex");
+        Assert.True(code == 0, output);
+        var toml = File.ReadAllText(_home.Path(".codex", "config.toml"));
+        Assert.Contains("args = [\"--client\", \"codex\", \"--client-timeout\", \"300\"]\ntool_timeout_sec = 300\n", toml);
+        // Back at the default: no option.
+        _home.Write(toml.Replace("tool_timeout_sec = 300", "tool_timeout_sec = 60"), ".codex", "config.toml");
+        Assert.Equal(0, _home.Run("install", "--no-check", "--client", "codex").Code);
+        Assert.Contains("args = [\"--client\", \"codex\"]\ntool_timeout_sec = 60\n", File.ReadAllText(_home.Path(".codex", "config.toml")));
+    }
+
+    [Fact]
     public void ReadmeClientList_MatchesTheCatalog()
     {
         var readme = File.ReadAllText(Path.Combine(RepoRoot(), "README.md")).Replace("\r\n", "\n");

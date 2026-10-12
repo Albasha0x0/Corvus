@@ -32,7 +32,7 @@ internal static class Doctor
         var client = row.Client!;
         if (row.Registered is not { } entry)
         {
-            var preview = client.Target.Preview(ClientCatalog.ServerName, ours);
+            var preview = client.Target.Preview(ClientCatalog.ServerName, ClientCatalog.LaunchFor(client, ours));
             if (preview.Action == SetupAction.Blocked && File.Exists(client.Target.Path))
                 Set(row, ConfigUnreadable, $"configuration unreadable: {preview.Reason}", "Fix the file, or remove it and run: corvus install");
             else

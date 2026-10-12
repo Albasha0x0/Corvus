@@ -239,15 +239,15 @@ public sealed class SetupTests : IDisposable
         var staged = Entry()["command"]!.GetValue<string>();
         Assert.StartsWith(Path.Combine(state, "host"), staged);
         Assert.Equal("apphost", File.ReadAllText(staged));
-        Assert.Equal(["relay", "--target", publish, "--load", "x"], Args());
+        Assert.Equal(["relay", "--target", publish, "--client", "cursor", "--load", "x"], Args());
         // Again: unchanged; another folder replaces the relay's options instead of stacking them.
         Assert.Contains("already registered", Run2("install", "--no-check", "--dev-reload", publish));
         Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "--dev-reload", Home(".cursor")], new StringWriter(), env, new ServerLaunch(program, [])));
-        Assert.Equal(["relay", "--target", Home(".cursor"), "--load", "x"], Args());
+        Assert.Equal(["relay", "--target", Home(".cursor"), "--client", "cursor", "--load", "x"], Args());
         // A plain install switches back to the server.
         Assert.Equal(0, SetupCli.TryRun(["install", "--no-check"], new StringWriter(), env, Launch));
         Assert.Equal(Launch.Command, Entry()["command"]!.GetValue<string>());
-        Assert.Equal(["--load", "x"], Args());
+        Assert.Equal(["--client", "cursor", "--load", "x"], Args());
 
         Assert.Equal(2, SetupCli.TryRun(["install", "--no-check", "--dev-reload", Home("missing")], new StringWriter(), env, Launch));
         var config = new StringWriter();
@@ -281,7 +281,7 @@ public sealed class SetupTests : IDisposable
 
         Assert.Equal(0, Run("install", "--no-check").Code);
         Assert.Equal(Launch.Command, Entry()["command"]!.GetValue<string>());
-        AssertKept("--load", "x");
+        AssertKept("--client", "cursor", "--load", "x");
         var (code, output) = Run("install", "--no-check");
         Assert.Equal(0, code);
         Assert.Contains("already registered", output);
@@ -289,9 +289,9 @@ public sealed class SetupTests : IDisposable
         // A launcher switch, as after an update or a run from source: our own arguments follow the launcher.
         Assert.Equal(0, SetupCli.TryRun(["install", "--no-check"], new StringWriter(), _env, DotnetLaunch));
         Assert.Equal("dotnet", Entry()["command"]!.GetValue<string>());
-        AssertKept(DotnetLaunch.Args[0], "--load", "x");
+        AssertKept(DotnetLaunch.Args[0], "--client", "cursor", "--load", "x");
         Assert.Equal(0, Run("install", "--no-check").Code);
-        AssertKept("--load", "x");
+        AssertKept("--client", "cursor", "--load", "x");
 
         // Our keys are added only where absent.
         var target = new JsonTarget(Home("cline.json"), ["mcpServers"], l => new JsonObject { ["command"] = l.Command, ["args"] = new JsonArray(), ["disabled"] = false });
@@ -313,7 +313,7 @@ public sealed class SetupTests : IDisposable
         Assert.Equal(0, Run("install", "--no-check", "opencode").Code);
         Assert.Equal(0, Run("install", "--no-check", "opencode").Code);
         var entry = ReadJson(Home(".config", "opencode", "opencode.json"))["mcp"]!["corvus"]!;
-        Assert.Equal([Launch.Command, "--load", "x"], entry["command"]!.AsArray().Select(a => a!.GetValue<string>()));
+        Assert.Equal([Launch.Command, "--client", "opencode", "--load", "x"], entry["command"]!.AsArray().Select(a => a!.GetValue<string>()));
         Assert.False(entry["enabled"]!.GetValue<bool>());
         Assert.Equal("1", entry["environment"]!["A"]!.GetValue<string>());
     }
@@ -339,7 +339,8 @@ public sealed class SetupTests : IDisposable
             """.Replace("\r\n", "\n");
         File.WriteAllText(Home(".codex", "config.toml"), before);
         Assert.Equal(0, Run("install", "--no-check", "codex").Code);
-        var expected = before.Replace(@"command = 'C:\old\corvus.exe'", "command = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command));
+        var expected = before.Replace(@"command = 'C:\old\corvus.exe'", "command = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command))
+            .Replace("args = [\"--load\", \"x\"]  # my build", "args = [\"--client\", \"codex\", \"--load\", \"x\"]");
         Assert.Equal(expected, File.ReadAllText(Home(".codex", "config.toml")));
         var (_, output) = Run("install", "--no-check", "codex");
         Assert.Contains("already registered", output);
@@ -347,15 +348,15 @@ public sealed class SetupTests : IDisposable
 
         Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "codex"], new StringWriter(), _env, DotnetLaunch));
         var toml = File.ReadAllText(Home(".codex", "config.toml"));
-        Assert.Contains("command = \"dotnet\"\nargs = [" + System.Text.Json.JsonSerializer.Serialize(DotnetLaunch.Args[0]) + ", \"--load\", \"x\"]\nstartup_timeout_sec = 30", toml);
+        Assert.Contains("command = \"dotnet\"\nargs = [" + System.Text.Json.JsonSerializer.Serialize(DotnetLaunch.Args[0]) + ", \"--client\", \"codex\", \"--load\", \"x\"]\nstartup_timeout_sec = 30", toml);
         Assert.Contains("[mcp_servers.corvus.env]\nCORVUS_IDA_DIR = \"C:/ida\"", toml);
         Assert.Equal(0, Run("install", "--no-check", "codex").Code);
-        Assert.Contains("args = [\"--load\", \"x\"]\nstartup_timeout_sec = 30", File.ReadAllText(Home(".codex", "config.toml")));
+        Assert.Contains("args = [\"--client\", \"codex\", \"--load\", \"x\"]\nstartup_timeout_sec = 30", File.ReadAllText(Home(".codex", "config.toml")));
 
         // A table without command or args gets both.
         File.WriteAllText(Home(".codex", "config.toml"), "[mcp_servers.corvus]\nstartup_timeout_sec = 30\n");
         Assert.Equal(0, Run("install", "--no-check", "codex").Code);
-        Assert.Equal("[mcp_servers.corvus]\ncommand = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command) + "\nargs = []\nstartup_timeout_sec = 30\n",
+        Assert.Equal("[mcp_servers.corvus]\ncommand = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command) + "\nargs = [\"--client\", \"codex\"]\nstartup_timeout_sec = 30\n",
             File.ReadAllText(Home(".codex", "config.toml")));
     }
 

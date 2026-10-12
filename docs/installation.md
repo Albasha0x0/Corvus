@@ -105,11 +105,14 @@ MCP Registry entry (`.mcp/server.json`).
 `corvus install [client...]` registers the program it is run from (an installed copy registers its stable
 `current` path, so updates need no client changes):
 
-- Existing `corvus` entries keep your arguments (for example `--load`), env and other keys; only the command is
-  re-pointed. Only the entry's text changes, so comments and formatting elsewhere in the file are kept. Each changed
+- Existing `corvus` entries keep your arguments (for example `--load`), env and other keys; only the command and the
+  client options below are set. Only the entry's text changes, so comments and formatting elsewhere in the file are kept. Each changed
   file is backed up once as `<file>.corvus.bak`; a file that cannot be parsed is left untouched and reported.
 - Clients without an entry are added after confirmation, or with `--yes` / `--all-detected`.
 - An entry the client has turned off (`disabled`, `enabled: false`, a disable list) is reported and kept off.
+- Every entry gets `--client <id>` ([Client profiles](#client-profiles)); clients that cap the number of tools also get
+  `--toolsets lean` unless the entry sets its own `--toolsets`. A Codex entry whose `tool_timeout_sec` differs from
+  Codex's 60 s default gets `--client-timeout <seconds>`; install never changes the client's own settings.
 
 | Option | Effect |
 |---|---|

@@ -26,7 +26,7 @@ internal static class SetupPlan
                 row.Message = "not detected";
                 continue;
             }
-            var preview = client.Target.Preview(ClientCatalog.ServerName, launch);
+            var preview = client.Target.Preview(ClientCatalog.ServerName, ClientCatalog.LaunchFor(client, launch));
             row.Action = preview.Action;
             row.Before = preview.Before;
             row.After = preview.After;

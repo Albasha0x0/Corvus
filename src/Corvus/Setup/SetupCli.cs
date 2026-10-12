@@ -207,7 +207,7 @@ internal static class SetupCli
             else
             {
                 ConfigChange result;
-                try { result = target.Rename(ClientCatalog.LegacyServerName, ClientCatalog.ServerName, entryLaunch); }
+                try { result = target.Rename(ClientCatalog.LegacyServerName, ClientCatalog.ServerName, ClientCatalog.LaunchFor(client, entryLaunch)); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { result = new ConfigChange(false, $"left unchanged: {ex.Message}"); }
                 row.Message += result.Message;
                 if (!result.Changed) row.Action = SetupAction.Blocked;
@@ -307,7 +307,7 @@ internal static class SetupCli
             if (row.Action is SetupAction.Add or SetupAction.Refresh)
             {
                 ConfigChange result;
-                try { result = row.Client!.Target.Install(ClientCatalog.ServerName, launch); }
+                try { result = row.Client!.Target.Install(ClientCatalog.ServerName, ClientCatalog.LaunchFor(row.Client, launch)); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { result = new ConfigChange(false, $"left unchanged: {ex.Message}"); }
                 if (result.Changed) changed++;
                 else if (result.Message != "already registered") { failed++; row.Action = SetupAction.Blocked; }
@@ -580,7 +580,7 @@ internal static class SetupCli
                 var root = new JsonObject();
                 var node = root;
                 foreach (var key in json.Container) { var next = new JsonObject(); node[key] = next; node = next; }
-                node[ClientCatalog.ServerName] = json.Entry(launch);
+                node[ClientCatalog.ServerName] = json.Entry(ClientCatalog.LaunchFor(client, launch));
                 output.WriteLine(root.ToJsonString(options));
             }
             else

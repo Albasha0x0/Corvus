@@ -128,6 +128,7 @@ jobs:
           $exe = "$env:LOCALAPPDATA\Corvus\current\corvus.exe"
           $entry = (Get-Content "$HOME\.cursor\mcp.json" -Raw | ConvertFrom-Json).mcpServers.'corvus'
           if ($entry.command -ne $exe) { throw "Cursor entry: $($entry.command)" }
+          if (($entry.args -join ' ') -notmatch '(^| )--client cursor( |$)') { throw "Cursor entry args: $($entry.args -join ' ')" }
           & $exe status
           if ($LASTEXITCODE -ne 0) { throw 'status failed' }
           Get-Content install.ps1 -Raw | Invoke-Expression
@@ -162,6 +163,7 @@ jobs:
           test ! -e ~/.cursor/mcp.json
           CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --yes --client cursor < install.sh
           grep -q "$HOME/.local/share/Corvus/current/corvus" ~/.cursor/mcp.json
+          tr -d ' \n\r' < ~/.cursor/mcp.json | grep -q '"--client","cursor"'
           ~/.local/bin/corvus status
           CORVUS_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
           # The data root is .NET's local application data folder.

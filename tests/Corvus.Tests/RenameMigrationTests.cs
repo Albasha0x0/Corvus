@@ -106,24 +106,24 @@ public sealed class RenameMigrationTests : IDisposable
         Assert.Equal("y", cursor["other"]!["command"]!.GetValue<string>());
         var entry = cursor["corvus"]!;
         Assert.Equal(SetupHome.Launch.Command, entry["command"]!.GetValue<string>());
-        Assert.Equal(["--load", "x"], entry["args"]!.AsArray().Select(a => a!.GetValue<string>()));
+        Assert.Equal(["--client", "cursor", "--load", "x"], entry["args"]!.AsArray().Select(a => a!.GetValue<string>()));
         Assert.Equal(30, entry["timeout"]!.GetValue<int>());
         Assert.Equal(["CORVUS_IDA_DIR", "CORVUS_LOAD", "KEEP"], entry["env"]!.AsObject().Select(p => p.Key));
         Assert.Equal("C:/ida", entry["env"]!["CORVUS_IDA_DIR"]!.GetValue<string>());
 
         // The dotnet launch's old main assembly is not carried over.
         var kiro = ReadJson(_home.Path(".kiro", "settings", "mcp.json"))["mcpServers"]!["corvus"]!;
-        Assert.Equal(["--load", "z"], kiro["args"]!.AsArray().Select(a => a!.GetValue<string>()));
+        Assert.Equal(["--client", "kiro", "--load", "z"], kiro["args"]!.AsArray().Select(a => a!.GetValue<string>()));
 
         var opencode = ReadJson(_home.Path(".config", "opencode", "opencode.json"))["mcp"]!;
         Assert.Null(opencode["net-decompiler"]);
-        Assert.Equal([SetupHome.Launch.Command, "--load", "x"], opencode["corvus"]!["command"]!.AsArray().Select(a => a!.GetValue<string>()));
+        Assert.Equal([SetupHome.Launch.Command, "--client", "opencode", "--load", "x"], opencode["corvus"]!["command"]!.AsArray().Select(a => a!.GetValue<string>()));
         Assert.Equal("ida", opencode["corvus"]!["environment"]!["CORVUS_ENGINE"]!.GetValue<string>());
 
         var toml = File.ReadAllText(_home.Path(".codex", "config.toml"));
         Assert.DoesNotContain("net-decompiler", toml);
         Assert.DoesNotContain("NDM_", toml);
-        Assert.Contains($"[mcp_servers.corvus]\ncommand = {JsonSerializer.Serialize(SetupHome.Launch.Command)}\nargs = [\"--load\", \"x\"]\nstartup_timeout_sec = 30\n", toml);
+        Assert.Contains($"[mcp_servers.corvus]\ncommand = {JsonSerializer.Serialize(SetupHome.Launch.Command)}\nargs = [\"--client\", \"codex\", \"--load\", \"x\"]\nstartup_timeout_sec = 30\n", toml);
         Assert.Contains("[mcp_servers.corvus.env]\nCORVUS_IDA_DIR = \"C:/ida\"\n\"CORVUS_ENGINE\" = \"ida\"\n", toml);
         Assert.StartsWith("model = \"o4\"\n", toml);
 
@@ -144,7 +144,7 @@ public sealed class RenameMigrationTests : IDisposable
         var servers = ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!.AsObject();
         Assert.Equal(["corvus"], servers.Select(p => p.Key));
         Assert.Equal(SetupHome.Launch.Command, servers["corvus"]!["command"]!.GetValue<string>());
-        Assert.Equal(["--load", "mine"], servers["corvus"]!["args"]!.AsArray().Select(a => a!.GetValue<string>()));
+        Assert.Equal(["--client", "cursor", "--load", "mine"], servers["corvus"]!["args"]!.AsArray().Select(a => a!.GetValue<string>()));
         var toml = File.ReadAllText(_home.Path(".codex", "config.toml"));
         Assert.DoesNotContain("net-decompiler", toml);
         Assert.Contains(JsonSerializer.Serialize(SetupHome.Launch.Command), toml);
@@ -167,7 +167,7 @@ public sealed class RenameMigrationTests : IDisposable
         var staged = entry["command"]!.GetValue<string>();
         Assert.StartsWith(_home.Path("AppData", "Local", "Corvus", "relay", "host"), staged);
         Assert.Equal("apphost", File.ReadAllText(staged));
-        Assert.Equal(["relay", "--target", publish, "--load", "y"], entry["args"]!.AsArray().Select(a => a!.GetValue<string>()));
+        Assert.Equal(["relay", "--target", publish, "--client", "cursor", "--load", "y"], entry["args"]!.AsArray().Select(a => a!.GetValue<string>()));
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public sealed class RenameMigrationTests : IDisposable
         Assert.DoesNotContain("relay not kept", output.ToString());
         var entry = ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!;
         Assert.StartsWith(_home.Path("AppData", "Local", "Corvus", "relay", "host"), entry["command"]!.GetValue<string>());
-        Assert.Equal(["relay", "--target", other], entry["args"]!.AsArray().Select(a => a!.GetValue<string>()));
+        Assert.Equal(["relay", "--target", other, "--client", "cursor"], entry["args"]!.AsArray().Select(a => a!.GetValue<string>()));
     }
 
     [Fact]
@@ -224,7 +224,7 @@ public sealed class RenameMigrationTests : IDisposable
         Assert.Null(a["mcpServers"]!["net-decompiler"]);
         var entry = a["mcpServers"]!["corvus"]!;
         Assert.StartsWith(_home.Path("AppData", "Local", "Corvus", "relay", "host"), entry["command"]!.GetValue<string>());
-        Assert.Equal(["relay", "--target", publish, "--load", "a.dll"], entry["args"]!.AsArray().Select(x => x!.GetValue<string>()));
+        Assert.Equal(["relay", "--target", publish, "--client", "claude-code", "--load", "a.dll"], entry["args"]!.AsArray().Select(x => x!.GetValue<string>()));
         Assert.Equal("g", entry["env"]!["CORVUS_GHIDRA_DIR"]!.GetValue<string>());
         Assert.NotNull(a["allowedTools"]);
         Assert.Equal(["other"], root["projects"]!["D:/work/b"]!["mcpServers"]!.AsObject().Select(p => p.Key));

@@ -13,9 +13,11 @@ internal sealed record ConfigChange(bool Changed, string Message);
 
 /// <summary>
 /// A registered server entry as the client reads it; <see cref="Disabled"/> when the client will not start it,
-/// <see cref="StartupTimeout"/> the seconds it waits for the server when the entry says (Codex, Grok Build).
+/// <see cref="StartupTimeout"/> the seconds it waits for the server and <see cref="ToolTimeout"/> for one call, when the
+/// entry says (Codex, Grok Build).
 /// </summary>
-internal sealed record RegisteredEntry(string Command, IReadOnlyList<string> Args, IReadOnlyDictionary<string, string> Env, bool Disabled, double? StartupTimeout = null);
+internal sealed record RegisteredEntry(string Command, IReadOnlyList<string> Args, IReadOnlyDictionary<string, string> Env, bool Disabled,
+    double? StartupTimeout = null, double? ToolTimeout = null);
 
 /// <summary>Plan actions; the strings appear in --json output.</summary>
 internal static class SetupAction
@@ -66,11 +68,26 @@ internal abstract class ConfigTarget(string path)
     /// The user's arguments, with ours in front unless already there. Another launch's program argument (the
     /// corvus.dll of a dotnet launch) is dropped so switching launchers does not carry it over, and so is a
     /// development relay prefix (relay --target dir), so a registration switches between the relay and the server.
+    /// The user's --client and --client-timeout give way to ours; ours --toolsets gives way to the user's.
     /// </summary>
     public static List<string> MergeArgs(IEnumerable<string> user, IReadOnlyList<string> ours)
     {
         var kept = Corvus.Relay.RelayCli.WithoutRelayPrefix(user).Where(a => ours.Contains(a) || !Corvus.Relay.RelayBuilds.IsProgramDll(a)).ToList();
+        kept = WithoutOption(WithoutOption(kept, Core.ClientProfiles.ClientOption), Core.ClientProfiles.ClientTimeoutOption);
+        if (kept.Contains(Core.Toolsets.Option, StringComparer.OrdinalIgnoreCase)) ours = WithoutOption([.. ours], Core.Toolsets.Option);
         return kept.Take(ours.Count).SequenceEqual(ours) ? kept : [.. ours, .. kept];
+    }
+
+    /// <summary><paramref name="args"/> without each <paramref name="option"/> and the value after it.</summary>
+    private static List<string> WithoutOption(List<string> args, string option)
+    {
+        var result = new List<string>(args.Count);
+        for (int i = 0; i < args.Count; i++)
+        {
+            if (args[i].Equals(option, StringComparison.OrdinalIgnoreCase)) { i++; continue; }
+            result.Add(args[i]);
+        }
+        return result;
     }
 
     /// <summary>Keeps the first pre-install copy of a file next to it.</summary>
@@ -433,7 +450,7 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         List<string> args = [];
         var env = new Dictionary<string, string>(StringComparer.Ordinal);
         bool disabled = false;
-        double? timeout = null;
+        double? timeout = null, toolTimeout = null;
         foreach (var (start, end) in blocks)
         {
             var sub = ServerHeader().Match(lines[start]).Groups["sub"];
@@ -451,6 +468,8 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
                 else if (EnabledFalse().IsMatch(lines[i])) disabled = true;
                 else if (StartupTimeoutLine().Match(lines[i]) is { Success: true } t
                          && double.TryParse(t.Groups["v"].Value, System.Globalization.CultureInfo.InvariantCulture, out var seconds)) timeout = seconds;
+                else if (ToolTimeoutLine().Match(lines[i]) is { Success: true } tt
+                         && double.TryParse(tt.Groups["v"].Value, System.Globalization.CultureInfo.InvariantCulture, out var callSeconds)) toolTimeout = callSeconds;
                 else if (InlineEnv().Match(lines[i]) is { Success: true } inline)
                     foreach (var item in inline.Groups["items"].Value.Split(','))
                         if (KeyValue().Match(item) is { Success: true } kv) env[kv.Groups["k"].Value.Trim('"')] = Unescape(kv.Groups["v"].Value);
@@ -461,8 +480,11 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
             if (DisabledList().Match(lines[i]) is { Success: true } list
                 && TomlString().Matches(list.Groups["items"].Value).Any(s => (s.Value[0] == '\'' ? s.Groups["v"].Value : Unescape(s.Groups["v"].Value)) == name))
                 disabled = true;
-        return new RegisteredEntry(command, args, env, disabled, timeout);
+        return new RegisteredEntry(command, args, env, disabled, timeout, toolTimeout);
     }
+
+    [GeneratedRegex(@"^\s*tool_timeout_sec\s*=\s*(?<v>[0-9.]+)")]
+    private static partial Regex ToolTimeoutLine();
 
     [GeneratedRegex(@"^\s*disabled_mcp_servers\s*=\s*\[(?<items>[^\]]*)\]")]
     private static partial Regex DisabledList();
