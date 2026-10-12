@@ -422,31 +422,31 @@ public abstract class McpProtocolTests : IAsyncLifetime
         {
             var tools = await _client.ListToolsAsync();
             var cases = ToolCases(_dir);
-            foreach (var tool in tools)
+            // About a thousand rejected calls: several in flight at a time, as their round trips dominate.
+            await Parallel.ForEachAsync(tools, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (tool, ct) =>
             {
                 var declared = tool.ProtocolTool.InputSchema.TryGetProperty("properties", out var p)
                     ? p.EnumerateObject().Select(e => e.Name).ToList() : [];
                 // Unrelated name: rejected before the tool runs, with the declared parameters as the next step.
                 var args = new Dictionary<string, object?>(cases[tool.Name].Args) { ["zzNotAParameter"] = 1 };
-                var result = await _client.CallToolAsync(tool.Name, args);
+                var result = await _client.CallToolAsync(tool.Name, args, cancellationToken: ct);
                 var json = ErrorJson(result);
                 Assert.True(json.GetProperty("code").GetString() == "invalid_argument", $"{tool.Name}: {Text(result)}");
                 Assert.StartsWith("unknown parameter 'zzNotAParameter'", json.GetProperty("message").GetString());
                 Assert.Equal("zzNotAParameter", json.GetProperty("details").GetProperty("parameter").GetString());
                 Assert.Equal(declared, json.GetProperty("details").GetProperty("parameters").EnumerateArray().Select(e => e.GetString()!));
-                if (declared.Count == 0) continue;
 
                 // Near miss of each declared name (typo, case, separators): the intended name is suggested.
                 foreach (var name in declared)
                 {
                     var typo = name.Length > 3 ? name[..^2] + name[^1] : name.ToUpperInvariant() + "_";
                     if (declared.Contains(typo)) continue;
-                    var miss = await _client.CallToolAsync(tool.Name, new Dictionary<string, object?> { [typo] = 1 });
+                    var miss = await _client.CallToolAsync(tool.Name, new Dictionary<string, object?> { [typo] = 1 }, cancellationToken: ct);
                     var details = ErrorJson(miss).GetProperty("details");
                     Assert.True(details.GetProperty("suggestions").EnumerateArray().Any(e => e.GetString() == name),
                         $"{tool.Name}: '{typo}' does not suggest '{name}': {Text(miss)}");
                 }
-            }
+            });
             var snake = Text(await _client.CallToolAsync("decompile_member", new Dictionary<string, object?> { ["max_chars"] = 10 }));
             Assert.Contains("unknown parameter 'max_chars'. Did you mean 'maxChars'?", snake);
         }
