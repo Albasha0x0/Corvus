@@ -25,7 +25,8 @@ internal sealed class SetupHome : IDisposable
         AppData = Path("AppData", "Roaming"),
         LocalAppData = Path("AppData", "Local"),
         XdgConfig = variables?.GetValueOrDefault("XDG_CONFIG_HOME") ?? Path(".config"),
-        Variable = name => variables?.GetValueOrDefault(name),
+        // ProgramFiles too: Visual Studio is detected there, and a runner with it installed would add a client.
+        Variable = name => variables?.GetValueOrDefault(name) ?? (name == "ProgramFiles" ? Path("Program Files") : null),
         FindTool = findTool ?? (_ => null),
         Interactive = interactive,
         Confirm = confirm ?? (_ => throw new InvalidOperationException("asked without a terminal")),
