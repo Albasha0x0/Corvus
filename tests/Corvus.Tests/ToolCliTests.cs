@@ -93,6 +93,10 @@ public class ToolCliTests
         Assert.True(options.MaxOutputChars > 1_000_000); // whole results, not pages
         Assert.Equal(60_000, CliArgs.Parse(["--max-output", "60000"]).Server().MaxOutputChars);
         Assert.Throws<UsageException>(() => CliArgs.Parse(["--bogus"]).Server());
+        // One call builds indexes only on demand; a batch session keeps the background pass.
+        Assert.False(CliArgs.Parse(["get_pe_info"]).Server(oneShot: true).BackgroundIndexing);
+        Assert.True(CliArgs.Parse(["batch", "steps.json"]).Server().BackgroundIndexing);
+        Assert.Equal("cursor", CliArgs.Parse(["--client", "cursor"]).Server().Client);
         foreach (var option in Core.ServerOptions.ValueOptions)
             Assert.Contains("Missing value", Assert.Throws<ArgumentException>(() => Core.ServerOptions.Parse([option])).Message);
     }

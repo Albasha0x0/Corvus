@@ -123,7 +123,7 @@ internal static partial class ToolCli
         var prompt = FindPrompt(a.Positionals[0]) ?? throw new UsageException(
             $"Unknown prompt '{a.Positionals[0]}'." + Suggestion(a.Positionals[0], CatalogPrompts.Select(NameOf)) + $" Prompts: {Program} prompts.");
         var arguments = a.ToolArguments(null, io.In).ToDictionary(p => p.Key, p => (object?)(p.Value is JsonElement e && e.ValueKind == JsonValueKind.String ? e.GetString() : p.Value?.ToString()));
-        await using var session = await ToolSession.StartAsync(a.Server(), cancellationToken);
+        await using var session = await ToolSession.StartAsync(a.Server(oneShot: true), cancellationToken);
         GetPromptResult result;
         try { result = await session.Client.GetPromptAsync(NameOf(prompt), arguments, cancellationToken: cancellationToken); }
         catch (McpProtocolException ex)
@@ -148,7 +148,7 @@ internal static partial class ToolCli
     private static async Task<int> ResourcesAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
         if (a.Positionals.Count > 0) throw new UsageException("resources takes no names; read <uri> reads one.");
-        await using var session = await ToolSession.StartAsync(a.Server(), cancellationToken);
+        await using var session = await ToolSession.StartAsync(a.Server(oneShot: true), cancellationToken);
         var resources = await session.Client.ListResourcesAsync(cancellationToken: cancellationToken);
         var templates = await session.Client.ListResourceTemplatesAsync(cancellationToken: cancellationToken);
         if (a.Json)
@@ -172,7 +172,7 @@ internal static partial class ToolCli
     private static async Task<int> ReadAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
         if (a.Positionals.Count != 1) throw new UsageException("read takes one resource URI.");
-        await using var session = await ToolSession.StartAsync(a.Server(), cancellationToken);
+        await using var session = await ToolSession.StartAsync(a.Server(oneShot: true), cancellationToken);
         ReadResourceResult result;
         try { result = await session.Client.ReadResourceAsync(a.Positionals[0], cancellationToken: cancellationToken); }
         catch (McpProtocolException ex)

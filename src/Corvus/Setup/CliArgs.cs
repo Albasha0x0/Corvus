@@ -55,14 +55,16 @@ internal sealed partial class CliArgs
 
     /// <summary>
     /// Server options for a CLI session: no file watching, whole results instead of pages (unless --max-output), and
-    /// warnings only on stderr (unless --log-level or CORVUS_LOG_LEVEL).
+    /// warnings only on stderr (unless --log-level or CORVUS_LOG_LEVEL). A <paramref name="oneShot"/> session (one call)
+    /// builds indexes only when its tool asks for them: a background pass would compete with the call and then be discarded.
     /// </summary>
-    public ServerOptions Server()
+    public ServerOptions Server(bool oneShot = false)
     {
         Core.ServerOptions options;
         try { options = Core.ServerOptions.Parse([.. ServerArgs]); }
         catch (Exception ex) when (ex is ArgumentException or FormatException or OverflowException) { throw new UsageException(ex.Message); }
         options.WatchFiles = false;
+        if (oneShot) options.BackgroundIndexing = false;
         if (!Has("--max-output")) options.MaxOutputChars = int.MaxValue / 4;
         if (!Has("--log-level") && Environment.GetEnvironmentVariable(Core.ServerOptions.LogLevelVariable) is not { Length: > 0 })
             options.LogLevel = Microsoft.Extensions.Logging.LogLevel.Warning;

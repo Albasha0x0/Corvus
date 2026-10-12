@@ -139,7 +139,7 @@ internal static partial class ToolCli
         var name = NameOf(tool);
         if (a.Structured && tool["outputSchema"] is null) throw new UsageException($"{name} has no structured output; use --json.");
         var arguments = a.ToolArguments(tool["inputSchema"], io.In);
-        var options = a.Server();
+        var options = a.Server(oneShot: true);
         await using var session = await ToolSession.StartAsync(options, cancellationToken);
         var result = await Invoke(session, name, arguments, io, cancellationToken);
         return result is null ? Exit.Usage : Print(name, result, a, io);
