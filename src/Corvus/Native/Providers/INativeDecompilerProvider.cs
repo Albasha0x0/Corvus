@@ -299,6 +299,11 @@ public sealed record NativeOpenOptions
     public IProgress<NativeProviderProgress>? Progress { get; init; }
     /// <summary>Whether the engine runs its auto-analysis on the first open (IDA); without it the database is kept under its own profile.</summary>
     public EngineAnalysis Analysis { get; init; } = EngineAnalysis.Full;
+    /// <summary>
+    /// 32-bit ARM: the server's Thumb code ranges (RVAs, exclusive ends). Without auto-analysis Ghidra decodes code made on
+    /// request in ARM state unless told; null when unknown.
+    /// </summary>
+    public Func<CancellationToken, Task<IReadOnlyList<(uint Start, uint End)>>>? ThumbCode { get; init; }
 }
 
 /// <summary>Full: the engine's auto-analysis. None: load only, functions made where they are asked for (huge or hostile inputs).</summary>

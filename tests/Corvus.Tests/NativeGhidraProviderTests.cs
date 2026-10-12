@@ -98,6 +98,29 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
     }
 
     [GhidraFact]
+    public async Task Without_auto_analysis_the_server_s_thumb_code_is_made_in_thumb_state()
+    {
+        var text = new byte[0x20];
+        new byte[] { 0x70, 0x47 }.CopyTo(text, 0); // bx lr
+        new byte[] { 0x10, 0xB5, 0x01, 0x20, 0x10, 0xBD }.CopyTo(text, 0x10); // push {r4, lr}; movs r0, #1; pop {r4, pc}: no symbol
+        var dir = new TempDir();
+        _owned.Add(dir);
+        var path = dir.File("thumb.so");
+        File.WriteAllBytes(path, new NativeFormats.ElfWriter { Is64 = false, Machine = NativeFormats.ElfWriter.EmArm, UseRel = true, Text = text }.Build());
+        var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = dir.File("cache") });
+        _owned.Add(provider);
+        const uint rva = NativeFormats.ElfWriter.TextRva + 0x10;
+        await using var s = (GhidraSession)await provider.OpenAsync(path, null, Offline with
+        {
+            Analysis = EngineAnalysis.None, ThumbCode = _ => Task.FromResult<IReadOnlyList<(uint Start, uint End)>>([(rva, rva + 6)]),
+        });
+        var listing = await s.DisassembleAsync(rva);
+        output.WriteLine(string.Join("\n", listing.Instructions.Select(i => $"{i.Rva:X} {i.Text}")));
+        Assert.Equal([rva, rva + 2, rva + 4], listing.Instructions.Select(i => i.Rva));
+        Assert.StartsWith("push", listing.Instructions[0].Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [GhidraFact]
     public async Task Open_list_decompile_disassemble_blocks_xrefs()
     {
         var path = shared.Sample;

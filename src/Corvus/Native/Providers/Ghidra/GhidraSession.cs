@@ -245,6 +245,13 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             warnings.Add($"the extension {x.Name} ({x.Source}) was not loaded by Ghidra {ghidra.Version}");
         Warnings = warnings;
         if (Arch == NativeArch.Unknown) Arch = ArchOf(Language);
+        if (Options.Analysis == EngineAnalysis.None && Arch == NativeArch.Arm && Options.ThumbCode is { } thumb)
+        {
+            var ranges = await thumb(cancellationToken).ConfigureAwait(false);
+            if (ranges.Count > 0)
+                await worker.RequestAsync("set_thumb", WorkerRows.Args(("ranges", new JsonArray(ranges.Select(r => (JsonNode)new JsonArray(r.Start, r.End)).ToArray()))),
+                    Options.RequestTimeout, cancellationToken).ConfigureAwait(false);
+        }
         Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
     }
 

@@ -8,7 +8,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.math.BigInteger;
+
 import ghidra.program.model.address.Address;
+import ghidra.program.model.lang.Register;
+import ghidra.program.model.listing.ContextChangeException;
+import ghidra.program.model.listing.ProgramContext;
 import ghidra.program.model.listing.Bookmark;
 import ghidra.program.model.listing.BookmarkManager;
 import ghidra.program.model.listing.BookmarkType;
@@ -129,6 +134,34 @@ final class ControlOps {
         o.addProperty("removed", old.size());
         o.addProperty("failed", failures.size());
         o.add("failures", failures);
+        return o;
+    }
+
+    /**
+     * ranges: [[start, end (exclusive)]] of 32-bit ARM code in Thumb state. Sets the TMode context register there, so code
+     * disassembled later (functions made on request without auto-analysis) decodes as Thumb; ranges already holding
+     * instructions keep their state. {set, skipped}; set 0 when the language has no TMode register.
+     */
+    static JsonObject setThumb(Worker w, Worker.Request r) {
+        ProgramContext context = w.program.getProgramContext();
+        Register tmode = context.getRegister("TMode");
+        int set = 0, skipped = 0;
+        if (tmode != null)
+            for (JsonElement e : Worker.array(r.args, "ranges")) {
+                JsonArray x = e.getAsJsonArray();
+                long start = x.get(0).getAsLong(), end = x.get(1).getAsLong();
+                if (end <= start) continue;
+                try {
+                    context.setValue(tmode, w.space().getAddress(w.base + start), w.space().getAddress(w.base + end - 1), BigInteger.ONE);
+                    set++;
+                }
+                catch (ContextChangeException ex) {
+                    skipped++;
+                }
+            }
+        JsonObject o = new JsonObject();
+        o.addProperty("set", set);
+        o.addProperty("skipped", skipped);
         return o;
     }
 }

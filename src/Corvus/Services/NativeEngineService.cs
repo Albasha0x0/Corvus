@@ -183,8 +183,24 @@ public sealed class NativeEngineService : IDisposable
 
     private readonly EngineAnalysis _analysis;
 
-    private NativeOpenOptions OpenOptions(IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
-        new() { Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, Analysis = _analysis };
+    private NativeOpenOptions OpenOptions(LoadedNative native, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
+        new()
+        {
+            Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, Analysis = _analysis,
+            ThumbCode = native.Image.Arch == Native.NativeArch.Arm && _code != null ? ct => ThumbCode(native, ct) : null,
+        };
+
+    /// <summary>The Thumb functions' byte ranges in the server's index, merged.</summary>
+    private async Task<IReadOnlyList<(uint Start, uint End)>> ThumbCode(LoadedNative native, CancellationToken ct)
+    {
+        var index = await _code!.Index(native, null, ct).ConfigureAwait(false);
+        if (index.ArmModes is not { } modes) return [];
+        var ranges = new List<(uint Start, uint End)>();
+        foreach (var r in index.Functions.Where(f => modes.At(f.Start)).SelectMany(index.Ranges).OrderBy(r => r.Start))
+            if (ranges.Count > 0 && ranges[^1].End >= r.Start) ranges[^1] = (ranges[^1].Start, Math.Max(ranges[^1].End, r.End));
+            else ranges.Add(r);
+        return ranges;
+    }
 
     /// <summary>
     /// The image's session of engine <paramref name="provider"/> (null: the first engine in order of preference that has
@@ -446,8 +462,8 @@ public sealed class NativeEngineService : IDisposable
             // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
             // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
             holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
-                ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), OpenOptions(progress, holder.OpenedPdb))
-                : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(progress, holder.OpenedPdb), native.Released);
+                ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), OpenOptions(native, progress, holder.OpenedPdb))
+                : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(native, progress, holder.OpenedPdb), native.Released);
             // Once open, the library functions IDA recognized become the image's ida name layer, Ghidra's own names its ghidra layer.
             if (id is IdaProvider.ProviderId or GhidraProvider.ProviderId)
                 holder.LibraryNames = holder.Opening.ContinueWith(async opened =>
@@ -467,7 +483,7 @@ public sealed class NativeEngineService : IDisposable
 
     /// <summary>Opens a session on the patched bytes (written to a private file; the engine keeps its own copy per hash).</summary>
     private Task<INativeDecompilerSession> OpenPatched(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
-        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, OpenOptions(progress, pdbPath));
+        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, OpenOptions(native, progress, pdbPath));
 
     /// <summary>Opens a session on <paramref name="content"/> (the patched bytes when null), written to a private file named <paramref name="name"/>.</summary>
     private static Task<INativeDecompilerSession> OpenBytes(INativeDecompilerProvider provider, LoadedNative native, string name, byte[]? content,
