@@ -254,4 +254,21 @@ public class ToolCliTests
         var io = new CliIo(new StringWriter(), new StringWriter(), TextReader.Null);
         Assert.Equal(130, await ToolCli.RunAsync(["list_assemblies"], io, cancel.Token));
     }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CtrlCDuringACall_StopsTheToolAndExitsWith130()
+    {
+        using var dir = new TempDir();
+        var assembly = Path.Combine(AppContext.BaseDirectory, "corvus.dll");
+        var io = new CliIo(new StringWriter(), new StringWriter(), TextReader.Null);
+        using var cancel = new CancellationTokenSource();
+        var run = ToolCli.RunAsync(["export_project", "--load", assembly, "assembly=corvus.dll", "outputDirectory=" + Path.Combine(dir.Path, "out")], io, cancel.Token);
+        await Task.Delay(1500);
+        Assert.False(run.IsCompleted, "the export finished before the cancel; pick a larger input");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        await cancel.CancelAsync();
+        Assert.Equal(130, await run.WaitAsync(TimeSpan.FromMinutes(1)));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), $"stopped {clock.Elapsed} after the cancel");
+    }
 }
