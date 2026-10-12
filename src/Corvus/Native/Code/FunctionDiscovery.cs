@@ -571,10 +571,16 @@ internal sealed partial class FunctionDiscovery
             bool boundary = true;     // right after known code or padding
             bool afterCode = false;   // right after known code and int3 padding
             bool sawCode = false;
+            int beat = 0;
             while (p < bytes.Length)
             {
-                if ((p & 0xFFFF) == 0) Heartbeat();
-                if (_covered[region.BitBase + p]) { p++; boundary = true; sawCode = true; afterCode = false; continue; }
+                if (p >= beat) { Heartbeat(); beat = p + 0x10000; }
+                if (_covered[region.BitBase + p])
+                {
+                    p = (int)(_covered.NextClear(region.BitBase + p, region.BitBase + bytes.Length) - region.BitBase);
+                    boundary = true; sawCode = true; afterCode = false;
+                    continue;
+                }
                 if (!prologues)
                 {
                     if (bytes[p] == 0xCC) { afterCode |= sawCode; sawCode = false; p++; continue; }
@@ -616,10 +622,15 @@ internal sealed partial class FunctionDiscovery
         foreach (var region in _ctx.Code.Regions)
         {
             var bytes = region.Bytes;
-            for (int p = 0; p + 4 <= bytes.Length; p += 2)
+            for (int p = 0, beat = 0; p + 4 <= bytes.Length; p += 2)
             {
-                if ((p & 0xFFFF) == 0) Heartbeat();
-                if (_covered[region.BitBase + p]) continue;
+                if (p >= beat) { Heartbeat(); beat = p + 0x10000; }
+                if (_covered[region.BitBase + p])
+                {
+                    // on to the next even offset past the covered run
+                    p = (((int)(_covered.NextClear(region.BitBase + p, region.BitBase + bytes.Length) - region.BitBase) + 1) & ~1) - 2;
+                    continue;
+                }
                 bool? thumb = arm64 ? ((p & 3) == 0 && IsArm64Prologue(bytes, p) ? false : null) : Arm32Prologue(bytes, p, armState);
                 if (thumb is not { } t) continue;
                 uint rva = region.Rva + (uint)p;

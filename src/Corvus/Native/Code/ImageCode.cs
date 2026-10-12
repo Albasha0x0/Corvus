@@ -123,6 +123,17 @@ internal sealed class CodeBitmap
         }
     }
 
+    /// <summary>The first clear bit at or after <paramref name="start"/>, or <paramref name="end"/> when there is none before it.</summary>
+    public long NextClear(long start, long end)
+    {
+        for (long i = start; i < end; i = (i | 63) + 1)
+        {
+            ulong clear = ~_bits[i >> 6] >> (int)(i & 63);
+            if (clear != 0) return Math.Min(end, i + System.Numerics.BitOperations.TrailingZeroCount(clear));
+        }
+        return end;
+    }
+
     public void SetRange(long start, int count)
     {
         long end = start + count;

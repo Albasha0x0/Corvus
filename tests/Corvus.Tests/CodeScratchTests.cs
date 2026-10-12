@@ -32,4 +32,16 @@ public class CodeScratchTests
         for (long i = 0; i < 256; i++)
             Assert.Equal(i is >= 60 and < 130 or < 2 or >= 192, bits[i]);
     }
+
+    [Fact]
+    public void Bitmap_finds_the_next_clear_bit_across_words()
+    {
+        var bits = new CodeBitmap(256);
+        bits.SetRange(10, 150);
+        Assert.Equal(5, bits.NextClear(5, 256));
+        Assert.Equal(160, bits.NextClear(10, 256));
+        Assert.Equal(100, bits.NextClear(70, 100));
+        bits.SetRange(160, 96);
+        Assert.Equal(256, bits.NextClear(10, 256));
+    }
 }
