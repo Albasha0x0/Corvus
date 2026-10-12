@@ -296,7 +296,11 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }
 
-    /// <summary>Writes a buildable C# project (one file per type, .csproj, resources) to an empty directory.</summary>
+    /// <summary>
+    /// Writes a buildable C# project (one file per type, .csproj, resources) to an empty directory. Call it without the
+    /// workspace lock: the inputs are taken under the shared lock and the decompilation runs outside it (each reference
+    /// lookup takes it briefly), so writers are not held up for the whole export.
+    /// </summary>
     public ExportResult ExportProject(LoadedAssembly asm, string outputDirectory, Action<int, int, string>? onProgress, CancellationToken ct)
     {
         var dir = SafeFile.FullPath(outputDirectory);
@@ -310,16 +314,25 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         // Method-call LINQ: query syntax reconstruction can leak compiler names (<>h__TransparentIdentifier0).
         var exportSettings = CreateSettings();
         exportSettings.QueryExpressions = false;
-        var inferred = Frameworks.InferTargetFramework(asm.Module);
-        var framework = Frameworks.TargetFrameworkOf(asm.Module) ?? inferred;
-        bool netFramework = framework != null ? framework.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase) : Frameworks.TargetsNetFramework(asm.Module);
-        var exporter = new ProjectExporter(framework, exportSettings, workspace.CreateDecompilerResolver(asm), null,
+        var (pe, inferred, framework, netFramework) = workspace.Read(() =>
+        {
+            var inferred = Frameworks.InferTargetFramework(asm.Module);
+            var framework = Frameworks.TargetFrameworkOf(asm.Module) ?? inferred;
+            return (asm.GetPEFile(), inferred, framework,
+                framework != null ? framework.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase) : Frameworks.TargetsNetFramework(asm.Module));
+        }, ct);
+        var exporter = new ProjectExporter(framework, exportSettings, new SharedLockResolver(workspace, workspace.CreateDecompilerResolver(asm)), null,
             new FrameworkClassifier(netFramework, Frameworks.NetCoreMajor(framework), Frameworks.NetFrameworkReferenceDirs(framework)), null);
         if (onProgress != null)
             exporter.ProgressIndicator = new InlineProgress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
         try
         {
-            exporter.DecompileProject(asm.GetPEFile(), dir, cts.Token);
+            exporter.DecompileProject(pe, dir, cts.Token);
+        }
+        catch (ObjectDisposedException)
+        {
+            throw new ToolError(ErrorCode.Conflict, $"{asm.Id} was unloaded or reloaded by another call during the export; {dir} holds partial output.",
+                "list_assemblies shows what is loaded now; export again into an empty directory");
         }
         catch (NotSupportedException ex)
         {
@@ -336,17 +349,40 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             };
         }
         if (inferred != null) UseInferredFramework(dir, inferred);
-        FixFrameworkFileReferences(dir, framework, netFramework, asm.Module.GetAssemblyRefs().GroupBy(r => r.Name.String, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Max(r => r.Version), StringComparer.OrdinalIgnoreCase));
-        IncludeEmbeddedReferences(asm, dir);
-        AddTransitiveReferences(asm, dir, framework, netFramework);
+        workspace.Read(() =>
+        {
+            FixFrameworkFileReferences(dir, framework, netFramework, asm.Module.GetAssemblyRefs().GroupBy(r => r.Name.String, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Max(r => r.Version), StringComparer.OrdinalIgnoreCase));
+            IncludeEmbeddedReferences(asm, dir);
+            AddTransitiveReferences(asm, dir, framework, netFramework);
+            return 0;
+        }, ct);
         ThrowInFailedBodies(dir);
         UseUnionWindowsMetadata(dir);
-        KeepIdentity(asm, dir);
+        workspace.Read(() => { KeepIdentity(asm, dir); return 0; }, ct);
         UsePreserializedResources(dir);
         var files = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).ToList();
         var failed = exporter.Errors.Select(e => FirstLine(e.Message)).ToList();
         return new ExportResult(dir, files.Count, files.FirstOrDefault(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)), failed);
+    }
+
+    /// <summary>Each lookup under the workspace's shared lock: the export decompiles outside it.</summary>
+    private sealed class SharedLockResolver(AssemblyWorkspace workspace, ICSharpCode.Decompiler.Metadata.IAssemblyResolver inner)
+        : ICSharpCode.Decompiler.Metadata.IAssemblyResolver
+    {
+        public ICSharpCode.Decompiler.Metadata.MetadataFile? Resolve(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference) =>
+            workspace.Read(() => inner.Resolve(reference));
+
+        public ICSharpCode.Decompiler.Metadata.MetadataFile? ResolveModule(ICSharpCode.Decompiler.Metadata.MetadataFile mainModule, string moduleName) =>
+            workspace.Read(() => inner.ResolveModule(mainModule, moduleName));
+
+        public Task<ICSharpCode.Decompiler.Metadata.MetadataFile?> ResolveAsync(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference) =>
+            Task.FromResult(Resolve(reference));
+
+        public Task<ICSharpCode.Decompiler.Metadata.MetadataFile?> ResolveModuleAsync(ICSharpCode.Decompiler.Metadata.MetadataFile mainModule, string moduleName) =>
+            Task.FromResult(ResolveModule(mainModule, moduleName));
+
+        public IDisposable? BeginSnapshot() => inner.BeginSnapshot();
     }
 
     /// <summary>

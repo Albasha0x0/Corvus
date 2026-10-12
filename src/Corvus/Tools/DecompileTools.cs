@@ -172,9 +172,10 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     }
 
     private Task<string> ExportAssembly(string assembly, string outputDirectory, RequestContext<CallToolRequestParams> context, CancellationToken cancellationToken) =>
-        OrderedProgress.Run(context, progress => Read(workspace, () =>
+        OrderedProgress.Run(context, progress => Task.Run(() =>
     {
-        var asm = workspace.Get(assembly);
+        // Outside the lock: the export takes it for its inputs and reference lookups only.
+        var asm = workspace.Read(() => workspace.Get(assembly), cancellationToken);
         var result = decompiler.ExportProject(asm, outputDirectory, (done, total, status) => Report(progress, done, total, status), cancellationToken);
         var summary = $"Exported {asm.Id} to {result.Directory}: {result.FileCount} files.{(result.ProjectFile != null ? $" Project: {result.ProjectFile}" : "")}";
         if (result.FailedTypes.Count > 0)

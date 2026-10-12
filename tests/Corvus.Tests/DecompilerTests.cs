@@ -70,6 +70,24 @@ public class DecompilerTests : IDisposable
     }
 
     [Fact]
+    public async Task ExportRunningThroughTheTool_DoesNotHoldUpWriters()
+    {
+        using var env = new Env(typeof(AssemblyWorkspace).Assembly.Location); // large enough to be mid-export
+        using var dir = new TempDir();
+        using var cts = new CancellationTokenSource();
+        var export = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager).ExportProject(env.Fixture.Id, dir.Path, null!, cts.Token);
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (!Directory.EnumerateFiles(dir.Path, "*.cs", SearchOption.AllDirectories).Any() && !export.IsCompleted && waited.Elapsed < TimeSpan.FromSeconds(60))
+            await Task.Delay(20);
+        Assert.False(export.IsCompleted, "the export finished before a writer could be queued");
+        var write = System.Diagnostics.Stopwatch.StartNew();
+        await Task.Run(() => env.Workspace.Write(() => 0));
+        Assert.True(write.Elapsed < TimeSpan.FromSeconds(1), $"the write waited {write.Elapsed}");
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => export);
+    }
+
+    [Fact]
     public void AssemblyAttributes() =>
         Assert.Contains("TargetFramework", _env.Decompiler.DecompileAssemblyAttributes(_env.Fixture, default));
 
