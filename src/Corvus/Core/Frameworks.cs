@@ -462,8 +462,8 @@ internal static class Frameworks
         return dir != null && NetFramework.Value.Any(d => string.Equals(Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar), dir, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>True for 0.0.x and 255.x versions (WinMD "any version"), which carry no framework information.</summary>
-    public static bool IsWildcard(Version v) => v is { Major: 0, Minor: 0 } || v.Major == 255;
+    /// <summary>True for 0.0.x, 255.x (WinMD) and 65535.x versions ("any version"), which carry no framework information.</summary>
+    public static bool IsWildcard(Version v) => v is { Major: 0, Minor: 0 } || v.Major is 255 or 65535;
 
     /// <param name="Inferred">See <see cref="InferTargetFramework"/>.</param>
     private sealed record ImageFacts(string? AssemblyName, string? TargetFramework, HashSet<string> References, string? Inferred);

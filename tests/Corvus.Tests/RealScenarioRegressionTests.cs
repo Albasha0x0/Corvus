@@ -355,6 +355,26 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// A reference naming the core library as version 65535.65535.65535.65535 (any version) made every patch using its types
+    /// fail CS1705: it seemed to need a newer core library than the one compiled against (an obfuscated .NET Framework app).
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesCompileAgainstAReferenceNamingTheCoreLibraryWithAnyVersion()
+    {
+        using var dir = new TempDir();
+        var lib = ReferenceResolutionTests.Compile("Lib", "namespace L { public class Marker { public int V() { return 1; } } }");
+        using (var module = dnlib.DotNet.ModuleDefMD.Load(lib))
+        {
+            foreach (var r in module.GetAssemblyRefs()) r.Version = new Version(65535, 65535, 65535, 65535);
+            module.Write(dir.File("Lib.dll"));
+        }
+        File.WriteAllBytes(dir.File("App.dll"), ReferenceResolutionTests.Compile("App", "namespace App { public class C { public int Run(L.Marker m) { return 0; } } }", lib));
+        using var env = new Env(dir.File("App.dll"));
+        var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("App.C::Run"), "return m.V();", dryRun: true, default));
+        Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// A .NET Standard 2.0 library's System.Runtime.InteropServices bound to the runtime facade, which put System.Private.CoreLib
     /// beside netstandard: the engine looked ExceptionDispatchInfo up there, so await in catch showed as catch (object) (System.Text.Json).
     /// </summary>

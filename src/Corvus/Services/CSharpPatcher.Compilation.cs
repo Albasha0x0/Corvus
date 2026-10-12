@@ -38,9 +38,8 @@ public sealed partial class CSharpPatcher
         images[0] = (images[0].Name, friend, images[0].Path);
         var references = images.Select(i => Reference(i.Image)).ToList();
         if (clashing is { Count: > 0 }) HideClashingTypes(asm, images, references, clashing);
-        // A stand-in has no public key, so a reference naming one by its token does not bind to it (CS0012).
-        for (int i = 1; i < images.Count && closure.StandIns.Count > 0; i++)
-            if (WithoutTokens(images[i].Image, closure.StandIns) is { } image)
+        for (int i = 1; i < images.Count; i++)
+            if (ReferenceCopy(images[i].Image, closure.StandIns) is { } image)
                 references[i] = Reference(image);
         return SingleCoreLibrary(references, images);
     }
@@ -215,14 +214,18 @@ public sealed partial class CSharpPatcher
     /// <summary>One reference object per image: Roslyn reuses the symbols it read from it in later compilations.</summary>
     private static MetadataReference Reference(byte[] image) => References.GetValue(image, i => MetadataReference.CreateFromImage(i));
 
-    /// <summary>The image with the public key tokens of its references to <paramref name="names"/> removed; null when it has none.</summary>
-    private static byte[]? WithoutTokens(byte[] image, HashSet<string> names)
+    /// <summary>
+    /// The image with the public key tokens of its references to <paramref name="names"/> removed (a stand-in has no public
+    /// key, so a reference naming one by its token does not bind to it, CS0012) and any-version references reset (see
+    /// <see cref="IsAnyVersion"/>); null when it needs neither.
+    /// </summary>
+    private static byte[]? ReferenceCopy(byte[] image, HashSet<string> names)
     {
         var key = string.Join(",", names.Order(StringComparer.OrdinalIgnoreCase));
         lock (TokenFreeImages)
         {
             if (TokenFreeImages.TryGetValue(image, out var cached) && cached.Names == key) return cached.Image;
-            var result = RewriteWithoutTokens(image, names);
+            var result = RewriteReferences(image, names);
             TokenFreeImages.AddOrUpdate(image, new TokenFreeImage(key, result));
             return result;
         }
@@ -232,19 +235,18 @@ public sealed partial class CSharpPatcher
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], TokenFreeImage> TokenFreeImages = new();
 
-    private static byte[]? RewriteWithoutTokens(byte[] image, HashSet<string> names)
+    private static byte[]? RewriteReferences(byte[] image, HashSet<string> names)
     {
         try
         {
             using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(image, writable: false)))
             {
                 var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
-                if (!md.AssemblyReferences.Select(md.GetAssemblyReference).Any(r => !r.PublicKeyOrToken.IsNil && names.Contains(md.GetString(r.Name))))
+                if (!md.AssemblyReferences.Select(md.GetAssemblyReference).Any(r => (!r.PublicKeyOrToken.IsNil && names.Contains(md.GetString(r.Name))) || IsAnyVersion(r.Version)))
                     return null;
             }
             using var module = ModuleDefMD.Load(image);
-            foreach (var r in module.GetAssemblyRefs().Where(r => names.Contains(r.Name)))
-                r.PublicKeyOrToken = new PublicKeyToken(Array.Empty<byte>());
+            FixReferences(module, names);
             using var ms = new MemoryStream();
             FaithfulWriter.WritePlain(module, ms);
             return ms.ToArray();
@@ -254,6 +256,21 @@ public sealed partial class CSharpPatcher
             return null; // compile against it as it is
         }
     }
+
+    private static void FixReferences(ModuleDef module, HashSet<string> standIns)
+    {
+        foreach (var r in module.GetAssemblyRefs())
+        {
+            if (standIns.Contains(r.Name)) r.PublicKeyOrToken = new PublicKeyToken(Array.Empty<byte>());
+            if (IsAnyVersion(r.Version)) r.Version = new Version(0, 0, 0, 0);
+        }
+    }
+
+    /// <summary>
+    /// 65535.65535.65535.65535, written by some tools for "any version": taken literally, it needs a newer assembly than any
+    /// that exists (CS1705), while version 0.0.0.0 binds to whichever is referenced.
+    /// </summary>
+    private static bool IsAnyVersion(Version? v) => v is { Major: 65535 };
 
     /// <summary>Name suffix of the assembly a patch is compiled into (it references the target).</summary>
     internal const string PatchSuffix = ".__patch";
@@ -265,7 +282,7 @@ public sealed partial class CSharpPatcher
     /// ([InternalsVisibleTo]). The decompiled declaration compiled with the patch is a separate assembly: its internal
     /// members using internal types of the target failed the accessibility consistency checks (CS0050-CS0061), which
     /// ignoring access checks does not cover. References to <paramref name="standIns"/> lose their public key token
-    /// (see <see cref="WithoutTokens"/>). Only metadata is written: Roslyn reads no method body or resource of a
+    /// and any-version references are reset (see <see cref="ReferenceCopy"/>). Only metadata is written: Roslyn reads no method body or resource of a
     /// reference, and rewriting them made the first patch of a large assembly take seconds. Cached per image.
     /// </summary>
     internal static byte[] FriendImage(byte[] image, string friend, HashSet<string> standIns)
@@ -287,8 +304,7 @@ public sealed partial class CSharpPatcher
         {
             using var module = ModuleDefMD.Load(image);
             if (module.Assembly is not { } assembly) return image;
-            foreach (var r in module.GetAssemblyRefs().Where(r => standIns.Contains(r.Name)))
-                r.PublicKeyOrToken = new PublicKeyToken(Array.Empty<byte>());
+            FixReferences(module, standIns);
             // The core library defines the attribute: a reference to it would give the core library an assembly reference, and Roslyn none.
             ICustomAttributeType ctor = module.Find("System.Runtime.CompilerServices.InternalsVisibleToAttribute", isReflectionName: false)?
                                             .FindMethod(".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String)) is { } own
