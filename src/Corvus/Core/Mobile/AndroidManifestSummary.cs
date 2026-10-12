@@ -149,7 +149,7 @@ public sealed record AndroidManifestSummary(string Package, string? VersionCode,
         [
             (0x10, "privileged"), (0x20, "development"), (0x40, "appop"), (0x80, "pre23"), (0x100, "installer"), (0x200, "verifier"), (0x400, "preinstalled"),
             (0x800, "setup"), (0x1000, "instant"), (0x2000, "runtime"), (0x4000, "oem"), (0x8000, "vendorPrivileged"), (0x10000, "textClassifier"),
-            (0x40000, "documenter"), (0x80000, "configurator"), (0x100000, "incidentReportApprover"), (0x200000, "appPredictor"), (0x800000, "companion"),
+            (0x40000, "documenter"), (0x80000, "configurator"), (0x100000, "incidentReportApprover"), (0x200000, "appPredictor"), (0x400000, "module"), (0x800000, "companion"),
             (0x1000000, "retailDemo"), (0x2000000, "recents"), (0x4000000, "role"), (0x8000000, "knownSigner"),
         ];
         names.AddRange(flags.Where(f => (value & f.Bit) != 0).Select(f => f.Name));

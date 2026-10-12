@@ -123,6 +123,63 @@ public sealed class AndroidProjectExportTests : IDisposable
         Assert.Contains("android:uiOptions=\"7\"", xml);
     }
 
+    /// <summary>
+    /// Every enum and flag value of the framework's manifest attributes (AOSP core/res/res/values/attrs_manifest.xml) is named
+    /// as the framework names it; several attributes and flags were missing, so their values stayed numbers aapt2 rejects.
+    /// </summary>
+    [Fact]
+    public void ManifestEnumAndFlagNamesMatchTheFrameworkAttributes()
+    {
+        // name=value pairs per attribute, as attrs_manifest.xml declares them (aliases such as protectionLevel "system" left out).
+        const string Framework = """
+            protectionLevel normal=0 dangerous=1 signature=2 signatureOrSystem=3 internal=4 privileged=0x10 development=0x20 appop=0x40 pre23=0x80 installer=0x100 verifier=0x200 preinstalled=0x400 setup=0x800 instant=0x1000 runtime=0x2000 oem=0x4000 vendorPrivileged=0x8000 textClassifier=0x10000 configurator=0x80000 incidentReportApprover=0x100000 appPredictor=0x200000 module=0x400000 companion=0x800000 retailDemo=0x1000000 recents=0x2000000 role=0x4000000 knownSigner=0x8000000
+            permissionGroupFlags personalInfo=0x1
+            permissionFlags costsMoney=0x1 removed=0x2 hardRestricted=0x4 softRestricted=0x8 immutablyRestricted=0x10 installerExemptIgnored=0x20
+            rotationAnimation rotate=0 crossfade=1 jumpcut=2 seamless=3
+            launchMode standard=0 singleTop=1 singleTask=2 singleInstance=3 singleInstancePerTask=4
+            screenOrientation unspecified=-1 landscape=0 portrait=1 user=2 behind=3 sensor=4 nosensor=5 sensorLandscape=6 sensorPortrait=7 reverseLandscape=8 reversePortrait=9 fullSensor=10 userLandscape=11 userPortrait=12 fullUser=13 locked=14
+            recreateOnConfigChanges mcc=0x1 mnc=0x2
+            configChanges mcc=0x1 mnc=0x2 locale=0x4 touchscreen=0x8 keyboard=0x10 keyboardHidden=0x20 navigation=0x40 orientation=0x80 screenLayout=0x100 uiMode=0x200 screenSize=0x400 smallestScreenSize=0x800 density=0x1000 layoutDirection=0x2000 colorMode=0x4000 grammaticalGender=0x8000 fontScale=0x40000000 fontWeightAdjustment=0x10000000 assetsPaths=0x80000000 resourcesUnused=0x8000000
+            reqTouchScreen undefined=0 notouch=1 stylus=2 finger=3
+            reqKeyboardType undefined=0 nokeys=1 qwerty=2 twelvekey=3
+            reqNavigation undefined=0 nonav=1 dpad=2 trackball=3 wheel=4
+            installLocation auto=0 internalOnly=1 preferExternal=2
+            uiOptions none=0 splitActionBarWhenNarrow=1
+            persistableMode persistRootOnly=0 persistNever=1 persistAcrossReboots=2
+            documentLaunchMode none=0 intoExisting=1 always=2 never=3
+            lockTaskMode normal=0 never=1 always=2 if_whitelisted=3
+            foregroundServiceType dataSync=0x1 mediaPlayback=0x2 phoneCall=0x4 location=0x8 connectedDevice=0x10 mediaProjection=0x20 camera=0x40 microphone=0x80 health=0x100 remoteMessaging=0x200 systemExempted=0x400 shortService=0x800 mediaProcessing=0x2000 specialUse=0x40000000
+            gwpAsanMode default=-1 never=0 always=1
+            memtagMode default=-1 off=0 async=1 sync=2
+            pageSizeCompat enabled=32 disabled=64
+            intentMatchingFlags none=0x1 enforceIntentFilter=0x2 allowNullAction=0x4
+            appCategory game=0 audio=1 video=2 image=3 social=4 news=5 maps=6 productivity=7 accessibility=8
+            autoRevokePermissions allowed=0 discouraged=1 disallowed=2
+            rollbackDataPolicy restore=0 wipe=1 retain=2
+            usesPermissionFlags neverForLocation=0x10000
+            colorMode default=0 wideColorGamut=1 hdr=2
+            requireContentUriPermissionFromCaller none=0 read=1 write=2 readOrWrite=3 readAndWrite=4
+            screenSize small=200 normal=300 large=400 xlarge=500
+            screenDensity ldpi=120 mdpi=160 hdpi=240 xhdpi=320 xxhdpi=480 xxxhdpi=640
+            windowSoftInputMode stateUnspecified=0 stateUnchanged=1 stateHidden=2 stateAlwaysHidden=3 stateVisible=4 stateAlwaysVisible=5 adjustResize=0x10 adjustPan=0x20 adjustNothing=0x30
+            """;
+        var wrong = new List<string>();
+        foreach (var line in Framework.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split(' ');
+            foreach (var pair in parts.Skip(1))
+            {
+                var (name, text) = (pair[..pair.IndexOf('=')], pair[(pair.IndexOf('=') + 1)..]);
+                uint value = text.StartsWith("0x", StringComparison.Ordinal) ? Convert.ToUInt32(text[2..], 16) : unchecked((uint)int.Parse(text, System.Globalization.CultureInfo.InvariantCulture));
+                // A protection level always names its base: a flag is checked with "signature".
+                if (parts[0] == "protectionLevel" && value >= 0x10) (value, name) = (value | 2, "signature|" + name);
+                if (AndroidAttributes.Symbolic(parts[0], value) is var got && got != name)
+                    wrong.Add($"{parts[0]} {text}: {got ?? "(none)"}, framework {name}");
+            }
+        }
+        Assert.True(wrong.Count == 0, string.Join("\n", wrong));
+    }
+
     /// <summary>A shrunk build renames resource files; they are written where their table entry says they belong.</summary>
     [Fact]
     public async Task RenamedResourceFilesGoToTheirCanonicalPath()
