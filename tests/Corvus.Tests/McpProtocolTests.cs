@@ -927,7 +927,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         string[] verbs = ["get_", "list_", "find_", "search_", "decompile_", "disassemble", "load_", "unload_", "reload_", "rename_", "comment_", "patch_",
             "save_", "native_", "read_", "resolve_", "undo_", "revert_", "export_", "apply_", "unpack_", "stub_", "add_", "diff_", "simplify_", "compare_",
             "extract_", "generate_", "inspect_", "make_", "map_", "migrate_", "open_", "dump_", "summarize_", "survey_", "unity_", "update_", "verify_", "server_", "set_", "declare_", "ida_"];
-        return System.Text.RegularExpressions.Regex.Matches(text, @"\b[a-z0-9]+(?:_[a-z0-9]+)+\b|\bdisassemble\b").Select(m => m.Value)
+        // module.member and module. are API names (the idapython topic), not tools
+        return System.Text.RegularExpressions.Regex.Matches(text, @"(?<![A-Za-z0-9_)]\.|\s\.)\b[a-z0-9]+(?:_[a-z0-9]+)+\b(?!\.[A-Za-z_])|\bdisassemble\b").Select(m => m.Value)
             .Where(w => verbs.Any(v => w.StartsWith(v, StringComparison.Ordinal)) && !tools.Contains(w) && !notTools.Contains(w)).Distinct().ToList();
     }
 

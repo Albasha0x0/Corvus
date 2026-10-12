@@ -48,7 +48,7 @@ public class GuideTests
     [Fact]
     public void TopicsAreLookedUpByName()
     {
-        Assert.Equal(["dotnet", "il2cpp", "containers", "edits", "builds", "native", "dumps", "errors"], Guide.Topics.Keys);
+        Assert.Equal(["dotnet", "il2cpp", "containers", "edits", "builds", "native", "idapython", "dumps", "errors"], Guide.Topics.Keys);
         Assert.Same(Guide.Topics["native"], Guide.Topic(" Native "));
         Assert.Null(Guide.Topic("nope"));
     }

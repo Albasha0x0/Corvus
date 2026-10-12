@@ -69,9 +69,9 @@ public static class WorkflowPrompts
         """;
 
     [McpServerPrompt(Name = "guide", Title = "Guide topic")]
-    [Description("The full guidance on one area: dotnet, native, il2cpp, containers, edits, builds, dumps or errors. Without a topic, the core and the topic list.")]
+    [Description("The full guidance on one area: dotnet, native, il2cpp, containers, edits, builds, idapython, dumps or errors. Without a topic, the core and the topic list.")]
     public static string GuideTopic(
-        [Description("dotnet, native, il2cpp, containers, edits, builds, dumps or errors.")] string? topic = null) =>
+        [Description("dotnet, native, il2cpp, containers, edits, builds, idapython, dumps or errors.")] string? topic = null) =>
         string.IsNullOrWhiteSpace(topic) ? $"{Guide.Core}\nTopics: {Guide.TopicList}." : Guide.Topic(topic) ?? throw UnknownTopic(topic);
 
     [McpServerPrompt(Name = "getting_started", Title = "Getting started")]

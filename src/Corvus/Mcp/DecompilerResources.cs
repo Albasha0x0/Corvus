@@ -53,7 +53,7 @@ public sealed class DecompilerResources(AssemblyWorkspace workspace, DecompilerS
         });
 
     [McpServerResource(UriTemplate = Scheme + "://guide/{topic}", Name = "guide", Title = "Guide topic", MimeType = "text/plain")]
-    [Description("The full guidance on one area: dotnet, native, il2cpp, containers, edits, builds, dumps or errors.")]
+    [Description("The full guidance on one area: dotnet, native, il2cpp, containers, edits, builds, idapython, dumps or errors.")]
     public static string GuideTopic([Description("Topic name.")] string topic) =>
         Guide.Topic(Decode(topic)) ?? throw WorkflowPrompts.UnknownTopic(Decode(topic));
 
