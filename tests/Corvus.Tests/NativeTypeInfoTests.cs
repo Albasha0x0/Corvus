@@ -122,6 +122,8 @@ public sealed class NativeTypeInfoTests : IDisposable
             (player + 4, BitConverter.GetBytes(3)), (player + 8, BitConverter.GetBytes(0b1011u)), (player + 0xC, BitConverter.GetBytes(1.5f)),
             (player + 0x24, [.. BitConverter.GetBytes(10), .. BitConverter.GetBytes(-2), .. BitConverter.GetBytes(30), .. BitConverter.GetBytes(40)]),
             (player + 0x38, BitConverter.GetBytes(0x140000000UL + PdbTypeFixture.GameRva)));
+        // pointer values are named from the code index once it is built (a read does not wait for it)
+        await _code.Index(_env.Workspace.LoadAny(_image).Native!, null, default);
 
         var collector = StructuredOutput.Begin();
         var text = await _tools.GetNativeType(_image, name: "Player", address: $"rva:0x{player:X}", depth: 2, read: true);
