@@ -157,11 +157,22 @@ public partial class SampleDocsTests
         var psi = new ProcessStartInfo("dotnet") { WorkingDirectory = Root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var w in words.Skip(1)) psi.ArgumentList.Add(w);
         psi.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
-        using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEndAsync();
-        var stderr = p.StandardError.ReadToEndAsync();
-        await p.WaitForExitAsync();
-        return (p.ExitCode, await stdout, await stderr);
+        // The SDK leaves random folders in its temporary folder: one of its own, deleted after the call.
+        var temp = Directory.CreateTempSubdirectory("corvus-dotnet-").FullName;
+        foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" }) psi.Environment[name] = temp;
+        try
+        {
+            using var p = Process.Start(psi)!;
+            var stdout = p.StandardOutput.ReadToEndAsync();
+            var stderr = p.StandardError.ReadToEndAsync();
+            await p.WaitForExitAsync();
+            return (p.ExitCode, await stdout, await stderr);
+        }
+        finally
+        {
+            try { Directory.Delete(temp, true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     /// <summary>
