@@ -29,7 +29,10 @@ These fail when a change misses one of its follow-up steps (CONTRIBUTING.md list
 - README sync (tool tables, tool and prompt counts) and docs facts (clients, release targets, commands, environment
   variables, release-notes version, links, command-line examples);
 - guide coverage (every tool is named in the guide; the guide, skill and docs name only registered tools);
-- community files (SECURITY.md, CONTRIBUTING.md, issue forms).
+- community files (SECURITY.md, CONTRIBUTING.md, issue forms);
+- leaks: once every test has run, child processes of the test process still running, or files left in the run's own
+  temporary folder (TMP, TEMP and TMPDIR point there for the tests and the servers they start), fail the run with
+  their names. A folder a test class keeps for the whole run is registered with `LeakGuard.DeleteAtEnd`.
 
 ## Generated documents
 

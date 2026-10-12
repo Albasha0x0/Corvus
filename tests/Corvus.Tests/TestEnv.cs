@@ -69,7 +69,7 @@ public static class TestReports
     /// <summary>%TEMP%\corvus-test-reports\&lt;name&gt;-&lt;time&gt;-&lt;pid&gt;.txt: a name per run, so concurrent runs do not write one file.</summary>
     public static string File(string name)
     {
-        var dir = Directory.CreateDirectory(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "corvus-test-reports")).FullName;
+        var dir = Directory.CreateDirectory(System.IO.Path.Combine(LeakGuard.SharedTemp, "corvus-test-reports")).FullName;
         return System.IO.Path.Combine(dir, $"{name}-{DateTime.Now:yyyyMMdd-HHmmss}-{Environment.ProcessId}.txt");
     }
 }
@@ -196,7 +196,15 @@ internal static class Tools
             var installer = Path.Combine(x86, "Microsoft Visual Studio", "Installer");
             if (Directory.Exists(installer)) psi.Environment["PATH"] = psi.Environment["PATH"] + Path.PathSeparator + installer;
         }
-        return Run(psi);
+        // The SDK leaves folders in its temporary folder: one of its own, deleted after the call.
+        var temp = Directory.CreateTempSubdirectory("corvus-dotnet-").FullName;
+        foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" }) psi.Environment[name] = temp;
+        try { return Run(psi); }
+        finally
+        {
+            try { Directory.Delete(temp, true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     public static (int ExitCode, string Output) Run(ProcessStartInfo psi, int timeoutMs = 900_000)

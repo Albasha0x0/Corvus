@@ -33,7 +33,7 @@ public class NativeImportVerifierTests
     private static LoadedAssembly Compile(Env env, string name, Platform platform)
     {
         var bytes = Roslyn.Compile(name, Source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, platform: platform));
-        var dir = Path.Combine(Path.GetTempPath(), "corvus-test-pinvoke-" + Guid.NewGuid().ToString("N"));
+        var dir = LeakGuard.DeleteAtEnd(Path.Combine(Path.GetTempPath(), "corvus-test-pinvoke-" + Guid.NewGuid().ToString("N")));
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, name + ".dll");
         File.WriteAllBytes(path, bytes);

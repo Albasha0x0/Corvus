@@ -322,7 +322,12 @@ public class InspectionTests : IDisposable
             Assert.Equal("corvus-embedded", Path.GetFileName(Path.GetDirectoryName(byDefault.OutputDirectory!)));
             Assert.StartsWith(Path.GetFileNameWithoutExtension(unique), Path.GetFileName(byDefault.OutputDirectory!), StringComparison.Ordinal);
         }
-        finally { Directory.Delete(byDefault.OutputDirectory!, recursive: true); }
+        finally
+        {
+            Directory.Delete(byDefault.OutputDirectory!, recursive: true);
+            try { Directory.Delete(Path.GetDirectoryName(byDefault.OutputDirectory!)!); }
+            catch (IOException) { /* another test's output is still there */ }
+        }
 
         var url = Assert.Single(Inspection.ExtractStrings(null, path, ["url"], null, null, false, default).Values);
         Assert.Equal("https://files.example.net/build2", url.Value);

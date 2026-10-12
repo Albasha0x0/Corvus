@@ -85,7 +85,7 @@ public class NativeCodeOracleTests(ITestOutputHelper output)
     {
         var ida = IdaDirectory();
         if (ida == null) { output.WriteLine("IDA not found: skipped"); return; }
-        var cache = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "corvus-test-ida-oracle")).FullName;
+        var cache = Directory.CreateDirectory(Path.Combine(LeakGuard.SharedTemp, "corvus-test-ida-oracle")).FullName;
         File.WriteAllText(Path.Combine(cache, "oracle.py"), Script);
 
         var totals = new Dictionary<NativeArch, (int Ours, int Ida, int Both, int InIda, int OurCalls, int IdaCalls, int BothCalls)>();

@@ -27,7 +27,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
     private static string ServerDll => typeof(Corvus.Core.AssemblyWorkspace).Assembly.Location;
 
     /// <summary>A per-run temp folder for annotation sidecars, so tests never touch the real per-user folder.</summary>
-    private static readonly string AnnotationsDir = Path.Combine(Path.GetTempPath(), "corvus-test-annotations-" + Guid.NewGuid().ToString("N"));
+    private static readonly string AnnotationsDir = LeakGuard.DeleteAtEnd(Path.Combine(Path.GetTempPath(), "corvus-test-annotations-" + Guid.NewGuid().ToString("N")));
 
     internal static Task<McpClient> StartServerAsync(params string[] args) => StartServerInAsync(null, args);
 

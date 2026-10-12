@@ -81,7 +81,7 @@ internal static class FakeDevice
     private static readonly Lazy<FakeTool> SharedTool = new(() =>
     {
         var fake = Configure(new FakeTool(), AndroidSamples.Apk());
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => fake.Dispose();
+        LeakGuard.DeleteAtEnd(fake.Directory);
         return fake;
     });
 
