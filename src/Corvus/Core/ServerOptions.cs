@@ -26,10 +26,12 @@ namespace Corvus.Core;
 ///   --trace &lt;file&gt;      append one JSON line per tool call (tool, argument names, ms, error, size) to this file (CORVUS_TRACE)
 ///   --trace-args        the trace records argument values too, secrets masked (CORVUS_TRACE_ARGS=1)
 ///   --allow-device-changes  allow the Android device tools that install or uninstall apps (CORVUS_ALLOW_DEVICE_CHANGES=1)
+///   --client &lt;id&gt;       the MCP client this registration is for (written by install; CORVUS_CLIENT): its output ceiling, deadline and tool profile
+///   --client-timeout &lt;s&gt;  the client's per-call limit in seconds when raised from its default (CORVUS_CLIENT_TIMEOUT)
 /// The CORVUS_LOAD environment variable (';'-separated paths) is also honored; CORVUS_PREWARM sets --prewarm (CORVUS_IDA_PREWARM=1: ida); CORVUS_ENGINE sets --engine;
 /// CORVUS_CODE_INDEX_CACHE, CORVUS_CODE_INDEX_CACHE_MB and CORVUS_CODE_INDEX_CACHE_DAYS set the code index cache defaults; CORVUS_LOG_LEVEL sets --log-level;
 /// CORVUS_TOOLSETS sets --toolsets; CORVUS_ENGINE_REQUEST_TIMEOUT and CORVUS_ENGINE_OPEN_TIMEOUT (seconds) bound IDA and Ghidra requests and opens;
-/// CORVUS_ENGINE_ANALYSIS=none opens images in IDA and Ghidra without auto-analysis.
+/// CORVUS_ENGINE_ANALYSIS=none opens images in IDA and Ghidra without auto-analysis; CORVUS_MAX_OUTPUT_TOKENS replaces the client's output ceiling.
 /// </summary>
 public sealed class ServerOptions
 {
@@ -119,6 +121,7 @@ public sealed class ServerOptions
     {
         "--load", "--search-dir", "--max-output", "--timeout", "--binding-style", "--binding-project", "--prewarm", "--engine",
         "--index-cache", "--index-cache-mb", "--index-cache-days", "--log-level", Core.Toolsets.Option, Core.Toolsets.ToolsFileOption, TraceOption,
+        ClientProfiles.ClientOption, ClientProfiles.ClientTimeoutOption,
     };
 
     public static ServerOptions Parse(string[] args)
@@ -132,7 +135,7 @@ public sealed class ServerOptions
             : Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on" ? "ida" : null;
         string? logLevel = Environment.GetEnvironmentVariable(LogLevelVariable) is { Length: > 0 } levelFromEnv ? levelFromEnv : null;
         string? toolsets = Environment.GetEnvironmentVariable(Core.Toolsets.Variable) is { Length: > 0 } setsFromEnv ? setsFromEnv : null;
-        string? toolsFile = null, trace = null;
+        string? toolsFile = null, trace = null, client = null, clientTimeout = null;
         for (int i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"Missing value after {args[i]}");
@@ -162,6 +165,8 @@ public sealed class ServerOptions
                 case Core.Toolsets.ToolsFileOption: toolsFile = Next(); break;
                 case TraceOption: trace = Next(); break;
                 case TraceArgsOption: o.TraceArguments = true; break;
+                case ClientProfiles.ClientOption: client = Next(); break;
+                case ClientProfiles.ClientTimeoutOption: clientTimeout = Next(); break;
                 case "--index-cache-days": cacheDays = int.TryParse(Next(), out var days) && days > 0 ? days : throw new ArgumentException("--index-cache-days must be a positive number"); break;
                 default: throw new ArgumentException($"Unknown argument '{args[i]}'");
             }
@@ -179,8 +184,13 @@ public sealed class ServerOptions
         }
         if (logLevel != null)
             o.LogLevel = ParseLogLevel(logLevel) ?? throw new ArgumentException($"--log-level (or {LogLevelVariable}) must be trace, debug, information, warning, error or none, not '{logLevel.Trim()}'");
-        if (toolsets != null) o.Toolsets = Core.Toolsets.Parse(toolsets);
+        o.ToolsetsText = toolsets?.Trim();
+        // Interim until the contract table carries the lean flag (P1-F): lean is the fixed tool list of ClientProfiles.LeanTools.
+        if (toolsets?.Trim().Equals(ClientProfiles.Lean, StringComparison.OrdinalIgnoreCase) == true)
+            (o.ToolAllowList, o.ToolAllowListSource) = (ClientProfiles.LeanTools, ClientProfiles.Lean);
+        else if (toolsets != null) o.Toolsets = Core.Toolsets.Parse(toolsets);
         o.ParseProductOptions(toolsFile, trace);
+        o.ParseClientOptions(client, clientTimeout);
         if (prewarm != null)
             o.Prewarm = EngineModes.TryParse(prewarm) is { } p && p != EngineMode.Ours ? p
                 : prewarm.Trim().ToLowerInvariant() is "off" or "0" or "none" ? null
@@ -202,6 +212,46 @@ public sealed class ServerOptions
         if (!string.IsNullOrWhiteSpace(env))
             o.Preload.AddRange(env.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         return o;
+    }
+
+    // ---- Client profile ----
+
+    /// <summary>The client id from --client or CORVUS_CLIENT (see <see cref="ClientProfiles"/>); null: detected from the handshake.</summary>
+    public string? Client { get; set; }
+
+    /// <summary>--client or CORVUS_CLIENT, whichever set <see cref="Client"/>.</summary>
+    public string? ClientSource { get; set; }
+
+    /// <summary>CORVUS_MAX_OUTPUT_TOKENS: the output ceiling in place of the client's.</summary>
+    public int? MaxOutputTokens { get; set; }
+
+    /// <summary>The client's per-call limit in seconds in place of its profile's (--client-timeout, CORVUS_CLIENT_TIMEOUT).</summary>
+    public int? ClientTimeoutSeconds { get; set; }
+
+    /// <summary>--client-timeout or CORVUS_CLIENT_TIMEOUT, whichever set <see cref="ClientTimeoutSeconds"/>.</summary>
+    public string? ClientTimeoutSource { get; set; }
+
+    /// <summary>The --toolsets (or CORVUS_TOOLSETS) text as given; null when neither was set.</summary>
+    public string? ToolsetsText { get; set; }
+
+    /// <summary>The command line wins over the environment; an unknown client id is an <see cref="ArgumentException"/>.</summary>
+    private void ParseClientOptions(string? client, string? timeout)
+    {
+        ClientSource = client != null ? ClientProfiles.ClientOption : null;
+        if (client == null && Environment.GetEnvironmentVariable(ClientProfiles.ClientVariable) is { Length: > 0 } fromEnv)
+            (client, ClientSource) = (fromEnv, ClientProfiles.ClientVariable);
+        if (client != null)
+            Client = ClientProfiles.Find(client)?.Id ?? throw new ArgumentException(
+                $"{ClientSource}: unknown client '{client.Trim()}'; use one of {string.Join(", ", ClientProfiles.All.Select(p => p.Id))} or unknown");
+        ClientTimeoutSource = timeout != null ? ClientProfiles.ClientTimeoutOption : null;
+        if (timeout == null && Environment.GetEnvironmentVariable(ClientProfiles.ClientTimeoutVariable) is { Length: > 0 } timeoutFromEnv)
+            (timeout, ClientTimeoutSource) = (timeoutFromEnv, ClientProfiles.ClientTimeoutVariable);
+        if (timeout != null)
+            ClientTimeoutSeconds = int.TryParse(timeout.Trim(), out var s) && s > 0 ? s
+                : throw new ArgumentException($"{ClientTimeoutSource} must be a positive number of seconds, not '{timeout.Trim()}'");
+        if (Environment.GetEnvironmentVariable(ClientProfiles.MaxOutputTokensVariable)?.Trim() is { Length: > 0 } tokens)
+            MaxOutputTokens = int.TryParse(tokens, out var t) && t >= 500 ? t
+                : throw new ArgumentException($"{ClientProfiles.MaxOutputTokensVariable} must be a number of tokens (500 or more), not '{tokens}'");
     }
 
     // ---- Catalog whitelist and call trace ----

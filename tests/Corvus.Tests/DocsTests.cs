@@ -133,13 +133,22 @@ public class DocsTests
                         if (!overrides.TryGetValue(moved.Id, out var set)) overrides[moved.Id] = set = new SortedSet<string>(StringComparer.Ordinal);
                         set.Add(variable);
                     }
-        var sb = new StringBuilder("| Id | Client | Entry | Windows | macOS | Linux | Moved by |\n|---|---|---|---|---|---|---|\n");
+        var sb = new StringBuilder("| Id | Client | Entry | Windows | macOS | Linux | Moved by | Limits |\n|---|---|---|---|---|---|---|---|\n");
         foreach (var client in bySystem.Values.SelectMany(c => c).DistinctBy(c => c.Id))
         {
             string PathOn(HostOs os) => bySystem[os].FirstOrDefault(c => c.Id == client.Id) is { } c ? $"`{c.Target.Path.Replace('\\', '/')}`" : "-";
             var moved = overrides.TryGetValue(client.Id, out var vars) ? string.Join(", ", vars.Select(v => $"`{v}`")) : "";
-            sb.Append($"| `{client.Id}` | {client.Name} | {Shape(client.Target)} | {PathOn(HostOs.Windows)} | {PathOn(HostOs.MacOs)} | {PathOn(HostOs.Linux)} | {moved} |\n");
+            sb.Append($"| `{client.Id}` | {client.Name} | {Shape(client.Target)} | {PathOn(HostOs.Windows)} | {PathOn(HostOs.MacOs)} | {PathOn(HostOs.Linux)} | {moved} | {Limits(client.Id)} |\n");
         }
         return sb.ToString();
+    }
+
+    /// <summary>The client profile: output ceiling, the client's per-call limit and the tool profile it gets by default.</summary>
+    private static string Limits(string id)
+    {
+        var p = ClientProfiles.Find(id)!;
+        static string N(int n) => n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+        var cap = $"{N(p.MaxTokens)} tokens" + (p.MaxChars is { } c ? $", {N(c)} chars" : "");
+        return $"{cap}; {(p.DeadlineSeconds is { } s ? $"{s} s per call" : "no call limit")}; {p.DefaultProfile}";
     }
 }
