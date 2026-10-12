@@ -196,6 +196,21 @@ public sealed class ResultStoreTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => tools.ReadResult(textOnly, format: "json")).Code);
     }
 
+    /// <summary>uninstall keeps the default results folder (and names it) unless --purge-data, which removes it.</summary>
+    [Fact]
+    public void UninstallPurgeRemovesKeptResults()
+    {
+        var root = Path.Combine(_dir.Path, "install");
+        var dataRoot = Path.Combine(_dir.Path, "data");
+        Directory.CreateDirectory(Path.Combine(root, "versions"));
+        var results = Path.Combine(dataRoot, "results");
+        var id = new ResultStore(new ResultCacheOptions(results, 1 << 20, TimeSpan.FromDays(7))).Keep("kept", Origin());
+        Assert.Contains("results", Corvus.Setup.Installation.PlanRemoval(root, dataRoot, purgeData: false).Kept);
+        Corvus.Setup.Installation.Apply(Corvus.Setup.Installation.PlanRemoval(root, dataRoot, purgeData: true));
+        Assert.False(File.Exists(Path.Combine(results, id + ".txt")));
+        Assert.False(Directory.Exists(dataRoot));
+    }
+
     /// <summary>A second server process (here the command line) reads an id the first one kept.</summary>
     [Fact]
     [Trait("Speed", "Slow")]

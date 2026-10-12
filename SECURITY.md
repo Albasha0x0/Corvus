@@ -83,10 +83,21 @@ folder under the temporary folder), plus per-user caches and annotation files un
 (README, "Server options"; [docs/installation.md](docs/installation.md)). `corvus install` writes only the client
 configuration files it lists, each with a `.corvus.bak` copy of the previous version.
 
+### Kept results
+
+A result too large to send is kept so `read_result` can page, search or export it. Kept results are written to
+`results` in the data folder (or `CORVUS_RESULT_CACHE`) and stay readable across restarts and by other servers of the
+same user. They hold analyzed-file content (decompiled code, strings, names) and a side record of the call: the tool,
+its arguments with secrets masked as in traces, a SHA-256 of the unmasked arguments and the time. They are deleted
+after 7 days unused or beyond 512 MB, least recently used first (`CORVUS_RESULT_CACHE_DAYS`, `CORVUS_RESULT_CACHE_MB`);
+a small side record of an evicted result is kept a while longer so a late read can name the call to repeat.
+`CORVUS_RESULT_CACHE=off` keeps them in memory only, gone when the server exits. `corvus uninstall --purge-data` deletes
+the data folder with them; a custom `CORVUS_RESULT_CACHE` folder is left for you to delete.
+
 ### Logs and traces
 
-The stderr log has one line per tool call with the tool, outcome, milliseconds, sizes and the engine used, never the
-arguments. The opt-in call trace (`--trace FILE`, `CORVUS_TRACE`) records argument names; their values only with
+The stderr log has one line per tool call with the tool, outcome, milliseconds, estimated tokens of the text and
+structured parts and the engine used, never the arguments. The opt-in call trace (`--trace FILE`, `CORVUS_TRACE`) records argument names; their values only with
 `--trace-args` (`CORVUS_TRACE_ARGS=1`). Values can hold paths, code and names from analyzed files; secrets in them (values of parameters named like passwords, tokens, keys or cookies, `NAME=value`
 pairs with such names, Bearer and Basic credentials, passwords in URLs and common token shapes) are written as
 `[redacted]`, on a best-effort basis. Treat a trace file as sensitive.

@@ -41,7 +41,7 @@ public sealed partial class DevRelay : IAsyncDisposable
     private const string MetaPrefix = "io.modelcontextprotocol/";
     private const string ProtocolKey = MetaPrefix + "protocolVersion";
     private const string SubscriptionKey = MetaPrefix + "subscriptionId";
-    private const string NotCarried = "not carried over: in-memory edits, native engine sessions and kept results (read_result ids).";
+    private const string NotCarried = "not carried over: in-memory edits and native engine sessions (kept results are, unless CORVUS_RESULT_CACHE=off).";
 
     // Relaxed escaping keeps forwarded text as the server wrote it ('+', quotes inside strings) instead of \uXXXX.
     private static readonly System.Text.Json.JsonSerializerOptions Wire = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };

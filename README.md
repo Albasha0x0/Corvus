@@ -140,7 +140,7 @@ the workspace calls that succeeded (`load_assembly`, `unload_assembly`, `add_sea
 `list_changed`, so the client sees the new build without reconnecting. Clients on the 2026-07-28 protocol (per-request
 metadata, no session) are served too: the relay sends the new build `server/discover` with the client's metadata instead
 of `initialize`, moves open `subscriptions/listen` streams to it, and sends `list_changed` on the streams that asked for it.
-A `[relay]` line on the next tool result names the build, its catalog digest and what was replayed. In-memory edits, native engine sessions and kept results are not
+A `[relay]` line on the next tool result names the build, its catalog digest and what was replayed. In-memory edits and native engine sessions are not
 carried over: with unsaved edits or patches the switch waits until they are saved or reverted, and the added tool
 `relay_apply` switches at once. A build that fails to start or to replay is reported and the old server stays.
 Arguments after the relay's own (`relay --target <dir> [--state <dir>] [--poll-ms <n>] [--] ...`) go to the server;
