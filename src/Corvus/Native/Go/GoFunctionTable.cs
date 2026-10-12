@@ -7,8 +7,11 @@ namespace Corvus.Native.Go;
 /// <summary>Layout generation of a Go function table, by its header magic.</summary>
 public enum GoTableVersion { Go12, Go116, Go118, Go120 }
 
-/// <summary>One function of a Go function table: entry RVA, size up to the next entry, and its Go name.</summary>
-public readonly record struct GoFunction(uint Rva, uint Size, string? Name);
+/// <summary>
+/// One function of a Go function table: entry RVA, size, and its Go name. The size is where the function's own pc-value
+/// tables end (<see cref="OwnSize"/>), else the gap to the next entry, alignment padding included.
+/// </summary>
+public readonly record struct GoFunction(uint Rva, uint Size, string? Name, bool OwnSize = false);
 
 /// <summary>
 /// The Go runtime's function table (pclntab) of any Go 1.2 to 1.24 build, ELF, PE or Mach-O, stripped or not: found by
@@ -119,8 +122,8 @@ public sealed class GoFunctionTable
         ulong nfunc = Ptr(8);
         if (nfunc == 0 || nfunc > MaxFunctions) return null;
         int count = (int)nfunc;
-        // where entries, func records and names are, per layout
-        long functab, nameBase;
+        // where entries, func records, names and pc-value tables are, per layout
+        long functab, nameBase, pctab = 0;
         ulong textStart = 0;
         switch (version)
         {
@@ -130,17 +133,21 @@ public sealed class GoFunctionTable
                 break;
             case GoTableVersion.Go116:
                 nameBase = (long)Ptr(8 + 2 * ptr);
+                pctab = (long)Ptr(8 + 5 * ptr);
                 functab = (long)Ptr(8 + 6 * ptr);
                 break;
             default:
                 textStart = Ptr(8 + 2 * ptr);
                 nameBase = (long)Ptr(8 + 3 * ptr);
+                pctab = (long)Ptr(8 + 6 * ptr);
                 functab = (long)Ptr(8 + 7 * ptr);
                 // the field is relocated at load; an image whose rebases are not applied leaves it 0
                 if (textStart == 0 && image.Sections.FirstOrDefault(s => s.IsExecutable) is { } text) textStart = image.ImageBase + text.Rva;
                 break;
         }
         if (functab <= 0 || functab >= t.Length || nameBase < 0 || nameBase >= t.Length) return null;
+        if (pctab < 0 || pctab >= t.Length) pctab = -1;
+        int quantum = t[6];
         bool wide = version is GoTableVersion.Go12 or GoTableVersion.Go116;
         int entrySize = wide ? 2 * ptr : 8;
         if (functab + (long)(count + 1) * entrySize > t.Length) return null;
@@ -162,12 +169,58 @@ public sealed class GoFunctionTable
             long record = recordBase + Record(i);
             int nameOff = record + ptr + 4 <= t.Length && record >= 0 ? BinaryPrimitives.ReadInt32LittleEndian(t.AsSpan((int)(record + (wide ? ptr : 4)))) : -1;
             string? name = nameOff >= 0 ? Name(t, nameBase + nameOff) : null;
-            uint size = next > va && next - va < uint.MaxValue ? (uint)(next - va) : 0;
-            functions.Add(new GoFunction(at, size, name));
+            uint gap = next > va && next - va < uint.MaxValue ? (uint)(next - va) : 0;
+            uint own = pctab < 0 ? 0 : OwnSize(t, record + (wide ? ptr + 12 : 16), pctab, quantum, gap);
+            functions.Add(own > 0 ? new GoFunction(at, own, name, OwnSize: true) : new GoFunction(at, gap, name));
         }
         // a table is valid when nearly every entry is in code and most have names
         if (functions.Count == 0 || bad > count / 16 || functions.Count(f => f.Name != null) < functions.Count * 3 / 4) return null;
         return new GoFunctionTable(version, rva, functions);
+    }
+
+    /// <summary>
+    /// Code size of a function from its pc-value tables (pcsp, else pcfile, else pcln at <paramref name="fields"/>): the
+    /// linker encodes each up to the function's last byte. 0 when none decodes to a size within the gap to the next entry.
+    /// </summary>
+    private static uint OwnSize(ReadOnlySpan<byte> t, long fields, long pctab, int quantum, uint gap)
+    {
+        for (int k = 0; k < 3; k++)
+        {
+            long at = fields + 4 * k;
+            if (at < 0 || at + 4 > t.Length) return 0;
+            uint offset = BinaryPrimitives.ReadUInt32LittleEndian(t[(int)at..]);
+            if (offset == 0) continue;
+            uint size = PcTableEnd(t, pctab + offset, quantum);
+            if (size > 0 && (gap == 0 || size <= gap)) return size;
+        }
+        return 0;
+    }
+
+    /// <summary>The pc offset a pc-value table ends at (value delta zigzag varint, pc delta varint * quantum, ended by a 0 value delta), or 0.</summary>
+    internal static uint PcTableEnd(ReadOnlySpan<byte> t, long at, int quantum)
+    {
+        if (at <= 0 || at >= t.Length || quantum <= 0) return 0;
+        var p = t[(int)at..];
+        ulong pc = 0;
+        for (bool first = true; ; first = false)
+        {
+            if (p.Length == 0) return 0;
+            if (p[0] == 0 && !first) return pc is > 0 and < uint.MaxValue ? (uint)pc : 0;
+            if (!Varint(ref p, out _) || !Varint(ref p, out uint delta)) return 0;
+            pc += (ulong)delta * (uint)quantum;
+            if (pc >= 1u << 30) return 0;
+        }
+    }
+
+    private static bool Varint(ref ReadOnlySpan<byte> p, out uint value)
+    {
+        value = 0;
+        for (int shift = 0, i = 0; i < p.Length && shift < 35; i++, shift += 7)
+        {
+            value |= (uint)(p[i] & 0x7F) << shift;
+            if ((p[i] & 0x80) == 0) { p = p[(i + 1)..]; return true; }
+        }
+        return false;
     }
 
     private static string? Name(ReadOnlySpan<byte> t, long at)

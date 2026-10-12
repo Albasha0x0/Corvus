@@ -12,8 +12,11 @@ public sealed class GoFunctionTableTests
 {
     private static readonly string[] Names = ["main.main", "runtime.morestack", "github.com/x/y.(*T).Method", "main.init.func1", "type:.eq.[2]interface {}"];
 
-    /// <summary>A Go function table of <paramref name="version"/>: functions every 0x20 bytes from <paramref name="textVa"/>.</summary>
-    internal static byte[] Pclntab(GoTableVersion version, int ptr, ulong textVa, int count)
+    /// <summary>
+    /// A Go function table of <paramref name="version"/>: functions every 0x20 bytes from <paramref name="textVa"/>; with
+    /// <paramref name="ownSize"/>, each function's pcsp table ends there (the rest of its 0x20 bytes is padding).
+    /// </summary>
+    internal static byte[] Pclntab(GoTableVersion version, int ptr, ulong textVa, int count, int ownSize = 0)
     {
         var entries = Enumerable.Range(0, count).Select(i => textVa + (ulong)(i * 0x20)).ToArray();
         ulong end = textVa + (ulong)(count * 0x20);
@@ -42,18 +45,24 @@ public sealed class GoFunctionTableTests
         if (version == GoTableVersion.Go12) functab = 8 + ptr;
         int entrySize = wide ? 2 * ptr : 8;
         int records = functab + (count + 1) * entrySize + 8;
-        int recordSize = wide ? ptr + 8 : 8;
+        int recordSize = wide ? ptr + 24 : 28;
+        // one pcsp table shared by every function (offset 0 means none): sp delta 0 up to ownSize (zigzag value delta, pc delta, end)
+        const int PcTables = 0x1800;
+        int pctab = version == GoTableVersion.Go12 ? 0 : PcTables;
+        if (ownSize > 0) new byte[] { 2, (byte)(ownSize | 0x80), (byte)(ownSize >> 7), 0 }.CopyTo(t, PcTables + 1);
         int recordBase = version == GoTableVersion.Go12 ? 0 : functab;
         int nameRel = version == GoTableVersion.Go12 ? nameBase : 0;
         switch (version)
         {
             case GoTableVersion.Go116:
                 Ptr(8 + 2 * ptr, (ulong)nameBase);
+                Ptr(8 + 5 * ptr, (ulong)pctab);
                 Ptr(8 + 6 * ptr, (ulong)functab);
                 break;
             case GoTableVersion.Go118 or GoTableVersion.Go120:
                 Ptr(8 + 2 * ptr, textVa);
                 Ptr(8 + 3 * ptr, (ulong)nameBase);
+                Ptr(8 + 6 * ptr, (ulong)pctab);
                 Ptr(8 + 7 * ptr, (ulong)functab);
                 break;
         }
@@ -67,6 +76,7 @@ public sealed class GoFunctionTableTests
             if (i == count) break;
             if (wide) { Ptr(record, va); U32(record + ptr, (uint)(nameRel + nameOffsets[i])); }
             else { U32(record, (uint)(va - textVa)); U32(record + 4, (uint)nameOffsets[i]); }
+            if (ownSize > 0) U32(record + (wide ? ptr + 12 : 16), (uint)(PcTables + 1 - pctab));
         }
         return t;
     }
@@ -94,13 +104,14 @@ public sealed class GoFunctionTableTests
         {
             Machine = is64 ? ElfWriter.EmX64 : ElfWriter.EmX86, Is64 = is64, Type = 2, Base = Base, Entry = ElfWriter.TextRva,
             Text = Rets(Count, 0xC3), Hash = ElfWriter.HashKind.None, DataSectionName = ".gopclntab",
-            Data = Pclntab(version, is64 ? 8 : 4, Base + ElfWriter.TextRva, Count),
+            Data = Pclntab(version, is64 ? 8 : 4, Base + ElfWriter.TextRva, Count, ownSize: 0x11),
         };
         var image = ElfFile.FromBytes(w.Build(), "gobin");
         var table = Assert.IsType<GoFunctionTable>(GoFunctionTable.Of(image));
         Assert.Equal(version, table.Version);
         Assert.Equal(Count, table.Functions.Count);
-        Assert.Equal(0x20u, table.Functions[0].Size);
+        // sizes are the code the pcsp tables cover, not the 0x20 to the next entry (int3 padding)
+        Assert.All(table.Functions, f => Assert.Equal((0x11u, true), (f.Size, f.OwnSize)));
 
         var index = NativeCodeIndex.Build(image);
         for (int i = 0; i < Count; i++)
@@ -111,6 +122,38 @@ public sealed class GoFunctionTableTests
             Assert.Equal(Names[i % Names.Length] + (i >= Names.Length ? i.ToString() : ""), f.Name);
         }
         Assert.Equal(ElfWriter.TextRva + 0x20, index.AddressOfName("runtime.morestack"));
+    }
+
+    [Theory]
+    [InlineData(0, 0x20u, false)]    // no pc-value tables: the gap to the next entry
+    [InlineData(0x30, 0x20u, false)] // a table running into the next function is not believed
+    [InlineData(0x1C, 0x1Cu, true)]
+    public void Sizes_fall_back_to_the_next_entry_only_when_the_tables_do_not_give_one(int ownSize, uint size, bool own)
+    {
+        const ulong Base = 0x400000;
+        var w = new ElfWriter
+        {
+            Machine = ElfWriter.EmX64, Type = 2, Base = Base, Entry = ElfWriter.TextRva, Text = Rets(4, 0xC3), Hash = ElfWriter.HashKind.None,
+            DataSectionName = ".gopclntab", Data = Pclntab(GoTableVersion.Go120, 8, Base + ElfWriter.TextRva, 4, ownSize),
+        };
+        var table = GoFunctionTable.Of(ElfFile.FromBytes(w.Build(), "gobin"))!;
+        Assert.All(table.Functions, f => Assert.Equal((size, own), (f.Size, f.OwnSize)));
+    }
+
+    [Fact]
+    public void Declared_only_index_ends_functions_at_their_own_size()
+    {
+        // RISC-V code is not decoded: function extents come from the table alone
+        const ulong Base = 0x10000;
+        var w = new ElfWriter
+        {
+            Machine = 243, Type = 2, Base = Base, Entry = ElfWriter.TextRva, Text = new byte[4 * 0x20], Hash = ElfWriter.HashKind.None,
+            DataSectionName = ".gopclntab", Data = Pclntab(GoTableVersion.Go120, 8, Base + ElfWriter.TextRva, 4, ownSize: 0x14),
+        };
+        var index = NativeCodeIndex.Build(ElfFile.FromBytes(w.Build(), "gobin"));
+        Assert.Equal(CodeSupport.DeclaredFunctionsOnly, index.Support);
+        Assert.All(index.Functions, f => Assert.Equal(0x14u, f.Size));
+        Assert.Null(index.FunctionAt(ElfWriter.TextRva + 0x18));
     }
 
     [Fact]
