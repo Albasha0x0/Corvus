@@ -371,7 +371,7 @@ internal sealed class VirtualCallResolver
         // constructors and destructors (functions that reference a vftable) first: their summaries are used at calls to them
         const byte Stores = 1, Calls = 2;
         var role = new byte[functions.Count];
-        Parallel.ForEach(Partitioner.Create(0, functions.Count, 4096), po, range =>
+        if (functions.Count > 0) Parallel.ForEach(Partitioner.Create(0, functions.Count, 4096), po, range =>
         {
             for (int i = range.Item1; i < range.Item2; i++)
             {
@@ -407,7 +407,7 @@ internal sealed class VirtualCallResolver
 
         // each worker keeps its sites and edges; the merge below sorts them, so the result does not depend on the schedule
         var flows = new ConcurrentBag<Flow>();
-        Parallel.ForEach(Partitioner.Create(0, callers.Count, 64), po, () => new Flow(this), (range, _, flow) =>
+        if (callers.Count > 0) Parallel.ForEach(Partitioner.Create(0, callers.Count, 64), po, () => new Flow(this), (range, _, flow) =>
         {
             for (int i = range.Item1; i < range.Item2; i++) flow.Analyze(callers[i], summarize: false, record: true);
             return flow;
