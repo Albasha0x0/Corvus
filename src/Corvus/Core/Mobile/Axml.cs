@@ -147,11 +147,17 @@ public sealed class AxmlDocument
         return element;
     }
 
-    /// <summary>The value of an attribute as text: its string, else its typed value through <paramref name="resolve"/>.</summary>
+    /// <summary>
+    /// The value of an attribute as text: its string, the name of a framework enum or flag value, else its typed value
+    /// through <paramref name="resolve"/>.
+    /// </summary>
     public string Text(AxmlAttribute attribute, Func<uint, string?>? resolve = null) =>
         attribute.RawValue != null && attribute.Value.DataType is ResValue.String or ResValue.Null
             ? attribute.RawValue
-            : attribute.Value.Format(Strings, resolve);
+            : attribute.Namespace == AndroidNamespace && attribute.Value.DataType is ResValue.IntDec or ResValue.IntHex
+                && AndroidAttributes.Symbolic(attribute.Name, attribute.Value.Data) is { } symbolic
+                ? symbolic
+                : attribute.Value.Format(Strings, resolve);
 
     /// <summary>The document as XML text; references are shown through <paramref name="resolve"/> (e.g. an ARSC table).</summary>
     public string ToXml(Func<uint, string?>? resolve = null)
@@ -215,4 +221,57 @@ public static class AndroidAttributes
     };
 
     public static string? Name(uint id) => Names.GetValueOrDefault(id);
+
+    // The compiled manifest keeps enum and flag values as numbers, but aapt2 accepts only their names.
+    private static readonly Dictionary<string, (bool Flags, (uint Value, string Name)[] Values)> Symbols = new()
+    {
+        ["installLocation"] = (false, [(0, "auto"), (1, "internalOnly"), (2, "preferExternal")]),
+        ["launchMode"] = (false, [(0, "standard"), (1, "singleTop"), (2, "singleTask"), (3, "singleInstance"), (4, "singleInstancePerTask")]),
+        ["screenOrientation"] = (false, [(uint.MaxValue, "unspecified"), (0, "landscape"), (1, "portrait"), (2, "user"), (3, "behind"), (4, "sensor"),
+            (5, "nosensor"), (6, "sensorLandscape"), (7, "sensorPortrait"), (8, "reverseLandscape"), (9, "reversePortrait"), (10, "fullSensor"),
+            (11, "userLandscape"), (12, "userPortrait"), (13, "fullUser"), (14, "locked")]),
+        ["documentLaunchMode"] = (false, [(0, "none"), (1, "intoExisting"), (2, "always"), (3, "never")]),
+        ["persistableMode"] = (false, [(0, "persistRootOnly"), (1, "persistNever"), (2, "persistAcrossReboots")]),
+        ["lockTaskMode"] = (false, [(0, "normal"), (1, "never"), (2, "always"), (3, "if_whitelisted")]),
+        ["uiOptions"] = (false, [(0, "none"), (1, "splitActionBarWhenNarrow")]),
+        ["rotationAnimation"] = (false, [(0, "rotate"), (1, "crossfade"), (2, "jumpcut"), (3, "seamless")]),
+        ["colorMode"] = (false, [(0, "default"), (1, "wideColorGamut"), (2, "hdr")]),
+        ["gwpAsanMode"] = (false, [(uint.MaxValue, "default"), (0, "never"), (1, "always")]),
+        ["memtagMode"] = (false, [(uint.MaxValue, "default"), (0, "off"), (1, "async"), (2, "sync")]),
+        ["configChanges"] = (true, [(0x1, "mcc"), (0x2, "mnc"), (0x4, "locale"), (0x8, "touchscreen"), (0x10, "keyboard"), (0x20, "keyboardHidden"),
+            (0x40, "navigation"), (0x80, "orientation"), (0x100, "screenLayout"), (0x200, "uiMode"), (0x400, "screenSize"), (0x800, "smallestScreenSize"),
+            (0x1000, "density"), (0x2000, "layoutDirection"), (0x4000, "colorMode"), (0x8000, "grammaticalGender"), (0x10000000, "fontWeightAdjustment"),
+            (0x40000000, "fontScale")]),
+        ["foregroundServiceType"] = (true, [(0x1, "dataSync"), (0x2, "mediaPlayback"), (0x4, "phoneCall"), (0x8, "location"), (0x10, "connectedDevice"),
+            (0x20, "mediaProjection"), (0x40, "camera"), (0x80, "microphone"), (0x100, "health"), (0x200, "remoteMessaging"), (0x400, "systemExempted"),
+            (0x800, "shortService"), (0x2000, "mediaProcessing"), (0x40000000, "specialUse")]),
+        ["usesPermissionFlags"] = (true, [(0x10000, "neverForLocation")]),
+    };
+
+    /// <summary>The source name of an enum or flag attribute value (installLocation 1 is "internalOnly"), or null when it has none.</summary>
+    public static string? Symbolic(string attribute, uint value)
+    {
+        if (attribute == "protectionLevel")
+            return (value & 0xF) <= 4 && AllBitsNamed(value) ? AndroidManifestSummary.ProtectionLevel(value) : null;
+        if (attribute == "windowSoftInputMode")
+        {
+            uint state = value & 0xF, adjust = value >> 4;
+            if (state > 5 || adjust > 3) return null;
+            string[] states = ["stateUnspecified", "stateUnchanged", "stateHidden", "stateAlwaysHidden", "stateVisible", "stateAlwaysVisible"];
+            string[] adjusts = ["adjustUnspecified", "adjustResize", "adjustPan", "adjustNothing"];
+            return adjust == 0 ? states[state] : state == 0 ? adjusts[adjust] : $"{states[state]}|{adjusts[adjust]}";
+        }
+        if (!Symbols.TryGetValue(attribute, out var symbols)) return null;
+        if (!symbols.Flags) return symbols.Values.FirstOrDefault(v => v.Value == value).Name;
+        var set = symbols.Values.Where(v => (value & v.Value) == v.Value).ToList();
+        return set.Count == 0 || set.Aggregate(0u, (m, v) => m | v.Value) != value ? null : string.Join("|", set.Select(v => v.Name));
+    }
+
+    // ProtectionLevel names only the bits it knows; an unknown bit keeps the number.
+    private static bool AllBitsNamed(uint value)
+    {
+        for (int bit = 4; bit < 32; bit++)
+            if ((value & (1u << bit)) != 0 && AndroidManifestSummary.ProtectionLevel(1u << bit).Split('|').Length < 2) return false;
+        return true;
+    }
 }

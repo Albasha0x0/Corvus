@@ -99,6 +99,30 @@ public sealed class AndroidProjectExportTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(r.Directory, "app", "src", "main", "smali")));
     }
 
+    /// <summary>aapt2 rejects numbers for enum and flag attributes: the exported manifest names them; values without a name stay numbers.</summary>
+    [Fact]
+    public async Task ManifestEnumAndFlagValuesAreWrittenByName()
+    {
+        const byte Hex = 0x11;
+        var manifest = Write(new Node("manifest", String("package", "com.example.app", ns: null), Int("installLocation", 1, 0x010102b7))
+            .Add(new Node("permission", String("name", "com.example.app.P", 0x01010003), new Attr(Android, "protectionLevel", 0x01010009, Hex, 0x12)),
+                new Node("application").Add(new Node("activity", String("name", ".Main", 0x01010003), Int("launchMode", 2, 0x0101001d),
+                    Int("screenOrientation", -1, 0x0101001e), new Attr(Android, "configChanges", 0x0101001f, Hex, 0x4a0),
+                    new Attr(Android, "windowSoftInputMode", 0x0101022b, Hex, 0x12), Int("uiOptions", 7, 0x01010398)))));
+        var apk = AndroidSamples.Save(_dir, "enums.apk", ContainerFixtures.Zip([("AndroidManifest.xml", manifest)]));
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
+        using var java = new JavaDecompilerService(new DexService());
+        var r = await new AndroidProjectExport(new DexService(), java).Export(apk, _dir.File("out"), null, default);
+        var xml = Read(r.Directory, "app/src/main/AndroidManifest.xml");
+        Assert.Contains("android:installLocation=\"internalOnly\"", xml);
+        Assert.Contains("android:protectionLevel=\"signature|privileged\"", xml);
+        Assert.Contains("android:launchMode=\"singleTask\"", xml);
+        Assert.Contains("android:screenOrientation=\"unspecified\"", xml);
+        Assert.Contains("android:configChanges=\"keyboardHidden|orientation|screenSize\"", xml);
+        Assert.Contains("android:windowSoftInputMode=\"stateHidden|adjustResize\"", xml);
+        Assert.Contains("android:uiOptions=\"7\"", xml);
+    }
+
     /// <summary>A shrunk build renames resource files; they are written where their table entry says they belong.</summary>
     [Fact]
     public async Task RenamedResourceFilesGoToTheirCanonicalPath()
