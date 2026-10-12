@@ -301,7 +301,8 @@ public class AnnotationStoreTests : IDisposable
         var b = Open(new AnnotationStore(Root));
         using var stop = new CancellationTokenSource();
         int reads = 0;
-        var reader = Task.Run(() =>
+        // its own thread: a pool task can wait longer than the whole test for a pool thread while other tests hold them
+        var reader = Task.Factory.StartNew(() =>
         {
             while (!stop.IsCancellationRequested)
             {
@@ -314,12 +315,12 @@ public class AnnotationStoreTests : IDisposable
                 catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { }
                 Thread.Sleep(1); // an open reader blocks a rename over the file on Windows; real readers are occasional
             }
-        });
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         Parallel.Invoke(
             () => { for (uint i = 0; i < 20; i++) a.SetName(0x1000 + i * 16, $"A_{i}"); },
             () => { for (uint i = 0; i < 20; i++) b.SetName(0x8000 + i * 16, $"B_{i}"); });
         a.SetComment(0x1000, "last");
-        SpinWait.SpinUntil(() => Volatile.Read(ref reads) > 0, TimeSpan.FromSeconds(10)); // the reader may start late on a busy pool
+        SpinWait.SpinUntil(() => Volatile.Read(ref reads) > 0, TimeSpan.FromSeconds(30)); // the reader may start late on a busy machine
         stop.Cancel();
         await reader;
 
