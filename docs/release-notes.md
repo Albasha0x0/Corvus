@@ -1,5 +1,76 @@
 # Release notes
 
+## 1.3.0
+
+158 tools (1.2.0 had 155). New are look-alike function search, p-code emulation and folder comparison. The release
+also adds Electron, Objective-C / Swift and Go metadata, a faster and parallel code index (results are the same at any
+thread count), faster IDA sessions, and reliability work across the server: calls that hold or wait on the workspace,
+leftover calls, worker lifetime and logs.
+
+### Changes in behaviour
+
+- **Busy server.** Calls cancelled or past their deadline that keep running are capped (`CORVUS_MAX_LEFTOVER_CALLS`,
+  default 2). At the cap a new call is refused as `provider_unavailable` with `retryAfterMs`. A call that times out
+  waiting for the workspace lock names the calls holding it (`details.blockedBy`). `server_status` lists both and no
+  longer takes the lock.
+- **Errors.** Save tools report only IO faults as `io_error`; unclassified faults are `internal` with a Next (also per
+  item in `apply_edits`). `decompile_java` without JADX or Java is not retryable (`details.reason` `not_configured`).
+  A Blazor folder whose boot manifest lists none of the present assemblies is `not_found`.
+- **`rename_symbol`** keeps a generic type's arity suffix and refuses a different arity.
+- **`set_native_local` (Ghidra)** checks that the rename took effect: a local without storage in use, or a name the
+  decompiler kept, fails instead of succeeding.
+- **Deterministic records.** `unity_overview`, `compare_native_images`, `update_to_new_build` and
+  `find_similar_functions` no longer carry elapsed time, so two identical calls give identical bytes.
+- **Code index** persist format 11. Older indexes are rebuilt on first use.
+- **IDA cache keys** are short (16 hex characters). Existing entries migrate. Input paths over 259 characters fail up
+  front and give their length.
+
+### New tools
+
+- **`find_similar_functions`** ranks look-alike functions using MinHash sketches of instruction shapes, then rescores
+  them exactly. It searches across all loaded images and also reports duplicate groups and near-duplicate clusters.
+- **`emulate_native`** runs a function or range in Ghidra's p-code emulator over the program's bytes, with a private
+  stack, arguments by calling convention, stubs for calls, and instruction and time budgets.
+- **`compare_folders`** compares two folders or zip-family archives entry by entry by streaming SHA-256. It reports
+  moves and case-only renames, and gives a next call per changed binary and inline diffs of small text files.
+- **`update_to_new_build`** now also takes two .NET assemblies: member notes follow their `find_counterpart` match and
+  file notes move to the new build.
+
+### Formats and metadata
+
+- **Electron:** ASAR archives with integrity checks, unpacked entries and links; `summarize_file` reports Electron,
+  Chromium and Node versions, fuses, the entry point and `webPreferences` values. Node-API add-on callbacks are named
+  after their JavaScript names.
+- **Unity WebGL** data files and **HAR / mitmproxy** captures open as containers.
+- **Mach-O:** Objective-C and Swift metadata readers and a Swift demangler; `list_cpp_classes` and `get_native_type` list
+  Objective-C classes, categories and protocols and Swift types.
+- **Go:** build info for PE, ELF and Mach-O; function sizes from each function's own tables; noreturn runtime functions.
+- **ELF and Mach-O** patch-site extension stubs (`patch_asm` beyond a site's size).
+
+### Native analysis
+
+- **ARM:** functions found in gaps from ARM32 and ARM64 prologues; `.ARM.exidx` / `.ARM.extab` exception data; ARM64X
+  and ARM64EC images decoded in both instruction sets; ARM32 crypto instructions; JNIEnv / JavaVM calls named with their
+  parameters; floating-point and System V call arguments (struct return, variadic vector count, 16-byte structs).
+- **Index speed:** discovery, sorting, noreturn propagation, RTTI, `.pdata` and virtual call resolution run on several
+  threads. Allocation on a 130 MB NativeAOT image drops from 3.1 GB to 0.32 GB.
+- **IDA:** function and string lists are kept per session. Rename pushes are journaled and re-decompile only the
+  affected functions. A first decompile on a large ELF drops from 7–10 s to 0.6 s. `find_xrefs`, `resolve_address` and
+  `search_bytes` take lists of targets. An `.i64` beside the input starts the cache as a copy, and the user's file is
+  never written. A script loop is interrupted in place at its cancel or deadline.
+
+### Operations
+
+- Engine workers end within a second of a killed server on Linux and macOS.
+- The engine database cache is bounded (`CORVUS_ANALYSIS_CACHE_MB` / `_DAYS`).
+- Each call writes one info log line (`CORVUS_LOG_FORMAT=json`). `--trace` records argument values only with
+  `--trace-args`, with secrets masked.
+- Per-RID publishes are ReadyToRun, so each cold CLI call is about 0.4 s faster.
+- `verify_native_imports` reports progress, never rebuilds stubs per call (300 s to 7 s cold on a large app) and no
+  longer hits dnlib's `LockException`.
+- `export_project` decompiles outside the workspace lock.
+- New: a CorvusRE NuGet .NET tool package, MCP bundles (`.mcpb`) per desktop target, and an updated SECURITY.md.
+
 ## 1.2.0
 
 155 tools (1.1.0 had 101) and 13 prompts (9). The project is now **Corvus**; it was NetDecompilerMcp up to 1.1.0. This
