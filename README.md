@@ -132,8 +132,10 @@ that folder as a child, itself from a staged copy. Each `./publish.ps1` writes `
 it is stable and no call is in flight, the relay starts the new build, repeats the client's `initialize`, replays
 the workspace calls that succeeded (`load_assembly`, `unload_assembly`, `add_search_directory`, `load_pdb`,
 `unpack_container`, log level, resource subscriptions), switches over and sends `tools`, `prompts` and `resources`
-`list_changed`, so the client sees the new build without reconnecting. A `[relay]` line on the next tool result names
-the build, its catalog digest and what was replayed. In-memory edits, native engine sessions and kept results are not
+`list_changed`, so the client sees the new build without reconnecting. Clients on the 2026-07-28 protocol (per-request
+metadata, no session) are served too: the relay sends the new build `server/discover` with the client's metadata instead
+of `initialize`, moves open `subscriptions/listen` streams to it, and sends `list_changed` on the streams that asked for it.
+A `[relay]` line on the next tool result names the build, its catalog digest and what was replayed. In-memory edits, native engine sessions and kept results are not
 carried over: with unsaved edits or patches the switch waits until they are saved or reverted, and the added tool
 `relay_apply` switches at once. A build that fails to start or to replay is reported and the old server stays.
 Arguments after the relay's own (`relay --target <dir> [--state <dir>] [--poll-ms <n>] [--] ...`) go to the server;
@@ -143,7 +145,7 @@ a plain `install` switches the registration back. publish.ps1 renames files of a
 ## What it covers
 
 **MCP features:** 157 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/Corvus/Mcp/ToolEffects.cs`),
-resources and resource templates (subscribers get an update notice after each workspace change), 13 prompts, argument completion, progress notifications, structured output for the list,
+resources and resource templates (subscribers get an update notice after each workspace change, through `resources/subscribe` or, on 2026-07-28, the `resourceSubscriptions` of a `subscriptions/listen` stream), 13 prompts, argument completion, progress notifications, structured output for the list,
 search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](docs/errors.md)), strict arguments
 (an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets such as `engine`, `kind`
 and `format` are advertised as `enum` and an unlisted value is `invalid_argument` with the closest one), a stale-server check
