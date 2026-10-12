@@ -73,7 +73,7 @@ Add a directory for resolving referenced assemblies that are not loaded (an appl
 
 **List loaded assemblies** (read-only, idempotent)
 
-Loaded assemblies with their ids (for other tools), versions, paths, Il2Cpp dummy, ReadyToRun and merged (ILMerge / ILRepack) flags and unsaved edits; plus the reference search directories. With path: the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting them (unpack_container extracts and loads them); archives (Electron .asar with integrity verdicts, Unity WebGL .data) list their files.
+Loaded assemblies with their ids (for other tools), versions, paths, Il2Cpp dummy, ReadyToRun and merged (ILMerge / ILRepack) flags and unsaved edits; plus the reference search directories. With path: the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting them (unpack_container extracts and loads them); archives (Electron .asar with integrity verdicts, Unity WebGL .data, HAR / mitmproxy captures) list their files.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -597,7 +597,7 @@ Structured output: `source`, `container`, `assembliesSearched`, `matches`, `tota
 
 **Unpack container** (edit, idempotent, long-running)
 
-Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, NuGet packages, Xamarin / MAUI .apk / .aab (compressed assemblies and assembly stores, per ABI), zips, and .NET images embedded elsewhere; nested containers too. An Electron .asar (.unpacked files too) or Unity WebGL .data gives every file. Nothing is executed; names cannot escape the output directory and runnable extensions get .bin. NativeAOT executables (no IL) are reported.
+Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, NuGet packages, Xamarin / MAUI .apk / .aab (compressed assemblies and assembly stores, per ABI), zips, and .NET images embedded elsewhere; nested containers too. An Electron .asar (.unpacked files too), Unity WebGL .data or HAR / mitmproxy capture (decoded response bodies) gives every file. Nothing is executed; names cannot escape the output directory and runnable extensions get .bin. NativeAOT executables (no IL) are reported.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

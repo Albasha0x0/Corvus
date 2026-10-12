@@ -11,8 +11,8 @@ public sealed class UnpackTools(UnpackService unpacker)
 {
     [McpServerTool(Name = "unpack_container", Title = "Unpack container", UseStructuredContent = true)]
     [Description("Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, NuGet packages, Xamarin / MAUI .apk / .aab " +
-                 "(compressed assemblies and assembly stores, per ABI), zips, and .NET images embedded elsewhere; nested containers too. An Electron .asar (.unpacked files too) or " +
-                 "Unity WebGL .data gives every file. Nothing is executed; " +
+                 "(compressed assemblies and assembly stores, per ABI), zips, and .NET images embedded elsewhere; nested containers too. An Electron .asar (.unpacked files too), " +
+                 "Unity WebGL .data or HAR / mitmproxy capture (decoded response bodies) gives every file. Nothing is executed; " +
                  "names cannot escape the output directory and runnable extensions get .bin. NativeAOT executables (no IL) are reported.")]
     public Task<UnpackService.UnpackReport> UnpackContainer(
         [Description("Absolute path to the container file, or a Blazor _framework folder (its Webcil .wasm assemblies).")] string path,

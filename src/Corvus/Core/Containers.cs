@@ -61,6 +61,8 @@ public static class Containers
         if (kind == "unitywebdata") return UnityWebData.Open(data, name, location, allFiles, limits, ct);
         if ((kind == "gzip" || kind == "data") && UnityWebData.Decompress(data, name, limits.MaxItemBytes) is { } web)
             return UnityWebData.Open(web, name, location, allFiles, limits, ct, kind == "gzip" ? "gzip" : "Brotli");
+        if (kind == "text" && Captures.LooksLikeHar(data) && Captures.Open(data, flows: false, allFiles, limits, ct) is { } har) return har;
+        if (kind is "text" or "data" && Captures.LooksLikeFlows(data)) return Captures.Open(data, flows: true, allFiles, limits, ct)!;
         if (kind == "zip") return OpenZip(data, name, limits, ct);
         if (kind is "wasm" or "webcil")
         {

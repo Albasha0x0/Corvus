@@ -170,7 +170,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", UseStructuredContent = true)]
     [Description("Loaded assemblies with their ids (for other tools), versions, paths, Il2Cpp dummy, ReadyToRun and merged (ILMerge / ILRepack) flags and unsaved edits; " +
                  "plus the reference search directories. With path: the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, " +
-                 "Costura host, zip) without extracting them (unpack_container extracts and loads them); archives (Electron .asar with integrity verdicts, Unity WebGL .data) list their files.")]
+                 "Costura host, zip) without extracting them (unpack_container extracts and loads them); archives (Electron .asar with integrity verdicts, Unity WebGL .data, HAR / mitmproxy captures) list their files.")]
     public Task<WorkspaceState> ListAssemblies(
         [Description("A container file (or Blazor _framework folder) to list instead of the workspace.")] string? path = null,
         [Description("Id, name or path substring (case-insensitive).")] string? filter = null,

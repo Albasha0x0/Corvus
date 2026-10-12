@@ -33,7 +33,7 @@ public static class UnityWebData
                 using var brotli = new BrotliStream(new MemoryStream(data, writable: false), CompressionMode.Decompress);
                 inner = Blob.ReadBounded(brotli, maxBytes);
             }
-            catch (Exception ex) when (ex is InvalidDataException or IOException) { }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or InvalidOperationException) { }
         }
         return inner != null && Looks(inner) ? inner : null;
     }
