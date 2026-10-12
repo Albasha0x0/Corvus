@@ -57,8 +57,13 @@ public sealed class ToolError : McpException
     /// <summary>The next step of an "internal" error (an exception no tool classified), also per item where a tool collects failures.</summary>
     public const string InternalNext = "a fault in Corvus, not in the input: report it with the tool, its arguments and this message; the same call fails the same way";
 
-    /// <summary>Whether repeating the same call can succeed without changing its arguments.</summary>
-    public bool Retryable => IsRetryable(Code);
+    /// <summary>
+    /// Whether repeating the same call can succeed without changing its arguments: by code, unless the thrower knows better
+    /// (a provider that is not configured stays unavailable).
+    /// </summary>
+    public bool Retryable { get => _retryable ?? IsRetryable(Code); init => _retryable = value; }
+
+    private readonly bool? _retryable;
 
     public static bool IsRetryable(ErrorCode code) => code is ErrorCode.Timeout or ErrorCode.Cancelled or ErrorCode.IoError or ErrorCode.ProviderUnavailable;
 

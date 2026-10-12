@@ -154,8 +154,8 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
             {
                 var java = ExternalTools.Probe(ExternalTools.Java);
                 var jadx = ExternalTools.Probe(ExternalTools.JavaDecompiler);
-                if (!jadx.Usable) throw Unavailable($"the JADX server is not available: {jadx.Problem}", jadx.Remediation);
-                if (!java.Usable) throw Unavailable($"Java is not available: {java.Problem}", java.Remediation);
+                if (!jadx.Usable) throw NotConfigured($"the JADX server is not available: {jadx.Problem}", jadx.Remediation);
+                if (!java.Usable) throw NotConfigured($"Java is not available: {java.Problem}", java.Remediation);
                 try { server = JadxServer.Start(java.Path!, jadx.Path!, path, LoadTimeout, Environment); }
                 catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
                 {
@@ -180,6 +180,11 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
 
     private static ToolError Unavailable(string message, string remediation) =>
         new(ErrorCode.ProviderUnavailable, message + ". disassemble_dex gives the smali without it.", remediation);
+
+    /// <summary>A missing tool or setting: calling again cannot help until the configuration changes.</summary>
+    internal static ToolError NotConfigured(string message, string remediation) =>
+        new(ErrorCode.ProviderUnavailable, message + ". disassemble_dex gives the smali without it.", remediation)
+        { Retryable = false, Details = new { reason = "not_configured" } };
 
     private void Drop(string path)
     {

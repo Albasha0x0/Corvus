@@ -96,6 +96,10 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         Assert.Equal(ErrorCode.ProviderUnavailable, error.Code);
         Assert.Contains("disassemble_dex", error.Message);
         Assert.Contains("CORVUS_JAVA_DECOMPILER", error.Remediation);
+        // Not configured: the same call cannot succeed until the setting changes.
+        Assert.False(error.Retryable);
+        Assert.Contains("\"retryable\":false", error.ToJson());
+        Assert.Contains("\"reason\":\"not_configured\"", error.ToJson());
     }
 
     /// <summary>The real JADX server (CORVUS_JAVA_DECOMPILER) decompiles the sample and picks the overload asked for.</summary>
