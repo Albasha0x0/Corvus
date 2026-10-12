@@ -538,9 +538,9 @@ public sealed class BuildMatcher
         return (agree, known);
     }
 
-    private static double Ratio(double a, double b) => a == b ? 1 : Math.Min(a, b) / Math.Max(a, b);
+    internal static double Ratio(double a, double b) => a == b ? 1 : Math.Min(a, b) / Math.Max(a, b);
 
-    private static double Histogram(FunctionPrint a, FunctionPrint b)
+    internal static double Histogram(FunctionPrint a, FunctionPrint b)
     {
         int i = 0, j = 0;
         long min = 0, max = 0;
@@ -558,7 +558,7 @@ public sealed class BuildMatcher
         return max == 0 ? 1 : (double)min / max;
     }
 
-    private static double Jaccard<T>(T[] a, T[] b, Comparison<T> compare)
+    internal static double Jaccard<T>(T[] a, T[] b, Comparison<T> compare)
     {
         int i = 0, j = 0, both = 0;
         while (i < a.Length && j < b.Length)

@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-155 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+156 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -13,7 +13,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [containers](#containers) | yes | 7: file inspection, containers and wrapped apps, Unity overview |
 | [edit](#edit) | yes | 15: .NET edits, edit history and saving |
 | [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
-| [native](#native) | yes | 32: native PE analysis, symbols and decompilation |
+| [native](#native) | yes | 33: native PE analysis, symbols and decompilation |
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
@@ -1295,6 +1295,25 @@ Finds the native code behind a behaviour from a text or value: strings, function
 | `limit` | integer |  | `50` | Functions per page (max 500). |
 
 Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `truncated`, `hubs`, `notes`.
+
+### find_similar_functions
+
+**Find similar functions** (read-only, idempotent, long-running)
+
+Functions like a given one in a native image, ranked by score with evidence: instruction-shape similarity (registers, addresses, constants ignored), containment, CFG shape, shared strings, constants, imports, callees. scope=all: every loaded image of the architecture. view=duplicates: same-shape groups; view=clusters: near-duplicates image-wide.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `address` | string |  |  | view=similar: an address in the function. |
+| `view` | string |  |  | similar (default with address), duplicates or clusters (default without). Values: similar, duplicates, clusters. |
+| `scope` | string |  |  | image (default) or all (view=similar). Values: image, all. |
+| `minScore` | number |  |  | Least score 0-1 (default 0.5; clusters 0.8). |
+| `minInstructions` | integer |  | `5` | Smallest function compared, in instructions (1-1000). |
+| `offset` | integer |  | `0` | Items to skip. |
+| `limit` | integer |  | `20` | Items to return (max 500). |
+
+Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `truncated`, `matches`, `groups`, `notes`, `seconds`.
 
 ### get_exception_info
 

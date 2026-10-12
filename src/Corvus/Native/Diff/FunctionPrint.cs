@@ -41,6 +41,10 @@ public sealed class FunctionPrint
     public string? ThunkImport { get; init; }
     /// <summary>The code could not be decoded (or graphed); only size facts are set.</summary>
     public bool Failed { get; init; }
+    /// <summary>MinHash of the instruction-shape n-grams (<see cref="CodeSketch"/>); null when there is no code.</summary>
+    public ushort[]? Sketch { get; init; }
+    /// <summary>Distinct instruction-shape n-grams.</summary>
+    public int Shingles { get; init; }
 }
 
 /// <summary>The prints of every function of one code index; built once per index and cached.</summary>
@@ -57,17 +61,18 @@ public sealed class ImagePrints
     public FunctionPrint? At(uint start) => ByStart.TryGetValue(start, out var i) ? Functions[i] : null;
 
     /// <summary>The prints of <paramref name="index"/>, computed on first use (in parallel, cancellable).</summary>
-    public static ImagePrints Of(NativeCodeIndex index, CancellationToken ct)
+    public static ImagePrints Of(NativeCodeIndex index, CancellationToken ct, IProgress<int>? progress = null)
     {
         var lazy = Cache.GetValue(index, i => new Lazy<ImagePrints>(() => Build(i, CancellationToken.None), LazyThreadSafetyMode.ExecutionAndPublication));
         if (lazy.IsValueCreated) return lazy.Value;
         // Build outside the lazy when the caller can cancel, so a cancelled build is not cached.
-        var built = Build(index, ct);
+        var built = Build(index, ct, progress);
         Cache.AddOrUpdate(index, new Lazy<ImagePrints>(built));
         return built;
     }
 
-    public static ImagePrints Build(NativeCodeIndex index, CancellationToken ct)
+    /// <param name="progress">Functions printed so far, reported every few thousand.</param>
+    public static ImagePrints Build(NativeCodeIndex index, CancellationToken ct, IProgress<int>? progress = null)
     {
         if (index.Support != CodeSupport.Full)
             throw new NotSupportedException(index.SupportNote ?? "Instructions are not decoded for this architecture.");
@@ -79,13 +84,14 @@ public sealed class ImagePrints
         foreach (var imp in index.Image.Imports) slots.TryAdd(imp.SlotRva, NativeCodeIndex.ImportName(imp));
 
         var prints = new FunctionPrint[functions.Count];
-        int failed = 0;
+        int failed = 0, done = 0;
         Parallel.For(0, functions.Count, new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount) },
             () => new MaskedDecoder(index.Image, index),
             (i, _, decoder) =>
             {
                 prints[i] = Print(index, decoder, functions[i], i, slots, ct);
                 if (prints[i].Failed) Interlocked.Increment(ref failed);
+                if (Interlocked.Increment(ref done) is var n && (n & 0xFFF) == 0) progress?.Report(n);
                 return decoder;
             }, _ => { });
 
@@ -207,6 +213,7 @@ public sealed class ImagePrints
         signature.Add(-2);
         foreach (var k in constants) signature.Add((long)k);
         int items = imports.Count + strings.Count + constants.Count;
+        var (sketch, shingles) = CodeSketch.Of(code);
 
         return new FunctionPrint
         {
@@ -229,6 +236,8 @@ public sealed class ImagePrints
             Constants = constants.ToArray(),
             CallSites = calls,
             ThunkImport = thunk,
+            Sketch = sketch,
+            Shingles = shingles,
         };
     }
 
