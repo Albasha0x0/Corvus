@@ -19,11 +19,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
 
     private Task<LoadedNative> Native(string image, CancellationToken ct) => Task.Run(() =>
     {
-        var id = workspace.Read(() => workspace.FindNative(image)?.Id);
-        if (id == null && !string.IsNullOrWhiteSpace(image) && Path.IsPathFullyQualified(image.Trim()) && File.Exists(image.Trim()))
-            id = workspace.LoadAny(image.Trim()).Native?.Id ?? throw new ToolError(ErrorCode.Unsupported, $"{image} is a .NET assembly, not a native image.",
-                "use the .NET tools for it");
-        return workspace.Read(() => workspace.GetNative(id ?? image));
+        return Targets.Native(workspace, image);
     }, ct);
 
     /// <summary>One line on the image's PDB for get_pe_info, or null when the image names no PDB and none is loaded.</summary>

@@ -179,12 +179,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         var result = new List<LoadedNative>();
         if (string.IsNullOrWhiteSpace(list)) return workspace.Read(() => workspace.Natives.ToList());
         foreach (var item in list.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var id = workspace.Read(() => workspace.FindNative(item)?.Id);
-            if (id == null && Path.IsPathFullyQualified(item) && File.Exists(item))
-                id = workspace.LoadAny(item).Native?.Id ?? throw new ToolError(ErrorCode.Unsupported, $"images: {item} is a .NET assembly, not a native image.");
-            result.Add(workspace.Read(() => workspace.GetNative(id ?? item)));
-        }
+            result.Add(Targets.Native(workspace, item, "images"));
         return result;
     }
 

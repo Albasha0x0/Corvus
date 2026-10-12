@@ -22,10 +22,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
     /// <summary>The native image named by id or path (loaded by path when needed).</summary>
     internal static LoadedNative ResolveImage(AssemblyWorkspace workspace, string image)
     {
-        var id = workspace.Read(() => workspace.FindNative(image)?.Id);
-        if (id == null && !string.IsNullOrWhiteSpace(image) && Path.IsPathFullyQualified(image.Trim()) && File.Exists(image.Trim()))
-            id = workspace.LoadAny(image.Trim()).Native?.Id ?? throw new ToolError(ErrorCode.Unsupported, $"{image} is a .NET assembly, not a native image.");
-        return workspace.Read(() => workspace.GetNative(id ?? image));
+        return Targets.Native(workspace, image);
     }
 
     private (LoadedNative Native, uint Rva) Resolve(string image, string address) => Resolve(workspace, code, image, address);

@@ -161,11 +161,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
     {
         var native = await Task.Run(() =>
         {
-            var id = workspace.Read(() => workspace.FindNative(image)?.Id);
-            if (id == null && !string.IsNullOrWhiteSpace(image) && Path.IsPathFullyQualified(image.Trim()) && File.Exists(image.Trim()))
-                id = workspace.LoadAny(image.Trim()).Native?.Id ?? throw new ToolError(ErrorCode.Unsupported, $"{image} is a .NET assembly, not a native image.",
-                    "use the .NET tools for it");
-            return workspace.Read(() => workspace.GetNative(id ?? image));
+            return Targets.Native(workspace, image);
         }, ct);
         var waited = System.Diagnostics.Stopwatch.StartNew();
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p => progress.Report(new ProgressNotificationValue

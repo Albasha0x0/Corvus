@@ -16,14 +16,6 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
 {
     private const string AssemblyPathNote = " A full path to an assembly that is not loaded yet loads it.";
 
-    /// <summary>Loads the assembly first when given as the full path of a file that is not loaded.</summary>
-    private void LoadIfPath(string? assembly)
-    {
-        var path = assembly?.Trim();
-        if (string.IsNullOrEmpty(path) || !Path.IsPathFullyQualified(path) || !File.Exists(path)) return;
-        if (workspace.Read(() => workspace.FindByPath(path)) == null) workspace.Load(path);
-    }
-
     [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method")]
     [Description("The precompiled native code of a method in a ReadyToRun assembly (including the shared framework): entry address, code ranges (hot, funclets, cold), " +
                  "the fixup import cells, and x86 / x64 disassembly with cells named by what they resolve to (methods, type handles, helpers, strings). " +
@@ -38,7 +30,7 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
-        LoadIfPath(assembly);
+        Targets.Prepare(workspace, assembly);
         return workspace.Read(() =>
         {
             var symbols = SymbolResolver.Resolve(workspace, assembly, method);
@@ -130,7 +122,7 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
         [Description("A VA or RVA in the code image (rva:/va:/off: prefix).")] string address,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
-        LoadIfPath(assembly);
+        Targets.Prepare(workspace, assembly);
         return workspace.Read(() =>
         {
             var asm = workspace.Get(assembly);

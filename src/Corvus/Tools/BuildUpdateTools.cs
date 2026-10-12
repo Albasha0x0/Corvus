@@ -325,13 +325,12 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     {
         LoadedAssembly? One(string image)
         {
-            if (string.IsNullOrWhiteSpace(image) || workspace.Read(() => workspace.FindNative(image)) != null) return null;
-            try { return workspace.Read(() => workspace.Get(image)); }
-            catch (ToolError) { }
-            var path = image.Trim();
-            if (!Path.IsPathFullyQualified(path) || !File.Exists(path)) return null;
-            var loaded = workspace.LoadAny(path);
-            return loaded.Native == null ? loaded.Assembly : null;
+            if (string.IsNullOrWhiteSpace(image)) return null;
+            Target target;
+            try { target = Targets.Resolve(workspace, image, TargetKind.Any); }
+            catch (ToolError) { return null; } // the native path reports it
+            if (target.Notice != null) workspace.Notify(target.Notice);
+            return target.Native == null ? target.Assembly : null;
         }
         return One(oldImage) is { } o && One(newImage) is { } n ? (o, n) : null;
     }
@@ -927,10 +926,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     private Task<LoadedNative> Resolve(string image, CancellationToken ct) => Task.Run(() =>
     {
-        var id = workspace.Read(() => workspace.FindNative(image)?.Id);
-        if (id == null && !string.IsNullOrWhiteSpace(image) && Path.IsPathFullyQualified(image.Trim()) && File.Exists(image.Trim()))
-            id = workspace.LoadAny(image.Trim()).Native?.Id ?? throw new ToolError(ErrorCode.Unsupported, $"{image} is a .NET assembly, not a native image.",
-                "use compare_assemblies, find_counterpart and export_edits + apply_edits for .NET builds");
-        return workspace.Read(() => workspace.GetNative(id ?? image));
+        return Targets.Native(workspace, image);
     }, ct);
 }

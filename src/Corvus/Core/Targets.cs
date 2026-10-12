@@ -69,7 +69,10 @@ public static class Targets
         foreach (var name in Parameters)
         {
             if (!arguments.TryGetValue(name, out var value)) continue;
-            if (value.ValueKind == JsonValueKind.String) Prepare(workspace, value.GetString());
+            if (value.ValueKind == JsonValueKind.String && name == "images") // a ';'- or ','-separated list
+                foreach (var item in value.GetString()!.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    Prepare(workspace, item);
+            else if (value.ValueKind == JsonValueKind.String) Prepare(workspace, value.GetString());
             else if (value.ValueKind == JsonValueKind.Array)
                 foreach (var item in value.EnumerateArray())
                     if (item.ValueKind == JsonValueKind.String) Prepare(workspace, item.GetString());

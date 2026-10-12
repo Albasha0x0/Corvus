@@ -107,6 +107,11 @@ public class TargetsTests
         Targets.PreResolve(ws, "list_types", Args(("images", new[] { managed })));
         Assert.Equal(2, ws.Read(() => ws.Assemblies.Count + ws.Natives.Count(n => n.ManagedView == null)));
         Assert.Throws<ToolError>(() => Targets.PreResolve(ws, "list_types", Args(("assembly", dir.File("gone/x.dll")))));
+        // images as a list in one string, ';' or ',' separated
+        var second = dir.File("second.dll");
+        File.WriteAllBytes(second, NativePeTests.KitchenSink(is64: false));
+        Targets.PreResolve(ws, "symbolize_stack_text", Args(("images", $"native.dll; {second}")));
+        Assert.NotNull(ws.Read(() => ws.FindNative(second)));
     }
 
     [Fact]

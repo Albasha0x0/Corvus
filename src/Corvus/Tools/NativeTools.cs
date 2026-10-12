@@ -25,14 +25,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     /// <summary>Runs work on a loaded native image under the read lock; a path that is not loaded yet is loaded first.</summary>
     private Task<string> OnImage(string image, Func<LoadedNative, string> work, CancellationToken ct) => Task.Run(() =>
     {
-        var id = workspace.Read(() => workspace.FindNative(image)?.Id);
-        if (id == null && !string.IsNullOrWhiteSpace(image) && Path.IsPathFullyQualified(image.Trim()) && File.Exists(image.Trim()))
-        {
-            var (assembly, native) = workspace.LoadAny(image.Trim());
-            id = native?.Id ?? throw new ToolError(ErrorCode.Unsupported, $"{image} is a .NET assembly (loaded as {assembly!.Id}), not a native image.",
-                "use the .NET tools for it");
-        }
-        return workspace.Read(() => work(workspace.GetNative(id ?? image)));
+        var id = Targets.Native(workspace, image).Id;
+        return workspace.Read(() => work(workspace.GetNative(id)));
     }, ct);
     /// <summary>A function name as people read it: MSVC-decorated names as the qualified name, Itanium and Swift mangled ones demangled; others as given.</summary>
     internal static string DisplayName(string name, ImageFormat format = ImageFormat.Pe)
@@ -245,8 +239,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         List<string>? dynamicRows = null;
         if (includeDynamic && code != null)
         {
-            await OnImage(image, _ => "", cancellationToken); // loads a path
-            var loaded = workspace.Read(() => workspace.FindNative(image.Trim()) ?? workspace.GetNative(image));
+            var loaded = await Task.Run(() => Targets.Native(workspace, image), cancellationToken);
             var index = await code.Index(loaded, null, cancellationToken);
             dynamicRows = await Task.Run(() => NativeCallTools.DynamicImportRows(index, module, filter, cancellationToken), cancellationToken);
         }
