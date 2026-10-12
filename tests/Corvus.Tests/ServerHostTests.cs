@@ -26,6 +26,32 @@ public class ServerHostTests
     }
 
     [Fact]
+    public async Task TheHandshakeName_SelectsTheClientProfile()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
+        Pipe toServer = new(), toClient = new();
+        using var host = ServerHost.Build(options, "test", server => server.WithStreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream()));
+        await host.StartAsync();
+        try
+        {
+            await using var client = await McpClient.CreateAsync(new StreamClientTransport(toServer.Writer.AsStream(), toClient.Reader.AsStream()),
+                new McpClientOptions { ClientInfo = new Implementation { Name = "gemini-cli-mcp-client", Version = "1" } });
+            var status = await client.CallToolAsync("server_status", new Dictionary<string, object?>());
+            var budget = System.Text.Json.Nodes.JsonNode.Parse(status.StructuredContent!.Value.GetRawText())!["sections"]!.AsArray()
+                .Single(s => (string)s!["name"]! == "budget")!["fields"]!.AsArray();
+            string? Field(string name, string part = "value") => (string?)budget.FirstOrDefault(f => (string)f!["name"]! == name)?[part];
+            Assert.Equal(("Gemini CLI (gemini-cli)", "clientInfo"), (Field("client"), Field("client", "source")));
+            Assert.Equal("9,500 tokens per result, at most 38,000 characters", Field("ceiling"));
+            Assert.StartsWith("360 s per call", Field("deadline"));
+        }
+        finally
+        {
+            toServer.Writer.Complete();
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
     public async Task StreamTransport_ServesTheCatalogAndTools()
     {
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };

@@ -6,7 +6,7 @@ using Corvus.Services;
 
 namespace Corvus.Tools;
 
-/// <summary>The budget a call gets: tool profile, page ceiling, deadline and delivery, each with its source.</summary>
+/// <summary>The budget a call gets: client, tool profile, output ceiling, page size, deadline and delivery, each with its source.</summary>
 internal sealed class BudgetStatus : IStatusSection
 {
     public string Name => "budget";
@@ -16,13 +16,26 @@ internal sealed class BudgetStatus : IStatusSection
     {
         if (services.GetService<ServerOptions>() is not { } o) yield break;
         var defaults = new ServerOptions();
-        yield return new("profile", o.Toolsets.SetEquals(Core.Toolsets.All) ? "all" : string.Join(",", o.Toolsets.Order(StringComparer.Ordinal)),
-            o.Toolsets.SetEquals(Core.Toolsets.Default) ? "default" : $"{Core.Toolsets.Option} or {Core.Toolsets.Variable}");
-        yield return new("ceiling", $"{o.MaxOutputChars.ToString("N0", CultureInfo.InvariantCulture)} characters per page",
-            o.MaxOutputChars == defaults.MaxOutputChars ? "default" : "--max-output");
-        yield return new("deadline", $"{o.TimeoutSeconds * CallFilter.DeadlineFactor} s per call ({CallFilter.DeadlineFactor}x --timeout {o.TimeoutSeconds} s); long-running tools keep their own limits",
-            o.TimeoutSeconds == defaults.TimeoutSeconds ? "default" : "--timeout");
+        var c = ClientProfiles.Resolve(o, ClientName(services));
+        static string N(int n) => n.ToString("N0", CultureInfo.InvariantCulture);
+        yield return new("client", $"{c.Profile.Name} ({c.Profile.Id})", c.Source);
+        yield return new("profile", c.Toolsets, o.ToolsetsText != null ? $"{Core.Toolsets.Option} or {Core.Toolsets.Variable}" : c.Source);
+        yield return new("ceiling", $"{N(c.MaxTokens)} tokens per result" + (c.MaxChars is { } chars ? $", at most {N(chars)} characters" : ""), c.MaxTokensSource);
+        yield return new("page", $"{N(o.MaxOutputChars)} characters per page", o.MaxOutputChars == defaults.MaxOutputChars ? "default" : "--max-output");
+        var server = Deadlines.Server(o).TotalSeconds;
+        yield return c.DeadlineSeconds is { } waits && Deadlines.Effective(false, o, c) is { } answer
+            ? new("deadline", $"{answer.TotalSeconds:0} s per call: {c.Profile.Id} waits {waits} s, so calls answer {Deadlines.ClientMargin.TotalSeconds:0} s before " +
+                $"(server limit {server:0} s); long-running tools stop then too, and the same call made again picks up their work", c.DeadlineSource)
+            : new("deadline", $"{server:0} s per call ({Deadlines.ServerFactor}x --timeout {o.TimeoutSeconds} s); long-running tools keep their own limits",
+                o.TimeoutSeconds == defaults.TimeoutSeconds ? "default" : "--timeout");
         yield return new("delivery", "text blocks, plus structuredContent for tools with an output schema; a result over the ceiling is kept (results section)");
+    }
+
+    /// <summary>The connected client's clientInfo.name, when the server is in this provider.</summary>
+    private static string? ClientName(IServiceProvider services)
+    {
+        try { return services.GetService<ModelContextProtocol.Server.McpServer>()?.ClientInfo?.Name; }
+        catch (InvalidOperationException) { return null; }
     }
 }
 
@@ -95,6 +108,7 @@ internal sealed class CallsStatus : IStatusSection
             var leftovers = LeftoverWork.For(options);
             yield return new("leftover", $"{leftovers.Running} of at most {leftovers.Max} cancelled or timed-out calls still finishing; {leftovers.Total} since start" +
                 (leftovers.Running < leftovers.Max ? "" : "; new calls wait, then are refused as busy"), LeftoverWork.MaxVariable);
+            yield return new("joined", $"{CallJoin.For(options).Running} read-only runs shared by identical calls");
         }
         // This call holds no lock, so every holder is another call or background work.
         if (services.GetService<AssemblyWorkspace>() is { } workspace)
