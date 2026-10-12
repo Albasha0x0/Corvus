@@ -257,6 +257,67 @@ public static class Webcil
         return [];
     }
 
+    /// <summary>
+    /// The .wasm file names and "sha256-..." integrity values the boot manifests of a _framework folder list: blazor.boot.json
+    /// (.NET 8, 9), dotnet.boot.js or the config embedded in dotnet.js (.NET 10). Null when the folder has none.
+    /// </summary>
+    public static HashSet<string>? BootManifestEntries(string folder)
+    {
+        HashSet<string>? entries = null;
+        IEnumerable<string> candidates;
+        try { candidates = Directory.EnumerateFiles(folder, "blazor.boot.json").Concat(Directory.EnumerateFiles(folder, "dotnet*.js")).ToList(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+        foreach (var file in candidates)
+        {
+            string text;
+            try
+            {
+                if (new FileInfo(file).Length > 16L << 20) continue;
+                text = File.ReadAllText(file);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+            if (file.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
+            {
+                // The JSON sits between these markers; otherwise the file is not a boot config (dotnet.native.js, ...).
+                int start = text.IndexOf("/*json-start*/", StringComparison.Ordinal), end = text.IndexOf("/*json-end*/", StringComparison.Ordinal);
+                if (start < 0 || end < start) continue;
+                text = text[(start + "/*json-start*/".Length)..end];
+            }
+            try
+            {
+                using var json = System.Text.Json.JsonDocument.Parse(text, new System.Text.Json.JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = System.Text.Json.JsonCommentHandling.Skip });
+                if (json.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object || !json.RootElement.TryGetProperty("resources", out var resources)) continue;
+                Collect(resources, entries ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            }
+            catch (System.Text.Json.JsonException) { }
+        }
+        return entries;
+
+        // Names are keys (assembly, fingerprinting) or "name" values; integrity values are values ("sha256-...").
+        static void Collect(System.Text.Json.JsonElement e, HashSet<string> into)
+        {
+            switch (e.ValueKind)
+            {
+                case System.Text.Json.JsonValueKind.Object:
+                    foreach (var p in e.EnumerateObject())
+                    {
+                        if (p.Name.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase)) into.Add(p.Name);
+                        Collect(p.Value, into);
+                    }
+                    break;
+                case System.Text.Json.JsonValueKind.Array:
+                    foreach (var item in e.EnumerateArray()) Collect(item, into);
+                    break;
+                case System.Text.Json.JsonValueKind.String when e.GetString() is { } s && (s.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase) || s.StartsWith("sha256-", StringComparison.Ordinal)):
+                    into.Add(s);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>A file's integrity value as boot manifests write it.</summary>
+    public static string Integrity(byte[] file) => "sha256-" + Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(file));
+
     /// <summary>An unsigned LEB128 value, or -1 when it runs past the data or past 32 bits.</summary>
     private static long Uleb(byte[] data, ref int at)
     {

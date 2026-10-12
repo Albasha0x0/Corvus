@@ -150,6 +150,56 @@ public sealed class WebcilTests : IDisposable
         Assert.Contains("return 42;", reloaded.Decompile("A.Run::Go"));
     }
 
+    /// <summary>
+    /// A _framework folder with stale fingerprinted copies of one assembly from earlier publishes took the first by file name;
+    /// the copy the boot manifest lists is the one the app loads.
+    /// </summary>
+    [Theory]
+    [InlineData("net9")]
+    [InlineData("net8")]
+    [InlineData("net10")]
+    [InlineData("none")]
+    public void StaleFingerprintedCopiesYieldToTheOneTheBootManifestLists(string manifest)
+    {
+        var stale = ToWasm(ReferenceResolutionTests.Compile("Lib", "namespace L { public class Marker { public static int V() { return 1; } } }"));
+        var current = ToWasm(ReferenceResolutionTests.Compile("Lib", "namespace L { public class Marker { public static int V() { return 2; } } }"));
+        var framework = Path.Combine(_dir.Path, manifest, "_framework");
+        Directory.CreateDirectory(framework);
+        File.WriteAllBytes(Path.Combine(framework, "Lib.aaaa1111.wasm"), stale);
+        File.WriteAllBytes(Path.Combine(framework, "Lib.zzzz9999.wasm"), current);
+        File.WriteAllBytes(Path.Combine(framework, "Lib.mmmm5555.wasm"), stale);
+        switch (manifest)
+        {
+            case "net9":
+                File.WriteAllText(Path.Combine(framework, "blazor.boot.json"),
+                    """{ "mainAssemblyName": "Lib", "resources": { "fingerprinting": { "Lib.zzzz9999.wasm": "Lib.wasm" }, "assembly": { "Lib.wasm": "sha256-x" } } }""");
+                break;
+            case "net8": // logical names; the copy is identified by its integrity value
+                File.WriteAllText(Path.Combine(framework, "blazor.boot.json"),
+                    $$"""{ "mainAssemblyName": "Lib", "resources": { "assembly": { "Lib.wasm": "{{Webcil.Integrity(current)}}" } } }""");
+                break;
+            case "net10":
+                File.WriteAllText(Path.Combine(framework, "dotnet.native.q1w2e3.js"), "var x = 1;");
+                File.WriteAllText(Path.Combine(framework, "dotnet.k9j8h7.js"),
+                    """var a=1;/*json-start*/{ "mainAssemblyName": "Lib", "resources": { "assembly": [ { "virtualPath": "Lib.wasm", "name": "Lib.zzzz9999.wasm", "hash": "sha256-x" } ] } }/*json-end*/;var b=2;""");
+                break;
+        }
+
+        using var env = new Env();
+        var listed = new UnpackService(env.Workspace).List(framework, AnalysisLimits.Default, default);
+        var lib = Assert.Single(listed.Assemblies);
+        if (manifest == "none")
+        {
+            Assert.Equal("Lib.aaaa1111.wasm", lib.Origin);
+            Assert.Contains(listed.Notes, n => n.Contains("the first one found is used", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.Equal("Lib.zzzz9999.wasm", lib.Origin);
+            Assert.Contains(listed.Notes, n => n.Contains("Lib.zzzz9999.wasm, which the boot manifest lists, is used", StringComparison.Ordinal));
+        }
+    }
+
     private string SaveAsDll(byte[] pe)
     {
         var path = Path.Combine(_dir.Path, "reloaded", "App.dll");

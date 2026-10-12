@@ -267,7 +267,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         if (!Directory.Exists(full) || Webcil.FolderFiles(full) is not { Count: > 0 } files) return null;
         var notes = new List<string>();
         var found = new List<Found>();
-        var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var byName = new Dictionary<string, (string Sha, int Index, bool Named)>(StringComparer.OrdinalIgnoreCase);
+        var manifest = Webcil.BootManifestEntries(Path.GetDirectoryName(files[0])!);
         long total = 0;
         foreach (var file in files)
         {
@@ -278,17 +279,29 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 notes.Add("Stopped: the extraction limit was reached; some files were not extracted.");
                 break;
             }
+            bool named = manifest != null && (manifest.Contains(Path.GetFileName(file)) || manifest.Contains(Webcil.Integrity(bytes)));
             foreach (var item in Containers.Open(bytes, file, limits, ct).Items)
             {
                 var itemSha = Blob.Sha256(item.Bytes);
-                // Fingerprinted copies of one assembly (App.abc.wasm, App.def.wasm): the first is kept.
+                var entry = new Found(item.Name, item.Bytes, DotNet, itemSha, Path.GetFileName(file));
+                // Fingerprinted copies of one assembly (App.abc.wasm, App.def.wasm) left by earlier publishes: the copy the boot
+                // manifest lists is the one the app loads; without a manifest, the first is kept.
                 if (byName.TryGetValue(item.Name, out var kept))
                 {
-                    if (kept != itemSha) notes.Add($"{Path.GetFileName(file)} holds another build of {item.Name}; the first one found is used.");
+                    if (kept.Sha == itemSha) continue;
+                    if (named && !kept.Named)
+                    {
+                        notes.Add($"{found[kept.Index].Origin} holds another build of {item.Name}; {entry.Origin}, which the boot manifest lists, is used.");
+                        found[kept.Index] = entry;
+                        byName[item.Name] = (itemSha, kept.Index, true);
+                    }
+                    else
+                        notes.Add($"{entry.Origin} holds another build of {item.Name}; " +
+                                  (kept.Named ? $"{found[kept.Index].Origin}, which the boot manifest lists, is used." : "the first one found is used."));
                     continue;
                 }
-                byName[item.Name] = itemSha;
-                found.Add(new Found(item.Name, item.Bytes, DotNet, itemSha, Path.GetFileName(file)));
+                byName[item.Name] = (itemSha, found.Count, named);
+                found.Add(entry);
             }
         }
         var sha = Blob.Sha256(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", found.Select(f => f.Relative + " " + f.Sha256))));
