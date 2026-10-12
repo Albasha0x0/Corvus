@@ -286,6 +286,9 @@ public class CallArgumentTests(ITestOutputHelper output)
         Assert.Equal("HKEY_LOCAL_MACHINE", ApiSignatures.Enums["HKEY"].Describe(0xFFFFFFFF80000002));
         Assert.True(ApiSignatures.Enums["PageProtect"].Has(0x140, "PAGE_EXECUTE_READWRITE"));
         Assert.NotNull(ApiSignatures.Find("_CreateFileW@28"));
+        var open64 = ApiSignatures.Find("libc.so.6!open64")!;
+        Assert.Equal("O_RDONLY|O_CLOEXEC", open64.Params[1].Enum!.Describe(0x80000));
+        Assert.Equal("O_WRONLY|O_CREAT|O_TRUNC", ApiSignatures.Find("_open")!.Params[1].Enum!.Describe(0x241));
         Assert.Equal([ApiParamType.WideString, ApiParamType.Int, ApiParamType.Int, ApiParamType.Int64, ApiParamType.Pointer],
             ApiSignatures.FormatArguments("%s %*d %llx %p %%", wide: true));
     }

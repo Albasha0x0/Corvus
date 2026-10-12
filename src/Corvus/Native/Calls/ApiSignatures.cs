@@ -182,6 +182,8 @@ public static class ApiSignatures
         enum WaitResult: WAIT_OBJECT_0=0 WAIT_ABANDONED=0x80 WAIT_IO_COMPLETION=0xC0 WAIT_TIMEOUT=0x102 WAIT_FAILED=0xFFFFFFFF
         enum HResult: S_OK=0 S_FALSE=1 E_NOTIMPL=0x80004001 E_NOINTERFACE=0x80004002 E_POINTER=0x80004003 E_ABORT=0x80004004 E_FAIL=0x80004005 E_UNEXPECTED=0x8000FFFF E_ACCESSDENIED=0x80070005 E_HANDLE=0x80070006 E_OUTOFMEMORY=0x8007000E E_INVALIDARG=0x80070057 RPC_E_CHANGED_MODE=0x80010106 CO_E_NOTINITIALIZED=0x800401F0 REGDB_E_CLASSNOTREG=0x80040154
         enum NtStatus: STATUS_SUCCESS=0 STATUS_BUFFER_OVERFLOW=0x80000005 STATUS_NO_MORE_ENTRIES=0x8000001A STATUS_UNSUCCESSFUL=0xC0000001 STATUS_NOT_IMPLEMENTED=0xC0000002 STATUS_INFO_LENGTH_MISMATCH=0xC0000004 STATUS_ACCESS_VIOLATION=0xC0000005 STATUS_INVALID_HANDLE=0xC0000008 STATUS_INVALID_PARAMETER=0xC000000D STATUS_NO_MEMORY=0xC0000017 STATUS_ACCESS_DENIED=0xC0000022 STATUS_BUFFER_TOO_SMALL=0xC0000023 STATUS_OBJECT_NAME_NOT_FOUND=0xC0000034 STATUS_OBJECT_NAME_COLLISION=0xC0000035 STATUS_NOT_SUPPORTED=0xC00000BB
+        # Linux values (generic and x86 agree on these bits)
+        flags OpenFlags: O_RDONLY=0/3 O_WRONLY=1/3 O_RDWR=2/3 O_CREAT=0x40 O_EXCL=0x80 O_NOCTTY=0x100 O_TRUNC=0x200 O_APPEND=0x400 O_NONBLOCK=0x800 O_CLOEXEC=0x80000
         enum WinsockError: WSAEINTR=10004 WSAEACCES=10013 WSAEFAULT=10014 WSAEINVAL=10022 WSAEWOULDBLOCK=10035 WSAEINPROGRESS=10036 WSAENOTSOCK=10038 WSAEADDRINUSE=10048 WSAENETDOWN=10050 WSAENETUNREACH=10051 WSAECONNABORTED=10053 WSAECONNRESET=10054 WSAENOTCONN=10057 WSAETIMEDOUT=10060 WSAECONNREFUSED=10061 WSAHOST_NOT_FOUND=11001 WSANOTINITIALISED=10093
 
         CreateFile%(str lpFileName, Access dwDesiredAccess, FileShare dwShareMode, ptr lpSecurityAttributes, CreationDisposition dwCreationDisposition, FileAttributes dwFlagsAndAttributes, handle hTemplateFile)
@@ -415,6 +417,11 @@ public static class ApiSignatures
         cdecl _wfopen(wstr filename, wstr mode)
         cdecl fopen_s(ptr pFile, astr filename, astr mode)
         cdecl _wfopen_s(ptr pFile, wstr filename, wstr mode)
+        cdecl open(astr pathname, OpenFlags flags, hex mode)
+        cdecl open64(astr pathname, OpenFlags flags, hex mode)
+        cdecl openat(int dirfd, astr pathname, OpenFlags flags, hex mode)
+        cdecl openat64(int dirfd, astr pathname, OpenFlags flags, hex mode)
+        cdecl creat(astr pathname, hex mode)
         cdecl fwrite(ptr buffer, size size, size count, ptr stream)
         cdecl fread(ptr buffer, size size, size count, ptr stream)
         cdecl puts(astr str)
