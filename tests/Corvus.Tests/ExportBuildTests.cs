@@ -223,6 +223,35 @@ public class ExportBuildTests
         Assert.Contains("was net452", project);
     }
 
+    /// <summary>
+    /// A project referencing a library that names its core library 65535.65535.65535.65535 (any version) builds with the
+    /// original file (dotnet build reports MSB3277 only); in-process compilations report CS1705, so patches rewrite such references.
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void ExportReferencingALibraryWithAnyVersionCoreLibraryBuilds()
+    {
+        using var dir = new TempDir();
+        // A .NET Framework library as some obfuscators write it: mscorlib, Version=65535.65535.65535.65535.
+        var mscorlib = new dnlib.DotNet.AssemblyRefUser("mscorlib", new Version(65535, 65535, 65535, 65535),
+            new dnlib.DotNet.PublicKeyToken("b77a5c561934e089"));
+        var module = new dnlib.DotNet.ModuleDefUser("Lib.dll", Guid.NewGuid(), mscorlib) { Kind = dnlib.DotNet.ModuleKind.Dll };
+        new dnlib.DotNet.AssemblyDefUser("Lib", new Version(1, 0, 0, 0)).Modules.Add(module);
+        var marker = new dnlib.DotNet.TypeDefUser("L", "Marker", module.CorLibTypes.Object.TypeDefOrRef) { Attributes = dnlib.DotNet.TypeAttributes.Public };
+        module.Types.Add(marker);
+        var v = new dnlib.DotNet.MethodDefUser("V", dnlib.DotNet.MethodSig.CreateStatic(module.CorLibTypes.String),
+            dnlib.DotNet.MethodAttributes.Public | dnlib.DotNet.MethodAttributes.Static) { Body = new dnlib.DotNet.Emit.CilBody() };
+        v.Body.Instructions.Add(dnlib.DotNet.Emit.OpCodes.Ldstr.ToInstruction("x"));
+        v.Body.Instructions.Add(dnlib.DotNet.Emit.OpCodes.Ret.ToInstruction());
+        marker.Methods.Add(v);
+        module.Write(dir.File("Lib.dll"));
+        File.WriteAllBytes(dir.File("App.dll"), ReferenceResolutionTests.Compile("App",
+            "namespace App { public static class C { public static int Run() => L.Marker.V().Length; } }", File.ReadAllBytes(dir.File("Lib.dll"))));
+        using var env = new Env(dir.File("App.dll"));
+        AssertBuilds(env, dir.File("out"));
+        Assert.DoesNotContain(Directory.GetFiles(dir.File("out"), "Lib.dll", SearchOption.AllDirectories), f => !f.Contains("bin-out", StringComparison.Ordinal));
+    }
+
     /// <summary>Each assembly listed in CORVUS_EXPORT_LIST builds after export; errors go to "&lt;list&gt;.report.txt".</summary>
     [Fact]
     public void ExportList_Builds()
