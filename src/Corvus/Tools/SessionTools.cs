@@ -133,6 +133,11 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         capabilities.Add(new("cancelled or timed-out calls still running", leftovers.Running < leftovers.Max,
             $"{leftovers.Running} still finishing in the background (at {leftovers.Max}, {LeftoverWork.MaxVariable}, new calls wait, then are refused as busy); {leftovers.Total} since start",
             leftovers.Running < leftovers.Max ? null : "wait for them to finish, or restart the server"));
+        // This call holds no lock, so every holder is another call or background work.
+        var lockUsers = workspace.LockUsers();
+        capabilities.Add(new("workspace lock", !lockUsers.Any(u => u.Waiting),
+            lockUsers.Count == 0 ? "free" : string.Join("; ", lockUsers.Select(u => u.ToString())),
+            lockUsers.Any(u => u.Waiting) ? "the waiting calls start when the holders finish; cancel a long call from its client to free the lock sooner" : null));
         if (engines?.CacheStatus() is { Entries: > 0 } db)
             capabilities.Add(new("saved engine databases (IDA, Ghidra)", true,
                 $"{db.Root}: {db.Entries} entries, {db.Bytes / (1024.0 * 1024):0.#} of {db.MaxBytes >> 20} MB, unused entries kept {db.MaxAge.TotalDays:0} days " +
@@ -146,7 +151,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 (s.LastProblem != null ? $"; last problem: {s.LastProblem}" : ""), null));
         }
         capabilities.AddRange(ExternalToolCapabilities());
-        int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
+        int loaded = workspace.LoadedCount; // without the lock: status answers while a long call holds it
         var registered = (server?.ToolCollection?.Select(t => t.ProtocolTool.Name) ?? []).ToHashSet(StringComparer.Ordinal);
         var client = context?.Server?.ClientInfo;
         return new ServerStatus(ServerIdentity.Product, typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", ServerIdentity.InformationalVersion,

@@ -64,6 +64,7 @@ public sealed class IndexingService : IDisposable
 
     private void Run(CancellationToken ct)
     {
+        using var scope = AssemblyWorkspace.CancelWaitsWith(ct, "background indexing");
         try
         {
             var pending = _workspace.Read(() => _workspace.Assemblies.Where(a => !a.IsDirty && !_indexed.TryGetValue(a.Module, out _)).ToList());

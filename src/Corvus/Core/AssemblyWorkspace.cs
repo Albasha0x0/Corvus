@@ -53,9 +53,16 @@ public sealed class AssemblyWorkspace : IDisposable
 
     internal ModuleContext DnlibContext { get; }
 
-    private sealed class CallScope(CancellationToken token) : IDisposable
+    /// <summary>One tool call's flow: what its lock waits stop on, and its name and start for lock diagnostics.</summary>
+    public sealed class CallScope(CancellationToken token, string? tool) : IDisposable
     {
         public CancellationToken Token => _ended ? default : token;
+        public string? Tool { get; } = tool;
+        public long Started { get; } = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        /// <summary>The lock holders a wait of this call gave up on (the call was cancelled or reached its deadline), else null.</summary>
+        public string? BlockedBy { get; internal set; }
+
         private volatile bool _ended;
         public void Dispose() => _ended = true;
     }
@@ -65,8 +72,10 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>
     /// Until the scope is disposed, lock waits on this async flow (one tool call) end when <paramref name="cancellationToken"/>
     /// is cancelled. Background work the call started inherits the flow; after the call it waits uncancellably again.
+    /// <paramref name="tool"/> names the call to calls waiting for a lock it holds.
     /// </summary>
-    public static IDisposable CancelWaitsWith(CancellationToken cancellationToken) => Call.Value = new CallScope(cancellationToken);
+    public static CallScope CancelWaitsWith(CancellationToken cancellationToken, string? tool = null) =>
+        Call.Value = new CallScope(cancellationToken, tool);
 
     internal static CancellationToken CallToken => Call.Value?.Token ?? default;
 
@@ -98,6 +107,48 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Waits in slices of this length when the wait can be cancelled.</summary>
     private const int WaitSliceMs = 50;
 
+    /// <summary>A thread holding or waiting for the lock, for diagnostics; Depth counts recursive holds.</summary>
+    private sealed class LockUser(string? tool, long since, bool write)
+    {
+        public readonly string? Tool = tool;
+        public readonly long Since = since;
+        public readonly bool Write = write;
+        public int Depth;
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, LockUser> _holders = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, LockUser> _waiters = new();
+
+    /// <summary>A lock holder or waiter: the tool (null: background work), exclusive or shared, and seconds since its call started.</summary>
+    public sealed record LockEntry(string? Tool, bool Write, double Seconds, bool Waiting)
+    {
+        public override string ToString() =>
+            $"{Tool ?? "background work"} ({(Write ? "exclusive" : "shared")}, {(Waiting ? "waiting" : "running")} {Seconds:0} s)";
+    }
+
+    /// <summary>Who holds the workspace lock and who waits for it.</summary>
+    public IReadOnlyList<LockEntry> LockUsers()
+    {
+        static LockEntry Entry(LockUser u, bool waiting) =>
+            new(u.Tool, u.Write, System.Diagnostics.Stopwatch.GetElapsedTime(u.Since).TotalSeconds, waiting);
+        return [.. _holders.Values.Select(u => Entry(u, false)), .. _waiters.Values.Select(u => Entry(u, true)).OrderByDescending(e => e.Seconds)];
+    }
+
+    private static LockUser Me(bool write) =>
+        Call.Value is { } scope ? new LockUser(scope.Tool, scope.Started, write) : new LockUser(null, System.Diagnostics.Stopwatch.GetTimestamp(), write);
+
+    private void Held(bool write)
+    {
+        var user = _holders.GetOrAdd(Environment.CurrentManagedThreadId, _ => Me(write));
+        user.Depth++;
+    }
+
+    private void Released()
+    {
+        int id = Environment.CurrentManagedThreadId;
+        if (_holders.TryGetValue(id, out var user) && --user.Depth == 0) _holders.TryRemove(id, out _);
+    }
+
     public T Read<T>(Func<T> action) => Read(action, CallToken);
 
     /// <summary>Runs <paramref name="action"/> under the shared lock; a cancelled wait throws <see cref="OperationCanceledException"/>.</summary>
@@ -105,7 +156,11 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         Enter(write: false, cancellationToken);
         try { return action(); }
-        finally { _lock.ExitReadLock(); }
+        finally
+        {
+            Released();
+            _lock.ExitReadLock();
+        }
     }
 
     public T Write<T>(Func<T> action) => Write(action, CallToken);
@@ -120,22 +175,42 @@ public sealed class AssemblyWorkspace : IDisposable
             Generation++;
             lock (_referenceModules) _referenceModules.Clear();
             lock (_externalDecompilerRefs) _externalDecompilerRefs.Clear();
+            Released();
             _lock.ExitWriteLock();
         }
     }
 
     private void Enter(bool write, CancellationToken cancellationToken)
     {
-        if (write ? _lock.TryEnterWriteLock(0) : _lock.TryEnterReadLock(0)) return;
-        if (!cancellationToken.CanBeCanceled)
+        if (write ? _lock.TryEnterWriteLock(0) : _lock.TryEnterReadLock(0))
         {
-            if (write) _lock.EnterWriteLock();
-            else _lock.EnterReadLock();
+            Held(write);
             return;
         }
-        // ReaderWriterLockSlim waits take no token: a queued call checks it between slices.
-        while (!(write ? _lock.TryEnterWriteLock(WaitSliceMs) : _lock.TryEnterReadLock(WaitSliceMs)))
-            cancellationToken.ThrowIfCancellationRequested();
+        int id = Environment.CurrentManagedThreadId;
+        _waiters[id] = Me(write);
+        try
+        {
+            if (!cancellationToken.CanBeCanceled)
+            {
+                if (write) _lock.EnterWriteLock();
+                else _lock.EnterReadLock();
+            }
+            else
+            {
+                // ReaderWriterLockSlim waits take no token: a queued call checks it between slices.
+                while (!(write ? _lock.TryEnterWriteLock(WaitSliceMs) : _lock.TryEnterReadLock(WaitSliceMs)))
+                {
+                    if (!cancellationToken.IsCancellationRequested) continue;
+                    if (Call.Value is { } scope)
+                        scope.BlockedBy = string.Join(", ", LockUsers().Where(u => !u.Waiting).Select(u => u.ToString())) is { Length: > 0 } holders
+                            ? holders : "a writer queued before it";
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+            }
+        }
+        finally { _waiters.TryRemove(id, out _); }
+        Held(write);
     }
 
     /// <summary>Longest shared-lock section of <see cref="ReadEach{T}"/>, so a queued writer waits about this long.</summary>
@@ -173,6 +248,9 @@ public sealed class AssemblyWorkspace : IDisposable
     public IReadOnlyList<LoadedNative> Natives => _natives.ToArray();
 
     public IReadOnlyList<string> SearchDirectories => _searchDirectories.ToArray();
+
+    /// <summary>Loaded assemblies and native images, read without the lock (may be one load behind).</summary>
+    public int LoadedCount => _assemblies.Count + _natives.Count;
 
     public void AddSearchDirectory(string directory)
     {

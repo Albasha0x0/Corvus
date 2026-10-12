@@ -123,4 +123,33 @@ public class CallDeadlineTests
             throw new ToolError(ErrorCode.Timeout, "search timed out") { Partial = new { matches = 3 } });
         Assert.Equal(3, McpProtocolTests.ErrorJson(result).GetProperty("partial").GetProperty("matches").GetInt32());
     }
+
+    [Fact]
+    public async Task AWriterBehindALongReaderAnswersByItsDeadline_NamingTheHolder()
+    {
+        using var services = Services();
+        using var workspace = new AssemblyWorkspace();
+        var release = new TaskCompletionSource();
+        using var reading = new ManualResetEventSlim();
+        // export_project is long-running: no deadline of its own; it holds the shared lock until released (up to 2 minutes).
+        var reader = Run(services, "export_project", _ => Task.Run(() => workspace.Read(() =>
+        {
+            reading.Set();
+            release.Task.Wait(TimeSpan.FromMinutes(2));
+            return Done;
+        }), CancellationToken.None)).AsTask();
+        reading.Wait();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var writer = await Run(services, "rename_symbol", ct => Task.Run(() => workspace.Write(() => Done), ct)).AsTask().WaitAsync(TimeSpan.FromMinutes(1));
+        var deadline = CallFilter.Deadline("rename_symbol", services.GetRequiredService<ServerOptions>())!.Value;
+        Assert.True(watch.Elapsed < deadline + TimeSpan.FromSeconds(2), $"answered after {watch.Elapsed}");
+        var json = McpProtocolTests.ErrorJson(writer);
+        Assert.Equal("timeout", json.GetProperty("code").GetString());
+        Assert.StartsWith("export_project (shared, running ", json.GetProperty("details").GetProperty("blockedBy").GetString());
+        Assert.Contains("held by export_project", json.GetProperty("message").GetString());
+        Assert.Contains(workspace.LockUsers(), u => u is { Tool: "export_project", Write: false, Waiting: false });
+        release.SetResult();
+        Assert.NotEqual(true, (await reader).IsError);
+        Assert.Empty(workspace.LockUsers());
+    }
 }

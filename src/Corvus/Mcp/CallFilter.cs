@@ -76,11 +76,11 @@ internal static partial class CallFilter
                 "retry after details.retryAfterMs; server_status shows when they are done")
             { Details = new { retryAfterMs = (long)LeftoverWork.RetryAfter.TotalMilliseconds, leftoverCalls = leftovers.Running, max = leftovers.Max } }, tool);
         }
+        using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token, tool);
         try
         {
             if (inputSchema is { } schema) ArgumentCheck.Apply(schema, request?.Arguments, tool);
             var structured = StructuredOutput.Begin();
-            using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token);
             var result = await WithinDeadline(next(call.Token).AsTask(), call.Token, deadline, cancellationToken, leftovers);
             // An error object never matches the tool's output schema, and clients validate whatever structuredContent is present.
             if (result.IsError == true) result.StructuredContent = null;
@@ -98,11 +98,11 @@ internal static partial class CallFilter
         }
         catch (OperationCanceledException) when (call.IsCancellationRequested && !cancellationToken.IsCancellationRequested && deadline != null)
         {
-            return DeadlineError(tool, deadline.Value, stillRunning: false);
+            return DeadlineError(tool, deadline.Value, stillRunning: false, waits.BlockedBy);
         }
         catch (DeadlinePassedException ex)
         {
-            return DeadlineError(tool, ex.Limit, stillRunning: true);
+            return DeadlineError(tool, ex.Limit, stillRunning: true, waits.BlockedBy);
         }
         catch (OperationCanceledException) when (!call.IsCancellationRequested)
         {
@@ -175,12 +175,17 @@ internal static partial class CallFilter
         throw new DeadlinePassedException(deadline!.Value);
     }
 
-    private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning) =>
+    /// <param name="blockedBy">The workspace lock holders the call was still waiting for, else null.</param>
+    private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning, string? blockedBy) =>
         ErrorResult.From(new ToolError(ErrorCode.Timeout,
-            $"the call did not finish within {limit.TotalSeconds:0} s ({DeadlineFactor}x --timeout){(stillRunning ? "; its work is still finishing in the background" : "")}.",
-            "narrow the call (one member instead of a type, a smaller limit or scope), or start the server with a larger --timeout")
+            $"the call did not finish within {limit.TotalSeconds:0} s ({DeadlineFactor}x --timeout)" +
+            (blockedBy != null ? $": it was waiting for the workspace lock, held by {blockedBy}" : "") +
+            $"{(stillRunning ? "; its work is still finishing in the background" : "")}.",
+            blockedBy != null
+                ? "call again once that call has finished (server_status lists the lock holders); a long-running call can be cancelled by its client"
+                : "narrow the call (one member instead of a type, a smaller limit or scope), or start the server with a larger --timeout")
         {
-            Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning },
+            Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, blockedBy },
         }, tool);
 
     [GeneratedRegex("required parameter '([^']+)'")]
