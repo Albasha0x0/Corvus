@@ -48,4 +48,19 @@ public sealed class GoRealTests(ITestOutputHelper output)
         }
         Assert.True(files > 0, "no Go programs in the samples folder");
     }
+
+    [RequiresRealDataFact(Variable)]
+    public void Code_walks_stay_inside_the_tables_extents()
+    {
+        foreach (var (name, image) in Samples())
+        {
+            var go = GoFunctionTable.Of(image)!;
+            var index = NativeCodeIndex.Build(image);
+            // walks may end short (padding, literal pools, code after noreturn calls), never past
+            int same = go.Functions.Count(g => g.OwnSize && index.FunctionByStart(g.Rva) is { } f && f.End == g.Rva + g.Size);
+            output.WriteLine($"{name}: {same} of {go.Functions.Count} walks end where the table does; {string.Join("; ", index.Issues)}");
+            int over = index.Issues.Count == 0 ? 0 : int.Parse(index.Issues.Single().Split(' ')[3]);
+            Assert.True(over <= go.Functions.Count / 200, $"{name}: {over} functions decode past their end");
+        }
+    }
 }

@@ -212,6 +212,7 @@ public sealed class CodeIndexCacheTests : IDisposable
         Assert.Equal(a.Support, b.Support);
         Assert.Equal(a.Stats, b.Stats);
         Assert.Equal(a.Truncations, b.Truncations);
+        Assert.Equal(a.Issues, b.Issues);
         Assert.Equal(a.AbsoluteRefsUnconfirmed, b.AbsoluteRefsUnconfirmed);
         Assert.Equal(a.Strings, b.Strings);
         Assert.Equal(a.Functions.Count, b.Functions.Count);

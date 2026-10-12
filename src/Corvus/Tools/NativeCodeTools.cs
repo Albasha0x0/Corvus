@@ -101,6 +101,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) notes.Add(index.SupportNote ?? "instructions are not decoded for this architecture");
         if (index.AbsoluteRefsUnconfirmed) notes.Add("no relocations: absolute data references are accepted by address range alone");
         notes.AddRange(index.Truncations);
+        notes.AddRange(index.Issues);
         return notes.Count > 0 ? "Note: " + string.Join("; ", notes) + "\n" : "";
     }
 

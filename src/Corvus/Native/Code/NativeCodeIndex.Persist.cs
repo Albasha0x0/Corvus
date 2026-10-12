@@ -53,6 +53,7 @@ public sealed partial class NativeCodeIndex
     {
         if (_ctx == null || Support != CodeSupport.Full) throw new InvalidOperationException("Only a full code index is saved.");
         w.Strings(Truncations);
+        w.Strings(Issues);
         var s = Stats;
         w.I32(s.Functions); w.I32(s.Thunks); w.I32(s.NoReturnFunctions); w.I64(s.Instructions); w.I64(s.Blocks); w.I64(s.Xrefs);
         w.I32(s.Strings); w.I32(s.ResolvedSwitches); w.I32(s.UnresolvedJumps); w.I32(s.FunctionsWithInvalidCode); w.I32(s.DiscoveryPasses);
@@ -193,6 +194,7 @@ public sealed partial class NativeCodeIndex
         if (support != CodeSupport.Full) throw new InvalidDataException("the image's instruction set has no saved index");
         var r = new PayloadReader(payload);
         var truncations = r.Strings();
+        var issues = r.Strings();
         var stats = new CodeIndexStats(r.I32(), r.I32(), r.I32(), r.I64(), r.I64(), r.I64(), r.I32(), r.I32(), r.I32(), r.I32(), r.I32(), r.I32(),
             TimeSpan.FromTicks(r.Ticks()));
 
@@ -295,6 +297,7 @@ public sealed partial class NativeCodeIndex
         index.SetVirtualCalls(virtualCalls, virtualEdges);
         index.MetadataVirtualCallsAdded = metadataAdded;
         index.LoadedFromCache = true;
+        index.Issues = issues;
         return index;
     }
 

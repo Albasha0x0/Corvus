@@ -16,7 +16,7 @@ public sealed class GoFunctionTableTests
     /// A Go function table of <paramref name="version"/>: functions every 0x20 bytes from <paramref name="textVa"/>; with
     /// <paramref name="ownSize"/>, each function's pcsp table ends there (the rest of its 0x20 bytes is padding).
     /// </summary>
-    internal static byte[] Pclntab(GoTableVersion version, int ptr, ulong textVa, int count, int ownSize = 0)
+    internal static byte[] Pclntab(GoTableVersion version, int ptr, ulong textVa, int count, int ownSize = 0, string[]? functionNames = null)
     {
         var entries = Enumerable.Range(0, count).Select(i => textVa + (ulong)(i * 0x20)).ToArray();
         ulong end = textVa + (ulong)(count * 0x20);
@@ -25,7 +25,7 @@ public sealed class GoFunctionTableTests
         for (int i = 0; i < count; i++)
         {
             nameOffsets.Add((int)names.Length);
-            names.Write(Encoding.UTF8.GetBytes(Names[i % Names.Length] + (i >= Names.Length ? i.ToString() : "")));
+            names.Write(Encoding.UTF8.GetBytes(functionNames?[i] ?? Names[i % Names.Length] + (i >= Names.Length ? i.ToString() : "")));
             names.WriteByte(0);
         }
         var t = new byte[0x2000];
@@ -154,6 +154,65 @@ public sealed class GoFunctionTableTests
         Assert.Equal(CodeSupport.DeclaredFunctionsOnly, index.Support);
         Assert.All(index.Functions, f => Assert.Equal(0x14u, f.Size));
         Assert.Null(index.FunctionAt(ElfWriter.TextRva + 0x18));
+    }
+
+    private static byte[] GoElfBytes(byte[] text, int ownSize = 0, string[]? names = null)
+    {
+        const ulong Base = 0x400000;
+        var w = new ElfWriter
+        {
+            Machine = ElfWriter.EmX64, Type = 2, Base = Base, Entry = ElfWriter.TextRva, Text = text, Hash = ElfWriter.HashKind.None,
+            DataSectionName = ".gopclntab", Data = Pclntab(GoTableVersion.Go120, 8, Base + ElfWriter.TextRva, text.Length / 0x20, ownSize, names),
+        };
+        return w.Build();
+    }
+
+    private static ElfFile GoElf(byte[] text, int ownSize = 0, string[]? names = null) => ElfFile.FromBytes(GoElfBytes(text, ownSize, names), "gobin");
+
+    [Fact]
+    public void Go_runtime_names_decide_what_returns()
+    {
+        var text = new byte[4 * 0x20];
+        Array.Fill(text, (byte)0xCC);
+        // main.f: call runtime.throw; nop; ret (the throw's own body returns: only its name says it does not)
+        new byte[] { 0xE8, 0x1B, 0, 0, 0, 0x90, 0xC3 }.CopyTo(text, 0);
+        text[0x20] = 0xC3;
+        // main.g: jbe grow; ret; grow: call runtime.morestack_noctxt; jmp main.g
+        new byte[] { 0x76, 0x01, 0xC3, 0xE8, 0x18, 0, 0, 0, 0xEB, 0xF6 }.CopyTo(text, 0x40);
+        // runtime.morestack_noctxt: loops here, the scheduler resumes its caller
+        new byte[] { 0xEB, 0xFE }.CopyTo(text, 0x60);
+        var index = NativeCodeIndex.Build(GoElf(text, names: ["main.f", "runtime.throw", "main.g", "runtime.morestack_noctxt"]));
+        var f = index.FunctionByStart(ElfWriter.TextRva)!;
+        Assert.Equal((5u, true), (f.Size, f.Flags.HasFlag(FunctionFlags.NoReturn)));
+        Assert.True(index.FunctionByStart(ElfWriter.TextRva + 0x20)!.Flags.HasFlag(FunctionFlags.NoReturn));
+        var g = index.FunctionByStart(ElfWriter.TextRva + 0x40)!;
+        Assert.Equal((10u, false), (g.Size, g.Flags.HasFlag(FunctionFlags.NoReturn)));
+        Assert.False(index.FunctionByStart(ElfWriter.TextRva + 0x60)!.Flags.HasFlag(FunctionFlags.NoReturn));
+    }
+
+    [Fact]
+    public async Task Code_decoded_past_a_functions_own_end_is_an_index_issue()
+    {
+        // nops up to 0x14, then ret; the tables say each function ends at 0x11
+        var text = new byte[3 * 0x20];
+        Array.Fill(text, (byte)0xCC);
+        for (int i = 0; i < 3; i++) { Array.Fill(text, (byte)0x90, i * 0x20, 0x14); text[i * 0x20 + 0x14] = 0xC3; }
+        var bytes = GoElfBytes(text, ownSize: 0x11);
+        var image = ElfFile.FromBytes(bytes, "gobin");
+        var index = NativeCodeIndex.Build(image);
+        Assert.Equal(["Go function table: 3 of 3 functions decode past their own end (main.main at 0x1000, runtime.morestack at 0x1020, github.com/x/y.(*T).Method at 0x1040)"],
+            index.Issues);
+        Assert.Empty(NativeCodeIndex.Build(GoElf(text, ownSize: 0x15)).Issues);
+
+        using var dir = new TempDir();
+        var cache = new CodeIndexCache(new CodeIndexCacheOptions(dir.File("cache"), 1L << 30, TimeSpan.FromDays(30), TimeSpan.Zero));
+        Assert.True(cache.Save(index, null));
+        Assert.Equal(index.Issues, cache.TryLoad(image, null)!.Issues);
+
+        var path = dir.File("gobin");
+        File.WriteAllBytes(path, bytes);
+        using var h = new NativeToolHarness(backgroundIndexing: false);
+        Assert.Contains("3 of 3 functions decode past their own end", await h.CodeTools.ListFunctions(path));
     }
 
     [Fact]

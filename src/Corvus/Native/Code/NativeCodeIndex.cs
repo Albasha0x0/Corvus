@@ -77,6 +77,8 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public IReadOnlyList<StringLiteral> Strings => _strings;
     /// <summary>Everything a limit cut short; empty when the index is complete.</summary>
     public IReadOnlyList<string> Truncations { get; }
+    /// <summary>Where the analysis and what the image declares disagree (code walks past a Go function's own end).</summary>
+    public IReadOnlyList<string> Issues { get; private set; } = [];
     public CodeIndexStats Stats { get; }
     /// <summary>Relocations in an x86 image are missing, so absolute operands were accepted by range alone.</summary>
     public bool AbsoluteRefsUnconfirmed { get; }
@@ -151,7 +153,10 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             foreach (var s in _ctx.Funclets) ctx.Funclets.Add(s);
             foreach (var (thunk, slot) in _ctx.Thunks) ctx.Thunks[thunk] = slot;
         }
-        return new NativeCodeIndex(image, Support, SupportNote, ctx, _functions, _rangeStarts, _rangeEnds, _xrefs, _strings, [.. Truncations], Stats, _byTo);
+        return new NativeCodeIndex(image, Support, SupportNote, ctx, _functions, _rangeStarts, _rangeEnds, _xrefs, _strings, [.. Truncations], Stats, _byTo)
+        {
+            Issues = Issues,
+        };
     }
 
     /// <summary>Builds the index. Long-running for large images: run it on a background thread.</summary>
@@ -737,6 +742,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             var chunks = AttachExceptionChunks(ref starts, ref results);
             var index = Assemble(starts, results);
             index.Apply(chunks);
+            index.Issues = GoExtentIssues(index);
             if (options.ResolveVirtualCalls && ResolvesVirtualCalls(image))
             {
                 report.Report("resolving virtual calls", 0, 0);
@@ -836,7 +842,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             {
                 var newly = new List<uint>();
                 for (int i = 0; i < starts.Length; i++)
-                    if (!results[i].Returns && !_ctx.NoReturn.Contains(starts[i])) newly.Add(starts[i]);
+                    if (!results[i].Returns && !_ctx.NoReturn.Contains(starts[i]) && !_ctx.Returns.Contains(starts[i])) newly.Add(starts[i]);
                 if (newly.Count == 0) break;
                 if (round >= options.MaxNoReturnRounds) { AddTruncation($"noreturn propagation stopped after {round} rounds"); break; }
                 _rounds++;
@@ -925,6 +931,28 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                 switches, unresolved, invalid, _passes, _rounds, _sw.Elapsed);
             report.Done();
             return new NativeCodeIndex(image, CodeSupport.Full, null, _ctx, functions, rangeStarts, rangeEnds, xrefs, strings, _truncations, stats);
+        }
+
+        /// <summary>
+        /// Go functions whose decoded code runs past the end their own pc-value tables give. Walks ending short are not
+        /// listed: trailing padding, literal pools and code after noreturn calls are in the table's extent only.
+        /// </summary>
+        private List<string> GoExtentIssues(NativeCodeIndex index)
+        {
+            if (Go.GoFunctionTable.Of(image) is not { } go) return [];
+            var over = new List<(uint Rva, string? Name)>();
+            var fs = go.Functions;
+            for (int i = 0; i < fs.Count; i++)
+            {
+                var g = fs[i];
+                if (!g.OwnSize || index.FunctionByStart(g.Rva) is not { } f) continue;
+                // code between its own end and the next function: blocks shared with other functions elsewhere do not count
+                uint end = g.Rva + g.Size, next = i + 1 < fs.Count ? fs[i + 1].Rva : uint.MaxValue;
+                if (index.Ranges(f).Any(r => r.End > end && r.Start < next)) over.Add((g.Rva, g.Name));
+            }
+            if (over.Count == 0) return [];
+            string first = string.Join(", ", over.Take(3).Select(o => $"{o.Name ?? "?"} at 0x{o.Rva:X}"));
+            return [$"Go function table: {over.Count} of {go.Functions.Count} functions decode past their own end ({first}{(over.Count > 3 ? ", ..." : "")})"];
         }
 
         /// <summary>All walk cross-references plus relocated data pointers, sorted by (From, To, Kind), duplicates removed.</summary>

@@ -49,6 +49,8 @@ internal sealed class CodeContext
     public HashSet<uint> FunctionStarts { get; set; } = [];
     /// <summary>Functions (and import slots) known not to return.</summary>
     public HashSet<uint> NoReturn { get; set; } = [];
+    /// <summary>Functions whose callers resume after the call although their own code shows no return (Go's morestack).</summary>
+    public HashSet<uint> Returns { get; } = [];
     /// <summary>
     /// Call targets that are part of their only caller's function (it also runs into them without a branch, as
     /// x86 __finally blocks are): not functions.
@@ -81,6 +83,12 @@ internal sealed class CodeContext
         }
         foreach (var s in image.Symbols)
             if (s.Kind == ImageSymbolKind.Function && code.IsCode(s.Rva) && NoReturnNames.IsNoReturn(s.Name, underscore)) NoReturn.Add(s.Rva);
+        foreach (var g in Go.GoFunctionTable.Of(image)?.Functions ?? [])
+            if (g.Name != null && code.IsCode(g.Rva))
+            {
+                if (NoReturnNames.IsGoNoReturn(g.Name)) NoReturn.Add(g.Rva);
+                else if (NoReturnNames.IsGoResumed(g.Name)) Returns.Add(g.Rva);
+            }
         DataInCode = DataRanges(image);
         if (image.Arch == NativeArch.Arm) ArmModes = new Arm32Modes(image);
         if (image.Arch is NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm) ReadPdata();
@@ -497,4 +505,19 @@ internal static class NoReturnNames
     /// <param name="underscore">Mach-O: C names carry an extra leading underscore.</param>
     public static bool IsNoReturn(string name, bool underscore = false) =>
         Names.Contains(name) || (underscore && name.Length > 1 && name[0] == '_' && Names.Contains(name[1..]));
+
+    private static readonly HashSet<string> GoNames = new(StringComparer.Ordinal)
+    {
+        "runtime.throw", "runtime.fatal", "runtime.fatalthrow", "runtime.fatalpanic", "runtime.gopanic", "runtime.abort", "runtime.exit",
+        "runtime.Goexit", "runtime.goexit0", "runtime.goexit1", "runtime.gogo", "runtime.sigpanic", "runtime.morestackc", "runtime.badmorestackg0",
+        "runtime.badmorestackgsignal", "runtime.unreachableMethod", "runtime.mstart", "os.Exit", "syscall.Exit",
+    };
+
+    /// <summary>Go runtime functions that never return (by their name in the Go function table).</summary>
+    public static bool IsGoNoReturn(string name) =>
+        GoNames.Contains(name) || (name.StartsWith("runtime.panic", StringComparison.Ordinal) && !name.StartsWith("runtime.panicCheck", StringComparison.Ordinal))
+        || name.StartsWith("runtime.goPanic", StringComparison.Ordinal);
+
+    /// <summary>Go's stack growth: the scheduler resumes the caller after the call (it reloads its arguments and restarts).</summary>
+    public static bool IsGoResumed(string name) => name is "runtime.morestack" or "runtime.morestack_noctxt";
 }
