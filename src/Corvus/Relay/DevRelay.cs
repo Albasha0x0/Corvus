@@ -518,19 +518,23 @@ public sealed partial class DevRelay : IAsyncDisposable
             int discarded = 0;
             if (old is { Gone: false })
             {
-                discarded = await UnsavedEditsAsync(old, meta);
-                if (discarded > 0 && !force)
+                (discarded, var unknown) = await UnsavedEditsAsync(old, meta);
+                // an edit count the server did not give holds the swap too: switching would lose any edits it has
+                if ((discarded > 0 || unknown != null) && !force)
                 {
+                    var pending = unknown == null ? $"{discarded} unsaved edit(s) pending" : $"its unsaved edits could not be checked ({unknown})";
                     lock (_gate)
                     {
                         _postponed = true;
-                        if (_postponeNoticeFor != build.Marker)
+                        if (_postponeNoticeFor != build.Marker + pending)
                         {
-                            _postponeNoticeFor = build.Marker;
-                            _notices.Add($"new build {build.Id} ready; {discarded} unsaved edit(s) pending — save or revert them, or call {ApplyTool} to switch now and discard them.");
+                            _postponeNoticeFor = build.Marker + pending;
+                            _notices.Add(unknown == null
+                                ? $"new build {build.Id} ready; {pending} — save or revert them, or call {ApplyTool} to switch now and discard them."
+                                : $"new build {build.Id} ready; {pending}: checked again after the next call, or call {ApplyTool} to switch now.");
                         }
                     }
-                    outcome = (false, $"build {build.Id} not applied: {discarded} unsaved edit(s) pending.");
+                    outcome = (false, $"build {build.Id} not applied: {pending}.");
                     return;
                 }
             }
@@ -652,17 +656,18 @@ public sealed partial class DevRelay : IAsyncDisposable
         }
     }
 
-    /// <summary>Unsaved .NET edits and native patches in the server's assemblies resource; 0 when it cannot tell.</summary>
-    private async Task<int> UnsavedEditsAsync(Child child, JsonObject? meta)
+    /// <summary>Unsaved .NET edits and native patches in the server's assemblies resource, or why it cannot tell.</summary>
+    private async Task<(int Count, string? Unknown)> UnsavedEditsAsync(Child child, JsonObject? meta)
     {
         JsonObject reply;
         try { reply = await RequestAsync(child, "resources/read", WithMeta(new JsonObject { ["uri"] = "corvus://assemblies" }, meta)); }
-        catch (Exception ex) when (ex is TimeoutException or RelayException or IOException) { return 0; }
+        catch (Exception ex) when (ex is TimeoutException or RelayException or IOException) { return (0, ex.Message); }
+        if (Failure(reply) is { } why) return (0, why);
         int count = 0;
         foreach (var content in reply["result"]?["contents"] as JsonArray ?? [])
             foreach (Match m in UnsavedPattern().Matches(content?["text"]?.GetValue<string>() ?? ""))
                 count += int.Parse(m.Groups[1].ValueSpan, System.Globalization.CultureInfo.InvariantCulture);
-        return count;
+        return (count, null);
     }
 
     /// <summary>" (version, catalog digest)" from the new server's server_status, or "" when it does not say.</summary>

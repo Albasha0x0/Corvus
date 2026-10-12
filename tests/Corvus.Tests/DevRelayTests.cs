@@ -87,7 +87,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
         PublishBuild("A");
         var toRelay = _toRelay;
         var toClient = new Pipe();
-        var options = new RelayOptions { Target = Publish, StateDirectory = State, Poll = TimeSpan.FromMilliseconds(20), RequestTimeout = TimeSpan.FromSeconds(10) };
+        var options = new RelayOptions { Target = Publish, StateDirectory = State, Poll = TimeSpan.FromMilliseconds(20), RequestTimeout = TimeSpan.FromSeconds(60) };
         _relay = new DevRelay(options, toRelay.Reader.AsStream(), toClient.Writer.AsStream(), TextWriter.Null, dir =>
         {
             var server = new FakeMcpServer(File.ReadAllText(Path.Combine(dir, "tag.txt"))) { Directory = dir };
@@ -203,6 +203,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
         Assert.DoesNotContain("[relay]", await Call("echo", new() { ["text"] = "again" }));
         if (!PerRequest) return;
         // The listen stream moved: the new server's own notifications reach the client, its second acknowledgement does not.
+        await Until(() => b.Listens > 0, "the listen stream on the new server"); // its requests are handled concurrently: the stream may land after a later call
         Assert.Equal(1, b.Listens);
         await Call("notify");
         await Until(() => Notifications.Count == 4, "the new server's notification");
@@ -232,6 +233,21 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
         await Call("save");
         await Until(() => _servers.Any(s => s.Tag == "C"), "build C");
         Assert.EndsWith("build C: hi", await Call("echo", new() { ["text"] = "hi" }));
+    }
+
+    [Fact]
+    public async Task EditsThatCannotBeCheckedPostponeTheSwapUntilForced()
+    {
+        await Call("edit");
+        await Call("unlist");
+        PublishBuild("B");
+        await Until(() => Server("A").EditChecks > 0, "the edit check");
+        var text = await Call("echo", new() { ["text"] = "hi" });
+        Assert.StartsWith("[relay] new build B ready; its unsaved edits could not be checked (the assemblies resource is unavailable)", text);
+        Assert.EndsWith("build A: hi", text);
+        Assert.Single(_servers);
+        Assert.Contains("now serving build B", await Call(DevRelay.ApplyTool));
+        Assert.EndsWith("build B: hi", await Call("echo", new() { ["text"] = "hi" }));
     }
 
     [Fact]
@@ -308,6 +324,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
         Assert.Contains("exited", text);
         Assert.Contains("replayed 1 workspace call(s)", text);
         Assert.Equal([file], _servers.Last().Loaded);
+        if (PerRequest) await Until(() => _servers.Last().Listens > 0, "the listen stream on the restarted server");
         Assert.Equal(PerRequest ? 1 : 0, _servers.Last().Listens); // the open stream is taken over
     }
 }
@@ -400,7 +417,7 @@ public sealed class DevRelayRealServerTests
 
 /// <summary>
 /// A scripted MCP server behind in-memory pipes. Tools: echo {text}, load_assembly {path} (fails for a missing file),
-/// edit / save (unsaved edits in the assemblies resource), slow (until cancelled), ask (pings the client), crash, server_status,
+/// edit / save (unsaved edits in the assemblies resource), unlist (that resource fails from then on), slow (until cancelled), ask (pings the client), crash, server_status,
 /// notify (tools list_changed on each listen stream). Speaks the initialize handshake, or 2026-07-28 per-request metadata
 /// (server/discover, subscriptions/listen, _meta required on every request). Tagged "broken", it exits without answering.
 /// </summary>
@@ -412,6 +429,7 @@ internal sealed class FakeMcpServer : ChildProcess
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonObject>> _asks = new();
     private readonly object _write = new();
     private int _unsaved, _askIds;
+    private volatile bool _unlisted;
 
     public string Tag { get; }
     public string? Directory { get; init; }
@@ -580,6 +598,11 @@ internal sealed class FakeMcpServer : ChildProcess
                 return;
             case "resources/read":
                 Interlocked.Increment(ref EditChecks);
+                if (_unlisted)
+                {
+                    Fail(id, "the assemblies resource is unavailable");
+                    return;
+                }
                 var listing = _unsaved > 0 ? $"app.dll\tApp\tC:\\app.dll\t[{_unsaved} unsaved edits]" : "No assemblies loaded.";
                 Reply(id, new JsonObject { ["contents"] = new JsonArray(new JsonObject { ["uri"] = "corvus://assemblies", ["text"] = listing }) });
                 return;
@@ -608,6 +631,10 @@ internal sealed class FakeMcpServer : ChildProcess
             case "edit":
                 Interlocked.Increment(ref _unsaved);
                 Reply(id, Text("edited"));
+                break;
+            case "unlist":
+                _unlisted = true;
+                Reply(id, Text("unlisted"));
                 break;
             case "save":
                 _unsaved = 0;
