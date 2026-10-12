@@ -722,7 +722,7 @@ public sealed class RealScenarioRegressionTests
         // The first block is the readable error; the second repeats it as JSON.
         var text = result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().First().Text;
         Assert.True(result.IsError);
-        Assert.Equal("Error (invalid_argument) in decompile_member: missing required parameter 'member'.", text);
+        Assert.StartsWith("Error (invalid_argument) in decompile_member: missing required parameter 'member'.\nNext: pass member: a string; `corvus describe decompile_member`", text);
         Assert.Equal("member", McpProtocolTests.ErrorJson(result).GetProperty("details").GetProperty("parameter").GetString());
     }
 
