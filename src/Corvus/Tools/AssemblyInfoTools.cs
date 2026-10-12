@@ -16,6 +16,6 @@ public sealed class AssemblyInfoTools(AssemblyWorkspace workspace, AssemblyRepor
         Read(workspace, () =>
         {
             var text = report.Build(workspace.Get(assembly), out var summary);
-            return StructuredOutput.With(text, summary);
+            return ToolOutput.With(text, summary);
         }, cancellationToken);
 }

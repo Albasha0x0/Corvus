@@ -47,7 +47,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 // Lines below the header, two spaces per level.
                 var nodes = ReferenceTools.Lines(text).Skip(1)
                     .Select(l => new CallGraphService.TreeNode(Math.Max(1, (l.Length - l.TrimStart(' ').Length) / 2), l.Trim(), null, "native", null)).ToList();
-                return StructuredOutput.With(pager.Page(text, offset, maxTokens), new CallTree($"native {native}", directionName, levels, nodes, nodes.Count, false));
+                return ToolOutput.With(pager.Page(text, offset, maxTokens), new CallTree($"native {native}", directionName, levels, nodes, nodes.Count, false));
             }, cancellationToken);
         }
         if (link != null) await link.WarmUp(null, cancellationToken);
@@ -59,7 +59,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 : (m, left, indent) => link.NativeCallees(m, left, indent, max, cancellationToken);
             var nodes = new List<CallGraphService.TreeNode>();
             var text = graph.Tree(sym.Assembly, (MethodDef)sym.Member, callers, levels, max, includeExternal, cancellationToken, hook, nodes, out bool truncated);
-            return StructuredOutput.With(pager.Page(text, offset, maxTokens),
+            return ToolOutput.With(pager.Page(text, offset, maxTokens),
                 new CallTree($"{sym.Label} [{sym.Assembly.Id}]", directionName, levels, nodes, nodes.Count, truncated));
         }, cancellationToken);
     }
@@ -184,7 +184,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             }
             var items = found.Select(p => new CallPathEntry(ManagedSteps(p.Path), p.Path.Count(s => s.Via != null),
                 p.Native is { } hop ? NativeLinkService.Describe(hop.Binding) : null)).ToList();
-            return StructuredOutput.With(pager.Page(sb.ToString()), new CallPathList(label, start?.Label, items, items.Count, false));
+            return ToolOutput.With(pager.Page(sb.ToString()), new CallPathList(label, start?.Label, items, items.Count, false));
         }, cancellationToken);
     }
 
@@ -290,7 +290,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         if (truncated) sb.AppendLine($"\n[More paths exist: raise maxPaths (now {limit}) or give from]");
         if (explored.Frontier > 0 && ranked.Count > 0) sb.AppendLine($"Note: {Plural(explored.Frontier, "function")} at maxDepth={deepest} have callers not explored");
         foreach (var note in explored.Notes) sb.AppendLine("Note: " + note);
-        return StructuredOutput.With(pager.Page(sb.ToString()), new CallPathList(label, fromNode != null ? nativeFrom!.ToString() : start?.Label, items, items.Count, truncated));
+        return ToolOutput.With(pager.Page(sb.ToString()), new CallPathList(label, fromNode != null ? nativeFrom!.ToString() : start?.Label, items, items.Count, truncated));
     }
 
     private string NativeName(NativeNode n) =>

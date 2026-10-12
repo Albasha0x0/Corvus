@@ -83,7 +83,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             if (state.Session is { IsOpen: true } session) status = await Describe(native, session, status, cancellationToken);
             list.Add(status);
         }
-        return StructuredOutput.With(Render(native, list), new EngineStatusReport(native.Id, list));
+        return ToolOutput.With(Render(native, list), new EngineStatusReport(native.Id, list));
     }
 
     private static async Task<EngineStatus> Describe(LoadedNative native, INativeDecompilerSession session, EngineStatus status, CancellationToken ct)

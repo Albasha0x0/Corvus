@@ -172,7 +172,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
             sb.AppendLine($"Stopped ({stoppedBy switch { "hits" => $"limit={hitLimit} hits", "time" => $"seconds={(int)budget.TotalSeconds} used", _ => $"maxFunctions={max}" }}); " +
                           $"next: search_decompiled image={native.Id} pattern=\"{pattern}\" cursor={nc}" + (filter != null ? $" filter=\"{filter}\"" : ""));
         else sb.AppendLine("Every function in scope was searched.");
-        return StructuredOutput.With(sb.ToString(), new SearchDecompiledReport(native.Id, session.ProviderId, pattern, hits, scope.Count, cursor, searched,
+        return ToolOutput.With(sb.ToString(), new SearchDecompiledReport(native.Id, session.ProviderId, pattern, hits, scope.Count, cursor, searched,
             failures.Count, nextCursor, nextCursor != null ? stoppedBy : null));
     });
 

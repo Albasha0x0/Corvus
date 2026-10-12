@@ -51,7 +51,7 @@ public sealed partial class NativeTools
             if (i.AsciiLe != null || i.AsciiBe != null) sb.AppendLine($"  ascii     LE {i.AsciiLe ?? "-"}, BE {i.AsciiBe ?? "-"}");
             if (i.Float != null) sb.AppendLine($"  {(i.Size == 4 ? "float " : "double")}    {i.Float}");
         }
-        return StructuredOutput.With(sb.ToString(), new NumberConversions(items));
+        return ToolOutput.With(sb.ToString(), new NumberConversions(items));
     });
 
     /// <summary>One conversion; a bad input or a value outside the width is the item's error.</summary>

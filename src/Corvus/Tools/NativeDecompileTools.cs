@@ -92,7 +92,7 @@ public sealed partial class NativeAnalysisTools
             if (refs) throw new ToolError(ErrorCode.InvalidArgument, "refs applies to one function (address), not functions.", "drop refs, or decompile one address");
             if (callers) functions = await Callers(native!, session, rva, callersOf!, cancellationToken);
             var (text, report) = await Batch(native!, session, functions!, addresses, Math.Clamp(perFunctionSeconds, 1, 600), Math.Clamp(maxFunctions, 1, 200), cancellationToken);
-            return StructuredOutput.With((pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxTokens), report);
+            return ToolOutput.With((pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxTokens), report);
         }
         if (types != null) await types.EnsureMethodAsync(native!, session, code?.Ready(native!)?.FunctionAt(rva)?.Start ?? rva, cancellationToken);
         DecompiledFunction? decompiled = null;
@@ -117,7 +117,7 @@ public sealed partial class NativeAnalysisTools
         var item = new DecompileItem(address!, NativeAddress.Va(native!.Image, rva), functionStart is { } fs ? NativeAddress.Va(native.Image, fs) : null,
             (decompiled?.Name ?? known?.Name) is { } shown ? NativeTools.DisplayName(shown, native.Image.Format) : null, "ok", null, null, single.Count(c => c == '\n'), single.Length)
             { Refs = objects?.Items };
-        return StructuredOutput.With(header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(single, offset, maxTokens) + (offset == 0 && objects != null ? objects.Value.Text : ""),
+        return ToolOutput.With(header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(single, offset, maxTokens) + (offset == 0 && objects != null ? objects.Value.Text : ""),
             new DecompileReport(native.Id, session.ProviderId, [item], 1, 1, 0, 0, null));
     });
 

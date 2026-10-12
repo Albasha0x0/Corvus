@@ -76,7 +76,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         }, cancellationToken);
         if (session != null) result = await Pseudocode(session, result, query.Trim(), regex, cancellationToken);
         var report = Report(native.Id, index, result, Math.Max(0, offset), Math.Clamp(limit, 1, 500));
-        return StructuredOutput.With(Text(index, report, result), report);
+        return ToolOutput.With(Text(index, report, result), report);
     });
 
     /// <summary>The open session's strings and references (references are read on demand, by the trace's thread).</summary>

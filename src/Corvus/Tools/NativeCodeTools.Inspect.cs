@@ -138,7 +138,7 @@ public sealed partial class NativeCodeTools
         var (text, report) = choice.External
             ? await InspectWithEngine(native, index, rva, n, choice, progress, cancellationToken)
             : await Task.Run(() => Inspect(native.Id, index, rva, n, choice, cancellationToken), cancellationToken);
-        return StructuredOutput.With(choice.Line + "\n" + Coverage(index) + pager.Page(text, offset, maxTokens), report);
+        return ToolOutput.With(choice.Line + "\n" + Coverage(index) + pager.Page(text, offset, maxTokens), report);
     });
 
     internal static (string Text, InstructionReport Report) Inspect(string imageId, NativeCodeIndex index, uint rva, int count, EngineChoice choice, CancellationToken ct)

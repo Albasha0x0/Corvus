@@ -30,13 +30,13 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         var r = search.SearchSymbols(query, regex, SymbolResolver.ParseKind(kind), workspace.Scope(assembly), @namespace, offset + limit, cancellationToken, timeouts);
         var page = r.Items.Skip(offset).ToList();
         var result = new SymbolList(page.Select(s => BrowseTools.Match(s)).ToList(), offset, r.Total, offset + page.Count < r.Total) { NotEvaluated = timeouts.Count };
-        if (r.Total == 0) return StructuredOutput.With(timeouts.Note("name") + $"No symbols match '{query}'.", result);
+        if (r.Total == 0) return ToolOutput.With(timeouts.Note("name") + $"No symbols match '{query}'.", result);
         var sb = new StringBuilder(timeouts.Note("name") + $"{Plural(r.Total, "match")}" +
                                    (offset >= r.Total ? $" (none from offset {offset})" : offset > 0 ? $" (showing {offset + 1}-{offset + page.Count})" : TruncationNote(page.Count, r.Total)) + ":\n");
         foreach (var s in page)
             sb.AppendLine($"  {s.Kind,-8} {s.Label}  [{s.Assembly.Id}] {Format.Token(s.Member)}");
         if (offset > 0 && result.Truncated) sb.AppendLine($"[More: offset={offset + page.Count}]");
-        return StructuredOutput.With(pager.Page(sb.ToString()), result);
+        return ToolOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
 
     [McpServerTool(Name = "search_strings", Title = "Search string literals", UseStructuredContent = true, OutputSchemaType = typeof(StringList))]
@@ -62,7 +62,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         var items = new List<StringEntry>();
         var result = new StringList(items, offset, total, offset + shown < total) { NotEvaluated = timeouts.Count };
         if (total == 0)
-            return StructuredOutput.With(timeouts.Note("string") + SkippedBodiesNote(scope) + $"No string literals match '{query}'." + (il2cppStrings.DumpsFor(scope).Count == 0 && scope.Any(a => il2cpp.GetIndex(a).Count > 0)
+            return ToolOutput.With(timeouts.Note("string") + SkippedBodiesNote(scope) + $"No string literals match '{query}'." + (il2cppStrings.DumpsFor(scope).Count == 0 && scope.Any(a => il2cpp.GetIndex(a).Count > 0)
                 ? $" Il2Cpp dummy DLLs have empty bodies: put the dump's {Il2CppDumpFiles.StringLiteralFileName} and {Il2CppDumpFiles.ScriptFileName} in the DummyDll folder or its parent to search the game's literals."
                 : ""), result);
 
@@ -87,7 +87,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         }
         if (offset + shown < total) sb.AppendLine($"[More: offset={offset + shown}]");
         sb.Append(SkippedBodiesNote(scope));
-        return StructuredOutput.With(pager.Page(sb.ToString()), result);
+        return ToolOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
 
     private static void AppendLiteral(StringBuilder sb, Il2CppStringService.LiteralMatch l, HashSet<LoadedAssembly> scope, int maxUses)
@@ -136,14 +136,14 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         var page = r.Items.Skip(offset).ToList();
         var result = new ConstantList(value, page.Select(h => new ConstantEntry(SymbolRef.Of(h.Assembly, h.Owner), (int?)h.ILOffset, h.Kind, h.Value)).ToList(),
             offset, r.Total, offset + page.Count < r.Total);
-        if (r.Total == 0) return StructuredOutput.With(SkippedBodiesNote(scope) + $"Constant {value} not found.", result);
+        if (r.Total == 0) return ToolOutput.With(SkippedBodiesNote(scope) + $"Constant {value} not found.", result);
         var sb = new StringBuilder($"{Plural(r.Total, "occurrence")} of {value}" +
                                    (offset >= r.Total ? $" (none from offset {offset})" : offset > 0 ? $" (showing {offset + 1}-{offset + page.Count})" : TruncationNote(page.Count, r.Total)) + ":\n");
         foreach (var h in page)
             sb.AppendLine($"  {Format.MemberLabel(h.Owner)}{(h.ILOffset is { } o ? $" @IL_{o:X4}" : "")}  {h.Kind} {h.Value}  [{h.Assembly.Id}] {Format.Token(h.Owner)}");
         if (offset > 0 && result.Truncated) sb.AppendLine($"[More: offset={offset + page.Count}]");
         sb.Append(SkippedBodiesNote(scope));
-        return StructuredOutput.With(pager.Page(sb.ToString()), result);
+        return ToolOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
 
     [McpServerTool(Name = "search_il", Title = "Search IL instruction patterns", UseStructuredContent = true, OutputSchemaType = typeof(IlMatchList))]
@@ -163,7 +163,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         var page = r.Items.Skip(offset).ToList();
         var result = new IlMatchList(page.Select(m => new IlMatchEntry(SymbolRef.Of(m.Assembly, m.Method), (int)m.Offset, m.Instructions.Take(24).ToList())).ToList(),
             offset, r.Total, offset + page.Count < r.Total);
-        if (r.Total == 0) return StructuredOutput.With(SkippedBodiesNote(scope) + "No methods match the IL pattern.", result);
+        if (r.Total == 0) return ToolOutput.With(SkippedBodiesNote(scope) + "No methods match the IL pattern.", result);
         var sb = new StringBuilder($"{Plural(r.Total, "match")}" +
                                    (offset >= r.Total ? $" (none from offset {offset})" : offset > 0 ? $" (showing {offset + 1}-{offset + page.Count})" : TruncationNote(page.Count, r.Total)) + ":\n");
         foreach (var m in page)
@@ -174,6 +174,6 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         }
         if (offset > 0 && result.Truncated) sb.AppendLine($"[More: offset={offset + page.Count}]");
         sb.Append(SkippedBodiesNote(scope));
-        return StructuredOutput.With(pager.Page(sb.ToString()), result);
+        return ToolOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
 }

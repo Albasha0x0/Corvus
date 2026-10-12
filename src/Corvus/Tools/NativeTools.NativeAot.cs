@@ -76,7 +76,7 @@ public sealed partial class NativeTools
                 ? $"  nativeaot name layer: off ({NativeAotNames.AutoVariable}=0)"
                 : "  nativeaot name layer: applied when the code index is built (any code tool builds it)");
         var text = sb.ToString();
-        return StructuredOutput.With(pager.Page(text, offset), new NativeAotInfo(native.Id, "summary", s, coverage, [], 0, 0, false));
+        return ToolOutput.With(pager.Page(text, offset), new NativeAotInfo(native.Id, "summary", s, coverage, [], 0, 0, false));
     }
 
     private string AotSections(LoadedNative native, NativeAotImage aot, int offset, int limit)
@@ -144,7 +144,7 @@ public sealed partial class NativeTools
     private string Rows(LoadedNative native, string view, List<NativeAotRow> rows, int offset, int limit, string noun)
     {
         var text = rows.Select(r => $"{r.Address}  {r.Name}  [{r.Kind}]{(r.Detail != null ? "  " + r.Detail : "")}").ToList();
-        return StructuredOutput.With(pager.PageRows(text, offset, limit, noun),
+        return ToolOutput.With(pager.PageRows(text, offset, limit, noun),
             Paged(rows, offset, limit, (page, o, total, more) => new NativeAotInfo(native.Id, view, null, null, page, o, total, more)));
     }
 
@@ -203,7 +203,7 @@ public sealed partial class NativeTools
                     $"{Name(impl.Interface)} slot {impl.InterfaceSlot}, vtable slot {impl.ImplSlot}"));
             }
         }
-        return StructuredOutput.With(pager.Page(sb.ToString(), offset), new NativeAotInfo(native.Id, "type", null, null, slots, 0, slots.Count, false));
+        return ToolOutput.With(pager.Page(sb.ToString(), offset), new NativeAotInfo(native.Id, "type", null, null, slots, 0, slots.Count, false));
     }
 
     private static ToolError NoType(string query) =>

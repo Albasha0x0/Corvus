@@ -146,7 +146,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             }
             return built;
         }, cancellationToken);
-        return StructuredOutput.With(pager.Page(text, offset, maxTokens), report);
+        return ToolOutput.With(pager.Page(text, offset, maxTokens), report);
     });
 
     private static List<string> Sections(string? list, bool pseudocode)

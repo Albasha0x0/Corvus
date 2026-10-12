@@ -67,7 +67,7 @@ public sealed partial class NativeCodeTools
         var result = Paged(shown, offset, limit, (page, o, total, more) => new GlobalList(native.Id, page, o, total, more) { Engine = choice.Engine });
         var engineNote = data == null ? "" : $" ({data.Total:N0} defined by {NativeEngineService.DisplayName(choice.Engine)}" +
                                                (data.Total > data.Items.Count ? $", the first {data.Items.Count:N0} read" : "") + ")";
-        return StructuredOutput.With($"{native.Id}: {Plural(all.Count, data == null ? "named global" : "global")}{engineNote}" +
+        return ToolOutput.With($"{native.Id}: {Plural(all.Count, data == null ? "named global" : "global")}{engineNote}" +
                                      (shown.Count < all.Count ? $", {shown.Count} matching" : "") + $"\n{choice.Line}\n" +
                                      pager.PageRows(rows, offset, limit, "global"), result);
     });

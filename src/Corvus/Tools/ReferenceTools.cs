@@ -52,7 +52,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             sb.Append(SkippedBodiesNote(workspace.Assemblies));
             var result = new ReferenceList($"{target.Label} [{target.Assembly.Id}]", page.Select(i => Entry(i, null)).ToList(), nativeSites.Take(limit).ToList(),
                 offset, r.Total, offset + page.Count < r.Total);
-            return StructuredOutput.With(pager.Page(sb.ToString()), result);
+            return ToolOutput.With(pager.Page(sb.ToString()), result);
         }, cancellationToken);
     }
 
@@ -94,7 +94,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             sb.AppendLine("  none (P/Invokes reaching it through a jump thunk are matched only when the thunk's image is loaded)");
         sb.AppendLine($"Native call sites in loaded images: {sites.Count}{TruncationNote(Math.Min(sites.Count, limit), sites.Count)}");
         foreach (var row in sites.Take(limit)) sb.AppendLine("  " + row);
-        return StructuredOutput.With(sb.ToString(),
+        return ToolOutput.With(sb.ToString(),
             new ReferenceList($"native {symbol}: {target.Label}", items, sites.Take(limit).ToList(), 0, total, items.Count < total || sites.Count > limit));
     }
 
@@ -122,7 +122,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
                         ? "  (its image's code index is still being built or has no function there)"
                         : $"  (the code is in {target.Binding.FinalFile}, which is not loaded: load_assembly it to see what it calls)");
                 else link.AppendTree(sb, fn.Image, fn.Function, false, 1, 2000, 1, withRoot: false, cancellationToken);
-                return StructuredOutput.With(pager.Page(sb.ToString()), new CalleeList($"native {native}: {target.Label}", [], Lines(sb.ToString()), 0, 0, false));
+                return ToolOutput.With(pager.Page(sb.ToString()), new CalleeList($"native {native}: {target.Label}", [], Lines(sb.ToString()), 0, 0, false));
             }, cancellationToken);
         return await Read(workspace, () =>
         {
@@ -132,7 +132,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             if (link?.NativeOf(md) is { } own && !md.HasBody)
             {
                 var runs = link.NativeCallees(md, 2, 1, 2000, cancellationToken);
-                return StructuredOutput.With(pager.Page($"{label} is a {own.Kind} with no IL body; it runs:\n" + runs),
+                return ToolOutput.With(pager.Page($"{label} is a {own.Kind} with no IL body; it runs:\n" + runs),
                     new CalleeList(label, [], Lines(runs), 0, 0, false));
             }
             var list = references.FindCallees(md);
@@ -149,7 +149,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             var result = new CalleeList(label, page.Select(e => new CalleeEntry(distinct ? null : (int)e.Callee.ILOffset, distinct ? null : e.Callee.OpCode,
                     e.Callee.Kind, e.Callee.Target, e.Callee.TargetAssembly?.Id, NativeTarget(e.Callee), e.Count)).ToList(),
                 [], offset, entries.Count, offset + page.Count < entries.Count);
-            return StructuredOutput.With(pager.Page(sb.ToString()), result);
+            return ToolOutput.With(pager.Page(sb.ToString()), result);
         }, cancellationToken);
 
         static string Where(ReferenceService.Callee c) => c.TargetAssembly != null ? $"  [{c.TargetAssembly.Id}]" : "";
@@ -174,7 +174,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method, referenced: true);
         var list = references.FindOverrides((MethodDef)sym.Member, cancellationToken);
         var rows = list.Select(o => $"{o.Label}  [{o.Assembly.Id}] {Format.Token(o.Member)}").ToList();
-        return StructuredOutput.With($"Overrides / implementations of {sym.Label}  [{sym.Assembly.Id}]:\n" + pager.PageRows(rows, offset, ClampLimit(limit), "override/implementation"),
+        return ToolOutput.With($"Overrides / implementations of {sym.Label}  [{sym.Assembly.Id}]:\n" + pager.PageRows(rows, offset, ClampLimit(limit), "override/implementation"),
             Paged(list.Select(o => BrowseTools.Match(o)).ToList(), offset, limit, (page, o, total, more) => new OverrideList(SymbolRef.Of(sym), page, o, total, more)));
     }, cancellationToken);
 }

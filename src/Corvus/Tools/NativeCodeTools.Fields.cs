@@ -117,6 +117,6 @@ public sealed partial class NativeCodeTools
               (r.Partial != null ? $"; PARTIAL ({PartialReason(r.Partial)}): call again to scan the rest, the first not scanned is {(r.Next is { } n ? NativeAddress.Va(native.Image, n) : "unknown")}" : "");
         var choice = new EngineChoice(session.ProviderId, $"struct members come from the engine's types; {scan}");
         var header = $"References to member {target} (+0x{r.Offset:X}, {r.MemberType}, {r.Size} bytes):\n{choice.Line}\n";
-        return StructuredOutput.With(header + pager.PageRows(rows, offset, limit, "reference"), Xrefs(native.Id, target, rows, offset, limit, null, choice));
+        return ToolOutput.With(header + pager.PageRows(rows, offset, limit, "reference"), Xrefs(native.Id, target, rows, offset, limit, null, choice));
     }
 }

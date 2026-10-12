@@ -41,7 +41,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         }
         var page = all.Skip(offset).Take(limit).ToList();
         var result = new NamespaceList(page, offset, all.Count, offset + page.Count < all.Count);
-        if (perAssembly.Count == 0) return StructuredOutput.With($"No namespaces match '{filter}'.", result);
+        if (perAssembly.Count == 0) return ToolOutput.With($"No namespaces match '{filter}'.", result);
         var sb = new StringBuilder();
         foreach (var (asm, count) in perAssembly)
         {
@@ -52,7 +52,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                 sb.AppendLine($"  {(e.Namespace.Length == 0 ? "<global>" : e.Namespace)}  ({e.Types})");
         }
         if (result.Truncated) sb.AppendLine($"[More: offset={offset + page.Count}]");
-        return StructuredOutput.With(pager.Page(sb.ToString()), result);
+        return ToolOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
 
     [McpServerTool(Name = "list_types", Title = "List types", UseStructuredContent = true, OutputSchemaType = typeof(TypeList))]
@@ -85,7 +85,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                 rows.Add($"{Format.Token(t)}  {k,-12} {t.FullName}{(showAssembly ? $"  [{asm.Id}]" : "")}");
                 items.Add(new TypeEntry(asm.Id, Format.Token(t), k, t.FullName));
             }
-        return StructuredOutput.With(timeouts.Note("name") + pager.PageRows(rows, offset, limit, "type"),
+        return ToolOutput.With(timeouts.Note("name") + pager.PageRows(rows, offset, limit, "type"),
             Paged(items, offset, limit, (page, o, total, more) => new TypeList(page, o, total, more) { NotEvaluated = timeouts.Count }));
     }, cancellationToken);
 
@@ -151,7 +151,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
             Entries(methods, m => new MemberEntry(Format.Token(m), m.Name, Format.Method(m), Il2CppService.CompactSummary(m),
                 MetadataUtil.SafeBody(m)?.Instructions.Count)),
             hidden, cut);
-        return StructuredOutput.With(pager.Page(sb.ToString()), outline);
+        return ToolOutput.With(pager.Page(sb.ToString()), outline);
     }, cancellationToken);
 
     private static void Section<T>(StringBuilder sb, string title, IReadOnlyList<T> items, Func<T, string> line)
@@ -249,7 +249,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
             sb.AppendLine($"  {r}\n      {signature}");
             if (items.Count < 1000) items.Add(Match(r, signature));
         }
-        return StructuredOutput.With(sb.ToString(), Firsts(items, all.Count, (page, o, total, more) => new SymbolList(page, o, total, more)));
+        return ToolOutput.With(sb.ToString(), Firsts(items, all.Count, (page, o, total, more) => new SymbolList(page, o, total, more)));
     }, cancellationToken);
 
     internal static SymbolMatch Match(ResolvedSymbol r, string? signature = null) =>

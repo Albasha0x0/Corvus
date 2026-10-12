@@ -168,7 +168,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         {
             ReadAddress = readBase is { } b ? NativeAddress.Va(native.Image, b) : null, Value = rootValue,
         };
-        return StructuredOutput.With(Text(report, c), report);
+        return ToolOutput.With(Text(report, c), report);
     });
 
     /// <summary>Field values at an address, enums named through the catalog.</summary>

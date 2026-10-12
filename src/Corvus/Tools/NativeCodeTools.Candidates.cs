@@ -55,6 +55,6 @@ public sealed partial class NativeCodeTools
             page.Select(c => new FunctionEntry(Va(c.Start), (int)(c.End - c.Start), $"candidate_{pe.ImageBase + c.Start:X}",
                 ["candidate", Plural(c.Instructions, "instruction")], session.ProviderId, c.Calls + c.Jumps + c.DataRefs)).ToList(),
             o, total, more, scan.Truncated ? $"scan stopped at {CandidateScan:N0} code items" : null, session.ProviderId, "code outside functions"));
-        return StructuredOutput.With(sb.ToString(), result);
+        return ToolOutput.With(sb.ToString(), result);
     }
 }

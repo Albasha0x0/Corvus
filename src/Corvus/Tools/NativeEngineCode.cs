@@ -208,7 +208,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             o, total, more, coverage, choice.Engine, choice.Note));
         int exact = query.ExactIndex(list, x => x.Name);
         var detail = exact >= 0 ? await RecordDetail(session, list[exact].f.StartRva, r => Va(index, r), ct) : "";
-        return StructuredOutput.With($"{native.Id}: {Plural(functions.List.Count, "function")} ({thunks} thunks, {library} library) {Via(choice.Engine)}\n{choice.Line}\n" +
+        return ToolOutput.With($"{native.Id}: {Plural(functions.List.Count, "function")} ({thunks} thunks, {library} library) {Via(choice.Engine)}\n{choice.Line}\n" +
                                      $"Note: {coverage}\n" + NativeCodeTools.Matching(query, list.Count, index.Image) + pager.PageRows(lines, offset, limit, "function") +
                                      detail, structured);
     }
@@ -299,7 +299,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             unresolved.Add(new CfgUnresolvedJump(V(b.StartRva), "no switch recognized by the engine"));
         }
         foreach (var t in graph.TailCalls) sb.AppendLine($"  tail call to {index.NameAt(t) ?? V(t)}");
-        return StructuredOutput.With(choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxTokens),
+        return ToolOutput.With(choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxTokens),
             new CfgReport(native.Id, name, V(graph.StartRva), choice.Engine, blocks, switches, unresolved, [.. graph.TailCalls.Select(V)], false));
 
         string EndKind(NativeBlockInfo b) => b.Kind switch

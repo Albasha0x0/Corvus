@@ -67,7 +67,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         CancellationToken cancellationToken = default)
     {
         var report = await Report(image, function, status, offset, limit, crossCheck, sampleFunctions, seconds, context, cancellationToken);
-        return StructuredOutput.With(Text(report), report);
+        return ToolOutput.With(Text(report), report);
     }
 
     /// <summary>The report as text: the counts, one line per site with its targets or reason, the cross-check and notes.</summary>

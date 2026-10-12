@@ -145,7 +145,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         var items = page.Select(s => new CallTargetSiteRecord(Va(s.Rva), $"{s.Function.Name}+0x{s.Rva - s.Function.Start:X}", s.Text, s.Mechanism, s.Status, s.TargetCount,
             s.Targets.Select(t => new CallTargetRecord(Va(t.Address), t.Name, t.Basis, t.Confidence, t.Evidence)).ToList(), s.Reason, s.Hint)).ToList();
         var report = new CallTargetsReport(native.Id, scopeText, engineText, filtered.Count, byStatus, byMechanism, top, start, start + page.Count < filtered.Count, items, notes);
-        return StructuredOutput.With(Text(report), report);
+        return ToolOutput.With(Text(report), report);
     });
 
     private static bool Matches(CallTargetSite s, string filter) => filter switch

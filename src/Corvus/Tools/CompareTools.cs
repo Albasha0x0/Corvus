@@ -163,7 +163,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             cmp.Ambiguous.Keys.Count(m => m is not TypeDef && (@namespace == null || (m.DeclaringType?.FullName.StartsWith(@namespace, StringComparison.Ordinal) ?? false))),
             cmp.OldSkippedBodies, cmp.NewSkippedBodies, hiddenTypes + hiddenMembers,
             offset == 0 ? items : [], items.Count, false, mapFile, mapEntries);
-        return StructuredOutput.With(pager.Page(sb.ToString(), offset, maxTokens), result);
+        return ToolOutput.With(pager.Page(sb.ToString(), offset, maxTokens), result);
     }, cancellationToken);
 
     private static ChangeItem TypeItem(TypeChange t)

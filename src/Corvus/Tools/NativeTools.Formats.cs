@@ -236,7 +236,7 @@ public sealed partial class NativeTools
             items.Add(new ImportEntry(NativeAddress.Va(image, i.SlotRva), i.Module, name, null, i.IsDelayLoad, false, null, null));
         }
         var head = bind ? $"Bindings: resolved for PE images only ({image.Format} image)\n" : "";
-        return StructuredOutput.With(head + pager.PageRows(rows, offset, limit, "import"),
+        return ToolOutput.With(head + pager.PageRows(rows, offset, limit, "import"),
             Paged(items, offset, limit, (page, o, total, more) => new ImportList(native.Id, page, o, total, more, head.Length > 0 ? head.Trim() : null)));
     }
 

@@ -151,7 +151,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                     Notes = [.. report.Notes, $"{provider.Engine} answered {ToolSupport.Plural(provider.EngineSlices, "slice")}; " +
                                               $"{ToolSupport.Plural(provider.Fallbacks, "slice")} fell back to the built-in analysis"],
                 };
-            return StructuredOutput.With(choice.Line + "\n" + Text(index, graph, report), report);
+            return ToolOutput.With(choice.Line + "\n" + Text(index, graph, report), report);
         }, cancellationToken);
     });
 

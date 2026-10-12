@@ -80,7 +80,7 @@ public sealed partial class NativeCodeTools
                                                                                                       (code is { } c ? $", {(c ? "code" : "data")} only" : "") + "\n" : "")));
         var external = choice.External ? "" : Coverage(index);
         var boundTo = filtered.Select(p => p.BoundTo).FirstOrDefault(b => b != null);
-        return StructuredOutput.With(titles + choice.Line + "\n" + external + pager.PageRows(rows, offset, limit, "reference"),
+        return ToolOutput.With(titles + choice.Line + "\n" + external + pager.PageRows(rows, offset, limit, "reference"),
             Xrefs(native.Id, filtered[0].Target, rows, offset, limit, boundTo, choice));
     });
 
@@ -134,7 +134,7 @@ public sealed partial class NativeCodeTools
                 items.Add(new XrefEntry(null, null, "error", null, e.Message) { Of = inputs[i] });
             }
         }
-        return StructuredOutput.With(pager.Page(sb.ToString()), new XrefList(native.Id, $"{inputs.Length} targets", items, offset, total, items.Count < total, null, choice.Engine, choice.Note));
+        return ToolOutput.With(pager.Page(sb.ToString()), new XrefList(native.Id, $"{inputs.Length} targets", items, offset, total, items.Count < total, null, choice.Engine, choice.Note));
     }
 
     /// <summary>The kind column of a row in the tool's format, or null for a row of another form.</summary>

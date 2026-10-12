@@ -68,7 +68,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         var capabilities = Capabilities(native.Image);
         var text = pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}",
             () => PeInfo(native) + CodeText(native.Image, capabilities));
-        return StructuredOutput.With(pager.Page(text, offset, maxTokens), Summary(native) with
+        return ToolOutput.With(pager.Page(text, offset, maxTokens), Summary(native) with
         {
             Capabilities = capabilities.Select(c => new CapabilityEntry(c.Group, c.Count, c.Apis)).ToList(),
         });
@@ -293,7 +293,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                        (unresolved.Count > 0 ? $" ({string.Join(", ", unresolved.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"))})" : "") + "\n";
             }
             else if (bind) head = "Bindings: not available in this configuration\n";
-            return StructuredOutput.With(head + pager.PageRows(rows, offset, limit, "import"),
+            return ToolOutput.With(head + pager.PageRows(rows, offset, limit, "import"),
                 Paged(items, offset, limit, (page, o, total, more) => new ImportList(native.Id, page, o, total, more, head.Length > 0 ? head.Trim() : null)));
         }, cancellationToken);
     }
@@ -326,7 +326,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             items.Add(new ExportEntry((int)e.Ordinal, e.ForwardedTo != null ? null : NativeAddress.Va(pe, e.Rva), e.Name,
                 demangled != null && demangled != name ? demangled : null, e.ForwardedTo, e.Version));
         }
-        return StructuredOutput.With(pager.PageRows(rows, offset, limit, "export"),
+        return ToolOutput.With(pager.PageRows(rows, offset, limit, "export"),
             Paged(items, offset, limit, (page, o, total, more) => new ExportList(native.Id, page, o, total, more)));
     }, cancellationToken);
 
@@ -345,7 +345,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         if (addresses == null)
         {
             var (single, record) = Resolve(native, address!, cancellationToken);
-            return StructuredOutput.With(single, record);
+            return ToolOutput.With(single, record);
         }
         if (addresses.Length > 100) throw new ToolError(ErrorCode.InvalidArgument, $"{addresses.Length} addresses; at most 100 per call.", "split the addresses");
         var text = new StringBuilder();
@@ -365,7 +365,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 records.Add(new AddressInfo(native.Id, "", "", null, null, null, null, null, null, null, null, [line]));
             }
         }
-        return StructuredOutput.With(text.ToString(), records[0] with { More = records.Skip(1).ToList() });
+        return ToolOutput.With(text.ToString(), records[0] with { More = records.Skip(1).ToList() });
     }, cancellationToken);
 
     /// <summary>resolve_address for one address.</summary>

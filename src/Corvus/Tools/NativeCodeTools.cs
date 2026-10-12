@@ -153,7 +153,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         int exact = query.ExactIndex(functions, f => f.Name);
         var detail = exact >= 0 && engines?.OpenSession(native) is { } open
             ? await NativeEngineCode.RecordDetail(open, functions[exact].Start, r => NativeAddress.Va(index.Image, r), cancellationToken) : "";
-        return StructuredOutput.With($"{native.Id}: {Plural(s.Functions, "function")} ({s.Thunks} thunks, {s.NoReturnFunctions} noreturn" +
+        return ToolOutput.With($"{native.Id}: {Plural(s.Functions, "function")} ({s.Thunks} thunks, {s.NoReturnFunctions} noreturn" +
                (library > 0 ? $", {library} library functions named by IDA" : "") + $"), {s.Instructions:N0} instructions, " +
                $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n{choice.Line}\n" + coverage + Matching(query, functions.Count, index.Image) +
                pager.PageRows(rows, offset, limit, "function") + detail, result);
@@ -260,7 +260,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var fn = FunctionAt(index, Address(index, address));
         var graph = index.GetGraph(fn, cancellationToken);
         var (text, report) = OurCfg(native, index, fn, graph);
-        return StructuredOutput.With(choice.Line + "\n" + pager.Page(text, offset, maxTokens), report);
+        return ToolOutput.With(choice.Line + "\n" + pager.Page(text, offset, maxTokens), report);
     });
 
     /// <summary>"case 3, 4" (or "default ...") for a switch case reference from the jump at <paramref name="jump"/> to <paramref name="target"/>.</summary>
@@ -484,7 +484,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {kind} \"{Format.Clip(Escape(s.Text), 200)}\"  {index.CountRefsTo(s.Rva)} refs{(first != null ? $", first in {first}" : "")}");
             if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, s.Rva), kind, s.Text, index.CountRefsTo(s.Rva), first));
         }
-        return StructuredOutput.With((choice.External ? choice.Line + "\n" : "") + timeouts.Note("string") + pager.PageRows(rows, offset, limit, "string"),
+        return ToolOutput.With((choice.External ? choice.Line + "\n" : "") + timeouts.Note("string") + pager.PageRows(rows, offset, limit, "string"),
             new NativeStringList(native.Id, items, pageStart, rows.Count, pageStart + items.Count < rows.Count) { NotEvaluated = timeouts.Count });
     });
 
