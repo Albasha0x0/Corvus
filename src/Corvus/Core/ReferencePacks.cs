@@ -12,7 +12,8 @@ namespace Corvus.Core;
 internal static class ReferencePacks
 {
     private const string FeedBase = "https://api.nuget.org/v3-flatcontainer/";
-    private static readonly ConcurrentDictionary<string, Lazy<string?>> Fetched = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>One download per pack; a waiting call stops when it is cancelled, the download goes on for the next.</summary>
+    private static readonly ConcurrentDictionary<string, Lazy<Task<string?>>> Fetched = new(StringComparer.OrdinalIgnoreCase);
 
     public static string CacheRoot { get; } = Corvus.Native.Providers.DataFolder.Combine("packs");
 
@@ -24,7 +25,9 @@ internal static class ReferencePacks
         if (major < 5) return null;
         if (Cached(packId, major) is { } dir) return dir;
         if (Offline) return null;
-        return Fetched.GetOrAdd($"{packId}/{major}", _ => new Lazy<string?>(() => Download(packId, major))).Value;
+        var download = Fetched.GetOrAdd($"{packId}/{major}", _ => new Lazy<Task<string?>>(() => Task.Run(() => Download(packId, major)))).Value;
+        download.Wait(AssemblyWorkspace.CallToken);
+        return download.Result;
     }
 
     /// <summary>The newest cached pack directory for the major, else null.</summary>

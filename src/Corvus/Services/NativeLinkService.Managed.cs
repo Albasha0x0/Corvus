@@ -31,7 +31,7 @@ public sealed partial class NativeLinkService
     {
         if (method.ImplMap is not { } map) return null;
         Binding b;
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             var linker = Linker();
             var cache = _pinvokes.GetValue(asm, _ => []);
@@ -92,7 +92,7 @@ public sealed partial class NativeLinkService
     public NativeTarget Resolve(NativeSymbol symbol)
     {
         LinkResult link;
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             var linker = Linker();
             var loaded = workspace.FindNative(symbol.Image) ?? workspace.FindNative(symbol.Image + ".dll");
@@ -114,7 +114,7 @@ public sealed partial class NativeLinkService
             throw new ToolError(ErrorCode.NotFound, $"{symbol} does not resolve: {link.Status}: {link.Detail}",
                 "list_exports shows the exports; for a loaded image an address or function name works too");
         Binding b;
-        lock (_sync) b = Classify(link);
+        using (AssemblyWorkspace.Lock(_sync)) b = Classify(link);
         b = FollowThunks(b);
         var keys = new HashSet<string>(StringComparer.Ordinal) { link.Hops[0].Key };
         if (b.Link.Final is { } final) keys.Add(final.Key);

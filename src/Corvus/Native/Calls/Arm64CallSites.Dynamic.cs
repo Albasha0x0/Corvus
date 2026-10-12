@@ -1,3 +1,4 @@
+using Corvus.Core;
 using System.Buffers.Binary;
 using AsmArm64;
 using Corvus.Native.Code;
@@ -23,7 +24,7 @@ internal sealed partial class Arm64CallSites
     public DynamicImportSet DynamicImports(CancellationToken ct = default)
     {
         if (_dynamic != null) return _dynamic;
-        lock (_dynamicGate)
+        using (AssemblyWorkspace.Lock(_dynamicGate))
         {
             if (_dynamic != null) return _dynamic;
             if (_computingDynamic) return new DynamicImportSet();

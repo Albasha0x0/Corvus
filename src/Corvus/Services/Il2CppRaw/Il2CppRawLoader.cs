@@ -83,7 +83,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
         Il2CppGameModel model;
         bool fromCache;
         TimeSpan readTime;
-        lock (CacheGate)
+        using (AssemblyWorkspace.Lock(CacheGate))
         {
             if (ReadMarker(dir) is { } marker && marker.Format == CacheFormat && marker.Reader == ReaderVersion
                 && marker.BinaryStamp == Stamp(files.Binary) && marker.MetadataStamp == Stamp(files.Metadata)

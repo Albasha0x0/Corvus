@@ -218,14 +218,14 @@ public sealed partial class MinidumpService
             var decoder = await Decoder(s, new DacRequest(), ct);
             if (decoder is not { Loaded: true }) return null;
             ManagedException? ex;
-            lock (decoder.Gate) ex = decoder.Exception(threadId) ?? decoder.Exception(null);
+            using (AssemblyWorkspace.Lock(decoder.Gate)) ex = decoder.Exception(threadId) ?? decoder.Exception(null);
             if (ex == null) return null;
             var frames = ex.Stack.Where(f => f.IsMethod).Select(f => MethodOnly(f.Name)).ToList();
             if (frames.Count == 0 && (threadId ?? ex.ThreadId) is { } thread)
             {
                 // an exception trace the DAC does not resolve (32-bit runtimes): the thread's own walk from the raise down
                 ulong raisedAt = s.Dump.Exception is { } e && e.ThreadId == thread && s.Dump.ReadContext(e.Context) is { } c ? c.Sp : 0;
-                lock (decoder.Gate)
+                using (AssemblyWorkspace.Lock(decoder.Gate))
                     frames = decoder.Frames(thread, BucketWalkFrames).Where(f => f.IsMethod && f.Sp >= raisedAt).Select(f => MethodOnly(f.Name)).ToList();
             }
             var version = ClrDecoder.RuntimeModule(s.Dump)?.FileVersion;

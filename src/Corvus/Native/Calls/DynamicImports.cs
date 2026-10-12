@@ -1,3 +1,4 @@
+using Corvus.Core;
 using Iced.Intel;
 using Corvus.Native.Code;
 
@@ -79,7 +80,7 @@ public sealed partial class CallAnalysis
     public DynamicImportSet DynamicImports(CancellationToken ct = default)
     {
         if (_dynamic != null) return _dynamic;
-        lock (_dynamicGate)
+        using (AssemblyWorkspace.Lock(_dynamicGate))
         {
             if (_dynamic != null) return _dynamic;
             if (_computingDynamic) return new DynamicImportSet();

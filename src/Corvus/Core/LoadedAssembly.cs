@@ -66,7 +66,7 @@ public sealed class LoadedAssembly : IDisposable
 
     internal void RecordEdit(EditRecord edit)
     {
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             Edits.Add(edit);
             Version++;
@@ -82,7 +82,7 @@ public sealed class LoadedAssembly : IDisposable
     /// </summary>
     internal (ModuleDefMD Module, List<EditRecord> Edits) ResetToOriginal(ModuleContext context)
     {
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             var previous = (Module, Edits.ToList());
             var fresh = ModuleDefMD.Load(_originalBytes, context);
@@ -97,7 +97,7 @@ public sealed class LoadedAssembly : IDisposable
 
     internal void RestoreState(ModuleDefMD module, List<EditRecord> edits)
     {
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             var discarded = Module;
             Module = module;
@@ -114,7 +114,7 @@ public sealed class LoadedAssembly : IDisposable
     /// </summary>
     internal LoadedAssembly GetOriginalView(ModuleContext context)
     {
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             if (_originalView == null)
             {
@@ -137,7 +137,7 @@ public sealed class LoadedAssembly : IDisposable
     /// </summary>
     public (byte[] Bytes, SaveReport Report) GetImage()
     {
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             if (!IsDirty)
                 return (_originalBytes, SaveReport.Empty);
@@ -155,7 +155,7 @@ public sealed class LoadedAssembly : IDisposable
     /// <summary>What a save with no edits reports (see <see cref="FaithfulWriter.Survey"/>).</summary>
     public SaveReport SurveyOriginal()
     {
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             try { return FaithfulWriter.Survey(Pristine(), RawOriginal); }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
@@ -167,7 +167,7 @@ public sealed class LoadedAssembly : IDisposable
 
     internal RawImage RawOriginal
     {
-        get { lock (_sync) return _rawOriginal ??= new RawImage(_originalBytes); }
+        get { using (AssemblyWorkspace.Lock(_sync)) return _rawOriginal ??= new RawImage(_originalBytes); }
     }
 
     private (int Unreadable, int Total)? _bodyCensus;
@@ -181,7 +181,7 @@ public sealed class LoadedAssembly : IDisposable
     {
         get
         {
-            lock (_sync)
+            using (AssemblyWorkspace.Lock(_sync))
             {
                 if (_bodyCensus is { } known) return known;
                 int unreadable = 0, total = 0;
@@ -212,7 +212,7 @@ public sealed class LoadedAssembly : IDisposable
     /// <summary>A separate, never edited load of the original image: tells what edits changed.</summary>
     private ModuleDefMD Pristine()
     {
-        lock (_sync) return _pristine ??= ModuleDefMD.Load(_originalBytes);
+        using (AssemblyWorkspace.Lock(_sync)) return _pristine ??= ModuleDefMD.Load(_originalBytes);
     }
 
     /// <summary>
@@ -223,7 +223,7 @@ public sealed class LoadedAssembly : IDisposable
     {
         if (member.MDToken.Rid != 0)
             return member.MDToken.Raw;
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             if (_imageModule == null || _imageModuleVersion != Version)
             {
@@ -260,7 +260,7 @@ public sealed class LoadedAssembly : IDisposable
     /// </summary>
     public PEFile GetPEFile()
     {
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             if (_peFile == null || _peFileVersion != Version)
             {
@@ -327,7 +327,7 @@ public sealed class LoadedAssembly : IDisposable
     /// </summary>
     public SaveReport Write(Stream output)
     {
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             RawImage? original = null;
             string? unreadable = null;

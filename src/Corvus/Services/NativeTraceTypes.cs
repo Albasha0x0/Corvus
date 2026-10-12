@@ -83,7 +83,7 @@ internal sealed partial class NativeTraceTypes : ITraceTypes
 
     private Image Of(ITraceHost host)
     {
-        lock (_images)
+        using (AssemblyWorkspace.Lock(_images))
         {
             if (_images.TryGetValue(host.Index, out var hit)) return hit;
             var image = new Image();

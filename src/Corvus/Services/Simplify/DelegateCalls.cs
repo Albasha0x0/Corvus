@@ -39,7 +39,7 @@ internal static class DelegateCalls
     private static Entry Current(LoadedAssembly asm, CancellationToken ct)
     {
         var entry = Cache.GetValue(asm, _ => new Entry());
-        lock (entry)
+        using (AssemblyWorkspace.Lock(entry))
         {
             if (entry.Version != asm.Version)
             {

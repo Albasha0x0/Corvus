@@ -68,7 +68,26 @@ public sealed class AssemblyWorkspace : IDisposable
     /// </summary>
     public static IDisposable CancelWaitsWith(CancellationToken cancellationToken) => Call.Value = new CallScope(cancellationToken);
 
-    private static CancellationToken CallToken => Call.Value?.Token ?? default;
+    internal static CancellationToken CallToken => Call.Value?.Token ?? default;
+
+    /// <summary>
+    /// <c>lock</c> for a monitor whose holder can run long: a call waiting for it stops when the call is cancelled (see
+    /// <see cref="CancelWaitsWith"/>). Use as <c>using (AssemblyWorkspace.Lock(gate)) ...</c>; re-entrant like <c>lock</c>.
+    /// </summary>
+    public static MonitorExit Lock(object gate)
+    {
+        var ct = CallToken;
+        if (!ct.CanBeCanceled) Monitor.Enter(gate);
+        else
+            while (!Monitor.TryEnter(gate, WaitSliceMs))
+                ct.ThrowIfCancellationRequested();
+        return new MonitorExit(gate);
+    }
+
+    public readonly struct MonitorExit(object gate) : IDisposable
+    {
+        public void Dispose() => Monitor.Exit(gate);
+    }
 
     /// <summary>Threads queued for the exclusive and the shared lock (tests order lock waits with these).</summary>
     internal (int Writers, int Readers) Waiting => (_lock.WaitingWriteCount, _lock.WaitingReadCount);

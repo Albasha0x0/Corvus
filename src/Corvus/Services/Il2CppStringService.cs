@@ -39,7 +39,7 @@ public sealed class Il2CppStringService
     public List<(Il2CppStringIndex Dump, List<LoadedAssembly> Assemblies)> DumpsFor(IReadOnlyList<LoadedAssembly> scope)
     {
         var byDump = new Dictionary<Il2CppStringIndex, List<LoadedAssembly>>();
-        lock (_dumps)
+        using (AssemblyWorkspace.Lock(_dumps))
         {
             // Dump files are looked for again after a workspace change, and at most a few seconds after the last look.
             if (_locatedGeneration != _workspace.Generation || Environment.TickCount64 - _locatedAt > 5_000)
@@ -101,7 +101,7 @@ public sealed class Il2CppStringService
 
     private Il2CppStringIndex? DumpOfCached(LoadedAssembly asm)
     {
-        lock (_dumps) return DumpOf(asm);
+        using (AssemblyWorkspace.Lock(_dumps)) return DumpOf(asm);
     }
 
     private static List<LiteralUse> Uses(Il2CppStringIndex.NativeReferences refs, MethodStarts methods, int literal)
@@ -138,7 +138,7 @@ public sealed class Il2CppStringService
     /// <summary>The dummy methods by [Address] RVA, across the dump's loaded assemblies.</summary>
     public MethodStarts MethodsByRva(Il2CppStringIndex dump)
     {
-        lock (_dumps)
+        using (AssemblyWorkspace.Lock(_dumps))
         {
             if (_methods.Generation != _workspace.Generation) _methods = (_workspace.Generation, new());
             if (_methods.Maps.TryGetValue(dump, out var map)) return map;

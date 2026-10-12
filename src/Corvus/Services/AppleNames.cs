@@ -27,7 +27,7 @@ public static class AppleNames
     {
         if (native.Image is not MachOFile image) return (null, null);
         var holder = native.GetAnalysis(_ => new Holder());
-        lock (holder.Gate)
+        using (AssemblyWorkspace.Lock(holder.Gate))
         {
             if (!holder.Done)
             {

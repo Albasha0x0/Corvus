@@ -125,4 +125,32 @@ public class ConcurrencyTests
         var seen = new string(order.ToArray());
         Assert.True(seen.IndexOf('w') < 30, seen); // in the first sections, not after the whole read
     }
+
+    [Fact]
+    public async Task MonitorWaitOfACall_EndsWhenTheCallIsCancelled()
+    {
+        var gate = new object();
+        using var release = new ManualResetEventSlim();
+        using var held = new ManualResetEventSlim();
+        var holder = Task.Factory.StartNew(() =>
+        {
+            using (AssemblyWorkspace.Lock(gate)) { held.Set(); release.Wait(); }
+        }, TaskCreationOptions.LongRunning);
+        held.Wait();
+        using var cts = new CancellationTokenSource();
+        async Task Call()
+        {
+            using var scope = AssemblyWorkspace.CancelWaitsWith(cts.Token);
+            await Task.Yield();
+            using (AssemblyWorkspace.Lock(gate)) { }
+        }
+        var waiter = Task.Run(Call);
+        await Task.Delay(100);
+        Assert.False(waiter.IsCompleted);
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiter).WaitAsync(TimeSpan.FromSeconds(5));
+        release.Set();
+        await holder;
+        using (AssemblyWorkspace.Lock(gate)) using (AssemblyWorkspace.Lock(gate)) { } // re-entrant
+    }
 }

@@ -100,7 +100,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
     private Il2CppStringService.MethodStarts UndumpedMethods(List<LoadedAssembly> assemblies)
     {
         var key = string.Join("|", assemblies.Select(a => a.Id));
-        lock (_lock)
+        using (AssemblyWorkspace.Lock(_lock))
         {
             if (_undumped.Generation != workspace.Generation) _undumped = (workspace.Generation, new());
             if (!_undumped.Maps.TryGetValue(key, out var map))
@@ -368,7 +368,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
     private Dictionary<int, List<ResolvedSymbol>> TypesByKey(Image image)
     {
         var key = string.Join("|", image.Assemblies.Select(a => a.Id));
-        lock (_lock)
+        using (AssemblyWorkspace.Lock(_lock))
         {
             if (_typeKeys.Generation != workspace.Generation) _typeKeys = (workspace.Generation, new());
             if (_typeKeys.Maps.TryGetValue(key, out var map)) return map;

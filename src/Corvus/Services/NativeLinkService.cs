@@ -90,7 +90,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     public LoadedNative? LoadedAt(string? path)
     {
         if (path == null) return null;
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             Linker();
             return _byPath.GetValueOrDefault(path);
@@ -126,14 +126,14 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     public Binding BindImport(LoadedNative importer, NativeImport import)
     {
         Binding b;
-        lock (_sync) b = Classify(Linker().BindImport(importer.FilePath, IsX86(importer.Image), import));
+        using (AssemblyWorkspace.Lock(_sync)) b = Classify(Linker().BindImport(importer.FilePath, IsX86(importer.Image), import));
         return FollowThunks(b);
     }
 
     /// <summary>Bindings of every import of <paramref name="importer"/>, in import order (thunks not followed).</summary>
     public IReadOnlyList<Binding> BindAll(LoadedNative importer, CancellationToken ct = default)
     {
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             var linker = Linker();
             if (_imports.TryGetValue(importer, out var cached)) return cached;
@@ -170,12 +170,12 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         {
             if (code.Ready(target)?.FunctionByStart(rva) is not { ThunkImport: { } import } fn || (fn.Flags & FunctionFlags.Thunk) == 0) break;
             LinkResult inner;
-            lock (_sync) inner = Linker().BindImport(target.FilePath, IsX86(target.Image), import);
+            using (AssemblyWorkspace.Lock(_sync)) inner = Linker().BindImport(target.FilePath, IsX86(target.Image), import);
             if (!inner.IsResolved) break;
             var hops = current.Link.Hops.Concat(inner.Hops.Select((h, k) => k == 0 ? h with { Via = "thunk" } : h)).ToList();
             var link = current.Link with { Hops = hops };
             Binding next;
-            lock (_sync) next = Classify(inner);
+            using (AssemblyWorkspace.Lock(_sync)) next = Classify(inner);
             if (next.Status != Bound) return current with { Link = link };
             current = next with { Link = link };
         }
@@ -189,7 +189,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     public IReadOnlyList<(LoadedNative Importer, NativeImport Import)> ImportersOf(LoadedNative target, uint rva, CancellationToken ct = default)
     {
         Dictionary<(LoadedNative, uint), List<(LoadedNative, NativeImport)>> map;
-        lock (_sync)
+        using (AssemblyWorkspace.Lock(_sync))
         {
             Linker();
             map = _importers ??= BuildImporters(ct);

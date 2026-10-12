@@ -58,7 +58,7 @@ public sealed partial class MinidumpService
         if (heap)
         {
             ManagedHeapState state;
-            lock (decoder.Gate) state = decoder.Facts().Heap;
+            using (AssemblyWorkspace.Lock(decoder.Gate)) state = decoder.Facts().Heap;
             if (!state.Walkable)
                 throw new ToolError(ErrorCode.Unsupported, $"{state.Reason}.", FullMemoryHint);
         }
@@ -80,7 +80,7 @@ public sealed partial class MinidumpService
         maxObjects = Math.Clamp(maxObjects, 1, 100_000_000);
         string? pattern = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
         var notes = new List<string>();
-        lock (decoder.Gate)
+        using (AssemblyWorkspace.Lock(decoder.Gate))
         {
             var (rows, objects, matched, walked, stopped) = decoder.Walk(pattern, minSize, maxObjects, stats ? 0 : offset, stats ? 0 : limit, ct);
             if (walked == 0)
@@ -111,7 +111,7 @@ public sealed partial class MinidumpService
         depth = Math.Clamp(depth, 1, 3);
         maxFields = Math.Clamp(maxFields, 1, 1000);
         maxArrayItems = Math.Clamp(maxArrayItems, 0, 1000);
-        lock (decoder.Gate)
+        using (AssemblyWorkspace.Lock(decoder.Gate))
         {
             var view = decoder.Object(at, depth, maxFields, maxArrayItems)
                        ?? throw new ToolError(ErrorCode.NotFound, $"no managed object at {Hex(s.Dump, at)} (or the dump does not hold it).",

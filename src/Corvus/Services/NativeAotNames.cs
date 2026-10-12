@@ -54,7 +54,7 @@ public static class NativeAotNames
     public static NativeAotImage? View(LoadedNative native, CancellationToken ct = default)
     {
         var holder = native.GetAnalysis(_ => new Holder());
-        lock (holder.Gate)
+        using (AssemblyWorkspace.Lock(holder.Gate))
         {
             if (holder.Done) return holder.View;
             try { holder.View = NativeAotImage.For(native.Image); }
