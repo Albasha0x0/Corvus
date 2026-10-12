@@ -474,7 +474,7 @@ public sealed partial class CallAnalysis : ITraceHost
         var resolver = new ValueResolver(this, code);
         var callee = ResolveCallee(code, block, index, resolver);
         var apiName = callee.Import?.Name ?? callee.Dynamic?.Name ?? (callee.Kind == CalleeKind.Function ? callee.Name : null);
-        var sig = ApiSignatures.Find(apiName);
+        var sig = ApiSignatures.Find(apiName, Image);
         var args = new List<CallArgument>();
         bool guessed = sig == null;
         if (sig != null)

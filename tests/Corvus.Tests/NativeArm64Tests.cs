@@ -227,6 +227,25 @@ public class NativeArm64Tests
         Assert.Equal(("?!sin", Native.Calls.CalleeKind.Dynamic), (viaWrapper.Callee, viaWrapper.Kind));
     }
 
+    /// <summary>open(path, 0x601, 0644) in a Mach-O image: Darwin's O_CREAT is 0x200 and O_TRUNC 0x400 (Linux would read O_TRUNC|O_APPEND).</summary>
+    [Fact]
+    public void Open_flags_use_the_images_operating_system()
+    {
+        uint open = Data + 0x10;
+        var a = new A64(Code);
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp).Word(A64.MovW(1, 0x601)).Word(A64.MovW(2, 0x1A4));
+        a.Word(A64.Adrp(a.Here, open, 16, Base)).Word(A64.LdrX(17, 16, open & 0xFFF)).Word(A64.Blr(17));
+        a.Word(A64.LdpFpLrPost).Word(A64.Ret);
+        string Flags(ImageFormat format)
+        {
+            var image = CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), new byte[0x200], entry: Code, imports: [Import("open", open)], format: format);
+            var index = NativeCodeIndex.Build(image);
+            return Native.Calls.Arm64CallSites.For(index).CallsIn(index.FunctionByStart(Code)!).Single().Arguments[1].Text;
+        }
+        Assert.Equal("O_WRONLY|O_CREAT|O_TRUNC", Flags(ImageFormat.MachO));
+        Assert.Equal("_O_WRONLY|_O_TRUNC|_O_EXCL", Flags(ImageFormat.Pe));
+    }
+
     [Fact]
     public void Relocated_words_and_zero_fill_are_not_code()
     {

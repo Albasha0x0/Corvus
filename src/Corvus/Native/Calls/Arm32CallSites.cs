@@ -92,7 +92,7 @@ internal sealed class Arm32CallSites : ICallSites
             callee = s.Text;
             kind = CalleeKind.Indirect;
         }
-        var signature = ApiSignatures.Find(import?.Name ?? callee);
+        var signature = ApiSignatures.Find(import?.Name ?? callee, _index.Image);
         var resolver = new Arm32Resolver(trace, code) { Budget = 3000 };
         var args = new List<CallArgument>();
         int count = signature != null ? Math.Min(signature.Params.Count, MaxArguments) : GuessedCount(code.Blocks[b], k);

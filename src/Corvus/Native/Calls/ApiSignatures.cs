@@ -32,13 +32,17 @@ public enum ApiParamType : byte
     Enum,
 }
 
-public sealed record ApiParam(string Name, ApiParamType Type, ApiEnum? Enum = null)
+/// <summary>
+/// A parameter. <see cref="OsEnum"/> names a flag set whose values differ between operating systems: the parameter is a raw
+/// number until <see cref="ApiSignatures.ForOs"/> picks the image's set.
+/// </summary>
+public sealed record ApiParam(string Name, ApiParamType Type, ApiEnum? Enum = null, string? OsEnum = null)
 {
     public bool IsString => Type is ApiParamType.AnsiString or ApiParamType.WideString or ApiParamType.AnsiFormat or ApiParamType.WideFormat;
     /// <summary>Stack slots on x86.</summary>
     public int Slots32 => Type is ApiParamType.Int64 or ApiParamType.Double ? 2 : 1;
     public bool IsFloat => Type is ApiParamType.Float or ApiParamType.Double;
-    public string TypeName => Enum?.Name ?? Type.ToString().ToLowerInvariant();
+    public string TypeName => Enum?.Name ?? OsEnum ?? Type.ToString().ToLowerInvariant();
 }
 
 /// <summary>What a known API returns: <see cref="Meaning"/> ("a Win32 error code") and the names of its values when they form an enumeration.</summary>
@@ -46,6 +50,17 @@ public sealed record ApiReturn(string Meaning, ApiEnum? Enum);
 
 /// <summary>A known API: parameter names and types; <see cref="Variadic"/> takes extra arguments described by its format string.</summary>
 public sealed record ApiSignature(string Name, IReadOnlyList<ApiParam> Params, bool Variadic, bool Cdecl);
+
+/// <summary>The operating system whose constants an image passes to its APIs.</summary>
+public enum ApiOs : byte
+{
+    Unknown,
+    Windows,
+    /// <summary>Linux and Android.</summary>
+    Linux,
+    /// <summary>macOS, iOS and the other Apple systems.</summary>
+    Darwin,
+}
 
 /// <summary>Named values of a parameter: an enumeration (exact match) or flags (each entry claims value under its mask).</summary>
 public sealed class ApiEnum(string name, bool flags, IReadOnlyList<(string Name, ulong Value, ulong Mask)> entries)
@@ -121,6 +136,7 @@ public static class ApiSignatures
     // Table format:
     //   flags NAME: ENTRY=value[/mask] ...     entries decode in order; a zero entry with a mask names an empty field
     //   enum NAME: ENTRY=value ...
+    //   flags NAME@os: ...                     one OS's values (windows, linux, darwin); a NAME parameter decodes with the image's OS
     //   [cdecl] Name(type name, ...[, ...])     a trailing % expands to the A and W forms (str / fmt become astr / wstr, afmt / wfmt)
     // Types: int uint hex ptr handle hmodule size bool str astr wstr fmt afmt wfmt procname guid float double i64, or an enum / flags name.
     private const string Table = """
@@ -146,7 +162,9 @@ public static class ApiSignatures
         enum ShowCmd: SW_HIDE=0 SW_SHOWNORMAL=1 SW_SHOWMINIMIZED=2 SW_SHOWMAXIMIZED=3 SW_SHOWNOACTIVATE=4 SW_SHOW=5 SW_MINIMIZE=6 SW_SHOWMINNOACTIVE=7 SW_SHOWNA=8 SW_RESTORE=9 SW_SHOWDEFAULT=10 SW_FORCEMINIMIZE=11
         enum Timeout: INFINITE=0xFFFFFFFF
         enum StdHandle: STD_INPUT_HANDLE=0xFFFFFFF6 STD_OUTPUT_HANDLE=0xFFFFFFF5 STD_ERROR_HANDLE=0xFFFFFFF4
-        enum AddressFamily: AF_UNSPEC=0 AF_UNIX=1 AF_INET=2 AF_NETBIOS=17 AF_INET6=23 AF_IRDA=26 AF_BTH=32
+        enum AddressFamily@windows: AF_UNSPEC=0 AF_UNIX=1 AF_INET=2 AF_NETBIOS=17 AF_INET6=23 AF_IRDA=26 AF_BTH=32
+        enum AddressFamily@linux: AF_UNSPEC=0 AF_UNIX=1 AF_INET=2 AF_INET6=10 AF_NETLINK=16 AF_PACKET=17 AF_BLUETOOTH=31
+        enum AddressFamily@darwin: AF_UNSPEC=0 AF_UNIX=1 AF_INET=2 AF_ROUTE=17 AF_LINK=18 AF_INET6=30 AF_SYSTEM=32
         enum SocketType: SOCK_STREAM=1 SOCK_DGRAM=2 SOCK_RAW=3 SOCK_RDM=4 SOCK_SEQPACKET=5
         enum Protocol: IPPROTO_IP=0 IPPROTO_ICMP=1 IPPROTO_IGMP=2 IPPROTO_TCP=6 IPPROTO_UDP=17 IPPROTO_ICMPV6=58 IPPROTO_RAW=255
         flags ToolhelpFlags: TH32CS_SNAPALL=0xF TH32CS_SNAPHEAPLIST=0x1 TH32CS_SNAPPROCESS=0x2 TH32CS_SNAPTHREAD=0x4 TH32CS_SNAPMODULE=0x8 TH32CS_SNAPMODULE32=0x10 TH32CS_INHERIT=0x80000000
@@ -182,8 +200,11 @@ public static class ApiSignatures
         enum WaitResult: WAIT_OBJECT_0=0 WAIT_ABANDONED=0x80 WAIT_IO_COMPLETION=0xC0 WAIT_TIMEOUT=0x102 WAIT_FAILED=0xFFFFFFFF
         enum HResult: S_OK=0 S_FALSE=1 E_NOTIMPL=0x80004001 E_NOINTERFACE=0x80004002 E_POINTER=0x80004003 E_ABORT=0x80004004 E_FAIL=0x80004005 E_UNEXPECTED=0x8000FFFF E_ACCESSDENIED=0x80070005 E_HANDLE=0x80070006 E_OUTOFMEMORY=0x8007000E E_INVALIDARG=0x80070057 RPC_E_CHANGED_MODE=0x80010106 CO_E_NOTINITIALIZED=0x800401F0 REGDB_E_CLASSNOTREG=0x80040154
         enum NtStatus: STATUS_SUCCESS=0 STATUS_BUFFER_OVERFLOW=0x80000005 STATUS_NO_MORE_ENTRIES=0x8000001A STATUS_UNSUCCESSFUL=0xC0000001 STATUS_NOT_IMPLEMENTED=0xC0000002 STATUS_INFO_LENGTH_MISMATCH=0xC0000004 STATUS_ACCESS_VIOLATION=0xC0000005 STATUS_INVALID_HANDLE=0xC0000008 STATUS_INVALID_PARAMETER=0xC000000D STATUS_NO_MEMORY=0xC0000017 STATUS_ACCESS_DENIED=0xC0000022 STATUS_BUFFER_TOO_SMALL=0xC0000023 STATUS_OBJECT_NAME_NOT_FOUND=0xC0000034 STATUS_OBJECT_NAME_COLLISION=0xC0000035 STATUS_NOT_SUPPORTED=0xC00000BB
-        # Linux values (generic and x86 agree on these bits)
-        flags OpenFlags: O_RDONLY=0/3 O_WRONLY=1/3 O_RDWR=2/3 O_CREAT=0x40 O_EXCL=0x80 O_NOCTTY=0x100 O_TRUNC=0x200 O_APPEND=0x400 O_NONBLOCK=0x800 O_CLOEXEC=0x80000
+        # Linux: the generic, x86 and ARM values agree on these bits
+        flags OpenFlags@linux: O_RDONLY=0/3 O_WRONLY=1/3 O_RDWR=2/3 O_CREAT=0x40 O_EXCL=0x80 O_NOCTTY=0x100 O_TRUNC=0x200 O_APPEND=0x400 O_NONBLOCK=0x800 O_CLOEXEC=0x80000
+        flags OpenFlags@darwin: O_RDONLY=0/3 O_WRONLY=1/3 O_RDWR=2/3 O_NONBLOCK=0x4 O_APPEND=0x8 O_SHLOCK=0x10 O_EXLOCK=0x20 O_ASYNC=0x40 O_NOFOLLOW=0x100 O_CREAT=0x200 O_TRUNC=0x400 O_EXCL=0x800 O_EVTONLY=0x8000 O_NOCTTY=0x20000 O_DIRECTORY=0x100000 O_SYMLINK=0x200000 O_CLOEXEC=0x1000000
+        # Microsoft CRT _open
+        flags OpenFlags@windows: _O_RDONLY=0/3 _O_WRONLY=1/3 _O_RDWR=2/3 _O_APPEND=0x8 _O_RANDOM=0x10 _O_SEQUENTIAL=0x20 _O_TEMPORARY=0x40 _O_NOINHERIT=0x80 _O_CREAT=0x100 _O_TRUNC=0x200 _O_EXCL=0x400 _O_SHORT_LIVED=0x1000 _O_OBTAIN_DIR=0x2000 _O_TEXT=0x4000 _O_BINARY=0x8000 _O_WTEXT=0x10000 _O_U16TEXT=0x20000 _O_U8TEXT=0x40000
         enum WinsockError: WSAEINTR=10004 WSAEACCES=10013 WSAEFAULT=10014 WSAEINVAL=10022 WSAEWOULDBLOCK=10035 WSAEINPROGRESS=10036 WSAENOTSOCK=10038 WSAEADDRINUSE=10048 WSAENETDOWN=10050 WSAENETUNREACH=10051 WSAECONNABORTED=10053 WSAECONNRESET=10054 WSAENOTCONN=10057 WSAETIMEDOUT=10060 WSAECONNREFUSED=10061 WSAHOST_NOT_FOUND=11001 WSANOTINITIALISED=10093
 
         CreateFile%(str lpFileName, Access dwDesiredAccess, FileShare dwShareMode, ptr lpSecurityAttributes, CreationDisposition dwCreationDisposition, FileAttributes dwFlagsAndAttributes, handle hTemplateFile)
@@ -523,6 +544,49 @@ public static class ApiSignatures
         return All.GetValueOrDefault(n) ?? (n.Length > 1 && n[0] == '_' ? All.GetValueOrDefault(n[1..]) : null);
     }
 
+    /// <summary><see cref="Find(string?)"/> with the flag sets of <paramref name="image"/>'s operating system.</summary>
+    public static ApiSignature? Find(string? name, INativeImage image) => ForOs(Find(name), OsOf(image));
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string, ApiOs), ApiSignature> ByOs = new();
+
+    /// <summary>
+    /// <paramref name="signature"/> with its OS-dependent parameters decoded by the flag sets of <paramref name="os"/>; they stay
+    /// raw numbers for an OS without a set (or an unknown one).
+    /// </summary>
+    public static ApiSignature? ForOs(ApiSignature? signature, ApiOs os)
+    {
+        if (signature == null || os == ApiOs.Unknown || signature.Params.All(p => p.OsEnum == null)) return signature;
+        return ByOs.GetOrAdd((signature.Name, os), _ => signature with
+        {
+            Params = signature.Params.Select(p => p.OsEnum != null && Enums.GetValueOrDefault($"{p.OsEnum}@{os.ToString().ToLowerInvariant()}") is { } e
+                ? p with { Type = ApiParamType.Enum, Enum = e } : p).ToList(),
+        });
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<INativeImage, System.Runtime.CompilerServices.StrongBox<ApiOs>> Oses = new();
+
+    /// <summary>
+    /// The image's operating system: PE Windows, Mach-O Darwin; ELF Linux for the GNU OS/ABI, an Android or GNU ABI note,
+    /// a Linux, musl or Android dynamic linker, or a dependency on glibc or bionic / musl libc; otherwise unknown.
+    /// </summary>
+    public static ApiOs OsOf(INativeImage image) => Oses.GetValue(image, i => new(Detect(i))).Value;
+
+    private static ApiOs Detect(INativeImage image)
+    {
+        if (image.Format == ImageFormat.Pe) return ApiOs.Windows;
+        if (image.Format == ImageFormat.MachO) return ApiOs.Darwin;
+        if (image is not Elf.ElfFile elf) return ApiOs.Unknown;
+        if (elf.OsAbi == 3) return ApiOs.Linux; // ELFOSABI_GNU
+        if (elf.OsAbi != 0) return ApiOs.Unknown;
+        // NT_GNU_ABI_TAG: OS 0 is Linux
+        if (elf.AndroidIdent != null || elf.Notes.Any(n => n.Name == "GNU" && n.Type == 1 && n.Description.Length >= 4 && BitConverter.ToUInt32(n.Description, 0) == 0))
+            return ApiOs.Linux;
+        if (elf.Interpreter is { } interp && (interp.Contains("/ld-linux", StringComparison.Ordinal) || interp.Contains("/ld-musl", StringComparison.Ordinal)
+            || interp.StartsWith("/system/bin/linker", StringComparison.Ordinal)))
+            return ApiOs.Linux;
+        return image.Dependencies.Any(d => d is "libc.so.6" or "libc.so" || d.StartsWith("ld-linux", StringComparison.Ordinal)) ? ApiOs.Linux : ApiOs.Unknown;
+    }
+
     /// <summary>The API name without module, import / thunk prefixes and x86 decoration.</summary>
     public static string BareName(string name)
     {
@@ -558,7 +622,8 @@ public static class ApiSignatures
                     ulong mask = slash < 0 ? value : Number(valueText[(slash + 1)..]);
                     entries.Add((item[..eq], value, mask));
                 }
-                enums[name] = new ApiEnum(name, flags, entries);
+                int at = name.IndexOf('@');
+                enums[name] = new ApiEnum(at < 0 ? name : name[..at], flags, entries);
                 continue;
             }
             bool cdecl = line.StartsWith("cdecl ", StringComparison.Ordinal);
@@ -607,7 +672,9 @@ public static class ApiSignatures
         "float" => new(name, ApiParamType.Float),
         "double" => new(name, ApiParamType.Double),
         "i64" => new(name, ApiParamType.Int64),
-        _ => enums.TryGetValue(type, out var e) ? new(name, ApiParamType.Enum, e) : throw new InvalidOperationException($"Unknown type '{type}' in the API table"),
+        _ when enums.TryGetValue(type, out var e) => new(name, ApiParamType.Enum, e),
+        _ when enums.Keys.Any(k => k.StartsWith(type + "@", StringComparison.Ordinal)) => new(name, ApiParamType.Hex, null, type),
+        _ => throw new InvalidOperationException($"Unknown type '{type}' in the API table"),
     };
 
     private static ulong Number(string text) =>

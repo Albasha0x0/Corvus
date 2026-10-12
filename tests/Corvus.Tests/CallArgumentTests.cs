@@ -286,11 +286,38 @@ public class CallArgumentTests(ITestOutputHelper output)
         Assert.Equal("HKEY_LOCAL_MACHINE", ApiSignatures.Enums["HKEY"].Describe(0xFFFFFFFF80000002));
         Assert.True(ApiSignatures.Enums["PageProtect"].Has(0x140, "PAGE_EXECUTE_READWRITE"));
         Assert.NotNull(ApiSignatures.Find("_CreateFileW@28"));
-        var open64 = ApiSignatures.Find("libc.so.6!open64")!;
+        var open64 = ApiSignatures.ForOs(ApiSignatures.Find("libc.so.6!open64"), ApiOs.Linux)!;
         Assert.Equal("O_RDONLY|O_CLOEXEC", open64.Params[1].Enum!.Describe(0x80000));
-        Assert.Equal("O_WRONLY|O_CREAT|O_TRUNC", ApiSignatures.Find("_open")!.Params[1].Enum!.Describe(0x241));
         Assert.Equal([ApiParamType.WideString, ApiParamType.Int, ApiParamType.Int, ApiParamType.Int64, ApiParamType.Pointer],
             ApiSignatures.FormatArguments("%s %*d %llx %p %%", wide: true));
+    }
+
+    /// <summary>open flags and address families decode by the image's OS (Linux, Darwin and the Microsoft CRT differ); an unknown OS keeps the number.</summary>
+    [Fact]
+    public void Os_dependent_flags_decode_by_the_images_operating_system()
+    {
+        string? Open(ApiOs os, ulong v) => ApiSignatures.ForOs(ApiSignatures.Find("openat"), os)!.Params[2].Enum?.Describe(v);
+        Assert.Equal("O_WRONLY|O_CREAT|O_TRUNC", Open(ApiOs.Linux, 0x241));
+        Assert.Equal("O_WRONLY|O_CREAT|O_TRUNC", Open(ApiOs.Darwin, 0x601));
+        Assert.Equal("_O_WRONLY|_O_CREAT|_O_TRUNC", Open(ApiOs.Windows, 0x301));
+        Assert.Null(Open(ApiOs.Unknown, 0x241));
+        var raw = ApiSignatures.Find("open64")!.Params[1];
+        Assert.Equal((ApiParamType.Hex, "OpenFlags"), (raw.Type, raw.TypeName));
+        Assert.Equal("AF_INET6", ApiSignatures.ForOs(ApiSignatures.Find("socket"), ApiOs.Linux)!.Params[0].Enum!.Describe(10));
+        Assert.Equal("AF_INET6", ApiSignatures.ForOs(ApiSignatures.Find("ws2_32!socket"), ApiOs.Windows)!.Params[0].Enum!.Describe(23));
+
+        static Native.Elf.ElfFile Elf(Action<NativeFormats.ElfWriter> set)
+        {
+            var w = new NativeFormats.ElfWriter();
+            set(w);
+            return Native.Elf.ElfFile.FromBytes(w.Build(), "sample.so");
+        }
+        Assert.Equal(ApiOs.Linux, ApiSignatures.OsOf(Elf(w => w.Needed = ["libc.so.6"])));
+        Assert.Equal(ApiOs.Linux, ApiSignatures.OsOf(Elf(w => w.AndroidIdent = (24, "r25"))));
+        Assert.Equal(ApiOs.Linux, ApiSignatures.OsOf(Elf(w => w.Interpreter = "/lib/ld-linux-aarch64.so.1")));
+        Assert.Equal(ApiOs.Unknown, ApiSignatures.OsOf(Elf(w => w.Needed = ["libc.so.7"])));
+        Assert.Equal(ApiOs.Windows, ApiSignatures.OsOf(CodeTestImage.Synthetic(NativeArch.X64, [0xC3])));
+        Assert.Equal(ApiOs.Darwin, ApiSignatures.OsOf(CodeTestImage.Synthetic(NativeArch.Arm64, [0xC0, 0x03, 0x5F, 0xD6], format: ImageFormat.MachO)));
     }
 
     // ---- MSVC samples (Slow) ----

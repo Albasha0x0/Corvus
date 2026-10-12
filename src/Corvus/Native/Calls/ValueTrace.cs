@@ -426,7 +426,7 @@ public sealed class ValueTrace
             case SliceNodeKind.Origin: return Add(TraceNodeKind.Unknown, n.Text);
             case SliceNodeKind.Argument:
             {
-                var sig = n.Target == null ? ApiSignatures.Find(n.Callee) : null;
+                var sig = n.Target == null ? ApiSignatures.Find(n.Callee, Index.Image) : null;
                 var p = sig != null && n.Index >= 0 && n.Index < sig.Params.Count ? sig.Params[n.Index] : null;
                 string? decoded = SeedConstant is { } v && !n.Derived && p != null ? CallAnalysis.FormatNumber(v, p) : null;
                 return Add(n.Target != null || Provider(n) != null ? TraceNodeKind.Argument : TraceNodeKind.Sink, n.Text + (p != null ? $" ({p.TypeName})" : ""), decoded: decoded);

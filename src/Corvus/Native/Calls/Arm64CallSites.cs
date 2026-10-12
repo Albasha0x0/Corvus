@@ -135,7 +135,7 @@ internal sealed partial class Arm64CallSites : ICallSites
             callee = s.Instruction.ToString();
             kind = CalleeKind.Indirect;
         }
-        var signature = ApiSignatures.Find(import?.Name ?? dynamic?.Name ?? callee);
+        var signature = ApiSignatures.Find(import?.Name ?? dynamic?.Name ?? callee, _index.Image);
         var args = new List<CallArgument>();
         int ints = 0, floats = 0;
         if (signature != null)
