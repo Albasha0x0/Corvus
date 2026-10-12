@@ -21,7 +21,14 @@ internal static class ErrorResult
 
     /// <summary>An exception the tool did not classify: code "internal", not retryable.</summary>
     public static CallToolResult Internal(Exception ex, string? tool) =>
-        Of("internal", false, $"{ex.GetType().Name}: {ex.Message}", ToolError.InternalNext, null, tool);
+        Of("internal", false, $"{ex.GetType().Name}: {ex.Message}", NextFor(ex), null, tool);
+
+    private static string NextFor(Exception ex) => ex switch
+    {
+        // dnlib (internal type): its metadata list locks are not re-entrant, so a retry fails the same way.
+        _ when ex.GetType().FullName == "dnlib.Threading.LockException" => "please report it with the tool and arguments; other members of the assembly can still be read, and reload_assembly gives it a fresh metadata reader (in-memory edits are dropped)",
+        _ => ToolError.InternalNext,
+    };
 
     /// <summary>An error result for any code (also "internal"), rendered as <see cref="ToolError.Render"/> does.</summary>
     public static CallToolResult Of(string code, bool retryable, string message, string? next, object? details, string? tool)

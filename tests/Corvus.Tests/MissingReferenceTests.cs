@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using dnlib.DotNet;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -134,6 +135,36 @@ public class MissingReferenceTests : IDisposable
             [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Lib.Moved))]
             public class C { public Lib.Unit Get() => Lib.Unit.Value; }
             """, stub.Value.Image);
+    }
+
+    /// <summary>
+    /// Building one stub read the owner's attributes, whose enum argument resolved the other missing assembly, whose stub
+    /// read the same attribute list again: dnlib's list lock is not re-entrant (LockException on LINQPad and Codist).
+    /// </summary>
+    [Fact]
+    public void TwoMissingDependencies_ThroughEnumAttributeArguments_OnOneOwner()
+    {
+        var a = Compile("LibA", "namespace LibA { public enum ModeA { Off, On } }");
+        var b = Compile("LibB", "namespace LibB { public enum ModeB { Low, High } }");
+        var app = _dir.File("App.dll");
+        File.WriteAllBytes(app, Compile("App", """
+            using System;
+            namespace App
+            {
+                public sealed class UsesAttribute : Attribute { public UsesAttribute(LibA.ModeA a, LibB.ModeB b) { } }
+                [Uses(LibA.ModeA.On, LibB.ModeB.High)]
+                public class Owner { public LibA.ModeA A; public LibB.ModeB B; }
+            }
+            """, a, b));
+        using var env = new Env(app);
+
+        var report = env.Report.Build(env.Fixture);
+        Assert.Matches(@"LibA, .*\[not found; stub built", report);
+        Assert.Matches(@"LibB, .*\[not found; stub built", report);
+        Assert.Contains("[Uses(", env.Decompile("App.Owner"));
+        // Both resolve now that no build is in progress: the nested miss was not cached.
+        var owner = env.Def<TypeDef>("App.Owner");
+        Assert.All(owner.Fields, f => Assert.NotNull(f.FieldType.ToTypeDefOrRef().ResolveTypeDef()));
     }
 
     [Fact]

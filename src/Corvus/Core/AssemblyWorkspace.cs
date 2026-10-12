@@ -345,6 +345,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
         var asm = new LoadedAssembly(MakeUniqueId(module, full), full, bytes, module);
         _assemblies.Add(asm);
+        ModuleSetChanged();
         AttachNativeView(asm, bytes);
 
         var dir = Path.GetDirectoryName(full)!;
@@ -391,6 +392,7 @@ public sealed class AssemblyWorkspace : IDisposable
         {
             // A concurrent unload or reload already replaced it.
             if (!_assemblies.Remove(asm)) throw Gone(asm.Id);
+            ModuleSetChanged();
             RemoveNativeViews(asm);
             asm.Dispose();
             return 0;
@@ -583,45 +585,80 @@ public sealed class AssemblyWorkspace : IDisposable
             : EmbeddedIn != null ? $"embedded in {EmbeddedIn}" : "resolvable from search path";
     }
 
-    private readonly Dictionary<string, ReferenceTarget?> _stubs = new(StringComparer.OrdinalIgnoreCase);
-    private int _stubGeneration = -1;
+    /// <summary>A stub built once per name; other threads wait for the builder.</summary>
+    private sealed class StubEntry
+    {
+        public readonly TaskCompletionSource<ReferenceTarget?> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int Claimed;
+    }
+
+    /// <summary>Replaced when a load or unload changes the loaded modules; edits keep it.</summary>
+    private volatile System.Collections.Concurrent.ConcurrentDictionary<string, StubEntry> _stubs = new(StringComparer.OrdinalIgnoreCase);
+
+    [ThreadStatic] private static int _stubsOff;
 
     /// <summary>
-    /// Stub for an unresolvable reference, synthesized from its usage in loaded assemblies. Cached per name until
-    /// the workspace generation changes.
+    /// Until disposed, a reference this thread cannot locate stays unresolved instead of being stubbed, and the miss is
+    /// not cached. For scans that only need real definitions (a stub has no P/Invokes) and for stub builds themselves.
+    /// </summary>
+    public static IDisposable WithoutStubs()
+    {
+        _stubsOff++;
+        return new StubsBack();
+    }
+
+    private sealed class StubsBack : IDisposable
+    {
+        private bool _done;
+        public void Dispose()
+        {
+            if (_done) return;
+            _done = true;
+            _stubsOff--;
+        }
+    }
+
+    private void ModuleSetChanged() => _stubs = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Stub for an unresolvable reference, synthesized from its usage in loaded assemblies. Cached per name until a
+    /// load or unload changes the loaded modules.
     /// </summary>
     private ReferenceTarget? StubFor(string name, Version? version)
     {
         if (!ReferenceStubs.CanStub(name)) return null;
-        // One builder at a time: building one stub can require another, and two threads building each other's
-        // dependency would wait forever. The lock is re-entrant for the building thread.
-        lock (_stubs)
+        // A build reads loaded modules whose dnlib lists may be locked further up this stack (LockException) and must
+        // never wait for another build: any reference met while building stays unresolved.
+        if (_stubsOff > 0) return null;
+        var ct = CallToken;
+        while (true)
         {
-            if (_stubGeneration != Generation)
+            var stubs = _stubs;
+            var entry = stubs.GetOrAdd(name, _ => new StubEntry());
+            if (Interlocked.Exchange(ref entry.Claimed, 1) == 0)
             {
-                _stubs.Clear();
-                _stubGeneration = Generation;
-            }
-            // Re-entrant resolution of the stub being built (e.g. via generic constraints) returns null.
-            _building ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (_building.Contains(name)) return null;
-            _building.Add(name);
-            try
-            {
-                if (!_stubs.TryGetValue(name, out var target))
+                using var building = WithoutStubs();
+                try
                 {
-                    target = ReferenceStubs.Build(name, version, Assemblies) is { } stub
+                    var target = ReferenceStubs.Build(name, version, Assemblies, ct) is { } stub
                         ? new ReferenceTarget(null, null, stub.Image, null, $"stub built from what the loaded code uses ({stub.Types} types, {stub.Members} members)")
                         : null;
-                    _stubs[name] = target;
+                    entry.Done.SetResult(target);
+                    return target;
                 }
-                return target;
+                catch
+                {
+                    // Waiters retry and the next caller builds again.
+                    stubs.TryRemove(new KeyValuePair<string, StubEntry>(name, entry));
+                    entry.Done.TrySetCanceled();
+                    throw;
+                }
             }
-            finally { _building.Remove(name); }
+            try { entry.Done.Task.Wait(ct); }
+            catch (AggregateException) { continue; }
+            return entry.Done.Task.Result;
         }
     }
-
-    [ThreadStatic] private static HashSet<string>? _building;
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModuleDef, LoadedAssembly> _referenceViews = new();
 
@@ -773,7 +810,11 @@ public sealed class AssemblyWorkspace : IDisposable
             }
             var key = string.Join("|", name, assembly.Version, Convert.ToHexString(assembly.PublicKeyOrToken?.Token?.Data ?? []),
                 sourceModule?.Location is { } location ? SafeDirectory(location) : "", sourceModule == null ? "" : Frameworks.RequesterFramework(sourceModule));
-            return _cache.GetOrAdd(key, _ => ResolveUncached(name, assembly, sourceModule));
+            if (_cache.TryGetValue(key, out var known)) return known;
+            var resolved = ResolveUncached(name, assembly, sourceModule);
+            // A miss while stubs are off is not the reference's answer for the rest of the generation.
+            if (resolved != null || _stubsOff == 0) _cache[key] = resolved;
+            return resolved;
         }
 
         private AssemblyDef? ResolveUncached(string name, IAssembly assembly, ModuleDef? sourceModule)

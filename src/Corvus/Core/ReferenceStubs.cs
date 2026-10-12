@@ -1,5 +1,6 @@
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
+using dnlib.DotNet.MD;
 using dnlib.DotNet.Writer;
 
 namespace Corvus.Core;
@@ -138,11 +139,14 @@ internal static class ReferenceStubs
             }
         }
 
-        void Attributes(IHasCustomAttribute? owner)
+        // From the table rows: CustomAttributes would parse the blobs, resolving enum argument types (another stub) while
+        // dnlib holds the list's lock, and the caller may hold it already.
+        void Attributes(ModuleDefMD m)
         {
-            if (owner == null) return;
-            foreach (var ca in owner.CustomAttributes)
-                if (Of(ca.AttributeType) is { } a) a.Attribute = true;
+            for (uint rid = 1; rid <= m.TablesStream.CustomAttributeTable.Rows; rid++)
+                if (m.TablesStream.TryReadCustomAttributeRow(rid, out var row) && CodedToken.CustomAttributeType.Decode(row.Type, out MDToken ctor)
+                    && ctor.Table == Table.MemberRef && m.ResolveMemberRef(ctor.Rid) is { Class: ITypeDefOrRef type } && Of(type) is { } a)
+                    a.Attribute = true;
         }
 
         void AddMember(StubType owner, string name, CallingConventionSig? sig, bool field)
@@ -166,7 +170,6 @@ internal static class ReferenceStubs
             // [assembly: TypeForwardedTo] names a type no TypeRef may mention.
             foreach (var et in m.ExportedTypes)
                 if (MetadataUtil.Try(et.ToTypeRef) is { } forwarded && IsMissing(forwarded)) Info(forwarded);
-            Attributes(m.Assembly);
             Attributes(m);
 
             for (uint rid = 1; rid <= m.TablesStream.TypeSpecTable.Rows; rid++)
@@ -198,7 +201,6 @@ internal static class ReferenceStubs
             foreach (var t in m.GetTypes())
             {
                 ct.ThrowIfCancellationRequested();
-                Attributes(t);
                 if (Of(t.BaseType) is { } baseInfo)
                 {
                     baseInfo.BaseOfLoaded = true;
@@ -218,14 +220,10 @@ internal static class ReferenceStubs
                     if (Of(ii.Interface) is { } iface) iface.Interface = true;
                 foreach (var gp in t.GenericParameters)
                     foreach (var c in gp.GenericParamConstraints) Visit(c.Constraint?.ToTypeSig());
-                foreach (var f in t.Fields) { Visit(f.FieldSig?.Type); Attributes(f); }
-                foreach (var p in t.Properties) Attributes(p);
-                foreach (var e in t.Events) Attributes(e);
+                foreach (var f in t.Fields) Visit(f.FieldSig?.Type);
                 foreach (var md in t.Methods)
                 {
                     VisitMethod(md.MethodSig);
-                    Attributes(md);
-                    foreach (var p in md.ParamDefs) Attributes(p);
                     foreach (var gp in md.GenericParameters)
                         foreach (var c in gp.GenericParamConstraints) Visit(c.Constraint?.ToTypeSig());
                     foreach (var o in md.Overrides)
