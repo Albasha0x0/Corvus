@@ -57,9 +57,11 @@ with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 
 - `NetDecompilerMcp update` reaches the first Corvus release, which moves the program from the old folder
   (`%LOCALAPPDATA%\NetDecompilerMcp`, `~/.local/share/net-decompiler-mcp`) to the one above and puts `corvus` on PATH
-  instead. Running the install script above does the same for an old install. With a token for a private repository,
-  name it directly (`NDM_REPO=Albasha0x0/Corvus NetDecompilerMcp update`): 1.1.0 loses the token on GitHub's redirect
-  from the old name and reads a 404. Corvus itself keeps the token across GitHub's redirects.
+  instead (Windows). On Linux and macOS 1.1.0's `update` downloads the release but cannot switch its `current` link;
+  run the install script above instead, which takes over the old install (also after such a failed update). With a
+  token for a private repository, name the repository directly (`NDM_REPO=Albasha0x0/Corvus NetDecompilerMcp update`):
+  1.1.0 loses the token on GitHub's redirect from the old name and reads a 404. Corvus itself keeps the token across
+  GitHub's redirects.
 - Every client entry named `net-decompiler` becomes `corvus`, pointing at the new program with its own arguments and
   env; `NDM_*` variables in those entries become `CORVUS_*`. A development relay entry stays a relay for the same
   publish folder. Skill folders written by `install --skill` move from `net-decompiler` to `corvus`.
