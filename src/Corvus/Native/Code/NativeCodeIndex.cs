@@ -866,23 +866,39 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             var index = new Dictionary<uint, int>(starts.Length);
             for (int i = 0; i < starts.Length; i++) index[starts[i]] = i;
             WalkAll(starts, results, Enumerable.Range(0, starts.Length).ToArray(), "analyzing functions");
+            var marks = new bool[starts.Length];
             for (int round = 0; ; round++)
             {
+                Mark(starts.Length, marks, i => !results[i].Returns && !_ctx.NoReturn.Contains(starts[i]) && !_ctx.Returns.Contains(starts[i]));
                 var newly = new List<uint>();
-                for (int i = 0; i < starts.Length; i++)
-                    if (!results[i].Returns && !_ctx.NoReturn.Contains(starts[i]) && !_ctx.Returns.Contains(starts[i])) newly.Add(starts[i]);
+                for (int i = 0; i < starts.Length; i++) if (marks[i]) newly.Add(starts[i]);
                 if (newly.Count == 0) break;
                 if (round >= options.MaxNoReturnRounds) { AddTruncation($"noreturn propagation stopped after {round} rounds"); break; }
                 _rounds++;
                 foreach (var n in newly) _ctx.NoReturn.Add(n);
                 var newlySet = new HashSet<uint>(newly);
+                Mark(starts.Length, marks, i =>
+                {
+                    foreach (uint c in results[i].Callees) if (newlySet.Contains(c)) return true;
+                    return false;
+                });
                 var affected = new List<int>();
-                for (int i = 0; i < starts.Length; i++)
-                    if (results[i].Callees.Any(newlySet.Contains)) affected.Add(i);
+                for (int i = 0; i < starts.Length; i++) if (marks[i]) affected.Add(i);
                 if (affected.Count == 0) break;
                 WalkAll(starts, results, affected.ToArray(), "propagating noreturn");
             }
             return results;
+        }
+
+        /// <summary>marks[i] = test(i) for every i below <paramref name="count"/>, on several threads (the sets read are not changed meanwhile).</summary>
+        private void Mark(int count, bool[] marks, Func<int, bool> test)
+        {
+            var po = new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = options.MaxParallelism > 0 ? options.MaxParallelism : Environment.ProcessorCount };
+            if (count == 0) return;
+            Parallel.ForEach(Partitioner.Create(0, count, 16384), po, range =>
+            {
+                for (int i = range.Item1; i < range.Item2; i++) marks[i] = test(i);
+            });
         }
 
         private void WalkAll(uint[] starts, WalkResult[] results, int[] which, string phase)
