@@ -64,7 +64,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     private const string StubModeDescription = "With extend: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after.";
 
     private const string PlacementDescription =
-        "With extend: auto (default; a code cave if one fits, else a new section/segment), cave or section (a new PE section or ELF/Mach-O segment; undo restores the file).";
+        "With extend: auto (default; a code cave if one fits, else a new section), cave or section (a new PE section or ELF/Mach-O segment; undo restores it).";
 
     private const string ForceDescription = "Override the safety checks (mid-instruction, past function end, header bytes, no free relocation slot).";
 
