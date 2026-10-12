@@ -74,6 +74,14 @@ with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 If `update` cannot reach the release (a private repository: the old program loses the token on GitHub's redirect to
 the renamed repository), run the install script above with `GITHUB_TOKEN` set; it takes over the old install.
 
+## MCP bundle
+
+Each release also has an MCP bundle per desktop target, `corvus-<rid>.mcpb` (win-x64, win-arm64, osx-x64, osx-arm64,
+linux-x64, linux-arm64), listed in `SHA256SUMS` like the archives. Clients that install bundles (Claude Desktop:
+open the file, or Settings, Extensions) unpack it and run the server inside; the bundle carries the same
+self-contained build as the archive, so it needs no .NET. A bundle is updated by installing the next release's
+bundle; `corvus update` and the install scripts manage only the script install.
+
 ## .NET tool
 
 Corvus is also a NuGet .NET tool, `CorvusRE` (command `corvus`), for machines with the .NET 10 SDK. It is not on

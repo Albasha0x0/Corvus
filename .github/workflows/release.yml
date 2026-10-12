@@ -30,14 +30,15 @@ jobs:
     strategy:
       matrix:
         include:
-          - { rid: win-x64, os: windows-latest, smoke: true }
-          - { rid: win-arm64, os: windows-latest, smoke: false }
-          - { rid: linux-x64, os: ubuntu-latest, smoke: true }
-          - { rid: linux-arm64, os: ubuntu-latest, smoke: false }
-          - { rid: linux-musl-x64, os: ubuntu-latest, smoke: false }
-          - { rid: linux-musl-arm64, os: ubuntu-latest, smoke: false }
-          - { rid: osx-x64, os: macos-latest, smoke: false }
-          - { rid: osx-arm64, os: macos-latest, smoke: true }
+          # bundle: release.ps1 -Bundle makes an MCP bundle (.mcpb) of the target's archive for desktop clients.
+          - { rid: win-x64, os: windows-latest, smoke: true, bundle: true }
+          - { rid: win-arm64, os: windows-latest, smoke: false, bundle: true }
+          - { rid: linux-x64, os: ubuntu-latest, smoke: true, bundle: true }
+          - { rid: linux-arm64, os: ubuntu-latest, smoke: false, bundle: true }
+          - { rid: linux-musl-x64, os: ubuntu-latest, smoke: false, bundle: false }
+          - { rid: linux-musl-arm64, os: ubuntu-latest, smoke: false, bundle: false }
+          - { rid: osx-x64, os: macos-latest, smoke: false, bundle: true }
+          - { rid: osx-arm64, os: macos-latest, smoke: true, bundle: true }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -90,10 +91,15 @@ jobs:
     needs: package
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           pattern: package-*
           merge-multiple: true
+      # MCP bundles (corvus-<rid>.mcpb) for desktop clients, made from the archives above.
+      - name: Bundles
+        shell: pwsh
+        run: ./release.ps1 -Version $env:GITHUB_REF_NAME -Bundle .
       # The installers and `update` refuse a build whose SHA-256 is not listed here.
       - name: Checksums
         run: sha256sum corvus-* NetDecompilerMcp-* > SHA256SUMS && cat SHA256SUMS

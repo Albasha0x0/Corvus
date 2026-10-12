@@ -4,12 +4,15 @@
 # Usage:  ./release.ps1 -Version 1.2.0              # bump, check, test, commit, tag (local only)
 #         ./release.ps1 -Version 1.2.0 -Push        # ... then push, wait for the workflow and verify the release
 #         ./release.ps1 -Version 1.2.0 -VerifyOnly  # verify an existing release and print the checklist
-# Needs git, the .NET SDK and, for -Push / -VerifyOnly, an authenticated gh.
+#         ./release.ps1 -Version 1.2.0 -Bundle DIR  # MCP bundles (.mcpb) from the archives in DIR (release.yml runs this)
+# Needs PowerShell 7, git, the .NET SDK and, for -Push / -VerifyOnly, an authenticated gh.
+#Requires -Version 7.0
 param(
     [Parameter(Mandatory)][string]$Version,
     [switch]$Push,
     [switch]$VerifyOnly,
     [switch]$SkipTests,
+    [string]$Bundle,
     [string]$Repo = 'Albasha0x0/Corvus'
 )
 
@@ -35,6 +38,60 @@ if (-not $rids) { Fail "no rid entries in $workflow" }
 # Migration only: each archive also ships under its name from before the rename, for the update of installs made then.
 $assets = @(foreach ($name in 'corvus', 'NetDecompilerMcp') { $rids | ForEach-Object { if ($_ -like 'win-*') { "$name-$_.zip" } else { "$name-$_.tar.gz" } } }) + 'SHA256SUMS'
 
+# MCP bundles for the targets marked bundle: true: the release archive under server/ plus mcpb/manifest.json for its platform.
+$bundleRids = [regex]::Matches((Get-Content $workflow -Raw), 'rid: ([a-z0-9-]+)[^}\n]*bundle: true') | ForEach-Object { $_.Groups[1].Value }
+$assets += $bundleRids | ForEach-Object { "corvus-$_.mcpb" }
+
+function New-Bundles([string]$dir) {
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    foreach ($rid in $bundleRids) {
+        $windows = $rid -like 'win-*'
+        $archive = Join-Path $dir ("corvus-$rid" + $(if ($windows) { '.zip' } else { '.tar.gz' }))
+        if (-not (Test-Path $archive)) { Fail "no $archive" }
+        $stage = Join-Path ([IO.Path]::GetTempPath()) "corvus-mcpb-$rid-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+        $server = Join-Path $stage 'server'
+        New-Item -ItemType Directory $server | Out-Null
+        try {
+            if ($windows) { Expand-Archive $archive $server }
+            else {
+                # .NET's reader keeps the entries' Unix modes, and any OS can run it (a tar on PATH may not read drive paths).
+                $gzip = [IO.Compression.GZipStream]::new([IO.File]::OpenRead($archive), [IO.Compression.CompressionMode]::Decompress)
+                try { [Formats.Tar.TarFile]::ExtractToDirectory($gzip, $server, $false) } finally { $gzip.Dispose() }
+            }
+            $manifest = Get-Content (Join-Path $root 'mcpb/manifest.json') -Raw | ConvertFrom-Json -AsHashtable
+            $entry = 'server/corvus' + $(if ($windows) { '.exe' } else { '' })
+            $manifest.version = $Version
+            $manifest.server.entry_point = $entry
+            $manifest.server.mcp_config.command = '${__dirname}/' + $entry
+            $manifest.compatibility.platforms = @(switch -Wildcard ($rid) { 'win-*' { 'win32' } 'osx-*' { 'darwin' } default { 'linux' } })
+            [IO.File]::WriteAllText((Join-Path $stage 'manifest.json'), ($manifest | ConvertTo-Json -Depth 10))
+
+            $target = Join-Path $dir "corvus-$rid.mcpb"
+            if (Test-Path $target) { Remove-Item $target }
+            $zip = [IO.Compression.ZipFile]::Open($target, 'Create')
+            try {
+                foreach ($file in Get-ChildItem $stage -Recurse -File) {
+                    $name = [IO.Path]::GetRelativePath($stage, $file.FullName).Replace('\', '/')
+                    $item = [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $file.FullName, $name)
+                    # Unix permissions in the high 16 bits, so the launcher stays executable when the client unpacks it.
+                    if (-not $windows) {
+                        $mode = if (-not $IsWindows) { [int]$file.UnixFileMode } elseif ($name -eq $entry) { 0x1ED } else { 0x1A4 }
+                        $item.ExternalAttributes = (0x8000 -bor $mode) -shl 16
+                    }
+                }
+            }
+            finally { $zip.Dispose() }
+            Write-Host "Bundled $target"
+        }
+        finally { Remove-Item $stage -Recurse -Force }
+    }
+}
+
+if ($Bundle) {
+    New-Bundles (Resolve-Path $Bundle).Path
+    exit 0
+}
+
 # The notes section of this version: from its heading to the next version heading.
 function Get-Notes {
     $text = (Get-Content $notes -Raw) -replace "`r`n", "`n"
@@ -57,9 +114,11 @@ if (-not $VerifyOnly) {
         $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
         if ($bumped -eq $csproj -and $csproj -notmatch "<Version>$([regex]::Escape($Version))</Version>") { Fail "no <Version> in $project" }
         [IO.File]::WriteAllText($project, $bumped)
-        # The MCP Registry entry packed into the .NET tool names the same version (ToolPackageTests).
-        $server = Join-Path $root 'src/Corvus/.mcp/server.json'
-        [IO.File]::WriteAllText($server, [regex]::Replace((Get-Content $server -Raw), '"version": "[^"]+"', "`"version`": `"$Version`""))
+        # The MCP Registry entry packed into the .NET tool and the bundle manifest name the same version (their tests check).
+        foreach ($file in 'src/Corvus/.mcp/server.json', 'mcpb/manifest.json') {
+            $path = Join-Path $root $file
+            [IO.File]::WriteAllText($path, [regex]::Replace((Get-Content $path -Raw), '"version": "[^"]+"', "`"version`": `"$Version`""))
+        }
 
         # Generated docs and the skill can name the version; regenerate, then run the full suite on the result.
         $env:CORVUS_UPDATE_DOCS = '1'

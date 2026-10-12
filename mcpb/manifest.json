@@ -1,0 +1,35 @@
+{
+  "manifest_version": "0.2",
+  "name": "corvus",
+  "display_name": "Corvus",
+  "version": "1.2.0",
+  "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare builds, patch and save.",
+  "long_description": "Corvus reads .NET assemblies and native PE, ELF and Mach-O binaries without running them: decompiled C#, IL, disassembly, cross-references and call graphs, build comparison, Il2Cpp metadata, containers and crash dumps. Edits (renames, patches, simplified obfuscated code) stay in memory until saved to a new file.",
+  "author": {
+    "name": "Albasha0x0",
+    "url": "https://github.com/Albasha0x0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Albasha0x0/Corvus"
+  },
+  "homepage": "https://github.com/Albasha0x0/Corvus",
+  "documentation": "https://github.com/Albasha0x0/Corvus/tree/main/docs",
+  "support": "https://github.com/Albasha0x0/Corvus/issues",
+  "license": "MIT",
+  "keywords": ["decompiler", "reverse-engineering", "dotnet", "il2cpp", "disassembler", "native"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/corvus",
+    "mcp_config": {
+      "command": "${__dirname}/server/corvus",
+      "args": [],
+      "env": {}
+    }
+  },
+  "tools_generated": true,
+  "prompts_generated": true,
+  "compatibility": {
+    "platforms": ["win32", "darwin", "linux"]
+  }
+}
