@@ -126,6 +126,26 @@ public static class RelayBuilds
         return staged;
     }
 
+    /// <summary>
+    /// Deletes staged host copies under <paramref name="state"/> whose folder name (version-hash) appears in none of
+    /// <paramref name="configurations"/> (the clients' configuration files as text, so project-level entries count too),
+    /// and copies left half-made; a copy still running stays (its files are in use).
+    /// </summary>
+    public static List<string> RemoveUnusedHosts(string state, IReadOnlyCollection<string> configurations)
+    {
+        var hosts = Path.Combine(state, "host");
+        var removed = new List<string>();
+        if (!Directory.Exists(hosts)) return removed;
+        foreach (var dir in Directory.EnumerateDirectories(hosts))
+        {
+            var name = Path.GetFileName(dir);
+            if (!name.Contains(".tmp-", StringComparison.Ordinal) && configurations.Any(c => c.Contains(name, StringComparison.OrdinalIgnoreCase))) continue;
+            TryDelete(dir);
+            if (!Directory.Exists(dir)) removed.Add(dir);
+        }
+        return removed;
+    }
+
     /// <summary>Whether <paramref name="path"/> is <paramref name="directory"/> or inside it.</summary>
     public static bool IsInside(string path, string directory)
     {

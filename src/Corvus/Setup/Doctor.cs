@@ -13,7 +13,7 @@ internal static class Doctor
     public const string Healthy = "healthy", NotRegistered = "not_registered", OtherCopy = "other_copy", MissingProgram = "missing_program",
         Disabled = "disabled", StaleCatalog = "stale_catalog", StartFailed = "start_failed", SlowStart = "slow_start",
         MissingEngine = "missing_engine", ConfigUnreadable = "config_unreadable", MissingTarget = "missing_target", UnsupportedTarget = "unsupported_target",
-        LegacyName = "legacy_name";
+        LegacyName = "legacy_name", Relay = "relay";
 
     /// <summary>States that make a client fail; the others are informational.</summary>
     public static bool Fails(string? state) => state is MissingProgram or StaleCatalog or StartFailed or SlowStart or ConfigUnreadable;
@@ -43,6 +43,12 @@ internal static class Doctor
             Set(row, MissingProgram, $"registered with a missing program: {entry.Command} (run: corvus install)", $"corvus install --client {client.Id}");
             return;
         }
+        var relay = Corvus.Relay.RelayCli.TargetOf(entry.Args);
+        if (relay != null && !Directory.Exists(relay))
+        {
+            Set(row, MissingProgram, $"registered as the development relay for {relay}, which does not exist", $"publish there, or corvus install --client {client.Id} to register the server");
+            return;
+        }
         var server = row.Server = Test(new ServerLaunch(entry.Command, entry.Args), entry.Env, tests);
         var deadline = client.Target is CodexTomlTarget ? entry.StartupTimeout ?? CodexTomlTarget.DefaultStartupSeconds : (double?)null;
         if (!server.Ok)
@@ -54,6 +60,9 @@ internal static class Doctor
             Set(row, StaleCatalog, $"registered, but its tool catalog differs from this build: {string.Join("; ", server.Differences)}", "corvus install");
         else if (entry.Disabled)
             Set(row, Disabled, "registered (disabled: the client does not start it)", $"corvus install --client {client.Id} --enable");
+        else if (relay != null)
+            Set(row, Relay, $"registered as the development relay for {relay} (build {Corvus.Relay.RelayBuilds.IdOf(Corvus.Relay.RelayBuilds.ReadMarker(relay))}; {server.Detail})",
+                null);
         else if (!own)
             Set(row, OtherCopy, $"registered with another copy: {entry.Command} (version {server.Version})", $"corvus install --client {client.Id} to use this copy.");
         else

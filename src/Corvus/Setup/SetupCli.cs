@@ -166,10 +166,26 @@ internal static class SetupCli
         return relayed;
     }
 
+    /// <summary>The relay's state folder (CORVUS_RELAY_DIR, else the data folder's relay/); null without either.</summary>
+    private static string? RelayState(SetupEnvironment env) =>
+        env.Variable("CORVUS_RELAY_DIR") is { Length: > 0 } dir ? dir : Installation.DataRoot(env) is { } root ? Path.Combine(root, "relay") : null;
+
+    /// <summary>Every client configuration file that exists, as text; null when one cannot be read (then nothing is removed).</summary>
+    private static List<string>? ConfigurationTexts(SetupEnvironment env)
+    {
+        var texts = new List<string>();
+        foreach (var path in ClientCatalog.All(env).Select(c => c.Target.Path).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try { if (File.Exists(path)) texts.Add(File.ReadAllText(path)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+        }
+        return texts;
+    }
+
     /// <summary>The relay for <paramref name="target"/>, run from a staged copy of <paramref name="launch"/>'s program; else why not.</summary>
     private static (ServerLaunch? Launch, string? Error) RelayLaunch(SetupEnvironment env, ServerLaunch launch, string target, bool dryRun)
     {
-        var state = env.Variable("CORVUS_RELAY_DIR") is { Length: > 0 } dir ? dir : Installation.DataRoot(env) is { } root ? Path.Combine(root, "relay") : null;
+        var state = RelayState(env);
         if (state == null) return (null, "no per-user data folder; set CORVUS_RELAY_DIR.");
         bool dotnet = launch.Args.Count > 0 && Corvus.Relay.RelayBuilds.IsProgramDll(launch.Args[0]);
         var program = dotnet ? launch.Args[0] : launch.Command;
@@ -347,6 +363,9 @@ internal static class SetupCli
         failed += renamed.Count(r => r.Action == SetupAction.Blocked);
         changed += renamed.Count(r => r.Action == SetupAction.Rename);
         Skills(text, env, report, [.. rows, .. renamed], a.Has("--skill"), dryRun: false);
+        if (RelayState(env) is { } state && ConfigurationTexts(env) is { } configurations)
+            foreach (var unused in Corvus.Relay.RelayBuilds.RemoveUnusedHosts(state, configurations))
+                text.WriteLine($"  relay      removed the unused staged copy {SetupPlan.Short(env, unused)}");
         foreach (var note in report.Notes) text.WriteLine(note);
         if (changed > 0) text.WriteLine("Restart the clients above (or reload their MCP servers) to load it.");
         // An installed copy takes over from an install made before the rename, whose registrations were renamed above.

@@ -24,6 +24,32 @@ public sealed class StatusTests : IDisposable
     private static JsonNode Client(JsonNode report, string id) => report["clients"]!.AsArray().Single(c => c!["id"]!.GetValue<string>() == id)!;
 
     [Fact]
+    public void ARelayWhosePublishFolderIsGone_IsAMissingProgram()
+    {
+        var gone = _home.Path("publish-gone");
+        _home.Write($$"""{ "mcpServers": { "corvus": { "command": "corvus-host", "args": ["relay", "--target", {{Q(gone)}}] } } }""", ".cursor", "mcp.json");
+        var (code, output) = _home.Run("status", "--client", "cursor", "--json");
+        Assert.Equal(1, code);
+        var cursor = Client(Json(output), "cursor");
+        Assert.Equal("missing_program", cursor["state"]!.GetValue<string>());
+        Assert.Contains("development relay for " + gone, cursor["message"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Install_RemovesStagedRelayCopiesNoConfigurationNames()
+    {
+        var hosts = _home.Path("AppData", "Local", "Corvus", "relay", "host");
+        foreach (var name in new[] { "1.2.0-aaaaaaaaaaaa", "1.3.0-bbbbbbbbbbbb", "1.3.0-cccccccccccc.tmp-42" })
+            _home.Write("x", "AppData", "Local", "Corvus", "relay", "host", name, "corvus.exe");
+        // A project-level entry still names one copy.
+        _home.Write($$"""{ "projects": { "D:/w": { "mcpServers": { "corvus": { "command": {{Q(Path.Combine(hosts, "1.3.0-bbbbbbbbbbbb", "corvus.exe"))}} } } } } }""", ".claude.json");
+        var (code, output) = _home.Run(_home.Env(variables: new Dictionary<string, string> { ["CORVUS_RELAY_DIR"] = Path.GetDirectoryName(hosts)! }), "install", "--no-check");
+        Assert.True(code == 0, output);
+        Assert.Equal(["1.3.0-bbbbbbbbbbbb"], Directory.EnumerateDirectories(hosts).Select(Path.GetFileName));
+        Assert.Contains("removed the unused staged copy", output);
+    }
+
+    [Fact]
     public void ClientScope_ChecksOnlyThoseClients_AndFailsOnlyForThem()
     {
         Registrations();

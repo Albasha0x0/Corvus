@@ -21,6 +21,9 @@ entry's own args and env, and names a state and a fix per client. `--client <id>
 
 - `status` says `other_copy`: the client is registered with a different program than the one you ran.
   `corvus install --client <id>` points it at this copy.
+- `status` says `relay`: the client runs the development reload relay (`install --dev-reload`); the row names the
+  publish folder and the build it serves. A relay whose folder is gone is `missing_program`. Every `install` removes
+  staged relay copies that no client configuration names any more.
 - `status` says `stale_catalog`: the registered program is this copy, but the running server's tool catalog differs
   from this build. Restart the client; a server started before an update keeps running the old build.
 - In a session, `server_status expectedCatalogDigest=<digest>` compares the running server with a known build, and
