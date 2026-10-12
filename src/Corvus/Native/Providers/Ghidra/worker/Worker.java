@@ -304,6 +304,7 @@ public class Worker implements GhidraLaunchable {
             case "function_candidates": return read(() -> ControlOps.functionCandidates(this, r));
             case "set_marks": return write("set marks", () -> ControlOps.setMarks(this, r));
             case "set_thumb": return write("set thumb", () -> ControlOps.setThumb(this, r));
+            case "emulate": return read(() -> EmuOps.emulate(this, r));
             default: throw new WorkerError("invalid_argument", "unknown op '" + r.op + "'");
         }
     }

@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-156 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+157 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -13,7 +13,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [containers](#containers) | yes | 7: file inspection, containers and wrapped apps, Unity overview |
 | [edit](#edit) | yes | 15: .NET edits, edit history and saving |
 | [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
-| [native](#native) | yes | 33: native PE analysis, symbols and decompilation |
+| [native](#native) | yes | 34: native PE analysis, symbols and decompilation |
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
@@ -1408,6 +1408,27 @@ Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pse
 | `limit` | integer |  | `100` | Max hits (max 2000). |
 
 Structured output: `image`, `engine`, `pattern`, `hits`, `functions`, `from`, `searched`, `failed`, `cursor`, `stoppedBy`.
+
+### emulate_native
+
+**Emulate native code** (read-only, idempotent, open-world, long-running)
+
+Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memory is the image, a stack and the writes given): string decoders, hashes, computed constants. Stops on return, stopAt or a budget. Calls step into the image or return stubs= values; an unmodelled call or unmapped read is an error with the address. Reports return value, registers, written memory as strings, reads, trace.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `address` | string | yes |  | Start. Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
+| `args` | string |  |  | By the calling convention: integer, address, 'text' or u'text' (pointer to a copy), buf:N (pointer to N zero bytes), hex:41A0 (pointer to bytes). |
+| `registers` | string |  |  | rcx=0x10, rdx='key' (values as args). |
+| `memory` | string |  |  | ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000. |
+| `stopAt` | string |  |  | Addresses to stop at. |
+| `stubs` | string |  |  | Calls answered without running: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 any call). |
+| `read` | string |  |  | Shown after the run: ADDR or register, space, length (rcx 64). |
+| `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
+| `seconds` | integer |  | `10` | Time budget, s (1-300). |
+| `trace` | integer |  | `0` | Last instructions listed (0-2000). |
+| `engine` | string |  |  | auto or ghidra. Values: auto, ghidra. |
 
 ### verify_native_imports
 

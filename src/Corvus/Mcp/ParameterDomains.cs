@@ -81,6 +81,7 @@ public static class ParameterDomains
         ["native_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Of(["callers", "callees", "both"]), ["calls"] = Of(["all", "direct", "virtual"]), ["engine"] = Engine },
         ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["search_decompiled"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["emulate_native"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ghidra"]) },
         ["get_native_frame"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["get_engine_status"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["reanalyze_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },

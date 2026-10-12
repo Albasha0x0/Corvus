@@ -24,6 +24,7 @@ public static class ToolAvailability
         ["set_native_operand"] = ["ida", "ghidra"],
         ["ida_python"] = ["ida"],
         ["ghidra_script"] = ["ghidra"],
+        ["emulate_native"] = ["ghidra"],
     };
 
     /// <summary>Modes that run an engine although the tool has no engine parameter: (tool, mode, provider ids that can serve it).</summary>
