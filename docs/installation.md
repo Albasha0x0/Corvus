@@ -218,6 +218,7 @@ Server options and their environment variables are in the README ("Server option
 | `CORVUS_ENGINE_REQUEST_TIMEOUT`, `CORVUS_ENGINE_OPEN_TIMEOUT` | Seconds each IDA or Ghidra request may take (default 120) and an engine's start plus auto-analysis (default 1200). |
 | `CORVUS_CODE_INDEX_CACHE`, `CORVUS_CODE_INDEX_CACHE_MB`, `CORVUS_CODE_INDEX_CACHE_DAYS` | Folder and bounds of saved native code indexes (`--index-cache`, `--index-cache-mb`, `--index-cache-days`). |
 | `CORVUS_ANALYSIS_CACHE` | Folder of saved engine databases (IDA, Ghidra), keyed by file hash. |
+| `CORVUS_ANALYSIS_CACHE_MB`, `CORVUS_ANALYSIS_CACHE_DAYS` | Bounds of that folder (default 32768 MB and 60 days unused): after an engine opens an image, entries unused that long, then the least recently used beyond the size, are deleted; an entry open in any server is kept. |
 | `CORVUS_ANNOTATIONS_DIR` | Folder of saved native names, comments and imported name layers. |
 | `CORVUS_IL2CPP_CACHE` | Folder of the dummy assemblies made by the built-in Il2Cpp metadata reader. |
 | `CORVUS_SYMBOL_CACHE` | Folder of downloaded PDBs and runtime DACs (`open_minidump downloadDac=true`). |

@@ -70,6 +70,9 @@ public sealed class NativeEngineService : IDisposable
 
     public IReadOnlyList<INativeDecompilerProvider> Providers => _providers.Select(p => p.Provider.Value).ToList();
 
+    /// <summary>The saved engine databases: size, bounds and evictions.</summary>
+    public AnalysisCacheStatus CacheStatus() => new AnalysisCache(_cacheRoot ?? AnalysisCache.DefaultRoot).Status();
+
     private INativeDecompilerProvider? Find(string id) => _providers.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase)).Provider?.Value;
 
     /// <summary>"IDA", "Ghidra", or the id of another engine.</summary>
