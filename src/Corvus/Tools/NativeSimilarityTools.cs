@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -43,7 +42,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         string? Function, string? Address,
         [property: Description("Functions scanned (similar) or candidate pairs scored (clusters).")] int Compared,
         int Offset, int Total, bool Truncated,
-        IReadOnlyList<SimilarMatch> Matches, IReadOnlyList<FunctionGroup> Groups, IReadOnlyList<string> Notes, double Seconds);
+        IReadOnlyList<SimilarMatch> Matches, IReadOnlyList<FunctionGroup> Groups, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_similar_functions", Title = "Find similar functions", UseStructuredContent = true)]
     [Description("Functions like a given one in a native image, ranked by score with evidence: instruction-shape similarity (registers, " +
@@ -61,7 +60,6 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var sw = Stopwatch.StartNew();
         bool hasAddress = !string.IsNullOrWhiteSpace(address);
         var v = (view ?? (hasAddress ? "similar" : "clusters")).Trim().ToLowerInvariant();
         if (v is not ("similar" or "duplicates" or "clusters"))
@@ -118,7 +116,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
             if (hits.Count >= keep / 2) notes.Add($"only the {keep} best sketch candidates were rescored; raise minScore to see a complete list");
             var page = hits.Skip(offset).Take(limit).Select(h => Match(home, q0, h, ids[h.Image.Index])).ToList();
             return new SimilarityReport(native.Id, v, Name(index, fn), Va(index, fn.Start), compared, offset, hits.Count, offset + limit < hits.Count,
-                page, [], notes, Math.Round(sw.Elapsed.TotalSeconds, 2));
+                page, [], notes);
         }
 
         int pairs = 0;
@@ -128,7 +126,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         if (v == "clusters") notes.Add("scores are sketch estimates; view=similar on a member rescores exactly");
         var shown = groups.Skip(offset).Take(limit).Select((g, k) => Group(home, g, offset + k + 1)).ToList();
         return new SimilarityReport(native.Id, v, null, null, v == "clusters" ? pairs : home.Functions.Length, offset, groups.Count, offset + limit < groups.Count,
-            [], shown, notes, Math.Round(sw.Elapsed.TotalSeconds, 2));
+            [], shown, notes);
     });
 
     /// <summary>The image's prints (feature sketches), indexing it first; progress covers both.</summary>

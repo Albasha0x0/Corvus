@@ -74,6 +74,16 @@ public sealed class UnityOverviewTests : IDisposable
             Assert.Equal(game, UnityOverview.Inspect(input, false, default).GameDirectory);
     }
 
+    [Fact]
+    public void Two_calls_give_the_same_bytes()
+    {
+        var game = MonoSample(_dir);
+        string Json() => System.Text.Json.JsonSerializer.Serialize(UnityOverview.Inspect(game, false, default));
+        var first = Json();
+        Assert.Equal(first, Json());
+        Assert.DoesNotContain("Seconds", first);
+    }
+
     /// <summary>An .apk reads like its extracted game files; a package without Il2Cpp metadata says what to do instead.</summary>
     [Fact]
     public void An_android_package_is_read_through_its_extracted_game_files()

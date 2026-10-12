@@ -618,7 +618,7 @@ Overview of a Unity title in seconds, without loading it (listings, headers and 
 | `path` | string | yes |  | The title's folder, executable, *_Data folder, UnityPlayer.dll, GameAssembly.dll or global-metadata.dat; an extracted APK folder or a macOS / iOS .app. |
 | `detectItEasy` | boolean |  | `false` | Also run Detect It Easy (diec, CORVUS_DIE or PATH) on the main binaries; launches it, about a second per file. |
 
-Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`, `elapsedSeconds`.
+Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`.
 
 ## edit
 
@@ -1316,7 +1316,7 @@ Functions like a given one in a native image, ranked by score with evidence: ins
 | `offset` | integer |  | `0` | Items to skip. |
 | `limit` | integer |  | `20` | Items to return (max 500). |
 
-Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `truncated`, `matches`, `groups`, `notes`, `seconds`.
+Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `truncated`, `matches`, `groups`, `notes`.
 
 ### get_exception_info
 
@@ -1713,7 +1713,7 @@ Match the functions of two builds of one native image (x86 / x64 / ARM64). Tiers
 | `offset` | integer |  | `0` | Items to skip. |
 | `limit` | integer |  | `100` | Items to return (max 2000). |
 
-Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `offset`, `total`, `truncated`, `pairs`, `unmatched`, `ambiguousFunctions`, `notes`, `seconds`.
+Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `offset`, `total`, `truncated`, `pairs`, `unmatched`, `ambiguousFunctions`, `notes`.
 
 ### diff_function
 
@@ -1846,7 +1846,7 @@ Carry everything done on an old build of a native image (x86 / x64 / ARM64) to i
 | `offset` | integer |  | `0` | Items to skip. |
 | `limit` | integer |  | `100` | Items to return (max 2000). |
 
-Structured output: `summary`, `oldImage`, `newImage`, `dryRun`, `included`, `oldFunctions`, `newFunctions`, `functionsMatched`, `categories`, `il2CppMapping`, `category`, `outcome`, `offset`, `total`, `truncated`, `items`, `notes`, `seconds`.
+Structured output: `summary`, `oldImage`, `newImage`, `dryRun`, `included`, `oldFunctions`, `newFunctions`, `functionsMatched`, `categories`, `il2CppMapping`, `category`, `outcome`, `offset`, `total`, `truncated`, `items`, `notes`.
 
 ## notes
 

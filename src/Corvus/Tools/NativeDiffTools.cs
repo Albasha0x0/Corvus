@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -53,8 +52,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("The list returned: pairs, changed, unmatched or ambiguous.")] string View,
         int Offset, int Total, bool Truncated,
         IReadOnlyList<FunctionPair> Pairs, IReadOnlyList<UnmatchedFunction> Unmatched, IReadOnlyList<AmbiguousEntry> AmbiguousFunctions,
-        [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes,
-        double Seconds);
+        [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes);
 
     public sealed record AddressMapping(
         string OldImage, string NewImage, string OldAddress,
@@ -149,7 +147,6 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
-        var sw = Stopwatch.StartNew();
         var v = (view ?? "pairs").Trim().ToLowerInvariant();
         if (v is not ("pairs" or "changed" or "unmatched" or "ambiguous"))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use pairs, changed, unmatched or ambiguous");
@@ -197,7 +194,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var notes = Notes(match);
         return new NativeComparison(oldNative.Id, newNative.Id, match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, identical,
             match.Pairs.Count - identical, match.ByOld.Count(m => m == null), match.ByNew.Count(m => m == null), match.Ambiguous.Count, tiers, v,
-            offset, total, offset + limit < total, pairs, unmatched, ambiguous, notes, Math.Round(sw.Elapsed.TotalSeconds, 2));
+            offset, total, offset + limit < total, pairs, unmatched, ambiguous, notes);
     }
 
     [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true)]

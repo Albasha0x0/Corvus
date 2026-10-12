@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Text;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
@@ -80,8 +79,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("Item filter: outcome.")] string? Outcome,
         int Offset, int Total, bool Truncated,
         IReadOnlyList<UpdateItem> Items,
-        [property: Description("What was not covered (functions that did not decode, capped work, scope).")] IReadOnlyList<string> Notes,
-        double Seconds);
+        [property: Description("What was not covered (functions that did not decode, capped work, scope).")] IReadOnlyList<string> Notes);
 
     private sealed record Item(string Category, string Kind, uint? OldRva, uint? NewRva, string Value, string Outcome, string Reason, double Confidence, int? Tier, string Detail);
 
@@ -112,7 +110,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var ct = cancellationToken;
-        var sw = Stopwatch.StartNew();
         var included = ParseInclude(include);
         var placement = PatchExtension.ParsePlacement(stubPlacement);
         if (maxPatterns is < 0 or > 1000) throw new ToolError(ErrorCode.InvalidArgument, $"maxPatterns must be 0-1000, not {maxPatterns}.");
@@ -127,7 +124,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         const int phases = 7;
         void Phase(int done, string message) => progress.Report(new ProgressNotificationValue { Progress = done, Total = phases, Message = message });
         if (comparer != null && await Task.Run(() => ManagedPair(oldImage, newImage), ct) is { } managed)
-            return await Task.Run(() => DotNetUpdate(managed.Old, managed.New, dryRun, included, categoryFilter, outcomeFilter, offset, limit, sw, ct), ct);
+            return await Task.Run(() => DotNetUpdate(managed.Old, managed.New, dryRun, included, categoryFilter, outcomeFilter, offset, limit, ct), ct);
 
         Phase(0, "indexing both builds");
         var oldNative = await Resolve(oldImage, ct);
@@ -240,7 +237,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         return new UpdateReport(Summary(oldNative.Id, newNative.Id, dryRun, match, categoryList, mappingSummary), oldNative.Id, newNative.Id, dryRun,
             CategoryOrder.Where(included.Contains).ToList(),
             match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, categoryList, mappingSummary,
-            categoryFilter, outcomeFilter, offset, filtered.Count, offset + limit < filtered.Count, page, notes.Distinct().ToList(), Math.Round(sw.Elapsed.TotalSeconds, 2));
+            categoryFilter, outcomeFilter, offset, filtered.Count, offset + limit < filtered.Count, page, notes.Distinct().ToList());
     });
 
     private static HashSet<string> ParseInclude(string? include)
@@ -342,7 +339,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     /// <summary>A .NET pair: notes on members follow find_counterpart's match; the other categories belong to the native path.</summary>
     private UpdateReport DotNetUpdate(LoadedAssembly oldAsm, LoadedAssembly newAsm, bool dryRun, HashSet<string> included, string? categoryFilter, string? outcomeFilter,
-        int offset, int limit, Stopwatch sw, CancellationToken ct)
+        int offset, int limit, CancellationToken ct)
     {
         if (ReferenceEquals(oldAsm, newAsm))
             throw new ToolError(ErrorCode.InvalidArgument, $"Both arguments name {oldAsm.Id}.", "load the other build too and pass its id (e.g. name#2)");
@@ -367,7 +364,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         return new UpdateReport(sb.ToString(), oldAsm.Id, newAsm.Id, dryRun, CategoryOrder.Where(included.Contains).ToList(),
             Methods(oldAsm), Methods(newAsm), cmp.MemberMap.Keys.Count(k => k is dnlib.DotNet.MethodDef), categoryList, null,
             categoryFilter, outcomeFilter, offset, filtered.Count, offset + limit < filtered.Count, page,
-            ["a .NET pair: notes are mapped by find_counterpart; addresses are metadata tokens"], Math.Round(sw.Elapsed.TotalSeconds, 2));
+            ["a .NET pair: notes are mapped by find_counterpart; addresses are metadata tokens"]);
     }
 
     /// <summary>

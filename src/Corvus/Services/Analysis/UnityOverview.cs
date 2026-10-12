@@ -34,8 +34,7 @@ public static class UnityOverview
         [property: Description("Toolchain, protection and middleware markers.")] IReadOnlyList<MarkerFact> Markers,
         IReadOnlyList<FolderFact> Folders,
         [property: Description("Recommended tool calls, most useful first.")] IReadOnlyList<NextStep> NextSteps,
-        IReadOnlyList<string> Notes,
-        double ElapsedSeconds);
+        IReadOnlyList<string> Notes);
 
     public sealed record EngineFacts(
         [property: Description("The engine version as the most specific source writes it (may carry a vendor suffix, e.g. 2020.3.13f1XD1.1); null when no source has it.")] string? Version,
@@ -100,7 +99,6 @@ public static class UnityOverview
     /// <summary>The overview of the Unity title at <paramref name="path"/>; ToolError (unsupported, reason not_a_unity_title) otherwise.</summary>
     public static Report Inspect(string path, bool detectItEasy, CancellationToken ct)
     {
-        var watch = Stopwatch.StartNew();
         if (string.IsNullOrWhiteSpace(path)) throw new ToolError(ErrorCode.InvalidArgument, "path is empty.", "pass a game folder, its executable, its *_Data folder, UnityPlayer.dll or GameAssembly.dll");
         string full;
         try { full = Path.GetFullPath(path.Trim().Trim('"')); }
@@ -149,7 +147,7 @@ public static class UnityOverview
         var steps = NextSteps(layout, backend, markers);
         var (company, product) = AppInfo(layout.Data);
         return new Report(path, layout.Game, layout.Data, layout.Exe, company, product, layout.Platform, arch, archSource, engine, backend,
-            markers, folders, steps, notes, Math.Round(watch.Elapsed.TotalSeconds, 3));
+            markers, folders, steps, notes);
     }
 
     private sealed record Layout(string Game, string? Data, string? Exe, string Platform, string? UnityPlayer, List<string> Notes);
