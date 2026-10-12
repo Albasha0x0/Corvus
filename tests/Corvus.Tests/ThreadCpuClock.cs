@@ -53,7 +53,8 @@ public class ThreadCpuClockTests
         Assert.True(slept < TimeSpan.FromMilliseconds(150), $"{slept}");
         start = ThreadCpuClock.Now();
         var wall = Stopwatch.StartNew();
-        while (wall.ElapsedMilliseconds < 100) Thread.SpinWait(1000);
-        Assert.True(ThreadCpuClock.Now() - start > TimeSpan.Zero);
+        // The thread clock advances in scheduler ticks; a loaded machine can give a short spin none.
+        while (ThreadCpuClock.Now() == start && wall.ElapsedMilliseconds < 5000) Thread.SpinWait(1000);
+        Assert.True(ThreadCpuClock.Now() - start > TimeSpan.Zero, $"no CPU time after {wall.ElapsedMilliseconds} ms of spinning");
     }
 }
