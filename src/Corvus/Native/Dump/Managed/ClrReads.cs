@@ -44,7 +44,12 @@ public sealed class ClrReads(ClrRuntime runtime)
 
     private ManagedException Describe(ClrException e, uint? thread, int depth)
     {
-        var frames = e.StackTrace.Take(MaxExceptionFrames).Select(f => Frame(f, returnAddress: false)).ToList();
+        var trace = e.StackTrace;
+        var raw = trace.Length > 0 && trace.All(f => f.Method != null)
+            ? trace.Select(f => (f.InstructionPointer, f.StackPointer, f.Method)).ToList()
+            : TraceArray(e.Address) ?? trace.Select(f => (f.InstructionPointer, f.StackPointer, f.Method)).ToList();
+        // frames past the first are calls: an IP the runtime did not step back is the return address
+        var frames = raw.Take(MaxExceptionFrames).Select((f, i) => Frame(f.Item1, f.Item2, f.Item3, null, ClrStackFrameKind.ManagedMethod, returnAddress: i > 0)).ToList();
         var inner = depth < MaxInnerExceptions && e.Inner is { } i ? Describe(i, null, depth + 1) : null;
         return new ManagedException(e.Type?.Name ?? "(unknown type)", e.Message, e.HResult, e.Address, thread, frames, inner);
     }
@@ -54,26 +59,59 @@ public sealed class ClrReads(ClrRuntime runtime)
     {
         var thread = Runtime.Threads.FirstOrDefault(t => t.OSThreadId == threadId);
         if (thread == null) return [];
-        return thread.EnumerateStackTrace(false, maxFrames).Select(f => Frame(f, returnAddress: true)).ToList();
+        return thread.EnumerateStackTrace(false, maxFrames).Select(f => Frame(f.InstructionPointer, f.StackPointer, f.Method, f.FrameName, f.Kind, returnAddress: true)).ToList();
     }
 
     /// <summary>
-    /// A frame; <paramref name="returnAddress"/> when its IP is a return address (a thread walk) and the call is the byte
-    /// before it. The runtime's exception trace already stores IPs inside the call.
+    /// The exception's _stackTrace array read here: ClrMD takes its header as two pointers, but .NET 9+ adds a 32-bit
+    /// keep-alive count after the 32-bit size, which shifts every element by 4 bytes on x86. The header length whose
+    /// elements all name methods wins; null when none does.
     /// </summary>
-    private ManagedFrame Frame(ClrStackFrame f, bool returnAddress)
+    private List<(ulong Ip, ulong Sp, ClrMethod? Method)>? TraceArray(ulong exception)
     {
-        var m = f.Method;
-        if (f.Kind != ClrStackFrameKind.ManagedMethod || m == null)
-            return new ManagedFrame(f.InstructionPointer, f.StackPointer, false, $"[{f.FrameName ?? f.Kind.ToString()}]", null, null, null, null, null);
+        var obj = Runtime.Heap.GetObject(exception);
+        if (!obj.IsValid || obj.Type?.GetFieldByName("_stackTrace") == null) return null;
+        var trace = obj.ReadObjectField("_stackTrace");
+        if (trace.IsNull || !trace.IsArray) return null;
+        // .NET 9+: an object[] whose first element is the byte[] when the trace keeps objects alive
+        if (trace.Type?.ComponentType is { IsObjectReference: true } && trace.AsArray().Length > 0) trace = trace.AsArray().GetObjectValue(0);
+        if (trace.IsNull || !trace.IsArray) return null;
+        var reader = Runtime.DataTarget.DataReader;
+        uint ptr = (uint)reader.PointerSize;
+        ulong data = trace.Address + 2 * ptr, end = data + (ulong)trace.AsArray().Length;
+        if (!reader.Read(data, out uint count) || count == 0 || count > 4096) return null;
+        foreach (uint header in new[] { 2 * ptr, 3 * ptr })
+        {
+            if (data + header + count * 4 * ptr > end) continue;
+            var frames = new List<(ulong, ulong, ClrMethod?)>();
+            for (uint i = 0; i < count; i++)
+            {
+                ulong at = data + header + i * 4 * ptr;
+                if (!reader.ReadPointer(at, out ulong ip) || !reader.ReadPointer(at + ptr, out ulong sp) || !reader.ReadPointer(at + 2 * ptr, out ulong md)
+                    || Runtime.GetMethodByHandle(md) is not { } method) { frames = null; break; }
+                frames.Add((ip, sp, method));
+            }
+            if (frames != null) return frames;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// A frame; <paramref name="returnAddress"/> when its IP may be a return address (a thread walk, a caller in an
+    /// exception trace) and the call is the byte before it. Stepping back is harmless for an IP already inside the call.
+    /// </summary>
+    private ManagedFrame Frame(ulong ip, ulong sp, ClrMethod? m, string? frameName, ClrStackFrameKind kind, bool returnAddress)
+    {
+        if (kind != ClrStackFrameKind.ManagedMethod || m == null)
+            return new ManagedFrame(ip, sp, false, $"[{frameName ?? kind.ToString()}]", null, null, null, null, null);
         int? il = null;
-        if (f.InstructionPointer != 0)
+        if (ip != 0)
         {
             var map = m.ILOffsetMap;
-            il = (returnAddress ? IlOffset(map, f.InstructionPointer - 1) : null) ?? IlOffset(map, f.InstructionPointer);
+            il = (returnAddress ? IlOffset(map, ip - 1) : null) ?? IlOffset(map, ip);
         }
         var module = m.Type?.Module;
-        return new ManagedFrame(f.InstructionPointer, f.StackPointer, true, m.Signature ?? m.Name ?? "(unknown method)", m.MetadataToken != 0 ? m.MetadataToken : null, il,
+        return new ManagedFrame(ip, sp, true, m.Signature ?? m.Name ?? "(unknown method)", m.MetadataToken != 0 ? m.MetadataToken : null, il,
             module?.Name, module != null ? Mvid(module) : null, m.NativeCode != 0 && m.NativeCode != ulong.MaxValue ? m.NativeCode : null);
     }
 

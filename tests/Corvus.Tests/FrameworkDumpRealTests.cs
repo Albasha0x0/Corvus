@@ -119,6 +119,10 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
         Assert.Equal(("System.ApplicationException", "sample-outer"), (e.Type, e.Message));
         var inner = Assert.Single(e.Inner);
         Assert.Equal(("System.InvalidOperationException", "sample-probe"), (inner.Type, inner.Message));
+        foreach (var x in new[] { e, inner })
+            foreach (var f in x.Stack) output.WriteLine($"{x.Type} {f.Address} {f.Function} {f.Token} il={f.IlOffset}");
+        // the caller's IP in the trace is a return address on x64: the frame is the call (IL 2), not the statement after it
+        Assert.Equal(2, inner.Stack.Single(f => f.Function.Contains("Main", StringComparison.Ordinal)).IlOffset);
         var thrower = inner.Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal));
         Assert.Equal($"0x{MethodToken(exe, "Inner"):X8}", thrower.Token);
         Assert.Equal(probe.Id, thrower.Assembly);

@@ -253,13 +253,16 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Contains(m.Notes, n => n.StartsWith("A 32-bit process", StringComparison.Ordinal));
         var inner = Assert.Single(m.Exception!.Inner);
         Assert.Equal("sample-probe", inner.Message);
-        // the exception's own stack trace array is not resolved to methods for x86 here; the thread's walk is
+        foreach (var e in new[] { m.Exception, inner })
+            foreach (var f in e.Stack) output.WriteLine($"{e.Type} {f.Address} {f.Function} {f.Token} il={f.IlOffset}");
+        // the trace array's header on x86 (.NET 9+) is not ClrMD's: its frames are read here
+        Assert.Contains(inner.Stack, f => f.Function.Contains("Inner", StringComparison.Ordinal) && f.Token == $"0x{MethodToken(dll, "Inner"):X8}");
         var stack = await service.Stack(dump, m.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
         Assert.Equal("decoded", stack.Managed);
         Assert.Contains(stack.Frames, f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal) && f.Token == $"0x{MethodToken(dll, "Main"):X8}");
         var heap = await service.Heap(dump, "stats", "System.String", 0, 0, 10, MinidumpService.DefaultMaxHeapObjects, default);
         Assert.True(heap.Types.Single().Count > 10);
-        // the exception trace is not resolved here: the signature takes the thread's managed frames
+        // the bucket names the CLR exception and its managed frames
         var bucket = Assert.Single((await new MinidumpService { BucketCache = dir.File("cache") }.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Buckets);
         output.WriteLine(bucket.Signature);
         Assert.StartsWith("clr | System.ApplicationException | ", bucket.Signature);
