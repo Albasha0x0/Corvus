@@ -1,0 +1,20 @@
+# Exemptions from: parameters use the canonical names of S7.1
+# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+compare_assemblies.tokenMapPath
+emulate_native.seconds
+export_engine_database.force
+extract_strings.savePath
+find_virtual_calls.seconds
+get_android_resource.savePath
+get_resource.savePath
+ghidra_script.timeout
+ida_python.file
+inspect_instruction.count
+list_imports.module
+load_pdb.force
+patch_asm.force
+patch_bytes.force
+reanalyze_native.seconds
+reanalyze_native.start
+search_decompiled.seconds
+search_instructions.start

@@ -1,0 +1,26 @@
+# Exemptions from: a tool of the list output class returns its rows as items (S2.1)
+# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+bucket_minidumps
+dump_heap
+dump_stack
+extract_embedded
+extract_strings
+find_method_by_address
+find_similar_functions
+get_attributes
+get_call_arguments
+get_type_hierarchy
+list_assemblies
+list_cpp_classes
+list_edits
+list_native_edits
+list_native_types
+native_call_tree
+read_result
+search_bytes
+search_code_pattern
+search_container
+search_decompiled
+search_instructions
+search_pdb_symbols
+symbolize_stack_text

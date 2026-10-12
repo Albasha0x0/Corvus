@@ -1,0 +1,31 @@
+{
+  "tool": "find_references",
+  "arguments": {
+    "symbol": "Account::Charge(int)"
+  },
+  "isError": false,
+  "content": [
+    "References to method Fixture.Model.Account::Charge(int) [TestFixture]: 1\n  Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000019\n      IL_0014 call\n"
+  ],
+  "structuredContent": {
+    "target": "Fixture.Model.Account::Charge(int) [TestFixture]",
+    "items": [
+      {
+        "where": {
+          "kind": "method",
+          "label": "Fixture.Model.Account::Charge(int, string)",
+          "assembly": "TestFixture",
+          "token": "0x06000019"
+        },
+        "ilOffset": 20,
+        "kind": "call"
+      }
+    ],
+    "nativeCallSites": [],
+    "offset": 0,
+    "total": 1,
+    "limit": 300,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

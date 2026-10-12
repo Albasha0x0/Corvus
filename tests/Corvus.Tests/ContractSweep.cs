@@ -56,7 +56,7 @@ public static partial class ContractSweep
 
     public sealed record Case(string Tool, string Label, Dictionary<string, object?> Args);
 
-    public enum Depth { Core, Full }
+    public enum Depth { Quick, Core, Full }
 
     /// <summary>Starts a server with the fixtures loaded, working in <paramref name="dir"/> so relative paths resolve inside it.</summary>
     public static Task<McpClient> StartAsync(TempDir dir)
@@ -207,8 +207,8 @@ public static partial class ContractSweep
             foreach (var q in properties)
                 if (!plausible.ContainsKey(q.Name) && (required.Contains(q.Name) || Plausible(q.Name) != null))
                     plausible[q.Name] = Plausible(q.Name) ?? (TypeOf(q.Value) switch { "integer" => 1, "boolean" => false, _ => "x" });
-            // Core: dry runs take the shared lock, so edit tools (C# compiles) run side by side instead of one after another.
-            if (depth == Depth.Core && properties.Any(q => q.Name == "dryRun"))
+            // Quick and core: dry runs take the shared lock, so edit tools (C# compiles) run side by side instead of one after another.
+            if (depth != Depth.Full && properties.Any(q => q.Name == "dryRun"))
                 plausible["dryRun"] = true;
             // Default output locations can be outside the temp directory (next to the input, or under the system temp folder).
             Dictionary<string, object?> Base()
@@ -222,6 +222,12 @@ public static partial class ContractSweep
             Add("plausible", Base());
             if (required.Count > 0)
                 Add("no arguments", outputs.ToDictionary(o => o, o => (object?)Fresh()));
+            // Quick: one valid and one invalid call per tool.
+            if (depth == Depth.Quick)
+            {
+                if (required.Count == 0) Add("unknown parameter", With(Base(), "noSuchParameter", 1));
+                continue;
+            }
             if (depth == Depth.Full)
             {
                 Add("unknown parameter", With(Base(), "noSuchParameter", 1));
@@ -652,7 +658,11 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
     }
 }
 
-/// <summary>The core of the sweep, in a class of its own so it runs beside the other contract tests rather than after them.</summary>
+/// <summary>
+/// The core of the sweep, in a class of its own so it runs beside the other contract tests rather than after them. Full set:
+/// the quick set runs its slice (QuickSweepTests).
+/// </summary>
+[Trait("Speed", "Slow")]
 public sealed class ContractSweepCoreTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
 {
     private readonly Xunit.Abstractions.ITestOutputHelper _output = output;

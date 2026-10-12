@@ -1,0 +1,44 @@
+{
+  "tool": "search_symbols",
+  "arguments": {
+    "query": "Charge",
+    "limit": 5
+  },
+  "isError": false,
+  "content": [
+    "4 matches:\n  method   Fixture.Model.Account::Charge(int)  [TestFixture] 0x06000018\n  method   Fixture.Model.IChargeable::Charge(int)  [TestFixture] 0x0600000D\n  method   Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000019\n  type     Fixture.Model.IChargeable  [TestFixture] 0x02000008\n"
+  ],
+  "structuredContent": {
+    "items": [
+      {
+        "kind": "method",
+        "label": "Fixture.Model.Account::Charge(int)",
+        "assembly": "TestFixture",
+        "token": "0x06000018"
+      },
+      {
+        "kind": "method",
+        "label": "Fixture.Model.IChargeable::Charge(int)",
+        "assembly": "TestFixture",
+        "token": "0x0600000D"
+      },
+      {
+        "kind": "method",
+        "label": "Fixture.Model.Account::Charge(int, string)",
+        "assembly": "TestFixture",
+        "token": "0x06000019"
+      },
+      {
+        "kind": "type",
+        "label": "Fixture.Model.IChargeable",
+        "assembly": "TestFixture",
+        "token": "0x02000008"
+      }
+    ],
+    "offset": 0,
+    "total": 4,
+    "limit": 5,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

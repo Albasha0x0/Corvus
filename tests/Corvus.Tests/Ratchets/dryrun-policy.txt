@@ -1,0 +1,16 @@
+# Exemptions from: a tool recorded dryRun=true takes dryRun defaulting to true, and only those take it (S7.3, D7)
+# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+add_members_csharp
+add_types_csharp
+apply_edits
+comment_native
+migrate_native_names
+patch_asm
+patch_bytes
+patch_method_csharp
+patch_method_il
+rename_namespace
+rename_native
+rename_symbol
+simplify_methods
+stub_method

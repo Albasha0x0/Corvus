@@ -1,0 +1,5 @@
+# Exemptions from: every parameter has a description (S7)
+# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+compare_folders.limit
+compare_folders.offset
+read_result.overwrite

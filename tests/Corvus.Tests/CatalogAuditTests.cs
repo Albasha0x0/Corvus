@@ -69,6 +69,53 @@ public class CatalogAuditTests
             $"the model-facing catalog is {modelFacing:N0} bytes, over the recorded {MaxModelFacingBytes:N0}: trim descriptions or raise the ceiling deliberately");
     }
 
+    /// <summary>S8.1 per-tool limits, compact UTF-8 bytes.</summary>
+    private const int MaxDescriptionBytes = 600, MaxParameterBytes = 160, MaxInputSchemaGuardBytes = 13_312, MaxOutputSchemaBytes = 4 * 1024;
+
+    [Fact]
+    public void ToolsStayWithinTheirLimits()
+    {
+        var descriptions = new Dictionary<string, string>();
+        var parameters = new Dictionary<string, string>();
+        var outputs = new Dictionary<string, string>();
+        foreach (var tool in Tools)
+        {
+            var name = (string)tool["name"]!;
+            Assert.Matches("^[a-z0-9_]{1,40}$", name);
+            Assert.True(Bytes(tool["inputSchema"]) <= MaxInputSchemaGuardBytes, $"{name}: input schema over {MaxInputSchemaGuardBytes} bytes");
+            if (Encoding.UTF8.GetByteCount((string?)tool["description"] ?? "") is var d && d > MaxDescriptionBytes) descriptions[name] = $"{d} bytes";
+            foreach (var (p, schema) in tool["inputSchema"]!["properties"] as JsonObject ?? [])
+                if (Encoding.UTF8.GetByteCount((string?)schema?["description"] ?? "") is var b && b > MaxParameterBytes) parameters[$"{name}.{p}"] = $"{b} bytes";
+            if (Bytes(tool["outputSchema"]) is var o && o > MaxOutputSchemaBytes) outputs[name] = $"{o} bytes";
+        }
+        Ratchet.Check("description-bytes", $"a description is at most {MaxDescriptionBytes} bytes (S8.1)", descriptions);
+        Ratchet.Check("parameter-bytes", $"a parameter description is at most {MaxParameterBytes} bytes (S8.1)", parameters);
+        Ratchet.Check("output-schema-bytes", $"an output schema is at most {MaxOutputSchemaBytes} bytes in tools/list (S8.1)", outputs);
+    }
+
+    /// <summary>Per profile: tool count and model-facing bytes (names, descriptions, input schemas); measured 42,987 (lean) and 108,165 (core) when the profiles landed, plus 1%.</summary>
+    [Theory]
+    [InlineData(Toolsets.Lean, 40, 43_450)]
+    [InlineData(Toolsets.CoreName, 100, 109_250)]
+    public void ProfilesStayWithinTheirCeilings(string profile, int maxTools, int maxModelFacing)
+    {
+        var tools = Catalog.OfThisBuild(Toolsets.Parse(profile)).Tools;
+        Assert.True(tools.Count <= maxTools, $"{profile}: {tools.Count} tools, over {maxTools}");
+        long bytes = tools.Sum(t => Encoding.UTF8.GetByteCount((string)t["name"]!) + Encoding.UTF8.GetByteCount((string?)t["description"] ?? "") + Bytes(t["inputSchema"]));
+        Assert.True(bytes <= maxModelFacing, $"{profile}: the model-facing catalog is {bytes:N0} bytes, over {maxModelFacing:N0}");
+        Assert.Equal(Profiles.ToolsOf(Toolsets.Parse(profile)).Order(StringComparer.Ordinal), tools.Select(t => (string)t["name"]!).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void EveryToolHasAFamilyAndAContractRow()
+    {
+        foreach (var tool in Tools.Select(t => (string)t["name"]!))
+        {
+            Assert.True(Toolsets.FamilyOf(tool) != null, $"{tool}: no family (Core/Toolsets.cs)");
+            Assert.True(ToolContract.Table.ContainsKey(tool), $"{tool}: no contract row (Mcp/Contract), which records its lean and core membership");
+        }
+    }
+
     [Fact]
     public void PatternsArePortable()
     {

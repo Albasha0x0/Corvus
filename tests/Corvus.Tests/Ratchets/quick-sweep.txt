@@ -1,0 +1,30 @@
+# Exemptions from: every tool has a minimal valid and an invalid call in the quick contract sweep (S12.1)
+# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+add_members_csharp
+add_types_csharp
+apply_edits
+apply_il2cpp_names
+compare_assemblies
+compare_native_images
+decompile_java
+export_engine_database
+export_il2cpp_symbols
+export_project
+ghidra_script
+ida_python
+install_android_package
+load_session
+migrate_native_names
+migrate_native_patches
+patch_method_csharp
+pull_android_file
+pull_android_package
+reanalyze_native
+save_native
+search_decompiled
+simplify_methods
+undo_edit
+uninstall_android_package
+unpack_container
+update_to_new_build
+verify_native_imports

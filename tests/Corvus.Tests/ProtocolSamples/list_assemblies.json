@@ -1,0 +1,28 @@
+{
+  "tool": "list_assemblies",
+  "arguments": {},
+  "isError": false,
+  "content": [
+    "assemblies (1):\n  id           name                                      version  path                                      types  il2CppDummy  unsavedEdits  readyToRun\n  TestFixture  TestFixture, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null 1.0.0.0  <fixtures>/TestFixture.dll 24     true         []            false\nsearchDirectories: <fixtures>\nbackgroundIndexing: idle\ntotal: 1\n"
+  ],
+  "structuredContent": {
+    "assemblies": [
+      {
+        "id": "TestFixture",
+        "name": "TestFixture, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+        "version": "1.0.0.0",
+        "path": "<fixtures>/TestFixture.dll",
+        "types": 24,
+        "il2CppDummy": true,
+        "unsavedEdits": [],
+        "readyToRun": false
+      }
+    ],
+    "searchDirectories": [
+      "<fixtures>"
+    ],
+    "backgroundIndexing": "idle",
+    "total": 1,
+    "nativeImages": []
+  }
+}

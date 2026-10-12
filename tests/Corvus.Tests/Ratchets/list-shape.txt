@@ -1,0 +1,12 @@
+# Exemptions from: a list tool takes offset and limit and returns items, offset, limit, total, totalExact, hasMore, nextOffset (S2.1)
+# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+compare_assemblies
+convert_number
+decompile_native
+find_call_paths
+get_call_tree
+inspect_instruction
+list_android_devices
+list_resources
+map_java_dotnet
+resolve_symbol
