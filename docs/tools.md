@@ -1435,9 +1435,9 @@ Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memo
 
 ### verify_native_imports
 
-**Verify P/Invoke imports** (read-only, idempotent)
+**Verify P/Invoke imports** (read-only, idempotent, long-running)
 
-Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of the libraries they bind to, with the runtime's lookup rules: DLL search order, API sets, A/W suffixes, stdcall decoration, ordinals and forwarders; for Linux / macOS / Android / iOS targets (platform=, or detected) .so / .dylib probing along the RID chain and __Internal in an Il2Cpp binary. Verdict per declaration with a reason code: verified, contradicted (e.g. missing_export, arch_mismatch), unresolved (e.g. dll_not_found with the places searched), dynamic_only (the assembly loads the library itself), not_checked (runtime-internal). Run-time loading found in the IL is listed too.
+Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of their libraries, with the runtime's lookup rules: DLL search order, API sets, A/W suffixes, stdcall decoration, ordinals and forwarders; for Linux/macOS/Android/iOS targets (platform=, or detected) .so/.dylib probing along the RID chain and __Internal in an Il2Cpp binary. Verdict per declaration with a reason code: verified, contradicted (e.g. missing_export, arch_mismatch), unresolved (e.g. dll_not_found with places searched), dynamic_only (loaded by the assembly itself), not_checked (runtime-internal). Run-time loading found in the IL is listed too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

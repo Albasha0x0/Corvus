@@ -116,6 +116,34 @@ public sealed class AssemblyWorkspace : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
     }
 
+    /// <summary>Longest shared-lock section of <see cref="ReadEach{T}"/>, so a queued writer waits about this long.</summary>
+    internal const int ReadSectionMs = 100;
+
+    /// <summary>
+    /// Visits <paramref name="items"/> under the shared lock in sections of about <see cref="ReadSectionMs"/>, so whole-assembly
+    /// work never holds the lock for long; stops when <paramref name="visit"/> returns false. A load or unload of
+    /// <paramref name="owner"/> between sections ends the visit with a conflict error.
+    /// </summary>
+    public void ReadEach<T>(LoadedAssembly? owner, IReadOnlyList<T> items, Func<T, bool> visit, CancellationToken cancellationToken)
+    {
+        var ct = cancellationToken.CanBeCanceled ? cancellationToken : CallToken;
+        int next = 0;
+        bool more = true;
+        while (more && next < items.Count)
+            Read(() =>
+            {
+                if (owner != null && !_assemblies.Contains(owner)) throw Gone(owner.Id);
+                long start = System.Diagnostics.Stopwatch.GetTimestamp();
+                do
+                {
+                    ct.ThrowIfCancellationRequested();
+                    more = visit(items[next++]);
+                }
+                while (more && next < items.Count && System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds < ReadSectionMs);
+                return 0;
+            }, ct);
+    }
+
     /// <summary>Snapshot of loaded assemblies; consistent only inside Read/Write.</summary>
     public IReadOnlyList<LoadedAssembly> Assemblies => _assemblies.ToArray();
 

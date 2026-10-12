@@ -67,6 +67,19 @@ public class NativeImportVerifierTests
         Assert.All(checks.Values, c => Assert.Null(c.Location));
     }
 
+    [Fact]
+    public void InShortLockSections_ReportsProgressPerLibrary()
+    {
+        using var env = new Env();
+        var asm = Compile(env, "PInvokesSections", Platform.X64);
+        var messages = new List<string>();
+        var result = new NativeImportVerifier(PeFile.Open).Verify(asm, default, null, env.Workspace, (_, _, message) => messages.Add(message));
+        Assert.Equal(11, result.Checks.Count);
+        Assert.Contains(messages, m => m.StartsWith("checking kernel32.dll (", StringComparison.Ordinal));
+        Assert.Contains(messages, m => m.StartsWith("checking user32.dll (1 ", StringComparison.Ordinal));
+        Assert.Equal("11 declarations checked", messages[^1]);
+    }
+
     [WindowsFact]
     public void X86ModulesBindToSysWow64()
     {

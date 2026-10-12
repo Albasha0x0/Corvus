@@ -25,13 +25,28 @@ public static class DynamicNativeLoads
     private const int MaxResults = 2000;
     private const int MaxBackward = 32;
 
-    public static (List<DynamicNativeLoad> Loads, bool Truncated) Find(ModuleDef module, CancellationToken ct)
-    {
-        var loads = new List<DynamicNativeLoad>();
-        foreach (var type in module.GetTypes())
-            foreach (var method in type.Methods)
+    public static (List<DynamicNativeLoad> Loads, bool Truncated) Find(ModuleDef module, CancellationToken ct) =>
+        Find(module.GetTypes().ToList(), (types, visit) =>
+        {
+            foreach (var t in types)
             {
                 ct.ThrowIfCancellationRequested();
+                if (!visit(t)) break;
+            }
+        });
+
+    /// <param name="each">Visits the types in order until the visitor returns false (e.g. in short lock sections).</param>
+    public static (List<DynamicNativeLoad> Loads, bool Truncated) Find(IReadOnlyList<TypeDef> types, Action<IReadOnlyList<TypeDef>, Func<TypeDef, bool>> each)
+    {
+        var loads = new List<DynamicNativeLoad>();
+        bool truncated = false;
+        // Per call target, not per call site; a stub never declares a P/Invoke, so missing references are not stubbed.
+        var kinds = new Dictionary<IMethod, string?>();
+        each(types, type =>
+        {
+            using var noStubs = AssemblyWorkspace.WithoutStubs();
+            foreach (var method in type.Methods)
+            {
                 CilBody? body;
                 try { body = method.HasBody ? method.Body : null; }
                 catch (Exception ex) when (ex is not OperationCanceledException) { continue; } // unreadable body
@@ -42,7 +57,8 @@ public static class DynamicNativeLoads
                 {
                     var ins = instructions[i];
                     if (ins.OpCode.Code is not (Code.Call or Code.Callvirt) || ins.Operand is not IMethod target) continue;
-                    if (Classify(target) is not { } kind) continue;
+                    if (!kinds.TryGetValue(target, out var kind)) kinds[target] = kind = Classify(target);
+                    if (kind == null) continue;
                     string? library = null, export = null;
                     int args = ArgumentCount(target);
                     try
@@ -67,10 +83,16 @@ public static class DynamicNativeLoads
                     if (item.Kind == "delegate_for_function_pointer" && exports.Count == 1)
                         item = item with { Export = exports[0], Library = libraries.Count == 1 ? libraries[0] : null };
                     loads.Add(item);
-                    if (loads.Count >= MaxResults) return (loads, true);
+                    if (loads.Count >= MaxResults)
+                    {
+                        truncated = true;
+                        return false;
+                    }
                 }
             }
-        return (loads, false);
+            return true;
+        });
+        return (loads, truncated);
     }
 
     private static string? Classify(IMethod target)

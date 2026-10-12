@@ -105,4 +105,24 @@ public class ConcurrencyTests
         await holder;
         Assert.Equal(4, await background);
     }
+
+    [Fact]
+    public async Task LongReadInSections_LetsAQueuedWriterIn()
+    {
+        using var workspace = new AssemblyWorkspace();
+        var order = new ConcurrentQueue<char>();
+        using var inside = new ManualResetEventSlim();
+        var reader = Task.Run(() => workspace.ReadEach<int>(null, Enumerable.Range(0, 40).ToList(), _ =>
+        {
+            inside.Set();
+            Thread.Sleep(10);
+            order.Enqueue('r');
+            return true;
+        }, default));
+        inside.Wait();
+        var writer = Task.Run(() => workspace.Write(() => { order.Enqueue('w'); return 0; }));
+        await Task.WhenAll(reader, writer);
+        var seen = new string(order.ToArray());
+        Assert.True(seen.IndexOf('w') < 30, seen); // in the first sections, not after the whole read
+    }
 }

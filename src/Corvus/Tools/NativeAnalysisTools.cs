@@ -486,11 +486,11 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", UseStructuredContent = true)]
-    [Description("Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of the libraries they bind to, with the " +
-                 "runtime's lookup rules: DLL search order, API sets, A/W suffixes, stdcall decoration, ordinals and forwarders; for Linux / macOS / " +
-                 "Android / iOS targets (platform=, or detected) .so / .dylib probing along the RID chain and __Internal in an Il2Cpp binary. Verdict " +
+    [Description("Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of their libraries, with the " +
+                 "runtime's lookup rules: DLL search order, API sets, A/W suffixes, stdcall decoration, ordinals and forwarders; for Linux/macOS/" +
+                 "Android/iOS targets (platform=, or detected) .so/.dylib probing along the RID chain and __Internal in an Il2Cpp binary. Verdict " +
                  "per declaration with a reason code: verified, contradicted (e.g. missing_export, arch_mismatch), unresolved (e.g. dll_not_found " +
-                 "with the places searched), dynamic_only (the assembly loads the library itself), not_checked (runtime-internal). Run-time loading " +
+                 "with places searched), dynamic_only (loaded by the assembly itself), not_checked (runtime-internal). Run-time loading " +
                  "found in the IL is listed too.")]
     public Task<NativeImportReport> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
@@ -498,10 +498,13 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (max 5000).")] int limit = 500,
         [Description("Target platform (default auto).")] string? platform = null,
-        CancellationToken cancellationToken = default) => Task.Run(() => workspace.Read(() =>
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
-        var asm = workspace.Get(assembly);
-        var result = new NativeImportVerifier(path => NativeImageLoader.Open(path)).Verify(asm, cancellationToken, platform);
+        var asm = workspace.Read(() => workspace.Get(assembly), cancellationToken);
+        // Outside the lock: the verifier takes it in short sections.
+        var result = new NativeImportVerifier(path => NativeImageLoader.Open(path)).Verify(asm, cancellationToken, platform, workspace,
+            (done, total, status) => Report(progress, done, total, status));
         var checks = result.Checks;
         var filter = string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant();
         offset = Math.Max(0, offset);
@@ -528,5 +531,5 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
                       "system DLLs are unresolved (system_dll_not_on_host).");
         return new NativeImportReport(asm.Id, checks.Count, counts, filter, offset, selected.Count, offset + limit < selected.Count,
             selected.Skip(offset).Take(limit).ToList(), result.DynamicLoads.Take(100).ToList(), result.DynamicLoads.Count, result.MetadataIssues, notes);
-    }), cancellationToken);
+    }, cancellationToken));
 }

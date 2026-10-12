@@ -94,31 +94,60 @@ public sealed class NativeImportVerifier
     }
 
     /// <param name="platform">auto, windows, linux, osx, android or ios (see <see cref="UnixProbing.Detect"/>).</param>
-    public Result Verify(LoadedAssembly asm, CancellationToken ct, string? platform = null)
+    public Result Verify(LoadedAssembly asm, CancellationToken ct, string? platform = null) => Verify(asm, ct, platform, null, null);
+
+    /// <param name="workspace">When given, the assembly is read in short shared-lock sections (call without holding the lock).</param>
+    /// <param name="progress">(done, total, message): per library checked.</param>
+    public Result Verify(LoadedAssembly asm, CancellationToken ct, string? platform, AssemblyWorkspace? workspace, Action<int, int, string>? progress)
     {
+        void Each<T>(IReadOnlyList<T> items, Func<T, bool> visit)
+        {
+            if (workspace != null) workspace.ReadEach(asm, items, visit, ct);
+            else
+                foreach (var item in items)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!visit(item)) break;
+                }
+        }
+        T Locked<T>(Func<T> read) => workspace != null ? workspace.Read(read, ct) : read();
+
         var appDirectory = Path.GetDirectoryName(Path.GetFullPath(asm.FilePath))!;
         var game = Il2CppGame(appDirectory);
         var target = UnixProbing.Detect(appDirectory, platform, game?.Platform);
         var issues = MetadataSurvey.Survey(asm.OriginalBytes).ToList();
-        var rowIssues = MetadataSurvey.ImplMapRows(asm.Module);
+        var (rowIssues, types, x86) = Locked(() => (MetadataSurvey.ImplMapRows(asm.Module), asm.Module.GetTypes().ToList(), IsX86(asm.Module)));
         issues.AddRange(rowIssues.Values);
-        var (dynamic, truncated) = DynamicNativeLoads.Find(asm.Module, ct);
+        progress?.Invoke(0, 1, "scanning IL for run-time native loading");
+        var (dynamic, truncated) = DynamicNativeLoads.Find(types, Each);
         var resolvers = dynamic.Where(d => d.Kind == "dll_import_resolver").Select(d => d.Method).Distinct().ToList();
         var loadedLibraries = dynamic.Where(d => d.Library != null && d.Kind is "native_library_load" or "load_library")
             .GroupBy(d => DynamicNativeLoads.NormalizeLibrary(d.Library!)).ToDictionary(g => g.Key, g => g.First());
 
-        var checks = new List<Check>();
-        bool x86 = IsX86(asm.Module);
-        foreach (var type in asm.Module.GetTypes())
+        var declarations = new List<MethodDef>();
+        Each(types, type =>
+        {
             foreach (var method in type.Methods)
+                if (method.ImplMap != null) declarations.Add(method);
+            return true;
+        });
+        // One library at a time, in declaration order within it.
+        var libraries = declarations.GroupBy(m => m.ImplMap.Module?.Name?.String ?? "", StringComparer.OrdinalIgnoreCase).ToList();
+        var checks = new List<Check>();
+        for (int i = 0; i < libraries.Count; i++)
+        {
+            progress?.Invoke(i, libraries.Count, $"checking {(libraries[i].Key.Length > 0 ? libraries[i].Key : "(no module)")} ({libraries[i].Count()} declarations)");
+            Each(libraries[i].ToList(), method =>
             {
-                ct.ThrowIfCancellationRequested();
-                if (method.ImplMap is not { } map) continue;
+                if (method.ImplMap is not { } map) return true; // removed by an edit meanwhile
                 var check = rowIssues.TryGetValue(map.Rid, out var issue) ? Malformed(method, map, issue)
                     : target.IsWindows ? CheckOne(asm, method, map, x86)
                     : CheckUnix(method, map, appDirectory, target, game);
                 checks.Add(Dynamic(check, resolvers, loadedLibraries));
-            }
+                return true;
+            });
+        }
+        progress?.Invoke(libraries.Count, libraries.Count, $"{checks.Count} declarations checked");
         return new Result(checks, dynamic, truncated, issues) { Platform = target };
     }
 
