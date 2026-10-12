@@ -151,6 +151,7 @@ public sealed class FolderCompareTests : IDisposable
         Assert.Equal("crc32+size", c.HashBasis);
         Assert.Equal((1, 1), (c.Counts.Unchanged, c.Counts.Modified));
         Assert.Contains("+beta!", One(c, "b.txt").Diff);
+        Assert.DoesNotContain("\r", One(Run(Folder("crlf-a", ("w.ini", "a=1\r\nb=2\r\n")), Folder("crlf-b", ("w.ini", "a=1\r\nb=3\r\n"))), "w.ini").Diff);
         Assert.Equal(2, c.New.EntryReads); // the changed text entry only: its kind probe and its diff
     }
 

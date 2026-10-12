@@ -325,7 +325,7 @@ public sealed class FolderCompare
             var a = oldReader.Read(r.Old!, MaxDiffBytes, whole: true);
             var b = newReader.Read(r.New!, MaxDiffBytes, whole: true);
             if (a is { } x && b is { } y && Blob.LooksLikeText(x) && Blob.LooksLikeText(y))
-                diff = CapLines(TextDiff.Unified(Encoding.UTF8.GetString(x), Encoding.UTF8.GetString(y), "old/" + r.Old!.Path, "new/" + r.New!.Path));
+                diff = CapLines(TextDiff.Unified(Lines(x), Lines(y), "old/" + r.Old!.Path, "new/" + r.New!.Path));
             else note = "text over 64 KiB or not text: no inline diff";
         }
         if (oldFacts?.Mvid != null && oldFacts.Mvid == newFacts?.Mvid)
@@ -348,10 +348,12 @@ public sealed class FolderCompare
         _ => "file",
     };
 
+    private static string Lines(byte[] text) => Encoding.UTF8.GetString(text).Replace("\r\n", "\n");
+
     private static string CapLines(string diff)
     {
-        var lines = diff.Split('\n');
-        return lines.Length <= MaxDiffLines ? diff : string.Join('\n', lines.Take(MaxDiffLines)) + $"\n... {lines.Length - MaxDiffLines} more line(s)";
+        var lines = diff.Replace("\r\n", "\n").Split('\n');
+        return lines.Length <= MaxDiffLines ? string.Join('\n', lines) : string.Join('\n', lines.Take(MaxDiffLines)) + $"\n... {lines.Length - MaxDiffLines} more line(s)";
     }
 
     private static Facts? FactsOf(byte[]? bytes, string kind, string path)
