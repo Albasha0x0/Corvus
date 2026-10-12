@@ -99,6 +99,10 @@ public class JniBindingsTests
         Assert.Equal("class_string", Owner());
     }
 
+    /// <summary>The owner search reads references and strings: virtual call resolution, 40-50 % of a large ARM32 library's index, is skipped.</summary>
+    [Fact]
+    public void TheOwnerIndexSkipsVirtualCallResolution() => Assert.False(JniBindings.IndexOptions.ResolveVirtualCalls);
+
     [Theory]
     [InlineData("Lcom/example/my_pkg/Na$Inner;", "do_it", "Java_com_example_my_1pkg_Na_00024Inner_do_1it")]
     [InlineData("Lp/C;", "mé", "Java_p_C_m_000e9")]

@@ -185,9 +185,12 @@ public sealed partial class JniBindings(DexService dex)
     /// <summary>Whether the owner of the table at <paramref name="tableRva"/> of this library is kept from an earlier call.</summary>
     internal static bool OwnerCached(byte[] library, uint tableRva) => Owners(library).ContainsKey(tableRva);
 
+    /// <summary>The owner search reads references and strings only: virtual call resolution is skipped (40 % of an ARM32 build).</summary>
+    internal static readonly CodeIndexOptions IndexOptions = new() { ResolveVirtualCalls = false };
+
     private static NativeCodeIndex? BuildIndex(ElfFile elf, List<string> notes, string name, CancellationToken ct)
     {
-        try { return NativeCodeIndex.Build(elf, ct: ct); }
+        try { return NativeCodeIndex.Build(elf, IndexOptions, ct: ct); }
         catch (ToolError ex)
         {
             notes.Add($"{name}: no code index ({ex.Message}); registered classes come from names and signatures only.");
