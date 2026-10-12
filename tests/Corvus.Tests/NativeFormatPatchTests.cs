@@ -56,6 +56,7 @@ public sealed class NativeFormatPatchTests : IDisposable
         var output = _dir.File("lib.patched.so");
         var saved = await _tools.SaveNative("lib.so", output);
         Assert.Contains("Verified: every byte outside the patched ranges", saved);
+        Assert.DoesNotContain("checksum", saved, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Re-parsed as EM_X86_64 ELF64 shared object", saved);
         var written = File.ReadAllBytes(output);
         var original = File.ReadAllBytes(path);

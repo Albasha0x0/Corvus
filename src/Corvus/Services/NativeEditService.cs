@@ -547,7 +547,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             }
             var grown = grownBy > 0 ? $" (grown by {grownBy:N0} byte(s) for an appended section)" : "";
             var bytesLine = mismatches == 0
-                ? $"Verified: every byte outside the patched ranges (and the checksum field) matches the original{grown}."
+                ? $"Verified: every byte outside the patched ranges{(reparsed != null ? " (and the checksum field)" : "")} matches the original{grown}."
                 : $"WARNING: {mismatches} byte(s) outside the patched ranges differ from the original{grown}.";
             return bytesLine + "\n" + (reparsed != null ? VerifyRelocations(reparsed, PeFile.FromBytes(originalBytes, native.FilePath), patched)
                 : $"Re-parsed as {reparsedImage.KindText()}; {(native.Image.Format == ImageFormat.Elf ? "dynamic relocations" : "fixups")} were not touched (patches over them are refused).");
