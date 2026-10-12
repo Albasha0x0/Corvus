@@ -95,10 +95,11 @@ public sealed class ClientProfileTests
     public void LeanToolsets_SelectTheLeanList()
     {
         var lean = ServerOptions.Parse(["--toolsets", "lean"]);
-        Assert.Equal(ClientProfiles.LeanTools, lean.ToolAllowList);
-        Assert.Equal(40, ClientProfiles.LeanTools.Count);
+        Assert.True(lean.Toolsets.SetEquals(Toolsets.LeanProfile));
+        Assert.Null(lean.ToolAllowList);
+        Assert.Equal(40, Corvus.Mcp.Profiles.ToolsOf(lean.Toolsets).Count());
         Assert.Equal("lean", ClientProfiles.Resolve(lean, "claude-code").Toolsets);
-        Assert.Equal(Toolsets.All, ServerOptions.Parse(["--toolsets", "full"]).Toolsets);
+        Assert.True(ServerOptions.Parse(["--toolsets", "full"]).Toolsets.SetEquals(Toolsets.All));
         Assert.Null(ServerOptions.Parse(["--toolsets", "full"]).ToolAllowList);
     }
 

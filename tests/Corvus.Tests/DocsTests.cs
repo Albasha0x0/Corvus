@@ -58,9 +58,9 @@ public class DocsTests
         sb.Append("reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).\n\n");
         sb.Append("Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** ");
         sb.Append("tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.\n\n");
-        sb.Append("| Toolset | In `core` | Tools |\n|---|---|---|\n");
+        sb.Append("| Toolset | In `core` | In `lean` | Tools |\n|---|---|---|---|\n");
         foreach (var f in Toolsets.Families)
-            sb.Append($"| [{f.Name}](#{f.Name}) | {(f.InCore ? "yes" : "no")} | {f.Tools.Length}: {Cell(f.Description)} |\n");
+            sb.Append($"| [{f.Name}](#{f.Name}) | {f.Tools.Count(t => Mcp.ToolContract.Of(t).Core)} | {f.Tools.Count(t => Mcp.ToolContract.Of(t).Lean)} | {f.Tools.Length}: {Cell(f.Description)} |\n");
         foreach (var family in Toolsets.Families)
         {
             sb.Append($"\n## {family.Name}\n\n{char.ToUpperInvariant(family.Description[0])}{family.Description[1..]}.\n");

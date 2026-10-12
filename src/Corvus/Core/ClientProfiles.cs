@@ -73,19 +73,6 @@ public static class ClientProfiles
         Plain("pi", "Pi", "pi", "pi-coding-agent"),
     ];
 
-    /// <summary>The lean profile (MASTER-PLAN appendix B); interim list until the contract table's lean flag replaces it.</summary>
-    public static IReadOnlySet<string> LeanTools { get; } = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "load_assembly", "unload_assembly", "list_assemblies", "server_status", "read_result",
-        "summarize_file", "unpack_container",
-        "search_symbols", "list_types", "get_type_info", "decompile_member", "get_il", "search_strings", "find_references", "find_callees", "get_call_tree",
-        "rename_symbol", "patch_method_csharp", "list_edits", "undo_edit", "save_assembly",
-        "get_pe_info", "list_imports", "list_exports", "list_functions", "resolve_address", "read_bytes", "search_bytes", "disassemble", "find_xrefs",
-        "search_native_strings", "analyze_native_function", "decompile_native",
-        "rename_native", "comment_native", "undo_native_edit", "save_native",
-        "record_note", "list_notes", "get_il2cpp_info",
-    };
-
     /// <summary>The profile of a client id (or the unknown row's id); null for anything else.</summary>
     public static ClientProfile? Find(string? id)
     {

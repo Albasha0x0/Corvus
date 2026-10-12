@@ -21,7 +21,7 @@ namespace Corvus.Core;
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
 ///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
 ///   --log-level &lt;l&gt;     stderr log level: trace, debug, information (default; one line per tool call), warning, error or none
-///   --toolsets &lt;list&gt;   register only these tool families (see <see cref="Core.Toolsets"/>; default all): core, or names such as core,dumps
+///   --toolsets &lt;list&gt;   register only a profile or these tool families (see <see cref="Core.Toolsets"/>; default all): full, core, lean, or names such as lean,dumps
 ///   --tools-file &lt;path|readonly|triage&gt;  register only the tools a whitelist names, after --toolsets (CORVUS_TOOLS_FILE)
 ///   --trace &lt;file&gt;      append one JSON line per tool call (tool, argument names, ms, error, size) to this file (CORVUS_TRACE)
 ///   --trace-args        the trace records argument values too, secrets masked (CORVUS_TRACE_ARGS=1)
@@ -185,11 +185,7 @@ public sealed class ServerOptions
         if (logLevel != null)
             o.LogLevel = ParseLogLevel(logLevel) ?? throw new ArgumentException($"--log-level (or {LogLevelVariable}) must be trace, debug, information, warning, error or none, not '{logLevel.Trim()}'");
         o.ToolsetsText = toolsets?.Trim();
-        // Interim until the contract table carries the lean flag (P1-F): lean is the fixed tool list of ClientProfiles.LeanTools.
-        if (toolsets?.Trim().Equals(ClientProfiles.Lean, StringComparison.OrdinalIgnoreCase) == true)
-            (o.ToolAllowList, o.ToolAllowListSource) = (ClientProfiles.LeanTools, ClientProfiles.Lean);
-        else if (toolsets?.Trim().Equals(ClientProfiles.Full, StringComparison.OrdinalIgnoreCase) == true) o.Toolsets = Core.Toolsets.All;
-        else if (toolsets != null) o.Toolsets = Core.Toolsets.Parse(toolsets);
+        if (toolsets != null) o.Toolsets = Core.Toolsets.Parse(toolsets);
         o.ParseProductOptions(toolsFile, trace);
         o.ParseClientOptions(client, clientTimeout);
         if (prewarm != null)

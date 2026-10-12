@@ -134,7 +134,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             digest, expected ? difference == null : null, difference,
             toolCount, loaded, indexing.Status, Environment.WorkingSet / (1024 * 1024), capabilities,
             ToolEffects.LongRunning.Where(registered.Contains).ToList(),
-            Core.Toolsets.Families.Select(f => new Toolset(f.Name, options.Toolsets.Contains(f.Name), f.InCore, f.Tools.Length, f.Description)).ToList(),
+            Core.Toolsets.Families.Select(f => new Toolset(f.Name, f.Tools.Any(registered.Contains), Profiles.InCore(f), f.Tools.Length, f.Description)).ToList(),
             ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting),
             NoteCountsOf(notes),
             new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds),

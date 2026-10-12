@@ -11,7 +11,6 @@ public static partial class ToolEffects
     {
         // Native images
         ["get_pe_info"] = Reads(),
-        ["get_engine_status"] = Reads(openWorld: true), // never starts an engine; asks an open one for its view
         ["get_nativeaot_info"] = Reads(longRunning: true), // the first call reads the metadata of a large image
         ["list_imports"] = Reads(longRunning: true), // call sites wait for the code index
         ["list_exports"] = Reads(),
@@ -67,7 +66,6 @@ public static partial class ParameterDomains
         ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["search_decompiled"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["emulate_native"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ghidra"]) },
-        ["get_engine_status"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["get_native_type"] = new Dictionary<string, Domain>
         {
             ["source"] = Of(["auto", "pdb", "rtti", "il2cpp", "objc", "swift", "engine"]), ["format"] = Of(["table", "c"]), ["engine"] = DecompilerEngine,
@@ -91,7 +89,6 @@ public sealed partial record ToolContract
     private static Dictionary<string, ToolContract> NativeTools() => new(StringComparer.Ordinal)
     {
         ["get_pe_info"] = Row(O.Report, L.Instant, lean: true, core: true),
-        ["get_engine_status"] = Row(O.Report, L.Instant),
         ["list_imports"] = Row(O.List, L.Interactive, lean: true, core: true, sort: "import directory order"),
         ["list_exports"] = Row(O.List, L.Instant, lean: true, core: true, sort: "ordinal"),
         ["resolve_address"] = Row(O.Report, L.Instant, lean: true, core: true),

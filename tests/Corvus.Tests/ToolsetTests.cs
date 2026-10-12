@@ -26,7 +26,10 @@ public class ToolsetTests
         Assert.Equal(["dotnet", Toolsets.Session], Toolsets.Parse("dotnet").Order());
         Assert.True(Toolsets.Parse("ALL").SetEquals(Toolsets.All));
         Assert.True(Toolsets.Parse("default").SetEquals(Toolsets.All));
-        Assert.True(Toolsets.Parse(" core , dumps ").SetEquals([.. Toolsets.CoreProfile, "dumps"]));
+        Assert.True(Toolsets.Parse(" core , dumps ").SetEquals([Toolsets.CoreName, "dumps", Toolsets.Session]));
+        Assert.True(Toolsets.Parse("lean").SetEquals(Toolsets.LeanProfile));
+        Assert.True(Toolsets.Parse("FULL").SetEquals(Toolsets.All));
+        Assert.Equal("lean,dumps", Toolsets.Format(Toolsets.Parse("dumps lean")));
         Assert.Contains("unknown toolset 'nope'", Assert.Throws<ArgumentException>(() => Toolsets.Parse("dotnet,nope")).Message);
         Assert.Equal("core,dumps", Toolsets.Format(Toolsets.Parse("dumps,core")));
         Assert.Equal("all", Toolsets.Format(Toolsets.All));
@@ -46,7 +49,10 @@ public class ToolsetTests
         Assert.DoesNotContain("open_minidump", core);
         Assert.DoesNotContain("set_native_type", core);
         Assert.DoesNotContain("inspect_process", core);
-        Assert.All(core, n => Assert.True(Toolsets.CoreProfile.Contains(Toolsets.FamilyOf(n)!), n));
+        Assert.All(core, n => Assert.True(ToolContract.Of(n).Core, n));
+        Assert.Equal(100, core.Count);
+        Assert.Equal(40, Catalog.OfThisBuild(Toolsets.LeanProfile).Tools.Count);
+        Assert.Equal("engine", Toolsets.FamilyOf("get_engine_status"));
     }
 
     [Fact]
@@ -81,10 +87,10 @@ public class ToolsetTests
         File.WriteAllText(file, "# a profile\nget_pe_info, list_imports   # native\n\ndecompile_member\n");
         var allowed = Toolsets.LoadToolList(file);
         Assert.Equal(["decompile_member", "get_pe_info", "list_imports"], allowed.Order());
-        Assert.True(Toolsets.Registers(Toolsets.All, allowed, "get_pe_info"));
-        Assert.True(Toolsets.Registers(Toolsets.All, allowed, "server_status")); // session stays
-        Assert.False(Toolsets.Registers(Toolsets.All, allowed, "disassemble"));
-        Assert.False(Toolsets.Registers(Toolsets.Parse("dotnet"), allowed, "get_pe_info")); // toolsets first
+        Assert.True(Profiles.Registers(Toolsets.All, allowed, "get_pe_info"));
+        Assert.True(Profiles.Registers(Toolsets.All, allowed, "server_status")); // session stays
+        Assert.False(Profiles.Registers(Toolsets.All, allowed, "disassemble"));
+        Assert.False(Profiles.Registers(Toolsets.Parse("dotnet"), allowed, "get_pe_info")); // toolsets first
         Assert.Contains("unknown tool(s) nope", Assert.Throws<ArgumentException>(() => Toolsets.ParseToolList("get_pe_info nope", "x")).Message);
         Assert.Throws<ArgumentException>(() => Toolsets.LoadToolList(dir.File("missing.txt")));
         Assert.True(ServerOptions.Parse([Toolsets.ToolsFileOption, file]).ToolAllowList!.SetEquals(allowed));

@@ -46,7 +46,7 @@ public static partial class Catalog
             if (o.ToolCollection is not { } tools) return;
             var serverOptions = services.GetService<ServerOptions>();
             var enabled = serverOptions?.Toolsets ?? Toolsets.Default;
-            foreach (var tool in tools.Where(t => !Toolsets.Registers(enabled, serverOptions?.ToolAllowList, t.ProtocolTool.Name)).ToList()) tools.Remove(tool);
+            foreach (var tool in tools.Where(t => !Profiles.Registers(enabled, serverOptions?.ToolAllowList, t.ProtocolTool.Name)).ToList()) tools.Remove(tool);
             ToolEffects.Apply(tools);
             ParameterDomains.Apply(tools);
             DropNullDefaults(tools);
@@ -108,7 +108,7 @@ public static partial class Catalog
     public static (List<JsonNode> Tools, List<JsonNode> Prompts) OfThisBuild(IReadOnlySet<string> toolsets)
     {
         var (tools, prompts) = Built.Value;
-        return (tools.Where(t => Toolsets.Registers(toolsets, (string)t["name"]!)).Select(t => t.DeepClone()).ToList(), prompts.Select(p => p.DeepClone()).ToList());
+        return (tools.Where(t => Profiles.Registers(toolsets, (string)t["name"]!)).Select(t => t.DeepClone()).ToList(), prompts.Select(p => p.DeepClone()).ToList());
     }
 
     // Built once, with every toolset: concurrent registrations in one process race in the SDK's schema generation (a RequestContext parameter leaks into the schema).

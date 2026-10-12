@@ -6,21 +6,21 @@
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
-| Toolset | In `core` | Tools |
-|---|---|---|
-| [session](#session) | yes | 9: workspace and server state |
-| [dotnet](#dotnet) | yes | 25: .NET browse, decompile, search, navigate, resources, ReadyToRun, project export |
-| [containers](#containers) | yes | 7: file inspection, containers and wrapped apps, Unity overview |
-| [edit](#edit) | yes | 15: .NET edits, edit history and saving |
-| [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
-| [native](#native) | yes | 34: native PE analysis, symbols and decompilation |
-| [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
-| [builds](#builds) | yes | 11: build-to-build comparison and carrying work to a new build |
-| [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
-| [engine](#engine) | no | 12: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [android](#android) | no | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
-| [dumps](#dumps) | no | 7: crash dumps and crash text |
-| [live](#live) | no | 1: read-only inspection of a running process |
+| Toolset | In `core` | In `lean` | Tools |
+|---|---|---|---|
+| [session](#session) | 9 | 5 | 9: workspace and server state |
+| [dotnet](#dotnet) | 22 | 9 | 25: .NET browse, decompile, search, navigate, resources, ReadyToRun, project export |
+| [containers](#containers) | 7 | 2 | 7: file inspection, containers and wrapped apps, Unity overview |
+| [edit](#edit) | 15 | 5 | 15: .NET edits, edit history and saving |
+| [il2cpp](#il2cpp) | 5 | 1 | 5: Il2Cpp metadata, addresses, symbols and bindings |
+| [native](#native) | 33 | 12 | 33: native PE analysis, symbols and decompilation |
+| [native-edit](#native-edit) | 9 | 4 | 9: native names, comments, patches and saving |
+| [builds](#builds) | 0 | 0 | 11: build-to-build comparison and carrying work to a new build |
+| [notes](#notes) | 0 | 2 | 3: analyst notes kept per binary across sessions |
+| [engine](#engine) | 0 | 0 | 13: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
+| [android](#android) | 0 | 0 | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
+| [dumps](#dumps) | 0 | 0 | 7: crash dumps and crash text |
+| [live](#live) | 0 | 0 | 1: read-only inspection of a running process |
 
 ## session
 
@@ -913,19 +913,6 @@ Overview of a native image. PE: machine, kind, subsystem, base, entry point, tim
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 
 Structured output: `image`, `path`, `machine`, `kind`, `format`, `subsystem`, `fileSize`, `sha256`, `imageBase`, `entryPoint`, `timestamp`, `dotNet`, `mitigationsOn`, `mitigationsOff`, `sections`, `importModules`, `importFunctions`, `delayImportModules`, `exports`, `tlsCallbacks`, `pdbPath`, `pdbGuid`, `pdbAge`, `signer`, `checksumMatches`, `overlaySize`, `issues`, `capabilities`, `code`.
-
-### get_engine_status
-
-**Engine status of a native image** (read-only, idempotent, open-world)
-
-IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine's view (language, compiler, analysis state, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
-| `engine` | string |  |  | Default auto: both. Values: auto, ida, ghidra. |
-
-Structured output: `image`, `engines`.
 
 ### list_imports
 
@@ -1914,6 +1901,19 @@ Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `
 ## engine
 
 Edits inside the decompiler engine's database: types, locals, frames, declarations, scripting.
+
+### get_engine_status
+
+**Engine status of a native image** (read-only, idempotent, open-world)
+
+IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine's view (language, compiler, analysis state, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `engine` | string |  |  | Default auto: both. Values: auto, ida, ghidra. |
+
+Structured output: `image`, `engines`.
 
 ### set_native_type
 

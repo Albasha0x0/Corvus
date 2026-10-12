@@ -9,6 +9,7 @@ public static partial class ToolEffects
 {
     private static Dictionary<string, Effects> EngineTools() => new(StringComparer.Ordinal)
     {
+        ["get_engine_status"] = Reads(openWorld: true), // never starts an engine; asks an open one for its view
         // User types in the decompiler engine (saved to the sidecar; runs IDA)
         ["set_native_type"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["set_native_local"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
@@ -29,6 +30,7 @@ public static partial class ParameterDomains
 {
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> EngineTools() => new(StringComparer.Ordinal)
     {
+        ["get_engine_status"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["get_native_frame"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["reanalyze_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["define_native"] = new Dictionary<string, Domain> { ["kind"] = Of(["code", "function", "undefine", "data"]), ["engine"] = DecompilerEngine },
@@ -48,6 +50,7 @@ public sealed partial record ToolContract
 {
     private static Dictionary<string, ToolContract> EngineTools() => new(StringComparer.Ordinal)
     {
+        ["get_engine_status"] = Row(O.Report, L.Instant),
         ["set_native_type"] = Row(O.Edit, L.Engine, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
         ["set_native_local"] = Row(O.Edit, L.Engine, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
         ["set_native_stack_var"] = Row(O.Edit, L.Engine, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
