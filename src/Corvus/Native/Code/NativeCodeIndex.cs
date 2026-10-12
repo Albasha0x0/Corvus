@@ -82,6 +82,11 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public CodeIndexStats Stats { get; }
     /// <summary>Relocations in an x86 image are missing, so absolute operands were accepted by range alone.</summary>
     public bool AbsoluteRefsUnconfirmed { get; }
+    /// <summary>
+    /// The image has no relocations, so data pointers are pointer-sized values in data sections that are function starts and stand
+    /// in runs of two or more, accepted by address range alone.
+    /// </summary>
+    public bool PointersUnconfirmed { get; }
 
     private NativeCodeIndex(INativeImage image, CodeSupport support, string? note, CodeContext? ctx, NativeFunction[] functions,
         uint[] rangeStarts, uint[] rangeEnds, CodeXref[] xrefs, StringLiteral[] strings, List<string> truncations, CodeIndexStats stats,
@@ -104,6 +109,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         Truncations = truncations;
         Stats = stats;
         AbsoluteRefsUnconfirmed = image.Arch == NativeArch.X86 && image.RelocationRvas.Count == 0;
+        PointersUnconfirmed = support == CodeSupport.Full && image.RelocationRvas.Count == 0;
         foreach (var imp in image.Imports) _imports.TryAdd(imp.SlotRva, imp);
         foreach (var e in image.Exports)
             if (e.ForwardedTo == null && e.Name != null) _exportNames.TryAdd(e.Rva, e.Name);
@@ -971,6 +977,20 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                 if (_ctx.ArmModes != null && (target & 1) != 0 && _ctx.Code.IsCode(target)) target &= ~1u;
                 pointers.Add(new CodeXref(reloc, target, XrefKind.Pointer));
             }
+            // no relocations (PointersUnconfirmed): runs of at least two values that are function starts. A value merely
+            // inside code is too often a small integer or an offset where the image base is low. A Go function table lists
+            // every Go function: other starts found only through such values are not believed.
+            bool go = Go.GoFunctionTable.Of(image) != null;
+            var starts = new Dictionary<uint, uint>();
+            foreach (var (slot, value) in _ctx.UnrelocatedPointers())
+            {
+                uint target = _ctx.ArmModes != null ? value & ~1u : value;
+                if (_sources.TryGetValue(target, out var source) && (!go || (source & ~(FunctionSource.DataPointer | FunctionSource.CodeAddress)) != 0))
+                    starts[slot] = target;
+            }
+            uint size = (uint)_ctx.PointerSize;
+            foreach (var (slot, target) in starts)
+                if (starts.ContainsKey(slot - size) || starts.ContainsKey(slot + size)) pointers.Add(new CodeXref(slot, target, XrefKind.Pointer));
             total += pointers.Count;
             if (total > options.MaxXrefs)
             {

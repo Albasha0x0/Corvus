@@ -113,6 +113,8 @@ public sealed partial class NativeCodeTools
             for (int i = 0; i < refs.Count && i < refRows.Count; i++)
                 if (refs[i].Kind == XrefKind.SwitchCase && CaseText(index, refs[i].From, rva, graphs, ct) is { } values)
                     refRows[i] += "  " + values;
+                else if (refs[i].Kind == XrefKind.Pointer && index.PointersUnconfirmed)
+                    refRows[i] += "  " + UnconfirmedPointer;
             rows.AddRange(refRows);
         }
         if (dynamicRows != null) rows.AddRange(dynamicRows);
@@ -148,11 +150,13 @@ public sealed partial class NativeCodeTools
             : index.RefsFrom(rva, rva + 1).Concat(index.VirtualEdgesFrom(rva, rva + 1));
         var rows = refs.OrderBy(x => x.From).ThenBy(x => x.To)
             .Select(x => $"{NativeAddress.Va(index.Image, x.From)}  {x.Kind,-10} {Where(index, x.From)}  -> {NativeAddress.Va(index.Image, x.To)}" +
-                         (Target(index, x.To, ct) is { } t ? $" ({t})" : ""))
+                         (Target(index, x.To, ct) is { } t ? $" ({t})" : "") + (x.Kind == XrefKind.Pointer && index.PointersUnconfirmed ? "  " + UnconfirmedPointer : ""))
             .ToList();
         var target = $"{NativeAddress.Va(index.Image, rva)}{(Target(index, rva, ct) is { } name ? $" ({name})" : "")}";
         return new XrefPart($"References from {target}{(fn != null ? $" (the whole function, {fn.Size} bytes)" : "")}:\n", rows, target, null);
     }
+
+    private const string UnconfirmedPointer = "unconfirmed: no relocations, accepted by address range";
 
     private static string Where(NativeCodeIndex index, uint from) => index.FunctionAt(from) is { } f ? $"{f.Name}+0x{from - f.Start:X}" : "(no function)";
 

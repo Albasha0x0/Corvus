@@ -153,7 +153,7 @@ internal sealed class CodeContext
     /// <summary>
     /// An image without relocations (fixed-address executables): aligned pointer-sized values in its data sections that
     /// point into code and stand in runs of at least two (function tables, operation structures); ARM32 targets keep their
-    /// Thumb bit. Empty when the image has relocations: those name its pointers exactly.
+    /// Thumb bit. Import slots and Go offset tables are skipped. Empty when the image has relocations: those name its pointers exactly.
     /// </summary>
     public (uint Slot, uint Target)[] UnrelocatedPointers()
     {
@@ -163,9 +163,12 @@ internal sealed class CodeContext
         {
             int size = PointerSize;
             var buffer = new byte[1 << 16];
+            // offset tables whose values can fall in code when the image base is low: Go's function table and type links
+            var go = Go.GoFunctionTable.Of(Image);
+            bool Skipped(uint slot) => ImportSlots.ContainsKey(slot) || (go != null && slot - go.Rva < go.Size);
             foreach (var s in Image.Sections)
             {
-                if (s.IsExecutable || s.Rva == 0 || s.Rva >= Image.SizeOfImage) continue;
+                if (s.IsExecutable || s.Rva == 0 || s.Rva >= Image.SizeOfImage || s.Name.EndsWith("typelink", StringComparison.Ordinal)) continue;
                 long length = Image.FileBackedLength(s.Rva, Math.Min(s.MappedSize, Image.SizeOfImage - s.Rva));
                 uint start = (s.Rva + (uint)size - 1) & ~((uint)size - 1);
                 uint previous = 0, previousTarget = 0;
@@ -178,8 +181,8 @@ internal sealed class CodeContext
                         ulong va = size == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(buffer.AsSpan(p)) : BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(p));
                         if (va < Image.ImageBase || va - Image.ImageBase >= Image.SizeOfImage) continue;
                         uint target = (uint)(va - Image.ImageBase);
-                        if (!Code.IsCode(target)) continue;
                         uint slot = at + (uint)p;
+                        if (!Code.IsCode(target) || Skipped(slot)) continue;
                         if (previous != 0 && slot - previous == size)
                         {
                             if (!previousAdded) result.Add((previous, previousTarget));

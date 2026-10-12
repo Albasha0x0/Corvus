@@ -76,4 +76,59 @@ public sealed class GoRealTests(ITestOutputHelper output)
             Assert.StartsWith("go1.", build.GoVersion);
         }
     }
+
+    /// <summary>The image with its relocations hidden.</summary>
+    private sealed class Unrelocated(INativeImage inner) : INativeImage
+    {
+        public ImageFormat Format => inner.Format;
+        public string Path => inner.Path;
+        public string Sha256 => inner.Sha256;
+        public NativeArch Arch => inner.Arch;
+        public bool Is64Bit => inner.Is64Bit;
+        public bool IsDll => inner.IsDll;
+        public ulong ImageBase => inner.ImageBase;
+        public uint EntryPointRva => inner.EntryPointRva;
+        public uint SizeOfImage => inner.SizeOfImage;
+        public IReadOnlyList<NativeSection> Sections => inner.Sections;
+        public IReadOnlyList<NativeImport> Imports => inner.Imports;
+        public IReadOnlyList<NativeExport> Exports => inner.Exports;
+        public IReadOnlyList<RuntimeFunction> RuntimeFunctions => inner.RuntimeFunctions;
+        public IReadOnlyList<uint> RelocationRvas => [];
+        public IReadOnlyList<uint> TlsCallbackRvas => inner.TlsCallbackRvas;
+        public IReadOnlyList<ParseIssue> Issues => inner.Issues;
+        public IReadOnlyList<ImageSymbol> Symbols => inner.Symbols;
+        public IReadOnlyList<DeclaredFunction> DeclaredFunctions => inner.DeclaredFunctions;
+        public int Read(uint rva, Span<byte> destination) => inner.Read(rva, destination);
+        public bool TryRvaToFileOffset(uint rva, out long fileOffset) => inner.TryRvaToFileOffset(rva, out fileOffset);
+        public bool TryFileOffsetToRva(long fileOffset, out uint rva) => inner.TryFileOffsetToRva(fileOffset, out rva);
+        public NativeSection? SectionAt(uint rva) => inner.SectionAt(rva);
+    }
+
+    private static List<CodeXref> Pointers(NativeCodeIndex index) =>
+        [.. index.Functions.SelectMany(f => index.RefsTo(f.Start)).Where(x => x.Kind == XrefKind.Pointer)];
+
+    [RequiresRealDataFact(Variable)]
+    public void Pointer_references_without_relocations_are_the_relocated_slots()
+    {
+        foreach (var (name, image) in Samples())
+        {
+            if (image.RelocationRvas.Count == 0)
+            {
+                var index = NativeCodeIndex.Build(image);
+                output.WriteLine($"{name}: no relocations; {Pointers(index).Count} unconfirmed pointer references");
+                continue;
+            }
+            // with the relocations hidden, every pointer reference found must be a relocated slot
+            var ctx = new CodeContext(image, new ImageCode(image), new CodeIndexOptions());
+            var relocated = ctx.Relocations.Where(r => image.SectionAt(r) is { IsExecutable: false } && ctx.TryReadPointer(r, out uint t) && ctx.Code.IsCode(t)).ToHashSet();
+            var found = Pointers(NativeCodeIndex.Build(new Unrelocated(image)));
+            int hit = found.Count(x => relocated.Contains(x.From));
+            // the Go linker leaves itab slots of dead methods unrebased: real pointers to runtime.unreachableMethod
+            var unreachable = GoFunctionTable.Of(image)!.Functions.Where(f => f.Name == "runtime.unreachableMethod").Select(f => f.Rva).ToHashSet();
+            int dead = found.Count(x => !relocated.Contains(x.From) && unreachable.Contains(x.To));
+            output.WriteLine($"{name}: relocations hidden; {found.Count} unconfirmed pointer references, {hit} relocated, {dead} unrebased dead methods, " +
+                             $"{found.Count - hit - dead} false; with relocations {Pointers(NativeCodeIndex.Build(image)).Count}");
+            Assert.Equal(found.Count, hit + dead);
+        }
+    }
 }

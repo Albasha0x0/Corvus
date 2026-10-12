@@ -100,6 +100,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var notes = new List<string>();
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) notes.Add(index.SupportNote ?? "instructions are not decoded for this architecture");
         if (index.AbsoluteRefsUnconfirmed) notes.Add("no relocations: absolute data references are accepted by address range alone");
+        if (index.PointersUnconfirmed) notes.Add("no relocations: data pointers are runs of values that are function starts, unconfirmed");
         notes.AddRange(index.Truncations);
         notes.AddRange(index.Issues);
         return notes.Count > 0 ? "Note: " + string.Join("; ", notes) + "\n" : "";

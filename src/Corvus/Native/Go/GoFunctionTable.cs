@@ -27,13 +27,16 @@ public sealed class GoFunctionTable
     public GoTableVersion Version { get; }
     /// <summary>RVA of the table header.</summary>
     public uint Rva { get; }
+    /// <summary>Bytes from <see cref="Rva"/> the table may span (its section, or the rest of the section it was found in).</summary>
+    public uint Size { get; }
     /// <summary>Sorted by RVA.</summary>
     public IReadOnlyList<GoFunction> Functions { get; }
 
-    private GoFunctionTable(GoTableVersion version, uint rva, List<GoFunction> functions)
+    private GoFunctionTable(GoTableVersion version, uint rva, uint size, List<GoFunction> functions)
     {
         Version = version;
         Rva = rva;
+        Size = size;
         Functions = functions;
     }
 
@@ -175,7 +178,7 @@ public sealed class GoFunctionTable
         }
         // a table is valid when nearly every entry is in code and most have names
         if (functions.Count == 0 || bad > count / 16 || functions.Count(f => f.Name != null) < functions.Count * 3 / 4) return null;
-        return new GoFunctionTable(version, rva, functions);
+        return new GoFunctionTable(version, rva, (uint)t.Length, functions);
     }
 
     /// <summary>
