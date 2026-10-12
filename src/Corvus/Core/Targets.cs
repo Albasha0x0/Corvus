@@ -59,7 +59,11 @@ public static class Targets
         if (string.IsNullOrWhiteSpace(value)) return;
         var text = value.Trim();
         if (workspace.Read(() => Find(workspace, text, TargetKind.Any)) != null) return;
-        if (Load(workspace, text) is { } notice) workspace.Notify(notice);
+        string? notice;
+        try { notice = Load(workspace, text); }
+        // a file no image loader reads (an .apk for export_project, a container): the tool decides what it accepts
+        catch (ToolError e) when (e.Code is ErrorCode.MalformedInput or ErrorCode.Unsupported) { return; }
+        if (notice != null) workspace.Notify(notice);
     }
 
     /// <summary>The pre-call step: every target parameter of the call is prepared (loaded or not_found) before the tool takes the lock.</summary>

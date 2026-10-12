@@ -107,6 +107,10 @@ public class TargetsTests
         Targets.PreResolve(ws, "list_types", Args(("images", new[] { managed })));
         Assert.Equal(2, ws.Read(() => ws.Assemblies.Count + ws.Natives.Count(n => n.ManagedView == null)));
         Assert.Throws<ToolError>(() => Targets.PreResolve(ws, "list_types", Args(("assembly", dir.File("gone/x.dll")))));
+        // a package path is left to the tool (export_project writes a Gradle project from an .apk)
+        var apk = dir.File("app.apk");
+        File.WriteAllBytes(apk, [0x50, 0x4B, 0x05, 0x06, .. new byte[18]]);
+        Targets.PreResolve(ws, "export_project", Args(("assembly", apk)));
         // images as a list in one string, ';' or ',' separated
         var second = dir.File("second.dll");
         File.WriteAllBytes(second, NativePeTests.KitchenSink(is64: false));
