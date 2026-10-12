@@ -50,6 +50,7 @@ public static class ServerHost
             .AddSingleton<FileWatchService>()
             .AddSingleton<UnpackService>()
             .AddSingleton<InspectionService>()
+            .AddSingleton<Services.Analysis.FolderCompare>()
             .AddSingleton<NativeEngineService>()
             .AddSingleton<Corvus.Native.Annotations.AnnotationStore>()
             .AddSingleton<NativeCodeService>()

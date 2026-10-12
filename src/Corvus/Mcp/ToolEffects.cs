@@ -109,6 +109,7 @@ public static class ToolEffects
 
         // Builds
         ["compare_assemblies"] = Changes(destructive: true, idempotent: true, longRunning: true), // tokenMapPath; overwrite=true replaces a file
+        ["compare_folders"] = Reads(longRunning: true),
         ["find_counterpart"] = Reads(longRunning: true),
 
         // .NET edits (in memory until save_assembly)

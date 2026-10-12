@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-157 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+158 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -15,7 +15,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
 | [native](#native) | yes | 34: native PE analysis, symbols and decompilation |
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
-| [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
+| [builds](#builds) | yes | 11: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 12: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | no | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
@@ -1673,6 +1673,25 @@ Where a type or member of the old build went in the new build: matched by name, 
 | `newAssembly` | string | yes |  | The new build (id, name or path). |
 | `diff` | boolean |  | `false` | Add a unified diff of the old and new decompiled C# of each matched pair (cut at 300 lines). |
 | `il` | boolean |  | `false` | Add a unified diff of the matched methods' normalized IL (docs/il-hash.md). |
+
+### compare_folders
+
+**Compare two folders or packages** (read-only, idempotent, long-running)
+
+Two folders, zip-family archives (by central-directory CRC) or files, per entry: modified, added, removed, moved, case-only renames, links (not followed), unreadable files; an incomplete side is never called unchanged. Changed binaries: MVID, version, machine, timestamp, next call; text: a diff.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `oldPath` | string | yes |  | Old folder, archive or file. |
+| `newPath` | string | yes |  | New folder, archive or file. |
+| `change` | string |  | `changed` | Entries listed. Values: changed, modified, added, removed, moved, renamed, unreadable, unchanged, all. |
+| `exclude` | string |  |  | Globs to skip, ;-separated. |
+| `caseSensitive` | boolean |  |  | Default false on Windows, macOS. |
+| `maxEntries` | integer |  | `200000` | Per side; past it, incomplete. |
+| `offset` | integer |  | `0` |  |
+| `limit` | integer |  | `100` |  |
+
+Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `truncated`, `entries`, `notes`, `seconds`.
 
 ### compare_native_images
 

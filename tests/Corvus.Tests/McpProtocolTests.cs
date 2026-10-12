@@ -188,6 +188,19 @@ public abstract class McpProtocolTests : IAsyncLifetime
         return path;
     }
 
+    /// <summary>Two small folders that differ in one text file (compare_folders).</summary>
+    internal static string FolderPair(TempDir dir, string side)
+    {
+        var path = dir.File("folders-" + side);
+        if (!Directory.Exists(path))
+        {
+            Directory.CreateDirectory(path);
+            File.WriteAllText(Path.Combine(path, "app.json"), side == "old" ? "{\"level\": 1}\n" : "{\"level\": 2}\n");
+            File.WriteAllText(Path.Combine(path, "same.txt"), "same\n");
+        }
+        return path;
+    }
+
     internal static Dictionary<string, (Dictionary<string, object?> Args, string Expect)> ToolCases(TempDir dir) => new()
     {
         ["load_assembly"] = (new() { ["path"] = Env.ConsumerPath }, "TestFixture.Consumer"),
@@ -259,6 +272,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["revert_edits"] = (new() { ["assembly"] = "TestFixture" }, "4 edit(s) discarded"),
         ["apply_edits"] = (new() { ["path"] = dir.File("edits.json") }, "5 applied"),
         ["compare_assemblies"] = (new() { ["oldAssembly"] = "TestFixture", ["newAssembly"] = "TestFixture.Consumer" }, "Comparing TestFixture"),
+        ["compare_folders"] = (new() { ["oldPath"] = FolderPair(dir, "old"), ["newPath"] = FolderPair(dir, "new") }, "\"modified\":1"),
         ["find_counterpart"] = (new() { ["symbol"] = "Shop", ["oldAssembly"] = "TestFixture", ["newAssembly"] = "TestFixture.Consumer" }, "not found"),
         ["get_call_tree"] = (new() { ["method"] = "Secret::Validate", ["direction"] = "callers" }, "Account::CheckLicense"),
         ["find_call_paths"] = (new() { ["to"] = "Account::Charge(int)", ["from"] = "Consumer.Branch::Bill" }, "1 path"),

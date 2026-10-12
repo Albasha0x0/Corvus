@@ -10,3 +10,4 @@ the Il2Cpp method mapping in one call, with a reason code for everything that di
 compare_native_images, diff_function (what changed in one function: aligned instructions, or pseudocode with view=pseudocode),
 map_address_between_builds, migrate_native_names, migrate_native_patches, make_code_pattern
 (anchor=xrefs: a signature at every referencing instruction) / search_code_pattern.
+Whole folders or packages first: compare_folders (changed, added, removed and moved files, versions and MVIDs, a next call per file).
