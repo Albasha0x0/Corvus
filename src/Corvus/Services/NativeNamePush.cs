@@ -14,7 +14,7 @@ namespace Corvus.Services;
 /// engine session before engine output is shown, so decompile_native uses the same names as the built-in tools.
 /// Batched (<see cref="BatchSize"/> per request); the last batch records a stamp (SHA-256 of the pushed set) in the
 /// database and saves it, so a later session on the same database skips the push when nothing changed. Within a
-/// session only the differences since the last push are sent, including removals.
+/// session only the differences since the last push are sent, including removals; they are journaled, not saved at once.
 /// </summary>
 public sealed class NativeNamePush(NativeCodeService code)
 {
@@ -76,18 +76,72 @@ public sealed class NativeNamePush(NativeCodeService code)
     /// <summary>SHA-256 of a set of entries in RVA order.</summary>
     public static string StampOf(Dictionary<uint, Entry> entries)
     {
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        Span<byte> rva = stackalloc byte[5];
-        foreach (var (key, e) in entries.OrderBy(kv => kv.Key))
+        // per entry: rva (4 bytes) and function flag, then name \0 comment \0 [K kind \0] [P pseudo \0]; encoded into one buffer
+        // (this runs on every edit, over every name of a large image)
+        var w = new StampWriter();
+        var keys = entries.Keys.ToArray();
+        Array.Sort(keys);
+        foreach (var key in keys)
         {
-            BitConverter.TryWriteBytes(rva, key);
-            rva[4] = e.Function ? (byte)1 : (byte)0;
-            hash.AppendData(rva);
-            hash.AppendData(Encoding.UTF8.GetBytes((e.Name ?? "") + "\0" + (e.Comment ?? "") + "\0"));
-            if (e.CommentKind != null) hash.AppendData(Encoding.UTF8.GetBytes("K" + e.CommentKind + "\0"));
-            if (e.Pseudo != null) hash.AppendData(Encoding.UTF8.GetBytes("P" + e.Pseudo + "\0")); // absent: stamps of earlier builds hold
+            var e = entries[key];
+            var head = w.Reserve(5);
+            BitConverter.TryWriteBytes(head, key);
+            head[4] = e.Function ? (byte)1 : (byte)0;
+            w.Text(e.Name).Byte(0).Text(e.Comment).Byte(0);
+            if (e.CommentKind != null) w.Byte((byte)'K').Text(e.CommentKind).Byte(0);
+            if (e.Pseudo != null) w.Byte((byte)'P').Text(e.Pseudo).Byte(0); // absent: stamps of earlier builds hold
         }
-        return Convert.ToHexString(hash.GetHashAndReset());
+        return w.Finish();
+    }
+
+    private sealed class StampWriter
+    {
+        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private readonly byte[] _buffer = new byte[1 << 16];
+        private int _used;
+
+        public Span<byte> Reserve(int bytes)
+        {
+            if (_used + bytes > _buffer.Length) Flush();
+            var span = _buffer.AsSpan(_used, bytes);
+            _used += bytes;
+            return span;
+        }
+
+        public StampWriter Byte(byte b)
+        {
+            Reserve(1)[0] = b;
+            return this;
+        }
+
+        public StampWriter Text(string? text)
+        {
+            if (string.IsNullOrEmpty(text)) return this;
+            int max = Encoding.UTF8.GetMaxByteCount(text.Length);
+            if (max > _buffer.Length)
+            {
+                Flush();
+                _hash.AppendData(Encoding.UTF8.GetBytes(text));
+                return this;
+            }
+            if (_used + max > _buffer.Length) Flush();
+            _used += Encoding.UTF8.GetBytes(text, _buffer.AsSpan(_used));
+            return this;
+        }
+
+        private void Flush()
+        {
+            _hash.AppendData(_buffer, 0, _used);
+            _used = 0;
+        }
+
+        public string Finish()
+        {
+            Flush();
+            var result = Convert.ToHexString(_hash.GetHashAndReset());
+            _hash.Dispose();
+            return result;
+        }
     }
 
     /// <summary>
@@ -166,11 +220,13 @@ public sealed class NativeNamePush(NativeCodeService code)
 
             int named = 0, failed = 0, commented = 0, created = 0;
             var failures = new List<string>();
+            // a whole set is saved with its stamp; differences are journaled (saving a large database takes longer than the edit)
+            bool full = state.Pushed == null;
             for (int i = 0; i < Math.Max(1, items.Count); i += BatchSize)
             {
                 bool last = i + BatchSize >= items.Count;
                 var batch = items.GetRange(i, Math.Max(0, Math.Min(BatchSize, items.Count - i)));
-                var r = await session.ApplyNamesAsync(batch, last ? StampKey : null, last ? stamp : null, save: last, ct).ConfigureAwait(false);
+                var r = await session.ApplyNamesAsync(batch, last ? StampKey : null, last ? stamp : null, save: last && full, ct).ConfigureAwait(false);
                 named += r.Named;
                 failed += r.NameFailures;
                 commented += r.Commented;

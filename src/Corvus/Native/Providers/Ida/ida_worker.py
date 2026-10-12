@@ -542,10 +542,29 @@ def op_xrefs_from(args):
     return out
 
 
-def changed(m):
-    # Hex-Rays caches pseudocode per function; names and comments must show in the next decompilation.
-    if hexrays_ready(m):
-        m.ida_hexrays.clear_cached_cfuncs()
+DIRTY_LIMIT = 512  # more changed addresses than this clear every cached function
+
+
+def changed(m, eas=None):
+    # Hex-Rays caches pseudocode per function; names and comments must show in the next decompilation. With eas, only the
+    # functions holding or referencing them are decompiled again.
+    if not hexrays_ready(m):
+        return
+    hr = m.ida_hexrays
+    if eas is None or len(eas) > DIRTY_LIMIT:
+        hr.clear_cached_cfuncs()
+        return
+    dirty = set()
+    for ea in eas:
+        for at in [ea] + [x.frm for x in m.idautils.XrefsTo(ea, 0)]:
+            f = m.ida_funcs.get_func(at)
+            if f is not None:
+                dirty.add(f.start_ea)
+        if len(dirty) > DIRTY_LIMIT:
+            hr.clear_cached_cfuncs()
+            return
+    for f in dirty:
+        hr.mark_cfunc_dirty(f, False)
 
 
 def op_set_name(args):
@@ -558,7 +577,7 @@ def op_set_name(args):
             raise WorkerError("conflict", "the name %s is already used at rva 0x%X" % (name, rva_of(other) or 0))
     if not m.ida_name.set_name(ea, name, m.ida_name.SN_NOWARN):
         raise WorkerError("invalid_argument", "IDA rejected the name %r at rva 0x%X" % (name, args["rva"]))
-    changed(m)
+    changed(m, [ea])
     return {"name": m.ida_name.get_name(ea) or ""}
 
 
@@ -568,7 +587,7 @@ def op_set_comment(args):
     repeatable = bool(args.get("repeatable"))
     if not m.ida_bytes.set_cmt(ea, args.get("text") or "", repeatable):
         raise WorkerError("invalid_argument", "IDA rejected the comment at rva 0x%X" % args["rva"])
-    changed(m)
+    changed(m, [ea])
     return {"comment": m.ida_bytes.get_cmt(ea, repeatable) or ""}
 
 
@@ -1493,10 +1512,12 @@ def op_apply_names(args):
     flags = m.ida_name.SN_NOWARN | m.ida_name.SN_NOCHECK | m.ida_name.SN_FORCE
     named = name_failures = commented = created = 0
     failures = []
+    touched = []
     for item in args.get("items") or []:
         rva, name, comment, make_function = item[0], item[1], item[2], item[3]
         kind = item[4] if len(item) > 4 else None
         ea = _state["base"] + rva
+        touched.append(ea)
         f = m.ida_funcs.get_func(ea)
         if make_function and f is None:
             if m.ida_funcs.add_func(ea, badaddr):
@@ -1518,7 +1539,7 @@ def op_apply_names(args):
                 ok = m.ida_bytes.set_cmt(ea, comment, True)
             if ok:
                 commented += 1
-    changed(m)
+    changed(m, None if created else touched)
     key = args.get("stamp_key")
     if key:
         n = stamp_node(True)

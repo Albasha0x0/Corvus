@@ -96,6 +96,22 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task A_rename_shows_in_the_callers_pseudocode_decompiled_before()
+    {
+        await using var s = await Isolated().OpenAsync(System64, null, Offline);
+        var functions = await s.ListFunctionsAsync();
+        var starts = functions.Select(f => f.StartRva).ToHashSet();
+        // a function with a caller that is itself a function
+        var (callee, caller) = functions.Select(f => (f.StartRva, Caller: s.GetXrefsToAsync(f.StartRva).GetAwaiter().GetResult()
+                .FirstOrDefault(x => x.Kind == NativeXrefKind.Call && x.FromFunctionRva is { } c && starts.Contains(c))?.FromFunctionRva))
+            .First(p => p.Caller != null);
+        Assert.DoesNotContain("renamed_for_callers", (await s.DecompileAsync(caller!.Value)).Text);
+        await s.ApplyNamesAsync([new NativeNameItem(callee, "renamed_for_callers", null)]);
+        Assert.Contains("renamed_for_callers", (await s.DecompileAsync(caller.Value)).Text);
+        Assert.Contains("renamed_for_callers", (await s.DecompileAsync(callee)).Text);
+    }
+
+    [IdaFact]
     public async Task A_deep_cache_folder_opens_and_a_too_deep_one_names_the_path_length()
     {
         var dir = new TempDir();

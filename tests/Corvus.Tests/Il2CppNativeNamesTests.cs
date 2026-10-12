@@ -244,6 +244,7 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         var second = await push.EnsureAsync(native, session, default);
         Assert.Equal(1, second!.Sent);
         Assert.Equal(new NativeNameItem(0x1100, "MySecond", null, false), Assert.Single(session.Items));
+        Assert.Equal([true, false], session.Saves); // the whole set is saved; a difference is journaled
 
         session.Items.Clear();
         _names.Clear(native, index);
@@ -275,12 +276,14 @@ public sealed class Il2CppNativeNamesTests : IDisposable
     private sealed class RecordingSession : INativeDecompilerSession
     {
         public List<NativeNameItem> Items { get; } = [];
+        public List<bool> Saves { get; } = [];
         public string? Stamp { get; set; }
 
         public Task<NameBatchResult> ApplyNamesAsync(IReadOnlyList<NativeNameItem> items, string? stampKey = null, string? stamp = null, bool save = false,
             CancellationToken cancellationToken = default)
         {
             Items.AddRange(items);
+            Saves.Add(save);
             if (stampKey != null) Stamp = stamp;
             return Task.FromResult(new NameBatchResult(items.Count(i => i.Name != null), 0, items.Count(i => i.Comment != null), 0, TimeSpan.Zero, []));
         }

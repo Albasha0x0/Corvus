@@ -440,6 +440,35 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Name_stamps_match_the_stamps_saved_in_existing_databases()
+    {
+        // the stamp format is stored in engine databases: a different value would push every name again
+        static string Reference(Dictionary<uint, NativeNamePush.Entry> entries)
+        {
+            using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+            var rva = new byte[5];
+            foreach (var (key, e) in entries.OrderBy(kv => kv.Key))
+            {
+                BitConverter.TryWriteBytes(rva, key);
+                rva[4] = e.Function ? (byte)1 : (byte)0;
+                hash.AppendData(rva);
+                hash.AppendData(System.Text.Encoding.UTF8.GetBytes((e.Name ?? "") + "\0" + (e.Comment ?? "") + "\0"));
+                if (e.CommentKind != null) hash.AppendData(System.Text.Encoding.UTF8.GetBytes("K" + e.CommentKind + "\0"));
+                if (e.Pseudo != null) hash.AppendData(System.Text.Encoding.UTF8.GetBytes("P" + e.Pseudo + "\0"));
+            }
+            return Convert.ToHexString(hash.GetHashAndReset());
+        }
+        var random = new Random(7);
+        var entries = new Dictionary<uint, NativeNamePush.Entry>();
+        for (int i = 0; i < 20_000; i++)
+            entries[(uint)random.Next()] = new NativeNamePush.Entry(i % 3 == 0 ? null : $"name_{i}_é", i % 5 == 0 ? $"comment {i}\nline" : null, i % 2 == 0,
+                i % 7 == 0 ? "pseudo ✓" : null, i % 11 == 0 ? "eol" : null);
+        entries[1] = new NativeNamePush.Entry(new string('x', 70_000), null, false); // longer than the encoding buffer
+        Assert.Equal(Reference(entries), NativeNamePush.StampOf(entries));
+        Assert.Equal(Reference([]), NativeNamePush.StampOf([]));
+    }
+
+    [Fact]
     public async Task CommentNative_Kinds_AreKept_PushedWithTheOldKindRemoved_AndExported()
     {
         using var h = new Harness();
