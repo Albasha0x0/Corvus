@@ -261,6 +261,48 @@ public class ToolOutputTests
         Assert.Equal(["items", "offset", "total"], root["required"]!.AsArray().Select(n => (string)n!));
     }
 
+    /// <summary>Rows under another name (dump_stack's frames) get the list envelope and the text shows the same rows.</summary>
+    [Fact]
+    public async Task NamedRowArraysAreLists()
+    {
+        using var services = Services();
+        var frames = Enumerable.Range(0, 3_000).Select(i => new { index = i, address = $"0x{i:X8}", function = $"module!Function{i}+0x10" }).ToArray();
+        var record = JsonSerializer.SerializeToElement(new { dump = "d.dmp", total = 3_000, offset = 0, truncated = false, frames, notes = new[] { "n" } }, Catalog.ToolSerializerOptions);
+        var r = await Call(services, "dump_stack", _ => new CallToolResult { Content = [new TextContentBlock { Text = record.GetRawText() }], StructuredContent = record });
+        var json = Record(r);
+        int rows = json.GetProperty("frames").GetArrayLength();
+        Assert.InRange(rows, 10, 2_999);
+        Assert.False(json.TryGetProperty("truncated", out _));
+        Assert.Equal(rows, json.GetProperty("nextOffset").GetInt32());
+        Assert.Contains($"(showing 1-{rows})", Text(r));
+    }
+
+    /// <summary>A list without a row offset (get_call_tree) drops truncated and continues through a kept result.</summary>
+    [Fact]
+    public async Task ListsWithoutARowOffsetContinueThroughAResultId()
+    {
+        using var services = Services();
+        var record = new { root = "A::B", items = Enumerable.Range(0, 5).Select(i => new { label = $"n{i}" }).ToArray(), total = 9, truncated = true };
+        var r = await Call(services, "get_call_tree", _ => new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.With("A::B\n  n0\n", record) }] });
+        var json = Record(r);
+        Assert.False(json.TryGetProperty("truncated", out _));
+        Assert.True(json.GetProperty("hasMore").GetBoolean());
+        Assert.False(json.TryGetProperty("nextOffset", out _));
+        var id = json.GetProperty("resultId").GetString()!;
+        Assert.Contains($"read_result id={id}", Text(r));
+        Assert.Null(ContractSweep.Incomplete("get_call_tree", Text(r), json));
+    }
+
+    /// <summary>Every list-shaped output schema has its rows where the filter looks for them.</summary>
+    [Fact]
+    public void EveryPagedSchemaNamesItsRows()
+    {
+        var missing = Catalog.OfThisBuild(Corvus.Core.Toolsets.All).Tools
+            .Where(t => t["outputSchema"]?["properties"] is JsonObject props && props["offset"] is not null && props["total"] is not null && !ToolOutput.IsListSchema(props, (string)t["name"]!))
+            .Select(t => $"{t["name"]}: [{string.Join(", ", t["outputSchema"]!["properties"]!.AsObject().Select(p => p.Key))}]").ToList();
+        Assert.True(missing.Count == 0, "offset and total without items (add their rows to ToolOutput.RowArrays):\n" + string.Join("\n", missing));
+    }
+
     [Fact]
     public void RendererAlignsRowsAndEscapesMarkers()
     {

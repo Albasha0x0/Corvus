@@ -65,9 +65,6 @@
     "total": {
       "type": "integer"
     },
-    "truncated": {
-      "type": "boolean"
-    },
     "pairs": {
       "type": "array",
       "items": {
@@ -239,6 +236,18 @@
         "type": "string"
       }
     },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {
@@ -273,7 +282,6 @@
     "view",
     "offset",
     "total",
-    "truncated",
     "pairs",
     "unmatched",
     "ambiguousFunctions",

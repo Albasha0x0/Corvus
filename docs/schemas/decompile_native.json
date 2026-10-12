@@ -103,17 +103,14 @@
       "description": "The call that decompiles the skipped items, when there are any.",
       "type": "string"
     },
-    "code": {
-      "type": "string"
-    },
-    "offset": {
+    "limit": {
       "type": "integer"
     },
-    "nextOffset": {
-      "type": "integer"
+    "totalExact": {
+      "type": "boolean"
     },
-    "totalChars": {
-      "type": "integer"
+    "hasMore": {
+      "type": "boolean"
     },
     "notices": {
       "type": "array",

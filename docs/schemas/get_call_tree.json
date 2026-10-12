@@ -47,8 +47,13 @@
     "total": {
       "type": "integer"
     },
-    "truncated": {
-      "description": "maxNodes stopped the walk, or items were cut to fit the response.",
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
       "type": "boolean"
     },
     "notices": {
@@ -75,7 +80,6 @@
     "direction",
     "depth",
     "items",
-    "total",
-    "truncated"
+    "total"
   ]
 }

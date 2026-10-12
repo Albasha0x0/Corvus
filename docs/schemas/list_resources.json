@@ -36,7 +36,13 @@
     "total": {
       "type": "integer"
     },
-    "truncated": {
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
       "type": "boolean"
     },
     "notices": {
@@ -61,7 +67,6 @@
   "required": [
     "assembly",
     "items",
-    "total",
-    "truncated"
+    "total"
   ]
 }

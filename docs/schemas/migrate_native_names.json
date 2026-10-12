@@ -43,9 +43,6 @@
     "total": {
       "type": "integer"
     },
-    "truncated": {
-      "type": "boolean"
-    },
     "entries": {
       "type": "array",
       "items": {
@@ -104,6 +101,18 @@
         "type": "string"
       }
     },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {
@@ -133,7 +142,6 @@
     "skippedBy",
     "offset",
     "total",
-    "truncated",
     "entries",
     "notes"
   ]

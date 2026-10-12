@@ -24,9 +24,6 @@
     "total": {
       "type": "integer"
     },
-    "truncated": {
-      "type": "boolean"
-    },
     "matches": {
       "type": "array",
       "items": {
@@ -177,6 +174,18 @@
         "type": "string"
       }
     },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {
@@ -202,7 +211,6 @@
     "compared",
     "offset",
     "total",
-    "truncated",
     "matches",
     "groups",
     "notes"

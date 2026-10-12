@@ -28,9 +28,6 @@
     "offset": {
       "type": "integer"
     },
-    "truncated": {
-      "type": "boolean"
-    },
     "matchedBytes": {
       "description": "Size of every matching object walked.",
       "type": "integer"
@@ -97,6 +94,18 @@
         "type": "string"
       }
     },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {
@@ -124,7 +133,6 @@
     "walkStopped",
     "total",
     "offset",
-    "truncated",
     "matchedBytes",
     "types",
     "objects",

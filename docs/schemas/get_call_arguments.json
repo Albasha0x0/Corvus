@@ -123,6 +123,18 @@
         "type": "string"
       }
     },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {

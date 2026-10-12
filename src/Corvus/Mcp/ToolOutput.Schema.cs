@@ -16,12 +16,30 @@ public static partial class ToolOutput
         foreach (var tool in tools)
             if (tool.ProtocolTool.OutputSchema is { } schema && JsonNode.Parse(schema.GetRawText()) is JsonObject root)
             {
-                Envelope(root, ToolContract.Of(tool.ProtocolTool.Name).Output);
+                Envelope(root, ToolContract.Of(tool.ProtocolTool.Name).Output, tool.ProtocolTool.Name);
                 tool.ProtocolTool.OutputSchema = JsonSerializer.SerializeToElement(root);
             }
     }
 
-    internal static void Envelope(JsonObject root, OutputClass output)
+    /// <summary>
+    /// List records whose rows are not yet named items (families rename them); the first non-empty array holds the page.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string[]> RowArrays = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["find_similar_functions"] = ["matches", "groups"],
+        ["compare_native_images"] = ["pairs", "unmatched", "ambiguousFunctions"],
+        ["dump_heap"] = ["types", "objects"],
+        ["dump_stack"] = ["frames"],
+        ["symbolize_stack_text"] = ["frames"],
+        ["get_call_arguments"] = ["calls"],
+        ["bucket_minidumps"] = ["buckets"],
+        ["get_android_device_info"] = ["properties"],
+        ["migrate_native_patches"] = ["entries"],
+        ["migrate_native_names"] = ["entries"],
+        ["compare_folders"] = ["entries"],
+    };
+
+    internal static void Envelope(JsonObject root, OutputClass output, string? tool = null)
     {
         OptionalNullables(root);
         if (root["properties"] is not JsonObject properties) return;
@@ -36,13 +54,13 @@ public static partial class ToolOutput
             if (!properties.ContainsKey(name)) properties[name] = schema;
         }
         foreach (var f in TimingFields) Remove(f);
-        if (IsListSchema(properties))
+        if (IsListSchema(properties, tool))
         {
             Remove("truncated");
             Add("limit", Type("integer"));
             Add("totalExact", Type("boolean"));
             Add("hasMore", Type("boolean"));
-            Add("nextOffset", Type("integer"));
+            if (properties["offset"] is JsonObject o && Is(o, "integer")) Add("nextOffset", Type("integer"));
         }
         else if (output is OutputClass.Code or OutputClass.Bytes)
         {
@@ -57,9 +75,10 @@ public static partial class ToolOutput
         Add("resultId", Type("string"));
     }
 
-    private static bool IsListSchema(JsonObject properties) =>
-        properties["items"] is JsonObject items && Is(items, "array") && properties["offset"] is JsonObject o && Is(o, "integer")
-        && properties["total"] is JsonObject t && Is(t, "integer");
+    /// <summary>A total beside "items" or the tool's row arrays (as <see cref="RowsKey"/> reads records).</summary>
+    internal static bool IsListSchema(JsonObject properties, string? tool) =>
+        properties["total"] is JsonObject t && Is(t, "integer")
+        && (tool != null && RowArrays.TryGetValue(tool, out var named) ? named : ["items"]).Any(k => properties[k] is JsonObject a && Is(a, "array"));
 
     private static bool Is(JsonObject schema, string type) => schema["type"] switch
     {

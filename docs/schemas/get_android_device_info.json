@@ -81,8 +81,17 @@
     "total": {
       "type": "integer"
     },
-    "truncated": {
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
       "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -108,7 +117,6 @@
     "summary",
     "properties",
     "offset",
-    "total",
-    "truncated"
+    "total"
   ]
 }

@@ -37,9 +37,9 @@ public static partial class ToolOutput
         }
         if (bare) text = "";
 
-        if (record != null && IsList(record))
+        if (record != null && RowsKey(record, tool) is { } rowsKey)
         {
-            if (FitList(call, record, ref text, bare, canRetry) is { } retry) return new Finished(result, retry);
+            if (FitList(call, record, rowsKey, ref text, bare, canRetry, store, origin) is { } retry) return new Finished(result, retry);
         }
         else if (call.TextPage is { } page && record != null)
             PageRecord(call, record, page, ref text, call.RecordHasBody || ToolContract.Of(tool).Output is OutputClass.Code or OutputClass.Bytes);
@@ -92,19 +92,33 @@ public static partial class ToolOutput
         text = text.Replace(page.Rendered, rendered);
     }
 
-    /// <summary>A list record: an items array with its offset and total.</summary>
-    internal static bool IsList(JsonObject record) =>
-        record["items"] is JsonArray && record["offset"] is JsonValue o && o.TryGetValue<int>(out _) && record["total"] is JsonValue t && t.TryGetValue<int>(out _);
-
-    /// <summary>Fits a list's rows to both parts; null when done, else the smaller limit to call again with.</summary>
-    private static int? FitList(OutputCall call, JsonObject record, ref string text, bool bare, bool canRetry)
+    /// <summary>
+    /// The rows array of a list record: "items" (or the tool's row arrays in <see cref="RowArrays"/>, the first non-empty one)
+    /// beside a total; else null.
+    /// </summary>
+    internal static string? RowsKey(JsonObject record, string? tool)
     {
-        var items = (JsonArray)record["items"]!;
-        int offset = (int)record["offset"]!, total = (int)record["total"]!, count = items.Count;
+        if (record["total"] is not JsonValue t || !t.TryGetValue<long>(out _)) return null;
+        string[] keys = tool != null && RowArrays.TryGetValue(tool, out var named) ? named : ["items"];
+        var present = keys.Where(k => record[k] is JsonArray).ToList();
+        return present.FirstOrDefault(k => record[k]!.AsArray().Count > 0) ?? present.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Fits a list's rows to both parts; null when done, else the smaller limit to call again with. A list without a row
+    /// offset (its tool pages the text by characters, or not at all) continues through a kept result instead of nextOffset.
+    /// </summary>
+    private static int? FitList(OutputCall call, JsonObject record, string key, ref string text, bool bare, bool canRetry, ResultStore? store,
+        KeptOrigin? origin)
+    {
+        var items = (JsonArray)record[key]!;
+        bool rowOffset = record["offset"] is JsonValue ov && ov.TryGetValue<int>(out _);
+        int offset = rowOffset ? (int)record["offset"]! : 0, total = (int)Math.Min(int.MaxValue, (long)record["total"]!), count = items.Count;
         bool truncated = record.Remove("truncated", out var tr) && tr?.GetValueKind() == JsonValueKind.True;
         var itemJson = items.Select(i => i?.ToJsonString(Wire) ?? "null").ToList();
         var empty = (JsonObject)record.DeepClone();
-        ((JsonArray)empty["items"]!).Clear();
+        ((JsonArray)empty[key]!).Clear();
+        (string Text, string Record)? whole = rowOffset ? null : (text, record.ToJsonString(Json));
         int recordMax = Math.Max(1, Fitting(call, empty.ToJsonString(Wire), itemJson));
         int k;
         var rows = call.RowPage;
@@ -117,10 +131,12 @@ public static partial class ToolOutput
         }
         else if (bare)
         {
-            var whole = record;
-            k = FitCount(count, n => call.Fits(RecordText.Render(Take(whole, n), Envelope(offset, n, total, truncated, count))), recordMax);
-            text = RecordText.Render(Take(record, k), Envelope(offset, k, total, truncated, count));
+            var all = record;
+            k = FitCount(count, n => call.Fits(RecordText.Render(Take(all, key, n), key, Envelope(offset, n, total, truncated, count))), recordMax);
+            text = RecordText.Render(Take(record, key, k), key, Envelope(offset, k, total, truncated, count));
         }
+        // Without a row offset the tool's text keeps its own paging.
+        else if (!rowOffset) k = Math.Min(count, recordMax);
         else
         {
             bool textCut = call.TextPage is { Cut: true };
@@ -135,8 +151,8 @@ public static partial class ToolOutput
             else
             {
                 // The tool's text cannot be cut by rows: the text shows the record's rows instead.
-                k = FitCount(count, n => call.Fits(RecordText.Render(Take(record, n), Envelope(offset, n, total, truncated, count))), recordMax);
-                text = RecordText.Render(Take(record, k), Envelope(offset, k, total, truncated, count));
+                k = FitCount(count, n => call.Fits(RecordText.Render(Take(record, key, n), key, Envelope(offset, n, total, truncated, count))), recordMax);
+                text = RecordText.Render(Take(record, key, k), key, Envelope(offset, k, total, truncated, count));
             }
         }
         while (items.Count > k) items.RemoveAt(items.Count - 1);
@@ -145,9 +161,20 @@ public static partial class ToolOutput
         record["limit"] = call.Limit ?? rows?.Limit ?? Math.Max(count, 1);
         record["totalExact"] = exact;
         record["hasMore"] = more;
+        if (record["notEvaluated"] is JsonValue ne && ne.TryGetValue<int>(out var notEvaluated) && notEvaluated == 0) record.Remove("notEvaluated");
+        if (!rowOffset)
+        {
+            // No row offset to continue at: the whole result is kept and named.
+            if (more && store != null && whole is { } w)
+            {
+                var id = store.Keep(w.Text.Length > 0 ? w.Text : w.Record, origin ?? new KeptOrigin(call.Tool ?? "?"), w.Record);
+                record["resultId"] = id;
+                if (!text.Contains(id, StringComparison.Ordinal)) text = text.TrimEnd('\n') + $"\n[More: read_result id={id}]\n";
+            }
+            return null;
+        }
         if (more) record["nextOffset"] = offset + k;
         else record.Remove("nextOffset");
-        if (record["notEvaluated"] is JsonValue ne && ne.TryGetValue<int>(out var notEvaluated) && notEvaluated == 0) record.Remove("notEvaluated");
         if (more && !text.Contains($"offset={offset + k}", StringComparison.Ordinal)) text = text.TrimEnd('\n') + "\n" + OutputPager.More(offset + k) + "\n";
         return null;
     }
@@ -156,10 +183,10 @@ public static partial class ToolOutput
         (offset, shown, total, truncated, count);
 
     /// <summary>A copy of a list record with its first <paramref name="n"/> items.</summary>
-    private static JsonObject Take(JsonObject record, int n)
+    private static JsonObject Take(JsonObject record, string key, int n)
     {
         var copy = (JsonObject)record.DeepClone();
-        var items = (JsonArray)copy["items"]!;
+        var items = (JsonArray)copy[key]!;
         while (items.Count > n) items.RemoveAt(items.Count - 1);
         return copy;
     }

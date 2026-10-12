@@ -167,15 +167,21 @@
     "total": {
       "type": "integer"
     },
-    "truncated": {
-      "type": "boolean"
-    },
     "tokenMapFile": {
       "description": "The file tokenMapPath wrote.",
       "type": "string"
     },
     "tokenMapEntries": {
       "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
     },
     "notices": {
       "type": "array",
@@ -210,7 +216,6 @@
     "hiddenCompilerGenerated",
     "items",
     "total",
-    "truncated",
     "tokenMapEntries"
   ]
 }

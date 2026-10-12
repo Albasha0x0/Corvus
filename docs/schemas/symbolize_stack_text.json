@@ -51,9 +51,6 @@
     "offset": {
       "type": "integer"
     },
-    "truncated": {
-      "type": "boolean"
-    },
     "frames": {
       "type": "array",
       "items": {
@@ -175,6 +172,18 @@
         "type": "string"
       }
     },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {
@@ -198,7 +207,6 @@
     "format",
     "total",
     "offset",
-    "truncated",
     "frames",
     "unrecognizedLines",
     "unrecognizedSample",

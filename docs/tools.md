@@ -430,7 +430,7 @@ Multi-level callers or callees of a method across loaded assemblies; callers inc
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 
-Structured output: `root`, `direction`, `depth`, `items`, `total`, `truncated`.
+Structured output: `root`, `direction`, `depth`, `items`, `total`, `limit`, `totalExact`, `hasMore`.
 
 ### find_call_paths
 
@@ -447,7 +447,7 @@ How execution reaches a method: call chains from 'from' to 'to', or from entry p
 | `includeVirtual` | boolean |  | `true` | Follow virtual dispatch (native: RTTI virtual calls, resolved function pointers); false avoids chains through widely overridden methods. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 
-Structured output: `target`, `from`, `items`, `total`, `truncated`.
+Structured output: `target`, `from`, `items`, `total`, `limit`, `totalExact`, `hasMore`.
 
 ### list_resources
 
@@ -459,7 +459,7 @@ List manifest resources: embedded files, .resources containers (with entry count
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 
-Structured output: `assembly`, `items`, `total`, `truncated`.
+Structured output: `assembly`, `items`, `total`, `limit`, `totalExact`, `hasMore`.
 
 ### get_resource
 
@@ -1204,7 +1204,7 @@ Call sites of a native image (x86 / x64 / ARM) with their argument values, recov
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Max call sites (max 1000). |
 
-Structured output: `image`, `scope`, `total`, `offset`, `calls`, `notes`.
+Structured output: `image`, `scope`, `total`, `offset`, `calls`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### trace_native_values
 
@@ -1307,7 +1307,7 @@ Functions like a given one in a native image, ranked by score with evidence: ins
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `20` | Items to return (max 500). |
 
-Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `truncated`, `matches`, `groups`, `notes`.
+Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `matches`, `groups`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### get_exception_info
 
@@ -1382,7 +1382,7 @@ C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra.
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600; default CORVUS_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x. |
 | `callersOf` | string |  |  | Instead of address: decompile the functions calling this one (engine references). |
 
-Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`, `code`, `offset`, `nextOffset`, `totalChars`.
+Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`, `limit`, `totalExact`, `hasMore`.
 
 ### search_decompiled
 
@@ -1652,7 +1652,7 @@ Compare two builds of an assembly (load both; the second gets an id like Name#2)
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 
-Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `total`, `truncated`, `tokenMapFile`, `tokenMapEntries`.
+Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `total`, `tokenMapFile`, `tokenMapEntries`, `limit`, `totalExact`, `hasMore`.
 
 ### find_counterpart
 
@@ -1685,7 +1685,7 @@ Two folders, zip-family archives (by central-directory CRC) or files, per entry:
 | `offset` | integer |  | `0` |  |
 | `limit` | integer |  | `100` |  |
 
-Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `truncated`, `entries`, `notes`, `seconds`.
+Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `entries`, `notes`, `seconds`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### compare_native_images
 
@@ -1704,7 +1704,7 @@ Match the functions of two builds of one native image (x86 / x64 / ARM64). Tiers
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Items to return (max 2000). |
 
-Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `offset`, `total`, `truncated`, `pairs`, `unmatched`, `ambiguousFunctions`, `notes`.
+Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `offset`, `total`, `pairs`, `unmatched`, `ambiguousFunctions`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### diff_function
 
@@ -1794,7 +1794,7 @@ Copy names and comments from the old build to the new build's user annotations t
 | `offset` | integer |  | `0` | Entries to skip in the report. |
 | `limit` | integer |  | `200` | Entries to return (max 5000). |
 
-Structured output: `oldImage`, `newImage`, `dryRun`, `considered`, `set`, `skipped`, `skippedBy`, `offset`, `total`, `truncated`, `entries`, `notes`.
+Structured output: `oldImage`, `newImage`, `dryRun`, `considered`, `set`, `skipped`, `skippedBy`, `offset`, `total`, `entries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### migrate_native_patches
 
@@ -1812,7 +1812,7 @@ Carry byte patches from an old build to a new one through the build matcher (com
 | `offset` | integer |  | `0` | Entries to skip in the report. |
 | `limit` | integer |  | `200` | Entries to return (max 5000). |
 
-Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `patches`, `applied`, `wouldApply`, `refused`, `refusedBy`, `offset`, `total`, `truncated`, `entries`, `notes`.
+Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `patches`, `applied`, `wouldApply`, `refused`, `refusedBy`, `offset`, `total`, `entries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### update_to_new_build
 
@@ -2300,7 +2300,7 @@ A device's properties (getprop), paged and filterable, with a summary: SDK, rele
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Most properties to return. |
 
-Structured output: `serial`, `summary`, `properties`, `offset`, `total`, `truncated`.
+Structured output: `serial`, `summary`, `properties`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### list_android_packages
 
@@ -2441,7 +2441,7 @@ Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP c
 | `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; kept for later calls on the dump. The dump's folder is always searched. |
 | `managed` | string |  | `auto` | auto: .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only. Values: auto, off. |
 
-Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `truncated`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`.
+Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### dump_heap
 
@@ -2459,7 +2459,7 @@ The .NET GC heap of a minidump (through the DAC). stats: count and size per type
 | `limit` | integer |  | `50` | Max rows returned (up to 1000). |
 | `maxObjects` | integer |  | `5000000` | Max objects walked. |
 
-Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `walkStopped`, `total`, `offset`, `truncated`, `matchedBytes`, `types`, `objects`, `notes`.
+Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `walkStopped`, `total`, `offset`, `matchedBytes`, `types`, `objects`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### dump_object
 
@@ -2508,7 +2508,7 @@ Resolves crash text against the loaded build: Unity Player.log / error.log backt
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Max frames returned. |
 
-Structured output: `format`, `exception`, `total`, `offset`, `truncated`, `frames`, `unrecognizedLines`, `unrecognizedSample`, `modulesMissing`, `notes`.
+Structured output: `format`, `exception`, `total`, `offset`, `frames`, `unrecognizedLines`, `unrecognizedSample`, `modulesMissing`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### bucket_minidumps
 
@@ -2530,7 +2530,7 @@ Groups a folder of minidumps by signature: exception code | faulting module!func
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `50` | Max buckets returned. |
 
-Structured output: `folder`, `dumps`, `total`, `offset`, `truncated`, `buckets`, `failed`, `notes`.
+Structured output: `folder`, `dumps`, `total`, `offset`, `buckets`, `failed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ## live
 

@@ -17,12 +17,15 @@ internal static class RecordText
     /// <summary>Envelope fields that the list header and footer already say.</summary>
     private static readonly HashSet<string> Envelope = ["offset", "limit", "total", "totalExact", "hasMore", "nextOffset", "truncated"];
 
-    public static string Render(JsonObject record, (int Offset, int Shown, int Total, bool Truncated, int Count)? list)
+    public static string Render(JsonObject record, (int Offset, int Shown, int Total, bool Truncated, int Count)? list) => Render(record, "items", list);
+
+    /// <param name="rows">The list's rows array.</param>
+    public static string Render(JsonObject record, string rows, (int Offset, int Shown, int Total, bool Truncated, int Count)? list)
     {
         var sb = new StringBuilder();
         foreach (var (key, value) in record)
         {
-            if (value is null || list != null && (key == "items" || Envelope.Contains(key))) continue;
+            if (value is null || list != null && (key == rows || Envelope.Contains(key))) continue;
             Member(sb, key, value, 0);
         }
         if (list is { } l)
@@ -30,7 +33,7 @@ internal static class RecordText
             bool exact = !(l.Truncated && l.Offset + l.Count >= l.Total);
             sb.Append($"{(exact ? "" : "≥")}{l.Total} rows")
               .Append(l.Shown == 0 ? (l.Offset > 0 ? $" (none from offset {l.Offset})" : "") : $" (showing {l.Offset + 1}-{l.Offset + l.Shown})").Append(":\n");
-            if (record["items"] is JsonArray items) Table(sb, items, 1);
+            if (record[rows] is JsonArray items) Table(sb, items, 1);
             bool more = l.Offset + l.Shown < l.Total || !exact && l.Shown == l.Count && l.Shown > 0;
             sb.Append(more ? OutputPager.More(l.Offset + l.Shown) : OutputPager.End(l.Total, "row")).Append('\n');
         }

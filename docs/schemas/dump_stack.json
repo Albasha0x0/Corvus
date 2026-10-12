@@ -26,9 +26,6 @@
     "offset": {
       "type": "integer"
     },
-    "truncated": {
-      "type": "boolean"
-    },
     "frames": {
       "type": "array",
       "items": {
@@ -127,6 +124,18 @@
         "type": "string"
       }
     },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {
@@ -153,7 +162,6 @@
     "architecture",
     "total",
     "offset",
-    "truncated",
     "frames",
     "stop",
     "heuristicFrames",
