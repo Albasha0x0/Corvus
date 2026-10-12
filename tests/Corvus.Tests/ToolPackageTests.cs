@@ -74,10 +74,14 @@ public partial class ToolPackageTests
             ["DOTNET_NOLOGO"] = "1",
             ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
         };
+        // the CLI stages tool installs and restores in random folders of the temporary folder and leaves them: one of its own, deleted with dir
+        var temp = Directory.CreateDirectory(Path.Combine(dir.Path, "tmp")).FullName;
+        foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" }) env[name] = temp;
         var version = Property("Version");
 
         // Packed with the repository's sources and package cache; installed and run in isolation from the feed alone.
-        var pack = await RunAsync("dotnet", ["pack", Path.Combine(Root, "src", "Corvus", "Corvus.csproj"), "-c", "Release", "-o", feed, "--nologo"], Root, []);
+        var pack = await RunAsync("dotnet", ["pack", Path.Combine(Root, "src", "Corvus", "Corvus.csproj"), "-c", "Release", "-o", feed, "--nologo"], Root,
+            new() { ["TMP"] = temp, ["TEMP"] = temp, ["TMPDIR"] = temp });
         Assert.True(pack.Code == 0, pack.Output);
         var nupkg = Path.Combine(feed, $"{Installation.PackageId}.{version}.nupkg");
         using (var zip = System.IO.Compression.ZipFile.OpenRead(nupkg))
