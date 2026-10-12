@@ -11,7 +11,7 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService indexing, ServerOptions options, ResultStore results, OutputPager pager,
-    NativeEngineService? engines = null, NativeCodeService? code = null, NotesService? notes = null)
+    NativeEngineService? engines = null, NotesService? notes = null)
 {
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
 
@@ -56,7 +56,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [property: Description("On a mismatch, what differs as far as the digests tell (tool or prompt counts, or definitions); else null.")]
         string? CatalogDifference,
         int Tools, int LoadedAssemblies, string BackgroundIndexing,
-        int MaxOutputChars, int TimeoutSeconds, long WorkingSetMB, IReadOnlyList<Capability> Capabilities,
+        long WorkingSetMB, IReadOnlyList<Capability> Capabilities,
         [property: Description("Tools that can take over 10 s on large inputs.")]
         IReadOnlyList<string> LongRunningTools,
         [property: Description("Tool families and whether this server registers them; every family unless the server was started with --toolsets <list> (or CORVUS_TOOLSETS: all, core, or names such as core,dumps).")]
@@ -67,7 +67,9 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         NoteCounts? Notes,
         EngineLimits EngineTimeLimits,
         IReadOnlyList<EngineSession> EngineSessions,
-        CatalogFilter ToolsFileAndTrace);
+        CatalogFilter ToolsFileAndTrace,
+        [property: Description("budget (profile, ceiling, deadline, delivery, with sources), results (kept-result store), caches, calls (leftover calls, lock holders), workers (child PIDs, start times), run.")]
+        IReadOnlyList<StatusSection> Sections);
 
     private static readonly ConditionalWeakTable<McpServerOptions, string> Digests = new();
 
@@ -121,35 +123,6 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 EngineMode.Ghidra => "default ghidra: Ghidra's analysis, started or waited for by the call; engine=ours, ida or auto per call",
                 _ => "default auto: an engine's functions, references and blocks once its analysis of an image is complete in this session (IDA's before Ghidra's), else the built-in index",
             } + $"; --engine auto|ours|ida|ghidra (or {ServerOptions.EngineVariable}) sets the default, each of those tools takes engine", null));
-        if (code != null)
-            capabilities.Add(code.IndexCache?.Status() is { } c
-                ? new("saved native code indexes", true,
-                    $"on: {c.Root}, {c.Entries} entries, {c.Bytes / (1024.0 * 1024):0.#} of {c.MaxBytes >> 20} MB, unused entries kept {c.MaxAge.TotalDays:0} days; " +
-                    $"this session {c.Hits} loaded, {c.Misses} not found, {c.Rejected} unusable (rebuilt), {c.Writes} saved, {c.Evicted} evicted" +
-                    (c.LastError != null ? $"; last problem: {c.LastError}" : ""), null)
-                : new("saved native code indexes", false, "off: every image's code index is built when it is opened",
-                    "start the server without --index-cache off (and without CORVUS_CODE_INDEX_CACHE=off)"));
-        var leftovers = LeftoverWork.For(options);
-        capabilities.Add(new("cancelled or timed-out calls still running", leftovers.Running < leftovers.Max,
-            $"{leftovers.Running} still finishing in the background (at {leftovers.Max}, {LeftoverWork.MaxVariable}, new calls wait, then are refused as busy); {leftovers.Total} since start",
-            leftovers.Running < leftovers.Max ? null : "wait for them to finish, or restart the server"));
-        // This call holds no lock, so every holder is another call or background work.
-        var lockUsers = workspace.LockUsers();
-        capabilities.Add(new("workspace lock", !lockUsers.Any(u => u.Waiting),
-            lockUsers.Count == 0 ? "free" : string.Join("; ", lockUsers.Select(u => u.ToString())),
-            lockUsers.Any(u => u.Waiting) ? "the waiting calls start when the holders finish; cancel a long call from its client to free the lock sooner" : null));
-        if (engines?.CacheStatus() is { Entries: > 0 } db)
-            capabilities.Add(new("saved engine databases (IDA, Ghidra)", true,
-                $"{db.Root}: {db.Entries} entries, {db.Bytes / (1024.0 * 1024):0.#} of {db.MaxBytes >> 20} MB, unused entries kept {db.MaxAge.TotalDays:0} days " +
-                $"({Native.Providers.AnalysisCache.MaxMegabytesVariable}, _DAYS); this session {db.Evicted} evicted" + (db.LastError != null ? $"; last problem: {db.LastError}" : ""),
-                null));
-        if (code != null)
-        {
-            var s = code.ImportStats;
-            capabilities.Add(new("saved imported names (load_pdb, apply_il2cpp_names)", true,
-                $"on: {code.AnnotationRoot}; this session {s.LayersRestored} layer(s) restored on load ({s.NamesRestored} names), {s.LayersSaved} saved" +
-                (s.LastProblem != null ? $"; last problem: {s.LastProblem}" : ""), null));
-        }
         capabilities.AddRange(ExternalToolCapabilities());
         int loaded = workspace.LoadedCount; // without the lock: status answers while a long call holds it
         var registered = (server?.ToolCollection?.Select(t => t.ProtocolTool.Name) ?? []).ToHashSet(StringComparer.Ordinal);
@@ -159,7 +132,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             ServerIdentity.InstallKind, ServerIdentity.StartedAt, (long)(DateTimeOffset.UtcNow - ServerIdentity.StartedAt).TotalSeconds,
             context?.Server?.NegotiatedProtocolVersion, client == null ? null : new Client(client.Name, client.Version),
             digest, expected ? difference == null : null, difference,
-            toolCount, loaded, indexing.Status, options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities,
+            toolCount, loaded, indexing.Status, Environment.WorkingSet / (1024 * 1024), capabilities,
             ToolEffects.LongRunning.Where(registered.Contains).ToList(),
             Core.Toolsets.Families.Select(f => new Toolset(f.Name, options.Toolsets.Contains(f.Name), f.InCore, f.Tools.Length, f.Description)).ToList(),
             ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting),
@@ -167,7 +140,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds),
             (engines?.SessionStates() ?? []).Select(e => new EngineSession(e.Image, e.State.Engine, e.State.WorkerPid, e.State.State, e.State.BusyOp,
                 e.State.BusySeconds, e.State.Stage, e.State.Queued, e.State.Unsaved, e.State.Restarts, e.State.Database, e.State.ReusedDatabase, e.State.Note)).ToList(),
-            new CatalogFilter(options.ToolAllowList != null ? options.ToolAllowListSource ?? "(set)" : null, options.ToolAllowList?.Count, options.TracePath));
+            new CatalogFilter(options.ToolAllowList != null ? options.ToolAllowListSource ?? "(set)" : null, options.ToolAllowList?.Count, options.TracePath),
+            context?.Services is { } services ? StatusSections.Collect(services) : []);
     }
 
     /// <summary>One capability per external program the server runs (test oracles left out), probed once per file.</summary>

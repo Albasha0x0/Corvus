@@ -41,8 +41,19 @@ public abstract class ChildProcess : IDisposable
     public virtual long? MemoryLimitReached() => null;
     public abstract void Dispose();
 
-    public static ChildProcess Start(ChildProcessStart start) =>
-        OperatingSystem.IsWindows() ? WindowsJobProcess.Launch(start) : PosixGroupProcess.Launch(start);
+    public static ChildProcess Start(ChildProcessStart start)
+    {
+        ChildProcess child = OperatingSystem.IsWindows() ? WindowsJobProcess.Launch(start) : PosixGroupProcess.Launch(start);
+        Running[child] = (Path.GetFileName(start.FileName), DateTimeOffset.UtcNow);
+        child.Exited.ContinueWith(_ => Running.TryRemove(child, out var _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return child;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<ChildProcess, (string Program, DateTimeOffset Started)> Running = new();
+
+    /// <summary>Children of this process still running (workers, helpers, external tools): id, program file name and start time.</summary>
+    public static IReadOnlyList<(int Id, string Program, DateTimeOffset Started)> Live() =>
+        [.. Running.Where(r => !r.Key.HasExited).Select(r => (r.Key.Id, r.Value.Program, r.Value.Started)).OrderBy(r => r.Started)];
 
     /// <summary>Runs an output reader on a thread of its own: a reader waiting for a starved pool loses the output.</summary>
     public static Thread StartReader(Action read)

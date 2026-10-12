@@ -8,6 +8,12 @@ public sealed class OutputPager(ServerOptions options)
     private const int CacheCapacity = 24;
     private readonly LinkedList<(string Key, string Text)> _cache = new();
 
+    /// <summary>Texts in the cache, for server_status.</summary>
+    public int CachedTexts
+    {
+        get { lock (_cache) return _cache.Count; }
+    }
+
     public bool TryGet(string key, out string text)
     {
         lock (_cache)
