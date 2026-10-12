@@ -311,10 +311,11 @@ public sealed class DexService
             return ("string", Keys([text]), text);
         }
         bool member = target.Contains("->", StringComparison.Ordinal) || target.Contains("::", StringComparison.Ordinal);
-        if (kind is "class" || (kind == "auto" && !member && index.FindClass(target) is not null) || (kind == "auto" && !member && target.StartsWith('L') && target.EndsWith(';')))
+        var referenced = !member && kind is "class" or "auto" && index.FindClass(target) is null ? ReferencedClass(index, target) : null;
+        if (kind is "class" || (kind == "auto" && !member && (index.FindClass(target) is not null || referenced != null)) || (kind == "auto" && !member && target.StartsWith('L') && target.EndsWith(';')))
         {
             var entry = index.FindClass(target);
-            var descriptor = entry?.Class.Descriptor ?? DexIndex.ToDescriptor(target).First();
+            var descriptor = entry?.Class.Descriptor ?? referenced ?? DexIndex.ToDescriptor(target).First();
             if (from)
             {
                 if (entry == null) throw index.ClassNotFound(target);
@@ -334,6 +335,16 @@ public sealed class DexService
                 "use a class name, an exact id from get_dex_class (Lpkg/C;->m(I)V, Lpkg/C;->f:I), Class::member, or a quoted string with kind=string");
         }
         throw new ToolError(ErrorCode.InvalidArgument, $"unknown kind '{kind}'; use auto, class, method, field or string.");
+    }
+
+    private static string ReferenceClassOf(string key) => key.IndexOf("->", StringComparison.Ordinal) is var arrow and > 0 ? key[..arrow] : key;
+
+    /// <summary>The descriptor of a class the code refers to without defining it (a framework class), given in any name form; null when none.</summary>
+    private static string? ReferencedClass(DexIndex index, string target)
+    {
+        var candidates = DexIndex.ToDescriptor(target).ToList();
+        var owners = index.Refs.Select(r => r.Target).Distinct().Select(k => ReferenceClassOf(index.KeyText(k))).ToHashSet(StringComparer.Ordinal);
+        return candidates.FirstOrDefault(owners.Contains);
     }
 
     private static (string, HashSet<int>, string) Field(DexIndex index, string target)

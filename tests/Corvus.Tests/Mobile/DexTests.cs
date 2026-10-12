@@ -137,6 +137,17 @@ public sealed class DexTests : IDisposable
     }
 
     [Fact]
+    public void References_DottedFrameworkClassEqualsItsDescriptor()
+    {
+        var byDescriptor = _dex.References(_apk, "Landroid/util/Log;", null, null, 0, 10, default);
+        var dotted = _dex.References(_apk, "android.util.Log", null, null, 0, 10, default);
+        Assert.Equal(("class", "Landroid/util/Log;"), (dotted.TargetKind, dotted.Target));
+        Assert.Equal(1, dotted.Total);
+        Assert.Equal(byDescriptor.Items, dotted.Items);
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => _dex.References(_apk, "android.util.Nope", null, null, 0, 10, default)).Code);
+    }
+
+    [Fact]
     public void Inputs_DexFileJarAndBundle_AndBadFiles()
     {
         var dex = Save(_dir, "classes.dex", Dex());
