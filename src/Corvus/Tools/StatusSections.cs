@@ -21,14 +21,17 @@ internal sealed class BudgetStatus : IStatusSection
         yield return new("client", $"{c.Profile.Name} ({c.Profile.Id})", c.Source);
         yield return new("profile", c.Toolsets, o.ToolsetsText != null ? $"{Core.Toolsets.Option} or {Core.Toolsets.Variable}" : c.Source);
         yield return new("ceiling", $"{N(c.MaxTokens)} tokens per result" + (c.MaxChars is { } chars ? $", at most {N(chars)} characters" : ""), c.MaxTokensSource);
-        yield return new("page", $"{N(o.MaxOutputChars)} characters per page", o.MaxOutputChars == defaults.MaxOutputChars ? "default" : "--max-output");
+        yield return new("page", "estimated tokens per part: list 6,000, code 8,000, bytes 6,000, report 4,000, edit 3,000; a call's maxTokens up to the ceiling");
         var server = Deadlines.Server(o).TotalSeconds;
         yield return c.DeadlineSeconds is { } waits && Deadlines.Effective(false, o, c) is { } answer
             ? new("deadline", $"{answer.TotalSeconds:0} s per call: {c.Profile.Id} waits {waits} s, so calls answer {Deadlines.ClientMargin.TotalSeconds:0} s before " +
                 $"(server limit {server:0} s); long-running tools stop then too, and the same call made again picks up their work", c.DeadlineSource)
             : new("deadline", $"{server:0} s per call ({Deadlines.ServerFactor}x --timeout {o.TimeoutSeconds} s); long-running tools keep their own limits",
                 o.TimeoutSeconds == defaults.TimeoutSeconds ? "default" : "--timeout");
-        yield return new("delivery", "text blocks, plus structuredContent for tools with an output schema; a result over the ceiling is kept (results section)");
+        bool json = string.Equals(Environment.GetEnvironmentVariable(CallFilter.ResultModeVariable), "json", StringComparison.OrdinalIgnoreCase);
+        yield return new("delivery", json ? "text block = the structured JSON, plus structuredContent"
+            : "readable text, plus structuredContent for tools with an output schema; each part fitted on its own: lists continue at nextOffset, " +
+              "other results keep their head and a resultId (results section)", json ? CallFilter.ResultModeVariable : "default");
     }
 
     /// <summary>The connected client's clientInfo.name, when the server is in this provider.</summary>
@@ -91,7 +94,8 @@ internal sealed class CachesStatus : IStatusSection
                 (s.LastProblem != null ? $"; last problem: {s.LastProblem}" : ""));
         }
         if (services.GetService<OutputPager>() is { } pager)
-            yield return new("decompile", $"{pager.CachedTexts} texts kept for later pages");
+            yield return new("decompile", $"{pager.CacheSize.Count} texts kept for later pages, {pager.CacheSize.Chars.ToString("N0", CultureInfo.InvariantCulture)} of " +
+                $"{OutputPager.CacheMaxChars.ToString("N0", CultureInfo.InvariantCulture)} characters");
     }
 }
 

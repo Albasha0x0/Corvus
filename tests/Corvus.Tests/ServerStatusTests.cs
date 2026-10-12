@@ -22,8 +22,8 @@ public class ServerStatusTests
         Assert.Equal(["budget", "results", "caches", "calls", "workers", "run"], sections.Keys);
         string? Field(string section, string name, string part = "value") =>
             (string?)sections[section].FirstOrDefault(f => (string)f!["name"]! == name)?[part];
-        Assert.Equal("--max-output", Field("budget", "page", "source"));
-        Assert.StartsWith("20,000 characters", Field("budget", "page"));
+        Assert.StartsWith("estimated tokens per part: list 6,000", Field("budget", "page"));
+        Assert.Equal("default", Field("budget", "delivery", "source"));
         Assert.Equal("9,500 tokens per result", Field("budget", "ceiling"));
         Assert.Equal("Unknown client (unknown)", Field("budget", "client"));
         Assert.Equal("default", Field("budget", "client", "source"));

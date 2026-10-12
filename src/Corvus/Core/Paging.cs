@@ -96,12 +96,6 @@ public sealed class OutputPager(ServerOptions options)
         get { lock (_cache) return (_cache.Count, _cacheChars); }
     }
 
-    /// <summary>Texts in the cache, for server_status.</summary>
-    public int CachedTexts
-    {
-        get { lock (_cache) return _cache.Count; }
-    }
-
     public bool TryGet(string key, out string text)
     {
         lock (_cache)
