@@ -63,6 +63,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         /// <summary>Set for a loaded native image: counts, sections, entry points, top functions and strings, import groups, call graph shape.</summary>
         public NativeTriage? Triage { get; init; }
+
+        /// <summary>Set for an Electron executable or .asar: versions, fuses, archive integrity, package.json entry, webPreferences values.</summary>
+        public ElectronFacts? Electron { get; init; }
     }
 
     private sealed record Scanned(ModuleDef Module, ModuleScan Scan, byte[] Image, string Label);
@@ -281,11 +284,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             fileHighlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
         var android = Blob.Identify(bytes) == "zip" ? Mobile.AndroidPackageService.Facts(full, bytes, ct) : null;
         if (android != null) fileHighlights.AddRange(android.Highlights);
+        var electron = ElectronInspector.Of(full, bytes, ct);
+        if (electron != null) fileHighlights.AddRange(electron.Highlights());
         (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) managed;
         try { managed = UnpackService.Managed(full, Limits, ct); }
         catch (ToolError ex)
         {
-            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]) { NativeImage = native?.Facts, Android = android, Packers = packers.Count > 0 ? packers : null };
+            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]) { NativeImage = native?.Facts, Android = android, Packers = packers.Count > 0 ? packers : null, Electron = electron };
         }
         var reportNotes = new List<string>(managed.Notes);
         reportNotes.AddRange(MappingNotes(bytes));
@@ -338,6 +343,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes)
         {
             NativeAot = NativeAotFacts(bytes, ct), NativeImage = native?.Facts, Android = android, Packers = packers.Count > 0 ? packers : null,
+            Electron = electron,
         };
     }
 

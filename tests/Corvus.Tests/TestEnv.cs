@@ -142,6 +142,9 @@ public static class RealData
     /// <summary>A large native image (100 MB or more) for speed measurements.</summary>
     public const string LargeNativeImage = "CORVUS_LARGE_NATIVE_IMAGE";
 
+    /// <summary>A folder of installed Electron apps; every .asar below it (six levels) is listed and summarized.</summary>
+    public const string ElectronApps = "CORVUS_ELECTRON_APPS";
+
     public static string? Get(string variable) => Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : null;
 
     public static string Path(string variable) => Get(variable) ?? throw new InvalidOperationException($"{variable} is not set");

@@ -90,7 +90,7 @@ public static class Electron
             if (node == null)
                 for (int at = 0; hits < MaxHits && (at = IndexFrom(span, "node-v"u8, at, limit)) >= 0; at++, hits++)
                 {
-                    var version = VersionAt(span, at + 6);
+                    var version = VersionAt(span, at + 6, suffix: false);
                     if (version == null || !span[(at + 6 + version.Length)..].StartsWith("-headers"u8)) continue;
                     node = version;
                     evidence.Add($"node-v{version}-headers");
@@ -110,12 +110,12 @@ public static class Electron
         return i < 0 || from + i >= limit ? -1 : from + i;
     }
 
-    /// <summary>"1.2.3" or "1.2.3-beta.4" at <paramref name="at"/>; null unless it has at least two dots.</summary>
-    private static string? VersionAt(ReadOnlySpan<byte> span, int at)
+    /// <summary>"1.2.3" or (with <paramref name="suffix"/>) "1.2.3-beta.4" at <paramref name="at"/>; null unless it has at least two dots.</summary>
+    private static string? VersionAt(ReadOnlySpan<byte> span, int at, bool suffix = true)
     {
         int end = at, dots = 0;
         while (end < span.Length && end - at < 40 && (char.IsAsciiDigit((char)span[end]) || span[end] == '.'
-                   || (end > at && dots >= 2 && (char.IsAsciiLetterOrDigit((char)span[end]) || span[end] == '-'))))
+                   || (suffix && end > at && dots >= 2 && (char.IsAsciiLetterOrDigit((char)span[end]) || span[end] == '-'))))
         {
             if (span[end] == '.') dots++;
             end++;
