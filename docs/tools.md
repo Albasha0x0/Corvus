@@ -30,7 +30,7 @@ Workspace and server state.
 
 **Load assembly** (edit, idempotent, long-running)
 
-Load a .NET assembly (.dll/.exe) or every assembly in a directory (an application folder, a Unity *_Data/Managed or Il2CppDumper DummyDll folder). A native PE, ELF or Mach-O file given by path loads as a native image for the native tools (a universal Mach-O: one slice, as name[slice]); folder loads take only .NET assemblies and list the native files skipped. An Il2Cpp game (its folder or global-metadata.dat, an .apk/.xapk/.aab/.ipa, an iOS .app, or a memory dump of the binary) is read by the built-in metadata reader (v24-39): dummy assemblies with addresses, offsets and tokens, cached per user, plus the binary as a native image; unreadable metadata is an error with a reason. Files are read into memory, never locked; the directory joins the reference search path; loading a path twice is a no-op.
+Load a .NET assembly (.dll/.exe) or every assembly in a directory (an application folder, Unity *_Data/Managed, a DummyDll folder). A native PE, ELF or Mach-O file loads as a native image (a universal Mach-O: one slice, as name[slice]); folder loads take only .NET assemblies and list native files skipped. An Il2Cpp game (its folder or global-metadata.dat, .apk/.xapk/.aab/.ipa, iOS .app, or a memory dump) is read by the built-in metadata reader (v24-39): dummy assemblies with addresses, offsets and tokens, cached per user, plus the binary as a native image. Files are read into memory, never locked; the directory joins the reference search path; loading a path twice is a no-op.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -519,7 +519,7 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at any file or loaded assembly, without executing it: hashes, type, entropy; per managed assembly identity, signature (strong name, Authenticode), toolchain markers, container wrapping, features with ATT&CK techniques, extracted values and entry points (Main, module initializer, exports, installer / service / COM hooks). Containers (single-file bundles, packages, APKs, zips, Costura) are opened: the app's assembly in full, 7 more in brief; an apphost's .dll is summarized as the app. Also: NativeAOT runtime and recovery counts, ELF / Mach-O format, signature, encryption, Go build info, packers, protectors, Android package, SDKs, runtimes, ABIs, exported components, Electron (versions, fuses, .asar integrity, main entry, webPreferences values with file:line), and for a loaded native image triage (entry points, top functions, strings, import groups).
+First look at any file or loaded assembly, without executing it: hashes, type, entropy; per managed assembly identity, signature (strong name, Authenticode), toolchain markers, features with ATT&CK techniques, extracted values and entry points. Containers (single-file bundles, packages, APKs, zips, Costura) are opened: the app's assembly in full, 7 more in brief. Also: NativeAOT recovery counts, ELF / Mach-O format, signature, Go build info, packers, protectors, Android package, SDKs, ABIs, components, Electron (versions, fuses, .asar integrity, webPreferences with file:line), and for a loaded native image triage (entry points, top functions, strings, import groups).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -866,7 +866,7 @@ Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scri
 
 **Generate C++ binding** (read-only, idempotent)
 
-Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a struct that resolves the class, field offsets, static fields and methods once, with typed field accessors, property getters and invoke wrappers; class lookup strings come from the metadata. style=mono: a self-contained header on the Mono embedding API exports. style=il2cpp: one on the Il2Cpp runtime exports, plus each method's native code pointer (to hook) and a typed direct call. style=hostapi: for a host that passes a function table (FindClass, GetMethod, FieldOffset, StaticFieldOffset, GetStaticFieldData, Invoke). Without style it is detected from projectDir (such a table, or its own il2cpp_* / mono_* calls), an Il2Cpp dummy assembly, the server's --binding-style, else mono; the first output line says which and why. A generic definition (List`1) binds as a C++ template resolved with Resolve(api, instanceClass).
+Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a struct that resolves the class, field offsets, static fields and methods once, with typed field accessors, property getters and invoke wrappers. style=mono: a header on the Mono embedding API. style=il2cpp: on the Il2Cpp runtime exports, plus each method's native code pointer and a typed direct call. style=hostapi: for a host passing a function table (FindClass, GetMethod, FieldOffset, StaticFieldOffset, GetStaticFieldData, Invoke). Without style: detected from projectDir, an Il2Cpp dummy assembly or --binding-style, else mono; the first line says which. A generic definition (List`1) binds as a C++ template.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1129,7 +1129,7 @@ Structured output: `image`, `function`, `address`, `engine`, `blocks`, `switches
 
 **Native cross-references** (read-only, idempotent, open-world, long-running)
 
-What references a native address: calls (also via import slots and thunks), jumps, data reads/writes, address-taken uses, switch tables, relocated pointers, each with its function and, for calls, the recovered arguments; for a virtual method, the RTTI virtual call sites (VirtualExact / VirtualPossible). An import (module!name): call sites and binding; an export: also call sites in other loaded images; a GetProcAddress import: where it is resolved and its calls. direction=from: what the address (or whole function) references. A struct member (Type::member, Type+0x18): its uses in the pseudocode of functions whose prototype names the type, via IDA or Ghidra (scope=all: every function). The first call on an image waits for its code index (seconds; minutes for a very large image).
+What references a native address: calls (also via import slots and thunks), jumps, data reads/writes, address-taken uses, switch tables, relocated pointers, each with its function and, for calls, recovered arguments; for a virtual method, RTTI virtual call sites. An import (module!name): call sites and binding; an export: also callers in other loaded images; a GetProcAddress import: where it is resolved. direction=from: what the address (or function) references. A struct member (Type::member, Type+0x18): its uses in the pseudocode of functions whose prototype names the type, via IDA or Ghidra. The first call on an image waits for its code index (seconds; minutes for a very large image).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1827,7 +1827,7 @@ Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `patches`, `appli
 
 **Update work to a new build** (destructive, idempotent, long-running)
 
-Carry everything done on an old build of a native image (x86 / x64 / ARM64) to its new build in one call, through one function match (compare_native_images): user names, comments and engine types (migrate_native_names rules); the PDB layer (re-imported only from the new build's matching PDB) and the Il2Cpp layer (re-applied from the new build's metadata, else mapped through the match); byte patches (migrate_native_patches rules; stubs re-created after the displaced instructions are verified); code patterns at every carried site, checked for drift; for Il2Cpp the method -> RVA mapping by metadata identity; and notes. dryRun=false applies names, layers, then patches; a re-run reports already_present. Returns a summary, per-category counts with reason codes and a paged item list. Two .NET assemblies: notes, mapped by find_counterpart; edits: export_edits + apply_edits.
+Carry work on an old build of a native image (x86 / x64 / ARM64) to its new build through one function match (compare_native_images): user names, comments and engine types (migrate_native_names rules); the PDB layer (from the new build's PDB) and the Il2Cpp layer (from its metadata, else mapped); byte patches (migrate_native_patches rules, stubs re-created after verification); code patterns checked for drift; the Il2Cpp method -> RVA mapping; notes. dryRun=false applies names, layers, then patches; a re-run reports already_present. Returns per-category counts with reason codes and a paged item list. Two .NET assemblies: notes, mapped by find_counterpart; edits: export_edits + apply_edits.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

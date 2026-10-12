@@ -84,12 +84,11 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     private sealed record Item(string Category, string Kind, uint? OldRva, uint? NewRva, string Value, string Outcome, string Reason, double Confidence, int? Tier, string Detail);
 
     [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true)]
-    [Description("Carry everything done on an old build of a native image (x86 / x64 / ARM64) to its new build in one call, through one function match " +
-                 "(compare_native_images): user names, comments and engine types (migrate_native_names rules); the PDB layer (re-imported only from the " +
-                 "new build's matching PDB) and the Il2Cpp layer (re-applied from the new build's metadata, else mapped through the match); byte patches " +
-                 "(migrate_native_patches rules; stubs re-created after the displaced instructions are verified); code patterns at every carried site, " +
-                 "checked for drift; for Il2Cpp the method -> RVA mapping by metadata identity; and notes. dryRun=false applies names, layers, then patches; " +
-                 "a re-run reports already_present. Returns a summary, per-category counts with reason codes and a paged item list. Two .NET " +
+    [Description("Carry work on an old build of a native image (x86 / x64 / ARM64) to its new build through one function match " +
+                 "(compare_native_images): user names, comments and engine types (migrate_native_names rules); the PDB layer (from the new build's " +
+                 "PDB) and the Il2Cpp layer (from its metadata, else mapped); byte patches (migrate_native_patches rules, stubs re-created after " +
+                 "verification); code patterns checked for drift; the Il2Cpp method -> RVA mapping; notes. dryRun=false applies names, layers, then " +
+                 "patches; a re-run reports already_present. Returns per-category counts with reason codes and a paged item list. Two .NET " +
                  "assemblies: notes, mapped by find_counterpart; edits: export_edits + apply_edits.")]
     public Task<UpdateReport> UpdateToNewBuild(
         [Description("The old build: native image id or path (the source of names, layers and patches).")] string oldImage,

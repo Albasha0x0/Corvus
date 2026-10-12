@@ -12,12 +12,11 @@ public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerato
 {
     [McpServerTool(Name = "generate_cpp_binding", Title = "Generate C++ binding")]
     [Description("Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a struct that resolves the class, field offsets, " +
-                 "static fields and methods once, with typed field accessors, property getters and invoke wrappers; class lookup strings come from the metadata. " +
-                 "style=mono: a self-contained header on the Mono embedding API exports. style=il2cpp: one on the Il2Cpp runtime exports, plus each method's " +
-                 "native code pointer (to hook) and a typed direct call. style=hostapi: for a host that passes a function table (FindClass, GetMethod, " +
-                 "FieldOffset, StaticFieldOffset, GetStaticFieldData, Invoke). Without style it is detected from projectDir (such a table, or its own il2cpp_* / mono_* calls), " +
-                 "an Il2Cpp dummy assembly, the server's --binding-style, else mono; the first output line says which and why. " +
-                 "A generic definition (List`1) binds as a C++ template resolved with Resolve(api, instanceClass).")]
+                 "static fields and methods once, with typed field accessors, property getters and invoke wrappers. " +
+                 "style=mono: a header on the Mono embedding API. style=il2cpp: on the Il2Cpp runtime exports, plus each method's native code " +
+                 "pointer and a typed direct call. style=hostapi: for a host passing a function table (FindClass, GetMethod, FieldOffset, " +
+                 "StaticFieldOffset, GetStaticFieldData, Invoke). Without style: detected from projectDir, an Il2Cpp dummy assembly or " +
+                 "--binding-style, else mono; the first line says which. A generic definition (List`1) binds as a C++ template.")]
     public Task<string> GenerateCppBinding(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,

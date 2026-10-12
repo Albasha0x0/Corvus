@@ -13,13 +13,12 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     private const string PathParam = "A .NET assembly file to analyze without loading it; pass this or assembly.";
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true)]
-    [Description("First look at any file or loaded assembly, without executing it: hashes, type, entropy; per managed assembly identity, signature (strong name, " +
-                 "Authenticode), toolchain markers, container wrapping, features with ATT&CK techniques, extracted values and entry points (Main, " +
-                 "module initializer, exports, installer / service / COM hooks). Containers (single-file bundles, packages, APKs, zips, Costura) are opened: " +
-                 "the app's assembly in full, 7 more in brief; an apphost's .dll is summarized as the app. Also: NativeAOT runtime and recovery counts, " +
-                 "ELF / Mach-O format, signature, encryption, Go build info, packers, protectors, Android package, SDKs, runtimes, ABIs, exported components, " +
-                 "Electron (versions, fuses, .asar integrity, main entry, webPreferences values with file:line), " +
-                 "and for a loaded native image triage (entry points, top functions, strings, import groups).")]
+    [Description("First look at any file or loaded assembly, without executing it: hashes, type, entropy; per managed assembly identity, signature " +
+                 "(strong name, Authenticode), toolchain markers, features with ATT&CK techniques, extracted values and entry points. Containers " +
+                 "(single-file bundles, packages, APKs, zips, Costura) are opened: the app's assembly in full, 7 more in brief. Also: NativeAOT " +
+                 "recovery counts, ELF / Mach-O format, signature, Go build info, packers, protectors, Android package, SDKs, ABIs, components, " +
+                 "Electron (versions, fuses, .asar integrity, webPreferences with file:line), and for a loaded native image triage (entry points, " +
+                 "top functions, strings, import groups).")]
     public async Task<InspectionService.FileSummary> SummarizeFile(
         [Description("Any file (assembly, bundle, .nupkg, .apk, zip, .asar, native executable); pass this or assembly.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
