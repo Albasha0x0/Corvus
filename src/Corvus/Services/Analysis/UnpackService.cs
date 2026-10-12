@@ -328,8 +328,26 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         return (Path.GetDirectoryName(files[0])!, sha, new Walked("Blazor WebAssembly folder (Webcil)", found, notes));
     }
 
+    /// <summary>A Blazor folder whose boot manifest lists assemblies of which none is on disk; null otherwise.</summary>
+    private static (string Folder, int Listed)? BootManifestWithoutAssemblies(string folder)
+    {
+        foreach (var dir in new[] { folder, Path.Combine(folder, "_framework"), Path.Combine(folder, "wwwroot", "_framework") })
+        {
+            if (!Directory.Exists(dir) || Webcil.BootManifestEntries(dir) is not { } entries) continue;
+            // The runtime's own module (dotnet.native.wasm) is not an assembly.
+            var listed = entries.Where(e => e.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase) && !e.StartsWith("dotnet.", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (listed.Count == 0) return null;
+            bool present = listed.Any(e => File.Exists(Path.Combine(dir, e)) || File.Exists(Path.Combine(dir, Path.ChangeExtension(e, ".dll"))));
+            return present ? null : (dir, listed.Count);
+        }
+        return null;
+    }
+
     private static (string Source, byte[] Data, string Sha) ReadSource(string path, AnalysisLimits limits)
     {
+        if (Directory.Exists(Path.GetFullPath(path)) && BootManifestWithoutAssemblies(Path.GetFullPath(path)) is { } boot)
+            throw new ToolError(ErrorCode.NotFound, $"the boot manifest in {boot.Folder} lists {boot.Listed} assemblies; none is present (an incomplete copy of the app).",
+                "copy the app's _framework folder with its .wasm (or .dll) files and pass it again");
         if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host) or a Blazor _framework folder. To load a folder of assemblies, use load_assembly.");
         var source = InputFiles.RequireRegularFile(path, "container file");
         if (!File.Exists(source)) throw new ToolError(ErrorCode.NotFound, $"File not found: {source}");

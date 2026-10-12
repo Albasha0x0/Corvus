@@ -230,6 +230,26 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         _dir.Dispose();
     }
 
+    [Fact]
+    public void BlazorFolderWithoutItsAssembliesIsNotFound()
+    {
+        var app = Path.Combine(_dir.Path, "app");
+        Directory.CreateDirectory(Path.Combine(app, "_framework"));
+        File.WriteAllText(Path.Combine(app, "_framework", "blazor.boot.json"),
+            """{ "resources": { "wasmNative": { "dotnet.native.wasm": "sha256-a" }, "assembly": { "App.wasm": "sha256-b", "Lib.wasm": "sha256-c" } } }""");
+        foreach (var call in new Action[]
+                 {
+                     () => Unpacker.Unpack(app, null, load: false, AnalysisLimits.Default, default),
+                     () => Unpacker.List(app, AnalysisLimits.Default, default),
+                     () => Unpacker.Search(Path.Combine(app, "_framework"), "Main", SymbolKind.Type, 10, AnalysisLimits.Default, default),
+                 })
+        {
+            var ex = Assert.Throws<ToolError>(call);
+            Assert.Equal(ErrorCode.NotFound, ex.Code);
+            Assert.Contains("lists 2 assemblies; none is present", ex.Message);
+        }
+    }
+
     private string Save(string name, byte[] bytes)
     {
         var path = _dir.File(name);
