@@ -748,6 +748,18 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
         public NativeCodeIndex Run()
         {
+            // RTTI depends on the image alone: read while the code is analyzed
+            var rtti = options.ResolveVirtualCalls && ResolvesVirtualCalls(image) ? Task.Run(() => Itanium.CppRtti.Analyze(image, ct), ct) : null;
+            try { return Build(rtti); }
+            finally
+            {
+                // an early exit (cancel, failure) must not leave the read running over the image or its fault unobserved
+                if (rtti != null) try { rtti.Wait(CancellationToken.None); } catch (Exception) { }
+            }
+        }
+
+        private NativeCodeIndex Build(Task<Msvc.MsvcRttiResult>? rtti)
+        {
             var code = new ImageCode(image);
             _truncations.AddRange(code.Truncations);
             _ctx = new CodeContext(image, code, options);
@@ -771,10 +783,10 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             var index = Assemble(starts, results);
             index.Apply(chunks);
             index.Issues = GoExtentIssues(index);
-            if (options.ResolveVirtualCalls && ResolvesVirtualCalls(image))
+            if (rtti != null)
             {
                 report.Report("resolving virtual calls", 0, 0);
-                index.ResolveVirtualCalls(options, ct);
+                index.ResolveVirtualCalls(options, rtti, ct);
                 report.Done();
             }
             return index;

@@ -94,13 +94,13 @@ public sealed partial class NativeCodeIndex
     /// <summary>x86 / x64 through the data flow, ARM64 and ARM32 through their call shapes.</summary>
     internal static bool ResolvesVirtualCalls(INativeImage image) => image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
 
-    /// <summary>Runs RTTI analysis and the virtual call resolution over a built index; failures become a note, not an exception.</summary>
-    private void ResolveVirtualCalls(CodeIndexOptions options, CancellationToken ct)
+    /// <summary>Resolves virtual calls over a built index with the RTTI analysis <paramref name="rttiTask"/> gives; failures become a note, not an exception.</summary>
+    private void ResolveVirtualCalls(CodeIndexOptions options, Task<MsvcRttiResult> rttiTask, CancellationToken ct)
     {
         if (_ctx == null || !options.ResolveVirtualCalls || !ResolvesVirtualCalls(Image)) return;
         try
         {
-            var rtti = Itanium.CppRtti.Analyze(Image, ct);
+            var rtti = rttiTask.GetAwaiter().GetResult();
             var (set, edges) = Image.Arch is NativeArch.X86 or NativeArch.X64
                 ? VirtualCallResolver.Resolve(this, _ctx, options, rtti, ct)
                 : VirtualCallResolver.ResolveShapes(this, _ctx, options, rtti, () => Calls.ArmVirtualCalls.Find(this, ct), ct);
