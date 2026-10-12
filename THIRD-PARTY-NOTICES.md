@@ -152,3 +152,21 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
+
+## Swift
+
+The Swift demangler (`src/Corvus/Native/Swift/SwiftDemangler*.cs`) ports the demangler, old-mangling demangler, node
+printer and punycode decoder of the Swift project (`lib/Demangling/Demangler.cpp`, `OldDemangler.cpp`,
+`NodePrinter.cpp`, `Punycode.cpp`) of https://github.com/swiftlang/swift. Its test corpus
+(`tests/Corvus.Tests/NativeFormats/SwiftManglings.txt`) is `test/Demangle/Inputs/manglings.txt` of the same project.
+Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors, licensed under the Apache License 2.0
+(https://www.apache.org/licenses/LICENSE-2.0) with the Runtime Library Exception:
+
+```
+## Runtime Library Exception to the Apache 2.0 License: ##
+
+    As an exception, if you use this Software to compile your source code and
+    portions of this Software are embedded into the binary product as a result,
+    you may redistribute such product without providing attribution as would
+    otherwise be required by Sections 4(a), 4(b) and 4(d) of the License.
+```
