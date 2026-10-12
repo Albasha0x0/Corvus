@@ -67,7 +67,7 @@ internal static partial class CallFilter
                 }
             }
         }
-        if (result.IsError != true && tool != null)
+        if (tool != null)
         {
             result.Meta ??= new JsonObject();
             result.Meta[ToolOutput.ProvenanceKey] = ToolOutput.Provenance(tool, request?.Arguments, services?.GetService<AssemblyWorkspace>(), log.Engine, result, output);

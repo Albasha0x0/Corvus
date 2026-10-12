@@ -247,6 +247,22 @@ public class ToolOutputTests
         Assert.InRange(p.ToJsonString().Length, 1, 1_024);
     }
 
+    /// <summary>An error carries provenance too (inputs, tool, arguments, version), without a result hash or coverage.</summary>
+    [Fact]
+    public async Task ErrorsCarryProvenance()
+    {
+        using var services = Services();
+        var r = await Call(services, "get_pe_info", _ => throw new ToolError(ErrorCode.Unsupported, "not a PE"), new() { ["path"] = Env.FixturePath });
+        Assert.True(r.IsError);
+        var p = r.Meta![ToolOutput.ProvenanceKey]!.AsObject();
+        Assert.Equal("get_pe_info", (string)p["tool"]!);
+        Assert.Equal(64, ((string)p["args"]!).Length);
+        Assert.Single(p["input"]!.AsArray());
+        Assert.NotNull(p["corvus"]);
+        Assert.False(p.ContainsKey("resultSha256"));
+        Assert.False(p.ContainsKey("coverage"));
+    }
+
     [Fact]
     public void SchemasGetTheEnvelope()
     {

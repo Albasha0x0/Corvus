@@ -20,8 +20,8 @@ public static partial class ToolOutput
     private static readonly ConcurrentDictionary<(string Path, long Length, long Ticks), string> FileHashes = new();
 
     /// <summary>
-    /// The provenance of a success (S5.1), for _meta: inputs with SHA-256 (and MVID), tool, a hash of the arguments, engine,
-    /// version, a hash of the result and its coverage. Costs the model nothing; at most about 1 KB.
+    /// The provenance of a result (S5.1), for _meta: inputs with SHA-256 (and MVID), tool, a hash of the arguments, engine,
+    /// version and, on a success, a hash of the result and its coverage. Costs the model nothing; at most about 1 KB.
     /// </summary>
     internal static JsonObject Provenance(string tool, IDictionary<string, JsonElement>? args, AssemblyWorkspace? workspace, string? engine,
         CallToolResult result, OutputCall call)
@@ -39,6 +39,8 @@ public static partial class ToolOutput
         };
         if (engine != null) p["engine"] = engine;
         p["corvus"] = ServerIdentity.InformationalVersion;
+        // An error is no result to verify: what was asked of which inputs is its provenance.
+        if (result.IsError == true) return p;
         p["resultSha256"] = ResultSha256(result);
         p["coverage"] = call.Coverage?.Status ?? "complete";
         if (call.Coverage is { Limitations.Count: > 0 } c) p["limitations"] = new JsonArray(c.Limitations.Take(8).Select(l => (JsonNode)JsonValue.Create(l)!).ToArray());
