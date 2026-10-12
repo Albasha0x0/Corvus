@@ -1,0 +1,421 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "engine": {
+      "type": "string"
+    },
+    "engineNote": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "description": "decoded, mid_instruction, data, not_in_function, unmapped, outside_image or invalid.",
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "rva": {
+            "type": "string"
+          },
+          "function": {
+            "description": "Containing function as name+0xN.",
+            "type": "string"
+          },
+          "block": {
+            "type": "string"
+          },
+          "containingInstruction": {
+            "description": "mid_instruction: start of the instruction that covers the address.",
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "dataItem": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "description": "string, iat_slot, jump_table, index_table, pointer, pe_directory, headers, section, data_in_code or literal.",
+                "type": "string"
+              },
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "description": "Exclusive.",
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "start",
+              "end",
+              "text"
+            ]
+          },
+          "instruction": {
+            "type": "object",
+            "properties": {
+              "bytes": {
+                "type": "string"
+              },
+              "length": {
+                "type": "integer"
+              },
+              "text": {
+                "type": "string"
+              },
+              "comment": {
+                "type": "string"
+              },
+              "mnemonic": {
+                "type": "string"
+              },
+              "encoding": {
+                "type": "string"
+              },
+              "prefixes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cpuid": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "privileged": {
+                "type": "boolean"
+              },
+              "operands": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "description": "register, immediate, memory, near_branch or far_branch; ARM also pc_relative, shift, extend, condition, enum, system_register, register_list.",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "description": "Bytes accessed.",
+                      "type": "integer"
+                    },
+                    "access": {
+                      "description": "read, write, read_write, cond_read, cond_write, read_cond_write or none.",
+                      "type": "string"
+                    },
+                    "register": {
+                      "type": "string"
+                    },
+                    "fullRegister": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    },
+                    "signedValue": {
+                      "type": "integer"
+                    },
+                    "segment": {
+                      "type": "string"
+                    },
+                    "base": {
+                      "type": "string"
+                    },
+                    "indexRegister": {
+                      "type": "string"
+                    },
+                    "scale": {
+                      "type": "integer"
+                    },
+                    "displacement": {
+                      "description": "Signed hex; RIP-relative: from the next instruction; ARM64 pc-relative: from the instruction (adrp: its page).",
+                      "type": "string"
+                    },
+                    "ripRelative": {
+                      "type": "boolean"
+                    },
+                    "target": {
+                      "description": "Branch target or effective address (absolute or RIP-relative) inside the image, as a VA.",
+                      "type": "string"
+                    },
+                    "targetName": {
+                      "type": "string"
+                    },
+                    "targetItem": {
+                      "description": "The data item or function at the target, with its read / write reference counts for data.",
+                      "type": "string"
+                    },
+                    "extend": {
+                      "description": "ARM: the memory index extend or shift (lsl #3, uxtw #2), a shifted register's shift, or the kind of a shift / extend operand.",
+                      "type": "string"
+                    },
+                    "writeback": {
+                      "description": "ARM: base register writeback, pre or post.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "kind",
+                    "text",
+                    "ripRelative"
+                  ]
+                }
+              },
+              "registersRead": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "registersWritten": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "memoryAccesses": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "segment": {
+                      "type": "string"
+                    },
+                    "base": {
+                      "type": "string"
+                    },
+                    "index": {
+                      "type": "string"
+                    },
+                    "scale": {
+                      "type": "integer"
+                    },
+                    "displacement": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "access": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scale",
+                    "displacement",
+                    "size",
+                    "access"
+                  ]
+                }
+              },
+              "flagsRead": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "flagsWritten": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "flagsUndefined": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "stackPointerDelta": {
+                "type": "integer"
+              },
+              "flow": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "description": "next, call, indirect_call, jump, indirect_jump, conditional_jump, return, trap or invalid.",
+                    "type": "string"
+                  },
+                  "condition": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  },
+                  "targetName": {
+                    "type": "string"
+                  },
+                  "fallthrough": {
+                    "description": "The next instruction when control can continue there.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "referencesFrom": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to",
+                    "kind"
+                  ]
+                }
+              },
+              "referencesToCount": {
+                "type": "integer"
+              },
+              "referencesTo": {
+                "description": "The first 8.",
+                "type": "array",
+                "items": {
+                  "$ref": "#/properties/items/items/properties/instruction/properties/referencesFrom/items"
+                }
+              },
+              "call": {
+                "description": "A call with its recovered arguments: CreateFileW(L\"a.ini\", GENERIC_READ, ...).",
+                "type": "string"
+              },
+              "switch": {
+                "type": "object",
+                "properties": {
+                  "table": {
+                    "type": "string"
+                  },
+                  "entries": {
+                    "type": "integer"
+                  },
+                  "targets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "table",
+                  "entries",
+                  "targets"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "userComment": {
+                "type": "string"
+              },
+              "pair": {
+                "description": "ARM: the other instruction of the address-forming pair (ARM64 adrp + add / load / store; ARM32 the literal load, movw or adr the base register comes from).",
+                "type": "string"
+              },
+              "formedAddress": {
+                "description": "ARM: the address the pair, adr or literal load forms.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "bytes",
+              "length",
+              "text",
+              "mnemonic",
+              "privileged",
+              "operands",
+              "flow",
+              "referencesFrom",
+              "referencesToCount",
+              "referencesTo"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "address",
+          "rva"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "engine",
+    "items",
+    "notes"
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "type": "object",
+  "properties": {
+    "oldImage": {
+      "type": "string"
+    },
+    "newImage": {
+      "type": "string"
+    },
+    "oldFunction": {
+      "type": "string"
+    },
+    "newFunction": {
+      "type": "string"
+    },
+    "oldAddress": {
+      "type": "string"
+    },
+    "newAddress": {
+      "type": "string"
+    },
+    "tier": {
+      "description": "Function-match tier (1 best .. 5 fuzzy); null when not matched.",
+      "type": "integer"
+    },
+    "basis": {
+      "type": "string"
+    },
+    "score": {
+      "type": "number"
+    },
+    "view": {
+      "description": "asm or pseudocode.",
+      "type": "string"
+    },
+    "summary": {
+      "description": "What differs, or why there is no diff (function_not_matched, ambiguous, not_in_a_function).",
+      "type": "string"
+    },
+    "same": {
+      "type": "integer"
+    },
+    "changed": {
+      "type": "integer"
+    },
+    "removed": {
+      "type": "integer"
+    },
+    "added": {
+      "type": "integer"
+    },
+    "rows": {
+      "description": "asm: the aligned rows of the changed regions with context.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "description": "= same, ~ same instruction shape with other operands, - only in the old build, + only in the new, … unchanged rows skipped.",
+            "type": "string"
+          },
+          "oldAddress": {
+            "type": "string"
+          },
+          "newAddress": {
+            "type": "string"
+          },
+          "oldText": {
+            "type": "string"
+          },
+          "newText": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      }
+    },
+    "unified": {
+      "description": "pseudocode: a unified diff of the normalized pseudocode.",
+      "type": "string"
+    },
+    "candidates": {
+      "description": "Candidate counterparts when ambiguous.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "address",
+          "name",
+          "score"
+        ]
+      }
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "oldImage",
+    "newImage",
+    "oldFunction",
+    "newFunction",
+    "view",
+    "summary",
+    "same",
+    "changed",
+    "removed",
+    "added",
+    "rows",
+    "candidates",
+    "truncated",
+    "notes"
+  ]
+}

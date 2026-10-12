@@ -1,0 +1,105 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "functions": {
+      "description": "Functions in the image (before the filter).",
+      "type": "integer"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "flags": {
+            "description": "thunk, noreturn, unresolved jumps, invalid code, truncated, funclet, ...",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sources": {
+            "description": "How it was found.",
+            "type": "string"
+          },
+          "references": {
+            "description": "Call sites and other references reaching it.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "address",
+          "size",
+          "name",
+          "flags",
+          "sources",
+          "references"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "coverage": {
+      "description": "What the index does not cover.",
+      "type": "string"
+    },
+    "engine": {
+      "description": "Which analysis produced the result: ours (the built-in index), ida (IDA's analysis through idalib) or ghidra (Ghidra's analysis).",
+      "type": "string"
+    },
+    "engineNote": {
+      "description": "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).",
+      "type": "string"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "functions",
+    "items",
+    "offset",
+    "total",
+    "engine"
+  ]
+}

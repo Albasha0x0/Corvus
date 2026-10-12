@@ -1,0 +1,687 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Id for dump_stack and read_dump_memory (the path works too).",
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "fileSize": {
+      "type": "integer"
+    },
+    "timeUtc": {
+      "type": "string"
+    },
+    "dumpType": {
+      "description": "MINIDUMP_TYPE flags the dump was written with.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "system": {
+      "type": "object",
+      "properties": {
+        "architecture": {
+          "description": "x64, x86, ARM64...",
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        },
+        "majorVersion": {
+          "type": "integer"
+        },
+        "minorVersion": {
+          "type": "integer"
+        },
+        "buildNumber": {
+          "type": "integer"
+        },
+        "productType": {
+          "description": "workstation, domain_controller or server.",
+          "type": "string"
+        },
+        "processors": {
+          "type": "integer"
+        },
+        "processorLevel": {
+          "type": "integer"
+        },
+        "cpuVendor": {
+          "type": "string"
+        },
+        "servicePack": {
+          "type": "string"
+        },
+        "buildString": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "architecture",
+        "os",
+        "majorVersion",
+        "minorVersion",
+        "buildNumber",
+        "productType",
+        "processors",
+        "processorLevel"
+      ]
+    },
+    "process": {
+      "type": "object",
+      "properties": {
+        "processId": {
+          "type": "integer"
+        },
+        "mainModule": {
+          "type": "string"
+        },
+        "createTimeUtc": {
+          "type": "string"
+        },
+        "userSeconds": {
+          "type": "integer"
+        },
+        "kernelSeconds": {
+          "type": "integer"
+        },
+        "integrity": {
+          "description": "Integrity level name (low, medium, high, system...) when recorded.",
+          "type": "string"
+        },
+        "wow64": {
+          "description": "A 32-bit process dumped by a 64-bit tool: the 32-bit stacks are not walked.",
+          "type": "boolean"
+        },
+        "runtime": {
+          "description": "Managed runtime loaded in the process (CoreCLR, CLR, Mono) or Il2Cpp; null for none.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "wow64"
+      ]
+    },
+    "exception": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "name": {
+          "description": "Symbolic name, e.g. EXCEPTION_ACCESS_VIOLATION; null when unknown.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What happened, from the parameters: e.g. 'access violation writing 0x0000000000000000 (a null or near-null pointer)'.",
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "integer"
+        },
+        "threadName": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "moduleOffset": {
+          "type": "string"
+        },
+        "symbol": {
+          "description": "module!function+0xoffset of the exception address.",
+          "type": "string"
+        },
+        "symbolSource": {
+          "description": "Where the name came from: user, pdb, il2cpp, discovered, export, nearest_export, none.",
+          "type": "string"
+        },
+        "instruction": {
+          "description": "The instruction at the exception address, disassembled.",
+          "type": "string"
+        },
+        "instructionBytes": {
+          "type": "string"
+        },
+        "instructionSource": {
+          "description": "dump_memory, module_image (disk) or module_image (dump_memory); null when the bytes are not available.",
+          "type": "string"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "registers": {
+          "description": "Registers of the exception context.",
+          "type": "string"
+        },
+        "thrownTypes": {
+          "description": "C++ exceptions: the thrown type and its catchable base types, from the ThrowInfo.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "continuable": {
+          "type": "boolean"
+        },
+        "nestedRecord": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "description",
+        "address",
+        "threadId",
+        "parameters",
+        "thrownTypes",
+        "continuable"
+      ]
+    },
+    "managed": {
+      "description": ".NET runtime state through its DAC (exception with inner chain, threads, heap); null when no managed runtime is loaded.",
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "description": "e.g. .NET 10.0.11 (CoreCLR), .NET Framework 4.8.x (CLR), Mono.",
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "dac": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "description": "loaded, not_found, bitness_mismatch, host_unsupported, signature_invalid, download_refused_offline, download_failed, load_failed or unsupported_runtime.",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "detail": {
+              "description": "Where the DAC came from, or why none was loaded and what to do.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "detail"
+          ]
+        },
+        "appDomains": {
+          "type": "integer"
+        },
+        "managedThreads": {
+          "type": "integer"
+        },
+        "heap": {
+          "type": "object",
+          "properties": {
+            "walkable": {
+              "type": "boolean"
+            },
+            "segments": {
+              "type": "integer"
+            },
+            "bytes": {
+              "type": "integer"
+            },
+            "reason": {
+              "description": "heap_not_captured or heap_not_walkable with the reason; null when the heap can be walked (dump_heap, dump_object).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "walkable",
+            "segments",
+            "bytes"
+          ]
+        },
+        "exception": {
+          "description": "The managed exception in flight: on the faulting thread for a CLR exception, else on the first thread that has one.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "hResult": {
+              "type": "string"
+            },
+            "address": {
+              "description": "Address of the exception object (dump_object).",
+              "type": "string"
+            },
+            "threadId": {
+              "type": "integer"
+            },
+            "stack": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "function": {
+                    "description": "Ns.Type.Method(signature), or a runtime frame in brackets.",
+                    "type": "string"
+                  },
+                  "token": {
+                    "description": "Method token for decompile_member (with assembly).",
+                    "type": "string"
+                  },
+                  "ilOffset": {
+                    "description": "IL offset of the instruction (from the JIT's IL map); null when the dump does not hold it.",
+                    "type": "integer"
+                  },
+                  "module": {
+                    "type": "string"
+                  },
+                  "assembly": {
+                    "description": "Id of the loaded assembly that is this build (file name and MVID).",
+                    "type": "string"
+                  },
+                  "buildCheck": {
+                    "description": "match (same MVID), mismatch (a loaded assembly of that name is another build), unknown, or null when no such assembly is loaded.",
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "statement": {
+                    "description": "The C# statement at the IL offset (decompiled with sequence points), for a frame of a matching build.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "function"
+                ]
+              }
+            },
+            "inner": {
+              "description": "Inner exceptions, outermost first (up to 5).",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "hResult": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "description": "Address of the exception object (dump_object).",
+                    "type": "string"
+                  },
+                  "threadId": {
+                    "type": "integer"
+                  },
+                  "stack": {
+                    "$ref": "#/properties/managed/properties/exception/properties/stack",
+                    "items": {}
+                  },
+                  "inner": {
+                    "description": "Inner exceptions, outermost first (up to 5).",
+                    "$ref": "#/properties/managed/properties/exception/properties/inner",
+                    "items": {}
+                  }
+                },
+                "required": [
+                  "type",
+                  "hResult",
+                  "address",
+                  "stack",
+                  "inner"
+                ]
+              }
+            }
+          },
+          "required": [
+            "type",
+            "hResult",
+            "address",
+            "stack",
+            "inner"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "runtime",
+        "dac",
+        "notes"
+      ]
+    },
+    "moduleCount": {
+      "type": "integer"
+    },
+    "modulesOffset": {
+      "type": "integer"
+    },
+    "modulesTruncated": {
+      "type": "boolean"
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "base": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "timeDateStamp": {
+            "type": "string"
+          },
+          "built": {
+            "type": "string"
+          },
+          "checkSum": {
+            "type": "string"
+          },
+          "fileVersion": {
+            "type": "string"
+          },
+          "pdbName": {
+            "type": "string"
+          },
+          "pdbGuid": {
+            "type": "string"
+          },
+          "pdbAge": {
+            "type": "integer"
+          },
+          "localImage": {
+            "description": "matches (a file with this timestamp and size was found), mismatch (a different build) or missing.",
+            "type": "string"
+          },
+          "localPath": {
+            "type": "string"
+          },
+          "localDetail": {
+            "type": "string"
+          },
+          "managed": {
+            "description": "A .NET assembly (from the local file's header); null when unknown.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "base",
+          "end",
+          "size",
+          "timeDateStamp",
+          "checkSum",
+          "localImage",
+          "localDetail"
+        ]
+      }
+    },
+    "threadCount": {
+      "type": "integer"
+    },
+    "threadsOffset": {
+      "type": "integer"
+    },
+    "threadsTruncated": {
+      "type": "boolean"
+    },
+    "threads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "faulting": {
+            "type": "boolean"
+          },
+          "suspendCount": {
+            "type": "integer"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "teb": {
+            "type": "string"
+          },
+          "stackStart": {
+            "description": "Lowest captured stack address.",
+            "type": "string"
+          },
+          "stackEnd": {
+            "description": "End of the captured stack.",
+            "type": "string"
+          },
+          "stackBytes": {
+            "type": "integer"
+          },
+          "instructionPointer": {
+            "type": "string"
+          },
+          "stackPointer": {
+            "type": "string"
+          },
+          "location": {
+            "description": "module!function+0xoffset of the instruction pointer.",
+            "type": "string"
+          },
+          "startAddress": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "faulting",
+          "suspendCount",
+          "priority",
+          "teb",
+          "stackStart",
+          "stackEnd",
+          "stackBytes"
+        ]
+      }
+    },
+    "unloadedModuleCount": {
+      "type": "integer"
+    },
+    "unloadedModules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "base": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "timeDateStamp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "base",
+          "size",
+          "timeDateStamp"
+        ]
+      }
+    },
+    "memory": {
+      "type": "object",
+      "properties": {
+        "ranges": {
+          "description": "Captured memory ranges.",
+          "type": "integer"
+        },
+        "capturedBytes": {
+          "type": "integer"
+        },
+        "fullMemory": {
+          "description": "A full-memory dump (Memory64List).",
+          "type": "boolean"
+        },
+        "regions": {
+          "description": "Regions in the memory info list (VirtualQuery view); 0 when not recorded.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ranges",
+        "capturedBytes",
+        "fullMemory",
+        "regions"
+      ]
+    },
+    "handleCount": {
+      "type": "integer"
+    },
+    "handleTypes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "count"
+        ]
+      }
+    },
+    "streams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "rva": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "type",
+          "size",
+          "rva"
+        ]
+      }
+    },
+    "comments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "issues": {
+      "description": "What the parser could not read (truncation, bad counts, overlapping streams).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "path",
+    "fileSize",
+    "timeUtc",
+    "dumpType",
+    "process",
+    "moduleCount",
+    "modulesOffset",
+    "modulesTruncated",
+    "modules",
+    "threadCount",
+    "threadsOffset",
+    "threadsTruncated",
+    "threads",
+    "unloadedModuleCount",
+    "unloadedModules",
+    "memory",
+    "handleCount",
+    "handleTypes",
+    "streams",
+    "comments",
+    "issues",
+    "notes"
+  ]
+}

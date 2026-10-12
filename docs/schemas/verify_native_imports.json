@@ -1,0 +1,224 @@
+{
+  "type": "object",
+  "properties": {
+    "assembly": {
+      "type": "string"
+    },
+    "declarations": {
+      "description": "P/Invoke declarations checked.",
+      "type": "integer"
+    },
+    "counts": {
+      "description": "Declarations per verdict and reason.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "count"
+        ]
+      }
+    },
+    "filter": {
+      "description": "The status or reason filter applied, or null.",
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "description": "Declarations matching the filter.",
+      "type": "integer"
+    },
+    "items": {
+      "description": "Contradicted, unresolved and dynamic_only first, then not_checked and verified.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "token": {
+            "description": "Metadata token of the method.",
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "entryPoint": {
+            "type": "string"
+          },
+          "charSet": {
+            "type": "string"
+          },
+          "exactSpelling": {
+            "type": "boolean"
+          },
+          "callingConvention": {
+            "type": "string"
+          },
+          "status": {
+            "description": "verified, contradicted, unresolved, dynamic_only or not_checked.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why: verified -> exact, suffixed (A/W), decorated (stdcall _Name@N), forwarded, ordinal, versioned, internal; contradicted -> missing_export, missing_ordinal, bad_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken, arch_mismatch, mangled_only; unresolved -> dll_not_found, api_set_unmapped, not_an_image, system_dll_not_on_host, forwarder_dll_not_found, forwarded_unverified, wrong_platform, malformed_metadata; dynamic_only -> library_loaded_at_run_time, dll_import_resolver; not_checked -> runtime_internal, runtime_library.",
+            "type": "string"
+          },
+          "resolvedFile": {
+            "type": "string"
+          },
+          "export": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "location": {
+            "description": "Where malformed metadata was found (stream, table, row, token, file offset), else null.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "token",
+          "module",
+          "entryPoint",
+          "charSet",
+          "exactSpelling",
+          "callingConvention",
+          "status",
+          "reason",
+          "detail"
+        ]
+      }
+    },
+    "dynamicLoads": {
+      "description": "Run-time native loading found in the IL (first 100).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "native_library_load (NativeLibrary.Load/TryLoad), native_library_get_export (NativeLibrary.GetExport/TryGetExport), dll_import_resolver (NativeLibrary.SetDllImportResolver), load_library (a LoadLibrary/dlopen P/Invoke), get_proc_address (a GetProcAddress/dlsym P/Invoke), delegate_for_function_pointer (Marshal.GetDelegateForFunctionPointer).",
+            "type": "string"
+          },
+          "method": {
+            "description": "The method containing the call.",
+            "type": "string"
+          },
+          "ilOffset": {
+            "description": "IL offset of the call.",
+            "type": "string"
+          },
+          "library": {
+            "description": "The library name passed, when it is a constant (null otherwise).",
+            "type": "string"
+          },
+          "export": {
+            "description": "The export name passed (or, for a delegate, looked up in the same method), when it is a constant.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "method",
+          "ilOffset"
+        ]
+      }
+    },
+    "dynamicLoadsTotal": {
+      "type": "integer"
+    },
+    "metadataIssues": {
+      "description": "Malformed metadata found while reading the declarations, with locations.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "description": "Short code: duplicate_stream, unknown_stream, stream_out_of_range, unknown_tables, extra_data_flag, bad_metadata_root, implmap_scope_out_of_range, implmap_name_out_of_range, implmap_member_out_of_range, moduleref_name_out_of_range, bad_table_index, bad_list_index, bad_coded_index, bad_heap_index, decompiler_reader.",
+            "type": "string"
+          },
+          "location": {
+            "description": "Stream, table and row (token) concerned.",
+            "type": "string"
+          },
+          "fileOffset": {
+            "description": "File offset of the structure, when known (hex).",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "location",
+          "detail"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "assembly",
+    "declarations",
+    "counts",
+    "offset",
+    "total",
+    "items",
+    "dynamicLoads",
+    "dynamicLoadsTotal",
+    "metadataIssues",
+    "notes"
+  ]
+}

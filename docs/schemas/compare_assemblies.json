@@ -1,0 +1,216 @@
+{
+  "type": "object",
+  "properties": {
+    "old": {
+      "type": "object",
+      "properties": {
+        "assembly": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "mvid": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assembly",
+        "file",
+        "sha256",
+        "mvid"
+      ]
+    },
+    "new": {
+      "type": "object",
+      "properties": {
+        "assembly": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "mvid": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assembly",
+        "file",
+        "sha256",
+        "mvid"
+      ]
+    },
+    "oldTypes": {
+      "type": "integer"
+    },
+    "matchedTypes": {
+      "type": "integer"
+    },
+    "typeChanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "count"
+        ]
+      }
+    },
+    "memberChanges": {
+      "description": "Member changes by kind; a member counts under each of its changes.",
+      "type": "array",
+      "items": {
+        "$ref": "#/properties/typeChanges/items"
+      }
+    },
+    "memberMatches": {
+      "description": "Member matches by confidence: exact, strong, structural.",
+      "type": "array",
+      "items": {
+        "$ref": "#/properties/typeChanges/items"
+      }
+    },
+    "ambiguousMembers": {
+      "type": "integer"
+    },
+    "oldSkippedBodies": {
+      "type": "integer"
+    },
+    "newSkippedBodies": {
+      "type": "integer"
+    },
+    "hiddenCompilerGenerated": {
+      "description": "Compiler-generated type and member changes left out.",
+      "type": "integer"
+    },
+    "items": {
+      "description": "The changes listed in the text, in its order; only with offset 0, cut when too long.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "type, method, field, property or event.",
+            "type": "string"
+          },
+          "change": {
+            "description": "Types: renamed, changed, ambiguous, removed, added. Members: the first of Changes.",
+            "type": "string"
+          },
+          "old": {
+            "type": "string"
+          },
+          "oldToken": {
+            "type": "string"
+          },
+          "new": {
+            "type": "string"
+          },
+          "newToken": {
+            "type": "string"
+          },
+          "changes": {
+            "description": "Every change of a matched member, with its detail.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "detail"
+              ]
+            }
+          },
+          "tier": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string"
+          },
+          "candidates": {
+            "description": "Ambiguous: the tied candidates in the new build.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "change",
+          "changes"
+        ]
+      }
+    },
+    "total": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "tokenMapFile": {
+      "description": "The file tokenMapPath wrote.",
+      "type": "string"
+    },
+    "tokenMapEntries": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "old",
+    "new",
+    "oldTypes",
+    "matchedTypes",
+    "typeChanges",
+    "memberChanges",
+    "memberMatches",
+    "ambiguousMembers",
+    "oldSkippedBodies",
+    "newSkippedBodies",
+    "hiddenCompilerGenerated",
+    "items",
+    "total",
+    "truncated",
+    "tokenMapEntries"
+  ]
+}

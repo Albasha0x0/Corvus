@@ -1,0 +1,107 @@
+{
+  "type": "object",
+  "properties": {
+    "dump": {
+      "type": "string"
+    },
+    "address": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "size": {
+      "type": "integer"
+    },
+    "assembly": {
+      "description": "Id of the loaded assembly that is the type's module build.",
+      "type": "string"
+    },
+    "token": {
+      "description": "TypeDef token, for get_type_info / decompile_type with assembly.",
+      "type": "string"
+    },
+    "buildCheck": {
+      "description": "match, mismatch (the loaded assembly of that name is another build) or unknown.",
+      "type": "string"
+    },
+    "value": {
+      "description": "A string's value, or a boxed primitive's.",
+      "type": "string"
+    },
+    "length": {
+      "description": "Array length.",
+      "type": "integer"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "Field name, dotted for fields of expanded references and structs; [i] for array elements.",
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "value": {
+            "description": "Primitive value, quoted string, null, or the array length; absent for objects and structs (see Address).",
+            "type": "string"
+          },
+          "address": {
+            "description": "Address of the referenced object (dump_object) or of an inline struct.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "depth"
+        ]
+      }
+    },
+    "truncated": {
+      "description": "More fields or elements exist than maxFields / maxArrayItems allowed.",
+      "type": "boolean"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "dump",
+    "address",
+    "type",
+    "size",
+    "fields",
+    "truncated",
+    "notes"
+  ]
+}

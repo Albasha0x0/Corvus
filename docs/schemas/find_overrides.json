@@ -1,0 +1,104 @@
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "type, method, field, property or event.",
+          "type": "string"
+        },
+        "label": {
+          "description": "Ns.Type or Ns.Type::Member(params).",
+          "type": "string"
+        },
+        "assembly": {
+          "description": "Assembly id.",
+          "type": "string"
+        },
+        "token": {
+          "description": "Metadata token, 0x06000001.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label",
+        "assembly",
+        "token"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "assembly": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "signature": {
+            "description": "Declaration, when asked for.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "assembly",
+          "token"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "method",
+    "items",
+    "offset",
+    "total"
+  ]
+}

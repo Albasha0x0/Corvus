@@ -1,0 +1,82 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "description": "The text as given.",
+            "type": "string"
+          },
+          "size": {
+            "description": "Width in bytes the value was taken at; 0 on error.",
+            "type": "integer"
+          },
+          "unsigned": {
+            "type": "string"
+          },
+          "signed": {
+            "type": "string"
+          },
+          "hex": {
+            "type": "string"
+          },
+          "binary": {
+            "type": "string"
+          },
+          "octal": {
+            "type": "string"
+          },
+          "bytesLe": {
+            "description": "Bytes in memory order on a little-endian machine.",
+            "type": "string"
+          },
+          "bytesBe": {
+            "type": "string"
+          },
+          "asciiLe": {
+            "description": "The little-endian bytes as text when all are printable (trailing zeros dropped).",
+            "type": "string"
+          },
+          "asciiBe": {
+            "type": "string"
+          },
+          "float": {
+            "description": "The bits as an IEEE float (size 4) or double (size 8).",
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "input",
+          "size"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items"
+  ]
+}

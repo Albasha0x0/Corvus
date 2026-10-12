@@ -1,0 +1,319 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "description": "Image id.",
+      "type": "string"
+    },
+    "sites": {
+      "description": "Virtual call sites in the image.",
+      "type": "integer"
+    },
+    "exact": {
+      "description": "Sites with one implementation.",
+      "type": "integer"
+    },
+    "possible": {
+      "description": "Sites with several possible implementations.",
+      "type": "integer"
+    },
+    "unresolved": {
+      "description": "Sites without targets.",
+      "type": "integer"
+    },
+    "edges": {
+      "description": "virtual_exact + virtual_possible edges added to the call graph.",
+      "type": "integer"
+    },
+    "directEdges": {
+      "description": "Direct call graph edges (calls, tail calls, import calls), for comparison.",
+      "type": "integer"
+    },
+    "rttiClasses": {
+      "description": "RTTI classes with vftables.",
+      "type": "integer"
+    },
+    "total": {
+      "description": "Sites matching the filters.",
+      "type": "integer"
+    },
+    "offset": {
+      "description": "Index of the first returned site.",
+      "type": "integer"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "description": "One virtual call site.",
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "VA of the call (or tail jump) instruction.",
+            "type": "string"
+          },
+          "function": {
+            "description": "The calling function and offset.",
+            "type": "string"
+          },
+          "status": {
+            "description": "exact (one implementation: a virtual_exact edge), possible (several: virtual_possible edges) or unresolved.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why unresolved: receiver_unknown, no_vftable_at_offset, slot_out_of_range, only_pure_targets, too_many_targets; null otherwise.",
+            "type": "string"
+          },
+          "receiver": {
+            "description": "How the receiver's class was found: this (of a virtual method of the class), vftable (stored into the object, or by a constructor called on it) or unknown.",
+            "type": "string"
+          },
+          "class": {
+            "description": "The receiver's class (static type), null when unknown.",
+            "type": "string"
+          },
+          "slot": {
+            "description": "vftable slot index.",
+            "type": "integer"
+          },
+          "vfptrOffset": {
+            "description": "Offset of the vfptr in the receiver object (the subobject the call goes through).",
+            "type": "integer"
+          },
+          "vftable": {
+            "description": "VA of the receiver class's vftable the slot is read from, null when unknown.",
+            "type": "string"
+          },
+          "tailCall": {
+            "description": "A jump (tail call) rather than a call.",
+            "type": "boolean"
+          },
+          "incomplete": {
+            "description": "A derived class reaches the class through a virtual base: its overrides are not included.",
+            "type": "boolean"
+          },
+          "targetCount": {
+            "description": "Distinct implementations found (pure virtual stubs excluded).",
+            "type": "integer"
+          },
+          "targets": {
+            "description": "The implementations, \"name @ VA\" (at most 16).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "address",
+          "function",
+          "status",
+          "receiver",
+          "slot",
+          "vfptrOffset",
+          "tailCall",
+          "incomplete",
+          "targetCount",
+          "targets"
+        ]
+      }
+    },
+    "crossCheck": {
+      "description": "The cross-check against IDA, when asked for.",
+      "type": "object",
+      "properties": {
+        "engine": {
+          "description": "The engine compared with.",
+          "type": "string"
+        },
+        "functionsSampled": {
+          "description": "Functions with virtual call sites chosen (evenly spaced: those with resolved sites, then half as many with only unresolved ones).",
+          "type": "integer"
+        },
+        "functionsDecompiled": {
+          "description": "Functions the decompiler finished.",
+          "type": "integer"
+        },
+        "functionsFailed": {
+          "description": "Functions the decompiler failed on.",
+          "type": "integer"
+        },
+        "functionsSkipped": {
+          "description": "Functions not reached within the time budget.",
+          "type": "integer"
+        },
+        "sitesChecked": {
+          "description": "Virtual call sites in the decompiled functions.",
+          "type": "integer"
+        },
+        "agree": {
+          "description": "IDA's target is one of ours.",
+          "type": "integer"
+        },
+        "compatible": {
+          "description": "IDA names the slot of a base class of our receiver class (or of an abstract class: a pure virtual stub): the implementation ours override.",
+          "type": "integer"
+        },
+        "disagree": {
+          "description": "IDA's target is not among ours.",
+          "type": "integer"
+        },
+        "idaInconsistent": {
+          "description": "IDA's vftable member offset differs from the slot the call instruction reads: its types do not model the instruction (not counted as agreement or disagreement).",
+          "type": "integer"
+        },
+        "idaOnly": {
+          "description": "IDA has a target, we have none.",
+          "type": "integer"
+        },
+        "oursOnly": {
+          "description": "We have targets, IDA has none.",
+          "type": "integer"
+        },
+        "bothNone": {
+          "description": "Neither has a target.",
+          "type": "integer"
+        },
+        "agreementRate": {
+          "description": "(agree + compatible) / (agree + compatible + disagree): the sites where IDA's view is consistent with ours; null when no site has targets on both sides.",
+          "type": "number"
+        },
+        "strictAgreementRate": {
+          "description": "agree / (agree + compatible + disagree): IDA's target itself among ours.",
+          "type": "number"
+        },
+        "disagreements": {
+          "description": "Up to 20 disagreeing sites.",
+          "type": "array",
+          "items": {
+            "description": "A site where IDA's target is not among ours.",
+            "type": "object",
+            "properties": {
+              "address": {
+                "description": "VA of the call instruction.",
+                "type": "string"
+              },
+              "function": {
+                "description": "The calling function.",
+                "type": "string"
+              },
+              "ours": {
+                "description": "Our targets (names), or our status when unresolved.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ida": {
+                "description": "IDA's targets (names).",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "idaEvidence": {
+                "description": "How IDA got them: the vftable struct type and member offset, direct, or xref.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "address",
+              "function",
+              "ours",
+              "ida",
+              "idaEvidence"
+            ]
+          }
+        },
+        "idaOnlySites": {
+          "description": "Up to 10 sites where IDA has a target and we have none (Ours holds our reason).",
+          "type": "array",
+          "items": {
+            "description": "A site where IDA's target is not among ours.",
+            "$ref": "#/properties/crossCheck/properties/disagreements/items"
+          }
+        },
+        "notes": {
+          "description": "What limited the check.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "seconds": {
+          "description": "Wall time in seconds (decompilation dominates).",
+          "type": "number"
+        }
+      },
+      "required": [
+        "engine",
+        "functionsSampled",
+        "functionsDecompiled",
+        "functionsFailed",
+        "functionsSkipped",
+        "sitesChecked",
+        "agree",
+        "compatible",
+        "disagree",
+        "idaInconsistent",
+        "idaOnly",
+        "oursOnly",
+        "bothNone",
+        "disagreements",
+        "idaOnlySites",
+        "notes",
+        "seconds"
+      ]
+    },
+    "notes": {
+      "description": "Coverage notes.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "sites",
+    "exact",
+    "possible",
+    "unresolved",
+    "edges",
+    "directEdges",
+    "rttiClasses",
+    "total",
+    "offset",
+    "items",
+    "notes"
+  ]
+}

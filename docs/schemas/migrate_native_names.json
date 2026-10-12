@@ -1,0 +1,140 @@
+{
+  "type": "object",
+  "properties": {
+    "oldImage": {
+      "type": "string"
+    },
+    "newImage": {
+      "type": "string"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "considered": {
+      "type": "integer"
+    },
+    "set": {
+      "type": "integer"
+    },
+    "skipped": {
+      "type": "integer"
+    },
+    "skippedBy": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reason",
+          "count"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "name, comment, or a user type: declarations, type_edit, enum_member, field, analysis, operand, type, local, stack_var.",
+            "type": "string"
+          },
+          "source": {
+            "description": "Layer it came from in the old build: user, pdb or il2cpp.",
+            "type": "string"
+          },
+          "oldAddress": {
+            "description": "Null for declarations.",
+            "type": "string"
+          },
+          "newAddress": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "action": {
+            "description": "set (or would_set in a dry run) or skipped.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "For set: how the address was mapped. For skipped: same_name, same_comment, user_name_exists, user_comment_exists, name_in_use, new_has_own_name, duplicate_target, invalid_name, below_min_tier, below_min_score, same_declarations, same_type, user_type_exists, not_a_function_start, same_local, user_local_exists, same_stack_var, user_stack_var_exists, same_analysis, user_analysis_exists, same_operand, user_operand_exists, same_enum_member, user_enum_member_exists, or the mapping's reason.",
+            "type": "string"
+          },
+          "tier": {
+            "type": "integer"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "source",
+          "value",
+          "action",
+          "reason",
+          "confidence",
+          "detail"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "oldImage",
+    "newImage",
+    "dryRun",
+    "considered",
+    "set",
+    "skipped",
+    "skippedBy",
+    "offset",
+    "total",
+    "truncated",
+    "entries",
+    "notes"
+  ]
+}

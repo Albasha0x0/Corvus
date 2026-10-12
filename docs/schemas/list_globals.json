@@ -1,0 +1,97 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "VA.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name in effect there.",
+            "type": "string"
+          },
+          "type": {
+            "description": "C type when a source records one (PDB, the user's types, define_native data).",
+            "type": "string"
+          },
+          "size": {
+            "description": "Size in bytes when known; -1 otherwise.",
+            "type": "integer"
+          },
+          "section": {
+            "type": "string"
+          },
+          "sources": {
+            "description": "Where it is named or typed: user, pdb, nativeaot, il2cpp, objc, swift, ida, ghidra, export, symbol.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "value": {
+            "description": "The engine's text of the value (engine=ida or ghidra).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "name",
+          "size",
+          "sources"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "engine": {
+      "type": "string"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "items",
+    "offset",
+    "total"
+  ]
+}

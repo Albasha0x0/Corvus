@@ -1,0 +1,114 @@
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string"
+    },
+    "from": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "description": "type, method, field, property or event.",
+                      "type": "string"
+                    },
+                    "label": {
+                      "description": "Ns.Type or Ns.Type::Member(params).",
+                      "type": "string"
+                    },
+                    "assembly": {
+                      "description": "Assembly id.",
+                      "type": "string"
+                    },
+                    "token": {
+                      "description": "Metadata token, 0x06000001.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "label",
+                    "assembly",
+                    "token"
+                  ]
+                },
+                "via": {
+                  "description": "Reached by virtual dispatch through this base/interface method.",
+                  "type": "string"
+                },
+                "site": {
+                  "description": "Native steps: the call site (VA) in the previous step that reaches this one.",
+                  "type": "string"
+                },
+                "edge": {
+                  "description": "Native steps: how it is reached: call, tail, import, virtual_exact, virtual_possible, pointer or pinvoke.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "method"
+              ]
+            }
+          },
+          "virtualHops": {
+            "type": "integer"
+          },
+          "nativeHop": {
+            "description": "Native targets: the final P/Invoke -> native hop.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Native chains: why the first step is a start (entry point, export, TLS callback, address taken, no callers, from).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "steps",
+          "virtualHops"
+        ]
+      }
+    },
+    "total": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "items",
+    "total",
+    "truncated"
+  ]
+}

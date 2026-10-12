@@ -1,0 +1,61 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "files": {
+      "type": "integer"
+    },
+    "editedAssemblies": {
+      "type": "integer"
+    },
+    "edits": {
+      "type": "integer"
+    },
+    "patchedImages": {
+      "type": "integer"
+    },
+    "patches": {
+      "type": "integer"
+    },
+    "names": {
+      "type": "integer"
+    },
+    "comments": {
+      "type": "integer"
+    },
+    "notes": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "files",
+    "editedAssemblies",
+    "edits",
+    "patchedImages",
+    "patches",
+    "names",
+    "comments",
+    "notes"
+  ]
+}

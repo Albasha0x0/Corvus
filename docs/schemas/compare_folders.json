@@ -1,0 +1,335 @@
+{
+  "type": "object",
+  "properties": {
+    "old": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "folder, zip (central directory: CRC-32 and size, entries not read) or file.",
+          "type": "string"
+        },
+        "entries": {
+          "type": "integer"
+        },
+        "bytes": {
+          "type": "integer"
+        },
+        "complete": {
+          "description": "False when the walk stopped (maxEntries, a folder not listed): absent paths are then unmatched, not added or removed.",
+          "type": "boolean"
+        },
+        "hashed": {
+          "description": "Files hashed in this call; Reused: hashes kept from an earlier call (same path, size and write time).",
+          "type": "integer"
+        },
+        "reused": {
+          "type": "integer"
+        },
+        "entryReads": {
+          "description": "Archive entries whose content was read (for details on this page only).",
+          "type": "integer"
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "entries",
+        "bytes",
+        "complete",
+        "hashed",
+        "reused",
+        "entryReads",
+        "problems"
+      ]
+    },
+    "new": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "folder, zip (central directory: CRC-32 and size, entries not read) or file.",
+          "type": "string"
+        },
+        "entries": {
+          "type": "integer"
+        },
+        "bytes": {
+          "type": "integer"
+        },
+        "complete": {
+          "description": "False when the walk stopped (maxEntries, a folder not listed): absent paths are then unmatched, not added or removed.",
+          "type": "boolean"
+        },
+        "hashed": {
+          "description": "Files hashed in this call; Reused: hashes kept from an earlier call (same path, size and write time).",
+          "type": "integer"
+        },
+        "reused": {
+          "type": "integer"
+        },
+        "entryReads": {
+          "description": "Archive entries whose content was read (for details on this page only).",
+          "type": "integer"
+        },
+        "problems": {
+          "$ref": "#/properties/old/properties/problems",
+          "items": {}
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "entries",
+        "bytes",
+        "complete",
+        "hashed",
+        "reused",
+        "entryReads",
+        "problems"
+      ]
+    },
+    "hashBasis": {
+      "description": "sha256 (folders and files), or crc32+size when a side is an archive.",
+      "type": "string"
+    },
+    "caseSensitive": {
+      "type": "boolean"
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "unchanged": {
+          "type": "integer"
+        },
+        "modified": {
+          "type": "integer"
+        },
+        "added": {
+          "type": "integer"
+        },
+        "removed": {
+          "type": "integer"
+        },
+        "moved": {
+          "type": "integer"
+        },
+        "movedAmbiguous": {
+          "type": "integer"
+        },
+        "renamed": {
+          "type": "integer"
+        },
+        "unreadable": {
+          "type": "integer"
+        },
+        "unverified": {
+          "type": "integer"
+        },
+        "unmatched": {
+          "type": "integer"
+        },
+        "links": {
+          "description": "Links (symbolic links, junctions) among the entries; compared by target, never followed.",
+          "type": "integer"
+        },
+        "unchangedAtLeast": {
+          "description": "A side is incomplete: Unchanged is a lower bound.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "unchanged",
+        "modified",
+        "added",
+        "removed",
+        "moved",
+        "movedAmbiguous",
+        "renamed",
+        "unreadable",
+        "unverified",
+        "unmatched",
+        "links",
+        "unchangedAtLeast"
+      ]
+    },
+    "view": {
+      "description": "The change filter of Entries.",
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "change": {
+            "description": "modified, added, removed, moved (same content, other path), moved_ambiguous, renamed (case only, same content), unreadable (locked or denied: unknown), unverified (equal size, not hashed: over the byte budget), unmatched (the other side is incomplete), unchanged.",
+            "type": "string"
+          },
+          "oldPath": {
+            "type": "string"
+          },
+          "newPath": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "dotnet, pe, elf, macho, zip, text, link or file; null past the first 200 entries of a page.",
+            "type": "string"
+          },
+          "oldSize": {
+            "type": "integer"
+          },
+          "newSize": {
+            "type": "integer"
+          },
+          "old": {
+            "type": "object",
+            "properties": {
+              "format": {
+                "description": "dotnet, pe, elf or macho.",
+                "type": "string"
+              },
+              "machine": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "string"
+              },
+              "version": {
+                "description": "Version resource FileVersion (PE).",
+                "type": "string"
+              },
+              "mvid": {
+                "type": "string"
+              },
+              "assemblyVersion": {
+                "type": "string"
+              },
+              "buildId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "format"
+            ]
+          },
+          "new": {
+            "type": "object",
+            "properties": {
+              "format": {
+                "description": "dotnet, pe, elf or macho.",
+                "type": "string"
+              },
+              "machine": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "string"
+              },
+              "version": {
+                "description": "Version resource FileVersion (PE).",
+                "type": "string"
+              },
+              "mvid": {
+                "type": "string"
+              },
+              "assemblyVersion": {
+                "type": "string"
+              },
+              "buildId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "format"
+            ]
+          },
+          "candidates": {
+            "description": "moved_ambiguous: paths on the other side with the same content (up to five) and their count.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidateCount": {
+            "type": "integer"
+          },
+          "nextStep": {
+            "description": "A ready-to-run next call for this entry.",
+            "type": "string"
+          },
+          "diff": {
+            "description": "Unified diff of a text file of up to 64 KiB, cut at 80 lines.",
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "change"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "seconds": {
+      "type": "number"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "old",
+    "new",
+    "hashBasis",
+    "caseSensitive",
+    "counts",
+    "view",
+    "offset",
+    "total",
+    "truncated",
+    "entries",
+    "notes",
+    "seconds"
+  ]
+}

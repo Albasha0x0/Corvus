@@ -1,0 +1,167 @@
+{
+  "type": "object",
+  "properties": {
+    "serial": {
+      "type": "string"
+    },
+    "package": {
+      "type": "string"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "remote": {
+            "type": "string"
+          },
+          "local": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "remote",
+          "local",
+          "size",
+          "sha256"
+        ]
+      }
+    },
+    "summary": {
+      "description": "The base APK read with the package reader: manifest facts, runtimes, signature.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "versionName": {
+          "type": "string"
+        },
+        "versionCode": {
+          "type": "string"
+        },
+        "minSdk": {
+          "type": "integer"
+        },
+        "targetSdk": {
+          "type": "integer"
+        },
+        "runtimes": {
+          "description": "Runtimes found in the package, each with its evidence.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "family": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "family",
+              "evidence"
+            ]
+          }
+        },
+        "abis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dexFiles": {
+          "type": "integer"
+        },
+        "dexBytes": {
+          "type": "integer"
+        },
+        "permissions": {
+          "type": "integer"
+        },
+        "components": {
+          "type": "integer"
+        },
+        "exportedComponents": {
+          "type": "integer"
+        },
+        "signature": {
+          "description": "Signature verdict (verified, mismatch, unsigned, unsupported_algorithm) and schemes (v4 from the .idsig beside the file); an .aab has v1 only.",
+          "type": "string"
+        },
+        "signers": {
+          "description": "One line per signer: scheme, certificate, SDK range, verdict with reasons, rotation lineage with capabilities.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "splitApks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "package",
+        "runtimes",
+        "abis",
+        "dexFiles",
+        "dexBytes",
+        "permissions",
+        "components",
+        "exportedComponents",
+        "signers",
+        "splitApks",
+        "highlights"
+      ]
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "serial",
+    "package",
+    "files"
+  ]
+}

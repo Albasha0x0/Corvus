@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "properties": {
+    "dump": {
+      "type": "string"
+    },
+    "address": {
+      "type": "string"
+    },
+    "requested": {
+      "type": "integer"
+    },
+    "length": {
+      "type": "integer"
+    },
+    "source": {
+      "description": "dump_memory, module_image (disk) or module_image (dump_memory); none when nothing is readable.",
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "region": {
+      "type": "string"
+    },
+    "protection": {
+      "type": "string"
+    },
+    "hex": {
+      "description": "Hex dump: address, 16 bytes, ASCII.",
+      "type": "string"
+    },
+    "bytes": {
+      "type": "string"
+    },
+    "note": {
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "dump",
+    "address",
+    "requested",
+    "length",
+    "source",
+    "hex",
+    "bytes"
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "type": "object",
+  "properties": {
+    "oldImage": {
+      "type": "string"
+    },
+    "newImage": {
+      "type": "string"
+    },
+    "oldAddress": {
+      "type": "string"
+    },
+    "newAddress": {
+      "description": "The address in the new build, or null when it could not be mapped.",
+      "type": "string"
+    },
+    "confidence": {
+      "description": "0-1: the function match's trust times how exactly the instruction aligned.",
+      "type": "number"
+    },
+    "reason": {
+      "description": "function_start, aligned_instruction, replaced_instruction, same_string, followed_references; or why not: function_not_matched, ambiguous, instruction_removed, changed_region, conflicting_references, no_reference_to_follow, not_an_instruction.",
+      "type": "string"
+    },
+    "detail": {
+      "type": "string"
+    },
+    "oldFunction": {
+      "type": "string"
+    },
+    "newFunction": {
+      "type": "string"
+    },
+    "tier": {
+      "type": "integer"
+    },
+    "candidates": {
+      "description": "Candidate or nearby new addresses when not mapped.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "oldImage",
+    "newImage",
+    "oldAddress",
+    "confidence",
+    "reason",
+    "detail",
+    "candidates"
+  ]
+}

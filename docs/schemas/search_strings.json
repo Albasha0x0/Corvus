@@ -1,0 +1,112 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "description": "The literal (clipped at 2000 characters).",
+            "type": "string"
+          },
+          "source": {
+            "description": "il (ldstr), constant (const field), il2cpp (the dump's string literal table).",
+            "type": "string"
+          },
+          "owner": {
+            "description": "Method or field using it (il, constant).",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "description": "type, method, field, property or event.",
+                "type": "string"
+              },
+              "label": {
+                "description": "Ns.Type or Ns.Type::Member(params).",
+                "type": "string"
+              },
+              "assembly": {
+                "description": "Assembly id.",
+                "type": "string"
+              },
+              "token": {
+                "description": "Metadata token, 0x06000001.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "label",
+              "assembly",
+              "token"
+            ]
+          },
+          "ilOffset": {
+            "type": "integer"
+          },
+          "slotRva": {
+            "description": "Il2Cpp: RVA of the literal's slot.",
+            "type": "string"
+          },
+          "loadedBy": {
+            "description": "Il2Cpp: functions loading it (methods by label, else RVAs), up to usesPerLiteral.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "value",
+          "source"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "notEvaluated": {
+      "description": "Inputs the regex timed out on (1 s limit each), left out of the results: non-zero means they are incomplete.",
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "offset",
+    "total"
+  ]
+}

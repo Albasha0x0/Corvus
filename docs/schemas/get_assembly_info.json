@@ -1,0 +1,220 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "fullName": {
+      "type": "string"
+    },
+    "file": {
+      "type": "string"
+    },
+    "sha256": {
+      "description": "SHA-256 of the file as loaded (unsaved edits not included).",
+      "type": "string"
+    },
+    "mvid": {
+      "type": "string"
+    },
+    "runtime": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "machine": {
+      "type": "string"
+    },
+    "targetFramework": {
+      "type": "string"
+    },
+    "entryPoint": {
+      "description": "Ns.Type::Method of the entry point.",
+      "type": "string"
+    },
+    "types": {
+      "type": "integer"
+    },
+    "nestedTypes": {
+      "type": "integer"
+    },
+    "namespaces": {
+      "type": "integer"
+    },
+    "methods": {
+      "type": "integer"
+    },
+    "fields": {
+      "type": "integer"
+    },
+    "resources": {
+      "type": "integer"
+    },
+    "referenceAssembly": {
+      "type": "boolean"
+    },
+    "il2CppAddressedMethods": {
+      "description": "Il2Cpp dummy DLL: methods with [Address] attributes.",
+      "type": "integer"
+    },
+    "invalidBodies": {
+      "description": "Method bodies that are not valid IL.",
+      "type": "integer"
+    },
+    "invalidExceptionClauses": {
+      "description": "Exception clauses of valid bodies with bad flags, ranges outside the code or off instruction boundaries, or a misplaced filter.",
+      "type": "integer"
+    },
+    "unsavedEdits": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "description": "Where it resolves, or not found.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ]
+      }
+    },
+    "attributes": {
+      "description": "Assembly attributes (first 40).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tables": {
+      "description": "Row counts of the non-empty metadata tables, in table order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "table",
+          "rows"
+        ]
+      }
+    },
+    "heaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "heap": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "indexBytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "heap",
+          "bytes"
+        ]
+      }
+    },
+    "metadataIssueCount": {
+      "description": "Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.",
+      "type": "integer"
+    },
+    "metadataIssues": {
+      "description": "The first 50 metadata problems.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "description": "Short code: duplicate_stream, unknown_stream, stream_out_of_range, unknown_tables, extra_data_flag, bad_metadata_root, implmap_scope_out_of_range, implmap_name_out_of_range, implmap_member_out_of_range, moduleref_name_out_of_range, bad_table_index, bad_list_index, bad_coded_index, bad_heap_index, decompiler_reader.",
+            "type": "string"
+          },
+          "location": {
+            "description": "Stream, table and row (token) concerned.",
+            "type": "string"
+          },
+          "fileOffset": {
+            "description": "File offset of the structure, when known (hex).",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "location",
+          "detail"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "fullName",
+    "file",
+    "sha256",
+    "mvid",
+    "runtime",
+    "kind",
+    "machine",
+    "types",
+    "nestedTypes",
+    "namespaces",
+    "methods",
+    "fields",
+    "resources",
+    "referenceAssembly",
+    "il2CppAddressedMethods",
+    "invalidBodies",
+    "invalidExceptionClauses",
+    "unsavedEdits",
+    "references",
+    "attributes",
+    "tables",
+    "heaps",
+    "metadataIssueCount",
+    "metadataIssues"
+  ]
+}

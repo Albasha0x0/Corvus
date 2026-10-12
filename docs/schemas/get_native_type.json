@@ -1,0 +1,434 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "description": "Image id.",
+      "type": "string"
+    },
+    "query": {
+      "description": "What was looked up: name, id or address.",
+      "type": "string"
+    },
+    "type": {
+      "description": "The type found; null when the name matched several candidates or none.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Stable id: pdb:0x1A2B (type record), pdb:Name (typedef), rtti:<type descriptor VA>, il2cpp:Ns.Type (#statics), ida:Name.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "struct, class, union, enum, typedef, pointer, array, function, bitfield, scalar, modifier, interface or statics.",
+          "type": "string"
+        },
+        "source": {
+          "description": "pdb, rtti, pdb+rtti, il2cpp or the engine's id.",
+          "type": "string"
+        },
+        "size": {
+          "description": "Size in bytes; -1 when the source does not record it (RTTI).",
+          "type": "integer"
+        },
+        "alignment": {
+          "description": "Alignment; for PDB types computed from the members (the PDB records none).",
+          "type": "integer"
+        },
+        "packed": {
+          "description": "A member is not at its natural alignment (#pragma pack).",
+          "type": "boolean"
+        },
+        "forwardOnly": {
+          "description": "Only a forward declaration exists in the source.",
+          "type": "boolean"
+        },
+        "referenced": {
+          "description": "Id of the pointee, array element, enum's underlying type or typedef's target.",
+          "type": "string"
+        },
+        "arrayCount": {
+          "type": "integer"
+        },
+        "fields": {
+          "description": "Fields in offset order, one page of them.",
+          "type": "array",
+          "items": {
+            "description": "A field of a type, a base subobject, a vftable pointer, a static member or a padding gap.",
+            "type": "object",
+            "properties": {
+              "offset": {
+                "description": "Offset in bytes from the start of the type; -1 for static members and virtual bases.",
+                "type": "integer"
+              },
+              "size": {
+                "description": "Size in bytes (a bit field's storage unit); -1 when unknown.",
+                "type": "integer"
+              },
+              "name": {
+                "description": "Name; nested rows (depth > 0) are dotted paths such as header.magic.",
+                "type": "string"
+              },
+              "type": {
+                "description": "C spelling of the field's type.",
+                "type": "string"
+              },
+              "typeId": {
+                "description": "Id of the field's type for get_native_type id=...; null for scalars.",
+                "type": "string"
+              },
+              "kind": {
+                "description": "member, base, vbase, vfptr, static, padding or header (Il2Cpp object header).",
+                "type": "string"
+              },
+              "bitOffset": {
+                "description": "First bit of a bit field in its storage unit.",
+                "type": "integer"
+              },
+              "bitSize": {
+                "description": "Width of a bit field in bits.",
+                "type": "integer"
+              },
+              "note": {
+                "description": "Source-specific detail: the managed type and declaring class for Il2Cpp, computed offsets.",
+                "type": "string"
+              },
+              "value": {
+                "description": "read=true: the field's value in the image's bytes.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "offset",
+              "size",
+              "name",
+              "type",
+              "kind"
+            ]
+          }
+        },
+        "totalFields": {
+          "description": "Fields in total (after depth expansion).",
+          "type": "integer"
+        },
+        "enumerators": {
+          "description": "Enumerators sorted by value, one page of them.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "hex": {
+                "description": "The value in hex (two's complement for negatives).",
+                "type": "string"
+              },
+              "value": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "hex",
+              "value"
+            ]
+          }
+        },
+        "flagsLike": {
+          "description": "Every enumerator is a power of two or a combination of them.",
+          "type": "boolean"
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "return": {
+              "type": "string"
+            },
+            "returnId": {
+              "type": "string"
+            },
+            "parameters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "typeId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "variadic": {
+              "type": "boolean"
+            },
+            "convention": {
+              "type": "string"
+            },
+            "this": {
+              "description": "The this pointer's type of a member function; null otherwise.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "return",
+            "parameters",
+            "variadic",
+            "convention"
+          ]
+        },
+        "bases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "description": "Offset of the base subobject; -1 for a virtual base.",
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "virtual": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "offset",
+              "name",
+              "virtual"
+            ]
+          }
+        },
+        "vftables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "description": "VA of the vftable.",
+                "type": "string"
+              },
+              "subobjectOffset": {
+                "description": "Offset of the subobject whose vftable pointer points here.",
+                "type": "integer"
+              },
+              "slots": {
+                "description": "Slots in the vftable.",
+                "type": "integer"
+              },
+              "entries": {
+                "description": "One page of the slots (offset / limit).",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "description": "Byte offset of the slot in the vftable ([rax+40h] reads slot 8 on x64).",
+                      "type": "integer"
+                    },
+                    "address": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "offset",
+                    "address"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "address",
+              "subobjectOffset",
+              "slots",
+              "entries"
+            ]
+          }
+        },
+        "globalsOfType": {
+          "description": "Data symbols (PDB globals) of this type: count, and the first names.",
+          "type": "integer"
+        },
+        "globals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "declaration": {
+          "description": "C declaration (format=c, or the engine's own).",
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "source",
+        "size",
+        "packed",
+        "forwardOnly",
+        "fields",
+        "totalFields",
+        "enumerators",
+        "flagsLike",
+        "bases",
+        "vftables",
+        "globalsOfType",
+        "globals",
+        "notes"
+      ]
+    },
+    "candidates": {
+      "description": "Types whose name contains the query (no exact match), one page of them.",
+      "type": "array",
+      "items": {
+        "description": "A type a name matched.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "size",
+          "source"
+        ]
+      }
+    },
+    "totalCandidates": {
+      "type": "integer"
+    },
+    "owner": {
+      "description": "For address=: the typed item the address is in (a PDB global, a vftable, a metadata slot) and where it starts.",
+      "type": "string"
+    },
+    "ownerAddress": {
+      "type": "string"
+    },
+    "paths": {
+      "description": "The field path(s) at the address or at=.",
+      "type": "array",
+      "items": {
+        "description": "The field at an offset: one path per overlapping member (unions, bit fields sharing a unit).",
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "C path from the type: players[3].pos.y.",
+            "type": "string"
+          },
+          "offset": {
+            "description": "Offset of the field reached, from the start of the type the path starts at.",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Type of the field reached.",
+            "type": "string"
+          },
+          "remainder": {
+            "description": "Bytes into that field (0 at its start).",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "offset",
+          "type",
+          "remainder"
+        ]
+      }
+    },
+    "offset": {
+      "description": "Index of the first returned field, enumerator, slot or candidate.",
+      "type": "integer"
+    },
+    "truncated": {
+      "description": "More rows exist past this page: call again with offset = offset + rows returned.",
+      "type": "boolean"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "readAddress": {
+      "description": "read=true: where the values were read (VA).",
+      "type": "string"
+    },
+    "value": {
+      "description": "read=true on a type without fields (scalar, enum, pointer, array): its value.",
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "query",
+    "candidates",
+    "totalCandidates",
+    "paths",
+    "offset",
+    "truncated",
+    "notes"
+  ]
+}

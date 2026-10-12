@@ -1,0 +1,271 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "description": "Image id.",
+      "type": "string"
+    },
+    "engine": {
+      "description": "Engine of the per-function slices.",
+      "type": "string"
+    },
+    "seed": {
+      "description": "What the trace starts from.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "location, argument, parameter, result or global.",
+          "type": "string"
+        },
+        "address": {
+          "description": "VA of the instruction, call, function or global.",
+          "type": "string"
+        },
+        "function": {
+          "description": "The function and offset, null for a global.",
+          "type": "string"
+        },
+        "location": {
+          "description": "The register or slot (for arguments and parameters: at the callee's entry), null for results and globals.",
+          "type": "string"
+        },
+        "description": {
+          "description": "The seed in words.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "address",
+        "description"
+      ]
+    },
+    "direction": {
+      "description": "backward, forward or both.",
+      "type": "string"
+    },
+    "values": {
+      "description": "The answer: distinct values (backward) or API arguments reached (forward), over the whole graph.",
+      "type": "array",
+      "items": {
+        "description": "A distinct value reaching the seed (backward), or an API argument or switch case the seed's value reaches (forward).",
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "const, string, function, address, import, api_result, sink, or switch (the case a constant selects).",
+            "type": "string"
+          },
+          "address": {
+            "description": "VA, for strings, functions and addresses.",
+            "type": "string"
+          },
+          "node": {
+            "description": "The node.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "text",
+          "kind",
+          "node"
+        ]
+      }
+    },
+    "nodes": {
+      "description": "Nodes of this page, in discovery order.",
+      "type": "array",
+      "items": {
+        "description": "A node: a value (backward) or a use (forward).",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "description": "seed, const, address, string, function, import (pointer of an imported function), api_result, call_result, parameter, global, field ([base+off] load), stack_local, merge (paths with different values), loop, unknown; forward: argument (into a callee of the image), sink (argument of an API or unresolved callee), store, field_store, return, compare, switch, dereference, call_target.",
+            "type": "string"
+          },
+          "address": {
+            "description": "VA of the defining or using instruction (the function for parameters, the global for initial contents).",
+            "type": "string"
+          },
+          "image": {
+            "description": "The loaded image Address is in when it is not the seed's (reached through an import or export).",
+            "type": "string"
+          },
+          "function": {
+            "description": "Function and offset of Address.",
+            "type": "string"
+          },
+          "location": {
+            "description": "Register or slot, when the node has one.",
+            "type": "string"
+          },
+          "text": {
+            "description": "The value or use as text (quoted strings, names, decoded constants).",
+            "type": "string"
+          },
+          "value": {
+            "description": "The number, for constants and compares (hex).",
+            "type": "string"
+          },
+          "valueAddress": {
+            "description": "The address the value is: string, function, global (VA).",
+            "type": "string"
+          },
+          "decoded": {
+            "description": "The value named by the API parameter or return it meets (GENERIC_READ|GENERIC_WRITE, WAIT_TIMEOUT).",
+            "type": "string"
+          },
+          "depth": {
+            "description": "Function boundaries crossed from the seed.",
+            "type": "integer"
+          },
+          "parent": {
+            "description": "The node it was reached from (-1 for the seed).",
+            "type": "integer"
+          },
+          "direction": {
+            "description": "backward (a value reaching the seed) or forward (a use of the seed's value).",
+            "type": "string"
+          },
+          "derivation": {
+            "description": "The instructions it came through, or why it is unknown.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "address",
+          "text",
+          "depth",
+          "parent",
+          "direction",
+          "derivation"
+        ]
+      }
+    },
+    "edges": {
+      "description": "Edges with either end on this page.",
+      "type": "array",
+      "items": {
+        "description": "A data-flow edge, From's value flows to To.",
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "integer"
+          },
+          "to": {
+            "type": "integer"
+          },
+          "kind": {
+            "description": "copy, merge, loop, field, use, argument (caller's argument to a parameter), parameter (into a callee), return, store, load.",
+            "type": "string"
+          },
+          "site": {
+            "description": "The call, store or load instruction (VA), when the edge crosses one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "kind"
+        ]
+      }
+    },
+    "frontier": {
+      "description": "Unexplored items, each with its follow-up call.",
+      "type": "array",
+      "items": {
+        "description": "Something a budget left unexplored.",
+        "type": "object",
+        "properties": {
+          "node": {
+            "description": "The node it continues from.",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "depth, functions, nodes, callers, writers, readers or steps.",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "next": {
+            "description": "The call that continues there.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node",
+          "reason",
+          "detail",
+          "next"
+        ]
+      }
+    },
+    "totalNodes": {
+      "type": "integer"
+    },
+    "totalEdges": {
+      "type": "integer"
+    },
+    "functions": {
+      "description": "Functions sliced.",
+      "type": "integer"
+    },
+    "offset": {
+      "description": "Index of the first node on this page.",
+      "type": "integer"
+    },
+    "truncated": {
+      "description": "More nodes follow (call again with offset).",
+      "type": "boolean"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "engine",
+    "seed",
+    "direction",
+    "values",
+    "nodes",
+    "edges",
+    "frontier",
+    "totalNodes",
+    "totalEdges",
+    "functions",
+    "offset",
+    "truncated",
+    "notes"
+  ]
+}

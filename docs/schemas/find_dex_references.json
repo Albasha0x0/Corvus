@@ -1,0 +1,99 @@
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string"
+    },
+    "targetKind": {
+      "type": "string"
+    },
+    "direction": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "call, read, write, string or type.",
+            "type": "string"
+          },
+          "method": {
+            "description": "The method holding the instruction (exact id).",
+            "type": "string"
+          },
+          "offset": {
+            "description": "Code offset in 16-bit units.",
+            "type": "integer"
+          },
+          "target": {
+            "description": "What the instruction refers to (exact id or the string).",
+            "type": "string"
+          },
+          "opcode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "method",
+          "offset",
+          "target",
+          "opcode"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "targetKind",
+    "direction",
+    "items",
+    "offset",
+    "total",
+    "notes"
+  ]
+}

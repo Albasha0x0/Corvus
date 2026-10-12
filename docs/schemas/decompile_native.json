@@ -1,0 +1,146 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "engine": {
+      "description": "ida or ghidra.",
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "description": "One function of the call.",
+        "type": "object",
+        "properties": {
+          "input": {
+            "description": "The address or name as given.",
+            "type": "string"
+          },
+          "address": {
+            "description": "Its VA; null when it did not resolve.",
+            "type": "string"
+          },
+          "function": {
+            "description": "Start VA of the function decompiled.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "description": "ok, error, skipped (time budget or maxFunctions) or duplicate (the same function as an earlier item).",
+            "type": "string"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "integer"
+          },
+          "chars": {
+            "type": "integer"
+          },
+          "refs": {
+            "description": "refs=true: the globals, functions, strings and imports the pseudocode names, in first-use order.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "function, import, string or data.",
+                  "type": "string"
+                },
+                "text": {
+                  "description": "A string's text.",
+                  "type": "string"
+                },
+                "uses": {
+                  "description": "Uses in the pseudocode (IDA) or references from the function (other engines).",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "address",
+                "name",
+                "kind",
+                "uses"
+              ]
+            }
+          }
+        },
+        "required": [
+          "input",
+          "status",
+          "lines",
+          "chars"
+        ]
+      }
+    },
+    "total": {
+      "type": "integer"
+    },
+    "succeeded": {
+      "type": "integer"
+    },
+    "failed": {
+      "type": "integer"
+    },
+    "skipped": {
+      "type": "integer"
+    },
+    "next": {
+      "description": "The call that decompiles the skipped items, when there are any.",
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "engine",
+    "items",
+    "total",
+    "succeeded",
+    "failed",
+    "skipped"
+  ]
+}

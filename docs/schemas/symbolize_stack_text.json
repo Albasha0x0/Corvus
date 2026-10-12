@@ -1,0 +1,208 @@
+{
+  "type": "object",
+  "properties": {
+    "format": {
+      "description": "The format recognized (unity, dotnet, wer, eventlog, windbg, android), or the one requested.",
+      "type": "string"
+    },
+    "exception": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Native exception code (WER, Event Log), e.g. 0xC0000005.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Symbolic name of the code.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "inner": {
+          "description": "Inner exceptions, outermost first.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        }
+      },
+      "required": [
+        "inner"
+      ]
+    },
+    "total": {
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "line": {
+            "description": "Line of the text (0 for a frame built from WER or Event Log fields).",
+            "type": "integer"
+          },
+          "raw": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "native, managed or il2cpp.",
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "resolved": {
+            "description": "Our name for the frame: function+0xoffset, or the managed method.",
+            "type": "string"
+          },
+          "source": {
+            "description": "user, pdb, il2cpp, export, discovered, nearest_export, metadata, or none.",
+            "type": "string"
+          },
+          "image": {
+            "description": "Id of the loaded native image the frame resolved in.",
+            "type": "string"
+          },
+          "assembly": {
+            "description": "Id of the loaded assembly the method resolved in.",
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "ilOffset": {
+            "type": "integer"
+          },
+          "statement": {
+            "description": "The C# statement at the IL offset (decompiled with sequence points), when the frame's build matches.",
+            "type": "string"
+          },
+          "exception": {
+            "description": "Which exception of the chain the frame belongs to: 0 the outermost.",
+            "type": "integer"
+          },
+          "buildCheck": {
+            "description": "match (the same build: time stamp, MVID or the text's own name agree), mismatch (another build: do not trust the name), or unknown.",
+            "type": "string"
+          },
+          "buildDetail": {
+            "type": "string"
+          },
+          "nextStep": {
+            "description": "The call that continues from this frame.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "line",
+          "raw",
+          "kind",
+          "buildCheck"
+        ]
+      }
+    },
+    "unrecognizedLines": {
+      "description": "Lines no format recognized (blank lines aside).",
+      "type": "integer"
+    },
+    "unrecognizedSample": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "modulesMissing": {
+      "description": "Modules or assemblies the frames name that are not loaded, with what identifies the build needed.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "timeDateStamp": {
+            "type": "string"
+          },
+          "frames": {
+            "description": "Frames in that module.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "module",
+          "frames"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "format",
+    "total",
+    "offset",
+    "truncated",
+    "frames",
+    "unrecognizedLines",
+    "unrecognizedSample",
+    "modulesMissing",
+    "notes"
+  ]
+}

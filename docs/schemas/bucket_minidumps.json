@@ -1,0 +1,161 @@
+{
+  "type": "object",
+  "properties": {
+    "folder": {
+      "type": "string"
+    },
+    "dumps": {
+      "type": "object",
+      "properties": {
+        "seen": {
+          "description": "Dump files found.",
+          "type": "integer"
+        },
+        "parsed": {
+          "description": "Parsed in this call.",
+          "type": "integer"
+        },
+        "cached": {
+          "description": "Taken from the cache of an earlier call (same path, size and write time).",
+          "type": "integer"
+        },
+        "failed": {
+          "type": "integer"
+        },
+        "limitReached": {
+          "description": "More files than maxDumps: the newest were bucketed.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "seen",
+        "parsed",
+        "cached",
+        "failed",
+        "limitReached"
+      ]
+    },
+    "total": {
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "buckets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "signature": {
+            "description": "exception code | faulting module!function | the next frames; hang | top frames; clr | exception type | top managed frames.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "exception, clr_exception or no_exception.",
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "firstTime": {
+            "type": "string"
+          },
+          "lastTime": {
+            "type": "string"
+          },
+          "moduleVersions": {
+            "description": "Faulting module versions: dumps per version.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "offsets": {
+            "description": "Offsets inside the faulting function: dumps per offset.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "sample": {
+            "description": "Dump ids (open_minidump, dump_stack) of up to five members.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "representative": {
+            "description": "The newest member's dump id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signature",
+          "kind",
+          "count",
+          "firstTime",
+          "lastTime",
+          "moduleVersions",
+          "offsets",
+          "sample",
+          "representative"
+        ]
+      }
+    },
+    "failed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "reason"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "folder",
+    "dumps",
+    "total",
+    "offset",
+    "truncated",
+    "buckets",
+    "failed",
+    "notes"
+  ]
+}

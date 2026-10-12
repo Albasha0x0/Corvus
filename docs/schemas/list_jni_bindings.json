@@ -1,0 +1,128 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "javaMethod": {
+            "description": "The Java native method (Lpkg/C;->name(sig)ret); for a registered entry whose class is not known, ?->name(sig)ret.",
+            "type": "string"
+          },
+          "library": {
+            "description": "The library entry (lib/<abi>/libname.so); null for an unresolved method.",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "The exported symbol (Java_pkg_C_name, or the overload form with __ and the mangled parameters).",
+            "type": "string"
+          },
+          "address": {
+            "description": "Virtual address of the native function in the library.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "static_export (bound by its exported name), registered (a RegisterNatives table entry), unresolved (a native method with no export or table entry), or export_only (a Java_ export with no native method in the DEX code).",
+            "type": "string"
+          },
+          "confidence": {
+            "description": "registered entries: how the class was found: class_string (the FindClass name in the function that passes the table), name_and_signature (the only native method with that name and signature), or unknown.",
+            "type": "string"
+          },
+          "table": {
+            "description": "registered entries: virtual address of the table.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "libraries": {
+      "description": "The libraries read that have Java_ exports, JNI_OnLoad or RegisterNatives tables, with their counts.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "string"
+          },
+          "abi": {
+            "type": "string"
+          },
+          "javaExports": {
+            "type": "integer"
+          },
+          "hasJniOnLoad": {
+            "type": "boolean"
+          },
+          "registerNativesTables": {
+            "type": "integer"
+          },
+          "registeredMethods": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "library",
+          "abi",
+          "javaExports",
+          "hasJniOnLoad",
+          "registerNativesTables",
+          "registeredMethods"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "offset",
+    "total",
+    "libraries",
+    "notes"
+  ]
+}

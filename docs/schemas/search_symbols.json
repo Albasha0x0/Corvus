@@ -1,0 +1,80 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "assembly": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "signature": {
+            "description": "Declaration, when asked for.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "assembly",
+          "token"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "notEvaluated": {
+      "description": "Inputs the regex timed out on (1 s limit each), left out of the results: non-zero means they are incomplete.",
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "offset",
+    "total"
+  ]
+}

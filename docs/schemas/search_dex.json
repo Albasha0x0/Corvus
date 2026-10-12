@@ -1,0 +1,88 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "string, type, method, field, const or opcode; class for a defined class.",
+            "type": "string"
+          },
+          "value": {
+            "description": "The string, descriptor or value found.",
+            "type": "string"
+          },
+          "method": {
+            "description": "The method containing the instruction (exact id); null for a definition.",
+            "type": "string"
+          },
+          "offset": {
+            "description": "Code offset in 16-bit units.",
+            "type": "integer"
+          },
+          "opcode": {
+            "type": "string"
+          },
+          "uses": {
+            "description": "Uses in code (method and field hits).",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "value"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "offset",
+    "total",
+    "notes"
+  ]
+}

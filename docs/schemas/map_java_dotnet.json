@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string"
+    },
+    "direction": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "java": {
+            "description": "Java side: a class descriptor Lpkg/C; or a method id Lpkg/C;->name(sig)ret.",
+            "type": "string"
+          },
+          "dotNet": {
+            "description": ".NET side: Ns.Type or Ns.Type::Method(params), what decompile_member takes.",
+            "type": "string"
+          },
+          "assembly": {
+            "description": "The assembly: its workspace id when loaded, else its path inside the package.",
+            "type": "string"
+          },
+          "loaded": {
+            "type": "boolean"
+          },
+          "basis": {
+            "description": "register_attribute, component_name, crc64_package (the Java callable wrapper name computed from namespace and assembly), mono_android_package, override (a .NET override of a registered Java method); Unity C#: unity_call (Call / CallStatic / Get / Set by name), unity_new (AndroidJavaClass / AndroidJavaObject), unity_proxy (an AndroidJavaProxy of the interface), unity_jni (AndroidJNI).",
+            "type": "string"
+          },
+          "confidence": {
+            "description": "Unity pairs: descriptor (a JNI signature), name_and_arity (the only Java method of that name and argument count), or name_match.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "java",
+          "dotNet",
+          "assembly",
+          "loaded",
+          "basis"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "query",
+    "direction",
+    "items",
+    "notes"
+  ]
+}

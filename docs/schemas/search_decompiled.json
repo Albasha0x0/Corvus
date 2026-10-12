@@ -1,0 +1,95 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "engine": {
+      "description": "ida or ghidra.",
+      "type": "string"
+    },
+    "pattern": {
+      "type": "string"
+    },
+    "hits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "function": {
+            "description": "Start VA of the function.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "line": {
+            "description": "1-based line of the pseudocode.",
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function",
+          "name",
+          "line",
+          "text"
+        ]
+      }
+    },
+    "functions": {
+      "description": "Functions in scope (after filter; thunks left out).",
+      "type": "integer"
+    },
+    "from": {
+      "description": "Index of the first function searched.",
+      "type": "integer"
+    },
+    "searched": {
+      "description": "Functions searched by this call.",
+      "type": "integer"
+    },
+    "failed": {
+      "description": "Functions that did not decompile (their error and the rest in the text).",
+      "type": "integer"
+    },
+    "cursor": {
+      "description": "cursor= for the next call; null when every function in scope was searched.",
+      "type": "integer"
+    },
+    "stoppedBy": {
+      "description": "Why the call stopped before the end: hits (limit), functions (maxFunctions) or time (seconds).",
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "engine",
+    "pattern",
+    "hits",
+    "functions",
+    "from",
+    "searched",
+    "failed"
+  ]
+}

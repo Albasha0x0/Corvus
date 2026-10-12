@@ -1,0 +1,162 @@
+{
+  "type": "object",
+  "properties": {
+    "dump": {
+      "type": "string"
+    },
+    "threadId": {
+      "type": "integer"
+    },
+    "threadName": {
+      "type": "string"
+    },
+    "context": {
+      "description": "exception (the context at the exception, like .ecxr) or thread (the context when the dump was written).",
+      "type": "string"
+    },
+    "architecture": {
+      "type": "string"
+    },
+    "registers": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "address": {
+            "type": "string"
+          },
+          "stackPointer": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "moduleOffset": {
+            "type": "string"
+          },
+          "symbol": {
+            "description": "module!function+0xoffset, or module+0xoffset when the function has no name.",
+            "type": "string"
+          },
+          "function": {
+            "type": "string"
+          },
+          "symbolSource": {
+            "description": "user, pdb, il2cpp, discovered, export, nearest_export (a guess) or none.",
+            "type": "string"
+          },
+          "functionAddress": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "native, managed (JIT or ReadyToRun code), unloaded_module or unknown.",
+            "type": "string"
+          },
+          "method": {
+            "description": "How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).",
+            "type": "string"
+          },
+          "heuristic": {
+            "description": "Found by scanning the stack for a return address: may be a stale value.",
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string"
+          },
+          "token": {
+            "description": "Managed frames: the method token, for decompile_member with assembly.",
+            "type": "string"
+          },
+          "ilOffset": {
+            "description": "Managed frames: IL offset of the instruction, when the dump holds the JIT's IL map.",
+            "type": "integer"
+          },
+          "assembly": {
+            "description": "Managed frames: id of the loaded assembly that is this build (file name and MVID).",
+            "type": "string"
+          },
+          "buildCheck": {
+            "description": "Managed frames: match, mismatch (the loaded assembly of that name is another build), or unknown.",
+            "type": "string"
+          },
+          "statement": {
+            "description": "Managed frames: the C# statement at the IL offset (decompiled with sequence points), for a matching build.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "address",
+          "stackPointer",
+          "kind",
+          "method",
+          "heuristic"
+        ]
+      }
+    },
+    "stop": {
+      "description": "Why the walk ended: end_of_stack, max_frames, stack_not_captured, no_unwind_data, left_the_stack, ...",
+      "type": "string"
+    },
+    "heuristicFrames": {
+      "type": "integer"
+    },
+    "managed": {
+      "description": "Managed frames: decoded (through the runtime's DAC), off, or the DAC status that kept them identified only (not_found, bitness_mismatch, ...); null without a managed runtime.",
+      "type": "string"
+    },
+    "notes": {
+      "description": "Where the names and unwind data of each module came from, and what was not covered.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "dump",
+    "threadId",
+    "context",
+    "architecture",
+    "total",
+    "offset",
+    "truncated",
+    "frames",
+    "stop",
+    "heuristicFrames",
+    "notes"
+  ]
+}

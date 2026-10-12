@@ -1,0 +1,133 @@
+{
+  "type": "object",
+  "properties": {
+    "dump": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "minSize": {
+      "type": "integer"
+    },
+    "walked": {
+      "description": "Objects walked.",
+      "type": "integer"
+    },
+    "walkStopped": {
+      "description": "The walk stopped at maxObjects: counts cover only the walked part of the heap.",
+      "type": "boolean"
+    },
+    "total": {
+      "description": "stats: matching types; objects: matching objects.",
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "matchedBytes": {
+      "description": "Size of every matching object walked.",
+      "type": "integer"
+    },
+    "types": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "totalSize": {
+            "type": "integer"
+          },
+          "assembly": {
+            "description": "Id of the loaded assembly that is the type's module build, for get_type_info / decompile_type.",
+            "type": "string"
+          },
+          "token": {
+            "description": "TypeDef token of the type in that assembly.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "count",
+          "totalSize"
+        ]
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "value": {
+            "description": "A string's value (up to 200 characters).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "type",
+          "size"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "dump",
+    "mode",
+    "minSize",
+    "walked",
+    "walkStopped",
+    "total",
+    "offset",
+    "truncated",
+    "matchedBytes",
+    "types",
+    "objects",
+    "notes"
+  ]
+}

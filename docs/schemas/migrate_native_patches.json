@@ -1,0 +1,158 @@
+{
+  "type": "object",
+  "properties": {
+    "oldImage": {
+      "type": "string"
+    },
+    "newImage": {
+      "type": "string"
+    },
+    "source": {
+      "description": "Where the patches came from: in_memory or the json file path.",
+      "type": "string"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "patches": {
+      "type": "integer"
+    },
+    "applied": {
+      "description": "Patches applied (0 when dryRun).",
+      "type": "integer"
+    },
+    "wouldApply": {
+      "description": "Patches that would apply (dryRun).",
+      "type": "integer"
+    },
+    "refused": {
+      "type": "integer"
+    },
+    "refusedBy": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reason",
+          "count"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "integer"
+          },
+          "oldAddress": {
+            "type": "string"
+          },
+          "newAddress": {
+            "description": "The mapped address in the new build, or null when it did not map.",
+            "type": "string"
+          },
+          "origin": {
+            "description": "asm (re-assembled at the new address) or bytes (applied verbatim).",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "description": "applied, would_apply (dryRun) or refused.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why refused: function_not_matched, ambiguous, changed_region, original_bytes_differ, assemble_failed, relocation_slot_unavailable, mid_instruction, past_function_end, conflicts_with_existing_patch, not_mapped, extended_patch, cannot_prepare; 'mapped' when applied.",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "confidence": {
+            "description": "Mapping confidence 0-1.",
+            "type": "number"
+          },
+          "tier": {
+            "description": "The function-match tier that carried the address (1 best .. 5 fuzzy), or null.",
+            "type": "integer"
+          },
+          "replacementBytes": {
+            "description": "The replacement bytes at the new address (re-assembled for patch_asm), hex; null when refused.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "oldAddress",
+          "origin",
+          "description",
+          "status",
+          "reason",
+          "detail",
+          "confidence"
+        ]
+      }
+    },
+    "notes": {
+      "description": "What was not covered (functions that did not decode, capped work).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "oldImage",
+    "newImage",
+    "source",
+    "dryRun",
+    "patches",
+    "applied",
+    "wouldApply",
+    "refused",
+    "refusedBy",
+    "offset",
+    "total",
+    "truncated",
+    "entries",
+    "notes"
+  ]
+}

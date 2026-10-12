@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "outputPath": {
+      "type": "string"
+    },
+    "format": {
+      "description": "ida, dif, ips, ips32 or json.",
+      "type": "string"
+    },
+    "patches": {
+      "description": "Patches exported.",
+      "type": "integer"
+    },
+    "relocationEdits": {
+      "description": "Relocation-table entry rewrites exported (2-byte edits in .reloc).",
+      "type": "integer"
+    },
+    "changedBytes": {
+      "description": "File bytes that differ from the original (patches, relocation edits and the PE checksum).",
+      "type": "integer"
+    },
+    "records": {
+      "description": "Entries in the script (ida), changed-byte lines (dif), records (ips) or patches (json).",
+      "type": "integer"
+    },
+    "checksumUpdated": {
+      "description": "The recomputed PE checksum is part of the export (the original had a non-zero checksum).",
+      "type": "boolean"
+    },
+    "bytes": {
+      "type": "integer"
+    },
+    "originalSha256": {
+      "description": "SHA-256 of the original file the patches apply to.",
+      "type": "string"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "outputPath",
+    "format",
+    "patches",
+    "relocationEdits",
+    "changedBytes",
+    "records",
+    "checksumUpdated",
+    "bytes",
+    "originalSha256",
+    "notes"
+  ]
+}

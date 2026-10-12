@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "properties": {
+    "remote": {
+      "type": "string"
+    },
+    "local": {
+      "type": "string"
+    },
+    "size": {
+      "type": "integer"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "remote",
+    "local",
+    "size",
+    "sha256"
+  ]
+}

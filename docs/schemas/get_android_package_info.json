@@ -1,0 +1,120 @@
+{
+  "type": "object",
+  "properties": {
+    "serial": {
+      "type": "string"
+    },
+    "package": {
+      "type": "string"
+    },
+    "versionName": {
+      "type": "string"
+    },
+    "versionCode": {
+      "type": "string"
+    },
+    "minSdk": {
+      "type": "integer"
+    },
+    "targetSdk": {
+      "type": "integer"
+    },
+    "codePath": {
+      "type": "string"
+    },
+    "dataDir": {
+      "type": "string"
+    },
+    "primaryCpuAbi": {
+      "type": "string"
+    },
+    "flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "firstInstallTime": {
+      "type": "string"
+    },
+    "lastUpdateTime": {
+      "type": "string"
+    },
+    "installer": {
+      "type": "string"
+    },
+    "uid": {
+      "type": "integer"
+    },
+    "permissions": {
+      "description": "Every requested permission with its grant state (install or runtime, per the first user).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "granted": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ]
+      }
+    },
+    "users": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "integer"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "serial",
+    "package",
+    "flags",
+    "permissions",
+    "users"
+  ]
+}

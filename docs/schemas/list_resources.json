@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "assembly": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "Embedded, .resources, linked, or a Win32 resource type.",
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "entries": {
+            "description": ".resources: entry count.",
+            "type": "integer"
+          },
+          "public": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ]
+      }
+    },
+    "total": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "assembly",
+    "items",
+    "total",
+    "truncated"
+  ]
+}

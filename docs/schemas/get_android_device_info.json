@@ -1,0 +1,114 @@
+{
+  "type": "object",
+  "properties": {
+    "serial": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "sdk": {
+          "type": "string"
+        },
+        "release": {
+          "type": "string"
+        },
+        "manufacturer": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "abis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "securityPatch": {
+          "type": "string"
+        },
+        "buildType": {
+          "type": "string"
+        },
+        "debuggable": {
+          "type": "boolean"
+        },
+        "secure": {
+          "type": "boolean"
+        },
+        "emulator": {
+          "description": "Whether the device is an emulator, from ro.kernel.qemu, ro.boot.qemu, ro.hardware and the fingerprint.",
+          "type": "boolean"
+        },
+        "emulatorEvidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "abis",
+        "emulator",
+        "emulatorEvidence"
+      ]
+    },
+    "properties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "serial",
+    "summary",
+    "properties",
+    "offset",
+    "total",
+    "truncated"
+  ]
+}

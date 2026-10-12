@@ -1,0 +1,320 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "machine": {
+      "type": "string"
+    },
+    "kind": {
+      "description": "dll or exe.",
+      "type": "string"
+    },
+    "format": {
+      "description": "PE32 or PE32+.",
+      "type": "string"
+    },
+    "subsystem": {
+      "type": "string"
+    },
+    "fileSize": {
+      "type": "integer"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "imageBase": {
+      "type": "string"
+    },
+    "entryPoint": {
+      "description": "VA; null when there is none.",
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "dotNet": {
+      "type": "boolean"
+    },
+    "mitigationsOn": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "mitigationsOff": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rva": {
+            "type": "string"
+          },
+          "virtualSize": {
+            "type": "string"
+          },
+          "rawOffset": {
+            "type": "string"
+          },
+          "rawSize": {
+            "type": "string"
+          },
+          "access": {
+            "type": "string"
+          },
+          "entropy": {
+            "type": "number"
+          },
+          "characteristics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "rva",
+          "virtualSize",
+          "rawOffset",
+          "rawSize",
+          "access",
+          "entropy",
+          "characteristics"
+        ]
+      }
+    },
+    "importModules": {
+      "type": "integer"
+    },
+    "importFunctions": {
+      "type": "integer"
+    },
+    "delayImportModules": {
+      "type": "integer"
+    },
+    "exports": {
+      "type": "integer"
+    },
+    "tlsCallbacks": {
+      "type": "integer"
+    },
+    "pdbPath": {
+      "type": "string"
+    },
+    "pdbGuid": {
+      "type": "string"
+    },
+    "pdbAge": {
+      "type": "integer"
+    },
+    "signer": {
+      "type": "string"
+    },
+    "checksumMatches": {
+      "description": "Stored checksum matches the computed one; null when none is stored.",
+      "type": "boolean"
+    },
+    "overlaySize": {
+      "type": "integer"
+    },
+    "issues": {
+      "description": "Malformed parts found while parsing.",
+      "type": "integer"
+    },
+    "capabilities": {
+      "description": "Capability groups the imports imply (late-bound imports included once the code index is ready).",
+      "type": "array",
+      "items": {
+        "description": "A capability the imports imply.",
+        "type": "object",
+        "properties": {
+          "group": {
+            "description": "files, registry, network, crypto, process_thread, ui, services, com, debug or dynamic_loading.",
+            "type": "string"
+          },
+          "count": {
+            "description": "Distinct APIs in the group.",
+            "type": "integer"
+          },
+          "apis": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "group",
+          "count",
+          "apis"
+        ]
+      }
+    },
+    "code": {
+      "description": "The code as the built-in index sees it; get_pe_info leaves it empty (list_functions has these statistics).",
+      "type": "object",
+      "properties": {
+        "functions": {
+          "type": "integer"
+        },
+        "thunks": {
+          "type": "integer"
+        },
+        "noReturn": {
+          "type": "integer"
+        },
+        "library": {
+          "description": "Functions IDA recognized as library code.",
+          "type": "integer"
+        },
+        "instructions": {
+          "type": "integer"
+        },
+        "xrefs": {
+          "type": "integer"
+        },
+        "strings": {
+          "type": "integer"
+        },
+        "coverage": {
+          "description": "Percent of executable section bytes inside functions.",
+          "type": "number"
+        },
+        "exports": {
+          "type": "integer"
+        },
+        "tlsCallbacks": {
+          "type": "integer"
+        },
+        "switchTables": {
+          "type": "integer"
+        },
+        "unresolvedJumps": {
+          "description": "Indirect jumps the index could not resolve.",
+          "type": "integer"
+        },
+        "virtualCallSites": {
+          "type": "integer"
+        },
+        "virtualExact": {
+          "type": "integer"
+        },
+        "virtualPossible": {
+          "type": "integer"
+        },
+        "virtualUnresolved": {
+          "type": "integer"
+        },
+        "rttiClasses": {
+          "type": "integer"
+        },
+        "mostCalled": {
+          "type": "array",
+          "items": {
+            "description": "A function ranked by call sites or size.",
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "value": {
+                "description": "References to its start (most called) or bytes (largest).",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "address",
+              "name",
+              "value"
+            ]
+          }
+        },
+        "largest": {
+          "type": "array",
+          "items": {
+            "description": "A function ranked by call sites or size.",
+            "$ref": "#/properties/code/properties/mostCalled/items"
+          }
+        }
+      },
+      "required": [
+        "functions",
+        "thunks",
+        "noReturn",
+        "library",
+        "instructions",
+        "xrefs",
+        "strings",
+        "coverage",
+        "exports",
+        "tlsCallbacks",
+        "switchTables",
+        "unresolvedJumps",
+        "virtualCallSites",
+        "virtualExact",
+        "virtualPossible",
+        "virtualUnresolved",
+        "rttiClasses",
+        "mostCalled",
+        "largest"
+      ]
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "path",
+    "machine",
+    "kind",
+    "format",
+    "subsystem",
+    "fileSize",
+    "sha256",
+    "imageBase",
+    "timestamp",
+    "dotNet",
+    "mitigationsOn",
+    "mitigationsOff",
+    "sections",
+    "importModules",
+    "importFunctions",
+    "delayImportModules",
+    "exports",
+    "tlsCallbacks",
+    "issues"
+  ]
+}

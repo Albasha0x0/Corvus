@@ -1,0 +1,96 @@
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ilOffset": {
+            "type": "integer"
+          },
+          "opCode": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "call, read, write, address, new, cast, string, ...",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "targetAssembly": {
+            "description": "Assembly defining the target, when loaded.",
+            "type": "string"
+          },
+          "native": {
+            "description": "Native code a P/Invoke target binds to.",
+            "type": "string"
+          },
+          "count": {
+            "description": "Uses collapsed into this entry (distinct=true), else 1.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "target",
+          "count"
+        ]
+      }
+    },
+    "nativeLines": {
+      "description": "Native code below (P/Invoke methods, native symbols), as indented text lines.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "method",
+    "items",
+    "nativeLines",
+    "offset",
+    "total"
+  ]
+}

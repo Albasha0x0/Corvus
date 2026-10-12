@@ -1,0 +1,81 @@
+{
+  "type": "object",
+  "properties": {
+    "root": {
+      "type": "string"
+    },
+    "direction": {
+      "description": "callers or callees.",
+      "type": "string"
+    },
+    "depth": {
+      "type": "integer"
+    },
+    "items": {
+      "description": "Nodes in tree order (depth-first).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "description": "Depth below the root (1: direct callers/callees).",
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "assembly": {
+            "description": "Assembly id when it differs from the root's.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "method, external or native.",
+            "type": "string"
+          },
+          "note": {
+            "description": "xN, virtual, via ..., recursive, expanded under ...",
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "label",
+          "kind"
+        ]
+      }
+    },
+    "total": {
+      "type": "integer"
+    },
+    "truncated": {
+      "description": "maxNodes stopped the walk, or items were cut to fit the response.",
+      "type": "boolean"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "root",
+    "direction",
+    "depth",
+    "items",
+    "total",
+    "truncated"
+  ]
+}

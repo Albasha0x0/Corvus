@@ -1,0 +1,198 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "query": {
+      "type": "string"
+    },
+    "seeds": {
+      "type": "array",
+      "items": {
+        "description": "A match of the query.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "description": "string, name, import, export, class or constant.",
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "references": {
+            "description": "References followed from it.",
+            "type": "integer"
+          },
+          "error": {
+            "description": "Why following it failed; the trace went on.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "address",
+          "text",
+          "references"
+        ]
+      }
+    },
+    "totalSeeds": {
+      "description": "Every match, followed or not (maxSeeds).",
+      "type": "integer"
+    },
+    "functions": {
+      "description": "Functions of this page, ranked.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer"
+          },
+          "seeds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "evidence": {
+            "description": "The first 20.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "site": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "string, table, named, data, call, pointer, resolve, exported, vftable, method, constant, engine_xref or pseudocode.",
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "seed": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "site",
+                "kind",
+                "detail",
+                "seed"
+              ]
+            }
+          },
+          "evidenceTotal": {
+            "type": "integer"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "address",
+          "name",
+          "score",
+          "seeds",
+          "evidence",
+          "evidenceTotal",
+          "flags"
+        ]
+      }
+    },
+    "totalFunctions": {
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "hubs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reaches": {
+            "description": "Feature functions it reaches (VAs).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "depth": {
+            "description": "Calls to the nearest of them.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "address",
+          "name",
+          "reaches",
+          "depth"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "query",
+    "seeds",
+    "totalSeeds",
+    "functions",
+    "totalFunctions",
+    "offset",
+    "truncated",
+    "hubs",
+    "notes"
+  ]
+}

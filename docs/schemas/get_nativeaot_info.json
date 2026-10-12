@@ -1,0 +1,171 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "view": {
+      "type": "string"
+    },
+    "summary": {
+      "description": "view=summary: versions, sections, stages and counts.",
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "type": "string"
+        },
+        "readyToRunVersion": {
+          "type": "string"
+        },
+        "debugHeaderVersion": {
+          "type": "integer"
+        },
+        "dehydrated": {
+          "type": "boolean"
+        },
+        "headerRva": {
+          "type": "integer"
+        },
+        "modules": {
+          "type": "integer"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "rva": {
+                "type": "integer"
+              },
+              "size": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "rva",
+              "size"
+            ]
+          }
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "status"
+            ]
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        }
+      },
+      "required": [
+        "runtime",
+        "readyToRunVersion",
+        "dehydrated",
+        "headerRva",
+        "modules",
+        "sections",
+        "stages",
+        "counts"
+      ]
+    },
+    "coverage": {
+      "description": "view=summary: function starts (unwind table) and those named; with the code index, its functions and those named.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "section, MethodTable kind, method origin, string, slot, interface or statics kind.",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "name",
+          "kind"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "view",
+    "items",
+    "offset",
+    "total"
+  ]
+}

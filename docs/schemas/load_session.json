@@ -1,0 +1,122 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "targetBuild": {
+      "type": "string"
+    },
+    "outcomes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "outcome",
+          "count"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "file, il2cpp, dump, edits, patches, names, comments or notes.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The id the session recorded.",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "loaded, already_loaded, would_load, applied, would_apply, already_present, refused or not_found.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "How or why: recorded_path, relative_path, search_root, same_build, other_build, sha_mismatch, old_build_needed, user_name_exists, invalid_name, a patch refusal reason, ...",
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "outcome",
+          "reason",
+          "count",
+          "detail"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "dryRun",
+    "targetBuild",
+    "outcomes",
+    "offset",
+    "total",
+    "items",
+    "notes"
+  ]
+}

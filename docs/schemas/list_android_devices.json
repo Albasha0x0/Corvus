@@ -1,0 +1,64 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "serial": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "transportId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serial",
+          "state"
+        ]
+      }
+    },
+    "unparsed": {
+      "description": "Lines adb printed that are not a device row.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "unparsed"
+  ]
+}

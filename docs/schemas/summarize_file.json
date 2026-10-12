@@ -1,0 +1,1277 @@
+{
+  "type": "object",
+  "properties": {
+    "file": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "md5": {
+          "type": "string"
+        },
+        "sha1": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "entropy": {
+          "type": "number"
+        },
+        "certificate": {
+          "type": "object",
+          "properties": {
+            "present": {
+              "type": "boolean"
+            },
+            "signer": {
+              "type": "string"
+            },
+            "issuer": {
+              "type": "string"
+            },
+            "thumbprint": {
+              "type": "string"
+            },
+            "notBefore": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "notAfter": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "digestAlgorithm": {
+              "type": "string"
+            },
+            "digestMatches": {
+              "type": "boolean"
+            },
+            "signatureValid": {
+              "type": "boolean"
+            },
+            "chain": {
+              "type": "string"
+            },
+            "problem": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "present"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "size",
+        "md5",
+        "sha1",
+        "sha256",
+        "type",
+        "entropy",
+        "certificate"
+      ]
+    },
+    "container": {
+      "type": "string"
+    },
+    "assemblies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "identity": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "mvid": {
+                "type": "string"
+              },
+              "targetFramework": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "architecture": {
+                "type": "string"
+              },
+              "readyToRun": {
+                "type": "boolean"
+              },
+              "merged": {
+                "type": "string"
+              },
+              "types": {
+                "type": "integer"
+              },
+              "methods": {
+                "type": "integer"
+              },
+              "references": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "mvid",
+              "kind",
+              "architecture",
+              "readyToRun",
+              "types",
+              "methods",
+              "references"
+            ]
+          },
+          "signature": {
+            "type": "object",
+            "properties": {
+              "strongNamed": {
+                "type": "boolean"
+              },
+              "publicKeyToken": {
+                "type": "string"
+              },
+              "certificate": {
+                "type": "object",
+                "properties": {
+                  "present": {
+                    "type": "boolean"
+                  },
+                  "signer": {
+                    "type": "string"
+                  },
+                  "issuer": {
+                    "type": "string"
+                  },
+                  "thumbprint": {
+                    "type": "string"
+                  },
+                  "notBefore": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "notAfter": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "digestAlgorithm": {
+                    "type": "string"
+                  },
+                  "digestMatches": {
+                    "type": "boolean"
+                  },
+                  "signatureValid": {
+                    "type": "boolean"
+                  },
+                  "chain": {
+                    "type": "string"
+                  },
+                  "problem": {
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "present"
+                ]
+              }
+            },
+            "required": [
+              "strongNamed",
+              "certificate"
+            ]
+          },
+          "markers": {
+            "type": "object",
+            "properties": {
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "indicators": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "unreadableNameRatio": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "tools",
+              "indicators",
+              "unreadableNameRatio"
+            ]
+          },
+          "wrapping": {
+            "type": "object",
+            "properties": {
+              "embeddedAssemblies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "contents": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source": {
+                      "type": "string"
+                    },
+                    "encoding": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "sha256": {
+                      "type": "string"
+                    },
+                    "entropy": {
+                      "type": "number"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "savedTo": {
+                      "type": "string"
+                    },
+                    "loadedAs": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "encoding",
+                    "kind",
+                    "size",
+                    "sha256",
+                    "entropy"
+                  ]
+                }
+              },
+              "highEntropySections": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "embeddedAssemblyTotal": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "embeddedAssemblies",
+              "contents",
+              "highEntropySections"
+            ]
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "attack": {
+                  "type": "string"
+                },
+                "attackName": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "feature": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "integer"
+                      },
+                      "locations": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "feature",
+                      "count",
+                      "locations"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "category",
+                "evidence"
+              ]
+            }
+          },
+          "values": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "byType": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "top": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "locations": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "passedTo": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "value",
+                    "count",
+                    "locations",
+                    "passedTo"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "total",
+              "byType",
+              "top"
+            ]
+          },
+          "entryPoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "member": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "member"
+              ]
+            }
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "path",
+          "sha256",
+          "identity",
+          "signature",
+          "markers",
+          "wrapping",
+          "features",
+          "values",
+          "entryPoints",
+          "highlights",
+          "notes"
+        ]
+      }
+    },
+    "highlights": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "nativeAot": {
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "type": "string"
+        },
+        "readyToRunVersion": {
+          "type": "string"
+        },
+        "debugHeaderVersion": {
+          "type": "integer"
+        },
+        "dehydrated": {
+          "type": "boolean"
+        },
+        "headerRva": {
+          "type": "integer"
+        },
+        "modules": {
+          "type": "integer"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "rva": {
+                "type": "integer"
+              },
+              "size": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "rva",
+              "size"
+            ]
+          }
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "status"
+            ]
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        }
+      },
+      "required": [
+        "runtime",
+        "readyToRunVersion",
+        "dehydrated",
+        "headerRva",
+        "modules",
+        "sections",
+        "stages",
+        "counts"
+      ]
+    },
+    "nativeImage": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "machine": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "slice": {
+          "type": "string"
+        },
+        "slices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "buildId": {
+          "type": "string"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "imports": {
+          "type": "integer"
+        },
+        "exports": {
+          "type": "integer"
+        },
+        "symbols": {
+          "type": "integer"
+        },
+        "declaredFunctions": {
+          "type": "integer"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "entitlements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "encrypted": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "format",
+        "machine",
+        "kind",
+        "dependencies",
+        "imports",
+        "exports",
+        "symbols",
+        "declaredFunctions",
+        "encrypted",
+        "issues"
+      ]
+    },
+    "packers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "evidence"
+        ]
+      }
+    },
+    "android": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "versionName": {
+          "type": "string"
+        },
+        "versionCode": {
+          "type": "string"
+        },
+        "minSdk": {
+          "type": "integer"
+        },
+        "targetSdk": {
+          "type": "integer"
+        },
+        "runtimes": {
+          "description": "Runtimes found in the package, each with its evidence.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "family": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "family",
+              "evidence"
+            ]
+          }
+        },
+        "abis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dexFiles": {
+          "type": "integer"
+        },
+        "dexBytes": {
+          "type": "integer"
+        },
+        "permissions": {
+          "type": "integer"
+        },
+        "components": {
+          "type": "integer"
+        },
+        "exportedComponents": {
+          "type": "integer"
+        },
+        "signature": {
+          "description": "Signature verdict (verified, mismatch, unsigned, unsupported_algorithm) and schemes (v4 from the .idsig beside the file); an .aab has v1 only.",
+          "type": "string"
+        },
+        "signers": {
+          "description": "One line per signer: scheme, certificate, SDK range, verdict with reasons, rotation lineage with capabilities.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "splitApks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "package",
+        "runtimes",
+        "abis",
+        "dexFiles",
+        "dexBytes",
+        "permissions",
+        "components",
+        "exportedComponents",
+        "signers",
+        "splitApks",
+        "highlights"
+      ]
+    },
+    "triage": {
+      "description": "First-look triage of a loaded native image, from its code index.",
+      "type": "object",
+      "properties": {
+        "functions": {
+          "type": "integer"
+        },
+        "named": {
+          "description": "Named by an export, symbols, metadata or the user.",
+          "type": "integer"
+        },
+        "unnamed": {
+          "type": "integer"
+        },
+        "thunks": {
+          "type": "integer"
+        },
+        "library": {
+          "description": "Recognized as library code by an engine.",
+          "type": "integer"
+        },
+        "strings": {
+          "type": "integer"
+        },
+        "imports": {
+          "type": "integer"
+        },
+        "exports": {
+          "type": "integer"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "description": "Exclusive.",
+                "type": "string"
+              },
+              "access": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "start",
+              "end",
+              "access"
+            ]
+          }
+        },
+        "entryPoints": {
+          "description": "Entry point, TLS callbacks and exports, each at its own address (PE ordinals apart).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "kind": {
+                "description": "entry, tls_callback or export.",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "ordinal": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "address",
+              "kind",
+              "name"
+            ]
+          }
+        },
+        "topFunctions": {
+          "description": "Most referenced functions (import thunks and library code left out), with a role.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "references": {
+                "description": "References to its start (calls, jumps, pointers).",
+                "type": "integer"
+              },
+              "callees": {
+                "type": "integer"
+              },
+              "role": {
+                "description": "thunk (a jump or 8 bytes or less), wrapper (one callee, under 100 bytes), leaf (no calls), dispatcher (over 10 callees) or complex.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "address",
+              "name",
+              "size",
+              "references",
+              "callees",
+              "role"
+            ]
+          }
+        },
+        "topStrings": {
+          "description": "Most referenced strings.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "references": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "address",
+              "text",
+              "references"
+            ]
+          }
+        },
+        "importGroups": {
+          "description": "Imports by capability group (static and late-bound).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "group": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer"
+              },
+              "apis": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "group",
+              "count",
+              "apis"
+            ]
+          }
+        },
+        "otherImports": {
+          "description": "Imported APIs in no group.",
+          "type": "integer"
+        },
+        "callGraph": {
+          "type": "object",
+          "properties": {
+            "edges": {
+              "type": "integer"
+            },
+            "roots": {
+              "description": "Functions nothing references.",
+              "type": "integer"
+            },
+            "leaves": {
+              "description": "Functions that call nothing.",
+              "type": "integer"
+            },
+            "rootNames": {
+              "description": "The first roots, exports and the entry point first.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "edges",
+            "roots",
+            "leaves",
+            "rootNames"
+          ]
+        }
+      },
+      "required": [
+        "functions",
+        "named",
+        "unnamed",
+        "thunks",
+        "library",
+        "strings",
+        "imports",
+        "exports",
+        "segments",
+        "entryPoints",
+        "topFunctions",
+        "topStrings",
+        "importGroups",
+        "otherImports",
+        "callGraph"
+      ]
+    },
+    "electron": {
+      "type": "object",
+      "properties": {
+        "executable": {
+          "description": "The Electron binary the versions and fuses come from.",
+          "type": "string"
+        },
+        "electronVersion": {
+          "type": "string"
+        },
+        "chromiumVersion": {
+          "type": "string"
+        },
+        "nodeVersion": {
+          "type": "string"
+        },
+        "versionEvidence": {
+          "description": "The strings the versions were read from.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fuseWireVersion": {
+          "description": "Fuse wire version (1 is decoded; others are reported, not guessed).",
+          "type": "integer"
+        },
+        "fuses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "name",
+              "state"
+            ]
+          }
+        },
+        "archive": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "files": {
+              "type": "integer"
+            },
+            "unpacked": {
+              "type": "integer"
+            },
+            "links": {
+              "type": "integer"
+            },
+            "headerBytes": {
+              "type": "integer"
+            },
+            "headerSha256": {
+              "type": "string"
+            },
+            "headerIntegrity": {
+              "description": "good (matches the hash the app declares), bad, or absent (none declared).",
+              "type": "string"
+            },
+            "declaredIn": {
+              "description": "Where the declared header hash was found.",
+              "type": "string"
+            },
+            "fileIntegrity": {
+              "description": "File verdicts by status: ok, hash_mismatch, block_mismatch, no_integrity, unpacked_missing...",
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            }
+          },
+          "required": [
+            "path",
+            "files",
+            "unpacked",
+            "links",
+            "headerBytes",
+            "headerSha256",
+            "headerIntegrity",
+            "fileIntegrity"
+          ]
+        },
+        "package": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "productName": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "main": {
+              "description": "package.json main (index.js when absent).",
+              "type": "string"
+            },
+            "mainFound": {
+              "description": "Whether main names a file of the app.",
+              "type": "boolean"
+            },
+            "dependencies": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "main",
+            "mainFound",
+            "dependencies"
+          ]
+        },
+        "webPreferences": {
+          "description": "Values in webPreferences objects of the app's own JavaScript (node_modules skipped), with file:line:column.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "setting": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "site": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "setting",
+              "value",
+              "site"
+            ]
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "versionEvidence",
+        "fuses",
+        "webPreferences",
+        "notes"
+      ]
+    },
+    "go": {
+      "type": "object",
+      "properties": {
+        "goVersion": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "main": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "sum": {
+              "type": "string"
+            },
+            "replace": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                },
+                "sum": {
+                  "type": "string"
+                },
+                "replace": {
+                  "$ref": "#/properties/go/properties/main/properties/replace"
+                }
+              },
+              "required": [
+                "path",
+                "version"
+              ]
+            }
+          },
+          "required": [
+            "path",
+            "version"
+          ]
+        },
+        "dependencyTotal": {
+          "type": "integer"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "sum": {
+                "type": "string"
+              },
+              "replace": {
+                "$ref": "#/properties/go/properties/main/properties/replace"
+              }
+            },
+            "required": [
+              "path",
+              "version"
+            ]
+          }
+        },
+        "settings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "value"
+            ]
+          }
+        }
+      },
+      "required": [
+        "goVersion",
+        "dependencyTotal",
+        "dependencies",
+        "settings"
+      ]
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "file",
+    "container",
+    "assemblies",
+    "highlights",
+    "notes"
+  ]
+}

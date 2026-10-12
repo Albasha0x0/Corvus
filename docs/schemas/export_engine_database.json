@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "engine": {
+      "type": "string"
+    },
+    "path": {
+      "description": "The file written.",
+      "type": "string"
+    },
+    "bytes": {
+      "type": "integer"
+    },
+    "note": {
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "engine",
+    "path",
+    "bytes",
+    "note"
+  ]
+}

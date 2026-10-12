@@ -1,0 +1,24 @@
+{
+  "$comment": "Optional fields of every tool's structured content; tools/list leaves them out of each output schema.",
+  "type": "object",
+  "properties": {
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  }
+}

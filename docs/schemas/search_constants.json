@@ -1,0 +1,100 @@
+{
+  "type": "object",
+  "properties": {
+    "value": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "description": "type, method, field, property or event.",
+                "type": "string"
+              },
+              "label": {
+                "description": "Ns.Type or Ns.Type::Member(params).",
+                "type": "string"
+              },
+              "assembly": {
+                "description": "Assembly id.",
+                "type": "string"
+              },
+              "token": {
+                "description": "Metadata token, 0x06000001.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "label",
+              "assembly",
+              "token"
+            ]
+          },
+          "ilOffset": {
+            "type": "integer"
+          },
+          "kind": {
+            "description": "Where it appears: ldc.i4, const field, enum member, attribute, array initializer.",
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "kind",
+          "value"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "value",
+    "items",
+    "offset",
+    "total"
+  ]
+}

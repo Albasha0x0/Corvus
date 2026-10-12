@@ -1,0 +1,81 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "integer"
+          },
+          "address": {
+            "description": "VA; null for a forwarder.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "demangled": {
+            "type": "string"
+          },
+          "forwardedTo": {
+            "type": "string"
+          },
+          "version": {
+            "description": "ELF symbol version: @@VERSION (default) or @VERSION.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ordinal"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "items",
+    "offset",
+    "total"
+  ]
+}

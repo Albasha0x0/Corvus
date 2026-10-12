@@ -1,0 +1,290 @@
+{
+  "type": "object",
+  "properties": {
+    "summary": {
+      "description": "One paragraph: what carried over, what did not, and the next step.",
+      "type": "string"
+    },
+    "oldImage": {
+      "type": "string"
+    },
+    "newImage": {
+      "type": "string"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "included": {
+      "description": "Categories included in this run.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "oldFunctions": {
+      "type": "integer"
+    },
+    "newFunctions": {
+      "type": "integer"
+    },
+    "functionsMatched": {
+      "type": "integer"
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "description": "names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping, notes or dotnet.",
+            "type": "string"
+          },
+          "status": {
+            "description": "applied, previewed (dryRun), reported (patterns and the Il2Cpp mapping change nothing), not_applicable, not_included or out_of_scope.",
+            "type": "string"
+          },
+          "considered": {
+            "type": "integer"
+          },
+          "carried": {
+            "description": "Carried to the new build (or would be, in a dry run).",
+            "type": "integer"
+          },
+          "alreadyPresent": {
+            "description": "Already on the new build (a re-run).",
+            "type": "integer"
+          },
+          "refused": {
+            "type": "integer"
+          },
+          "notApplicable": {
+            "type": "integer"
+          },
+          "ambiguous": {
+            "type": "integer"
+          },
+          "reasons": {
+            "description": "Item counts by reason code.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "reason",
+                "count"
+              ]
+            }
+          },
+          "notCarriedBy": {
+            "description": "Counts by reason code of the items not carried (refused, not_applicable, ambiguous).",
+            "type": "array",
+            "items": {
+              "$ref": "#/properties/categories/items/properties/reasons/items"
+            }
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "status",
+          "considered",
+          "carried",
+          "alreadyPresent",
+          "refused",
+          "notApplicable",
+          "ambiguous",
+          "reasons",
+          "notCarriedBy",
+          "detail"
+        ]
+      }
+    },
+    "il2CppMapping": {
+      "description": "The Il2Cpp method mapping (null when not applicable).",
+      "type": "object",
+      "properties": {
+        "oldSource": {
+          "description": "Where the old build's metadata came from.",
+          "type": "string"
+        },
+        "newSource": {
+          "description": "Where the new build's metadata came from.",
+          "type": "string"
+        },
+        "oldMethods": {
+          "type": "integer"
+        },
+        "newMethods": {
+          "type": "integer"
+        },
+        "agree": {
+          "description": "Metadata identity and the native matcher give the same new RVA.",
+          "type": "integer"
+        },
+        "agreeIndependent": {
+          "description": "Agreements where the matcher did not pair the functions by name (an independent check).",
+          "type": "integer"
+        },
+        "disagree": {
+          "type": "integer"
+        },
+        "metadataOnly": {
+          "description": "Mapped by metadata; the native matcher found no counterpart.",
+          "type": "integer"
+        },
+        "removed": {
+          "description": "Methods with code in the old build and none of the same identity in the new build.",
+          "type": "integer"
+        },
+        "added": {
+          "description": "Method identities with code only in the new build.",
+          "type": "integer"
+        },
+        "ambiguous": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "oldSource",
+        "newSource",
+        "oldMethods",
+        "newMethods",
+        "agree",
+        "agreeIndependent",
+        "disagree",
+        "metadataOnly",
+        "removed",
+        "added",
+        "ambiguous"
+      ]
+    },
+    "category": {
+      "description": "Item filter: category.",
+      "type": "string"
+    },
+    "outcome": {
+      "description": "Item filter: outcome.",
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "name, comment, layer, patch, pattern, method, note; user types: declarations, type, local, stack_var.",
+            "type": "string"
+          },
+          "oldAddress": {
+            "type": "string"
+          },
+          "newAddress": {
+            "type": "string"
+          },
+          "value": {
+            "description": "The name, comment, patch description, new pattern or method identity.",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "carried, would_carry, already_present, refused, not_applicable or ambiguous.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason code: how it was carried or why not. Patterns: still_unique, now_ambiguous, not_found, points_elsewhere, not_unique_in_old. Il2Cpp mapping: agree, disagree, metadata_only, removed.",
+            "type": "string"
+          },
+          "confidence": {
+            "description": "0-1.",
+            "type": "number"
+          },
+          "tier": {
+            "description": "Function-match tier (1 best .. 5 fuzzy), or null.",
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "kind",
+          "value",
+          "outcome",
+          "reason",
+          "confidence",
+          "detail"
+        ]
+      }
+    },
+    "notes": {
+      "description": "What was not covered (functions that did not decode, capped work, scope).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "summary",
+    "oldImage",
+    "newImage",
+    "dryRun",
+    "included",
+    "oldFunctions",
+    "newFunctions",
+    "functionsMatched",
+    "categories",
+    "offset",
+    "total",
+    "items",
+    "notes"
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "description": "What was searched: Ns.Type::Member, or the native export.",
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "where": {
+            "description": "Method, type or member containing the reference.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "description": "type, method, field, property or event.",
+                "type": "string"
+              },
+              "label": {
+                "description": "Ns.Type or Ns.Type::Member(params).",
+                "type": "string"
+              },
+              "assembly": {
+                "description": "Assembly id.",
+                "type": "string"
+              },
+              "token": {
+                "description": "Metadata token, 0x06000001.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "label",
+              "assembly",
+              "token"
+            ]
+          },
+          "ilOffset": {
+            "type": "integer"
+          },
+          "kind": {
+            "description": "call, read, write, base type, attribute, ...",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "via": {
+            "description": "Native targets: the P/Invoke declaration the call goes through.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "where",
+          "kind"
+        ]
+      }
+    },
+    "nativeCallSites": {
+      "description": "Native call sites in loaded images, as text rows.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "items",
+    "nativeCallSites",
+    "offset",
+    "total"
+  ]
+}

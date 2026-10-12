@@ -1,0 +1,142 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "type, method, field, property or event.",
+          "type": "string"
+        },
+        "label": {
+          "description": "Ns.Type or Ns.Type::Member(params).",
+          "type": "string"
+        },
+        "assembly": {
+          "description": "Assembly id.",
+          "type": "string"
+        },
+        "token": {
+          "description": "Metadata token, 0x06000001.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label",
+        "assembly",
+        "token"
+      ]
+    },
+    "fullName": {
+      "type": "string"
+    },
+    "declaration": {
+      "description": "Declaration line: modifiers, kind, name, base types.",
+      "type": "string"
+    },
+    "declaringType": {
+      "type": "string"
+    },
+    "attributes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "nestedTypes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "signature": {
+            "description": "Declaration as C#.",
+            "type": "string"
+          },
+          "il2Cpp": {
+            "description": "Il2Cpp RVA / offset from the dummy DLL's attributes.",
+            "type": "string"
+          },
+          "ilInstructions": {
+            "description": "Methods: IL instruction count; null without a body.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "token",
+          "name",
+          "signature"
+        ]
+      }
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/properties/nestedTypes/items"
+      }
+    },
+    "properties": {
+      "type": "array",
+      "items": {
+        "$ref": "#/properties/nestedTypes/items"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/properties/nestedTypes/items"
+      }
+    },
+    "methods": {
+      "type": "array",
+      "items": {
+        "$ref": "#/properties/nestedTypes/items"
+      }
+    },
+    "compilerGeneratedHidden": {
+      "description": "Compiler-generated members left out (includeCompilerGenerated=false).",
+      "type": "boolean"
+    },
+    "truncated": {
+      "description": "A member list was cut at 2000 entries.",
+      "type": "boolean"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "fullName",
+    "declaration",
+    "attributes",
+    "nestedTypes",
+    "fields",
+    "properties",
+    "events",
+    "methods",
+    "compilerGeneratedHidden",
+    "truncated"
+  ]
+}

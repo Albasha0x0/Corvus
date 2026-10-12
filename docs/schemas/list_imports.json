@@ -1,0 +1,99 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "VA of the IAT slot code calls through (dynamic: the pointer global or the GetProcAddress call).",
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "name": {
+            "description": "Function name, or #ordinal.",
+            "type": "string"
+          },
+          "apiSetHost": {
+            "description": "API set name: the DLL it resolves to on this system.",
+            "type": "string"
+          },
+          "delay": {
+            "type": "boolean"
+          },
+          "dynamic": {
+            "description": "Late-bound (GetProcAddress) rather than in the import table.",
+            "type": "boolean"
+          },
+          "binding": {
+            "description": "bind=true: the export it reaches, or why not.",
+            "type": "string"
+          },
+          "detail": {
+            "description": "Dynamic: where it is resolved, confidence, how.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "module",
+          "name",
+          "delay",
+          "dynamic"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "bindings": {
+      "description": "bind=true: counts of bound / not loaded / unresolved.",
+      "type": "string"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "items",
+    "offset",
+    "total"
+  ]
+}

@@ -1,0 +1,188 @@
+{
+  "type": "object",
+  "properties": {
+    "descriptor": {
+      "type": "string"
+    },
+    "javaName": {
+      "type": "string"
+    },
+    "dexFile": {
+      "type": "string"
+    },
+    "access": {
+      "type": "string"
+    },
+    "super": {
+      "type": "string"
+    },
+    "interfaces": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sourceFile": {
+      "type": "string"
+    },
+    "genericSignature": {
+      "type": "string"
+    },
+    "enclosingClass": {
+      "type": "string"
+    },
+    "enclosingMethod": {
+      "type": "string"
+    },
+    "innerClasses": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "kotlin": {
+      "description": "Kotlin @Metadata: the kind and the names it records.",
+      "type": "string"
+    },
+    "annotations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Exact field id: Lpkg/C;->name:type.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "access": {
+            "type": "string"
+          },
+          "value": {
+            "description": "Static initial value from the DEX, when it has one.",
+            "type": "string"
+          },
+          "genericSignature": {
+            "type": "string"
+          },
+          "annotations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "access",
+          "annotations"
+        ]
+      }
+    },
+    "methods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Exact method id: Lpkg/C;->name(params)ret, what disassemble_dex, decompile_java and find_dex_references take.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "signature": {
+            "description": "Java form: modifiers, return type, name and parameter types.",
+            "type": "string"
+          },
+          "access": {
+            "type": "string"
+          },
+          "codeUnits": {
+            "description": "16-bit code units; null for abstract and native methods.",
+            "type": "integer"
+          },
+          "registers": {
+            "type": "integer"
+          },
+          "genericSignature": {
+            "type": "string"
+          },
+          "annotations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parameterNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "signature",
+          "access",
+          "annotations",
+          "parameterNames"
+        ]
+      }
+    },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "descriptor",
+    "javaName",
+    "dexFile",
+    "access",
+    "interfaces",
+    "innerClasses",
+    "annotations",
+    "fields",
+    "methods"
+  ]
+}

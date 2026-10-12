@@ -1,0 +1,203 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "engines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "description": "ida or ghidra.",
+            "type": "string"
+          },
+          "state": {
+            "description": "not_started, opening, open, failed or closed.",
+            "type": "string"
+          },
+          "stage": {
+            "description": "While opening (or where a failed open stopped): start, load, analysis, save, ready.",
+            "type": "string"
+          },
+          "seconds": {
+            "description": "Seconds since the open started.",
+            "type": "number"
+          },
+          "savedAnalysis": {
+            "description": "Whether the engine's cache holds a saved analysis of these bytes (an open loads it without analyzing).",
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "processor": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "compiler": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "imageBase": {
+            "description": "VA.",
+            "type": "string"
+          },
+          "pointerSize": {
+            "type": "integer"
+          },
+          "endian": {
+            "type": "string"
+          },
+          "analysis": {
+            "description": "complete, partial (the analysis budget ran out; the saved database holds what was analyzed) or running.",
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "functions": {
+            "type": "integer"
+          },
+          "externalFunctions": {
+            "type": "integer"
+          },
+          "entryPoints": {
+            "description": "VAs, at most 64.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "md5": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "start": {
+                  "description": "VA.",
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "permissions": {
+                  "type": "string"
+                },
+                "initialized": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "start",
+                "size",
+                "permissions",
+                "initialized"
+              ]
+            }
+          },
+          "reusedDatabase": {
+            "description": "Whether the open loaded a saved database instead of analyzing.",
+            "type": "boolean"
+          },
+          "openSeconds": {
+            "description": "Seconds the open took.",
+            "type": "number"
+          },
+          "database": {
+            "description": "The project directory (Ghidra) or database file (IDA).",
+            "type": "string"
+          },
+          "workerPid": {
+            "type": "integer"
+          },
+          "decompiler": {
+            "type": "boolean"
+          },
+          "unsavedEdits": {
+            "description": "Edits a worker restart would replay (made since the last save).",
+            "type": "integer"
+          },
+          "changed": {
+            "description": "Whether the database has changes not yet saved, when the engine says.",
+            "type": "boolean"
+          },
+          "openStages": {
+            "description": "Seconds per stage of the open (prepare, start, load or import, analysis and its sub-stages, save; then pdb types).",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "type": "string"
+                },
+                "seconds": {
+                  "type": "number"
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/properties/engines/items/properties/openStages/items"
+                  }
+                }
+              },
+              "required": [
+                "stage",
+                "seconds"
+              ]
+            }
+          }
+        },
+        "required": [
+          "engine",
+          "state",
+          "seconds",
+          "savedAnalysis"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "engines"
+  ]
+}

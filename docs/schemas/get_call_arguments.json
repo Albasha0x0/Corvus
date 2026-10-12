@@ -1,0 +1,153 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "description": "Image id.",
+      "type": "string"
+    },
+    "scope": {
+      "description": "What was searched: a call, the calls in a function, or the calls to a callee.",
+      "type": "string"
+    },
+    "total": {
+      "description": "Call sites found.",
+      "type": "integer"
+    },
+    "offset": {
+      "description": "Index of the first returned call site.",
+      "type": "integer"
+    },
+    "calls": {
+      "type": "array",
+      "items": {
+        "description": "One call site.",
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "VA of the call instruction.",
+            "type": "string"
+          },
+          "function": {
+            "description": "The calling function.",
+            "type": "string"
+          },
+          "callee": {
+            "description": "Callee: module!name for imports and late-bound imports, a function name, or the pointer for indirect calls.",
+            "type": "string"
+          },
+          "calleeKind": {
+            "description": "import, function, dynamic (GetProcAddress / dlsym pointer), virtual_exact (a virtual call with one implementation, resolved through RTTI), virtual_possible (one of several implementations, listed in Callee) or indirect.",
+            "type": "string"
+          },
+          "tailCall": {
+            "description": "A jump to the callee (tail call) rather than a call.",
+            "type": "boolean"
+          },
+          "signatureKnown": {
+            "description": "The callee's signature is known (parameter names, count and constant decoding); otherwise the arguments are the registers / stack slots set just before the call.",
+            "type": "boolean"
+          },
+          "display": {
+            "description": "The call with its arguments, e.g. CreateFileW(L\"config.ini\", GENERIC_READ, ...).",
+            "type": "string"
+          },
+          "arguments": {
+            "type": "array",
+            "items": {
+              "description": "One argument of a call.",
+              "type": "object",
+              "properties": {
+                "index": {
+                  "description": "0-based position.",
+                  "type": "integer"
+                },
+                "name": {
+                  "description": "Parameter name from the API signature; null for callees without one.",
+                  "type": "string"
+                },
+                "type": {
+                  "description": "Parameter type (str, int, ptr, an enumeration or flags name...); null without a signature.",
+                  "type": "string"
+                },
+                "location": {
+                  "description": "Where it is passed: rcx, rdi, xmm0, [rsp+20h], [esp+4h], ecx; ARM64 x0-x7, s0-s7 / d0-d7, stack.",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "immediate, string, address, name, result (of an earlier call), global (contents of a variable) or unknown.",
+                  "type": "string"
+                },
+                "text": {
+                  "description": "The value as shown in the call: decoded flags, quoted string, name, ? when unknown.",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "The number for immediates (hex).",
+                  "type": "string"
+                },
+                "address": {
+                  "description": "The address (VA) for strings, addresses, names and globals.",
+                  "type": "string"
+                },
+                "derivation": {
+                  "description": "How it was derived: the instructions from the call back to the definition, or why it is unknown.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "index",
+                "location",
+                "kind",
+                "text",
+                "derivation"
+              ]
+            }
+          }
+        },
+        "required": [
+          "address",
+          "function",
+          "callee",
+          "calleeKind",
+          "tailCall",
+          "signatureKnown",
+          "display",
+          "arguments"
+        ]
+      }
+    },
+    "notes": {
+      "description": "Coverage notes: limits reached, what is not analyzed.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "scope",
+    "total",
+    "offset",
+    "calls",
+    "notes"
+  ]
+}

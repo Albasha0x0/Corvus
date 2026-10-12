@@ -1,0 +1,217 @@
+{
+  "type": "object",
+  "properties": {
+    "assemblies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "types": {
+            "type": "integer"
+          },
+          "il2CppDummy": {
+            "type": "boolean"
+          },
+          "unsavedEdits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "readyToRun": {
+            "type": "boolean"
+          },
+          "merged": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "version",
+          "path",
+          "types",
+          "il2CppDummy",
+          "unsavedEdits",
+          "readyToRun"
+        ]
+      }
+    },
+    "searchDirectories": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "backgroundIndexing": {
+      "type": "string"
+    },
+    "container": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "container": {
+          "type": "string"
+        },
+        "assemblies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              },
+              "readyToRun": {
+                "type": "boolean"
+              },
+              "merged": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "size",
+              "sha256",
+              "origin",
+              "readyToRun"
+            ]
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total": {
+          "type": "integer"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "size"
+            ]
+          }
+        },
+        "fileTotal": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source",
+        "container",
+        "assemblies",
+        "notes"
+      ]
+    },
+    "total": {
+      "type": "integer"
+    },
+    "nativeImages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "machine": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "slices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "machine",
+          "kind",
+          "size",
+          "sha256"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "assemblies",
+    "searchDirectories",
+    "backgroundIndexing"
+  ]
+}

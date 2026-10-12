@@ -1,0 +1,86 @@
+{
+  "type": "object",
+  "properties": {
+    "assembly": {
+      "type": "string"
+    },
+    "contents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "entropy": {
+            "type": "number"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "savedTo": {
+            "type": "string"
+          },
+          "loadedAs": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "encoding",
+          "kind",
+          "size",
+          "sha256",
+          "entropy"
+        ]
+      }
+    },
+    "outputDirectory": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "assembly",
+    "contents",
+    "notes"
+  ]
+}

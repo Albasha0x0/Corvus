@@ -1,0 +1,253 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "address": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "size": {
+      "description": "Bytes of code in its blocks.",
+      "type": "integer"
+    },
+    "end": {
+      "description": "Exclusive end of its highest range (VA).",
+      "type": "string"
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "description": "One section; Total counts every fact, Items holds at most maxItems.",
+        "type": "object",
+        "properties": {
+          "name": {
+            "description": "identity, signature, frame, callers, callees, data, flow, annotations, params or pseudocode.",
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "description": "One fact of a section.",
+              "type": "object",
+              "properties": {
+                "address": {
+                  "description": "VA, when the fact has an address.",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "What the fact is within its section (caller, call, string, read, write, switch, loop, ...).",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          },
+          "error": {
+            "description": "Why the section is missing or partial; the other sections are unaffected.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "total",
+          "items"
+        ]
+      }
+    },
+    "next": {
+      "description": "Follow-up calls.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "batch": {
+      "description": "Several addresses: the dossiers after the first, and the addresses that are in no function; null for one.",
+      "type": "array",
+      "items": {
+        "description": "A further dossier of a batch, or an address that could not be analyzed (Error).",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "end": {
+            "type": "string"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "description": "One section; Total counts every fact, Items holds at most maxItems.",
+              "$ref": "#/properties/sections/items"
+            }
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "size",
+          "sections"
+        ]
+      }
+    },
+    "component": {
+      "description": "component=true: how the functions work together.",
+      "type": "object",
+      "properties": {
+        "functions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "blocks": {
+                "type": "integer"
+              },
+              "complexity": {
+                "type": "integer"
+              },
+              "callers": {
+                "type": "integer"
+              },
+              "callees": {
+                "type": "integer"
+              },
+              "interface": {
+                "description": "Called, referenced or exported from outside the set; false: only the set reaches it.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "address",
+              "name",
+              "size",
+              "callers",
+              "callees",
+              "interface"
+            ]
+          }
+        },
+        "edges": {
+          "description": "Calls between functions of the set.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "sites": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "sites"
+            ]
+          }
+        },
+        "sharedGlobals": {
+          "description": "Data (not strings) that two or more of the functions read, write or take the address of.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "functions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "address",
+              "text",
+              "functions"
+            ]
+          }
+        },
+        "sharedStrings": {
+          "description": "Strings two or more of the functions use.",
+          "type": "array",
+          "items": {
+            "$ref": "#/properties/component/properties/sharedGlobals/items"
+          }
+        }
+      },
+      "required": [
+        "functions",
+        "edges",
+        "sharedGlobals",
+        "sharedStrings"
+      ]
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "address",
+    "name",
+    "size",
+    "end",
+    "sections",
+    "next"
+  ]
+}

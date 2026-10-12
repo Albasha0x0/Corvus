@@ -1,0 +1,178 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "description": "Image id.",
+      "type": "string"
+    },
+    "scope": {
+      "description": "site, function or image.",
+      "type": "string"
+    },
+    "engine": {
+      "description": "Engines whose views are merged: ours, ours+ida or ours+ghidra.",
+      "type": "string"
+    },
+    "total": {
+      "description": "Sites matching the filter.",
+      "type": "integer"
+    },
+    "byStatus": {
+      "description": "Sites per status, before the filter.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "byMechanism": {
+      "description": "Sites per mechanism, before the filter.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "topUnresolved": {
+      "description": "Image scope: the functions with the most unresolved sites.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "offset": {
+      "description": "Index of the first returned site.",
+      "type": "integer"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "description": "One call or tail-jump site.",
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "VA of the instruction.",
+            "type": "string"
+          },
+          "function": {
+            "description": "Function and offset.",
+            "type": "string"
+          },
+          "text": {
+            "description": "The instruction.",
+            "type": "string"
+          },
+          "mechanism": {
+            "description": "direct, import_slot, thunk, register, memory_pointer, vftable_slot, cfg_dispatch, tail_jump, pointer_table or interface_dispatch.",
+            "type": "string"
+          },
+          "status": {
+            "description": "direct, import, resolved (the complete set), possible (several, or not proven complete), virtual_exact, virtual_possible, ambiguous (engines disagree) or unresolved.",
+            "type": "string"
+          },
+          "targetCount": {
+            "description": "Distinct targets (all of them; at most 64 listed).",
+            "type": "integer"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "description": "One target of a call site.",
+              "type": "object",
+              "properties": {
+                "address": {
+                  "description": "VA of the target (the import slot for imports, the pointer global for late-bound imports).",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "basis": {
+                  "description": "How it was found: direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible, global_writers, initial_contents, pointer_table, caller_argument, interface_dispatch_cell, ida_xref, hexrays_direct, ghidra_xref, ghidra_direct.",
+                  "type": "string"
+                },
+                "confidence": {
+                  "description": "exact, possible, or candidate (from an incomplete set, or only another engine's view).",
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "address",
+                "name",
+                "basis",
+                "confidence",
+                "evidence"
+              ]
+            }
+          },
+          "reason": {
+            "description": "Why unresolved, or why the set may be incomplete.",
+            "type": "string"
+          },
+          "hint": {
+            "description": "The call that traces the target's value.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "function",
+          "text",
+          "mechanism",
+          "status",
+          "targetCount",
+          "targets"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "scope",
+    "engine",
+    "total",
+    "byStatus",
+    "byMechanism",
+    "topUnresolved",
+    "offset",
+    "items",
+    "notes"
+  ]
+}

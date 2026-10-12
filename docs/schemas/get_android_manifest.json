@@ -1,0 +1,361 @@
+{
+  "type": "object",
+  "properties": {
+    "package": {
+      "type": "string"
+    },
+    "versionCode": {
+      "type": "string"
+    },
+    "versionName": {
+      "type": "string"
+    },
+    "minSdk": {
+      "type": "integer"
+    },
+    "targetSdk": {
+      "type": "integer"
+    },
+    "maxSdk": {
+      "type": "integer"
+    },
+    "compileSdk": {
+      "type": "integer"
+    },
+    "split": {
+      "description": "Set on a split APK: its split name.",
+      "type": "string"
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "maxSdkVersion": {
+            "type": "integer"
+          },
+          "sdk23Only": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "sdk23Only"
+        ]
+      }
+    },
+    "declaredPermissions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "protectionLevel": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "protectionLevel"
+        ]
+      }
+    },
+    "application": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "debuggable": {
+          "type": "boolean"
+        },
+        "allowBackup": {
+          "type": "boolean"
+        },
+        "usesCleartextTraffic": {
+          "type": "boolean"
+        },
+        "networkSecurityConfig": {
+          "description": "The android:networkSecurityConfig resource and its file.",
+          "type": "string"
+        },
+        "extractNativeLibs": {
+          "type": "boolean"
+        },
+        "testOnly": {
+          "type": "boolean"
+        },
+        "hasCode": {
+          "type": "boolean"
+        },
+        "appComponentFactory": {
+          "type": "string"
+        },
+        "backupAgent": {
+          "type": "string"
+        },
+        "dataExtractionRules": {
+          "type": "string"
+        },
+        "fullBackupContent": {
+          "type": "string"
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "activity, activity-alias, service, receiver or provider.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Fully qualified class name.",
+            "type": "string"
+          },
+          "exported": {
+            "description": "android:exported as written; null when absent.",
+            "type": "boolean"
+          },
+          "effectiveExported": {
+            "description": "Whether other apps can reach it: the explicit value, or the platform default.",
+            "type": "boolean"
+          },
+          "exportedReason": {
+            "description": "Why EffectiveExported has its value.",
+            "type": "string"
+          },
+          "permission": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "process": {
+            "type": "string"
+          },
+          "targetActivity": {
+            "description": "activity-alias: the activity it opens.",
+            "type": "string"
+          },
+          "authorities": {
+            "description": "provider: its authorities; readPermission / writePermission and grantUriPermissions follow.",
+            "type": "string"
+          },
+          "readPermission": {
+            "type": "string"
+          },
+          "writePermission": {
+            "type": "string"
+          },
+          "grantUriPermissions": {
+            "type": "boolean"
+          },
+          "launcher": {
+            "description": "MAIN + LAUNCHER intent filter.",
+            "type": "boolean"
+          },
+          "deepLinks": {
+            "description": "scheme://host/path URIs its BROWSABLE / VIEW filters accept.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "intentFilters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "actions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "categories": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "scheme": {
+                        "type": "string"
+                      },
+                      "host": {
+                        "type": "string"
+                      },
+                      "port": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "mimeType": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "autoVerify": {
+                  "type": "boolean"
+                },
+                "priority": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "actions",
+                "categories",
+                "data",
+                "autoVerify"
+              ]
+            }
+          },
+          "metaData": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "resource": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "dotNetType": {
+            "description": "The .NET type implementing this component (Xamarin / MAUI apps), with how it was matched.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "effectiveExported",
+          "exportedReason",
+          "launcher",
+          "deepLinks",
+          "intentFilters",
+          "metaData"
+        ]
+      }
+    },
+    "queries": {
+      "type": "object",
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "intents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "packages",
+        "intents",
+        "providers"
+      ]
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "libraries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metaData": {
+      "type": "array",
+      "items": {
+        "$ref": "#/properties/components/items/properties/metaData/items"
+      }
+    },
+    "highlights": {
+      "description": "Notable facts: debuggable, cleartext traffic, backups, exported components without permission, deep links.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "package",
+    "permissions",
+    "declaredPermissions",
+    "application",
+    "components",
+    "queries",
+    "features",
+    "libraries",
+    "metaData",
+    "highlights",
+    "issues"
+  ]
+}
