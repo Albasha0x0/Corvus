@@ -104,6 +104,23 @@ public class EditTests : IDisposable
     }
 
     [Fact]
+    public void WriterFaultIsInternalNotIoError()
+    {
+        // An operand the writer cannot encode: a fault of this server, not of the disk.
+        var body = _env.Def<MethodDef>("Secret::Validate").Body;
+        body.Instructions.Insert(0, new dnlib.DotNet.Emit.Instruction());
+        _env.Edit(() => _env.Edits.StubMethod(_env.One("Account::Score"), "1"));
+        var ex = Record.Exception(() => _env.Edits.Save(_env.Fixture, _dir.File("Broken.dll"), overwrite: false));
+        Assert.NotNull(ex);
+        Assert.False(ex is ToolError { Code: ErrorCode.IoError }, ex.Message);
+        Assert.False(File.Exists(_dir.File("Broken.dll")));
+        var result = Mcp.ErrorResult.Internal(ex, "save_assembly");
+        var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
+        Assert.StartsWith("Error (internal) in save_assembly", text);
+        Assert.Contains("Next: a fault in Corvus", text);
+    }
+
+    [Fact]
     public void DefaultSavePathIsPatchedSibling()
     {
         var copy = _dir.File("App.dll");

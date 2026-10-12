@@ -56,6 +56,11 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
             "same: only the build the script was made from; other: carry the edits to another build"),
     };
 
+    /// <summary>One item's failure with its code; an exception no edit classified is "internal" and names its type.</summary>
+    internal static string FailureText(Exception ex) => ex is ToolError error
+        ? $"({ToolError.CodeName(error.Code)}) {error.Message}" + (error.Remediation is { Length: > 0 } next ? $"\nNext: {next}" : "")
+        : $"(internal) {ex.GetType().Name}: {ex.Message}\nNext: {ToolError.InternalNext}";
+
     public string List(LoadedAssembly asm)
     {
         if (asm.Edits.Count == 0)
@@ -201,7 +206,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                 {
                     failed++;
                     sb.AppendLine($"  #{i + 1} FAILED  {records[i].Description}");
-                    sb.AppendLine(Indent(ex.Message, "      "));
+                    sb.AppendLine(Indent(FailureText(ex), "      "));
                     if (!sameImage && originalBuild == null && ex.Message.Contains("not found", StringComparison.Ordinal))
                         sb.AppendLine($"      (load the build the script was made from, MVID {script.Mvid}, to follow renamed targets)");
                     if (stopOnError && !dryRun)

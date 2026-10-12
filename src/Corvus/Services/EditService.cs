@@ -629,8 +629,9 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         {
             (image, report) = asm.IsDirty ? asm.GetImage() : (asm.OriginalBytes, asm.SurveyOriginal());
         }
-        catch (Exception ex) when (ex is not (ToolError or OperationCanceledException))
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // Anything else the writer throws is a fault of this server: it reaches the client as "internal".
             throw new ToolError(ErrorCode.IoError, $"Could not write {asm.Id}: {ex.GetType().Name}: {ex.Message.TrimEnd('.')}. Nothing was written.");
         }
         if (strict && report.HasChanges)

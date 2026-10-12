@@ -54,6 +54,9 @@ public sealed class ToolError : McpException
 
     public const int MaxPartialChars = 32_000;
 
+    /// <summary>The next step of an "internal" error (an exception no tool classified), also per item where a tool collects failures.</summary>
+    public const string InternalNext = "a fault in Corvus, not in the input: report it with the tool, its arguments and this message; the same call fails the same way";
+
     /// <summary>Whether repeating the same call can succeed without changing its arguments.</summary>
     public bool Retryable => IsRetryable(Code);
 

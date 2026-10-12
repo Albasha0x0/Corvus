@@ -133,6 +133,14 @@ public class EditHistoryTests : IDisposable
         Assert.Single(fresh.Fixture.Edits);
     }
 
+    [Fact]
+    public void ItemFailuresCarryTheirCode()
+    {
+        Assert.Equal("(not_found) Account::X not found.", Services.EditHistoryService.FailureText(new ToolError(ErrorCode.NotFound, "Account::X not found.")));
+        var fault = Services.EditHistoryService.FailureText(new InvalidOperationException("collection was modified"));
+        Assert.StartsWith("(internal) InvalidOperationException: collection was modified\nNext: a fault in Corvus", fault);
+    }
+
     [Trait("Speed", "Slow")]
     [Fact]
     public void DryRunCompilesCSharpEdits_AndShowsTheFullError()

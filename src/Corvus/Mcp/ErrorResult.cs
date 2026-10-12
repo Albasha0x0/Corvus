@@ -21,7 +21,7 @@ internal static class ErrorResult
 
     /// <summary>An exception the tool did not classify: code "internal", not retryable.</summary>
     public static CallToolResult Internal(Exception ex, string? tool) =>
-        Of("internal", false, $"{ex.GetType().Name}: {ex.Message}", null, null, tool);
+        Of("internal", false, $"{ex.GetType().Name}: {ex.Message}", ToolError.InternalNext, null, tool);
 
     /// <summary>An error result for any code (also "internal"), rendered as <see cref="ToolError.Render"/> does.</summary>
     public static CallToolResult Of(string code, bool retryable, string message, string? next, object? details, string? tool)
