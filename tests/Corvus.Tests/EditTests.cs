@@ -47,6 +47,25 @@ public class EditTests : IDisposable
     }
 
     [Fact]
+    public void StubWithoutBodyNamesWhereTheCodeIs()
+    {
+        var abstractError = Assert.Throws<ToolError>(() => _env.Edits.StubMethod(_env.One("Entity::Tick"), null));
+        Assert.Equal(ErrorCode.Unsupported, abstractError.Code);
+        Assert.Contains("find_overrides", abstractError.Remediation);
+
+        var module = _env.Fixture.Module;
+        var native = new MethodDefUser("Beep", MethodSig.CreateStatic(module.CorLibTypes.Boolean, module.CorLibTypes.UInt32, module.CorLibTypes.UInt32),
+            MethodImplAttributes.PreserveSig, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl | MethodAttributes.HideBySig)
+        {
+            ImplMap = new ImplMapUser(new ModuleRefUser(module, "kernel32.dll"), "Beep", PInvokeAttributes.CallConvWinapi),
+        };
+        _env.Def<TypeDef>("Account", SymbolKind.Type).Methods.Add(native);
+        var nativeError = Assert.Throws<ToolError>(() => _env.Edits.StubMethod(new ResolvedSymbol(_env.Fixture, native), "true"));
+        Assert.StartsWith("the body is native: 'Beep' in kernel32.dll", nativeError.Remediation);
+        Assert.Contains("patch_bytes", nativeError.Remediation);
+    }
+
+    [Fact]
     public void StubsEveryReturnKind()
     {
         _env.Edit(() => _env.Edits.StubMethod(_env.One("Secret::Validate"), "true"));

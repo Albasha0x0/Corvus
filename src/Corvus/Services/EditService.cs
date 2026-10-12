@@ -616,11 +616,21 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         if (symbol.Member is not MethodDef m)
             throw new ToolError(ErrorCode.InvalidArgument, $"{symbol.Label} is a {symbol.Kind}, not a method.");
         if (m.IsAbstract || m.IsPinvokeImpl || m.IsRuntime || m.IsInternalCall)
-            throw new ToolError(ErrorCode.Unsupported, $"{symbol.Label} has no IL body (abstract/extern/runtime).");
+            throw new ToolError(ErrorCode.Unsupported, $"{symbol.Label} has no IL body (abstract/extern/runtime).", NoBodyNext(m));
         if (m.MethodSig is not { RetType: not null } sig || sig.Params.Any(p => p == null))
             throw new ToolError(ErrorCode.MalformedInput, $"{symbol.Label} has a signature that cannot be read (malformed metadata); it cannot be patched.");
         return m;
     }
+
+    /// <summary>Where the code of a method without IL lives, and the edit that reaches it.</summary>
+    private static string NoBodyNext(MethodDef m) => m switch
+    {
+        { IsPinvokeImpl: true, ImplMap: { } map } =>
+            $"the body is native: '{map.Name}' in {map.Module?.Name ?? "its library"}; load that library, find the export with list_exports and patch it with patch_bytes (or patch the managed callers, find_references)",
+        { IsPinvokeImpl: true } => "the body is native: load the library it binds to, find the export with list_exports and patch it with patch_bytes",
+        { IsAbstract: true } => "an abstract method has no code: patch its implementations (find_overrides)",
+        _ => "the runtime implements this method: patch its managed callers instead (find_references)",
+    };
 
     private static void Apply(MethodDef m, CilBody body)
     {
