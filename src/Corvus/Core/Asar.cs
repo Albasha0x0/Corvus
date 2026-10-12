@@ -215,7 +215,10 @@ public sealed class AsarArchive
         return current;
     }
 
-    /// <summary>Integrity verdict of one file: ok, hash_mismatch, block_mismatch, no_integrity, unsupported_algorithm or a read problem.</summary>
+    /// <summary>
+    /// Integrity verdict of one file: ok, ok_signed_after_packing (an unpacked PE matches once the Authenticode signature added
+    /// later is taken off), hash_mismatch, block_mismatch, size_mismatch, no_integrity, unsupported_algorithm or a read problem.
+    /// </summary>
     public sealed record Verdict(string Status, int? FirstBadBlock = null, string? Computed = null);
 
     /// <summary>
@@ -229,6 +232,7 @@ public sealed class AsarArchive
         if (!integrity.Algorithm.Equals("SHA256", StringComparison.OrdinalIgnoreCase)) return new("unsupported_algorithm");
         Stream source;
         bool own = false;
+        (int Offset, int Length)[]? signedLater = null;
         long start;
         if (e.Unpacked)
         {
@@ -238,7 +242,11 @@ public sealed class AsarArchive
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new("unpacked_unreadable"); }
             own = true;
             start = 0;
-            if (source.Length != e.Size) { source.Dispose(); return new("size_mismatch"); }
+            if (source.Length != e.Size && (source.Length < e.Size || (signedLater = SignatureFields(source, e.Size)) == null))
+            {
+                source.Dispose();
+                return new("size_mismatch");
+            }
         }
         else
         {
@@ -260,6 +268,8 @@ public sealed class AsarArchive
                 ct.ThrowIfCancellationRequested();
                 int n = (int)Math.Min(blockSize, e.Size - done);
                 source.ReadExactly(buffer, 0, n);
+                foreach (var (at, length) in signedLater ?? [])
+                    for (long i = Math.Max(at, done); i < Math.Min(at + length, done + n); i++) buffer[i - done] = 0;
                 whole.AppendData(buffer, 0, n);
                 if (badBlock == null && (count >= integrity.Blocks.Count || !BlockMatches(buffer.AsSpan(0, n), integrity.Blocks[count]))) badBlock = count;
                 count++;
@@ -270,11 +280,28 @@ public sealed class AsarArchive
             if (badBlock == null && integrity.Blocks.Count != count && !extraEmpty) badBlock = Math.Min(count, integrity.Blocks.Count);
             var computed = Convert.ToHexStringLower(whole.GetHashAndReset());
             if (!computed.Equals(integrity.Hash, StringComparison.OrdinalIgnoreCase)) return new("hash_mismatch", badBlock, computed);
-            return badBlock != null ? new("block_mismatch", badBlock, computed) : new("ok", null, computed);
+            return badBlock != null ? new("block_mismatch", badBlock, computed) : new(signedLater != null ? "ok_signed_after_packing" : "ok", null, computed);
         }
         catch (EndOfStreamException) { return new("truncated"); }
         catch (IOException) { return new("unreadable"); }
         finally { if (own) source.Dispose(); }
+    }
+
+    /// <summary>
+    /// For a PE whose Authenticode table starts at <paramref name=declared/> (8-byte aligned) and runs to the end: the header
+    /// fields signing changed (checksum, security directory), which were zero when the file was packed. Null otherwise.
+    /// </summary>
+    private static (int Offset, int Length)[]? SignatureFields(Stream s, long declared)
+    {
+        Span<byte> head = stackalloc byte[1024];
+        s.Position = 0;
+        if (s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false) < head.Length || head[0] != 'M' || head[1] != 'Z') return null;
+        int pe = BinaryPrimitives.ReadInt32LittleEndian(head[0x3C..]);
+        if (pe < 0 || pe > head.Length - 24 - 8 * 16 - 112 || BinaryPrimitives.ReadUInt32LittleEndian(head[pe..]) != 0x4550) return null;
+        int opt = pe + 24, dirs = opt + (BinaryPrimitives.ReadUInt16LittleEndian(head[opt..]) == 0x20B ? 112 : 96);
+        uint table = BinaryPrimitives.ReadUInt32LittleEndian(head[(dirs + 32)..]), size = BinaryPrimitives.ReadUInt32LittleEndian(head[(dirs + 36)..]);
+        bool appended = table >= declared && table - declared < 8 && table + (long)size == s.Length && declared > dirs + 40;
+        return appended ? [(opt + 64, 4), (dirs + 32, 8)] : null;
     }
 
     private static bool BlockMatches(ReadOnlySpan<byte> block, string declared) =>
@@ -479,7 +506,7 @@ public static class AsarContainer
                     if (e.Executable) flags.Add("executable");
                     var verdict = archive.Verify(stream, location, e, ref buffer, ct);
                     statuses[verdict.Status] = statuses.GetValueOrDefault(verdict.Status) + 1;
-                    if (verdict.Status is not ("ok" or "no_integrity") && problems.Count < 5)
+                    if (!verdict.Status.StartsWith("ok", StringComparison.Ordinal) && verdict.Status != "no_integrity" && problems.Count < 5)
                         problems.Add($"{e.Path}: {verdict.Status}{(verdict.FirstBadBlock is { } b ? $" (first bad block {b})" : "")}");
                     flags.Add("integrity " + verdict.Status + (verdict.FirstBadBlock is { } bad ? $" (block {bad})" : ""));
                     source = e;

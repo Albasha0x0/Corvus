@@ -112,6 +112,30 @@ public sealed class AsarTests : IDisposable
     }
 
     [Fact]
+    public void UnpackedAddonSignedAfterPackingStillMatches()
+    {
+        var unsigned = ElectronFixtures.Executable(null, fuses: null);
+        Array.Resize(ref unsigned, (unsigned.Length + 7) & ~7);
+        var (bytes, _) = AsarWriter.Build([new("addon.node", unsigned, Unpacked: true)]);
+        var path = Write("app.asar", bytes);
+        // what signing does: checksum and security directory set, the certificate table appended
+        var signed = unsigned.Concat(new byte[16]).ToArray();
+        BitConverter.GetBytes(0x1234u).CopyTo(signed, 0x58 + 64);
+        BitConverter.GetBytes((uint)unsigned.Length).CopyTo(signed, 0x58 + 112 + 32);
+        BitConverter.GetBytes(16u).CopyTo(signed, 0x58 + 112 + 36);
+        Directory.CreateDirectory(_dir.File("app.asar.unpacked"));
+        File.WriteAllBytes(_dir.File("app.asar.unpacked/addon.node"), signed);
+        var archive = Read(bytes);
+        byte[] buffer = [];
+        Assert.Equal("ok_signed_after_packing", archive.Verify(new MemoryStream(bytes), path, archive.Find("addon.node")!, ref buffer).Status);
+        signed[0x300] ^= 1;
+        File.WriteAllBytes(_dir.File("app.asar.unpacked/addon.node"), signed);
+        Assert.Equal("hash_mismatch", archive.Verify(new MemoryStream(bytes), path, archive.Find("addon.node")!, ref buffer).Status);
+        File.WriteAllBytes(_dir.File("app.asar.unpacked/addon.node"), [.. unsigned, 1, 2, 3]);
+        Assert.Equal("size_mismatch", archive.Verify(new MemoryStream(bytes), path, archive.Find("addon.node")!, ref buffer).Status);
+    }
+
+    [Fact]
     public void HeaderIntegrityIsGoodBadOrAbsent()
     {
         var (bytes, header) = AsarWriter.Build(AppFiles);
