@@ -83,7 +83,7 @@ public sealed class ToolError : McpException
         ErrorCode.IoError => "Reading or writing a file failed.",
         ErrorCode.Timeout => "The operation or the call took longer than its time limit; partial holds what was done.",
         ErrorCode.Cancelled => "The server cancelled the work (the target was unloaded, reloaded or superseded).",
-        ErrorCode.ProviderUnavailable => "An external engine (IDA, a reference pack download) is missing or failed.",
+        ErrorCode.ProviderUnavailable => "An external engine (IDA, a reference pack download) is missing or failed, or the server is busy (retry after details.retryAfterMs).",
         ErrorCode.AccessDenied => "The operating system refused access (another user's or a protected process, missing privileges).",
         _ => "Not classified.",
     };

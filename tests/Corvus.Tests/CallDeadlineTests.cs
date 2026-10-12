@@ -46,6 +46,55 @@ public class CallDeadlineTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task WorkLeftRunningPastTheDeadlineIsBoundedAndCounted()
+    {
+        using var services = Services();
+        var leftovers = LeftoverWork.For(services.GetRequiredService<ServerOptions>());
+        leftovers.Max = 1;
+        var release = new TaskCompletionSource();
+        var abandoned = McpProtocolTests.ErrorJson(await Run(services, "search_strings", async _ => { await release.Task; return Done; }).AsTask().WaitAsync(TimeSpan.FromMinutes(1)));
+        Assert.True(abandoned.GetProperty("details").GetProperty("stillRunning").GetBoolean());
+        Assert.Equal(1, leftovers.Running);
+
+        // at the cap a call waits until its deadline, then is refused as busy with a retry hint
+        var started = false;
+        var refused = McpProtocolTests.ErrorJson(await Run(services, "get_type_info", _ => { started = true; return Task.FromResult(Done); }));
+        Assert.False(started);
+        Assert.Equal("provider_unavailable", refused.GetProperty("code").GetString());
+        Assert.True(refused.GetProperty("retryable").GetBoolean());
+        Assert.True(refused.GetProperty("details").GetProperty("retryAfterMs").GetInt64() > 0);
+        Assert.Equal(1, refused.GetProperty("details").GetProperty("leftoverCalls").GetInt32());
+        Assert.NotEqual(true, (await Run(services, "server_status", _ => Task.FromResult(Done))).IsError);
+
+        // a waiting call starts as soon as the leftover finishes
+        var waiting = Run(services, "get_type_info", _ => Task.FromResult(Done)).AsTask();
+        await Task.Delay(100);
+        Assert.False(waiting.IsCompleted);
+        release.SetResult();
+        Assert.NotEqual(true, (await waiting.WaitAsync(TimeSpan.FromMinutes(1))).IsError);
+        Assert.Equal(0, leftovers.Running);
+        Assert.Equal(1, leftovers.Total);
+    }
+
+    [Fact]
+    public async Task WorkLeftRunningAfterAClientCancelIsCounted()
+    {
+        using var services = Services(timeoutSeconds: 3600);
+        var leftovers = LeftoverWork.For(services.GetRequiredService<ServerOptions>());
+        var release = new TaskCompletionSource();
+        using var cts = new CancellationTokenSource();
+        var call = Run(services, "search_strings", async _ => { await release.Task; return Done; }, cts.Token).AsTask();
+        await cts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call.WaitAsync(TimeSpan.FromMinutes(1)));
+        Assert.Equal(1, leftovers.Running);
+        release.SetResult();
+        for (var clock = System.Diagnostics.Stopwatch.StartNew(); leftovers.Running > 0 && clock.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(10);
+        Assert.Equal(0, leftovers.Running);
+        Assert.Equal(1, leftovers.Total);
+    }
+
+    [Fact]
     public async Task ClientCancellationIsNotATimeout()
     {
         // A deadline out of reach: with timers for both, a busy pool could run the deadline's first.

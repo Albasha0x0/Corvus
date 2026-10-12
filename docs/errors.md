@@ -31,6 +31,6 @@ An error larger than the response limit keeps its code; its message is cut and t
 | `io_error` | Reading or writing a file failed. | yes |
 | `timeout` | The operation or the call took longer than its time limit; partial holds what was done. | yes |
 | `cancelled` | The server cancelled the work (the target was unloaded, reloaded or superseded). | yes |
-| `provider_unavailable` | An external engine (IDA, a reference pack download) is missing or failed. | yes |
+| `provider_unavailable` | An external engine (IDA, a reference pack download) is missing or failed, or the server is busy (retry after details.retryAfterMs). | yes |
 | `access_denied` | The operating system refused access (another user's or a protected process, missing privileges). | no |
 | `internal` | An unexpected exception; the message names its type. Please report it. | no |

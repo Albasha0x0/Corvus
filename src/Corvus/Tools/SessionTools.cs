@@ -129,6 +129,10 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                     (c.LastError != null ? $"; last problem: {c.LastError}" : ""), null)
                 : new("saved native code indexes", false, "off: every image's code index is built when it is opened",
                     "start the server without --index-cache off (and without CORVUS_CODE_INDEX_CACHE=off)"));
+        var leftovers = LeftoverWork.For(options);
+        capabilities.Add(new("cancelled or timed-out calls still running", leftovers.Running < leftovers.Max,
+            $"{leftovers.Running} still finishing in the background (at {leftovers.Max}, {LeftoverWork.MaxVariable}, new calls wait, then are refused as busy); {leftovers.Total} since start",
+            leftovers.Running < leftovers.Max ? null : "wait for them to finish, or restart the server"));
         if (engines?.CacheStatus() is { Entries: > 0 } db)
             capabilities.Add(new("saved engine databases (IDA, Ghidra)", true,
                 $"{db.Root}: {db.Entries} entries, {db.Bytes / (1024.0 * 1024):0.#} of {db.MaxBytes >> 20} MB, unused entries kept {db.MaxAge.TotalDays:0} days " +

@@ -57,15 +57,26 @@ internal static partial class CallFilter
         Func<CancellationToken, ValueTask<CallToolResult>> next, CancellationToken cancellationToken)
     {
         var tool = request?.Name;
-        var deadline = services?.GetService<ServerOptions>() is { } serverOptions ? Deadline(tool, serverOptions) : null;
+        var serverOptions = services?.GetService<ServerOptions>();
+        var deadline = serverOptions != null ? Deadline(tool, serverOptions) : null;
+        var leftovers = serverOptions != null ? LeftoverWork.For(serverOptions) : null;
         using var call = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (deadline is { } limit) call.CancelAfter(limit);
+        // at the cap a call with a deadline waits for room until that deadline; session tools (server_status) never wait
+        if (leftovers != null && deadline != null && tool != null && Toolsets.FamilyOf(tool) != Toolsets.Session && !await leftovers.WaitForRoom(call.Token))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ErrorResult.From(new ToolError(ErrorCode.ProviderUnavailable,
+                $"the server is busy: {leftovers.Running} cancelled or timed-out calls are still finishing in the background (at most {leftovers.Max}); this call waited {deadline.Value.TotalSeconds:0} s and was not started.",
+                "retry after details.retryAfterMs; server_status shows when they are done")
+            { Details = new { retryAfterMs = (long)LeftoverWork.RetryAfter.TotalMilliseconds, leftoverCalls = leftovers.Running, max = leftovers.Max } }, tool);
+        }
         try
         {
             if (inputSchema is { } schema) ArgumentCheck.Apply(schema, request?.Arguments, tool);
             var structured = StructuredOutput.Begin();
             using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token);
-            var result = await WithinDeadline(next(call.Token).AsTask(), call.Token, deadline, cancellationToken);
+            var result = await WithinDeadline(next(call.Token).AsTask(), call.Token, deadline, cancellationToken, leftovers);
             // An error object never matches the tool's output schema, and clients validate whatever structuredContent is present.
             if (result.IsError == true) result.StructuredContent = null;
             // A tool that keeps its readable text hands its record over separately; bounded to the page size.
@@ -142,16 +153,21 @@ internal static partial class CallFilter
         public TimeSpan Limit { get; } = limit;
     }
 
-    /// <summary>The tool's result; past the deadline plus <see cref="DeadlineGrace"/>, the call returns while the work finishes in the background.</summary>
-    private static async Task<CallToolResult> WithinDeadline(Task<CallToolResult> work, CancellationToken call, TimeSpan? deadline, CancellationToken client)
+    /// <summary>
+    /// The tool's result; cancelled by the client or past the deadline, the work gets <see cref="DeadlineGrace"/> to stop, then
+    /// the call returns while it finishes in the background, counted in <paramref name="leftovers"/>.
+    /// </summary>
+    private static async Task<CallToolResult> WithinDeadline(Task<CallToolResult> work, CancellationToken call, TimeSpan? deadline, CancellationToken client,
+        LeftoverWork? leftovers)
     {
-        if (deadline is not { } limit) return await work;
-        var expired = new TaskCompletionSource();
-        using var registration = call.Register(() => expired.TrySetResult());
-        if (await Task.WhenAny(work, expired.Task) == work) return await work;
-        if (client.IsCancellationRequested || await Task.WhenAny(work, Task.Delay(DeadlineGrace, client)) == work) return await work;
+        var stopped = new TaskCompletionSource();
+        using (call.Register(() => stopped.TrySetResult()))
+            if (await Task.WhenAny(work, stopped.Task) == work) return await work;
+        if (await Task.WhenAny(work, Task.Delay(DeadlineGrace, CancellationToken.None)) == work) return await work;
+        leftovers?.Track(work);
         _ = work.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
-        throw new DeadlinePassedException(limit);
+        client.ThrowIfCancellationRequested();
+        throw new DeadlinePassedException(deadline!.Value);
     }
 
     private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning) =>
@@ -164,4 +180,53 @@ internal static partial class CallFilter
 
     [GeneratedRegex("required parameter '([^']+)'")]
     private static partial Regex MissingParameter();
+}
+
+/// <summary>
+/// Calls of one server that were cancelled by the client or passed their deadline and still run in the background (their
+/// token is cancelled; the work ignored it). At <see cref="Max"/> of them, a new call with a deadline waits for one to
+/// finish until that deadline, then is refused as busy.
+/// </summary>
+public sealed class LeftoverWork
+{
+    public const string MaxVariable = "CORVUS_MAX_LEFTOVER_CALLS";
+    public const int DefaultMax = 2;
+
+    /// <summary>The retry hint of a busy refusal.</summary>
+    public static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(10);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ServerOptions, LeftoverWork> Servers = new();
+    private int _running;
+    private long _total;
+    private TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public int Max { get; set; } = int.TryParse(Environment.GetEnvironmentVariable(MaxVariable), out var max) && max > 0 ? max : DefaultMax;
+    public int Running => Volatile.Read(ref _running);
+    /// <summary>Calls that ever outlived their cancellation or deadline.</summary>
+    public long Total => Interlocked.Read(ref _total);
+
+    public static LeftoverWork For(ServerOptions options) => Servers.GetValue(options, _ => new LeftoverWork());
+
+    public void Track(Task work)
+    {
+        Interlocked.Increment(ref _running);
+        Interlocked.Increment(ref _total);
+        work.ContinueWith(_ =>
+        {
+            Interlocked.Decrement(ref _running);
+            Interlocked.Exchange(ref _finished, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
+    /// <summary>True once fewer than <see cref="Max"/> run; false when <paramref name="ct"/> ends the wait first.</summary>
+    public async Task<bool> WaitForRoom(CancellationToken ct)
+    {
+        while (true)
+        {
+            var finished = Volatile.Read(ref _finished).Task;
+            if (Running < Max) return true;
+            try { await finished.WaitAsync(ct); }
+            catch (OperationCanceledException) { return false; }
+        }
+    }
 }
