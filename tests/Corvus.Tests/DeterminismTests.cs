@@ -55,4 +55,57 @@ public class DeterminismTests
         Assert.True(differing.Count == 0, "answers differ between two processes: " + string.Join(", ", differing));
         Assert.All(first, a => Assert.DoesNotContain("error=True", a.Split('\n')[0]));
     }
+
+    private static async Task<List<string>> HarnessCalls(TempDir dir)
+    {
+        await using var client = await McpProtocolTests.StartServerAsync(null, null, ["--no-watch"]);
+        string native = McpProtocolTests.NativeSample(dir), v2 = McpProtocolTests.NativeSampleV2(dir);
+        // The same file name from another folder: loaded as native.dll#2.
+        var twin = dir.File("other/native.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(twin)!);
+        File.Copy(v2, twin, overwrite: true);
+        foreach (var path in new[] { Env.FixturePath, native, v2, twin })
+            Assert.True((await client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = path })).IsError != true);
+        (string Tool, Dictionary<string, object?> Args)[] calls =
+        [
+            ("unity_overview", new() { ["path"] = UnityOverviewTests.MonoSample(dir) }),
+            ("get_pe_info", new() { ["image"] = "native.dll" }),
+            ("find_similar_functions", new() { ["image"] = "native.dll", ["address"] = "First", ["scope"] = "all", ["minScore"] = 0 }),
+            ("list_types", new() { ["assembly"] = "TestFixture" }),
+            ("search_strings", new() { ["query"] = "e" }),
+            ("decompile_type", new() { ["type"] = "Account" }),
+            ("list_exports", new() { ["image"] = "native.dll" }),
+            ("summarize_file", new() { ["path"] = native }),
+        ];
+        var outputs = new List<string>();
+        foreach (var (tool, args) in calls)
+        {
+            var r = await client.CallToolAsync(tool, args);
+            Assert.True(r.IsError != true, $"{tool}: {string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text))}");
+            outputs.Add($"{tool}: {string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text))}\n{r.StructuredContent?.GetRawText()}");
+        }
+        return outputs;
+    }
+
+    /// <summary>
+    /// The harness's repeated-call cases: timings in unity_overview, get_pe_info's capability text and the image ids a
+    /// scope=all similarity search names (native.dll#2). Engine banners stay out of scope.
+    /// </summary>
+    [Fact]
+    public async Task HarnessRepeatedCallsAnswerAlike()
+    {
+        using var dir = new TempDir();
+        var first = await HarnessCalls(dir);
+        var second = await HarnessCalls(dir);
+        for (int i = 0; i < first.Count; i++)
+            Assert.True(first[i] == second[i], $"differs:\n{Diff(first[i], second[i])}");
+    }
+
+    private static string Diff(string a, string b)
+    {
+        int at = 0;
+        while (at < a.Length && at < b.Length && a[at] == b[at]) at++;
+        string Around(string s) => s[Math.Max(0, at - 80)..Math.Min(s.Length, at + 80)];
+        return $"{a[..Math.Min(a.Length, a.IndexOf(':') + 1)]} at char {at}: '{Around(a)}' vs '{Around(b)}'";
+    }
 }
