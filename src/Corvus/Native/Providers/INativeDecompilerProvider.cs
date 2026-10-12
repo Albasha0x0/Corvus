@@ -293,6 +293,8 @@ public sealed record NativeOpenOptions
     public string? PdbPath { get; init; }
     /// <summary>Limit for engine start plus loading or auto-analysis.</summary>
     public TimeSpan OpenTimeout { get; init; } = TimeSpan.FromMinutes(20);
+    /// <summary>Ghidra's auto-analysis limit on a first open; by default what <see cref="OpenTimeout"/> leaves after start and import, less time to save.</summary>
+    internal TimeSpan? AnalysisBudget { get; init; }
     /// <summary>Limit for each request after the open.</summary>
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromMinutes(2);
     /// <summary>Receives start and analysis progress (elapsed time and stage).</summary>

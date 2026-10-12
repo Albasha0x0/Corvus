@@ -204,7 +204,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             var remaining = Options.OpenTimeout - clock.Elapsed;
             if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
             // The analysis stops early enough to save what it has inside the open's limit.
-            var budget = remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2));
+            var budget = Options.AnalysisBudget ?? remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2));
             var args = WorkerRows.Args(
                 ("input", Entry.InputCopy),
                 ("project_dir", _projectDirectory),

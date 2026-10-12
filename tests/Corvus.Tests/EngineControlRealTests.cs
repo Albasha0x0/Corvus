@@ -92,7 +92,7 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "dbghelp.dll"), copy, overwrite: true);
         using var provider = new Native.Providers.Ghidra.GhidraProvider(new Native.Providers.Ghidra.GhidraProviderOptions { CacheRoot = _dir.File("partial-cache") });
         await using var session = (Native.Providers.Ghidra.GhidraSession)await provider.OpenAsync(copy, null,
-            new NativeOpenOptions { Symbols = SymbolMode.Off, OpenTimeout = TimeSpan.FromSeconds(30) });
+            new NativeOpenOptions { Symbols = SymbolMode.Off, AnalysisBudget = TimeSpan.FromSeconds(1) }); // seconds short of a full analysis, however fast the machine
         Assert.False(session.AnalysisComplete);
         var e = await Assert.ThrowsAsync<ToolError>(() => session.DecompileAsync(0x10)); // the headers: in no function
         Assert.Equal(ErrorCode.NotFound, e.Code);
