@@ -390,9 +390,12 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         }
         await Call("load_assembly", new() { ["path"] = exe });
         await Call("rename_native", new() { ["image"] = "crash.exe", ["address"] = "level1", ["name"] = "UserLevelOne" });
-        var text = await Call("dump_stack", new() { ["dump"] = dump });
-        Assert.Contains("\"function\":\"UserLevelOne\",\"symbolSource\":\"user\"", text);
-        Assert.Contains("\"function\":\"level2\",\"symbolSource\":\"pdb\"", text);
+        var stack = await client.CallToolAsync("dump_stack", new Dictionary<string, object?> { ["dump"] = dump });
+        Assert.True(stack.IsError != true);
+        var frames = stack.StructuredContent!.Value.GetProperty("frames").EnumerateArray()
+            .Select(f => (Function: f.TryGetProperty("function", out var n) ? n.GetString() : null, Source: f.TryGetProperty("symbolSource", out var s) ? s.GetString() : null)).ToList();
+        Assert.Contains(("UserLevelOne", "user"), frames);
+        Assert.Contains(("level2", "pdb"), frames);
     }
 
     // ---- cdb ----
