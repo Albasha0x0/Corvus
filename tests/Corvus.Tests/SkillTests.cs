@@ -102,6 +102,23 @@ public sealed class SkillTests : IDisposable
     }
 
     [Fact]
+    public void ClientsWithTheirOwnSkillFolders_GetTheSkillThere()
+    {
+        var (code, output) = _home.Run("install", "--no-check", "--skill", "--client", "cline,roo-code,kilo-code,windsurf,qwen-code,command-code,pi");
+        Assert.True(code == 0, output);
+        foreach (var folder in new[]
+                 {
+                     _home.Path(".agents", "skills", Skill.Name), _home.Path(".roo", "skills", Skill.Name), _home.Path(".kilocode", "skills", Skill.Name),
+                     _home.Path(".codeium", "windsurf", "skills", Skill.Name), _home.Path(".qwen", "skills", Skill.Name),
+                     _home.Path(".commandcode", "skills", Skill.Name), _home.Path(".pi", "agent", "skills", Skill.Name),
+                 })
+            Assert.Equal(Skill.Aligned, Skill.StateOf(folder));
+        // QWEN_HOME moves Qwen Code's skills with its settings.
+        var moved = _home.Env(variables: new Dictionary<string, string> { ["QWEN_HOME"] = _home.Path("q") });
+        Assert.Contains(Skill.Targets(moved), t => t == ("qwen-code", _home.Path("q", "skills", Skill.Name)));
+    }
+
+    [Fact]
     public void UninstallOfOneClientKeepsAFolderAnotherRegisteredClientReads()
     {
         Directory.CreateDirectory(_home.Path(".codex"));

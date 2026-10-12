@@ -102,6 +102,8 @@ internal static class Skill
     {
         var claude = env.Set("CLAUDE_CONFIG_DIR") ?? env.InHome(".claude");
         var shared = env.InHome(".agents", "skills", Name);
+        // These keep skills in a skills folder beside their MCP configuration file.
+        var configs = ClientCatalog.All(env).ToDictionary(c => c.Id, c => Path.GetDirectoryName(c.Target.Path)!, StringComparer.Ordinal);
         return
         [
             ("claude-code", Path.Combine(claude, "skills", Name)),
@@ -110,7 +112,11 @@ internal static class Skill
             ("cursor", shared),
             ("copilot-cli", shared),
             ("opencode", shared),
+            ("cline", shared),
             ("antigravity", env.InHome(".gemini", "config", "skills", Name)),
+            ("roo-code", env.InHome(".roo", "skills", Name)),
+            ("kilo-code", env.InHome(".kilocode", "skills", Name)),
+            .. new[] { "windsurf", "qwen-code", "crush", "command-code", "pi" }.Select(id => (id, Path.Combine(configs[id], "skills", Name))),
         ];
     }
 

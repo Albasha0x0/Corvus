@@ -188,7 +188,9 @@ supported on that system.
 
 `install --skill` also writes a skill (`SKILL.md` and one reference file per guide topic) for clients that read skills:
 Claude Code (`~/.claude/skills/corvus`, or under `CLAUDE_CONFIG_DIR`), Codex, Gemini CLI, Cursor, GitHub
-Copilot CLI and OpenCode (`~/.agents/skills/corvus`), and Antigravity (`~/.gemini/config/skills/corvus`).
+Copilot CLI, OpenCode and Cline (`~/.agents/skills/corvus`), Antigravity (`~/.gemini/config/skills/corvus`), Roo Code
+(`~/.roo/skills/corvus`), Kilo Code (`~/.kilocode/skills/corvus`), and Windsurf, Qwen Code, Crush, Command Code and Pi
+(a `skills/corvus` folder beside the client's MCP configuration file in the table above).
 It is generated from the server's own guidance, so it describes only tools the server has, and it tells an agent how to
 check the registration and how to use the command line when the tools are not connected. The skill does not include the
 server: install the program first.
