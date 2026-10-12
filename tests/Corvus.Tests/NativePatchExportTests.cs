@@ -266,6 +266,75 @@ public class NativePatchExportTests(ITestOutputHelper output)
         Assert.Contains("(\".patch\", 0x5000,", ida);
     }
 
+    /// <summary>
+    /// The IDAPython script under stand-in IDA modules: a segment goes only where nothing is (or where an earlier run put
+    /// it); when another segment holds the range, nothing is written, the site patches included.
+    /// </summary>
+    [Fact]
+    public void Ida_script_places_a_segment_only_where_the_range_is_free()
+    {
+        var python = PythonLocator.Find([], []);
+        if (python == null) { output.WriteLine("no Python: script not run"); return; }
+        var original = new byte[0x600];
+        var output2 = new byte[0x800];
+        original.CopyTo(output2, 0);
+        output2[0x410] = 0xE9;
+        var patch = new NativePatch(0x1010, 0x410, [0x00], [0xE9], "patch_bytes 1 bytes", RelocationPlan.None);
+        var src = new PatchExportSource("grown.dll", "", 0x400000, NativeArch.X64, [patch], original, output2, -1, _ => null,
+            [new AppendedSection(".patch", 0x5000, 0x200, 0x600, output2[0x600..])]);
+        using var dir = new TempDir();
+        var script = dir.File("patches.py");
+        File.WriteAllBytes(script, PatchExport.Render(src, PatchExport.Format.Ida).Content);
+        var driver = dir.File("fake_ida.py");
+        File.WriteAllText(driver, """
+            import sys, types
+            BASE = 0x400000
+            class Seg:
+                def __init__(self, s, e, n): self.start_ea, self.end_ea, self.name = s, e, n
+            segs = []
+            mem = {}
+            existing = sys.argv[2]
+            if existing == "foreign": segs.append(Seg(BASE + 0x5000, BASE + 0x6000, ".other"))
+            if existing == "next": segs.append(Seg(BASE + 0x5100, BASE + 0x6000, ".other"))
+            if existing == "ours": segs.append(Seg(BASE + 0x5000, BASE + 0x5200, ".patch"))
+            mem.update({BASE + 0x1010: 0})
+            def getseg(ea): return next((s for s in segs if s.start_ea <= ea < s.end_ea), None)
+            def get_next_seg(ea): return min((s for s in segs if s.start_ea > ea), key=lambda s: s.start_ea, default=None)
+            def add_segm_ex(s, name, cls, flags): segs.append(Seg(s.start_ea, s.end_ea, name)); return True
+            seg = types.ModuleType("ida_segment")
+            seg.getseg, seg.get_next_seg, seg.add_segm_ex, seg.ADDSEG_NOSREG = getseg, get_next_seg, add_segm_ex, 0
+            seg.get_segm_name = lambda s: s.name
+            api = types.ModuleType("idaapi")
+            api.get_imagebase = lambda: BASE
+            api.segment_t = type("segment_t", (), {})
+            api.get_inf_structure = lambda: types.SimpleNamespace(is_64bit=lambda: True)
+            api.SEGPERM_EXEC, api.SEGPERM_READ = 1, 4
+            b = types.ModuleType("ida_bytes")
+            def patch_bytes(ea, data):
+                for i, x in enumerate(data): mem[ea + i] = x
+            b.patch_bytes = patch_bytes
+            b.is_loaded = lambda ea: ea in mem
+            b.get_bytes = lambda ea, n: bytes(mem.get(ea + i, 0) for i in range(n))
+            auto = types.ModuleType("ida_auto")
+            auto.plan_range = lambda s, e: None
+            auto.auto_wait = lambda: None
+            sys.modules.update({"idaapi": api, "ida_bytes": b, "ida_auto": auto, "ida_segment": seg})
+            g = {"__name__": "__main__"}
+            exec(compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec"), g)
+            print("RESULT", g["CORVUS_SEGMENTS_RESULT"][0], g["CORVUS_SEGMENTS_RESULT"][1], g["CORVUS_PATCH_RESULT"][0], mem[BASE + 0x1010])
+            """);
+        string Run(string existing)
+        {
+            var run = PythonLocator.RunCapture(python.Executable, ["-I", driver, script, existing], TimeSpan.FromSeconds(30));
+            output.WriteLine(run.Stdout + run.Stderr);
+            return run.Stdout.Split('\n').Single(l => l.StartsWith("RESULT", StringComparison.Ordinal)).Trim();
+        }
+        Assert.Equal("RESULT 1 0 1 233", Run("none"));      // created, then the site patched
+        Assert.Equal("RESULT 0 0 1 233", Run("ours"));      // an earlier run's segment is reused
+        Assert.Equal("RESULT 0 1 0 0", Run("foreign"));     // another segment holds the start: nothing written
+        Assert.Equal("RESULT 0 1 0 0", Run("next"));        // another segment starts inside the range
+    }
+
     [Fact]
     public void Ips_moves_a_record_off_the_end_marker_offset_and_refuses_offsets_past_16_MB()
     {

@@ -183,26 +183,44 @@ public static class PatchExport
             sb.Append($"    ({Py(label)}, 0x{rva:X}, \"{Convert.ToHexString(orig)}\", \"{Convert.ToHexString(repl)}\"),\n");
         sb.Append("]\n\n");
         sb.Append("""
+            def _placement(name, start, end):
+                # None: the range is free; "ours": this segment from an earlier run; else why it cannot go there
+                s = ida_segment.getseg(start)
+                if s is not None:
+                    if s.start_ea == start and s.end_ea >= end and ida_segment.get_segm_name(s) == name:
+                        return "ours"
+                    return "segment %s already holds 0x%X" % (ida_segment.get_segm_name(s), start)
+                n = ida_segment.get_next_seg(start)
+                if n is not None and n.start_ea < end:
+                    return "segment %s starts at 0x%X, inside 0x%X..0x%X" % (ida_segment.get_segm_name(n), n.start_ea, start, end)
+                return None
+
             def add_segments():
                 base = idaapi.get_imagebase()
-                created = 0
+                created = blocked = 0
                 for name, rva, vsize, data in SEGMENTS:
                     start = base + rva
                     end = start + vsize
-                    if ida_segment.getseg(start) is None:
+                    where = _placement(name, start, end)
+                    if where not in (None, "ours"):
+                        blocked += 1
+                        print("%s at 0x%X not created: %s" % (name, start, where))
+                        continue
+                    if where is None:
                         s = idaapi.segment_t()
                         s.start_ea = start
                         s.end_ea = end
                         s.bitness = 2 if idaapi.get_inf_structure().is_64bit() else 1
                         s.perm = idaapi.SEGPERM_EXEC | idaapi.SEGPERM_READ
                         if not ida_segment.add_segm_ex(s, name, "CODE", ida_segment.ADDSEG_NOSREG):
+                            blocked += 1
                             print("could not add segment %s at 0x%X" % (name, start)); continue
                         created += 1
                     raw = bytes.fromhex(data)
                     ida_bytes.patch_bytes(start, raw)
                     ida_auto.plan_range(start, start + len(raw))
-                if SEGMENTS: print("%d segment(s) created" % created)
-                return created
+                if SEGMENTS: print("%d segment(s) created, %d not placed" % (created, blocked))
+                return created, blocked
 
 
             """.Replace("\r\n", "\n"));
@@ -237,7 +255,12 @@ public static class PatchExport
                 return applied, already, differ, missing
 
             CORVUS_SEGMENTS_RESULT = add_segments()
-            CORVUS_PATCH_RESULT = apply_patches()
+            if CORVUS_SEGMENTS_RESULT[1]:
+                # the site patches branch into the segments: without them they would jump into other bytes
+                print("no patch applied: %d segment(s) could not be placed" % CORVUS_SEGMENTS_RESULT[1])
+                CORVUS_PATCH_RESULT = (0, 0, 0, len(PATCHES))
+            else:
+                CORVUS_PATCH_RESULT = apply_patches()
 
             """.Replace("\r\n", "\n"));
         return (Encoding.UTF8.GetBytes(sb.ToString()), entries.Count + segments.Count);
