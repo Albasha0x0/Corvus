@@ -5,36 +5,38 @@ namespace Corvus.Native.Code;
 
 /// <summary>
 /// Where a name or comment at a native address comes from. At one address the highest source wins:
-/// user (rename_native / comment_native) &gt; pdb &gt; nativeaot &gt; il2cpp &gt; ida (library functions IDA recognized by signature) &gt;
+/// user (rename_native / comment_native) &gt; pdb &gt; nativeaot &gt; il2cpp &gt; napi (Node-API add-on registrations) &gt; ida (library functions IDA recognized by signature) &gt;
 /// ghidra (names from Ghidra's loader and analysis, Function ID included) &gt; discovered (exports, imports, sub_&lt;rva&gt;). Values are stored in saved layers; priority is <see cref="NativeNameSources.Rank"/>.
 /// </summary>
-public enum NativeNameSource { Discovered = 0, Ida = 1, Il2Cpp = 2, Pdb = 3, User = 4, NativeAot = 5, Ghidra = 6 }
+public enum NativeNameSource { Discovered = 0, Ida = 1, Il2Cpp = 2, Pdb = 3, User = 4, NativeAot = 5, Ghidra = 6, NodeApi = 7 }
 
 public static class NativeNameSources
 {
     /// <summary>Imported and user sources, highest priority first.</summary>
     public static readonly IReadOnlyList<NativeNameSource> ByPriority =
-        [NativeNameSource.User, NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Il2Cpp, NativeNameSource.Ida, NativeNameSource.Ghidra];
+        [NativeNameSource.User, NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Il2Cpp, NativeNameSource.NodeApi, NativeNameSource.Ida, NativeNameSource.Ghidra];
 
     /// <summary>Priority of a source at one address: higher wins.</summary>
     public static int Rank(this NativeNameSource source) => source switch
     {
-        NativeNameSource.User => 6,
-        NativeNameSource.Pdb => 5,
-        NativeNameSource.NativeAot => 4,
-        NativeNameSource.Il2Cpp => 3,
+        NativeNameSource.User => 7,
+        NativeNameSource.Pdb => 6,
+        NativeNameSource.NativeAot => 5,
+        NativeNameSource.Il2Cpp => 4,
+        NativeNameSource.NodeApi => 3,
         NativeNameSource.Ida => 2,
         NativeNameSource.Ghidra => 1,
         _ => 0,
     };
 
-    /// <summary>The source's identifier in tool output and sidecar files: user, pdb, nativeaot, il2cpp, ida, ghidra, discovered.</summary>
+    /// <summary>The source's identifier in tool output and sidecar files: user, pdb, nativeaot, il2cpp, napi, ida, ghidra, discovered.</summary>
     public static string Id(this NativeNameSource source) => source switch
     {
         NativeNameSource.User => "user",
         NativeNameSource.Pdb => "pdb",
         NativeNameSource.NativeAot => "nativeaot",
         NativeNameSource.Il2Cpp => "il2cpp",
+        NativeNameSource.NodeApi => "napi",
         NativeNameSource.Ida => "ida",
         NativeNameSource.Ghidra => "ghidra",
         _ => "discovered",
@@ -57,7 +59,7 @@ public static class NativeNameSources
 /// </summary>
 public sealed class SourcedNames
 {
-    private const int Sources = (int)NativeNameSource.Ghidra + 1;
+    private const int Sources = (int)NativeNameSource.NodeApi + 1;
     private static readonly NativeNameSource[] Priority = [.. NativeNameSources.ByPriority];
     private readonly object _gate = new();
     private readonly Dictionary<uint, string>[] _names = Enumerable.Range(0, Sources).Select(_ => new Dictionary<uint, string>()).ToArray();

@@ -243,6 +243,12 @@ public static class ApiSignatures
         cdecl dlvsym(hmodule handle, procname symbol, astr version)
         cdecl dlclose(hmodule handle)
 
+        cdecl napi_module_register(ptr mod)
+        cdecl napi_create_function(ptr env, astr utf8name, size length, ptr cb, ptr data, ptr result)
+        cdecl napi_define_properties(ptr env, ptr object, size property_count, ptr properties)
+        cdecl napi_define_class(ptr env, astr utf8name, size length, ptr constructor, ptr data, size property_count, ptr properties, ptr result)
+        cdecl napi_set_named_property(ptr env, ptr object, astr utf8name, ptr value)
+
         CreateProcess%(str lpApplicationName, str lpCommandLine, ptr lpProcessAttributes, ptr lpThreadAttributes, bool bInheritHandles, ProcessCreation dwCreationFlags, ptr lpEnvironment, str lpCurrentDirectory, ptr lpStartupInfo, ptr lpProcessInformation)
         CreateProcessAsUser%(handle hToken, str lpApplicationName, str lpCommandLine, ptr lpProcessAttributes, ptr lpThreadAttributes, bool bInheritHandles, ProcessCreation dwCreationFlags, ptr lpEnvironment, str lpCurrentDirectory, ptr lpStartupInfo, ptr lpProcessInformation)
         OpenProcess(ProcessAccess dwDesiredAccess, bool bInheritHandle, uint dwProcessId)

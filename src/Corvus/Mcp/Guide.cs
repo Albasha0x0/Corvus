@@ -162,6 +162,9 @@ public static class Guide
             when the same file loads again; list_native_edits shows the layers, clear=true on either tool removes one.
             NativeAOT images name themselves from their metadata when the code index builds (methods, vtable slots, MethodTables,
             frozen strings); get_nativeaot_info shows the version, recovery stages, types, methods and strings.
+            Node-API add-ons (.node) name their callbacks after the JavaScript names they register (napi layer: js_<name>,
+            js_get_ / js_set_ for accessors, js_Class_member), from constant napi_create_function / napi_define_properties /
+            napi_define_class / napi_module_register arguments; descriptors built at run time (node-addon-api, napi-rs) are not read.
             Cross-image: load the DLLs an image imports (or load_assembly loadProviders=true) and the call tools follow imports,
             forwarders and thunks into them.
             Engines: list_functions, disassemble, search_instructions, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida|ghidra. auto
@@ -169,7 +172,7 @@ public static class Guide
             and never starts an engine; ida / ghidra start that engine; --engine / CORVUS_ENGINE sets the server default. Every result has an
             "Engine: ours|ida|ghidra (why)" line. 32-bit ARM: an odd address is Thumb code one byte
             lower; list_functions flags A32 functions "arm". inspect_instruction takes auto|ours|ida|ghidra (auto: the built-in decoder for x86 / x64 / ARM).
-            Name priority: user > pdb > nativeaot > il2cpp > ida > ghidra > discovered; our names win in engine output. decompile_native pushes
+            Name priority: user > pdb > nativeaot > il2cpp > napi > ida > ghidra > discovered; our names win in engine output. decompile_native pushes
             names, patches, Il2Cpp prototypes, RTTI and PDB types into the engine's database; --prewarm ida|ghidra|auto analyzes images
             as they load; get_engine_status shows each engine session of an image (opening stage, analysis complete or partial, language,
             database, worker). Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
