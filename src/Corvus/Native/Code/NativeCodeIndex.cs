@@ -293,6 +293,18 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return result;
     }
 
+    /// <summary>Code range <paramref name="r"/> (see <see cref="NativeFunction.FirstRange"/>).</summary>
+    internal (uint Start, uint End) RangeAt(int r) => (_rangeStarts[r], _rangeEnds[r]);
+
+    /// <summary>Cross-references whose source is in [<paramref name="start"/>, <paramref name="end"/>), without a copy.</summary>
+    internal ReadOnlySpan<CodeXref> XrefsIn(uint start, uint end)
+    {
+        int lo = 0, hi = _xrefs.Length;
+        while (lo < hi) { int mid = (lo + hi) >>> 1; if (_xrefs[mid].From < start) lo = mid + 1; else hi = mid; }
+        int stop = lo;
+        while (stop < _xrefs.Length && _xrefs[stop].From < end) stop++;
+        return _xrefs.AsSpan(lo, stop - lo);
+    }
     /// <summary>Cross-references from the code of <paramref name="f"/>.</summary>
     public List<CodeXref> RefsFrom(NativeFunction f)
     {
@@ -422,6 +434,8 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return d.DecodeMapped(rva, out var insn) ? NativeDisassembler.Facts(in insn) : null;
     }
 
+    /// <summary>A function walker over this index's analysis, or null without one. One per caller.</summary>
+    internal FunctionWalker? NewWalker() => _ctx == null ? null : new FunctionWalker(_ctx);
     /// <summary>A decoder over this index's code (relocations, import slots, data in code), or null without one. One per caller.</summary>
     internal ICodeDecoder? NewDecoder() => _ctx?.NewDecoder(computeAccess: true);
 

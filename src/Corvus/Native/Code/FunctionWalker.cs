@@ -66,9 +66,27 @@ internal sealed class FunctionWalker
     /// </param>
     public WalkResult Walk(NativeFunction? function, uint start, bool buildGraph, CancellationToken ct, IReadOnlyList<uint>? chunks = null)
     {
+        var result = new WalkResult();
+        Explore(start, chunks, result, ct);
+        Summarize(result, start);
+        if (buildGraph && function != null) result.Graph = BuildGraph(function, result);
+        return result;
+    }
+
+    /// <summary>Walks like <see cref="Walk"/> and fills <paramref name="blocks"/> with the blocks only: no result arrays, no graph objects.</summary>
+    public void WalkBlocks(uint start, IReadOnlyList<uint>? chunks, BlockList blocks, CancellationToken ct)
+    {
+        _scratchResult.Flags = 0;
+        Explore(start, chunks, _scratchResult, ct);
+        BuildBlocks(blocks);
+    }
+
+    private readonly WalkResult _scratchResult = new();
+
+    private void Explore(uint start, IReadOnlyList<uint>? chunks, WalkResult result, CancellationToken ct)
+    {
         _visited.Clear(); _insns.Clear(); _runs.Clear(); _leaders.Clear(); _work.Clear(); _xrefs.Clear(); _callees.Clear();
         _branches.Clear(); _conditionals.Clear(); _switches.Clear(); _unresolved.Clear(); _tails.Clear(); _fallsInto.Clear(); _pending.Clear(); _pendingRun.Clear();
-        var result = new WalkResult();
         _conditionalReturn = false;
         _dec.BeginFunction(start);
         // chained .pdata fragments only say which jumps stay inside the function: a fragment can begin with data
@@ -136,10 +154,6 @@ internal sealed class FunctionWalker
             if (run.InsnCount == 0) { run.End = run.Start; }
             _runs.Add(run);
         }
-
-        Summarize(result, start);
-        if (buildGraph && function != null) result.Graph = BuildGraph(function, result);
-        return result;
     }
 
     private void Push(uint rva, IndexBound bound)
@@ -441,6 +455,69 @@ internal sealed class FunctionWalker
         };
     }
 
+    // BuildBlocks scratch: branch edges ordered by instruction (then insertion), raw blocks, block order by start
+    private ulong[] _edgeOrder = new ulong[64];
+    private uint[] _rawStart = new uint[64], _rawEnd = new uint[64], _rawLast = new uint[64];
+    private bool[] _rawFalls = new bool[64];
+    private ulong[] _rawOrder = new ulong[64];
+
+    /// <summary>The blocks <see cref="BuildGraph"/> would build and their successors in the same order, into reused arrays.</summary>
+    private void BuildBlocks(BlockList g)
+    {
+        int ne = _branches.Count;
+        if (_edgeOrder.Length < ne) _edgeOrder = new ulong[Math.Max(ne, _edgeOrder.Length * 2)];
+        for (int i = 0; i < ne; i++) _edgeOrder[i] = (ulong)_branches[i].Insn << 32 | (uint)i;
+        Array.Sort(_edgeOrder, 0, ne);
+        int n = 0;
+        foreach (var run in _runs)
+        {
+            if (run.InsnCount == 0) continue;
+            int first = run.FirstInsn, last = run.FirstInsn + run.InsnCount - 1;
+            int blockFirst = first;
+            for (int i = first; i <= last; i++)
+            {
+                if (i != last && !_leaders.Contains(_insns[i + 1])) continue;
+                if (n == _rawStart.Length)
+                {
+                    Array.Resize(ref _rawStart, n * 2); Array.Resize(ref _rawEnd, n * 2); Array.Resize(ref _rawLast, n * 2);
+                    Array.Resize(ref _rawFalls, n * 2); Array.Resize(ref _rawOrder, n * 2);
+                }
+                uint lastInsn = _insns[i];
+                _rawStart[n] = _insns[blockFirst];
+                _rawEnd[n] = i == last ? run.End : _insns[i + 1];
+                _rawLast[n] = lastInsn;
+                _rawFalls[n] = i != last && !_conditionals.Contains(lastInsn);
+                _rawOrder[n] = (ulong)_rawStart[n] << 32 | (uint)n;
+                n++;
+                blockFirst = i + 1;
+            }
+        }
+        Array.Sort(_rawOrder, 0, n);
+        g.Reset(n);
+        for (int k = 0; k < n; k++)
+        {
+            int raw = (int)(uint)_rawOrder[k];
+            g.Starts[k] = _rawStart[raw];
+            g.Ends[k] = _rawEnd[raw];
+        }
+        int s = 0;
+        for (int k = 0; k < n; k++)
+        {
+            g.SuccStart[k] = s;
+            int raw = (int)(uint)_rawOrder[k];
+            uint lastInsn = _rawLast[raw];
+            ulong key = (ulong)lastInsn << 32;
+            int lo = 0, hi = ne;
+            while (lo < hi) { int mid = (lo + hi) >>> 1; if (_edgeOrder[mid] < key) lo = mid + 1; else hi = mid; }
+            for (int j = lo; j < ne && (uint)(_edgeOrder[j] >> 32) == lastInsn; j++)
+            {
+                var (_, to, kind) = _branches[(int)(uint)_edgeOrder[j]];
+                if (kind != EdgeKind.TailCall) g.AddSuccessor(k, ref s, g.IndexOf(to));
+            }
+            if (_rawFalls[raw]) g.AddSuccessor(k, ref s, g.IndexOf(_rawEnd[raw]));
+        }
+        g.SuccStart[n] = s;
+    }
     private static BlockEnd MapEnd(RunEnd e) => e switch
     {
         RunEnd.FallThrough => BlockEnd.FallThrough,
@@ -458,6 +535,48 @@ internal sealed class FunctionWalker
     };
 }
 
+/// <summary>
+/// Basic blocks of one walk sorted by start, with the indexes of their successor blocks (tail calls and targets that start no
+/// block left out, each successor once, in graph order); reused across walks.
+/// </summary>
+internal sealed class BlockList
+{
+    public uint[] Starts = new uint[64];
+    /// <summary>Exclusive ends.</summary>
+    public uint[] Ends = new uint[64];
+    /// <summary>Successors of block b: <see cref="Succs"/>[SuccStart[b] .. SuccStart[b + 1]).</summary>
+    public int[] SuccStart = new int[65];
+    public int[] Succs = new int[64];
+    public int Count;
+
+    public void Reset(int count)
+    {
+        Count = count;
+        if (Starts.Length < count)
+        {
+            Starts = new uint[count * 2];
+            Ends = new uint[count * 2];
+            SuccStart = new int[count * 2 + 1];
+        }
+    }
+
+    public ReadOnlySpan<int> Successors(int b) => Succs.AsSpan(SuccStart[b], SuccStart[b + 1] - SuccStart[b]);
+
+    /// <summary>The block starting at <paramref name="start"/>, or -1.</summary>
+    public int IndexOf(uint start)
+    {
+        int i = Array.BinarySearch(Starts, 0, Count, start);
+        return i >= 0 ? i : -1;
+    }
+
+    internal void AddSuccessor(int b, ref int end, int target)
+    {
+        if (target < 0) return;
+        for (int i = SuccStart[b]; i < end; i++) if (Succs[i] == target) return;
+        if (end == Succs.Length) Array.Resize(ref Succs, end * 2);
+        Succs[end++] = target;
+    }
+}
 /// <summary>
 /// A set of 32-bit values that empties in constant time: scratch reused across hundreds of thousands of walks, where clearing a
 /// hash set zeroes its whole capacity. Items keeps insertion order.

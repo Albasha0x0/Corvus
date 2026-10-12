@@ -103,7 +103,7 @@ internal sealed class VirtualCallResolver
         {
             var s = group.First();
             var res = s.ThisReceiver ? r.FromThis(s.Function, s.VfptrOffset, s.Slot)
-                : new Resolution(VirtualCallStatus.Unresolved, VirtualCallReason.ReceiverUnknown, VirtualReceiver.Unknown, 0, 0, [], false);
+                : new Resolution(VirtualCallStatus.Unresolved, VirtualCallReason.ReceiverUnknown, VirtualReceiver.Unknown, 0, 0, NoTargets, false);
             pure += res.Pure;
             sites.Add(new VirtualCallSite(s.Rva, s.Function, s.Slot, s.VfptrOffset, res.Status, res.Reason, res.Receiver, res.ClassTd, res.Vftable, res.Targets.Count,
                 s.Tail, res.Incomplete));
@@ -367,23 +367,36 @@ internal sealed class VirtualCallResolver
     private (VirtualCallSet, CodeXref[]) Run(int classes, CodeIndexOptions options, Stopwatch sw)
     {
         var functions = _index.Functions;
+        var po = new ParallelOptions { CancellationToken = _ct, MaxDegreeOfParallelism = options.MaxParallelism > 0 ? options.MaxParallelism : Environment.ProcessorCount };
         // constructors and destructors (functions that reference a vftable) first: their summaries are used at calls to them
+        const byte Stores = 1, Calls = 2;
+        var role = new byte[functions.Count];
+        Parallel.ForEach(Partitioner.Create(0, functions.Count, 4096), po, range =>
+        {
+            for (int i = range.Item1; i < range.Item2; i++)
+            {
+                var f = functions[i];
+                if ((f.Flags & FunctionFlags.Thunk) != 0 || f.InstructionCount == 0) continue;
+                bool stores = false, calls = false;
+                for (int k = 0; k < f.RangeCount; k++)
+                {
+                    var (s, e) = _index.RangeAt(f.FirstRange + k);
+                    foreach (var x in _index.XrefsIn(s, e))
+                    {
+                        if (x.Kind is XrefKind.Address or XrefKind.Write or XrefKind.Read && _vftableStarts.Contains(x.To)) stores = true;
+                        else if (x.Kind is XrefKind.Call && _dispatchThunks.Contains(x.To)) calls = true;
+                    }
+                }
+                role[i] = (byte)((stores ? Stores : 0) | (calls || HasIndirectTransfer(f) ? Calls : 0));
+            }
+        });
         var storers = new List<NativeFunction>();
         var callers = new List<NativeFunction>();
-        foreach (var f in functions)
+        for (int i = 0; i < role.Length; i++)
         {
-            _ct.ThrowIfCancellationRequested();
-            if ((f.Flags & FunctionFlags.Thunk) != 0 || f.InstructionCount == 0) continue;
-            bool stores = false, calls = false;
-            foreach (var x in _index.RefsFrom(f))
-            {
-                if (x.Kind is XrefKind.Address or XrefKind.Write or XrefKind.Read && _vftableStarts.Contains(x.To)) stores = true;
-                else if (x.Kind is XrefKind.Call && _dispatchThunks.Contains(x.To)) calls = true;
-            }
-            if (stores) storers.Add(f);
-            if (calls || HasIndirectTransfer(f)) callers.Add(f);
+            if ((role[i] & Stores) != 0) storers.Add(functions[i]);
+            if ((role[i] & Calls) != 0) callers.Add(functions[i]);
         }
-        var po = new ParallelOptions { CancellationToken = _ct, MaxDegreeOfParallelism = options.MaxParallelism > 0 ? options.MaxParallelism : Environment.ProcessorCount };
         var summaries = new ConcurrentDictionary<uint, (int, uint)[]>();
         Parallel.ForEach(storers, po, () => new Flow(this), (f, _, flow) =>
         {
@@ -392,40 +405,80 @@ internal sealed class VirtualCallResolver
         }, _ => { });
         foreach (var (k, v) in summaries) _summaries[k] = v;
 
-        var perFunction = new ConcurrentBag<(uint Function, List<VirtualCallSite> Sites, List<CodeXref> Edges)>();
-        Parallel.ForEach(callers, po, () => new Flow(this), (f, _, flow) =>
+        // each worker keeps its sites and edges; the merge below sorts them, so the result does not depend on the schedule
+        var flows = new ConcurrentBag<Flow>();
+        Parallel.ForEach(Partitioner.Create(0, callers.Count, 64), po, () => new Flow(this), (range, _, flow) =>
         {
-            flow.Analyze(f, summarize: false, record: true);
-            if (flow.Sites.Count > 0) perFunction.Add((f.Start, [.. flow.Sites], [.. flow.Edges]));
-            Interlocked.Add(ref _pureExcluded, flow.PureExcluded);
-            flow.PureExcluded = 0;
-            Interlocked.Increment(ref _analyzed);
+            for (int i = range.Item1; i < range.Item2; i++) flow.Analyze(callers[i], summarize: false, record: true);
             return flow;
-        }, _ => { });
-
-        var all = perFunction.SelectMany(p => p.Sites).ToArray();
-        // a site in code two functions share is reported once
-        Array.Sort(all, (a, b) => a.Rva != b.Rva ? a.Rva.CompareTo(b.Rva) : a.Function.CompareTo(b.Function));
-        var unique = new List<VirtualCallSite>(all.Length);
-        foreach (var s in all)
-            if (unique.Count == 0 || unique[^1].Rva != s.Rva) unique.Add(s);
-        var sites = unique.ToArray();
-        var kept = sites.ToDictionary(s => s.Rva, s => s.Function);
-        var edges = perFunction.SelectMany(p => p.Edges.Where(e => kept.GetValueOrDefault(e.From) == p.Function)).Distinct().ToArray();
-        Array.Sort(edges, (a, b) => a.From != b.From ? a.From.CompareTo(b.From) : a.To != b.To ? a.To.CompareTo(b.To) : a.Kind.CompareTo(b.Kind));
-        var stats = new VirtualCallStats(sites.Length, sites.Count(s => s.Status == VirtualCallStatus.Exact), sites.Count(s => s.Status == VirtualCallStatus.Possible),
-            sites.Count(s => s.Status == VirtualCallStatus.Unresolved), edges.Length, classes, _analyzed, _notConverged, _pureExcluded,
-            sites.Count(s => s.Incomplete), sw.Elapsed);
+        }, flows.Add);
+        _analyzed = callers.Count;
+        int total = 0, totalEdges = 0;
+        foreach (var flow in flows) { total += flow.AllSites.Count; totalEdges += flow.AllEdges.Count; _pureExcluded += flow.PureExcluded; }
+        var all = new VirtualCallSite[total];
+        var keys = new ulong[total];
+        int n = 0;
+        foreach (var flow in flows)
+            foreach (var s in flow.AllSites) { keys[n] = (ulong)s.Rva << 32 | s.Function; all[n++] = s; }
+        // a site in code two functions share is reported once, for the lower function (one site per function and address)
+        Array.Sort(keys, all);
+        int w = 0;
+        for (int k = 0; k < all.Length; k++)
+            if (w == 0 || all[w - 1].Rva != all[k].Rva) all[w++] = all[k];
+        var sites = all[..w];
+        var edges = new CodeXref[totalEdges];
+        int m = 0;
+        foreach (var flow in flows)
+            foreach (var (function, e) in flow.AllEdges)
+            {
+                int at = SiteIndex(sites, e.From);
+                if (at >= 0 && sites[at].Function == function) edges[m++] = e;
+            }
+        Array.Sort(edges, 0, m, EdgeOrder.Instance);
+        int u = 0;
+        for (int k = 0; k < m; k++)
+            if (u == 0 || edges[u - 1] != edges[k]) edges[u++] = edges[k];
+        Array.Resize(ref edges, u);
+        int exact = 0, possible = 0, unresolved = 0, incomplete = 0;
+        foreach (var s in sites)
+        {
+            if (s.Status == VirtualCallStatus.Exact) exact++;
+            else if (s.Status == VirtualCallStatus.Possible) possible++;
+            else if (s.Status == VirtualCallStatus.Unresolved) unresolved++;
+            if (s.Incomplete) incomplete++;
+        }
+        var stats = new VirtualCallStats(sites.Length, exact, possible, unresolved, edges.Length, classes, _analyzed, _notConverged, _pureExcluded, incomplete, sw.Elapsed);
         var notes = new List<string>();
         if (_notConverged > 0) notes.Add($"{_notConverged} functions with indirect calls were not analyzed to the end (visit budget)");
         return (new VirtualCallSet(sites, stats, notes), edges);
     }
 
+    private static int SiteIndex(VirtualCallSite[] sites, uint rva)
+    {
+        int lo = 0, hi = sites.Length - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (sites[mid].Rva == rva) return mid;
+            if (sites[mid].Rva < rva) lo = mid + 1; else hi = mid - 1;
+        }
+        return -1;
+    }
+
+    /// <summary>Edges by source, target, then kind.</summary>
+    private sealed class EdgeOrder : IComparer<CodeXref>
+    {
+        public static readonly EdgeOrder Instance = new();
+
+        public int Compare(CodeXref a, CodeXref b) => a.From != b.From ? a.From.CompareTo(b.From) : a.To != b.To ? a.To.CompareTo(b.To) : a.Kind.CompareTo(b.Kind);
+    }
+
     /// <summary>Any byte pair FF /2 (call r/m) or FF /4 (jmp r/m) in the function's code: a cheap filter, false positives are fine.</summary>
     private bool HasIndirectTransfer(NativeFunction f)
     {
-        foreach (var (s, e) in _index.Ranges(f))
+        for (int k = 0; k < f.RangeCount; k++)
         {
+            var (s, e) = _index.RangeAt(f.FirstRange + k);
             if (_ctx.Code.RegionAt(s) is not { } region) continue;
             int from = (int)(s - region.Rva), to = (int)Math.Min(e - region.Rva, (uint)region.Bytes.Length);
             var span = region.Bytes.AsSpan(from, Math.Max(0, to - from));
@@ -440,7 +493,6 @@ internal sealed class VirtualCallResolver
         }
         return false;
     }
-
     /// <summary>x86: bytes a function pops on return (ret n), when every return agrees; null when unknown.</summary>
     private int? PopsOf(uint target) => _pops.GetOrAdd(target, t =>
     {
@@ -466,6 +518,9 @@ internal sealed class VirtualCallResolver
         return found;
     });
 
+    /// <summary>The targets of every unresolved receiver; never changed.</summary>
+    private static readonly List<uint> NoTargets = [];
+
     private readonly record struct Resolution(VirtualCallStatus Status, VirtualCallReason Reason, VirtualReceiver Receiver, uint ClassTd, uint Vftable,
         List<uint> Targets, bool Incomplete, int Pure = 0);
 
@@ -485,7 +540,7 @@ internal sealed class VirtualCallResolver
         if (!_owners.TryGetValue(function, out var owners))
         {
             if (!_named.TryGetValue(function, out var named))
-                return new Resolution(VirtualCallStatus.Unresolved, VirtualCallReason.ReceiverUnknown, VirtualReceiver.Unknown, 0, 0, [], false);
+                return new Resolution(VirtualCallStatus.Unresolved, VirtualCallReason.ReceiverUnknown, VirtualReceiver.Unknown, 0, 0, NoTargets, false);
             owners = [(named, 0)];
             receiver = VirtualReceiver.Name;
         }
@@ -496,7 +551,7 @@ internal sealed class VirtualCallResolver
     private Resolution FromClass(int classIndex, int vfptr, int slot) =>
         classIndex >= 0 && classIndex < _classes.Count
             ? FromOwners([(_classes[classIndex], 0)], vfptr, slot, VirtualReceiver.Name)
-            : new Resolution(VirtualCallStatus.Unresolved, VirtualCallReason.ReceiverUnknown, VirtualReceiver.Unknown, 0, 0, [], false);
+            : new Resolution(VirtualCallStatus.Unresolved, VirtualCallReason.ReceiverUnknown, VirtualReceiver.Unknown, 0, 0, NoTargets, false);
 
     /// <summary>The receiver is the subobject at s of one of <paramref name="owners"/> (or of a class derived from one).</summary>
     private Resolution FromOwners(List<(MsvcRttiClass Class, uint Offset)> owners, int vfptr, int slot, VirtualReceiver receiver)
@@ -516,7 +571,7 @@ internal sealed class VirtualCallResolver
             any = true;
             if (ReferenceEquals(c, root) || classTd == 0) (classTd, vftable) = (c.TypeDescriptorRva, own);
         }
-        if (!any) return new Resolution(VirtualCallStatus.Unresolved, reason, receiver, root.TypeDescriptorRva, 0, [], false);
+        if (!any) return new Resolution(VirtualCallStatus.Unresolved, reason, receiver, root.TypeDescriptorRva, 0, NoTargets, false);
         var targets = new List<uint>(set.Count);
         foreach (var t in set)
             if (!_pure.Contains(t)) targets.Add(t);
@@ -669,11 +724,20 @@ internal sealed class VirtualCallResolver
     {
         private readonly FunctionWalker _walker = new(r._ctx);
         private readonly InstructionInfoFactory _info = new();
-        private readonly Dictionary<uint, int> _blockOf = [];
-        private readonly List<Instruction[]> _blocks = [];
-        private readonly List<List<int>> _succs = [];
-        public readonly List<VirtualCallSite> Sites = [];
-        public readonly List<CodeXref> Edges = [];
+        private readonly BlockList _graph = new();
+        // instructions of block b: _insns[_blockFirst[b] .. _blockFirst[b + 1])
+        private Instruction[] _insns = new Instruction[256];
+        private int[] _blockFirst = new int[65];
+        private readonly SliceReader _reader = new();
+        private Decoder? _decoder;
+        private State?[] _ins = new State?[64];
+        private bool[] _queued = new bool[64];
+        private readonly Queue<int> _work = new();
+        private readonly List<int> _dropSlots = [];
+        private readonly List<(VKind, uint, int)> _dropCells = [];
+        /// <summary>Sites recorded by every analysis of this worker, and their edges with the analyzed function.</summary>
+        public readonly List<VirtualCallSite> AllSites = [];
+        public readonly List<(uint Function, CodeXref Edge)> AllEdges = [];
         public int PureExcluded;
         private NativeFunction _f = null!;
         private bool _record;
@@ -686,17 +750,15 @@ internal sealed class VirtualCallResolver
 
         public (int, uint)[]? Analyze(NativeFunction f, bool summarize, bool record)
         {
-            Sites.Clear();
-            Edges.Clear();
             _f = f;
             _record = false;
             _summary = summarize ? [] : null;
             _summaryEmpty = false;
             _seenReturn = false;
-            FunctionGraph? graph;
-            try { graph = _walker.Walk(f, f.Start, buildGraph: true, r._ct, NativeCodeIndex.ChunkRoots(f)).Graph; }
+            try { _walker.WalkBlocks(f.Start, NativeCodeIndex.ChunkRoots(f), _graph, r._ct); }
             catch (Exception ex) when (ex is not OperationCanceledException) { return null; }
-            if (graph == null || graph.Blocks.Count == 0 || !Decode(graph)) return null;
+            if (_graph.Count == 0 || !Decode()) return null;
+            int n = _graph.Count;
 
             _rented = 0;
             var entry = Rent();
@@ -710,46 +772,42 @@ internal sealed class VirtualCallResolver
                     if (reg >= 0) entry.Regs[reg] = v;
                     else entry.Slots[slot] = v;
                 }
-            var ins = new State?[_blocks.Count];
-            var queued = new bool[_blocks.Count];
-            var work = new Queue<int>();
-            void Seed(uint start, State s)
-            {
-                if (!_blockOf.TryGetValue(start, out int b) || ins[b] != null) return;
-                ins[b] = s;
-                queued[b] = true;
-                work.Enqueue(b);
-            }
+            if (_ins.Length < n) { _ins = new State?[n * 2]; _queued = new bool[n * 2]; }
+            var ins = _ins;
+            var queued = _queued;
+            Array.Clear(ins, 0, n);
+            Array.Clear(queued, 0, n);
+            _work.Clear();
             Seed(f.Start, entry);
             foreach (var c in f.Chunks) Seed(c.Start, Rent());
-            int budget = 8 * _blocks.Count + 64;
-            while (work.Count > 0)
+            int budget = 8 * n + 64;
+            while (_work.Count > 0)
             {
                 if (--budget < 0)
                 {
                     Interlocked.Increment(ref r._notConverged);
                     return null;
                 }
-                int b = work.Dequeue();
+                int b = _work.Dequeue();
                 queued[b] = false;
                 var s = _scratch.CopyFrom(ins[b]!);
-                foreach (ref readonly var x in _blocks[b].AsSpan()) Step(in x, s);
-                foreach (int succ in _succs[b])
+                foreach (ref readonly var x in Block(b)) Step(in x, s);
+                foreach (int succ in _graph.Successors(b))
                 {
                     bool changed;
                     if (ins[succ] == null) { ins[succ] = Rent().CopyFrom(s); changed = true; }
                     else changed = ins[succ]!.Join(s);
-                    if (changed && !queued[succ]) { queued[succ] = true; work.Enqueue(succ); }
+                    if (changed && !queued[succ]) { queued[succ] = true; _work.Enqueue(succ); }
                 }
             }
             if (summarize)
             {
                 // the vftables this function leaves in [this + o] on every return
-                for (int b = 0; b < _blocks.Count; b++)
+                for (int b = 0; b < n; b++)
                 {
                     if (ins[b] == null) continue;
                     var s = _scratch.CopyFrom(ins[b]!);
-                    foreach (ref readonly var x in _blocks[b].AsSpan())
+                    foreach (ref readonly var x in Block(b))
                     {
                         if (x.FlowControl == FlowControl.Return) Returned(s);
                         Step(in x, s);
@@ -760,11 +818,11 @@ internal sealed class VirtualCallResolver
             if (record)
             {
                 _record = true;
-                for (int b = 0; b < _blocks.Count; b++)
+                for (int b = 0; b < n; b++)
                 {
                     if (ins[b] == null) continue;
                     var s = _scratch.CopyFrom(ins[b]!);
-                    foreach (ref readonly var x in _blocks[b].AsSpan()) Step(in x, s);
+                    foreach (ref readonly var x in Block(b)) Step(in x, s);
                 }
                 _record = false;
             }
@@ -801,47 +859,47 @@ internal sealed class VirtualCallResolver
             return s;
         }
 
-        private bool Decode(FunctionGraph graph)
+        private void Seed(uint start, State s)
         {
-            _blockOf.Clear();
-            _blocks.Clear();
-            _succs.Clear();
-            _seenReturn = false;
-            int total = 0;
-            var list = new List<Instruction>();
-            for (int i = 0; i < graph.Blocks.Count; i++)
-            {
-                var b = graph.Blocks[i];
-                _blockOf[b.Start] = i;
-                list.Clear();
-                if (r._ctx.Code.RegionAt(b.Start) is { } region && b.End > b.Start)
-                {
-                    int from = (int)(b.Start - region.Rva), to = (int)Math.Min(b.End - region.Rva, (uint)region.Bytes.Length);
-                    if (to > from)
-                    {
-                        var decoder = Decoder.Create(r._is64 ? 64 : 32, new ByteArrayCodeReader(region.Bytes, from, to - from), r._image.ImageBase + b.Start);
-                        ulong end = r._image.ImageBase + b.Start + (ulong)(to - from);
-                        while (decoder.IP < end)
-                        {
-                            decoder.Decode(out var x);
-                            if (x.IsInvalid) break;
-                            list.Add(x);
-                            if (++total > MaxInstructions) return false;
-                        }
-                    }
-                }
-                _blocks.Add([.. list]);
-            }
-            foreach (var b in graph.Blocks)
-            {
-                var succ = new List<int>(b.Successors.Count);
-                foreach (var e in b.Successors)
-                    if (e.Kind != EdgeKind.TailCall && _blockOf.TryGetValue(e.To, out int t) && !succ.Contains(t)) succ.Add(t);
-                _succs.Add(succ);
-            }
-            return true;
+            int b = _graph.IndexOf(start);
+            if (b < 0 || _ins[b] != null) return;
+            _ins[b] = s;
+            _queued[b] = true;
+            _work.Enqueue(b);
         }
 
+        private ReadOnlySpan<Instruction> Block(int b) => _insns.AsSpan(_blockFirst[b], _blockFirst[b + 1] - _blockFirst[b]);
+
+        /// <summary>Decodes every block into one reused buffer, each block's bytes alone (an instruction crossing its end is invalid).</summary>
+        private bool Decode()
+        {
+            _seenReturn = false;
+            int n = _graph.Count, total = 0;
+            if (_blockFirst.Length < n + 1) _blockFirst = new int[n * 2 + 1];
+            _decoder ??= Decoder.Create(r._is64 ? 64 : 32, _reader);
+            for (int i = 0; i < n; i++)
+            {
+                _blockFirst[i] = total;
+                uint start = _graph.Starts[i], end = _graph.Ends[i];
+                if (r._ctx.Code.RegionAt(start) is not { } region || end <= start) continue;
+                int from = (int)(start - region.Rva), to = (int)Math.Min(end - region.Rva, (uint)region.Bytes.Length);
+                if (to <= from) continue;
+                _reader.Data = region.Bytes;
+                _reader.Pos = from;
+                _reader.End = to;
+                _decoder.IP = r._image.ImageBase + start;
+                ulong stop = r._image.ImageBase + start + (ulong)(to - from);
+                while (_decoder.IP < stop)
+                {
+                    if (total == _insns.Length) Array.Resize(ref _insns, total * 2);
+                    _decoder.Decode(out _insns[total]);
+                    if (_insns[total].IsInvalid) break;
+                    if (++total > MaxInstructions) return false;
+                }
+            }
+            _blockFirst[n] = total;
+            return true;
+        }
         private int Reg(Register reg)
         {
             var full = reg.GetFullRegister();
@@ -945,7 +1003,9 @@ internal sealed class VirtualCallResolver
             if (size != r._ptr) value = Val.Unknown;
             if (p.Kind == VKind.Stack)
             {
-                foreach (var k in s.Slots.Keys.Where(k => k != at && k < at + Math.Max(size, 1) && k + r._ptr > at).ToList()) s.Slots.Remove(k);
+                _dropSlots.Clear();
+                foreach (var k in s.Slots.Keys) if (k != at && k < at + Math.Max(size, 1) && k + r._ptr > at) _dropSlots.Add(k);
+                foreach (var k in _dropSlots) s.Slots.Remove(k);
                 if (value.Kind == VKind.Unknown) s.Slots.Remove((int)at);
                 else s.Slots[(int)at] = value;
                 return;
@@ -1095,15 +1155,21 @@ internal sealed class VirtualCallResolver
                 int size = Math.Max(1, m.MemorySize.GetSize());
                 if (p.Kind == VKind.Stack)
                 {
-                    foreach (var k in s.Slots.Keys.Where(k => k < at + size && k + r._ptr > at).ToList()) s.Slots.Remove(k);
+                    _dropSlots.Clear();
+                    foreach (var k in s.Slots.Keys) if (k < at + size && k + r._ptr > at) _dropSlots.Add(k);
+                    foreach (var k in _dropSlots) s.Slots.Remove(k);
                 }
                 else if (p.Kind is VKind.This or VKind.Obj)
                 {
-                    foreach (var k in s.Cells.Keys.Where(k => k.Kind == p.Kind && k.Id == p.Id && k.Off < at + size && k.Off + r._ptr > at).ToList())
+                    _dropCells.Clear();
+                    foreach (var k in s.Cells.Keys) if (k.Kind == p.Kind && k.Id == p.Id && k.Off < at + size && k.Off + r._ptr > at) _dropCells.Add(k);
+                    foreach (var k in _dropCells)
                         if (p.Kind == VKind.Obj) s.Cells[k] = Val.Unknown; else s.Cells.Remove(k);
                 }
             }
         }
+
+        private static readonly int[] SystemVVolatiles = [0, 1, 2, 6, 7, 8, 9, 10, 11], X64Volatiles = [0, 1, 2, 8, 9, 10, 11], X86Volatiles = [0, 1, 2];
 
         private void Call(in Instruction x, State s)
         {
@@ -1115,7 +1181,7 @@ internal sealed class VirtualCallResolver
             (int, uint)[]? summary = null;
             if (direct is uint d0) r._summaries.TryGetValue(d0, out summary);
             // the call: volatile registers lost, the result is a new object (a constructor returns this)
-            int[] volatiles = r._systemV ? [0, 1, 2, 6, 7, 8, 9, 10, 11] : r._is64 ? [0, 1, 2, 8, 9, 10, 11] : [0, 1, 2];
+            var volatiles = r._systemV ? SystemVVolatiles : r._is64 ? X64Volatiles : X86Volatiles;
             foreach (int v in volatiles) s.Regs[v] = Val.Unknown;
             if (summary != null && thisArg.Kind is VKind.This or VKind.Obj or VKind.Stack)
             {
@@ -1196,7 +1262,7 @@ internal sealed class VirtualCallResolver
                     vfptr = fn.Kind == VKind.FieldSlot ? fn.Off : 0;
                     res = fn.Kind == VKind.FieldSlot && fn.Base == VKind.This ? r.FromThis(_f.Start, fn.Off, slotIndex)
                         : fn.Kind == VKind.FieldSlot && fn.Base == VKind.Typed ? r.FromClass((int)fn.Id, fn.Off, slotIndex)
-                        : new Resolution(VirtualCallStatus.Unresolved, VirtualCallReason.ReceiverUnknown, VirtualReceiver.Unknown, 0, 0, [], false);
+                        : new Resolution(VirtualCallStatus.Unresolved, VirtualCallReason.ReceiverUnknown, VirtualReceiver.Unknown, 0, 0, NoTargets, false);
                     break;
                 default:
                     return null;
@@ -1204,14 +1270,23 @@ internal sealed class VirtualCallResolver
             if (!_record) return res.Status == VirtualCallStatus.Unresolved ? null : res.Targets;
             uint rva = Rva(in x);
             PureExcluded += res.Pure;
-            Sites.Add(new VirtualCallSite(rva, _f.Start, slotIndex, vfptr, res.Status, res.Reason, res.Receiver, res.ClassTd, res.Vftable, res.Targets.Count, tail,
+            AllSites.Add(new VirtualCallSite(rva, _f.Start, slotIndex, vfptr, res.Status, res.Reason, res.Receiver, res.ClassTd, res.Vftable, res.Targets.Count, tail,
                 res.Incomplete));
             if (res.Status != VirtualCallStatus.Unresolved)
             {
                 var kind = res.Status == VirtualCallStatus.Exact ? XrefKind.VirtualExact : XrefKind.VirtualPossible;
-                foreach (var target in res.Targets) Edges.Add(new CodeXref(rva, target, kind));
+                foreach (var target in res.Targets) AllEdges.Add((_f.Start, new CodeXref(rva, target, kind)));
             }
             return res.Status == VirtualCallStatus.Unresolved ? null : res.Targets;
         }
+    }
+
+    /// <summary>A code reader over a byte range that the decoder reuses from block to block.</summary>
+    private sealed class SliceReader : CodeReader
+    {
+        public byte[] Data = [];
+        public int Pos, End;
+
+        public override int ReadByte() => Pos < End ? Data[Pos++] : -1;
     }
 }
