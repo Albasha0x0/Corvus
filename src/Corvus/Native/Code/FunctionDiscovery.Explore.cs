@@ -143,7 +143,7 @@ internal sealed partial class FunctionDiscovery
         if (_pendingSwitches.Remove(jump) && _trackPending) _pendingChanged.Add(jump);
     }
 
-    private bool AnyStartBetween(uint low, uint high) => low <= high && _sortedStarts.GetViewBetween(low, high).Count > 0;
+    private bool AnyStartBetween(uint low, uint high) => low <= high && _sortedStarts!.GetViewBetween(low, high).Count > 0;
 
     private enum OpKind : byte
     {

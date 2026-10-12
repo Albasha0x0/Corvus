@@ -31,7 +31,8 @@ internal sealed partial class FunctionDiscovery
     private readonly HashSet<uint> _codeTables = [];
     private readonly SortedSet<uint> _pendingSwitches = [];
     private readonly HashSet<uint> _rejected = [];
-    private readonly SortedSet<uint> _sortedStarts = [];
+    // ELF only: far jumps ask whether they pass another start
+    private readonly SortedSet<uint>? _sortedStarts;
     private readonly HashSet<uint> _farJumps = [];
     /// <summary>ARM32: targets of relocated pointers in data that carry the Thumb bit.</summary>
     private readonly HashSet<uint> _thumbPointerTargets = [];
@@ -58,6 +59,7 @@ internal sealed partial class FunctionDiscovery
         _x86Peek = HybridDecoder.PrimaryOf(_peek) as X86Decoder;
         _starts = new CodeBitmap(ctx.Code.TotalBytes);
         _covered = new CodeBitmap(ctx.Code.TotalBytes);
+        if (ctx.Image.Format == ImageFormat.Elf) _sortedStarts = [];
         _verifier = new Verifier(this);
         _direct = new Explorer(this, _dec, _peek, thunks: null, speculative: false);
     }
@@ -163,7 +165,7 @@ internal sealed partial class FunctionDiscovery
         if (_functions.TryGetValue(rva, out var existing)) { _functions[rva] = existing | source; return; }
         if (_functions.Count >= _ctx.Options.MaxFunctions) { FunctionsTruncated = true; return; }
         _functions[rva] = source;
-        _sortedStarts.Add(rva);
+        _sortedStarts?.Add(rva);
         _ctx.FunctionStarts.Add(rva);
         if (ThunkSlot(rva) is { } slot)
         {
