@@ -76,27 +76,8 @@ internal sealed class Arm32Modes
         ? pe.BaseRelocations.Where(r => r.Type is Pe.PeRelocationType.ThumbMov32 or Pe.PeRelocationType.ArmMov32).Select(r => r.Rva).ToHashSet()
         : []).Contains(rva);
 
-    private Dictionary<uint, uint>? _localSlots;
-
-    /// <summary>
-    /// ELF JUMP_SLOT / GLOB_DAT slots whose symbol this image defines (exported, so bound through the GOT): slot -> the
-    /// function's address with its Thumb bit. A PLT stub or GOT load through such a slot reaches that function.
-    /// </summary>
-    public IReadOnlyDictionary<uint, uint> LocalSlots => _localSlots ??= ReadLocalSlots();
-
-    private Dictionary<uint, uint> ReadLocalSlots()
-    {
-        var result = new Dictionary<uint, uint>();
-        if (_image is not Elf.ElfFile elf) return result;
-        var defined = new Dictionary<string, ulong>(StringComparer.Ordinal);
-        foreach (var s in elf.DynamicSymbols)
-            if (s.IsDefined && s.IsFunction && s.Value != 0) defined.TryAdd(s.Name, s.Value);
-        foreach (var r in elf.Relocations)
-            if (r.Kind is Elf.ElfRelocationKind.JumpSlot or Elf.ElfRelocationKind.GlobalData && r.Symbol != null && defined.TryGetValue(r.Symbol, out ulong va)
-                && elf.TryVaToRva(r.Offset, out uint slot) && elf.TryVaToRva(va & ~1UL, out uint rva))
-                result.TryAdd(slot, rva | (uint)(va & 1));
-        return result;
-    }
+    /// <summary>GOT slots of functions this image exports: slot -> the function's address with its Thumb bit (<see cref="ElfLocalSlots"/>).</summary>
+    public IReadOnlyDictionary<uint, uint> LocalSlots => ElfLocalSlots.Of(_image);
 
     /// <summary>Records what analysis learned about the code at <paramref name="rva"/> unless something is known already (or the states are sealed).</summary>
     public void Hint(uint rva, bool thumb)

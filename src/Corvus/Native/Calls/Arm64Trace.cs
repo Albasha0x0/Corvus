@@ -70,6 +70,7 @@ internal sealed class Arm64Trace : ITraceHost
     public string Va(uint rva) => NativeAddress.Va(Index.Image, rva);
     public bool IsRelocated(uint rva) => Array.BinarySearch(_relocs, rva) >= 0;
     public NativeImport? ImportAt(uint slot) => _slots.GetValueOrDefault(slot);
+    public uint? LocalSlot(uint slot) => ElfLocalSlots.Of(Index.Image).TryGetValue(slot, out uint fn) ? fn : null;
 
     public A64Function Code(NativeFunction f, CancellationToken ct)
     {

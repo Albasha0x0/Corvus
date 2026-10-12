@@ -521,14 +521,25 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
     /// <summary>
     /// Functions that are one direct jump to another function (x86 / x64 jmp rel32 / rel8, ARM64 b, ARM32 b and veneers): incremental-link thunks
-    /// and the like, named j_&lt;target&gt; as IDA names them while they have no name of their own.
+    /// and the like, named j_&lt;target&gt; as IDA names them while they have no name of their own. ELF PLT stubs of a
+    /// function this image exports jump to it too.
     /// </summary>
     private void FindJumpThunks()
     {
         Span<byte> b = stackalloc byte[12];
+        var localPlt = new Dictionary<uint, uint>();
+        if (Image is Elf.ElfFile elf && ElfLocalSlots.Of(Image) is { Count: > 0 } local)
+            foreach (var e in elf.PltEntries)
+                if (local.TryGetValue(e.SlotRva, out uint fn)) localPlt.TryAdd(e.StubRva, fn & ~1u);
         foreach (var f in _functions)
         {
             if (f.ThunkImport != null) continue;
+            if (localPlt.TryGetValue(f.Start, out uint plt) && _byStart.TryGetValue(plt, out var exported) && exported != f)
+            {
+                if (!_thunksTo.TryGetValue(plt, out var stubs)) _thunksTo[plt] = stubs = [];
+                stubs.Add(f.Start);
+                continue;
+            }
             if (Image.Arch == NativeArch.Arm)
             {
                 if (f.InstructionCount > 4 || f.Size > 12 || Image.Read(f.Start, b[..(int)f.Size]) < f.Size) continue;

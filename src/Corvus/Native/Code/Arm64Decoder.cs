@@ -10,7 +10,8 @@ namespace Corvus.Native.Code;
 /// </summary>
 internal sealed class Arm64Decoder : ICodeDecoder
 {
-    private enum Known : byte { None, Address, ImportSlot }
+    /// <summary>Local: the function a GOT slot of an exported function of this image holds.</summary>
+    private enum Known : byte { None, Address, ImportSlot, Local }
 
     private const int Registers = 31;
     private const uint Nop = 0xD503201F;
@@ -21,6 +22,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
     private readonly uint _sizeOfImage;
     private readonly uint[] _relocs;
     private readonly IReadOnlySet<uint> _importSlots;
+    private readonly IReadOnlyDictionary<uint, uint> _localSlots;
     private readonly (uint Start, uint End)[] _data;
     private readonly byte[] _scratch = new byte[8];
     private readonly Known[] _kind = new Known[Registers];
@@ -52,6 +54,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         _sizeOfImage = image.SizeOfImage;
         _relocs = sortedRelocations;
         _importSlots = importSlots ?? image.Imports.Select(i => i.SlotRva).ToHashSet();
+        _localSlots = ElfLocalSlots.Of(image);
     }
 
     public bool Is64 => true;
@@ -167,11 +170,21 @@ internal sealed class Arm64Decoder : ICodeDecoder
         Track(ref insn, rva, label);
     }
 
-    /// <summary>A register branch through a register loaded from an import slot reads as a jump or call through that slot.</summary>
+    /// <summary>
+    /// A register branch through a register loaded from an import slot reads as a jump or call through that slot; through
+    /// the GOT slot of a function this image exports (its PLT stub), as a direct branch to that function.
+    /// </summary>
     private void ThroughRegister(ref Insn insn)
     {
         if (_last.OperandCount == 0 || _last.GetOperand(0) is not { Kind: Arm64OperandKind.Register } op) return;
         int r = X((Arm64RegisterOperand)op);
+        if (r >= 0 && _kind[r] == Known.Local)
+        {
+            insn.Flow = insn.Flow == FlowKind.IndirectCall ? FlowKind.Call : FlowKind.Jump;
+            insn.HasTarget = true;
+            insn.Target = (uint)_value[r];
+            return;
+        }
         if (r < 0 || _kind[r] != Known.ImportSlot) return;
         insn.HasMem = true;
         insn.MemTarget = (uint)_value[r];
@@ -268,6 +281,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
     {
         if (dest < 0 || !TryRva(va, out uint slot)) return;
         if (_importSlots.Contains(slot)) { Set(dest, Known.ImportSlot, slot); return; }
+        if (_localSlots.TryGetValue(slot, out uint local)) { Set(dest, Known.Local, local); return; }
         if (Array.BinarySearch(_relocs, slot) < 0 || _image.Read(slot, _scratch) < 8) return;
         ulong target = BinaryPrimitives.ReadUInt64LittleEndian(_scratch);
         if (target >= _imageBase && target - _imageBase < _sizeOfImage) Set(dest, Known.Address, target);

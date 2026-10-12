@@ -140,6 +140,51 @@ public class NativeArm64Tests
     }
 
     [Fact]
+    public void A_plt_stub_of_an_own_export_jumps_to_the_export()
+    {
+        // main: bl exported@plt; ret. exported: mov w0, #1; ret, exported and bound through its GOT slot (no -Bsymbolic)
+        const uint text = ElfWriter.TextRva;
+        ElfWriter Writer(uint bl) => new()
+        {
+            Entry = text, PltImports = ["exported"], Symbols = [new ElfWriter.Symbol("exported", text + 8, 8)],
+            Text = [.. BitConverter.GetBytes(bl), .. BitConverter.GetBytes(A64.Ret), .. BitConverter.GetBytes(A64.MovW(0, 1)), .. BitConverter.GetBytes(A64.Ret)],
+        };
+        var probe = Writer(A64.Bl(text, text));
+        probe.Build();
+        uint stubRva = probe.PltRva + 32;
+        var index = NativeCodeIndex.Build(Native.Elf.ElfFile.FromBytes(Writer(A64.Bl(text, stubRva)).Build(), "own.so"));
+        var stub = index.FunctionByStart(stubRva)!;
+        var exported = index.FunctionByStart(text + 8)!;
+        Assert.Equal("j_exported", index.NameAt(stubRva));
+        Assert.Contains(index.Callees(stub), c => c.Function == exported && c.Kind == XrefKind.TailCall);
+        Assert.Contains(index.Callers(exported), c => c.Caller == stub);
+        Assert.Equal(0, (int)(stub.Flags & FunctionFlags.UnresolvedJumps));
+        var site = Native.Calls.Arm64CallSites.For(index).CallsIn(index.FunctionByStart(text)!).Single();
+        Assert.Equal(stubRva, site.Target);
+    }
+
+    [Trait("Speed", "Slow")]
+    [Theory]
+    [InlineData("linux-arm64", 5)]
+    [InlineData("android-arm", 5)]
+    public void Real_plt_stubs_of_own_exports_reach_the_export(string rid, int expected)
+    {
+        string path = rid == "linux-arm64"
+            ? RealPackages.File("Microsoft.NETCore.App.Runtime.linux-arm64", "10.0.11", "runtimes/linux-arm64/native/libSystem.Native.so")
+            : RealPackages.File("Microsoft.Android.Runtime.35.android-arm", "35.0.105", "runtimes/android-arm/native/libmono-android.release.so");
+        var elf = (Native.Elf.ElfFile)NativeImageLoader.Open(path);
+        var local = ElfLocalSlots.Of(elf);
+        var stubs = elf.PltEntries.Where(e => local.ContainsKey(e.SlotRva)).ToList();
+        Assert.Equal(expected, stubs.Count);
+        var index = NativeCodeIndex.Build(elf);
+        foreach (var e in stubs)
+        {
+            Assert.Equal("j_" + e.Symbol, index.NameAt(e.StubRva));
+            Assert.Contains(index.Callees(index.FunctionByStart(e.StubRva)!), c => c.Function?.Start == (local[e.SlotRva] & ~1u));
+        }
+    }
+
+    [Fact]
     public void Call_arguments_follow_the_arm64_convention()
     {
         uint slotFopen = Data + 0x10, slotMalloc = Data + 0x18;

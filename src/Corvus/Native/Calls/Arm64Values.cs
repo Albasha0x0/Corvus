@@ -299,12 +299,14 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
     }
 
     /// <summary>
-    /// A load from a known address: an import slot, a writable global (its writers), or the image's contents (literal pools
-    /// and read-only data: relocated pointers become addresses, other words constants).
+    /// A load from a known address: an import slot, a GOT slot of a function this image exports, a writable global (its
+    /// writers), or the image's contents (literal pools and read-only data: relocated pointers become addresses, other
+    /// words constants).
     /// </summary>
     private A64Val Loaded(uint rva, int size, uint at, string why, bool constant)
     {
         if (host.ImportAt(rva) != null) return new A64Val(A64Kind.Import, at, why) { Rva = rva };
+        if (host.LocalSlot(rva) is { } fn) return new A64Val(A64Kind.Addr, at, $"{why} (GOT slot of {host.Index.NameAt(fn) ?? host.Va(fn)})") { Rva = fn };
         bool writable = Image.SectionAt(rva) is { } sec && (sec.Access & SectionAccess.Write) != 0 && (sec.Access & SectionAccess.Execute) == 0;
         if (writable && !constant) return new A64Val(A64Kind.Global, at, why) { Rva = rva };
         Span<byte> b = stackalloc byte[8];

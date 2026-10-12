@@ -94,7 +94,8 @@ internal sealed class ElfWriter
 
         // Dynamic symbol order: imports, then defined symbols grouped by GNU hash bucket.
         var undefined = Symbols.Where(s => !s.Defined).ToList();
-        foreach (var name in PltImports.Where(n => undefined.All(u => u.Name != n))) undefined.Add(new Symbol(name, Defined: false));
+        // a PLT entry may name a function defined here (an exported function the image binds through its GOT)
+        foreach (var name in PltImports.Where(n => undefined.All(u => u.Name != n) && !Symbols.Any(s => s.Defined && s.Name == n))) undefined.Add(new Symbol(name, Defined: false));
         var defined = Symbols.Where(s => s.Defined).ToList();
         uint gnuBuckets = (uint)Math.Max(1, defined.Count / 2);
         defined = [.. defined.OrderBy(s => GnuHash(s.Name) % gnuBuckets)];

@@ -271,6 +271,29 @@ public class NativeArm32Tests
     }
 
     [Fact]
+    public void A_plt_stub_of_an_own_export_jumps_to_the_export()
+    {
+        // main (Thumb): blx exported@plt; pop. exported (ARM): mov r0, #1; bx lr, bound through its GOT slot
+        var a = new A32Code(Text);
+        uint plt = 0, exported = 0;
+        a.H(A32Code.PushLr(0x10)).Later(-4, at => A32Code.Bl(at, plt, exchange: true)).H(A32Code.PopPc(0x10)).Align4();
+        plt = a.Here;
+        a.PltEntry(Got);
+        exported = a.Here;
+        a.W(0xE3A00001).W(A32Code.ArmBxLr);
+        var index = NativeCodeIndex.Build(Elf(a.Bytes(), w =>
+        {
+            w.SectionHeaders = false;
+            w.Symbols.Add(new ElfWriter.Symbol("main", Text | 1, Type: 2));
+            w.Symbols.Add(new ElfWriter.Symbol("exported", exported, 8));
+            w.Relocations.Add(new ElfWriter.Reloc(Got, 22, "exported"));
+        }));
+        var stub = index.FunctionByStart(plt)!;
+        Assert.Equal("j_exported", index.NameAt(plt));
+        Assert.Contains(index.Callees(stub), c => c.Function == index.FunctionByStart(exported) && c.Kind == XrefKind.TailCall);
+    }
+
+    [Fact]
     public void An_even_entry_point_is_no_state_fact()
     {
         // push {r4, lr}; movs r0, #1; pop {r4, pc} at an entry the linker left without bit 0
