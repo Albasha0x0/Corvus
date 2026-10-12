@@ -22,7 +22,15 @@ Unpack the single file, then compare what came out of it with the ordinary build
 <!-- check: output -->
 ```text
 === [1/3] unpack_container
-{"source":"samples/Notes/v1/bin/single/Notes","container":".NET single-file bundle","outputDirectory":"samples/Notes/v1/bin/unpacked","files":[{"path":"samples/Notes/v1/bin/unpacked/Notes.dll","kind":".NET assembly","size":12288,"sha256":"<sha256-1>","origin":"bundle entry (assembly)","loadedAs":"Notes","readyToRun":false,"merged":null},{"path":"samples/Notes/v1/bin/unpacked/Notes.runtimeconfig.json","kind":"text","size":342,"sha256":"<sha256-2>","origin":"bundle entry (runtimeconfig.json)","loadedAs":null,"readyToRun":null,"merged":null},{"path":"samples/Notes/v1/bin/unpacked/Notes.deps.json","kind":"text","size":467,"sha256":"<sha256-3>","origin":"bundle entry (deps.json)","loadedAs":null,"readyToRun":null,"merged":null}],"notes":["Single-file bundle v6.0, id <bundle-id-1>, 3 files."]}
+source: samples/Notes/v1/bin/single/Notes
+container: .NET single-file bundle
+outputDirectory: samples/Notes/v1/bin/unpacked
+files (3):
+  path                                      kind           size   sha256                                    origin                             loadedAs  readyToRun
+  samples/Notes/v1/bin/unpacked/Notes.dll .NET assembly  12288  <sha256-1> bundle entry (assembly)            Notes     false
+  samples/Notes/v1/bin/unpacked/Notes.runtimeconfig.json text           342    <sha256-2> bundle entry (runtimeconfig.json)
+  samples/Notes/v1/bin/unpacked/Notes.deps.json text           467    <sha256-3> bundle entry (deps.json)
+notes: Single-file bundle v6.0, id <bundle-id-1>, 3 files.
 === [3/3] compare_assemblies
 Comparing Notes (samples/Notes/v1/bin/unpacked/Notes.dll; SHA-256 <sha256-1>, MVID <guid-1>)
        -> Notes#2 (samples/Notes/v1/bin/plain/Notes.dll; SHA-256 <sha256-1>, MVID <guid-1>)
