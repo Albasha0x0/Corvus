@@ -327,7 +327,22 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     {
         var session = await Session(native, choice, progress, ct);
         var functions = await LoadFunctions(session, references: false, ct);
-        var xrefs = await session.GetXrefsToAsync(rva, ct);
+        return XrefRows(index, functions, rva, await session.GetXrefsToAsync(rva, ct), choice);
+    }
+
+    /// <summary><see cref="Xrefs"/> for several addresses, with one engine request for all.</summary>
+    public async Task<List<(string Title, List<string> Rows, string Target)>> XrefsMany(LoadedNative native, NativeCodeIndex index, IReadOnlyList<uint> rvas,
+        EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var session = await Session(native, choice, progress, ct);
+        var functions = await LoadFunctions(session, references: false, ct);
+        var all = await session.GetXrefsToManyAsync(rvas, ct);
+        return rvas.Select((rva, i) => XrefRows(index, functions, rva, all[i], choice)).ToList();
+    }
+
+    private static (string Title, List<string> Rows, string Target) XrefRows(NativeCodeIndex index, Functions functions, uint rva, IReadOnlyList<NativeXref> xrefs,
+        EngineChoice choice)
+    {
         string Where(uint from, uint? function) => (function ?? functions.At(from)?.StartRva) is { } f && functions.ByStart.TryGetValue(f, out var info)
             ? $"{Name(index, f, info.Name)}+0x{from - f:X}" : "(no function)";
         var rows = xrefs.Select(x => (From: x.FromRva, Row: $"{Va(index, x.FromRva)}  {x.Kind,-10} {Where(x.FromRva, x.FromFunctionRva)}")).ToList();

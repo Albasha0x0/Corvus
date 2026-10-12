@@ -342,14 +342,45 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }, cancellationToken);
 
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", UseStructuredContent = true, OutputSchemaType = typeof(AddressInfo))]
-    [Description("What an address in a native image is: RVA, VA and file offset, section and permissions, nearest export or import, name and its " +
-                 "source; the Il2Cpp method or metadata slot, or the NativeAOT MethodTable, object or method; an IAT slot's bound export, an export's " +
-                 "importers. With the code index: containing function and offset, instruction start, mid-instruction or data item, comment, " +
-                 "references by kind. In a PDB global, the field there.")]
+    [Description("What a native address is: RVA, VA, file offset, section and access, nearest export or import, name and source; the Il2Cpp " +
+                 "method or metadata slot, or NativeAOT MethodTable, object or method; an IAT slot's bound export, an export's importers. With the " +
+                 "code index: function and offset, instruction start, mid-instruction or data item, comment, references by kind. In a PDB global, the field.")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
-        [Description(AddressDescription)] string address,
+        [Description(AddressDescription)] string? address = null,
+        [Description("Instead of address: up to 100 addresses.")] string[]? addresses = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
+    {
+        if ((addresses is { Length: > 0 }) == !string.IsNullOrWhiteSpace(address))
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass address or addresses (one of them).", "address=<one>, or addresses=[...] for several");
+        if (addresses == null)
+        {
+            var (single, record) = Resolve(native, address!, cancellationToken);
+            return StructuredOutput.With(single, record);
+        }
+        if (addresses.Length > 100) throw new ToolError(ErrorCode.InvalidArgument, $"{addresses.Length} addresses; at most 100 per call.", "split the addresses");
+        var text = new StringBuilder();
+        var records = new List<AddressInfo>();
+        foreach (var a in addresses)
+        {
+            try
+            {
+                var (one, info) = Resolve(native, a, cancellationToken);
+                text.Append(one);
+                records.Add(info);
+            }
+            catch (ToolError e)
+            {
+                var line = $"{a.Trim()}: error {ToolError.CodeName(e.Code)}: {e.Message}";
+                text.AppendLine(line);
+                records.Add(new AddressInfo(native.Id, "", "", null, null, null, null, null, null, null, null, [line]));
+            }
+        }
+        return StructuredOutput.With(text.ToString(), records[0] with { More = records.Skip(1).ToList() });
+    }, cancellationToken);
+
+    /// <summary>resolve_address for one address.</summary>
+    private (string Text, AddressInfo Info) Resolve(LoadedNative native, string address, CancellationToken cancellationToken)
     {
         var pe = native.Image;
         var index = code?.Ready(native);
@@ -377,7 +408,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         if (function != null) sb.AppendLine($"  inside the unwind range 0x{pe.ImageBase + function.BeginRva:X}-0x{pe.ImageBase + function.EndRva:X}");
         var facets = index != null ? CodeFacets(sb, index, rva, cancellationToken) : null;
         var text = sb.ToString();
-        return StructuredOutput.With(text, new AddressInfo(native.Id, $"0x{rva:X}", NativeAddress.Va(pe, rva),
+        return (text, new AddressInfo(native.Id, $"0x{rva:X}", NativeAddress.Va(pe, rva),
             pe.TryRvaToFileOffset(rva, out var fileOffset) ? $"0x{fileOffset:X}" : null, section?.Name, section != null ? Access(section.Access) : null,
             named?.Name, named?.Source.Id(), slot != null ? $"{slot.Module}!{slot.Name ?? "#" + slot.Ordinal}" : null, boundTo,
             export == null ? null : export.Rva == rva ? export.Name ?? "#" + export.Ordinal : $"{export.Name ?? "#" + export.Ordinal}+0x{rva - export.Rva:X}",
@@ -386,7 +417,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             Function = facets?.Function, Status = facets?.Status, ContainingInstruction = facets?.ContainingInstruction, DataItem = facets?.DataItem,
             Comment = facets?.Comment, ReferencesTo = facets?.References,
         });
-    }, cancellationToken);
+    }
 
     private sealed record Facets(string? Function, string? Status, string? ContainingInstruction, string? DataItem, string? Comment, IReadOnlyDictionary<string, int>? References);
 
@@ -449,12 +480,30 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                  "section and file offset.")]
     public Task<string> SearchBytes(
         [Description(ImageDescription)] string image,
-        [Description("Hex bytes with ?? wildcards ('48 8B 05 ?? ?? ?? ??'), or text when text=true.")] string pattern,
+        [Description("Hex bytes with ?? wildcards ('48 8B 05 ?? ?? ?? ??'), or text when text=true.")] string? pattern = null,
         [Description("pattern is text (ASCII and UTF-16LE).")] bool text = false,
         [Description("Only this section (e.g. .text, .rdata).")] string? section = null,
         [Description("Max hits.")] int limit = 200,
         [Description("Index of the first hit.")] int offset = 0,
+        [Description("Instead of pattern: up to 50 patterns.")] string[]? patterns = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
+    {
+        if ((patterns is { Length: > 0 }) == !string.IsNullOrEmpty(pattern))
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass pattern or patterns (one of them).", "pattern='48 8B 05 ?? ?? ?? ??', or patterns=[...] for several");
+        if (patterns == null) return SearchOne(native, pattern!, text, section, limit, offset, cancellationToken);
+        if (patterns.Length > 50) throw new ToolError(ErrorCode.InvalidArgument, $"{patterns.Length} patterns; at most 50 per call.", "split the patterns");
+        var sb = new StringBuilder();
+        for (int i = 0; i < patterns.Length; i++)
+        {
+            sb.Append($"[{i + 1}/{patterns.Length}] {patterns[i]}: ");
+            try { sb.AppendLine(SearchOne(native, patterns[i], text, section, limit, offset, cancellationToken)); }
+            catch (ToolError e) when (e.Code is ErrorCode.InvalidArgument) { sb.AppendLine($"error {ToolError.CodeName(e.Code)}: {e.Message}"); }
+        }
+        return pager.Page(sb.ToString());
+    }, cancellationToken);
+
+    /// <summary>search_bytes for one pattern.</summary>
+    private static string SearchOne(LoadedNative native, string pattern, bool text, string? section, int limit, int offset, CancellationToken cancellationToken)
     {
         var pe = native.Image;
         var patterns = text
@@ -523,7 +572,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         var more = offset + hits.Count < total ? $"\n[More: call again with offset={offset + hits.Count}]" : "";
         return $"{total} hit{(total == 1 ? "" : "s")}{(offset > 0 || hits.Count < total ? $" (showing {(hits.Count == 0 ? 0 : offset + 1)}-{offset + hits.Count})" : "")}\n" +
                string.Join("\n", hits) + more;
-    }, cancellationToken);
+    }
 
     private static (byte[], bool[], string) Exact(byte[] bytes, string label) => (bytes, bytes.Select(_ => true).ToArray(), label);
 

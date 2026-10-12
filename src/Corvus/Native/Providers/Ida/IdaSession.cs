@@ -266,6 +266,12 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     public async Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
         WorkerRows.Xrefs(await CallAsync("xrefs_to", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
 
+    public async Task<IReadOnlyList<IReadOnlyList<NativeXref>>> GetXrefsToManyAsync(IReadOnlyList<uint> rvas, CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("xrefs_to_many", IdaProvider.Args(("rvas", new JsonArray(rvas.Select(x => (JsonNode)x).ToArray()))), cancellationToken).ConfigureAwait(false);
+        return r.EnumerateArray().Select(WorkerRows.Xrefs).ToList();
+    }
+
     public async Task<IReadOnlyList<NativeXref>> GetXrefsFromAsync(uint rva, bool wholeFunction = false, CancellationToken cancellationToken = default) =>
         WorkerRows.Xrefs(await CallAsync("xrefs_from", IdaProvider.Args(("rva", rva), ("function", wholeFunction)), cancellationToken).ConfigureAwait(false));
 

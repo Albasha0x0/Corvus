@@ -189,6 +189,9 @@ public sealed record XrefEntry(
 {
     [Description("direction=from: VA of the referenced target; null for a reference to the address.")]
     public string? Target { get; init; }
+
+    [Description("With addresses: the target (as given) of this row's section.")]
+    public string? Of { get; init; }
 }
 
 public sealed record XrefList(string Image, string Target, IReadOnlyList<XrefEntry> Items, int Offset, int Total, bool Truncated,
@@ -236,6 +239,7 @@ public sealed record AddressInfo(
     [Description("The data item covering the address, as kind: text.")] public string? DataItem { get; init; }
     public string? Comment { get; init; }
     [Description("Cross-references to the address by kind.")] public IReadOnlyDictionary<string, int>? ReferencesTo { get; init; }
+    [Description("With addresses: the records of the others, in order; a failed one has empty Rva and its error as Lines.")] public IReadOnlyList<AddressInfo>? More { get; init; }
 }
 
 public sealed record SectionEntry(string Name, string Rva, string VirtualSize, string RawOffset, string RawSize, string Access, double Entropy, IReadOnlyList<string> Characteristics);

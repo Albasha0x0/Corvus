@@ -133,14 +133,14 @@ internal sealed class NativeToolHarness : IDisposable
         {
             var imp = $"{import.Module}!{import.Name}";
             await Run(path, "list_imports", "module", ct => Native.ListImports(id, module: import.Module, cancellationToken: ct), mustSucceed: true);
-            await Run(path, "resolve_address", imp, ct => Native.ResolveAddress(id, imp, ct), mustSucceed: true);
+            await Run(path, "resolve_address", imp, ct => Native.ResolveAddress(id, imp, cancellationToken: ct), mustSucceed: true);
         }
         var export = pe.Exports.FirstOrDefault(e => e.Name != null && e.ForwardedTo == null && e.Rva < pe.SizeOfImage);
         if (export != null)
-            await Run(path, "resolve_address", "export", ct => Native.ResolveAddress(id, export.Name!, ct), mustSucceed: true);
+            await Run(path, "resolve_address", "export", ct => Native.ResolveAddress(id, export.Name!, cancellationToken: ct), mustSucceed: true);
         if (pe.EntryPointRva != 0 && pe.EntryPointRva < pe.SizeOfImage)
         {
-            await Run(path, "resolve_address", "entry", ct => Native.ResolveAddress(id, Va(pe.EntryPointRva), ct), mustSucceed: true);
+            await Run(path, "resolve_address", "entry", ct => Native.ResolveAddress(id, Va(pe.EntryPointRva), cancellationToken: ct), mustSucceed: true);
             await Run(path, "read_bytes", "entry", ct => Native.ReadBytes(id, $"rva:0x{pe.EntryPointRva:X}", 4096, cancellationToken: ct), mustSucceed: true);
             var head = new byte[6];
             if (pe.Read(pe.EntryPointRva, head) == head.Length && head[0] != 0)
@@ -195,7 +195,7 @@ internal sealed class NativeToolHarness : IDisposable
             await Run(path, "find_xrefs", label, ct => CodeTools.FindXrefs(id, at, cancellationToken: ct), mustSucceed: true);
             await Run(path, "native_call_tree", label + " callees", ct => CodeTools.NativeCallTree(id, at, depth: 4, cancellationToken: ct), mustSucceed: true);
             await Run(path, "native_call_tree", label + " callers", ct => CodeTools.NativeCallTree(id, at, direction: "callers", depth: 4, cancellationToken: ct), mustSucceed: true);
-            await Run(path, "resolve_address", label + " function", ct => Native.ResolveAddress(id, at, ct), mustSucceed: true);
+            await Run(path, "resolve_address", label + " function", ct => Native.ResolveAddress(id, at, cancellationToken: ct), mustSucceed: true);
             await Run(path, "inspect_instruction", label, ct => CodeTools.InspectInstruction(id, at, count: 64, cancellationToken: ct), mustSucceed: operands);
             await Run(path, "inspect_instruction", label + " +1", ct => CodeTools.InspectInstruction(id, Va(f.Start + 1), count: 4, cancellationToken: ct), mustSucceed: operands);
             await Run(path, "analyze_native_function", label, ct => Functions.AnalyzeNativeFunction(id, at, sections: "identity,signature,frame,callers,callees,data,flow,annotations,params",

@@ -229,6 +229,14 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
+    /// <summary>References to each of <paramref name="rvas"/>, in order (one request where the engine takes several).</summary>
+    async Task<IReadOnlyList<IReadOnlyList<NativeXref>>> GetXrefsToManyAsync(IReadOnlyList<uint> rvas, CancellationToken cancellationToken = default)
+    {
+        var all = new List<IReadOnlyList<NativeXref>>(rvas.Count);
+        foreach (var rva in rvas) all.Add(await GetXrefsToAsync(rva, cancellationToken).ConfigureAwait(false));
+        return all;
+    }
+
     /// <summary>References from the instruction at <paramref name="rva"/>, or from every instruction of its function.</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsFromAsync(uint rva, bool wholeFunction = false, CancellationToken cancellationToken = default);
 

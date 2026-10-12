@@ -96,6 +96,18 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task References_to_several_addresses_come_in_one_request_as_one_at_a_time()
+    {
+        await using var s = await Provider.OpenAsync(System64, null, Offline);
+        var starts = (await s.ListFunctionsAsync()).Select(f => f.StartRva).Take(40).ToList();
+        var many = await s.GetXrefsToManyAsync(starts);
+        Assert.Equal(starts.Count, many.Count);
+        for (int i = 0; i < starts.Count; i++)
+            Assert.Equal(await s.GetXrefsToAsync(starts[i]), many[i]);
+        Assert.Contains(many, x => x.Count > 0);
+    }
+
+    [IdaFact]
     public async Task A_rename_shows_in_the_callers_pseudocode_decompiled_before()
     {
         await using var s = await Isolated().OpenAsync(System64, null, Offline);

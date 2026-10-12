@@ -76,6 +76,30 @@ public class NativeToolBoundsTests
     }
 
     [Fact]
+    public async Task Several_patterns_and_addresses_answer_in_one_call_with_an_error_per_bad_item()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("batch.dll");
+        var b = new PeBuilder();
+        var text = b.Add(".text", [0x55, 0x48, 0x89, 0xE5, 0x5D, 0xC3, 0xCC, 0xCC], 0x60000020);
+        b.EntryPoint = text.Rva;
+        File.WriteAllBytes(path, b.Build());
+        using var h = new NativeToolHarness();
+        var hits = await h.Native.SearchBytes(path, patterns: ["48 89 E5", "?? ??", "CC CC"]);
+        Assert.Contains("[1/3] 48 89 E5: 1 hit", hits);
+        Assert.Contains("[2/3] ?? ??: error invalid_argument", hits);
+        Assert.Contains("[3/3] CC CC: 1 hit", hits);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => h.Native.SearchBytes(path, "CC", patterns: ["CC"]))).Code);
+
+        var va = $"0x{b.ImageBase + text.Rva:X}";
+        var resolved = await h.Native.ResolveAddress(path, addresses: [va, "no_such_name", $"0x{b.ImageBase + text.Rva + 1:X}"]);
+        Assert.StartsWith($"{va}: ", resolved);
+        Assert.Contains("no_such_name: error", resolved);
+        Assert.Equal(3, resolved.Split('\n').Count(l => l.StartsWith("0x", StringComparison.Ordinal) || l.StartsWith("no_such", StringComparison.Ordinal)));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => h.Native.ResolveAddress(path))).Code);
+    }
+
+    [Fact]
     public async Task PatternsMayStartWithWildcardsAsMakeCodePatternWritesThem()
     {
         using var dir = new TempDir();

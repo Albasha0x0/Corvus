@@ -51,10 +51,10 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [property: Description("The call that decompiles the skipped items, when there are any.")] string? Next);
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the " +
-                 "engine's auto-analysis (seconds to minutes) and keeps the database per file hash. Names, comments, PDB types and prototypes " +
-                 "are pushed first (the first line names the type source); user types apply last and win. functions= decompiles several in one " +
-                 "request, each within perFunctionSeconds; a failure affects only its item.")]
+    [Description("C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra. The first call runs the engine's " +
+                 "auto-analysis (seconds to minutes); the database is kept per file hash. Names, comments, PDB types and prototypes are pushed " +
+                 "first (the first line names the type source); user types win. functions=: several in one request, each within " +
+                 "perFunctionSeconds; a failure affects only its item.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Required unless functions is given.")] string? address = null,

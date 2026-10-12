@@ -118,6 +118,26 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
+    public async Task Find_xrefs_takes_several_targets_with_one_engine_request()
+    {
+        var provider = new FakeProvider(available: true);
+        var rig = Setup(provider);
+        var (_, first) = await Loaded(rig);
+        provider.Functions = [new(first, first + 0x20, "ida_First", NativeFunctionFlags.None, 0), new(first + 0x40, first + 0x60, "ida_caller", NativeFunctionFlags.None, 0)];
+        var text = await rig.Tools.FindXrefs(rig.Image, addresses: ["First", "no_such_name", $"rva:0x{first + 0x40:X}"], engine: "ida");
+        Assert.Contains("[1/3] First: References to", text);
+        Assert.Contains("[2/3] no_such_name: error", text);
+        Assert.Contains("[3/3] rva:", text);
+        Assert.Equal([1, 0], text.Split('\n').Select(l => l.Trim()).Where(l => l.EndsWith(" row") || l.EndsWith(" rows")).Select(l => int.Parse(l.Split(' ')[0])));
+        Assert.Equal(1, provider.ManyRequests);
+        Assert.Equal(0, provider.SingleRequests);
+
+        var ours = await rig.Tools.FindXrefs(rig.Image, addresses: ["First", "First"], engine: "ours");
+        Assert.Contains("[2/2] First: References to", ours);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Tools.FindXrefs(rig.Image, "First", addresses: ["First"]))).Code);
+    }
+
+    [Fact]
     public async Task Ida_opens_the_analysis_or_is_provider_unavailable()
     {
         var provider = new FakeProvider(available: true);
@@ -347,7 +367,7 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
     /// <summary>A provider whose sessions answer from fixed data and count every request.</summary>
     private sealed class FakeProvider(bool available, string id = IdaProvider.ProviderId) : INativeDecompilerProvider
     {
-        public int AvailabilityChecks, Opens, Probes, Requests;
+        public int AvailabilityChecks, Opens, Probes, Requests, SingleRequests, ManyRequests;
         public IReadOnlyList<NativeFunctionInfo> Functions { get; set; } = [];
         public bool Complete { get; set; } = true;
 
@@ -415,9 +435,21 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
             return Task.FromResult(Answer(new NativeBlockGraph(f.StartRva, f.Name, [new NativeBlockInfo(f.StartRva, f.EndRva, 1, "ret", [], false)], [])));
         }
 
-        public Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Answer<IReadOnlyList<NativeXref>>(provider.Functions.Count > 1 && rva == provider.Functions[0].StartRva
-                ? [new NativeXref(provider.Functions[1].StartRva + 4, rva, NativeXrefKind.Call, provider.Functions[1].StartRva)] : []));
+        public Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref provider.SingleRequests);
+            return Task.FromResult(XrefsTo(rva));
+        }
+
+        public Task<IReadOnlyList<IReadOnlyList<NativeXref>>> GetXrefsToManyAsync(IReadOnlyList<uint> rvas, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref provider.ManyRequests);
+            return Task.FromResult<IReadOnlyList<IReadOnlyList<NativeXref>>>(rvas.Select(XrefsTo).ToList());
+        }
+
+        private IReadOnlyList<NativeXref> XrefsTo(uint rva) =>
+            Answer<IReadOnlyList<NativeXref>>(provider.Functions.Count > 1 && rva == provider.Functions[0].StartRva
+                ? [new NativeXref(provider.Functions[1].StartRva + 4, rva, NativeXrefKind.Call, provider.Functions[1].StartRva)] : []);
 
         public Task<IReadOnlyList<NativeXref>> GetXrefsFromAsync(uint rva, bool wholeFunction = false, CancellationToken cancellationToken = default) =>
             Task.FromResult(Answer<IReadOnlyList<NativeXref>>(provider.Functions.Count > 1 && rva == provider.Functions[0].StartRva

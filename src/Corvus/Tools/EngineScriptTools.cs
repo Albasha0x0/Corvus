@@ -15,10 +15,9 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
 {
     [McpServerTool(Name = "ida_python", Title = "Run IDAPython on a native image")]
-    [Description("Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base is the image base, " +
-                 "globals persist between calls (reset=true clears them); returns a final expression's value, stdout and stderr. Off unless the " +
-                 "server runs with --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights and can destroy the database. Changes " +
-                 "are not journaled: a worker restart loses them unless persist=true saves the database.")]
+    [Description("Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base = image base, " +
+                 "globals persist (reset=true clears); returns a final expression's value, stdout and stderr. Off unless --ida-scripting " +
+                 "(CORVUS_IDA_SCRIPTING=1): the code has the server's rights. Not journaled: a worker restart loses changes unless persist=true.")]
     public Task<string> IdaPython(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Python source (or pass file).")] string? code = null,

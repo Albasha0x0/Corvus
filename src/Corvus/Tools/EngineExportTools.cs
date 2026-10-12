@@ -18,9 +18,8 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
     public sealed record DatabaseExport(string Image, string Engine, [property: Description("The file written.")] string Path, long Bytes, string Note);
 
     [McpServerTool(Name = "export_engine_database", Title = "Export the engine database", UseStructuredContent = true)]
-    [Description("Write a native image's engine database (analysis plus the names, comments and types pushed from here) for the engine's GUI: " +
-                 "IDA a compressed .i64 copy, Ghidra a packed .gzf archive; Ghidra's own types also as a .h header " +
-                 "or .gdt archive. The worker keeps its own.")]
+    [Description("Write a native image's engine database (analysis plus names, comments and types pushed from here) for the engine's GUI: " +
+                 "IDA a compressed .i64, Ghidra a packed .gzf; Ghidra's own types also as .h or .gdt.")]
     public Task<DatabaseExport> ExportEngineDatabase(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The .i64 (IDA), .gzf, .h or .gdt (Ghidra) file to write.")] string outputPath,

@@ -16,8 +16,8 @@ namespace Corvus.Tools;
 public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeCodeService? code = null)
 {
     [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis")]
-    [Description("Run IDA's or Ghidra's auto-analysis again over an image (or start-end) and save the database; a full run also completes a " +
-                 "Ghidra analysis the open's budget cut short. options= sets analyzers for this run only; analyzers=true lists them with their values.")]
+    [Description("Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a full run also completes a Ghidra " +
+                 "analysis the open's budget cut short. options= sets analyzers for this run; analyzers=true lists them.")]
     public Task<string> ReanalyzeNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Default: the engine with this image open, else IDA, else Ghidra.")] string? engine = null,

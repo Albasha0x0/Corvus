@@ -527,6 +527,17 @@ def op_xrefs_to(args):
     return [r for r in rows if r is not None]
 
 
+def op_xrefs_to_many(args):
+    # xrefs_to rows for each rva, in order
+    m = need_open()
+    out = []
+    for rva in args.get("rvas") or []:
+        check_stop()
+        rows = (xref_row(m, x) for x in m.idautils.XrefsTo(ea_of({"rva": rva}), 0))
+        out.append([r for r in rows if r is not None])
+    return out
+
+
 def op_xrefs_from(args):
     m = need_open()
     ea = ea_of(args)
@@ -2475,7 +2486,7 @@ def op_pseudo_comments(args):
 
 
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
-       "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
+       "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_to_many": op_xrefs_to_many, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
        "apply_user_types": op_apply_user_types, "frame": op_frame, "types": op_types, "type": op_type, "field_xrefs": op_field_xrefs,

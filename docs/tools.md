@@ -914,7 +914,7 @@ Structured output: `image`, `path`, `machine`, `kind`, `format`, `subsystem`, `f
 
 **Engine status of a native image** (read-only, idempotent, open-world)
 
-IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine's view (language, compiler, analysis complete or partial, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.
+IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine's view (language, compiler, analysis state, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -960,14 +960,15 @@ Structured output: `image`, `items`, `offset`, `total`, `truncated`.
 
 **Resolve native address** (read-only, idempotent)
 
-What an address in a native image is: RVA, VA and file offset, section and permissions, nearest export or import, name and its source; the Il2Cpp method or metadata slot, or the NativeAOT MethodTable, object or method; an IAT slot's bound export, an export's importers. With the code index: containing function and offset, instruction start, mid-instruction or data item, comment, references by kind. In a PDB global, the field there.
+What a native address is: RVA, VA, file offset, section and access, nearest export or import, name and source; the Il2Cpp method or metadata slot, or NativeAOT MethodTable, object or method; an IAT slot's bound export, an export's importers. With the code index: function and offset, instruction start, mid-instruction or data item, comment, references by kind. In a PDB global, the field.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
-| `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
+| `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
+| `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
 
-Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `lines`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`.
+Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `lines`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `more`.
 
 ### search_bytes
 
@@ -978,11 +979,12 @@ Find a byte pattern in a native image's mapped sections (hex with ?? wildcards, 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
-| `pattern` | string | yes |  | Hex bytes with ?? wildcards ('48 8B 05 ?? ?? ?? ??'), or text when text=true. |
+| `pattern` | string |  |  | Hex bytes with ?? wildcards ('48 8B 05 ?? ?? ?? ??'), or text when text=true. |
 | `text` | boolean |  | `false` | pattern is text (ASCII and UTF-16LE). |
 | `section` | string |  |  | Only this section (e.g. .text, .rdata). |
 | `limit` | integer |  | `200` | Max hits. |
 | `offset` | integer |  | `0` | Index of the first hit. |
+| `patterns` | string[] |  |  | Instead of pattern: up to 50 patterns. |
 
 ### read_bytes
 
@@ -1127,14 +1129,15 @@ Structured output: `image`, `function`, `address`, `engine`, `blocks`, `switches
 
 **Native cross-references** (read-only, idempotent, open-world, long-running)
 
-What references an address in a native image: calls (also through import slots and thunks), jumps, data reads and writes, address-taken uses, switch tables and relocated pointers, each with its function and, for calls, the recovered arguments; for a virtual method, the RTTI virtual call sites reaching it (VirtualExact / VirtualPossible). An import (module!name): its call sites and binding; an export: also call sites in other loaded images; a GetProcAddress import: where it is resolved and its calls. direction=from: what the address (or whole function) references. A struct member (Type::member, Type+0x18): its uses in the pseudocode of functions whose prototype names the type, through IDA or Ghidra (scope=all: every function). The first call on an image waits for its code index (seconds; minutes for a very large image).
+What references a native address: calls (also via import slots and thunks), jumps, data reads/writes, address-taken uses, switch tables, relocated pointers, each with its function and, for calls, the recovered arguments; for a virtual method, the RTTI virtual call sites (VirtualExact / VirtualPossible). An import (module!name): call sites and binding; an export: also call sites in other loaded images; a GetProcAddress import: where it is resolved and its calls. direction=from: what the address (or whole function) references. A struct member (Type::member, Type+0x18): its uses in the pseudocode of functions whose prototype names the type, via IDA or Ghidra (scope=all: every function). The first call on an image waits for its code index (seconds; minutes for a very large image).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
-| `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Or a struct member: Type::member, Type.member, Type+0xOFFSET. |
+| `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Or a struct member: Type::member, Type.member, Type+0xOFFSET. |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `500` | Max rows. |
+| `addresses` | string[] |  |  | Instead of address: up to 100 targets. |
 | `engine` | string |  |  | auto (default): a finished IDA / Ghidra analysis of this session, else ours (the built-in index); never starts one. ida / ghidra: that engine, started when needed. Adds the RTTI virtual calls an engine lacks. Values: auto, ours, ida, ghidra. |
 | `direction` | string |  |  | to (default), from or both. Values: to, from, both. |
 | `kind` | string |  |  | any (default); code: calls, jumps; data: reads, writes, pointers, address-taken. Values: any, code, data. |
@@ -1371,7 +1374,7 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the engine's auto-analysis (seconds to minutes) and keeps the database per file hash. Names, comments, PDB types and prototypes are pushed first (the first line names the type source); user types apply last and win. functions= decompiles several in one request, each within perFunctionSeconds; a failure affects only its item.
+C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra. The first call runs the engine's auto-analysis (seconds to minutes); the database is kept per file hash. Names, comments, PDB types and prototypes are pushed first (the first line names the type source); user types win. functions=: several in one request, each within perFunctionSeconds; a failure affects only its item.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2029,7 +2032,7 @@ Change the engine's analysis at an address. code decodes instructions (to end, e
 
 **Re-run native auto-analysis** (destructive, open-world, long-running)
 
-Run IDA's or Ghidra's auto-analysis again over an image (or start-end) and save the database; a full run also completes a Ghidra analysis the open's budget cut short. options= sets analyzers for this run only; analyzers=true lists them with their values.
+Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a full run also completes a Ghidra analysis the open's budget cut short. options= sets analyzers for this run; analyzers=true lists them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2061,7 +2064,7 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 
 **Run IDAPython on a native image** (destructive, open-world, long-running)
 
-Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base is the image base, globals persist between calls (reset=true clears them); returns a final expression's value, stdout and stderr. Off unless the server runs with --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights and can destroy the database. Changes are not journaled: a worker restart loses them unless persist=true saves the database.
+Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base = image base, globals persist (reset=true clears); returns a final expression's value, stdout and stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights. Not journaled: a worker restart loses changes unless persist=true.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2090,7 +2093,7 @@ Run Java in the Ghidra worker holding a native image's program: a GhidraScript c
 
 **Export the engine database** (destructive, idempotent, open-world, long-running)
 
-Write a native image's engine database (analysis plus the names, comments and types pushed from here) for the engine's GUI: IDA a compressed .i64 copy, Ghidra a packed .gzf archive; Ghidra's own types also as a .h header or .gdt archive. The worker keeps its own.
+Write a native image's engine database (analysis plus names, comments and types pushed from here) for the engine's GUI: IDA a compressed .i64, Ghidra a packed .gzf; Ghidra's own types also as .h or .gdt.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
