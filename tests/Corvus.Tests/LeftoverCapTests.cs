@@ -9,6 +9,7 @@ namespace Corvus.Tests;
 public sealed class LeftoverCapTests
 {
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task DefaultCap_IsTwo()
     {
         Assert.Equal(2, LeftoverWork.DefaultMax);
