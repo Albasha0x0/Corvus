@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Corvus.Core;
 using Corvus.Mcp;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
@@ -98,10 +99,10 @@ public class ErrorContractTests
         Assert.Equal(JsonValueKind.Null, dropped.GetProperty("partial").ValueKind);
         Assert.True(dropped.GetProperty("details").GetProperty("partialOmittedChars").GetInt32() > 3 * ToolError.MaxPartialTokens);
 
-        var store = new ResultStore();
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
         var result = ErrorResult.From(large, "t", store);
         var id = JsonDocument.Parse(ErrorResult.JsonOf(result)!).RootElement.GetProperty("details").GetProperty("partialResultId").GetString()!;
-        Assert.Contains("row 01999", store.Get(id).Text);
+        Assert.Contains("row 01999", store.Read(id).Text);
     }
 
     [Theory]
@@ -185,6 +186,71 @@ public class ErrorContractTests
         Assert.Null(Limitations.Parse("free text"));
         foreach (var id in new[] { "analysis-partial", "engine-profile-standard", "regex-timeouts", "row-cap", "obfuscated-names", "no-pdb", "heuristic-boundaries" })
             Assert.NotNull(Limitations.Parse(id));
+    }
+
+    private static ServiceProvider Pipeline(AssemblyWorkspace workspace, ResultStore store) =>
+        new ServiceCollection().AddSingleton(new ServerOptions()).AddSingleton(store).AddSingleton(workspace).BuildServiceProvider();
+
+    [Fact]
+    public async Task TheErrorIsTheFirstBlockEvenWithNotices()
+    {
+        using var workspace = new AssemblyWorkspace();
+        using var services = Pipeline(workspace, new ResultStore(ResultCacheOptions.MemoryOnly));
+        workspace.Notify("2 unsaved edit(s) from a session that ended without saving");
+        var error = await CallFilter.Run(new CallToolRequestParams { Name = "get_type_info" }, null, services, _ => throw new ToolError(ErrorCode.NotFound, "no type 'X'."), default);
+        var blocks = error.Content.OfType<TextContentBlock>().Select(b => b.Text).ToList();
+        Assert.Equal(3, blocks.Count);
+        Assert.StartsWith("Error (not_found) in get_type_info: no type 'X'.\nNext: ", blocks[0]);
+        Assert.StartsWith(ErrorResult.JsonMarker, blocks[1]);
+        Assert.StartsWith("[workspace] 2 unsaved edit(s)", blocks[2]);
+        Assert.Empty(McpProtocolTests.ErrorShapeProblems(error));
+        Assert.NotNull(ErrorResult.JsonOf(error));
+
+        // A success keeps its notice in front.
+        workspace.Notify("reloaded app.dll");
+        var ok = await CallFilter.Run(new CallToolRequestParams { Name = "get_type_info" }, null, services,
+            _ => ValueTask.FromResult(new CallToolResult { Content = [new TextContentBlock { Text = "class X" }] }), default);
+        Assert.StartsWith("[workspace] reloaded app.dll", ((TextContentBlock)ok.Content[0]).Text);
+    }
+
+    [Fact]
+    public async Task AMissingParameterIsNamedWithItsTypeBeforeTheToolRuns()
+    {
+        using var workspace = new AssemblyWorkspace();
+        using var services = Pipeline(workspace, new ResultStore(ResultCacheOptions.MemoryOnly));
+        var schema = JsonDocument.Parse("""
+            {"type":"object","properties":{"type":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":500},"kind":{"type":"string","enum":["type","method"]}},
+             "required":["type","limit","kind"]}
+            """).RootElement;
+        async Task<JsonElement> Call(Dictionary<string, JsonElement> args) => McpProtocolTests.ErrorJson(await CallFilter.Run(
+            new CallToolRequestParams { Name = "get_type_info", Arguments = args }, schema, services, _ => throw new InvalidOperationException("the tool ran"), default));
+
+        var missing = await Call([]);
+        Assert.Equal("missing required parameter 'type'.", missing.GetProperty("message").GetString());
+        Assert.Equal("pass type: a string; `corvus describe get_type_info` or the tool's input schema lists every parameter", missing.GetProperty("next").GetString());
+        Assert.Equal("type", missing.GetProperty("details").GetProperty("parameter").GetString());
+        var range = await Call(new() { ["type"] = JsonDocument.Parse("\"X\"").RootElement });
+        Assert.StartsWith("pass limit: a whole number from 1 to 500;", range.GetProperty("next").GetString());
+        var listed = await Call(new() { ["type"] = JsonDocument.Parse("\"X\"").RootElement, ["limit"] = JsonDocument.Parse("5").RootElement });
+        Assert.StartsWith("pass kind: one of type, method;", listed.GetProperty("next").GetString());
+        // A misspelt name is reported as unknown with the intended name, not as missing.
+        var typo = await Call(new() { ["tyep"] = JsonDocument.Parse("\"X\"").RootElement });
+        Assert.StartsWith("unknown parameter 'tyep'. Did you mean 'type'?", typo.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task APartialOverTheErrorBudgetIsKeptForReadResult()
+    {
+        using var workspace = new AssemblyWorkspace();
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        using var services = Pipeline(workspace, store);
+        var rows = Enumerable.Range(0, 2_000).Select(i => $"match {i:D5} found before the time limit").ToList();
+        var error = await CallFilter.Run(new CallToolRequestParams { Name = "search_strings" }, null, services,
+            _ => throw new ToolError(ErrorCode.Timeout, "the search ran out of time.") { Partial = rows }, default);
+        var json = McpProtocolTests.ErrorJson(error);
+        Assert.Equal(JsonValueKind.Null, json.GetProperty("partial").ValueKind);
+        var id = json.GetProperty("details").GetProperty("partialResultId").GetString()!;
+        Assert.Contains("match 01999", store.Read(id).Text);
     }
 
     [Fact]

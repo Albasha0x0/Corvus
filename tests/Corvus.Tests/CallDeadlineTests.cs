@@ -38,10 +38,12 @@ public class CallDeadlineTests
         Assert.Equal("timeout", timedOut.GetProperty("code").GetString());
         Assert.True(timedOut.GetProperty("retryable").GetBoolean());
         Assert.False(timedOut.GetProperty("details").GetProperty("stillRunning").GetBoolean());
+        Assert.False(timedOut.GetProperty("details").TryGetProperty("retryAfterMs", out _));
         // The work never ends until released below: an answer at all is the deadline's (the minute only guards against a hang).
         var abandoned = McpProtocolTests.ErrorJson(await ignoring.WaitAsync(TimeSpan.FromMinutes(1)));
         Assert.Equal("timeout", abandoned.GetProperty("code").GetString());
         Assert.True(abandoned.GetProperty("details").GetProperty("stillRunning").GetBoolean());
+        Assert.Equal((long)LeftoverWork.RetryAfter.TotalMilliseconds, abandoned.GetProperty("details").GetProperty("retryAfterMs").GetInt64());
         release.SetResult();
     }
 

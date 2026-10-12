@@ -579,6 +579,7 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.False(missing.GetProperty("retryable").GetBoolean());
         Assert.Equal("missing required parameter 'type'.", missing.GetProperty("message").GetString());
         Assert.Equal("type", missing.GetProperty("details").GetProperty("parameter").GetString());
+        Assert.Equal(typeNext["\nNext: ".Length..], missing.GetProperty("next").GetString());
         var tooLong = McpProtocolTests.ErrorJson(await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = new string('A', 100_000) }));
         Assert.Equal("Pass a shorter path.", tooLong.GetProperty("next").GetString());
         Assert.Equal(JsonValueKind.Null, tooLong.GetProperty("partial").ValueKind);

@@ -298,9 +298,15 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
             var owner = Owner(dir);
             var who = owner == null ? "another session or process" : owner == Environment.ProcessId ? "another session of this process" : $"process {owner}";
             throw new LockedError(new LockedEntry(dir, owner, new ToolError(ErrorCode.Conflict, $"The analysis database in {dir} is open in {who}.",
-                "Close the other session (or the other server process) first, or work in that session.")));
+                "Close the other session (or the other server process) first, or work in that session, or retry after details.retryAfterMs.")
+            {
+                RetryAfter = LockRetryAfter,
+            }));
         }
     }
+
+    /// <summary>The retry hint of a database held by another session: an engine call there usually ends within this.</summary>
+    public static readonly TimeSpan LockRetryAfter = TimeSpan.FromSeconds(30);
 
     private sealed class LockedError(LockedEntry entry) : Exception(entry.Conflict.Message)
     {

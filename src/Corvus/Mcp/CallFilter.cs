@@ -39,10 +39,7 @@ internal static partial class CallFilter
         if (tool != null && !ToolEffects.Of(tool).ReadOnly) services?.GetService<Services.EditJournal>()?.Sync();
         if (services?.GetService<ServerOptions>() is { } options && services.GetService<ResultStore>() is { } store)
             result = ResponseBudget.Enforce(result, tool, options, store, request);
-        // Pending workspace notices; trailing blank line because clients join content blocks without a separator.
-        var notices = services?.GetService<AssemblyWorkspace>()?.DrainNotices();
-        if (notices is { Count: > 0 })
-            result.Content.Insert(0, new TextContentBlock { Text = string.Join("\n", notices.Select(n => "[workspace] " + n)) + "\n\n" });
+        if (services?.GetService<AssemblyWorkspace>()?.DrainNotices() is { } notices) ErrorResult.AddNotices(result, notices);
         log.Completed(result);
         return result;
     }
@@ -68,7 +65,11 @@ internal static partial class CallFilter
         using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token, tool);
         try
         {
-            if (inputSchema is { } schema) ArgumentCheck.Apply(schema, request?.Arguments, tool);
+            if (inputSchema is { } schema)
+            {
+                ArgumentCheck.Apply(schema, request?.Arguments, tool);
+                ArgumentCheck.RequireAll(schema, request?.Arguments, tool);
+            }
             var structured = StructuredOutput.Begin();
             var result = await WithinDeadline(next(call.Token).AsTask(), call.Token, deadline, cancellationToken, leftovers);
             // An error object never matches the tool's output schema, and clients validate whatever structuredContent is present.
@@ -83,7 +84,7 @@ internal static partial class CallFilter
         }
         catch (ToolError ex)
         {
-            return ErrorResult.From(ex, tool);
+            return ErrorResult.From(ex, tool, services?.GetService<ResultStore>());
         }
         catch (OperationCanceledException) when (call.IsCancellationRequested && !cancellationToken.IsCancellationRequested && deadline != null)
         {
@@ -102,8 +103,7 @@ internal static partial class CallFilter
         catch (ArgumentException ex) when (ex.ParamName == "arguments" && MissingParameter().Match(ex.Message) is { Success: true } m)
         {
             // Argument binding: a required parameter is missing.
-            return ErrorResult.From(new ToolError(ErrorCode.InvalidArgument, $"missing required parameter '{m.Groups[1].Value}'.")
-                { Details = new { parameter = m.Groups[1].Value } }, tool);
+            return ErrorResult.From(ArgumentCheck.MissingParameter(inputSchema ?? default, m.Groups[1].Value, tool), tool);
         }
         catch (Exception ex) when (ArgumentCheck.FileSystemError(ex) is { } error)
         {
@@ -158,9 +158,10 @@ internal static partial class CallFilter
             $"{(stillRunning ? "; its work is still finishing in the background" : "")}.",
             blockedBy != null
                 ? "call again once that call has finished (server_status lists the lock holders); a long-running call can be cancelled by its client"
-                : "narrow the call (one member instead of a type, a smaller limit or scope), or start the server with a larger --timeout")
+                : "narrow the call (one member instead of a type, a smaller limit or scope)" + (stillRunning ? "; or retry after details.retryAfterMs, once the background work is done" : ""))
         {
             Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, blockedBy },
+            RetryAfter = stillRunning ? LeftoverWork.RetryAfter : null,
         }, tool);
 
     [GeneratedRegex("required parameter '([^']+)'")]

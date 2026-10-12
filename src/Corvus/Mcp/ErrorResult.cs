@@ -21,8 +21,7 @@ internal static class ErrorResult
     public static CallToolResult From(ToolError error, string? tool, ResultStore? store = null) =>
         Create(Format.EscapeInvisible(error.Render(tool)), error.ToJson(tool, store == null ? null : partial => Keep(store, tool, partial)));
 
-    // Stand-in for ResultStore.Keep until the disk-backed store lands.
-    private static string Keep(ResultStore store, string? tool, string text) => store.Add(tool ?? "?", text);
+    private static string Keep(ResultStore store, string? tool, string text) => store.Keep(text, CallLog.Origin(tool, null));
 
     /// <summary>An exception the tool did not classify: code "internal", not retryable.</summary>
     public static CallToolResult Internal(Exception ex, string? tool) =>
