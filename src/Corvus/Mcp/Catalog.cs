@@ -20,12 +20,12 @@ namespace Corvus.Mcp;
 public static partial class Catalog
 {
     /// <summary>
-    /// Serializes tool results (record text and structured content). Nulls serialized explicitly: generated output schemas
-    /// mark every property required, so omitted nulls fail validation. Relaxed escaping keeps generic names (List`1, &lt;Module&gt;) readable.
+    /// Serializes tool results (record text and structured content). Nulls are left out: <see cref="OutputSchemas"/> makes
+    /// every nullable property optional. Relaxed escaping keeps generic names (List`1, &lt;Module&gt;) readable.
     /// </summary>
     public static readonly JsonSerializerOptions ToolSerializerOptions = new(McpJsonUtilities.DefaultOptions)
     {
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
@@ -51,8 +51,24 @@ public static partial class Catalog
             ParameterDomains.Apply(tools);
             DropNullDefaults(tools);
             ToolOutput.ApplyEnvelope(tools);
+            foreach (var tool in tools)
+                if (tool.ProtocolTool.OutputSchema is { } output)
+                {
+                    GeneratedSchemas[tool.ProtocolTool.Name] = output;
+                    tool.ProtocolTool.OutputSchema = OutputSchemas.Compact(output);
+                }
         });
         return builder;
+    }
+
+    // The generated schemas, for docs/schemas; the described form is made only when asked for.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, JsonElement> GeneratedSchemas = new(StringComparer.Ordinal);
+
+    /// <summary>Each structured tool's output schema with its descriptions and full depth (docs/schemas), by tool name.</summary>
+    public static SortedDictionary<string, JsonElement> DescribedOutputSchemas()
+    {
+        _ = Built.Value;
+        return new(GeneratedSchemas.ToDictionary(s => s.Key, s => OutputSchemas.Described(s.Value)), StringComparer.Ordinal);
     }
 
     /// <summary>Removes "default": null from input and output schemas; an optional property without a default says the same in fewer bytes.</summary>

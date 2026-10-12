@@ -719,7 +719,7 @@ public class InspectionTests : IDisposable
         Assert.NotEqual(true, ok.IsError);
         Assert.Contains("download files", ok.StructuredContent!.ToString());
 
-        // Results with null fields must still validate against the advertised output schema.
+        // Results whose nullable fields are absent must still validate against the advertised output schema.
         var everyday = _dir.File("EverydayApis.dll");
         foreach (var tool in new[] { "summarize_file", "survey_features", "extract_strings", "extract_embedded" })
         {
@@ -728,6 +728,6 @@ public class InspectionTests : IDisposable
             await McpProtocolTests.AssertMatchesOutputSchema(client, tool, r);
         }
         var nulls = await client.CallToolAsync("summarize_file", new Dictionary<string, object?> { ["path"] = everyday });
-        Assert.Contains("\"merged\":null", nulls.StructuredContent!.ToString());
+        Assert.DoesNotContain(":null", nulls.StructuredContent!.ToString());
     }
 }
