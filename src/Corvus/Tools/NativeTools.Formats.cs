@@ -70,7 +70,17 @@ public sealed partial class NativeTools
     {
         if (Native.Go.GoFunctionTable.Of(image) is { } go)
             sb.AppendLine($"Go function table: {Plural(go.Functions.Count, "function")} with names ({go.VersionText} layout) at rva 0x{go.Rva:X}");
+        if (Native.Go.GoBuildInfo.Of(image) is not { } build) return;
+        sb.AppendLine($"Go build: {build.GoVersion}" + (build.Path != null ? $", package {build.Path}" : "") + (build.Main != null ? $", module {build.Main}" : "") +
+                      (build.Main?.Sum != null ? $" {build.Main.Sum}" : ""));
+        if (build.Settings.Count > 0) sb.AppendLine($"  settings: {string.Join(", ", build.Settings.Select(s => $"{s.Key}={s.Value}"))}");
+        if (build.Dependencies.Count > 0) sb.AppendLine($"  dependencies ({build.Dependencies.Count}):");
+        foreach (var d in build.Dependencies.Take(MaxGoDependencies))
+            sb.AppendLine($"    {d}" + ((d.Replace?.Sum ?? d.Sum) is { } sum ? $" {sum}" : ""));
+        if (build.Dependencies.Count > MaxGoDependencies) sb.AppendLine($"    … {build.Dependencies.Count - MaxGoDependencies} more");
     }
+
+    private const int MaxGoDependencies = 200;
 
     private static string SourceName(DeclaredSource s) => s switch
     {

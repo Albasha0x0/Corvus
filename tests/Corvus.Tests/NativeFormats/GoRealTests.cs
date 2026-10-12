@@ -63,4 +63,17 @@ public sealed class GoRealTests(ITestOutputHelper output)
             Assert.True(over <= go.Functions.Count / 200, $"{name}: {over} functions decode past their end");
         }
     }
+
+    [RequiresRealDataFact(Variable)]
+    public void Build_info_names_the_toolchain_module_and_settings()
+    {
+        foreach (var (name, image) in Samples())
+        {
+            var build = GoBuildInfo.Of(image);
+            Assert.NotNull(build);
+            output.WriteLine($"{name}: {build.GoVersion}; path {build.Path}; main {build.Main}; {build.Dependencies.Count} deps; " +
+                             string.Join(", ", build.Settings.Select(s => $"{s.Key}={s.Value}")));
+            Assert.StartsWith("go1.", build.GoVersion);
+        }
+    }
 }

@@ -66,6 +66,46 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         /// <summary>Set for an Electron executable or .asar: versions, fuses, archive integrity, package.json entry, webPreferences values.</summary>
         public ElectronFacts? Electron { get; init; }
+
+        /// <summary>Set for a Go program: toolchain, main package and module, dependencies (first 64) and build settings.</summary>
+        public GoBuildFacts? Go { get; init; }
+    }
+
+    public sealed record GoBuildFacts(string GoVersion, string? Path, Native.Go.GoModule? Main, int DependencyTotal, IReadOnlyList<Native.Go.GoModule> Dependencies,
+        IReadOnlyList<Native.Go.GoSetting> Settings)
+    {
+        private const int MaxDependencies = 64;
+
+        /// <summary>The build information of a PE, ELF or Mach-O file, or null.</summary>
+        public static GoBuildFacts? Of(string path, byte[] bytes)
+        {
+            Native.INativeImage? image;
+            try
+            {
+                image = Native.NativeImageLoader.Detect(bytes) switch
+                {
+                    Native.NativeFileKind.Pe => Native.Pe.PeFile.FromBytes(bytes, path),
+                    Native.NativeFileKind.Elf => Native.Elf.ElfFile.FromBytes(bytes, path),
+                    Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat => Native.MachO.MachOFile.FromBytes(bytes, path),
+                    _ => null,
+                };
+            }
+            catch (Exception ex) when (ex is ToolError or InvalidOperationException or ArgumentException or BadImageFormatException) { return null; }
+            if (image == null || Native.Go.GoBuildInfo.Of(image) is not { } go) return null;
+            return new GoBuildFacts(go.GoVersion, go.Path, go.Main, go.Dependencies.Count, [.. go.Dependencies.Take(MaxDependencies)], go.Settings);
+        }
+
+        public string Highlight()
+        {
+            string? Setting(string key) => Settings.FirstOrDefault(s => s.Key == key)?.Value;
+            var parts = new List<string> { $"Go program built with {GoVersion}" };
+            if (Main != null) parts.Add($"module {Main.Path} {Main.Version}");
+            else if (Path != null) parts.Add($"package {Path}");
+            parts.Add($"{DependencyTotal} dependencies");
+            if (Setting("GOOS") is { } os && Setting("GOARCH") is { } arch) parts.Add($"{os}/{arch}");
+            if (Setting("vcs.revision") is { } rev) parts.Add($"revision {rev}" + (Setting("vcs.modified") == "true" ? " (modified)" : ""));
+            return string.Join(", ", parts) + ".";
+        }
     }
 
     private sealed record Scanned(ModuleDef Module, ModuleScan Scan, byte[] Image, string Label);
@@ -286,11 +326,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         if (android != null) fileHighlights.AddRange(android.Highlights);
         var electron = ElectronInspector.Of(full, bytes, ct);
         if (electron != null) fileHighlights.AddRange(electron.Highlights());
+        var go = GoBuildFacts.Of(full, bytes);
+        if (go != null) fileHighlights.Add(go.Highlight());
         (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) managed;
         try { managed = UnpackService.Managed(full, Limits, ct); }
         catch (ToolError ex)
         {
-            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]) { NativeImage = native?.Facts, Android = android, Packers = packers.Count > 0 ? packers : null, Electron = electron };
+            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]) { NativeImage = native?.Facts, Android = android, Packers = packers.Count > 0 ? packers : null, Electron = electron, Go = go };
         }
         var reportNotes = new List<string>(managed.Notes);
         reportNotes.AddRange(MappingNotes(bytes));
@@ -343,7 +385,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes)
         {
             NativeAot = NativeAotFacts(bytes, ct), NativeImage = native?.Facts, Android = android, Packers = packers.Count > 0 ? packers : null,
-            Electron = electron,
+            Electron = electron, Go = go,
         };
     }
 

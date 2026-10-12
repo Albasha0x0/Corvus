@@ -63,7 +63,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     [Description("Overview of a native image. PE: machine, kind, subsystem, base, entry point, timestamps, linker, sections (flags, entropy), packers, " +
                  "mitigations (ASLR, DEP, CFG, CET...), import / export counts, TLS callbacks, PDB identity, load config, version, manifest, rich " +
                  "header, checksum, overlay, signature, anything malformed. ELF: program headers, soname, build id, relocations, hardening. Mach-O: " +
-                 "slice, segments, libraries, fixups, code signature, entitlements, encryption. Capabilities the imports imply. With the code index " +
+                 "slice, segments, libraries, fixups, code signature, entitlements, encryption. Go build info. Capabilities the imports imply. With the code index " +
                  "(not waited for): function statistics, RTTI classes, the most called and largest functions.")]
     public Task<string> GetPeInfo(
         [Description(ImageDescription)] string image,

@@ -17,7 +17,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                  "Authenticode), toolchain markers, container wrapping, features with ATT&CK techniques, extracted values and entry points (Main, " +
                  "module initializer, exports, installer / service / COM hooks). Containers (single-file bundles, packages, APKs, zips, Costura) are opened: " +
                  "the app's assembly in full, up to 7 more in brief; an apphost's .dll is summarized as the app. Also: NativeAOT runtime and recovery counts, " +
-                 "ELF / Mach-O format, signature and encryption, packers and protectors, Android package, SDKs, runtimes, ABIs and exported components, " +
+                 "ELF / Mach-O format, signature and encryption, Go build info, packers and protectors, Android package, SDKs, runtimes, ABIs and exported components, " +
                  "Electron (versions, fuses, .asar integrity, main entry, webPreferences values with file:line), " +
                  "and for a loaded native image triage (entry points, top functions, strings, import groups).")]
     public async Task<InspectionService.FileSummary> SummarizeFile(

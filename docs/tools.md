@@ -519,14 +519,14 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at any file or loaded assembly, without executing it: hashes, type, entropy; per managed assembly identity, signature (strong name, Authenticode), toolchain markers, container wrapping, features with ATT&CK techniques, extracted values and entry points (Main, module initializer, exports, installer / service / COM hooks). Containers (single-file bundles, packages, APKs, zips, Costura) are opened: the app's assembly in full, up to 7 more in brief; an apphost's .dll is summarized as the app. Also: NativeAOT runtime and recovery counts, ELF / Mach-O format, signature and encryption, packers and protectors, Android package, SDKs, runtimes, ABIs and exported components, Electron (versions, fuses, .asar integrity, main entry, webPreferences values with file:line), and for a loaded native image triage (entry points, top functions, strings, import groups).
+First look at any file or loaded assembly, without executing it: hashes, type, entropy; per managed assembly identity, signature (strong name, Authenticode), toolchain markers, container wrapping, features with ATT&CK techniques, extracted values and entry points (Main, module initializer, exports, installer / service / COM hooks). Containers (single-file bundles, packages, APKs, zips, Costura) are opened: the app's assembly in full, up to 7 more in brief; an apphost's .dll is summarized as the app. Also: NativeAOT runtime and recovery counts, ELF / Mach-O format, signature and encryption, Go build info, packers and protectors, Android package, SDKs, runtimes, ABIs and exported components, Electron (versions, fuses, .asar integrity, main entry, webPreferences values with file:line), and for a loaded native image triage (entry points, top functions, strings, import groups).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | Any file (assembly, bundle, .nupkg, .apk, zip, .asar, native executable); pass this or assembly. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
 
-Structured output: `file`, `container`, `assemblies`, `highlights`, `notes`, `nativeAot`, `nativeImage`, `packers`, `android`, `triage`, `electron`.
+Structured output: `file`, `container`, `assemblies`, `highlights`, `notes`, `nativeAot`, `nativeImage`, `packers`, `android`, `triage`, `electron`, `go`.
 
 ### survey_features
 
@@ -900,7 +900,7 @@ Native PE analysis, symbols and decompilation.
 
 **Native image overview** (read-only, idempotent)
 
-Overview of a native image. PE: machine, kind, subsystem, base, entry point, timestamps, linker, sections (flags, entropy), packers, mitigations (ASLR, DEP, CFG, CET...), import / export counts, TLS callbacks, PDB identity, load config, version, manifest, rich header, checksum, overlay, signature, anything malformed. ELF: program headers, soname, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, entitlements, encryption. Capabilities the imports imply. With the code index (not waited for): function statistics, RTTI classes, the most called and largest functions.
+Overview of a native image. PE: machine, kind, subsystem, base, entry point, timestamps, linker, sections (flags, entropy), packers, mitigations (ASLR, DEP, CFG, CET...), import / export counts, TLS callbacks, PDB identity, load config, version, manifest, rich header, checksum, overlay, signature, anything malformed. ELF: program headers, soname, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, entitlements, encryption. Go build info. Capabilities the imports imply. With the code index (not waited for): function statistics, RTTI classes, the most called and largest functions.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
