@@ -875,8 +875,6 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         private WalkResult[] WalkWithNoReturn(uint[] starts)
         {
             var results = new WalkResult[starts.Length];
-            var index = new Dictionary<uint, int>(starts.Length);
-            for (int i = 0; i < starts.Length; i++) index[starts[i]] = i;
             WalkAll(starts, results, Enumerable.Range(0, starts.Length).ToArray(), "analyzing functions");
             var marks = new bool[starts.Length];
             for (int round = 0; ; round++)
@@ -903,13 +901,16 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         }
 
         /// <summary>marks[i] = test(i) for every i below <paramref name="count"/>, on several threads (the sets read are not changed meanwhile).</summary>
-        private void Mark(int count, bool[] marks, Func<int, bool> test)
+        private void Mark(int count, bool[] marks, Func<int, bool> test) => ForEachIndex(count, i => marks[i] = test(i));
+
+        /// <summary>Runs <paramref name="body"/> for every index below <paramref name="count"/> on several threads.</summary>
+        private void ForEachIndex(int count, Action<int> body)
         {
-            var po = new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = options.MaxParallelism > 0 ? options.MaxParallelism : Environment.ProcessorCount };
             if (count == 0) return;
+            var po = new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = options.MaxParallelism > 0 ? options.MaxParallelism : Environment.ProcessorCount };
             Parallel.ForEach(Partitioner.Create(0, count, 16384), po, range =>
             {
-                for (int i = range.Item1; i < range.Item2; i++) marks[i] = test(i);
+                for (int i = range.Item1; i < range.Item2; i++) body(i);
             });
         }
 
@@ -937,26 +938,26 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             var sources = _sources;
             var functions = new NativeFunction[starts.Length];
             var exportNames = FunctionNames(image);
-            int totalRanges = results.Sum(r => r.RangeStarts.Length);
+            var firstRange = new int[starts.Length + 1];
+            for (int i = 0; i < starts.Length; i++) firstRange[i + 1] = firstRange[i] + results[i].RangeStarts.Length;
+            int totalRanges = firstRange[starts.Length];
             var rangeStarts = new uint[totalRanges];
             var rangeEnds = new uint[totalRanges];
-            int next = 0;
-            long instructions = 0, blocks = 0, xrefCount = 0;
-            int unresolved = 0, invalid = 0, thunks = 0, noReturn = 0;
-            for (int i = 0; i < starts.Length; i++)
+            // the functions on several threads (reads of the sets only), the counts after
+            ForEachIndex(starts.Length, i =>
             {
                 var r = results[i];
+                int next = firstRange[i];
                 var f = new NativeFunction { Start = starts[i], Index = i, Sources = sources[starts[i]], Flags = r.Flags, FirstRange = next, RangeCount = r.RangeStarts.Length };
                 Array.Copy(r.RangeStarts, 0, rangeStarts, next, r.RangeStarts.Length);
                 Array.Copy(r.RangeEnds, 0, rangeEnds, next, r.RangeEnds.Length);
-                next += r.RangeStarts.Length;
                 uint size = 0, end = f.Start;
                 for (int k = 0; k < r.RangeStarts.Length; k++) { size += r.RangeEnds[k] - r.RangeStarts[k]; end = Math.Max(end, r.RangeEnds[k]); }
                 f.Size = size;
                 f.End = end;
                 f.BlockCount = r.Blocks;
                 f.InstructionCount = r.Instructions;
-                if (_ctx.NoReturn.Contains(f.Start)) { f.Flags |= FunctionFlags.NoReturn; noReturn++; }
+                if (_ctx.NoReturn.Contains(f.Start)) f.Flags |= FunctionFlags.NoReturn;
                 if (_ctx.Funclets.Contains(f.Start)) f.Flags |= FunctionFlags.Funclet;
                 if (_ctx.ArmModes?.IsUnsure(f.Start) == true) f.Flags |= FunctionFlags.StateGuessed;
                 if (_ctx.Thunks.TryGetValue(f.Start, out var slot) && _ctx.ImportSlots.TryGetValue(slot, out var imp))
@@ -964,15 +965,22 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                     f.Flags |= FunctionFlags.Thunk;
                     f.ThunkImport = imp;
                     f.KnownName = "j_" + (imp.Name ?? $"{Path.GetFileNameWithoutExtension(imp.Module)}_{imp.Ordinal}");
-                    thunks++;
                 }
                 if (exportNames.TryGetValue(f.Start, out var exportName)) f.KnownName = exportName;
+                functions[i] = f;
+            });
+            long instructions = 0, blocks = 0, xrefCount = 0;
+            int unresolved = 0, invalid = 0, thunks = 0, noReturn = 0;
+            for (int i = 0; i < starts.Length; i++)
+            {
+                var r = results[i];
+                if ((functions[i].Flags & FunctionFlags.NoReturn) != 0) noReturn++;
+                if ((functions[i].Flags & FunctionFlags.Thunk) != 0) thunks++;
                 if ((r.Flags & FunctionFlags.UnresolvedJumps) != 0) unresolved++;
                 if ((r.Flags & FunctionFlags.InvalidCode) != 0) invalid++;
                 instructions += r.Instructions;
                 blocks += r.Blocks;
                 xrefCount += r.Xrefs.Length;
-                functions[i] = f;
             }
             ct.ThrowIfCancellationRequested();
             if (results.Any(r => (r.Flags & FunctionFlags.Truncated) != 0))
