@@ -216,7 +216,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         Assert.Contains("base = idaapi.get_imagebase()", script);
         Assert.Contains("ida_bytes.patch_bytes(ea, new)", script);
         Assert.Contains("if found != orig:", script);
-        Assert.Contains("(\"#1 patch_asm\", 0x1000, ", script);
+        Assert.Matches(@"\(""#1 patch_asm(, \d+ bytes \(\d+ given, \d+ NOP padding\))?"", 0x1000, ", script);
         Assert.Contains("(\"#2 patch_bytes 2 bytes\", 0x1020, ", script);
         Assert.Contains("#1 relocation entry", script);
         Assert.Contains("(\"PE checksum\", 0x", script);

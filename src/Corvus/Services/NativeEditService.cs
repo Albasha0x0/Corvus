@@ -235,10 +235,19 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             plan = PatchRelocations.Plan(pe, rva, original, replacement, operands, assembled == null, relocations, force);
         }
 
-        var patch = new NativePatch(rva, fileOffset, original, replacement, description, plan) { Assembly = assembly };
+        var patch = new NativePatch(rva, fileOffset, original, replacement, Sized(description, newBytes.Length, paddedLength), plan) { Assembly = assembly };
         var before = Disasm(index, rva, paddedLength);
         var after = DisasmBytes(image, rva, replacement);
         return new PatchResult(patch, before, after, note ?? "");
+    }
+
+    /// <summary>A patch's description with the size it writes: "patch_bytes 7 bytes (1 given, 6 NOP padding)".</summary>
+    internal static string Sized(string description, int given, int written)
+    {
+        if (written == given) return description;
+        var size = $"{written} bytes ({given} given, {written - given} NOP padding)";
+        var stated = $"{given} bytes";
+        return description.EndsWith(" " + stated, StringComparison.Ordinal) ? description[..^stated.Length] + size : $"{description}, {size}";
     }
 
     /// <summary>

@@ -688,6 +688,21 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task PatchBytes_DescriptionStatesTheSizeWritten()
+    {
+        using var h = new Harness();
+        var (native, index) = await h.Open();
+        uint entry = native.Image.EntryPointRva;
+        var padded = h.Edits.PreparePatch(index, entry, [0xC3], force: false, "patch_bytes 1 bytes");
+        Assert.Equal("patch_bytes 5 bytes (1 given, 4 NOP padding)", padded.Patch.Description);
+        h.Edits.ApplyPatch(native, index, padded, dryRun: false);
+        Assert.Contains("5 bytes  ", h.Edits.List(native));
+        Assert.Contains("patch_bytes 5 bytes (1 given, 4 NOP padding)", h.Edits.List(native));
+        Assert.Equal("patch_asm ret, 5 bytes (1 given, 4 NOP padding)", NativeEditService.Sized("patch_asm ret", 1, 5));
+        Assert.Equal("patch_bytes 5 bytes", NativeEditService.Sized("patch_bytes 5 bytes", 5, 5));
+    }
+
+    [Fact]
     public async Task PatchBytes_RefusesMidInstructionAndPastFunctionEnd()
     {
         using var h = new Harness();
