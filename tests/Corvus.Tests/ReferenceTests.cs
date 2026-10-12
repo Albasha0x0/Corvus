@@ -30,6 +30,33 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
+    public void Rows_of_one_owner_are_distinct()
+    {
+        // a comparer over the target implements two generic interfaces, and carries an attribute twice
+        var module = _env.Fixture.Module;
+        var account = _env.Def<TypeDef>("Account", SymbolKind.Type);
+        var accountSig = new ClassSig(account);
+        TypeSpec Over(string ns, string name) =>
+            new TypeSpecUser(new GenericInstSig(new ClassSig(new TypeRefUser(module, ns, name, module.CorLibTypes.AssemblyRef)), accountSig));
+        var comparer = new TypeDefUser("Fixture.Model", "AccountComparer", module.CorLibTypes.Object.TypeDefOrRef);
+        comparer.Interfaces.Add(new InterfaceImplUser(Over("System.Collections.Generic", "IComparer`1")));
+        comparer.Interfaces.Add(new InterfaceImplUser(Over("System.Collections.Generic", "IEqualityComparer`1")));
+        module.Types.Add(comparer);
+        var marker = _env.Def<TypeDef>("Entity", SymbolKind.Type);
+        var holder = new TypeDefUser("Fixture.Model", "MarkedTwice", module.CorLibTypes.Object.TypeDefOrRef);
+        var ctor = new MemberRefUser(module, ".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void), marker);
+        holder.CustomAttributes.Add(new CustomAttribute(ctor));
+        holder.CustomAttributes.Add(new CustomAttribute(ctor));
+        module.Types.Add(holder);
+
+        var rows = Refs("Account", kind: SymbolKind.Type).Where(r => r.Where.Name == "AccountComparer").ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(rows.Count, rows.Select(r => (r.Kind, r.Detail)).Distinct().Count());
+        Assert.Contains(rows, r => r.Detail.Contains("IEqualityComparer"));
+        Assert.Single(Refs("Entity", kind: SymbolKind.Type), r => r.Where.Name == "MarkedTwice" && r.Kind == "attribute");
+    }
+
+    [Fact]
     public void VirtualAndInterfaceDispatch()
     {
         // Branch.Bill calls IChargeable.Charge, Branch.Total calls Entity.Score: both dispatch to Account.

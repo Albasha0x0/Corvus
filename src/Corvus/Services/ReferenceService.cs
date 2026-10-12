@@ -86,10 +86,10 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
     {
         if (type == target) return;
         if (IsSameType(type.BaseType, target)) found.Add(new Reference(asm, type, null, "base type", ""));
+        // Every row of one owner differs by kind or detail: two interfaces over the target (IComparer<T>, IEqualityComparer<T>) are named.
         foreach (var i in type.Interfaces)
-            if (IsSameType(i.Interface, target)) found.Add(new Reference(asm, type, null, "implements", ""));
-        foreach (var ca in type.CustomAttributes)
-            if (IsSameType(ca.AttributeType, target)) found.Add(new Reference(asm, type, null, "attribute", ""));
+            if (IsSameType(i.Interface, target)) found.Add(new Reference(asm, type, null, "implements", i.Interface is TypeSpec ? i.Interface.FullName : ""));
+        if (type.CustomAttributes.Any(ca => IsSameType(ca.AttributeType, target))) found.Add(new Reference(asm, type, null, "attribute", ""));
         foreach (var gp in type.GenericParameters)
             if (gp.GenericParamConstraints.Any(c => IsSameType(c.Constraint, target))) found.Add(new Reference(asm, type, null, "generic constraint", gp.Name));
 
