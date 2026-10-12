@@ -78,13 +78,43 @@ public class ItaniumEhTests
     }
 
     [Fact]
-    public void Arm32_images_say_their_EHABI_tables_are_not_decoded()
+    public void Arm32_exidx_and_extab_give_personalities_lsda_call_sites_and_frames()
     {
-        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = [0x70, 0x47] };
-        w.Exidx.Add((ElfWriter.TextRva | 1, false));
-        var table = ItaniumEh.Of(ElfFile.FromBytes(w.Build(), "lib.so"));
-        Assert.Equal(0, table.Fdes);
-        Assert.Contains(table.Notes, n => n.Contains("EHABI", StringComparison.Ordinal));
+        const uint Text = ElfWriter.TextRva;
+        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = new byte[0x20] };
+        w.Symbols.Add(new ElfWriter.Symbol("__gxx_personality_v0", Text + 0x1C | 1, 2, Type: 2));
+        // pr0 in .ARM.extab: vsp += 12; pop {r4, lr}; finish
+        w.Extab.Add((Text | 1, null, [0x8002A8B0]));
+        // generic personality: pop {r4, lr}; then an LSDA with one call site [+4, +8) landing at +8 (cleanup)
+        w.Extab.Add((Text + 0x10 | 1, Text + 0x1C, [0x00A8B0B0, 0x0401FFFF, 0x00080404]));
+        w.Exidx.Add((Text + 0x18 | 1, true));
+        var image = ElfFile.FromBytes(w.Build(), "lib.so");
+        var table = ItaniumEh.Of(image);
+        Assert.Equal(3, table.ExidxEntries);
+        Assert.Empty(table.Notes);
+
+        var compact = table.At(Text)!;
+        Assert.Equal(("ARM EHABI", "__aeabi_unwind_cpp_pr0", Text + 0x10), (compact.Source, compact.Personality, compact.End));
+        var frame = UnwindFrames.Of(image, Text + 2)!;
+        Assert.Equal(("ARM EHABI", 12L, "r4,lr"), (frame.Format, frame.Allocation, string.Join(",", frame.Saved)));
+
+        var generic = table.At(Text + 0x12)!;
+        Assert.Equal("__gxx_personality_v0", generic.Personality);
+        var site = Assert.Single(generic.CallSites);
+        Assert.Equal((Text + 0x14, Text + 0x18, (uint?)(Text + 0x18)), (site.Start, site.End, site.LandingPad));
+        Assert.Equal(["cleanup"], site.Actions);
+        Assert.Contains("EXIDX_CANTUNWIND", table.At(Text + 0x18)!.Notes.Single());
+    }
+
+    [Fact]
+    public void Arm32_library_lsdas_through_the_generic_personality()
+    {
+        var table = ItaniumEh.Of(NativeImageLoader.Open(NativeFixtures.LinuxArmDbgShim));
+        Assert.Equal(630, table.ExidxEntries);
+        var gxx = table.Functions.Where(f => f.Personality == "__gxx_personality_v0").ToList();
+        Assert.Equal(107, gxx.Count(f => f.Lsda != null));
+        Assert.Equal(348, gxx.Sum(f => f.CallSites.Count(c => c.LandingPad != null)));
+        Assert.Contains("catch (...)", gxx.SelectMany(f => f.CallSites).SelectMany(c => c.Actions));
     }
 
     [Fact]

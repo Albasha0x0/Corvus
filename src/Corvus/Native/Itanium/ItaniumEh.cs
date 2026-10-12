@@ -13,7 +13,7 @@ public sealed record ItaniumCallSite(uint Start, uint End, uint? LandingPad, IRe
 /// The exception handling of one function: where its unwind data comes from, the personality routine, its LSDA
 /// (.gcc_except_table / __gcc_except_tab) and the call-site table read from it.
 /// </summary>
-/// <param name="Source">"DWARF CFI" (.eh_frame / __eh_frame) or "compact unwind" (__unwind_info).</param>
+/// <param name="Source">"DWARF CFI" (.eh_frame / __eh_frame), "compact unwind" (__unwind_info) or "ARM EHABI" (.ARM.exidx / .ARM.extab).</param>
 public sealed record ItaniumEhFunction(uint Begin, uint End, string Source, string? Personality, uint? Lsda, IReadOnlyList<ItaniumCallSite> CallSites,
     IReadOnlyList<string> Notes);
 
@@ -22,11 +22,12 @@ public sealed class ItaniumEhTable
 {
     private readonly ItaniumEhFunction[] _functions;
 
-    internal ItaniumEhTable(ItaniumEhFunction[] functions, int fdes, int compact, IReadOnlyList<string> notes)
+    internal ItaniumEhTable(ItaniumEhFunction[] functions, int fdes, int compact, int exidx, IReadOnlyList<string> notes)
     {
         _functions = functions;
         Fdes = fdes;
         CompactEntries = compact;
+        ExidxEntries = exidx;
         Notes = notes;
     }
 
@@ -34,6 +35,8 @@ public sealed class ItaniumEhTable
     public IReadOnlyList<ItaniumEhFunction> Functions => _functions;
     public int Fdes { get; }
     public int CompactEntries { get; }
+    /// <summary>32-bit ARM .ARM.exidx entries.</summary>
+    public int ExidxEntries { get; }
     public IReadOnlyList<string> Notes { get; }
 
     public ItaniumEhFunction? At(uint rva)
@@ -53,8 +56,9 @@ public sealed class ItaniumEhTable
 
 /// <summary>
 /// Itanium C++ ABI exception handling on ELF and Mach-O: .eh_frame FDEs (CIE augmentation: personality, LSDA), Mach-O
-/// compact unwind entries (personality index, LSDA index), the LSDA call-site, action and type tables, and the frame a
-/// function's CFA rules describe (for the dossier).
+/// compact unwind entries (personality index, LSDA index), 32-bit ARM .ARM.exidx / .ARM.extab entries (EHABI personality,
+/// unwind opcodes, the LSDA of a generic personality), the LSDA call-site, action and type tables, and the frame a
+/// function's CFA rules or unwind opcodes describe (for the dossier).
 /// </summary>
 public static class ItaniumEh
 {
@@ -117,11 +121,20 @@ public static class ItaniumEh
                 var sites = e.Lsda is { } at ? lsda.CallSites(at, e.Start, out _) : null;
                 list.Add(new ItaniumEhFunction(e.Start, e.End, "compact unwind", personality, e.Lsda, sites ?? [], []));
             }
-        if (image.Arch == NativeArch.Arm && image.Sections.Any(s => s.Name == ".ARM.exidx"))
-            notes.Add("32-bit ARM unwinds through .ARM.exidx / .ARM.extab (EHABI), whose personalities and LSDAs are not decoded here");
+        var exidx = Exidx(image);
+        foreach (var e in exidx)
+        {
+            var eh = new List<string>();
+            if (e.CantUnwind) eh.Add("EXIDX_CANTUNWIND: the function cannot be unwound through");
+            if (e.Note != null) eh.Add(e.Note);
+            var sites = e.Lsda is { } at ? lsda.CallSites(at, e.Begin, out _) : null;
+            if (sites == null && e.Lsda != null) eh.Add("LSDA not readable");
+            var personality = e.PersonalityIndex is { } k ? $"__aeabi_unwind_cpp_pr{k}" : e.Personality is { } p ? lsda.PointerName(p, indirect: false) : null;
+            list.Add(new ItaniumEhFunction(e.Begin, e.End, "ARM EHABI", personality, e.Lsda, sites ?? [], eh));
+        }
         list.Sort((a, b) => a.Begin.CompareTo(b.Begin));
         var distinct = list.DistinctBy(f => f.Begin).ToArray();
-        return new ItaniumEhTable(distinct, fdes.Count, compact, notes);
+        return new ItaniumEhTable(distinct, fdes.Count, compact, exidx.Count, notes);
     }
 
     private static bool Rva(INativeImage image, ulong va, out uint rva)
@@ -151,6 +164,7 @@ public static class ItaniumEh
                 if (!Rva(image, target, out rva)) return $"[0x{va:X}]";
             }
             if (types.TryGetValue(rva, out var type)) return type;
+            if (image is ElfFile elf && elf.PltEntries.FirstOrDefault(p => p.StubRva == rva) is { Symbol: { } plt }) return Plain(plt);
             var symbol = image.Symbols.FirstOrDefault(s => s.Rva == rva);
             if (symbol != null) return Plain(symbol.Name);
             return TypeInfoName(rva) ?? $"0x{image.ImageBase + rva:X}";
@@ -259,6 +273,75 @@ public static class ItaniumEh
 
     private readonly record struct Compact(uint Start, uint End, uint Encoding, uint? Lsda, uint? Personality);
 
+    /// <summary>
+    /// One .ARM.exidx entry: [Begin, End) to the next entry (merged neighbors share one), the ARM-defined personality index
+    /// (compact model) or the generic personality's address, the unwind opcodes, and the LSDA following them.
+    /// </summary>
+    private sealed record EhabiEntry(uint Begin, uint End, bool CantUnwind, int? PersonalityIndex, ulong? Personality, byte[] Opcodes, uint? Lsda, string? Note);
+
+    private static readonly ConditionalWeakTable<INativeImage, List<EhabiEntry>> ExidxTables = new();
+
+    private static List<EhabiEntry> Exidx(INativeImage image) => ExidxTables.GetValue(image, ReadExidx);
+
+    private static List<EhabiEntry> ReadExidx(INativeImage image)
+    {
+        var result = new List<EhabiEntry>();
+        if (image.Arch != NativeArch.Arm || image.Format != ImageFormat.Elf || Section(image, ".ARM.exidx", "") is not { } section) return result;
+        var t = new ByteView(Bytes(image, section), false);
+        static uint Prel31(uint word, uint at) => at + (uint)((int)(word << 1) >> 1);
+        var raw = new List<(uint Begin, uint Word, uint At)>();
+        for (long at = 0; at + 8 <= t.Length && raw.Count < MaxFdes; at += 8)
+        {
+            uint entry = section.Rva + (uint)at;
+            raw.Add((Prel31(t.U32(at), entry) & ~1u, t.U32(at + 4), entry + 4));
+        }
+        uint textEnd = image.SectionAt(raw.Count > 0 ? raw[^1].Begin : 0) is { } text ? text.Rva + text.VirtualSize : 0;
+        Span<byte> w = stackalloc byte[8];
+        for (int i = 0; i < raw.Count; i++)
+        {
+            var (begin, word, wordAt) = raw[i];
+            uint end = i + 1 < raw.Count && raw[i + 1].Begin > begin ? raw[i + 1].Begin : Math.Max(begin, textEnd);
+            // the linker's sentinel past the end of .text
+            if (image.SectionAt(begin) is not { IsExecutable: true }) continue;
+            if (word == 1) { result.Add(new EhabiEntry(begin, end, true, null, null, [], null, null)); continue; }
+            if ((word & 0x80000000) != 0)
+            {
+                result.Add(new EhabiEntry(begin, end, false, (int)(word >> 24 & 0xF), null, [(byte)(word >> 16), (byte)(word >> 8), (byte)word], null, null));
+                continue;
+            }
+            uint extab = Prel31(word, wordAt);
+            if (image.Read(extab, w) < 8) { result.Add(new EhabiEntry(begin, end, false, null, null, [], null, ".ARM.extab entry not readable")); continue; }
+            uint e0 = BinaryPrimitives.ReadUInt32LittleEndian(w), e1 = BinaryPrimitives.ReadUInt32LittleEndian(w[4..]);
+            var ops = new List<byte>();
+            void Words(uint from, int count)
+            {
+                Span<byte> b = stackalloc byte[4];
+                for (int k = 0; k < count && image.Read(from + 4 * (uint)k, b) == 4; k++)
+                {
+                    uint x = BinaryPrimitives.ReadUInt32LittleEndian(b);
+                    ops.AddRange([(byte)(x >> 24), (byte)(x >> 16), (byte)(x >> 8), (byte)x]);
+                }
+            }
+            if ((e0 & 0x80000000) != 0)
+            {
+                int index = (int)(e0 >> 24 & 0xF);
+                if (index == 0) ops.AddRange([(byte)(e0 >> 16), (byte)(e0 >> 8), (byte)e0]);
+                else
+                {
+                    ops.AddRange([(byte)(e0 >> 8), (byte)e0]);
+                    Words(extab + 4, (int)(e0 >> 16 & 0xFF));
+                }
+                result.Add(new EhabiEntry(begin, end, false, index, null, [.. ops], null, index is 1 or 2 ? "the ARM personality's scope descriptors are not decoded" : null));
+                continue;
+            }
+            int extra = (int)(e1 >> 24);
+            ops.AddRange([(byte)(e1 >> 16), (byte)(e1 >> 8), (byte)e1]);
+            Words(extab + 8, extra);
+            result.Add(new EhabiEntry(begin, end, false, null, image.ImageBase + Prel31(e0, extab), [.. ops], extab + 8 + 4 * (uint)extra, null));
+        }
+        return result;
+    }
+
     /// <summary>__unwind_info entries with their encodings, LSDAs (the LSDA index) and personality slots (the personality array).</summary>
     private static List<Compact> CompactEntries(INativeImage image, List<string> notes)
     {
@@ -352,6 +435,16 @@ public static class ItaniumEh
             return FromCfi(image, cfi.View, fde, begin);
         if (image.Format == ImageFormat.MachO && CompactEntries(image, []).FirstOrDefault(e => rva >= e.Start && rva < e.End) is { Encoding: not 0 } c)
             return FromCompact(image, c);
+        if (Exidx(image) is { Count: > 0 } exidx)
+        {
+            lo = 0; hi = exidx.Count - 1; found = -1;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) >>> 1;
+                if (exidx[mid].Begin <= rva) { found = mid; lo = mid + 1; } else hi = mid - 1;
+            }
+            if (found >= 0 && rva < exidx[found].End) return FromEhabi(exidx[found]);
+        }
         return null;
     }
 
@@ -424,6 +517,57 @@ public static class ItaniumEh
         long allocation = final.Offset - (image.Arch is NativeArch.X64 or NativeArch.X86 ? (image.Is64Bit ? 8 : 4) : 0);
         return new UnwindFrame("DWARF CFI", begin, begin + (uint)Math.Min(fde.Range, uint.MaxValue - begin), (int)Math.Min(bestLoc, int.MaxValue), allocation, saved,
             final.Register >= 0 && final.Register != sp ? cfaReg : null, notes);
+    }
+
+    /// <summary>
+    /// The frame EHABI unwind opcodes undo: the stack popped before anything else (the allocation), registers restored, vsp
+    /// from a frame register.
+    /// </summary>
+    private static UnwindFrame FromEhabi(EhabiEntry e)
+    {
+        var saved = new List<string>();
+        var notes = new List<string>();
+        string? fp = null;
+        long allocation = 0;
+        bool leading = true;
+        static string R(int r) => r switch { 13 => "sp", 14 => "lr", 15 => "pc", _ => $"r{r}" };
+        void D(int first, int count) => saved.Add(count == 0 ? $"d{first}" : $"d{first}-d{first + count}");
+        var ops = e.Opcodes;
+        if (e.CantUnwind) notes.Add("EXIDX_CANTUNWIND");
+        for (int i = 0; i < ops.Length;)
+        {
+            byte b = ops[i++];
+            if (b < 0x40) { if (leading) allocation += ((b & 0x3F) << 2) + 4; continue; }
+            if (b is not 0xB2) leading &= b == 0xB0;
+            if (b < 0x80) continue; // vsp -= n: part of a frame restore
+            if (b < 0x90)
+            {
+                int mask = i < ops.Length ? (b & 0xF) << 8 | ops[i++] : 0;
+                if (mask == 0) { notes.Add("refuses to unwind"); break; }
+                for (int k = 0; k < 12; k++) if ((mask & 1 << k) != 0) saved.Add(R(4 + k));
+            }
+            else if (b < 0xA0) { if ((b & 0xF) is not (13 or 15)) fp = R(b & 0xF); }
+            else if (b < 0xB0)
+            {
+                for (int r = 4; r <= 4 + (b & 7); r++) saved.Add(R(r));
+                if ((b & 8) != 0) saved.Add("lr");
+            }
+            else if (b == 0xB0) break;
+            else if (b == 0xB1) { int m = i < ops.Length ? ops[i++] & 0xF : 0; for (int k = 0; k < 4; k++) if ((m & 1 << k) != 0) saved.Add(R(k)); }
+            else if (b == 0xB2)
+            {
+                ulong v = 0;
+                for (int shift = 0; i < ops.Length && shift < 32; shift += 7) { byte x = ops[i++]; v |= (ulong)(x & 0x7F) << shift; if (x < 0x80) break; }
+                if (leading) allocation += 0x204 + ((long)v << 2);
+            }
+            else if (b is 0xB3 or 0xC8 or 0xC9) { int x = i < ops.Length ? ops[i++] : 0; D((b == 0xC8 ? 16 : 0) + (x >> 4), x & 0xF); }
+            else if (b is >= 0xB8 and < 0xC0 or >= 0xD0 and < 0xD8) D(8, b & 7);
+            else if (b is >= 0xC0 and < 0xC8) { if (b is 0xC6 or 0xC7) i++; notes.Add("iWMMXt registers"); }
+            else { notes.Add($"spare unwind opcode 0x{b:X2}"); break; }
+        }
+        if (e.Note != null) notes.Add(e.Note);
+        if (e.Lsda != null) notes.Add("has an LSDA (get_exception_info)");
+        return new UnwindFrame("ARM EHABI", e.Begin, e.End, 0, allocation, saved, fp, notes);
     }
 
     private static UnwindFrame FromCompact(INativeImage image, Compact c)

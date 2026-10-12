@@ -1300,7 +1300,7 @@ Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalF
 
 **Native exception handling** (read-only, idempotent, long-running)
 
-Exception handling of the native function containing an address. ELF / Mach-O: FDE or compact unwind, personality, LSDA call sites with landing pads and caught types. MSVC: the handler, try blocks with caught types, unwind map, SEH scopes, IP-to-state map, and the catch blocks, funclets, filters and chained fragments it reaches. Without an address: image counts and the metadata that failed its checks.
+Exception handling of the native function containing an address. ELF / Mach-O: FDE, compact unwind or ARM EHABI entry, personality, LSDA call sites with landing pads and caught types. MSVC: the handler, try blocks with caught types, unwind map, SEH scopes, IP-to-state map, and the catch blocks, funclets, filters and chained fragments it reaches. Without an address: image counts and the metadata that failed its checks.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -19,7 +19,7 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
     private const int MaxIpStates = 64;
 
     [McpServerTool(Name = "get_exception_info", Title = "Native exception handling")]
-    [Description("Exception handling of the native function containing an address. ELF / Mach-O: FDE or compact unwind, personality, LSDA call " +
+    [Description("Exception handling of the native function containing an address. ELF / Mach-O: FDE, compact unwind or ARM EHABI entry, personality, LSDA call " +
                  "sites with landing pads and caught types. MSVC: the handler, try blocks with caught types, unwind map, SEH scopes, IP-to-state " +
                  "map, and the catch blocks, funclets, filters and chained fragments it reaches. Without an address: image counts and the metadata " +
                  "that failed its checks.")]
@@ -87,6 +87,7 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         {
             var withLsda = table.Functions.Where(f => f.Lsda != null).ToList();
             sb.AppendLine($"{id}: {Plural(table.Fdes, "FDE")} (.eh_frame)" + (image.Format == ImageFormat.MachO ? $", {Plural(table.CompactEntries, "compact unwind entry")}" : "") +
+                          (table.ExidxEntries > 0 ? $", {Plural(table.ExidxEntries, "entry")} (.ARM.exidx)" : "") +
                           $"; {Plural(withLsda.Count, "function")} with an LSDA, {Plural(withLsda.Sum(f => f.CallSites.Count), "call site")}, " +
                           $"{Plural(withLsda.Sum(f => f.CallSites.Count(c => c.LandingPad != null)), "landing pad")}");
             foreach (var g in table.Functions.Where(f => f.Personality != null).GroupBy(f => f.Personality!).OrderByDescending(g => g.Count()))
@@ -103,7 +104,7 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         sb.AppendLine($"{fn.Name} at {Va(fn.Start)}");
         if (table.At(fn.Start) is not { } eh)
         {
-            sb.AppendLine("No exception handling metadata (no FDE or compact unwind entry with a personality routine).");
+            sb.AppendLine("No exception handling metadata (no FDE, compact unwind or .ARM.exidx entry).");
             return sb.ToString();
         }
         sb.AppendLine($"{eh.Source} {Va(eh.Begin)}-{Va(eh.End)}" + (eh.Personality != null ? $", personality {eh.Personality}" : "") + (eh.Lsda is { } l ? $", LSDA {Va(l)}" : ", no LSDA"));

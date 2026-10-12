@@ -57,6 +57,11 @@ internal sealed class ElfWriter
     public bool EhFrameHdr { get; set; } = true;
     /// <summary>ARM exception index entries (PT_ARM_EXIDX); <c>Thumb</c> sets bit 0 of the start.</summary>
     public List<(uint Start, bool CantUnwind)> Exidx { get; set; } = [];
+    /// <summary>
+    /// ARM exception index entries with an .ARM.extab entry: a generic personality (prel31 to its RVA, when given) and then
+    /// <c>Words</c> (unwind opcode words, then the LSDA).
+    /// </summary>
+    public List<(uint Start, uint? Personality, uint[] Words)> Extab { get; set; } = [];
     public List<uint> InitArray { get; set; } = [];
     /// <summary>Symbol versions of imports: name → (library, version).</summary>
     public Dictionary<string, (string Library, string Version)> Versions { get; set; } = [];
@@ -260,14 +265,25 @@ internal sealed class ElfWriter
                     }
                 }, 4);
         }
-        if (Exidx.Count > 0)
+        var extabAt = new Dictionary<uint, uint>();
+        if (Extab.Count > 0)
+            Table(".ARM.extab", 1, 2, () =>
+            {
+                foreach (var (start, personality, words) in Extab)
+                {
+                    extabAt[start] = (uint)w.Length;
+                    if (personality is { } p) w.U32((p - (uint)w.Length) & 0x7FFFFFFF);
+                    foreach (var x in words) w.U32(x);
+                }
+            }, 4);
+        if (Exidx.Count > 0 || Extab.Count > 0)
             exidx = Table(".ARM.exidx", 0x70000001, 0x82, () =>
             {
-                foreach (var (start, cant) in Exidx.OrderBy(e => e.Start & ~1u))
+                foreach (var (start, cant) in Exidx.Select(e => (e.Start, e.CantUnwind)).Concat(Extab.Select(e => (e.Start, false))).OrderBy(e => e.Start & ~1u))
                 {
                     uint at = (uint)w.Length;
                     w.U32((start - at) & 0x7FFFFFFF);
-                    w.U32(cant ? 1u : 0x80B0B0B0);
+                    w.U32(extabAt.TryGetValue(start, out uint x) ? (x - (at + 4)) & 0x7FFFFFFF : cant ? 1u : 0x80B0B0B0);
                 }
             }, 4);
 
