@@ -314,6 +314,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         // Method-call LINQ: query syntax reconstruction can leak compiler names (<>h__TransparentIdentifier0).
         var exportSettings = CreateSettings();
         exportSettings.QueryExpressions = false;
+        // The export reads its module and references outside the lock: an edit or unload meanwhile must not dispose them.
+        using var lease = LoadedAssembly.LeasePEFiles();
         var (pe, inferred, framework, netFramework) = workspace.Read(() =>
         {
             var inferred = Frameworks.InferTargetFramework(asm.Module);

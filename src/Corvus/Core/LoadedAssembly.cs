@@ -17,6 +17,9 @@ public sealed class LoadedAssembly : IDisposable
     private readonly byte[] _originalBytes;
     private PEFile? _peFile;
     private int _peFileVersion = -1;
+    // Readers replaced or unloaded while a lease holder (export_project) reads them outside the workspace lock: disposed once no lease is held.
+    private static readonly List<PEFile> RetiredPEFiles = [];
+    private static int _peFileLeases;
     private byte[]? _editedBytes;
     private SaveReport? _editedReport;
     private int _editedBytesVersion = -1;
@@ -305,9 +308,47 @@ public sealed class LoadedAssembly : IDisposable
                 _peFile = pe;
                 DecompilerNote = note ?? "";
                 _peFileVersion = Version;
-                old?.Dispose();
+                if (old != null) Retire(old);
             }
             return _peFile;
+        }
+    }
+
+    /// <summary>Keeps every <see cref="GetPEFile"/> reader alive (not disposed when an edit or unload replaces it) until disposed.</summary>
+    internal static IDisposable LeasePEFiles()
+    {
+        lock (RetiredPEFiles) _peFileLeases++;
+        return new PEFileLease();
+    }
+
+    private static void Retire(PEFile old)
+    {
+        lock (RetiredPEFiles)
+        {
+            if (_peFileLeases > 0)
+            {
+                RetiredPEFiles.Add(old);
+                return;
+            }
+        }
+        old.Dispose();
+    }
+
+    private sealed class PEFileLease : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            PEFile[] free;
+            lock (RetiredPEFiles)
+            {
+                if (--_peFileLeases > 0) return;
+                free = [.. RetiredPEFiles];
+                RetiredPEFiles.Clear();
+            }
+            foreach (var pe in free) pe.Dispose();
         }
     }
 
@@ -344,7 +385,7 @@ public sealed class LoadedAssembly : IDisposable
     {
         lock (_sync)
         {
-            _peFile?.Dispose();
+            if (_peFile != null) Retire(_peFile);
             _peFile = null;
             _originalView?.Dispose();
             _originalView = null;
