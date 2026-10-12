@@ -391,18 +391,21 @@ public sealed class AssemblyWorkspace : IDisposable
                ?? _natives.FirstOrDefault(n => n.ManagedView?.Id.Equals(id, StringComparison.OrdinalIgnoreCase) == true);
     }
 
-    /// <summary><see cref="FindNative"/>, with a typed error when nothing matches.</summary>
+    /// <summary><see cref="FindNative"/>, with a typed error when nothing matches (see <see cref="Targets"/>).</summary>
     public LoadedNative GetNative(string identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
-            throw new ToolError(ErrorCode.InvalidArgument, "Image identifier is empty.");
+            throw new ToolError(ErrorCode.InvalidArgument, "Image identifier is empty.", "pass image=<an id from list_assemblies, or a file path>");
         if (FindNative(identifier) is { } native) return native;
-        if (_assemblies.Any(a => a.Id.Equals(identifier.Trim(), StringComparison.OrdinalIgnoreCase)))
+        var id = identifier.Trim();
+        if (FindAssemblies(id).Count > 0)
             throw new ToolError(ErrorCode.Unsupported, $"'{identifier}' is a .NET assembly, not a native image.",
                 "use the .NET tools (decompile_member, get_il, find_references) for it");
+        if (MissingPath(id)) throw Targets.FileNotFound(id);
         if (_natives.Count == 0)
-            throw new ToolError(ErrorCode.NotLoaded, "No native images are loaded.", "load_assembly with the path of a native .exe or .dll");
-        throw new ToolError(ErrorCode.NotFound, $"No loaded native image matches '{identifier}'. Loaded: {string.Join(", ", _natives.Select(n => n.Id))}");
+            throw Targets.NotLoaded("No native images are loaded.", id);
+        throw new ToolError(ErrorCode.NotFound, $"No loaded native image matches '{identifier}'. Loaded: {string.Join(", ", _natives.Select(n => n.Id))}",
+            "list_assemblies shows loaded ids; a file path loads the file");
     }
 
     public void UnloadNative(LoadedNative native) => Write(() =>
@@ -444,7 +447,7 @@ public sealed class AssemblyWorkspace : IDisposable
             // Windows raises PathTooLongException for these; Linux and macOS only report the file missing.
             if (full.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Any(part => part.Length > MaxFileNameLength))
                 throw new ToolError(ErrorCode.InvalidArgument, "a path is too long.", "Pass a shorter path.");
-            throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
+            throw Targets.FileNotFound(path);
         }
 
         var existing = _assemblies.FirstOrDefault(a => InputFiles.SamePath(a.FilePath, full));
@@ -552,44 +555,52 @@ public sealed class AssemblyWorkspace : IDisposable
         return fresh;
     });
 
-    /// <summary>Finds an assembly by id, file name, full path or simple name (case-insensitive).</summary>
+    /// <summary>The loaded assemblies an id, file name, full path or simple name (case-insensitive) matches, by the first rule that matches any.</summary>
+    public List<LoadedAssembly> FindAssemblies(string identifier)
+    {
+        var id = identifier.Trim();
+        var matches = _assemblies.Where(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (matches.Count == 0)
+            matches = _assemblies.Where(a => Path.GetFileName(a.FilePath).Equals(id, StringComparison.OrdinalIgnoreCase)
+                                             || InputFiles.SamePath(a.FilePath, SafeFullPath(id))).ToList();
+        if (matches.Count == 0)
+            matches = _assemblies.Where(a => a.AssemblyName.Equals(id, StringComparison.OrdinalIgnoreCase)).ToList();
+        return matches;
+    }
+
+    /// <summary>Finds an assembly by id, file name, full path or simple name (case-insensitive); the error follows <see cref="Targets"/>.</summary>
     public LoadedAssembly Get(string identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
-            throw new ToolError(ErrorCode.InvalidArgument, "Assembly identifier is empty.");
-        var all = _assemblies;
+            throw new ToolError(ErrorCode.InvalidArgument, "Assembly identifier is empty.", "pass assembly=<an id from list_assemblies, or a file path>");
         var id = identifier.Trim();
-        if (all.Count == 0)
-            throw FindNative(id) is { } only
-                ? new ToolError(ErrorCode.Unsupported, $"'{identifier}' is a native image ({only.Image.MachineName}), not a .NET assembly.",
-                    "use the native tools: get_pe_info, list_imports, list_exports, list_functions, disassemble")
-                : NoAssemblies();
-
-        var matches = all.Where(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (matches.Count == 0)
-            matches = all.Where(a => Path.GetFileName(a.FilePath).Equals(id, StringComparison.OrdinalIgnoreCase)
-                                     || InputFiles.SamePath(a.FilePath, SafeFullPath(id))).ToList();
-        if (matches.Count == 0)
-            matches = all.Where(a => a.AssemblyName.Equals(id, StringComparison.OrdinalIgnoreCase)).ToList();
-
+        var matches = FindAssemblies(id);
         if (matches.Count == 1)
             return matches[0];
-        if (matches.Count == 0 && FindNative(id) is { } native)
-            throw new ToolError(ErrorCode.Unsupported, $"'{identifier}' is a native image ({native.Image.MachineName}), not a .NET assembly.",
-                "use the native tools: get_pe_info, list_imports, list_exports, list_functions, disassemble");
         if (matches.Count > 1)
             throw new ToolError(ErrorCode.Ambiguous, $"'{identifier}' matches several loaded assemblies: {string.Join(", ", matches.Select(m => $"{m.Id} ({m.FilePath})"))}. Use the id.");
-        throw new ToolError(ErrorCode.NotFound, $"No loaded assembly matches '{identifier}'. Loaded: {string.Join(", ", all.Select(a => a.Id))}");
+        if (FindNative(id) is { } native)
+            throw new ToolError(ErrorCode.Unsupported, $"'{identifier}' is a native image ({native.Image.MachineName}), not a .NET assembly.",
+                "use the native tools: get_pe_info, list_imports, list_exports, list_functions, disassemble");
+        if (MissingPath(id)) throw Targets.FileNotFound(id);
+        if (_assemblies.Count == 0) throw NoAssemblies(id);
+        throw new ToolError(ErrorCode.NotFound, $"No loaded assembly matches '{identifier}'. Loaded: {string.Join(", ", _assemblies.Select(a => a.Id))}",
+            "list_assemblies shows loaded ids; a file path loads the file");
     }
 
-    private ToolError NoAssemblies()
+    /// <summary>A path-like identifier naming nothing on disk.</summary>
+    private static bool MissingPath(string id) =>
+        Targets.LooksLikePath(id) && Targets.FullPath(id) is { } full && !File.Exists(full) && !Directory.Exists(full);
+
+    private ToolError NoAssemblies(string? identifier = null)
     {
         var natives = _natives.ToArray();
+        var next = identifier != null ? $"load_assembly path={identifier}" : "load_assembly path=<a .NET assembly or folder>";
         return natives.Length == 0
-            ? new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded. Call load_assembly first.")
+            ? new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded.", next)
             : new ToolError(ErrorCode.NotLoaded,
                 $"No .NET assembly is loaded, only native images ({string.Join(", ", natives.Take(5).Select(n => n.Id))}{(natives.Length > 5 ? ", ..." : "")}).",
-                "use the native tools (list_functions, disassemble, native_call_tree, find_xrefs); find_call_paths takes native code as to=native:<image>!<function>");
+                (identifier != null ? next + "; " : "") + "use the native tools (list_functions, disassemble, native_call_tree, find_xrefs); find_call_paths takes native code as to=native:<image>!<function>");
     }
 
     /// <summary>Resolves an optional assembly parameter; null or empty means all loaded assemblies.</summary>
