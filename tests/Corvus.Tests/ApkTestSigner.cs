@@ -30,14 +30,21 @@ internal static class ApkTestSigner
     {
         var rsa = RSA.Create(2048);
         var request = new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        return new(request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(30)), rsa, algorithm);
+        return new(SelfSigned(request), rsa, algorithm);
     }
 
     public static Key Ec(string subject = "CN=Test EC Signer")
     {
         var ec = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = new CertificateRequest(subject, ec, HashAlgorithmName.SHA256);
-        return new(request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(30)), ec, 0x0201);
+        return new(SelfSigned(request), ec, 0x0201);
+    }
+
+    /// <summary>The certificate without its key: on macOS a certificate holding a key lives in a temporary keychain file until disposed.</summary>
+    private static X509Certificate2 SelfSigned(CertificateRequest request)
+    {
+        using var withKey = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(30));
+        return X509CertificateLoader.LoadCertificate(withKey.RawData);
     }
 
     public static readonly (string Name, byte[] Data)[] Entries =
@@ -83,7 +90,7 @@ internal static class ApkTestSigner
         foreach (var (name, text) in sections) sf.Append($"Name: {name}\r\nSHA-256-Digest: {B64(Encoding.UTF8.GetBytes(text))}\r\n\r\n");
         var sfBytes = Encoding.UTF8.GetBytes(sf.ToString());
         var cms = new SignedCms(new ContentInfo(sfBytes), detached: true);
-        cms.ComputeSignature(new CmsSigner(SubjectIdentifierType.IssuerAndSerialNumber, key.Cert) { IncludeOption = X509IncludeOption.EndCertOnly });
+        cms.ComputeSignature(new CmsSigner(SubjectIdentifierType.IssuerAndSerialNumber, key.Cert, key.Private) { IncludeOption = X509IncludeOption.EndCertOnly });
         var blockName = key.Private is ECDsa ? "META-INF/CERT.EC" : "META-INF/CERT.RSA";
         return [.. entries, ("META-INF/MANIFEST.MF", manifestBytes), ("META-INF/CERT.SF", sfBytes), (blockName, cms.Encode())];
     }
