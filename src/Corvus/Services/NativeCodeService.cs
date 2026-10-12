@@ -36,21 +36,33 @@ public sealed class NativeCodeService
     /// <summary>Saved indexes (null when the cache is off): an image whose bytes and build options were indexed before loads instead of building.</summary>
     public CodeIndexCache? IndexCache { get; }
 
-    /// <summary>The saved index of <paramref name="image"/> when the cache has one, else a fresh build (then saved).</summary>
-    private NativeCodeIndex LoadOrBuild(Native.INativeImage image, CodeIndexOptions? options, Action<CodeIndexProgress>? progress, CancellationToken ct)
+    /// <summary>
+    /// The saved index of <paramref name="image"/> when the cache has one, else a fresh build (then saved). <paramref name="complete"/>
+    /// adds analysis from outside the build to either, before the save so a later load has it.
+    /// </summary>
+    private NativeCodeIndex LoadOrBuild(Native.INativeImage image, CodeIndexOptions? options, Action<CodeIndexProgress>? progress, CancellationToken ct,
+        Action<NativeCodeIndex>? complete = null)
     {
         if (IndexCache is { } cache)
         {
             progress?.Invoke(new CodeIndexProgress("loading saved index", 0, 0));
             if (cache.TryLoad(image, options, ct) is { } loaded)
             {
+                complete?.Invoke(loaded);
                 progress?.Invoke(new CodeIndexProgress("done", 1, 1));
                 return loaded;
             }
         }
         var index = NativeCodeIndex.Build(image, options, progress, ct);
+        complete?.Invoke(index);
         if (IndexCache is { } c && !ct.IsCancellationRequested) c.Save(index, options);
         return index;
+    }
+
+    private void AddMetadataVirtualCalls(LoadedNative native, NativeCodeIndex index, CancellationToken ct)
+    {
+        try { NativeAotCode.AddVirtualCalls(native, index, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { _logger?.LogWarning(ex, "Resolving the NativeAOT virtual calls of {Id} failed", native.Id); }
     }
 
     /// <summary>
@@ -244,7 +256,7 @@ public sealed class NativeCodeService
     /// <summary>Function starts from debug symbols for a build of <paramref name="native"/>, asked on the build thread; null when none.</summary>
     public Func<LoadedNative, CancellationToken, IReadOnlyCollection<uint>?>? SymbolStarts { get; set; }
 
-    private CodeIndexOptions? BuildOptions(LoadedNative native, CancellationToken ct)
+    internal CodeIndexOptions? BuildOptions(LoadedNative native, CancellationToken ct)
     {
         IReadOnlyCollection<uint>? starts;
         try { RestoreImported(native, ct); }
@@ -305,7 +317,8 @@ public sealed class NativeCodeService
                 // A failed build is retried on the next request; a cancelled one only while the image is still loaded.
                 if (Task is { } t && !(t.IsFaulted || t.IsCanceled && !_cts.IsCancellationRequested)) return t;
                 var ct = _cts.Token;
-                return Task = System.Threading.Tasks.Task.Run(() => owner.LoadOrBuild(native.Image, owner.BuildOptions(native, ct), p => Progress?.Invoke(p), ct), ct)
+                return Task = System.Threading.Tasks.Task.Run(() => owner.LoadOrBuild(native.Image, owner.BuildOptions(native, ct), p => Progress?.Invoke(p), ct,
+                        index => owner.AddMetadataVirtualCalls(native, index, ct)), ct)
                     .ContinueWith(done =>
                     {
                         if (done.IsCompletedSuccessfully)
@@ -315,8 +328,6 @@ public sealed class NativeCodeService
                             native.Analysis.TryRemove(typeof(RebasedIndex), out _);
                             try { owner.ApplyAnnotations(native, done.Result); }
                             catch (Exception ex) { logger?.LogWarning(ex, "Applying annotations to {Id} failed", native.Id); }
-                            try { NativeAotCode.AddVirtualCalls(native, done.Result, ct); }
-                            catch (Exception ex) when (ex is not OperationCanceledException) { logger?.LogWarning(ex, "Resolving the NativeAOT virtual calls of {Id} failed", native.Id); }
                             try { NodeApiNames.AutoApply(native, done.Result, ct); }
                             catch (Exception ex) when (ex is not OperationCanceledException) { logger?.LogWarning(ex, "Naming the Node-API callbacks of {Id} failed", native.Id); }
                             if (done.Result.LoadedFromCache)

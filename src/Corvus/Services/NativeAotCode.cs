@@ -68,11 +68,12 @@ public static class NativeAotCode
     /// <summary>
     /// Call edges from the MethodTables (x64): a vtable call on this goes to the slot's code in the owner's MethodTable and in
     /// every class derived from it (one distinct body: exact, else possible); an interface call through a dispatch cell to the
-    /// implementations the dispatch maps list (possible). Adds them to the index's virtual calls; nothing for other images.
+    /// implementations the dispatch maps list (possible). Adds them to the index's virtual calls; nothing for other images
+    /// or an index that already has them (a saved one).
     /// </summary>
     public static int AddVirtualCalls(LoadedNative native, NativeCodeIndex index, CancellationToken ct = default)
     {
-        if (index.Image.Arch != NativeArch.X64 || NativeAotNames.View(native, ct) is not { } aot) return 0;
+        if (index.Image.Arch != NativeArch.X64 || index.MetadataVirtualCallsAdded || NativeAotNames.View(native, ct) is not { } aot) return 0;
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var lookup = Lookups.GetValue(aot, a => new Lookup(a));
         var sites = new List<VirtualCallSite>();
@@ -91,7 +92,11 @@ public static class NativeAotCode
             }
             return local;
         }, local => { lock (gate) { sites.AddRange(local.Sites); edges.AddRange(local.Edges); } });
-        if (sites.Count == 0) return 0;
+        if (sites.Count == 0)
+        {
+            index.MarkMetadataVirtualCalls();
+            return 0;
+        }
         int resolved = sites.Count(s => s.Status != VirtualCallStatus.Unresolved);
         index.AddVirtualCalls(sites.GroupBy(s => s.Rva).Select(g => g.MinBy(s => (s.Status, s.Function))).ToList(), edges,
             $"NativeAOT: {sites.Count:N0} vtable and interface call sites, {resolved:N0} resolved from the MethodTables and dispatch maps in {clock.Elapsed.TotalSeconds:0.0} s");

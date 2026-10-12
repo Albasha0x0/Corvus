@@ -13,7 +13,7 @@ public sealed partial class NativeCodeIndex
     /// (new fields, new cross-reference kinds such as virtual-call edges) or the analysis gives different results for the
     /// same bytes: saved indexes of another version are ignored and rebuilt.
     /// </summary>
-    public const int PersistFormatVersion = 8;
+    public const int PersistFormatVersion = 9;
 
     /// <summary>Read from the code index cache instead of built; <see cref="CacheLoadTime"/> says how long that took.</summary>
     public bool LoadedFromCache { get; private set; }
@@ -274,7 +274,7 @@ public sealed partial class NativeCodeIndex
         var thunkSlots = r.UInts(tn);
         var armStarts = r.DeltaUInts();
         plan.Eh = ReadEh(ref r);
-        var (virtualCalls, virtualEdges) = ReadVirtualCalls(ref r);
+        var (virtualCalls, virtualEdges, metadataAdded) = ReadVirtualCalls(ref r);
         if (!r.AtEnd) throw new InvalidDataException("data after the end of the index");
         ct.ThrowIfCancellationRequested();
 
@@ -293,6 +293,7 @@ public sealed partial class NativeCodeIndex
         var index = new NativeCodeIndex(image, CodeSupport.Full, null, ctx, functions, rangeStarts, rangeEnds, xrefs, strings, truncations, stats, byTo);
         index.Apply(plan);
         index.SetVirtualCalls(virtualCalls, virtualEdges);
+        index.MetadataVirtualCallsAdded = metadataAdded;
         index.LoadedFromCache = true;
         return index;
     }

@@ -319,6 +319,35 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Equal(sites, index.VirtualCalls.Sites.Count);
     }
 
+    /// <summary>The saved index holds the NativeAOT virtual calls, so a load does not search the MethodTables again.</summary>
+    [Fact]
+    public async Task VirtualCalls_AreSavedWithTheIndex()
+    {
+        using var dir = new TempDir();
+        var options = new ServerOptions { BackgroundIndexing = false, CodeIndexCache = new CodeIndexCacheOptions(dir.File("cache"), 1L << 30, TimeSpan.FromDays(1), TimeSpan.Zero) };
+        var (path, _) = WriteImage(dir, dispatchCells: true);
+        using (var ws = new AssemblyWorkspace(options))
+        {
+            var code = new NativeCodeService(ws, options, null, new AnnotationStore(dir.File("ann")));
+            var native = ws.LoadAny(path).Native!;
+            Assert.False((await code.Index(native, null, default)).LoadedFromCache);
+            var saved = code.IndexCache!.TryLoad(native.Image, code.BuildOptions(native, default))!;
+            Assert.True(saved.MetadataVirtualCallsAdded);
+            Assert.Equal([T.SpeakCode], saved.VirtualTargets(T.SpeakCode + 13));
+            Assert.Contains(saved.VirtualCalls.Notes, n => n.StartsWith("NativeAOT: ", StringComparison.Ordinal));
+            Assert.Equal(0, NativeAotCode.AddVirtualCalls(native, saved));
+        }
+        using (var ws = new AssemblyWorkspace(options))
+        {
+            var code = new NativeCodeService(ws, options, null, new AnnotationStore(dir.File("ann")));
+            var native = ws.LoadAny(path).Native!;
+            var index = await code.Index(native, null, default);
+            Assert.True(index.LoadedFromCache);
+            Assert.Equal([T.EqualsCode], index.VirtualTargets(T.SpeakCode + 29));
+            Assert.Single(index.VirtualCalls.Notes, n => n.StartsWith("NativeAOT: ", StringComparison.Ordinal));
+        }
+    }
+
     [Fact]
     public async Task ResolveAddress_DescribesMethodTablesFrozenObjectsMethodsAndSections()
     {

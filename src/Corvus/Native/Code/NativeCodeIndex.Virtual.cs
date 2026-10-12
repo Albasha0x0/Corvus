@@ -66,6 +66,7 @@ public sealed partial class NativeCodeIndex
     {
         lock (_virtualGate)
         {
+            MetadataVirtualCallsAdded = true;
             var existing = new Dictionary<uint, VirtualCallSite>(VirtualCalls.Sites.Count);
             foreach (var s in VirtualCalls.Sites) existing[s.Rva] = s;
             var added = sites.Where(s => !existing.TryGetValue(s.Rva, out var old) || old.Status == VirtualCallStatus.Unresolved && s.Status != VirtualCallStatus.Unresolved).ToList();
@@ -83,6 +84,12 @@ public sealed partial class NativeCodeIndex
     }
 
     private readonly object _virtualGate = new();
+
+    /// <summary>Metadata outside the build (NativeAOT) was searched for virtual calls; saved with the index so a load does not search again.</summary>
+    public bool MetadataVirtualCallsAdded { get; private set; }
+
+    /// <summary>Records that the metadata search ran and found no sites.</summary>
+    public void MarkMetadataVirtualCalls() { lock (_virtualGate) MetadataVirtualCallsAdded = true; }
 
     /// <summary>x86 / x64 through the data flow, ARM64 and ARM32 through their call shapes.</summary>
     internal static bool ResolvesVirtualCalls(INativeImage image) => image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
@@ -146,9 +153,10 @@ public sealed partial class NativeCodeIndex
         w.DeltaUInts(from);
         w.UInts(to);
         w.Bytes(kinds);
+        w.U8(MetadataVirtualCallsAdded ? (byte)1 : (byte)0);
     }
 
-    private static (VirtualCallSet Set, CodeXref[] Edges) ReadVirtualCalls(ref PayloadReader r)
+    private static (VirtualCallSet Set, CodeXref[] Edges, bool MetadataAdded) ReadVirtualCalls(ref PayloadReader r)
     {
         var rva = r.DeltaUInts();
         int n = rva.Length;
@@ -184,6 +192,7 @@ public sealed partial class NativeCodeIndex
             if (i > 0 && (edges[i].From < edges[i - 1].From || edges[i].From == edges[i - 1].From && edges[i].To <= edges[i - 1].To))
                 throw new InvalidDataException("virtual call edges out of order");
         }
-        return (new VirtualCallSet(sites, stats, notes), edges);
+        bool metadataAdded = r.U8() switch { 0 => false, 1 => true, _ => throw new InvalidDataException("unknown virtual call metadata state") };
+        return (new VirtualCallSet(sites, stats, notes), edges, metadataAdded);
     }
 }
