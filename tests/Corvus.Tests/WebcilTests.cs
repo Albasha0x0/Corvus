@@ -106,5 +106,55 @@ public sealed class WebcilTests : IDisposable
         Assert.Contains("not read directly yet (planned)", text);
         Assert.Contains("1 .NET assemblies here are Webcil", Corvus.Tools.WorkspaceTools.FormatLoad(workspace, Path.Combine(_dir.Path, "wwwroot"), report));
         Assert.Null(Webcil.FolderHint(_dir.Path + Path.DirectorySeparatorChar + "missing"));
+        // A path spelled with '/' gives a hint with one kind of separator.
+        var hint = Webcil.FolderHint(_dir.Path.Replace('\\', '/') + "/wwwroot")!;
+        Assert.Contains($"Folder: {framework}", hint);
+    }
+
+    /// <summary>
+    /// unpack_container refused the _framework folder and a second .wasm into the same output folder, so an app's assemblies
+    /// could not be unpacked where they resolve each other; and a patched assembly could only be saved as a PE.
+    /// </summary>
+    [Fact]
+    public void AFrameworkFolderUnpacksInOneGoAndPatchesSaveBackAsWebcil()
+    {
+        var lib = ReferenceResolutionTests.Compile("Lib", "namespace L { public class Marker { public static int V() { return 1; } } }");
+        var app = ReferenceResolutionTests.Compile("App", "namespace A { public static class Run { public static int Go() { return L.Marker.V(); } } }", lib);
+        var framework = Path.Combine(_dir.Path, "site", "_framework");
+        Directory.CreateDirectory(framework);
+        File.WriteAllBytes(Path.Combine(framework, "Lib.k2j4h5.wasm"), ToWasm(lib));
+        File.WriteAllBytes(Path.Combine(framework, "App.x7y8z9.wasm"), ToWasm(app));
+        File.WriteAllBytes(Path.Combine(framework, "dotnet.native.wasm"), [0, (byte)'a', (byte)'s', (byte)'m', 1, 0, 0, 0]);
+
+        using var env = new Env();
+        var unpacker = new UnpackService(env.Workspace);
+        var listed = unpacker.List(Path.Combine(_dir.Path, "site"), AnalysisLimits.Default, default);
+        Assert.Equal(["App.dll", "Lib.dll"], listed.Assemblies.Select(a => a.Path).Order());
+        var output = Path.Combine(_dir.Path, "out");
+        var report = unpacker.Unpack(framework, output, load: true, AnalysisLimits.Default, default);
+        Assert.Equal(2, report.Files.Count(f => f.LoadedAs != null));
+        Assert.Equal(output, unpacker.Unpack(framework, output, load: false, AnalysisLimits.Default, default).OutputDirectory); // a repeat reuses it
+
+        var go = env.One("A.Run::Go");
+        Assert.NotNull(env.Workspace.LocateReference("Lib", null, null, go.Assembly.FilePath, netFramework: false)?.Loaded);
+        Assert.Contains("Marker.V()", env.Decompiler.DecompileMembers(go.Assembly, [go.Member], default));
+        env.Edit(() => env.Edits.StubMethod(go, "42"));
+        var saved = Path.Combine(_dir.Path, "App.patched.wasm");
+        var result = env.Workspace.Read(() => env.Edits.Save(go.Assembly, saved, overwrite: false));
+        Assert.Contains("Written as Webcil", result);
+
+        var wasm = File.ReadAllBytes(saved);
+        Assert.True(System.Runtime.InteropServices.MemoryMarshal.TryGetArray(Webcil.Payload(wasm)!.Value, out var payload));
+        Assert.Equal(0, payload.Offset % 4); // the loader reads the payload as aligned data
+        using var reloaded = new Env(SaveAsDll(Webcil.ToPe(wasm)!));
+        Assert.Contains("return 42;", reloaded.Decompile("A.Run::Go"));
+    }
+
+    private string SaveAsDll(byte[] pe)
+    {
+        var path = Path.Combine(_dir.Path, "reloaded", "App.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, pe);
+        return path;
     }
 }

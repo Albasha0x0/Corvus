@@ -38,9 +38,16 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
     public UnpackReport Unpack(string path, string? outputDirectory, bool load, AnalysisLimits limits, CancellationToken ct)
     {
-        var (source, data, sha) = ReadSource(path, limits);
+        string source, sha;
+        byte[]? data = null;
+        Walked walked;
+        if (WebcilFolder(path, limits, ct) is { } folder) (source, sha, walked) = folder;
+        else
+        {
+            (source, data, sha) = ReadSource(path, limits);
+            walked = Walk(data, sha, Path.GetFileName(source), limits, ct);
+        }
         var root = PrepareOutput(outputDirectory ?? DefaultOutput(source, sha), source, sha);
-        var walked = Walk(data, sha, Path.GetFileName(source), limits, ct);
         var notes = walked.Notes;
         var files = new List<UnpackedFile>();
         foreach (var item in walked.Items)
@@ -60,7 +67,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         }
 
         // A managed host contains the app's own code; include it.
-        if (Blob.Identify(data) == DotNet && walked.Container != "none")
+        if (data != null && Blob.Identify(data) == DotNet && walked.Container != "none")
             files.Insert(0, new UnpackedFile(source, DotNet, data.Length, sha, HostOrigin, null, AssemblyTraits.IsReadyToRun(data), Inspect(data)?.Merged));
         // For an apphost launcher, the application is the adjacent .dll.
         if (AppNextToApphost(source, walked.Container, limits) is { } app)
@@ -184,6 +191,9 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// <summary>Managed assemblies in a file; a plain assembly yields itself.</summary>
     internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes) Managed(string path, AnalysisLimits limits, CancellationToken ct)
     {
+        if (WebcilFolder(path, limits, ct) is { } folder)
+            return (folder.Source, folder.Walked.Container,
+                folder.Walked.Items.Select(i => new ManagedAssembly(i.Relative, i.Bytes, i.Sha256, i.Origin)).ToList(), folder.Walked.Notes);
         var (source, data, sha) = ReadSource(path, limits);
         var walked = Walk(data, sha, Path.GetFileName(source), limits, ct);
         var assemblies = walked.Items.Where(i => i.Kind == DotNet)
@@ -245,9 +255,49 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         }
     }
 
+    /// <summary>
+    /// A Blazor WebAssembly folder (_framework, or the app folder above it) as one container: its Webcil assemblies as PEs
+    /// named by assembly, so they unpack into one folder where they resolve each other. Null for anything else.
+    /// </summary>
+    private static (string Source, string Sha, Walked Walked)? WebcilFolder(string path, AnalysisLimits limits, CancellationToken ct)
+    {
+        string full;
+        try { full = Path.GetFullPath(path); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
+        if (!Directory.Exists(full) || Webcil.FolderFiles(full) is not { Count: > 0 } files) return null;
+        var notes = new List<string>();
+        var found = new List<Found>();
+        var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        long total = 0;
+        foreach (var file in files)
+        {
+            ct.ThrowIfCancellationRequested();
+            var bytes = File.ReadAllBytes(file);
+            if (found.Count >= limits.MaxItems || (total += bytes.Length) > limits.MaxTotalBytes)
+            {
+                notes.Add("Stopped: the extraction limit was reached; some files were not extracted.");
+                break;
+            }
+            foreach (var item in Containers.Open(bytes, file, limits, ct).Items)
+            {
+                var itemSha = Blob.Sha256(item.Bytes);
+                // Fingerprinted copies of one assembly (App.abc.wasm, App.def.wasm): the first is kept.
+                if (byName.TryGetValue(item.Name, out var kept))
+                {
+                    if (kept != itemSha) notes.Add($"{Path.GetFileName(file)} holds another build of {item.Name}; the first one found is used.");
+                    continue;
+                }
+                byName[item.Name] = itemSha;
+                found.Add(new Found(item.Name, item.Bytes, DotNet, itemSha, Path.GetFileName(file)));
+            }
+        }
+        var sha = Blob.Sha256(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", found.Select(f => f.Relative + " " + f.Sha256))));
+        return (Path.GetDirectoryName(files[0])!, sha, new Walked("Blazor WebAssembly folder (Webcil)", found, notes));
+    }
+
     private static (string Source, byte[] Data, string Sha) ReadSource(string path, AnalysisLimits limits)
     {
-        if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host). To load a folder of assemblies, use load_assembly.");
+        if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host) or a Blazor _framework folder. To load a folder of assemblies, use load_assembly.");
         var source = InputFiles.RequireRegularFile(path, "container file");
         if (!File.Exists(source)) throw new ToolError(ErrorCode.NotFound, $"File not found: {source}");
         var length = new FileInfo(source).Length;

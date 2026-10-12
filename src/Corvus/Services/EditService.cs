@@ -619,12 +619,17 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             throw new ToolError(ErrorCode.Conflict, $"Not saved (strict=true): {report.Changed.Count()} member(s) would be written differently from the original " +
                                 $"without an edit asking for it. Nothing was written; save without strict to accept the changes listed.{report.Describe()}");
 
+        // A .wasm target is written as Blazor ships assemblies (Webcil), to replace the file in a _framework folder.
+        bool webcil = target.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase);
+        if (webcil) image = Webcil.FromPe(image);
         string? backup = isOriginal ? SaveTarget.Backup(target, asm.OriginalBytes) : null;
         SafeFile.WriteAllBytes(target, image, overwrite);
 
         var kept = asm.IsDirty ? "everything no edit touched is as in the original" : "no edits: the original bytes";
         return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s); {kept})." +
-               $"{(backup != null ? $" Original backed up to {backup}." : "")}{report.Describe()}{(asm.IsDirty ? SignatureNotes(asm) : "")}";
+               $"{(backup != null ? $" Original backed up to {backup}." : "")}" +
+               (webcil ? " Written as Webcil (Blazor WebAssembly); the app's boot manifest (blazor.boot.json or dotnet.boot.js) holds an integrity hash per file: update or remove this file's." : "") +
+               $"{report.Describe()}{(asm.IsDirty ? SignatureNotes(asm) : "")}";
     }
 
     /// <summary>What an edit does to the file's signatures: they cover the original bytes, so none survives a change.</summary>

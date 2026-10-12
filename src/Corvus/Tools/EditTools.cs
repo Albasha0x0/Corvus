@@ -216,7 +216,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "codes (docs/saving.md), members 'Changed by the writer' without an edit asking for it and those 'Kept byte-for-byte although invalid in the original'.")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Output file path. Omit for '<original>.patched.dll'.")] string? outputPath = null,
+        [Description("Output file path; a .wasm path writes Webcil (Blazor). Omit for '<original>.patched.dll'.")] string? outputPath = null,
         [Description("Allow replacing an existing file.")] bool overwrite = false,
         [Description("Write nothing when any member would be changed by the writer (default: save and list them).")] bool strict = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>

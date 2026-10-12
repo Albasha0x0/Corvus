@@ -69,7 +69,7 @@ public static class Guide
             An app wrapped in a container (single-file .exe, Costura, .nupkg, Xamarin/MAUI .apk): list_assemblies with path shows the
             assemblies inside, search_container finds types/members in them by name, and unpack_container extracts and loads them.
             list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepack) assemblies.
-            Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read these yet; unpack_container converts one to a PE that loads.
+            Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read these yet; unpack_container on the _framework folder converts them to PEs that load; save_assembly to a .wasm path writes Webcil back.
             Unity builds: unity_overview first.
             Android packages (.apk, .aab, split sets), read natively: get_android_manifest (components, exported state, permissions, deep links),
             list_android_resources and get_android_resource (decoded XML, @type/name values). DEX code: list_dex_classes, get_dex_class (exact

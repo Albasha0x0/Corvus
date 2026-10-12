@@ -172,7 +172,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                  "plus the reference search directories. With path: the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, " +
                  "Costura host, zip) without extracting them (unpack_container extracts and loads them).")]
     public Task<WorkspaceState> ListAssemblies(
-        [Description("A container file to list instead of the workspace.")] string? path = null,
+        [Description("A container file (or Blazor _framework folder) to list instead of the workspace.")] string? path = null,
         [Description("Id, name or path substring (case-insensitive).")] string? filter = null,
         [Description("Index of the first assembly.")] int offset = 0,
         [Description("Max assemblies.")] int limit = 100,

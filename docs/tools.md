@@ -77,7 +77,7 @@ Loaded assemblies with their ids (for other tools), versions, paths, Il2Cpp dumm
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string |  |  | A container file to list instead of the workspace. |
+| `path` | string |  |  | A container file (or Blazor _framework folder) to list instead of the workspace. |
 | `filter` | string |  |  | Id, name or path substring (case-insensitive). |
 | `offset` | integer |  | `0` | Index of the first assembly. |
 | `limit` | integer |  | `100` | Max assemblies. |
@@ -601,7 +601,7 @@ Extract the .NET assemblies inside a container and load them: single-file bundle
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | Absolute path to the container file. |
+| `path` | string | yes |  | Absolute path to the container file, or a Blazor _framework folder (its Webcil .wasm assemblies). |
 | `outputDirectory` | string |  |  | New or empty directory, or an earlier unpack of the same file; default under temp. |
 | `load` | boolean |  | `true` | Load the extracted assemblies (ids in loadedAs). |
 
@@ -812,7 +812,7 @@ Write an assembly with its edits to a new file, atomically. Overwriting needs ov
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
-| `outputPath` | string |  |  | Output file path. Omit for '<original>.patched.dll'. |
+| `outputPath` | string |  |  | Output file path; a .wasm path writes Webcil (Blazor). Omit for '<original>.patched.dll'. |
 | `overwrite` | boolean |  | `false` | Allow replacing an existing file. |
 | `strict` | boolean |  | `false` | Write nothing when any member would be changed by the writer (default: save and list them). |
 

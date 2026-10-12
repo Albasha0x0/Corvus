@@ -114,6 +114,86 @@ public static class Webcil
         return pe;
     }
 
+    /// <summary>
+    /// The module the Blazor SDK wraps every Webcil payload in, up to its data section: it imports the loader's memory and
+    /// exports webcilVersion, webcilSize, getWebcilSize and getWebcilPayload, which copy the two data segments out.
+    /// </summary>
+    private static ReadOnlySpan<byte> WasmPrefix =>
+    [
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0a, 0x02, 0x60, 0x01, 0x7f, 0x00, 0x60, 0x02, 0x7f, 0x7f, 0x00,
+        0x02, 0x12, 0x01, 0x06, 0x77, 0x65, 0x62, 0x63, 0x69, 0x6c, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00, 0x01,
+        0x03, 0x03, 0x02, 0x00, 0x01, 0x06, 0x0b, 0x02, 0x7f, 0x00, 0x41, 0x00, 0x0b, 0x7f, 0x00, 0x41, 0x00, 0x0b, 0x07, 0x41,
+        0x04, 0x0d, 0x77, 0x65, 0x62, 0x63, 0x69, 0x6c, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x03, 0x00, 0x0a, 0x77, 0x65,
+        0x62, 0x63, 0x69, 0x6c, 0x53, 0x69, 0x7a, 0x65, 0x03, 0x01, 0x0d, 0x67, 0x65, 0x74, 0x57, 0x65, 0x62, 0x63, 0x69, 0x6c,
+        0x53, 0x69, 0x7a, 0x65, 0x00, 0x00, 0x10, 0x67, 0x65, 0x74, 0x57, 0x65, 0x62, 0x63, 0x69, 0x6c, 0x50, 0x61, 0x79, 0x6c,
+        0x6f, 0x61, 0x64, 0x00, 0x01, 0x0c, 0x01, 0x02, 0x0a, 0x1b, 0x02, 0x0c, 0x00, 0x20, 0x00, 0x41, 0x00, 0x41, 0x04, 0xfc,
+        0x08, 0x00, 0x00, 0x0b, 0x0c, 0x00, 0x20, 0x00, 0x41, 0x00, 0x20, 0x01, 0xfc, 0x08, 0x01, 0x00, 0x0b,
+    ];
+
+    /// <summary>A PE image as Blazor ships it: a Webcil payload (header, section table, the PE's sections) in a .wasm module.</summary>
+    public static byte[] FromPe(byte[] pe)
+    {
+        using var reader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(pe, writable: false));
+        var headers = reader.PEHeaders;
+        if (headers.CorHeader == null || headers.PEHeader is not { } optional)
+            throw new ToolError(ErrorCode.Unsupported, "Only a .NET assembly can be written as Webcil.");
+        var sections = headers.SectionHeaders;
+        int tableEnd = HeaderSize + sections.Length * SectionSize;
+        var payload = new byte[tableEnd + sections.Sum(s => s.SizeOfRawData)];
+        var w = payload.AsSpan();
+        "WbIL"u8.CopyTo(w); // version 0.0
+        BinaryPrimitives.WriteUInt16LittleEndian(w[8..], (ushort)sections.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(w[12..], optional.CorHeaderTableDirectory.RelativeVirtualAddress);
+        BinaryPrimitives.WriteInt32LittleEndian(w[16..], optional.CorHeaderTableDirectory.Size);
+        BinaryPrimitives.WriteInt32LittleEndian(w[20..], optional.DebugTableDirectory.RelativeVirtualAddress);
+        BinaryPrimitives.WriteInt32LittleEndian(w[24..], optional.DebugTableDirectory.Size);
+        int raw = tableEnd;
+        for (int i = 0; i < sections.Length; i++)
+        {
+            var s = sections[i];
+            var h = w[(HeaderSize + i * SectionSize)..];
+            BinaryPrimitives.WriteInt32LittleEndian(h, s.VirtualSize);
+            BinaryPrimitives.WriteInt32LittleEndian(h[4..], s.VirtualAddress);
+            BinaryPrimitives.WriteInt32LittleEndian(h[8..], s.SizeOfRawData);
+            BinaryPrimitives.WriteInt32LittleEndian(h[12..], raw);
+            pe.AsSpan(s.PointerToRawData, Math.Min(s.SizeOfRawData, pe.Length - s.PointerToRawData)).CopyTo(w[raw..]);
+            raw += s.SizeOfRawData;
+        }
+
+        // Data section: two passive segments, the payload size and the payload, padded so the payload starts 4-byte aligned;
+        // the padding depends on the length of the section size's encoding, which depends on the padding.
+        var size = Leb(payload.Length);
+        for (int sectionLeb = 1; ; sectionLeb++)
+        {
+            int padding = (4 - (WasmPrefix.Length + 1 + sectionLeb + 3 + 4 + 1 + size.Length) % 4) % 4;
+            var segments = new List<byte> { 2, 1, (byte)(4 + padding) };
+            segments.AddRange(BitConverter.GetBytes(payload.Length));
+            segments.AddRange(new byte[padding]);
+            segments.Add(1);
+            segments.AddRange(size);
+            var sectionSize = Leb(segments.Count + payload.Length);
+            if (sectionSize.Length != sectionLeb) continue;
+            var wasm = new List<byte>(WasmPrefix.Length + 1 + sectionLeb + segments.Count + payload.Length);
+            wasm.AddRange(WasmPrefix);
+            wasm.Add(11);
+            wasm.AddRange(sectionSize);
+            wasm.AddRange(segments);
+            wasm.AddRange(payload);
+            return [.. wasm];
+        }
+    }
+    private static byte[] Leb(int value)
+    {
+        var bytes = new List<byte>();
+        do
+        {
+            byte b = (byte)(value & 0x7F);
+            value >>= 7;
+            bytes.Add(value != 0 ? (byte)(b | 0x80) : b);
+        } while (value != 0);
+        return [.. bytes];
+    }
+
     /// <summary>The CLI header at <paramref name="cliRva"/> has a managed entry point (a MethodDef token).</summary>
     private static bool HasEntryPoint(ReadOnlySpan<byte> w, (uint VirtualSize, uint Va, uint RawSize, uint RawPointer)[] table, uint cliRva)
     {
@@ -139,7 +219,7 @@ public static class Webcil
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
         throw new ToolError(ErrorCode.Unsupported,
             $"{file} is a Webcil assembly (Blazor WebAssembly wraps each .NET assembly in a .wasm module); load_assembly does not read Webcil directly yet (planned).",
-            $"unpack_container path=\"{file}\" converts it to a PE that loads; summarize_file and list_assemblies with path read it as it is");
+            $"unpack_container path=\"{Path.GetDirectoryName(Path.GetFullPath(file))}\" converts the folder's Webcil assemblies to PEs that load (path=\"{file}\" only this one); summarize_file and list_assemblies with path read it as it is");
     }
 
     /// <summary>
@@ -148,10 +228,23 @@ public static class Webcil
     /// </summary>
     public static string? FolderHint(string folder)
     {
-        var dirs = new[] { folder, Path.Combine(folder, "_framework"), Path.Combine(folder, "wwwroot", "_framework") }.Where(Directory.Exists).Distinct().ToList();
-        var found = new List<string>();
-        foreach (var dir in dirs)
-            foreach (var file in Directory.EnumerateFiles(dir, "*.wasm"))
+        var found = FolderFiles(folder);
+        if (found.Count == 0) return null;
+        var where = Path.GetDirectoryName(found[0])!;
+        return $"{found.Count} .NET assemblies here are Webcil (Blazor WebAssembly: each wrapped in a .wasm module, e.g. {Path.GetFileName(found[0])}), " +
+               $"which load_assembly does not read directly yet (planned). unpack_container path=\"{where}\" converts them all to PEs that load " +
+               $"and resolve each other; summarize_file and list_assemblies with path read them as they are. Folder: {where}";
+    }
+
+    /// <summary>The Webcil .wasm files of a folder, else of its _framework or wwwroot/_framework subfolder (the first that has any).</summary>
+    public static List<string> FolderFiles(string folder)
+    {
+        folder = Path.GetFullPath(folder);
+        foreach (var dir in new[] { folder, Path.Combine(folder, "_framework"), Path.Combine(folder, "wwwroot", "_framework") })
+        {
+            if (!Directory.Exists(dir)) continue;
+            var found = new List<string>();
+            foreach (var file in Directory.EnumerateFiles(dir, "*.wasm").Order(StringComparer.OrdinalIgnoreCase))
             {
                 try
                 {
@@ -159,11 +252,9 @@ public static class Webcil
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
-        if (found.Count == 0) return null;
-        var where = Path.GetDirectoryName(found[0])!;
-        return $"{found.Count} .NET assemblies here are Webcil (Blazor WebAssembly: each wrapped in a .wasm module, e.g. {Path.GetFileName(found[0])}), " +
-               $"which load_assembly does not read directly yet (planned). unpack_container path=\"{found[0]}\" converts one to a PE that loads; " +
-               $"summarize_file and list_assemblies with path read them as they are. Folder: {where}";
+            if (found.Count > 0) return found;
+        }
+        return [];
     }
 
     /// <summary>An unsigned LEB128 value, or -1 when it runs past the data or past 32 bits.</summary>

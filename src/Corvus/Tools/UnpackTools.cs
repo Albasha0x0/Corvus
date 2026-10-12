@@ -14,7 +14,7 @@ public sealed class UnpackTools(UnpackService unpacker)
                  "(compressed assemblies and assembly stores, per ABI), zips, and .NET images embedded elsewhere; nested containers too. Nothing is executed; " +
                  "names cannot escape the output directory and runnable extensions get .bin. NativeAOT executables (no IL) are reported.")]
     public Task<UnpackService.UnpackReport> UnpackContainer(
-        [Description("Absolute path to the container file.")] string path,
+        [Description("Absolute path to the container file, or a Blazor _framework folder (its Webcil .wasm assemblies).")] string path,
         [Description("New or empty directory, or an earlier unpack of the same file; default under temp.")] string? outputDirectory = null,
         [Description("Load the extracted assemblies (ids in loadedAs).")] bool load = true,
         CancellationToken cancellationToken = default) =>
