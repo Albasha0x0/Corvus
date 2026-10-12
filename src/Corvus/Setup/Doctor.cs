@@ -56,11 +56,16 @@ internal static class Doctor
         else if (own && server.MatchesThisBuild != true)
             Set(row, StaleCatalog, $"registered, but its tool catalog differs from this build: {string.Join("; ", server.Differences)}", "corvus install");
         else if (entry.Disabled)
-            Set(row, Disabled, "registered (disabled: the client does not start it)", $"Turn {ClientCatalog.ServerName} on in {client.Name}'s settings.");
+            Set(row, Disabled, "registered (disabled: the client does not start it)", $"corvus install --client {client.Id} --enable");
         else if (!own)
             Set(row, OtherCopy, $"registered with another copy: {entry.Command} (version {server.Version})", $"corvus install --client {client.Id} to use this copy.");
         else
             Set(row, Healthy, $"registered ({server.Detail})", null);
+        if (client.Target.DisabledInProjects(ClientCatalog.ServerName) is { Count: > 0 } projects)
+        {
+            row.Message += $"; off in projects {string.Join(", ", projects)}";
+            row.Remediation ??= $"corvus install --client {client.Id} --enable";
+        }
     }
 
     /// <summary>

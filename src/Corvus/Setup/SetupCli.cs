@@ -11,7 +11,7 @@ internal static class SetupCli
     /// <summary>Flags each command accepts; anything else is a usage error, so a mistyped --dry-run never writes.</summary>
     private static readonly Dictionary<string, string[]> Accepted = new()
     {
-        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command", "--dev-reload", "--skill"],
+        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command", "--dev-reload", "--skill", "--enable"],
         ["uninstall"] = ["--keep-files", "--purge-data", "--dry-run", "--json", "--client"],
         ["status"] = ["--json", "--client", "--engine", "--target", "--deep"],
         ["config"] = ["--client", "--dev-reload"],
@@ -75,6 +75,8 @@ internal static class SetupCli
                                                 published in DIR (./publish.ps1) and switches to each new publish
                                 --skill         also write the agent skill for clients that read skills; skills
                                                 written earlier are kept current by every install and update
+                                --enable        turn on an entry the client has turned off (its switch, disable
+                                                lists, Claude Code's per-project list); otherwise it is kept off
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
                                 also deletes an installed copy's program files; --keep-files keeps them. Your data
                                 (annotations, caches, symbols) is kept; --purge-data deletes it as well.
@@ -312,9 +314,23 @@ internal static class SetupCli
                 if (result.Changed) changed++;
                 else if (result.Message != "already registered") { failed++; row.Action = SetupAction.Blocked; }
                 row.Message = result.Message;
-                if (row.Disabled) row.Message += "; disabled: kept disabled";
             }
             else if (row.Action == SetupAction.Blocked) failed++;
+            if (row.Action is SetupAction.Add or SetupAction.Refresh or SetupAction.Unchanged && row.Client is { } client
+                && client.Target.DisabledInProjects(ClientCatalog.ServerName) is var projects && (row.Disabled || projects.Count > 0))
+            {
+                if (!a.Has("--enable"))
+                    row.Message += row.Disabled ? "; disabled: kept disabled (--enable turns it on)" : $"; off in projects {string.Join(", ", projects)} (--enable turns it on)";
+                else
+                {
+                    ConfigChange enabled;
+                    try { enabled = client.Target.Enable(ClientCatalog.ServerName); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { enabled = new ConfigChange(false, $"left unchanged: {ex.Message}"); }
+                    if (enabled.Changed) changed++;
+                    else failed++;
+                    row.Message += "; " + (enabled.Changed ? "enabled" : $"not enabled: {enabled.Message}");
+                }
+            }
             var mark = row.Action == SetupAction.Blocked ? "!! " : row.Action == SetupAction.Skip ? "-- " : "ok ";
             text.WriteLine($"  {mark} {row.Name,-20} {row.Message,-20} {SetupPlan.Short(env, row.ConfigPath)}");
         }

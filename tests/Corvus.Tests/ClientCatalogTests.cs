@@ -88,6 +88,35 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
+    public void Enable_TurnsDisabledEntriesOn_IncludingDisableListsAndClaudeCodeProjects()
+    {
+        _home.Write("""{ "mcpServers": { "corvus": { "command": "old", "disabled": true } } }""", ".cursor", "mcp.json");
+        _home.Write("""{ "mcpServers": { "corvus": { "transport": "stdio", "command": "old", "enabled": false } } }""", ".commandcode", "mcp.json");
+        _home.Write("""{ "disabledServers": ["x", "corvus"], "mcpServers": { "corvus": { "command": "old" } } }""", ".omp", "agent", "mcp.json");
+        _home.Write("disabled_mcp_servers = [\"other\", 'corvus']\n\n[mcp_servers.corvus]\ncommand = \"old\"\n", ".grok", "config.toml");
+        _home.Write("[mcp_servers.corvus]\ncommand = \"old\"\nenabled = false\n", ".codex", "config.toml");
+        _home.Write("""{ "mcpServers": { "corvus": { "command": "old" } }, "projects": { "D:/a": { "disabledMcpServers": ["corvus"] }, "D:/b": { "disabledMcpServers": ["y"] } } }""", ".claude.json");
+        Assert.Equal(["D:/a"], Client("claude-code").Target.DisabledInProjects("corvus"));
+
+        // Without --enable they stay off, and the output says how to turn them on.
+        var (code, output) = _home.Run("install", "--no-check");
+        Assert.True(code == 0, output);
+        Assert.Contains("off in projects D:/a (--enable turns it on)", output);
+        Assert.True(Client("cursor").Target.Current("corvus")!.Disabled);
+
+        (code, output) = _home.Run("install", "--no-check", "--enable");
+        Assert.True(code == 0, output);
+        foreach (var id in new[] { "cursor", "command-code", "omp", "grok-build", "codex", "claude-code" })
+            Assert.False(Client(id).Target.Current("corvus")!.Disabled, id);
+        Assert.Empty(Client("claude-code").Target.DisabledInProjects("corvus"));
+        Assert.Equal(["y"], ReadJson(_home.Path(".claude.json"))["projects"]!["D:/b"]!["disabledMcpServers"]!.AsArray().Select(n => (string)n!));
+        Assert.Contains("disabled_mcp_servers = [\"other\"]", File.ReadAllText(_home.Path(".grok", "config.toml")));
+        Assert.DoesNotContain("enabled = false", File.ReadAllText(_home.Path(".codex", "config.toml")));
+        Assert.Equal(["x"], ReadJson(_home.Path(".omp", "agent", "mcp.json"))["disabledServers"]!.AsArray().Select(n => (string)n!));
+        Assert.DoesNotContain("enabled", _home.Run("install", "--no-check", "--enable").Output.Replace("--enable", ""));
+    }
+
+    [Fact]
     public void EveryClientEntry_CarriesItsClientId()
     {
         var env = _home.Env(os: HostOs.Windows);

@@ -110,7 +110,8 @@ MCP Registry entry (`.mcp/server.json`).
   client options below are set. Only the entry's text changes, so comments and formatting elsewhere in the file are kept. Each changed
   file is backed up once as `<file>.corvus.bak`; a file that cannot be parsed is left untouched and reported.
 - Clients without an entry are added after confirmation, or with `--yes` / `--all-detected`.
-- An entry the client has turned off (`disabled`, `enabled: false`, a disable list) is reported and kept off.
+- An entry the client has turned off (`disabled`, `enabled: false`, a disable list, Claude Code's per-project
+  `disabledMcpServers`) is reported and kept off; `--enable` turns it on.
 - Every entry gets `--client <id>` ([Client profiles](#client-profiles)); clients that cap the number of tools also get
   `--toolsets lean` unless the entry sets its own `--toolsets`. A Codex entry whose `tool_timeout_sec` differs from
   Codex's 60 s default gets `--client-timeout <seconds>`; install never changes the client's own settings.
@@ -124,6 +125,7 @@ MCP Registry entry (`.mcp/server.json`).
 | `--strict` | Write nothing when any client's file cannot be read. |
 | `--no-check` | Skip the server check. |
 | `--skill` | Also write the agent skill for clients that read skills (below). |
+| `--enable` | Turn on an entry the client has turned off. |
 | `--command PATH` | Register this program instead of the running one. |
 | `--dev-reload DIR` | Development: register the reload relay (README, "Development reload"). |
 

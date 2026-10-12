@@ -51,6 +51,12 @@ internal abstract class ConfigTarget(string path)
     /// </summary>
     public abstract ConfigChange Rename(string from, string to, ServerLaunch launch);
 
+    /// <summary>Turns the entry on: its own switch and every disable list that names it (install --enable).</summary>
+    public virtual ConfigChange Enable(string name) => new(false, "not supported");
+
+    /// <summary>Projects whose own list turns the entry off while the user-level entry is on (Claude Code).</summary>
+    public virtual IReadOnlyList<string> DisabledInProjects(string name) => [];
+
     protected const string BackupSuffix = ".corvus.bak";
 
     /// <summary>Where the first pre-install copy is (or would be) kept; null for a file that does not exist yet.</summary>
@@ -333,6 +339,48 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
         return Write(text, keepOurs ? $"removed the {from} entry ({to} is registered)" : $"renamed from {from}", bom);
     }
 
+    /// <summary>Root lists that turn servers off: OMP disabledServers, Claude Code disabledMcpServers (also per project).</summary>
+    private static IEnumerable<JsonArray> DisableLists(JsonObject root)
+    {
+        foreach (var key in new[] { "disabledServers", "disabledMcpServers" })
+            if (root[key] is JsonArray list) yield return list;
+        if (root["projects"] is JsonObject projects)
+            foreach (var (_, project) in projects)
+                if (project?["disabledMcpServers"] is JsonArray list) yield return list;
+    }
+
+    private static bool Names(JsonArray list, string name) => list.Any(i => i is JsonValue v && v.TryGetValue<string>(out var s) && s == name);
+
+    public override IReadOnlyList<string> DisabledInProjects(string name)
+    {
+        var (root, _, _, _, _) = Load();
+        return root?["projects"] is JsonObject projects
+            ? [.. projects.Where(p => p.Value?["disabledMcpServers"] is JsonArray list && Names(list, name)).Select(p => p.Key)]
+            : [];
+    }
+
+    public override ConfigChange Enable(string name)
+    {
+        var (root, hadComments, error, text, bom) = Load();
+        if (root == null) return new ConfigChange(false, $"left unchanged: {error}");
+        var servers = Servers(root, false);
+        bool changed = false;
+        if (servers?[name] is JsonObject entry)
+        {
+            if (entry["disabled"] is JsonValue d && d.TryGetValue<bool>(out var off) && off) { entry["disabled"] = false; changed = true; }
+            if (entry["enabled"] is JsonValue e && e.TryGetValue<bool>(out var on) && !on) { entry["enabled"] = true; changed = true; }
+        }
+        foreach (var list in DisableLists(root).ToList())
+            foreach (var item in list.Where(i => i is JsonValue v && v.TryGetValue<string>(out var s) && s == name).ToList())
+            {
+                list.Remove(item);
+                changed = true;
+            }
+        if (!changed) return new ConfigChange(false, "already enabled");
+        Backup();
+        return Write(Render(text, hadComments, name, servers?[name] as JsonObject, root).Text, "enabled", bom);
+    }
+
     /// <summary>A copy of the entry with its env keys (env or environment) under their current names.</summary>
     public static JsonObject WithMigratedEnv(JsonObject entry)
     {
@@ -489,6 +537,29 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
     [GeneratedRegex(@"^\s*disabled_mcp_servers\s*=\s*\[(?<items>[^\]]*)\]")]
     private static partial Regex DisabledList();
 
+    public override ConfigChange Enable(string name)
+    {
+        List<string> lines;
+        try { lines = Lines(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new ConfigChange(false, $"left unchanged: {ex.Message}"); }
+        var updated = new List<string>(lines);
+        foreach (var (start, end) in Blocks(lines, name).Where(b => !ServerHeader().Match(lines[b.Start]).Groups["sub"].Success).Reverse())
+            for (int i = end - 1; i > start; i--)
+                if (EnabledFalse().IsMatch(updated[i])) updated.RemoveAt(i);
+        for (int i = 0; i < updated.Count && !AnyHeader().IsMatch(updated[i]); i++)
+            if (DisabledList().Match(updated[i]) is { Success: true } list)
+            {
+                var items = TomlString().Matches(list.Groups["items"].Value)
+                    .Select(s => s.Value[0] == '\'' ? s.Groups["v"].Value : Unescape(s.Groups["v"].Value)).ToList();
+                if (!items.Remove(name)) continue;
+                var at = list.Groups["items"];
+                updated[i] = updated[i][..at.Index] + string.Join(", ", items.Select(Quote)) + updated[i][(at.Index + at.Length)..];
+            }
+        if (updated.SequenceEqual(lines)) return new ConfigChange(false, "already enabled");
+        Backup();
+        return Write(string.Join("\n", updated).TrimEnd('\n') + "\n", "enabled");
+    }
+
     [GeneratedRegex(@"^\s*startup_timeout_sec\s*=\s*(?<v>[0-9.]+)")]
     private static partial Regex StartupTimeoutLine();
 
@@ -620,6 +691,9 @@ internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarge
             return new ConfigChange(true, "registered");
         return file.Put(name, _ => entry);
     }
+
+    public override ConfigChange Enable(string name) => file.Enable(name);
+    public override IReadOnlyList<string> DisabledInProjects(string name) => file.DisabledInProjects(name);
 
     public override ConfigChange Uninstall(string name)
     {
