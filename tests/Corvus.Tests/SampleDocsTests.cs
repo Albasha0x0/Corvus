@@ -165,8 +165,8 @@ public partial class SampleDocsTests
     }
 
     /// <summary>
-    /// Output as the page shows it: repository paths relative with '/', and each SHA-256 and GUID replaced by a label
-    /// numbered in order of first appearance on the page (equal values keep one label; compilers change the values).
+    /// Output as the page shows it: repository paths relative with '/', and each SHA-256, GUID and bundle id replaced by
+    /// a label numbered in order of first appearance on the page (equal values keep one label; builds change the values).
     /// </summary>
     internal static string Normalize(string text, Dictionary<string, string> labels)
     {
@@ -182,6 +182,7 @@ public partial class SampleDocsTests
         }
         text = Sha256().Replace(text, m => Label(m, "sha256"));
         text = Guid().Replace(text, m => Label(m, "guid"));
+        text = BundleId().Replace(text, m => Label(m, "bundle-id"));
         return string.Join("\n", text.ReplaceLineEndings("\n").Split('\n').Select(l => l.TrimEnd()));
     }
 
@@ -209,6 +210,10 @@ public partial class SampleDocsTests
 
     [GeneratedRegex(@"samples(?:(?:\\\\|\\|/)[A-Za-z0-9._#-]+)+")]
     private static partial Regex SamplePath();
+
+    /// <summary>A single-file bundle's id, which each publish draws anew.</summary>
+    [GeneratedRegex(@"(?<=bundle v[0-9.]+, id )[A-Za-z0-9_-]+")]
+    private static partial Regex BundleId();
 
     [GeneratedRegex(@"\b[0-9a-fA-F]{64}\b")]
     private static partial Regex Sha256();
