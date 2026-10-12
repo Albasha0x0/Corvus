@@ -62,7 +62,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         using var ws = new AssemblyWorkspace();
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
         var il2cpp = new Il2CppService(ws);
-        var tools = new Corvus.Tools.WorkspaceTools(ws, il2cpp, new AssemblyReport(ws, il2cpp), new IndexingService(ws, new CallGraphService(ws), options), new Corvus.Services.Analysis.UnpackService(ws));
+        var tools = new Corvus.Tools.WorkspaceTools(ws, il2cpp, new IndexingService(ws, new CallGraphService(ws), options), new Corvus.Services.Analysis.UnpackService(ws));
         var error = await Assert.ThrowsAsync<ToolError>(() => tools.LoadAssembly(game));
         Assert.Contains("encrypted_or_obfuscated", error.Message);
         Assert.Empty(ws.Assemblies); // nothing half-loaded

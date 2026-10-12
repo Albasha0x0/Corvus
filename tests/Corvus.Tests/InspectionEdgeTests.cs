@@ -124,8 +124,7 @@ public class InspectionEdgeTests : IDisposable
     public async Task ListAssemblies_FiltersAndPages()
     {
         _workspace.LoadDirectory(Path.GetDirectoryName(Env.FixturePath)!, false);
-        var tools = new WorkspaceTools(_workspace, new Il2CppService(_workspace), new AssemblyReport(_workspace, new Il2CppService(_workspace)),
-            new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
+        var tools = new WorkspaceTools(_workspace, new Il2CppService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
         var all = await tools.ListAssemblies();
         Assert.True(all.Total > 3);
         var page = await tools.ListAssemblies(offset: 1, limit: 2);

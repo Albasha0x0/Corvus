@@ -149,7 +149,7 @@ public sealed class SessionFileTests : IDisposable
         {
             var il2cpp = new Il2CppService(a.Workspace);
             var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
-            var tools = new WorkspaceTools(a.Workspace, il2cpp, new AssemblyReport(a.Workspace, il2cpp), new IndexingService(a.Workspace, new CallGraphService(a.Workspace), options),
+            var tools = new WorkspaceTools(a.Workspace, il2cpp, new IndexingService(a.Workspace, new CallGraphService(a.Workspace), options),
                 new Corvus.Services.Analysis.UnpackService(a.Workspace), il2cppRaw: new Il2CppRawLoader(a.Workspace, _dir.File("cache")));
             await tools.LoadAssembly(RealData.Path("CORVUS_IL2CPP_GAME"));
             binarySha = Assert.Single(a.Workspace.Natives).OriginalSha256;

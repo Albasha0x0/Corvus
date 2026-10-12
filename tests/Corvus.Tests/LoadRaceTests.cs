@@ -22,7 +22,7 @@ public class LoadRaceTests
         using var ws = new AssemblyWorkspace();
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
         var il2cpp = new Il2CppService(ws);
-        var tools = new WorkspaceTools(ws, il2cpp, new AssemblyReport(ws, il2cpp), new IndexingService(ws, new CallGraphService(ws), options), new UnpackService(ws));
+        var tools = new WorkspaceTools(ws, il2cpp, new IndexingService(ws, new CallGraphService(ws), options), new UnpackService(ws));
         var unexpected = new ConcurrentBag<Exception>();
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(1);
 

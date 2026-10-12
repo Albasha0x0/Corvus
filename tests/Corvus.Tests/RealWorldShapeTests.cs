@@ -194,8 +194,7 @@ public class RealWorldShapeTests : IDisposable
         var root = _dir.File("shared");
         Directory.CreateDirectory(Path.Combine(root, "8.0.1"));
         File.Copy(Env.FixturePath, Path.Combine(root, "8.0.1", "TestFixture.dll"));
-        var tools = new Corvus.Tools.WorkspaceTools(_workspace, new Il2CppService(_workspace), new AssemblyReport(_workspace, new Il2CppService(_workspace)),
-            new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
+        var tools = new Corvus.Tools.WorkspaceTools(_workspace, new Il2CppService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
         var text = await tools.AddSearchDirectory(root);
         Assert.Contains("has no assemblies itself; subfolders are not searched. Add one of these instead:", text);
         Assert.Contains(Path.Combine(root, "8.0.1"), text);

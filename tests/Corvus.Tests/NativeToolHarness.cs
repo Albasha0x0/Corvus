@@ -62,8 +62,7 @@ internal sealed class NativeToolHarness : IDisposable
         Features = new NativeFeatureTools(Workspace, Code, Pager);
         var il2cpp = new Il2CppService(Workspace);
         Resources = new ResourceTools(Workspace, new ResourceService(), new DecompilerService(Workspace, Options), Pager);
-        WorkspaceTools = new WorkspaceTools(Workspace, il2cpp, new AssemblyReport(Workspace, il2cpp),
-            new IndexingService(Workspace, new CallGraphService(Workspace), Options), new UnpackService(Workspace));
+        WorkspaceTools = new WorkspaceTools(Workspace, il2cpp, new IndexingService(Workspace, new CallGraphService(Workspace), Options), new UnpackService(Workspace));
     }
 
     /// <summary>Runs one tool call and records it; returns the text, or null when it failed.</summary>

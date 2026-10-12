@@ -13,7 +13,7 @@ using static Corvus.Tools.ToolSupport;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, AssemblyReport report, IndexingService indexing, UnpackService unpacker,
+public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, IndexingService indexing, UnpackService unpacker,
     NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null)
 {
     public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits,
@@ -256,14 +256,5 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                         (subfolders.Length > 0 ? " Add one of these instead:\n  " + string.Join("\n  ", subfolders) : "");
             }
             return text;
-        }, cancellationToken);
-
-    [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyReport.Summary))]
-    [Description("Assembly overview: identity (MVID, SHA-256), target framework, entry point, counts, references (resolved or not), PE headers and sections, metadata streams, tables and heaps, metadata problems with file offsets, attributes, Il2Cpp detection, invalid IL bodies, unsaved edits.")]
-    public Task<string> GetAssemblyInfo([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
-        Read(workspace, () =>
-        {
-            var text = report.Build(workspace.Get(assembly), out var summary);
-            return StructuredOutput.With(text, summary);
         }, cancellationToken);
 }
