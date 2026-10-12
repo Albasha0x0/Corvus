@@ -87,14 +87,16 @@ public abstract class McpProtocolTests : IAsyncLifetime
         }
     }
 
-    private async Task<string> Call(string tool, Dictionary<string, object?> args, bool expectError = false)
+    private async Task<string> Call(string tool, Dictionary<string, object?> args, bool expectError = false, bool withRecord = false)
     {
         var result = await _client.CallToolAsync(tool, args);
         var text = Text(result);
         Assert.True(expectError == (result.IsError == true), $"{tool} IsError={result.IsError}: {text}");
         if (!expectError) await AssertMatchesOutputSchema(_client, tool, result);
         else ErrorJson(result);
-        return text;
+        // Expectations may name a record field: the text is readable, the record is the structured content.
+        return withRecord && result.StructuredContent is { } s
+            ? text + "\n" + System.Text.Json.Nodes.JsonNode.Parse(s.GetRawText())!.ToJsonString(Corvus.Mcp.Catalog.ToolSerializerOptions) : text;
     }
 
     /// <summary>
@@ -489,7 +491,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         {
             foreach (var (tool, (args, expect)) in ToolCases(_dir)) // order matters: edits build on each other, unload last
             {
-                var text = await Call(tool, args, expectError: expect.StartsWith("Error (", StringComparison.Ordinal));
+                var text = await Call(tool, args, expectError: expect.StartsWith("Error (", StringComparison.Ordinal), withRecord: true);
                 Assert.True(text.Contains(expect, StringComparison.Ordinal), $"{tool}: expected '{expect}' in:\n{text}");
             }
             Assert.Contains("return 7;", await Call("decompile_member", new() { ["member"] = "Account::Score" }));
