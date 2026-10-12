@@ -44,4 +44,21 @@ public sealed class AppleSwiftRealTests(ITestOutputHelper output)
         Assert.All(names.Names.Values, n => Assert.NotNull(SwiftDemangler.Demangle(n)));
         Assert.True(names.Methods > 10);
     }
+
+    /// <summary>The .NET runtime's Apple crypto shim binds CryptoKit through Swift: its records read without issues.</summary>
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void DotnetAppleCryptoShim_ReadsCleanly()
+    {
+        var path = RealPackages.File("Microsoft.NETCore.App.Runtime.osx-arm64", "10.0.11", "runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.dylib");
+        var image = MachOFile.Open(path);
+        var swift = AppleSwiftMetadata.Read(image);
+        var objc = AppleObjcMetadata.Read(image);
+        output.WriteLine($"{swift.Types.Count} types, {swift.Conformances.Count} conformances, {objc.References.Count} objc references; " +
+                         string.Join("; ", swift.Conformances.Take(5).Select(c => $"{c.Type} : {c.Protocol}")));
+        Assert.Empty(swift.Issues);
+        Assert.Empty(objc.Issues);
+        Assert.Contains(swift.Conformances, c => c.Type == "CryptoKit.AES.GCM" && c.Protocol == "pal_swiftbindings.AEADSymmetricAlgorithm" && !c.ProtocolExternal);
+        Assert.All(swift.Conformances, c => Assert.DoesNotContain("?", c.Protocol, StringComparison.Ordinal));
+    }
 }

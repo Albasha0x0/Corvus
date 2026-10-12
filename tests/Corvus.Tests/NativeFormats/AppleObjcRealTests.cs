@@ -36,6 +36,12 @@ public sealed class AppleObjcRealTests(ITestOutputHelper output)
         var ivar = objc.Classes[0].Ivars.Single(v => v.Name == "selector");
         Assert.Equal((":", 16u, 8u), (ivar.Type, ivar.Offset!.Value, ivar.Size));
         Assert.Contains(objc.References, r => r is { Kind: "class", Name: "NSThread", External: true });
+
+        // the name layer gives every implementation the name clang gave its local symbol
+        var names = AppleObjcNames.Build(image, objc);
+        Assert.All(image.Symbols.Where(x => x.Name.StartsWith("-[", StringComparison.Ordinal) || x.Name.StartsWith("+[", StringComparison.Ordinal)),
+            x => Assert.Equal(x.Name, names.Names[x.Rva]));
+        Assert.Equal("_OBJC_CLASS_$_XamarinGCHandle", names.Names[(uint)(objc.Classes.Single(c => c.Name == "XamarinGCHandle").Va - image.ImageBase)]);
     }
 
     /// <summary>
