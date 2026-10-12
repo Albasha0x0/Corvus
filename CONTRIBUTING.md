@@ -22,8 +22,9 @@ A tool is a method with `[McpServerTool]` in `src/Corvus/Tools`. Its `[Descripti
 tool description: keep them accurate, tight and under 2,048 characters (clients cut longer ones). Then:
 
 1. `src/Corvus/Mcp/Contract` (one file per family, e.g. `src/Corvus/Mcp/Contract/Native.cs`): add the tool's
-   effects (read-only, destructive, idempotent, open-world, long-running), from which its annotations come, and the
-   value set of every closed string parameter; an `engine` parameter always needs one.
+   effects (read-only, destructive, idempotent, open-world, long-running), from which its annotations come; the
+   value set of every closed string parameter (an `engine` parameter always needs one); and its contract row (output
+   and latency class, lean and core profiles, dryRun policy, list sort key).
 2. `tests/Corvus.Tests/ContractSweepData` (same layout): list every parameter naming a file the tool writes.
 3. `src/Corvus/Core/Toolsets.cs`: put the tool in exactly one family.
 4. `src/Corvus/Mcp/Guide.cs`: name the tool in the core or in a topic, so the guide covers it.
