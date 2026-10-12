@@ -7,6 +7,24 @@ using Corvus.Mcp;
 namespace Corvus.Tools;
 
 /// <summary>read_result's views of a kept result: the body in a format, a page within a token budget, and a line search.</summary>
+/// <summary>A line of a kept result matching read_result's query, at its character offset.</summary>
+public sealed record ReadResultMatch(int Offset, string Line);
+
+/// <summary>
+/// read_result's record: a page of the kept result (code, offset, nextOffset, totalChars), the matching lines of a query, or
+/// the file the whole result was written to.
+/// </summary>
+public sealed record ReadResultRecord(string Id, string Tool, string Format, int TotalChars)
+{
+    public int? Offset { get; init; }
+    public int? NextOffset { get; init; }
+    [System.ComponentModel.Description("The page of the kept result.")] public string? Code { get; init; }
+    public IReadOnlyList<ReadResultMatch>? Matches { get; init; }
+    public string? Path { get; init; }
+    public long? Bytes { get; init; }
+    public string? Sha256 { get; init; }
+}
+
 internal static class ReadResultView
 {
     /// <summary>Characters of a matching line shown by a search; the offset reaches the rest.</summary>
@@ -40,10 +58,14 @@ internal static class ReadResultView
     }
 
     /// <summary>The text from <paramref name="offset"/> that fits <paramref name="tokens"/>, cut at a line end when one fits, with a [More:]/[End:] footer.</summary>
-    public static string Page(string body, int offset, long tokens)
+    public static string Page(string body, int offset, long tokens) => Page(body, offset, tokens, out _);
+
+    /// <param name="end">Where the page ends; the next page's offset when it is before the end of the body.</param>
+    public static string Page(string body, int offset, long tokens, out int end)
     {
+        end = body.Length;
         if (offset >= body.Length) return $"[End: {body.Length:N0} chars]";
-        int end = offset;
+        end = offset;
         long used = 0;
         while (end < body.Length)
         {
@@ -78,8 +100,13 @@ internal static class ReadResultView
     }
 
     /// <summary>Lines from <paramref name="offset"/> on that match <paramref name="query"/>, each with its character offset.</summary>
-    public static string Search(string body, string query, int offset, long tokens)
+    public static string Search(string body, string query, int offset, long tokens) => Search(body, query, offset, tokens, null, out _);
+
+    /// <param name="hits">Receives each matching line with its offset.</param>
+    /// <param name="next">The offset to search on from, when the page stopped before the end.</param>
+    public static string Search(string body, string query, int offset, long tokens, List<ReadResultMatch>? hits, out int? next)
     {
+        next = null;
         Func<string, bool> matches;
         if (query.Length > 2 && query.StartsWith('/') && query.EndsWith('/'))
         {
@@ -109,9 +136,15 @@ internal static class ReadResultView
             }
             if (hit)
             {
-                var row = $"{at}: {(line.Length > MaxMatchChars ? line[..MaxMatchChars] + "..." : line)}\n";
+                var shown = line.Length > MaxMatchChars ? line[..MaxMatchChars] + "..." : line;
+                var row = $"{at}: {shown}\n";
                 long cost = CallLog.EstimateTokens(row);
-                if (found > 0 && used + cost > tokens) return sb.Append($"[More: offset={at}]").ToString();
+                if (found > 0 && used + cost > tokens)
+                {
+                    next = at;
+                    return sb.Append($"[More: offset={at}]").ToString();
+                }
+                hits?.Add(new ReadResultMatch(at, shown));
                 sb.Append(row);
                 used += cost;
                 found++;

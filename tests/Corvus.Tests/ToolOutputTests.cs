@@ -293,6 +293,27 @@ public class ToolOutputTests
         Assert.Null(ContractSweep.Incomplete("get_call_tree", Text(r), json));
     }
 
+    /// <summary>A text tool declaring TextPageRecord gets its page, offset, nextOffset and totalChars as the record.</summary>
+    [Fact]
+    public async Task TextToolsGetAPageRecord()
+    {
+        var options = new ServerOptions();
+        using var services = Services(options);
+        var pager = new OutputPager(options);
+        var body = string.Concat(Enumerable.Range(0, 3_000).Select(i => $"struct C{i} {{ int field{i}; }};\n"));
+        var r = await Call(services, "generate_cpp_binding", _ =>
+        {
+            var text = pager.Page(body, 0);
+            return new CallToolResult { Content = [new TextContentBlock { Text = text }], StructuredContent = JsonSerializer.SerializeToElement(text) };
+        });
+        var json = Record(r);
+        int next = json.GetProperty("nextOffset").GetInt32();
+        Assert.Equal(0, json.GetProperty("offset").GetInt32());
+        Assert.Equal(body.Length, json.GetProperty("totalChars").GetInt32());
+        Assert.Equal(body[..next], json.GetProperty("code").GetString());
+        Assert.Contains($"[More: offset={next}]", Text(r));
+    }
+
     /// <summary>Timings (compare_folders' seconds) leave the record for _meta, so equal calls give equal records.</summary>
     [Fact]
     public async Task TimingsMoveToMeta()

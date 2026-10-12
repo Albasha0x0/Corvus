@@ -155,7 +155,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     /// <summary>Page size of read_result when maxTokens is not given.</summary>
     public const int ReadResultTokens = 6_000;
 
-    [McpServerTool(Name = "read_result", Title = "Read a kept result")]
+    [McpServerTool(Name = "read_result", Title = "Read a kept result", UseStructuredContent = true, OutputSchemaType = typeof(ReadResultRecord))]
     [Description("Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath.")]
     public string ReadResult(
         [Description("Result id, e.g. r-0123456789ab.")] string id,
@@ -175,10 +175,25 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             if (query != null) throw new ToolError(ErrorCode.InvalidArgument, "query and outputPath cannot be combined.", "write the whole result, then search the file; or drop outputPath");
             var bytes = System.Text.Encoding.UTF8.GetBytes(body);
             var path = SafeFile.WriteAllBytes(outputPath, bytes, overwrite);
-            return $"Wrote {kept.Id} ({kept.Info.Tool}, {format}) to {path}: {bytes.Length:N0} bytes, SHA-256 {Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes))}.";
+            var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+            return ToolOutput.With($"Wrote {kept.Id} ({kept.Info.Tool}, {format}) to {path}: {bytes.Length:N0} bytes, SHA-256 {sha}.",
+                new ReadResultRecord(kept.Id, kept.Info.Tool, format, body.Length) { Path = path, Bytes = bytes.Length, Sha256 = sha });
         }
         var header = $"[{kept.Id}: {kept.Info.Tool} result, {format}, {body.Length:N0} chars]\n";
-        long budget = maxTokens ?? ReadResultTokens;
-        return header + (query != null ? ReadResultView.Search(body, query, offset, budget) : ReadResultView.Page(body, offset, budget));
+        // Inside a call the page leaves room for its header and for the record carrying the same page.
+        long budget = OutputCall.Budgeted is { } call ? call.Tokens * 85 / 100 - 60 : maxTokens ?? ReadResultTokens;
+        var record = new ReadResultRecord(kept.Id, kept.Info.Tool, format, body.Length) { Offset = offset };
+        if (query != null)
+        {
+            var hits = new List<ReadResultMatch>();
+            var found = ReadResultView.Search(body, query, offset, budget, hits, out var after);
+            return ToolOutput.With(header + found, record with { Matches = hits, NextOffset = after });
+        }
+        var page = ReadResultView.Page(body, offset, budget, out var end);
+        return ToolOutput.With(header + page, record with
+        {
+            Code = offset < body.Length ? body[offset..end] : "",
+            NextOffset = end < body.Length ? end : null,
+        });
     }
 }

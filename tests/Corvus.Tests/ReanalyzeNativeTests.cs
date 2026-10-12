@@ -32,7 +32,7 @@ public sealed class ReanalyzeNativeTests : IDisposable
         _owned.Add(workspace);
         var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
         var pager = new OutputPager(options);
-        return (new NativeEngineControlTools(workspace, engines, pager), new NativeSearchDecompiledTools(workspace, engines, pager), engine, native);
+        return (new NativeEngineControlTools(workspace, engines), new NativeSearchDecompiledTools(workspace, engines, pager), engine, native);
     }
 
     [Fact]

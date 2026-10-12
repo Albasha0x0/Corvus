@@ -13,7 +13,7 @@ namespace Corvus.Tools;
 
 /// <summary>Control of the engine's own analysis: its analyzer settings and a new auto-analysis run.</summary>
 [McpServerToolType]
-public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeCodeService? code = null)
+public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeCodeService? code = null)
 {
     [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis")]
     [Description("Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a full run also completes a Ghidra " +
@@ -56,8 +56,9 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
             var rows = all.Where(a => nameFilter == null || nameFilter.IsMatch(a.Name))
                 .Select(a => $"{a.Name} = {a.Value}  ({a.Type}){(string.IsNullOrWhiteSpace(a.Description) ? "" : "  " + Format.Clip(a.Description.ReplaceLineEndings(" "), 160))}")
                 .ToList();
+            // No offset: the whole list; past the page the call filter keeps it for read_result.
             return $"// {native.Id}: {session.ProviderId} analysis options" + (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + "\n" +
-                   pager.PageRows(rows, 0, 5_000, "option") + (nameFilter?.Note("option name") ?? "");
+                   $"{Plural(rows.Count, "option")}:\n" + string.Concat(rows.Select(r => "  " + r + "\n")) + (nameFilter?.Note("option name") ?? "");
         }
 
         progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"{session.ProviderId} reanalysis" });

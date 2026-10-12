@@ -22,5 +22,4 @@ search_code_pattern
 search_container
 search_decompiled
 search_instructions
-search_pdb_symbols
 symbolize_stack_text

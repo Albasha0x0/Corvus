@@ -113,6 +113,8 @@ Read a kept result (resultId; kept on disk 7 days): page it, search it with quer
 | `outputPath` | string |  |  | Write the whole result to this file; returns path, bytes and SHA-256. |
 | `overwrite` | boolean |  | `false` |  |
 
+Structured output: `id`, `tool`, `format`, `totalChars`, `offset`, `nextOffset`, `code`, `matches`, `path`, `bytes`, `sha256`.
+
 ### save_session
 
 **Save the session** (destructive, idempotent)
@@ -884,6 +886,8 @@ Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a 
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 
+Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
+
 ### apply_il2cpp_names
 
 **Name a native Il2Cpp binary from its metadata** (destructive, idempotent, long-running)
@@ -1338,6 +1342,8 @@ C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled
 | `engine` | string |  |  | auto or ours (default: RTTI), ida or ghidra. Values: auto, ours, ida, ghidra. |
 | `namespaces` | boolean |  | `false` | engine=ghidra: plain namespaces and libraries too. |
 
+Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
+
 ### get_native_type
 
 **Native type layout** (read-only, idempotent, open-world, long-running)
@@ -1470,6 +1476,8 @@ Symbols of the PDB loaded for a native image (load_pdb, or found automatically):
 | `kind` | string |  |  | Only this kind (default all). Values: function, data, public, all. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Max rows. |
+
+Structured output: `image`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### get_nativeaot_info
 

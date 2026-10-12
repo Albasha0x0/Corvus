@@ -10,7 +10,7 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerator generator, OutputPager pager, ServerOptions options)
 {
-    [McpServerTool(Name = "generate_cpp_binding", Title = "Generate C++ binding")]
+    [McpServerTool(Name = "generate_cpp_binding", Title = "Generate C++ binding", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
     [Description("Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a struct that resolves the class, field offsets, " +
                  "static fields and methods once, with typed field accessors, property getters and invoke wrappers. " +
                  "style=mono: a header on the Mono embedding API. style=il2cpp: on the Il2Cpp runtime exports, plus each method's native code " +

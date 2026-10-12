@@ -1,0 +1,83 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "signature": {
+            "description": "Undecorated signature of a public symbol, when it says more than the name.",
+            "type": "string"
+          },
+          "module": {
+            "description": "The object file.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "kind",
+          "name"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "items",
+    "offset",
+    "total"
+  ]
+}

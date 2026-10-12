@@ -199,6 +199,16 @@ public sealed record XrefList(string Image, string Target, IReadOnlyList<XrefEnt
     [property: Description(EngineDoc.Engine)] string Engine,
     [property: Description(EngineDoc.Note)] string? EngineNote);
 
+/// <summary>
+/// The record of a text tool (code or a long text paged by characters): the page and where the next one starts (D3).
+/// The call filter fills it from the tool's page.
+/// </summary>
+public sealed record TextPageRecord(
+    [property: Description("The page of text.")] string Code,
+    int Offset,
+    [property: Description("Character offset of the next page; absent on the last.")] int? NextOffset,
+    int TotalChars);
+
 internal static class SearchDoc
 {
     public const string NotEvaluated = "Inputs the regex timed out on (1 s limit each), left out of the results: non-zero means they are incomplete.";

@@ -34,7 +34,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         return (native, workspace.Read(() => NativeAddress.Parse(native.Image, address, code?.Ready(native) is { } index ? index.AddressesOfName : null)));
     }
 
-    [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI")]
+    [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
     [Description("C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, base classes (offsets, virtual and multiple " +
                  "inheritance) and vftables with slot targets; rejects are counted with the reason. Mach-O: also ObjC classes, categories, protocols and Swift types. engine=ghidra lists Ghidra's class namespaces " +
                  "instead (PDB classes too), ida its C++ structs.")]

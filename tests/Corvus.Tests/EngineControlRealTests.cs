@@ -48,7 +48,7 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         await code.Index(native, null, default);
         return new Rig(workspace, code, engines, new NativeCodeTools(workspace, code, pager, null, engines, names),
             new NativeAnalysisTools(workspace, engines, pager, names, code, new NativeTypePush(), new NativeUserTypePush(code), notes),
-            new NativeSearchDecompiledTools(workspace, engines, pager, code, names), new NativeEngineControlTools(workspace, engines, pager, code),
+            new NativeSearchDecompiledTools(workspace, engines, pager, code, names), new NativeEngineControlTools(workspace, engines, code),
             new NativeEditTools(workspace, code, new NativeEditService(workspace, code), null, engines, names), notes, native);
     }
 

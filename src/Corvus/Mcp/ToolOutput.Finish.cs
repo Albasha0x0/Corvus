@@ -36,13 +36,25 @@ public static partial class ToolOutput
                 if (record.Remove(f, out var t) && t != null) (meta["corvus/timings"] ??= new JsonObject())[f] = t.DeepClone();
         }
         if (bare) text = "";
+        // A text tool declaring a record (TextPageRecord) returned only its text: the record is made from the page.
+        bool textRecord = record == null && result.StructuredContent is { ValueKind: JsonValueKind.String };
+        if (textRecord)
+        {
+            record = new JsonObject();
+            if (call.TextPage == null)
+            {
+                record["code"] = text;
+                record["offset"] = 0;
+                record["totalChars"] = text.Length;
+            }
+        }
 
         if (record != null && RowsKey(record, tool) is { } rowsKey)
         {
             if (FitList(call, record, rowsKey, ref text, bare, canRetry, store, origin) is { } retry) return new Finished(result, retry);
         }
         else if (call.TextPage is { } page && record != null)
-            PageRecord(call, record, page, ref text, call.RecordHasBody || ToolContract.Of(tool).Output is OutputClass.Code or OutputClass.Bytes);
+            PageRecord(call, record, page, ref text, textRecord || call.RecordHasBody || ToolContract.Of(tool).Output is OutputClass.Code or OutputClass.Bytes);
         else if (bare) text = RecordText.Render(record!, null);
         // D3: a code or bytes record carries the text it stands beside.
         else if (record != null && record["code"] is null && ToolContract.Of(tool).Output is OutputClass.Code or OutputClass.Bytes) record["code"] = text;

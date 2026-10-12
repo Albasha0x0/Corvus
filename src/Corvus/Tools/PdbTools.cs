@@ -4,6 +4,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Pdb;
 using Corvus.Services;
@@ -13,7 +14,7 @@ namespace Corvus.Tools;
 
 /// <summary>Native debug symbols (PDB): locate, download on request, read, and name functions and data from them.</summary>
 [McpServerToolType]
-public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, OutputPager pager)
+public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
 {
     private const int MaxProbesShown = 25;
 
@@ -110,7 +111,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "search_pdb_symbols", Title = "Search native debug symbols")]
+    [McpServerTool(Name = "search_pdb_symbols", Title = "Search native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(PdbSymbolList))]
     [Description("Symbols of the PDB loaded for a native image (load_pdb, or found automatically): address, kind, size, name, the signature " +
                  "undecorated from the public name, and the object file.")]
     public Task<string> SearchPdbSymbols(
@@ -143,24 +144,24 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         }
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
-        var page = matches.Skip(offset).Take(limit).ToList();
-        var lines = page.Select(x =>
+        var page = matches.Skip(offset).Take(limit).Select(x =>
         {
             string at = x.Rva is { } rva ? NativeAddress.Va(native.Image, rva) : $"{x.Segment:X4}:{x.Offset:X8} (not in the image)";
             string name = x.IsPublic ? PdbNaming.Display(x.Name) : x.Name;
-            string sig = x.IsPublic && PdbNaming.Signature(x.Name) is { } full && full != name ? $"  [{full}]" : "";
-            string mod = x.Module >= 0 && x.Module < s.Pdb.Modules.Count ? $"  ({Path.GetFileName(s.Pdb.Modules[x.Module].Name)})" : "";
-            string size = x.Size > 0 ? $" {x.Size,6}" : "       ";
-            return $"  {at}  {KindName(x.Kind),-8}{size}  {name}{sig}{mod}";
+            string? sig = x.IsPublic && PdbNaming.Signature(x.Name) is { } full && full != name ? full : null;
+            string? mod = x.Module >= 0 && x.Module < s.Pdb.Modules.Count ? Path.GetFileName(s.Pdb.Modules[x.Module].Name) : null;
+            return new PdbSymbolEntry(at, KindName(x.Kind), x.Size > 0 ? (int)x.Size : null, name, sig, mod);
         }).ToList();
-        int fit = pager.FitRows(lines, 400);
-        var sb = new StringBuilder();
-        sb.AppendLine($"{native.Id} ({Path.GetFileName(s.Path)}): {Plural(matches.Count, "symbol")} (showing {(fit == 0 ? 0 : offset + 1)}-{offset + fit}):");
-        foreach (var line in lines.Take(fit)) sb.AppendLine(line);
-        if (fit < lines.Count) sb.AppendLine(OutputPager.CapNote(fit, lines.Count, offset + fit));
-        else if (offset + page.Count < matches.Count) sb.AppendLine($"[More: offset={offset + page.Count}]");
-        return pager.Page(sb.ToString());
+        return ToolOutput.List(page, offset, limit, matches.Count,
+            e => $"{e.Address}  {e.Kind,-8}{(e.Size is { } n ? $" {n,6}" : "       ")}  {e.Name}{(e.Signature != null ? $"  [{e.Signature}]" : "")}{(e.Module != null ? $"  ({e.Module})" : "")}",
+            rows => new PdbSymbolList(native.Id, rows, offset, matches.Count), "symbol", $"{native.Id} ({Path.GetFileName(s.Path)}): ");
     }, cancellationToken);
+
+    public sealed record PdbSymbolEntry(string Address, string Kind, int? Size, string Name,
+        [property: Description("Undecorated signature of a public symbol, when it says more than the name.")] string? Signature,
+        [property: Description("The object file.")] string? Module);
+
+    public sealed record PdbSymbolList(string Image, IReadOnlyList<PdbSymbolEntry> Items, int Offset, int Total);
 
     private static string KindName(PdbSymbolKind kind) => kind switch
     {

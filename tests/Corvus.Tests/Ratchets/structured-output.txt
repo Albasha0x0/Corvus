@@ -23,7 +23,6 @@ export_project
 find_counterpart
 find_method_by_address
 find_r2r_method
-generate_cpp_binding
 get_android_resource
 get_attributes
 get_exception_info
@@ -36,7 +35,6 @@ get_type_hierarchy
 ghidra_script
 ida_python
 install_android_package
-list_cpp_classes
 list_edits
 list_native_edits
 list_native_types
@@ -49,7 +47,6 @@ patch_method_csharp
 patch_method_il
 read_android_log
 read_bytes
-read_result
 reanalyze_native
 reload_assembly
 rename_namespace
@@ -60,7 +57,6 @@ save_assembly
 save_native
 search_bytes
 search_instructions
-search_pdb_symbols
 set_native_local
 set_native_operand
 set_native_stack_var

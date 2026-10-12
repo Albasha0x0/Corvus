@@ -1,0 +1,78 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "tool": {
+      "type": "string"
+    },
+    "format": {
+      "type": "string"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "code": {
+      "description": "The page of the kept result.",
+      "type": "string"
+    },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer"
+          },
+          "line": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "offset",
+          "line"
+        ]
+      }
+    },
+    "path": {
+      "type": "string"
+    },
+    "bytes": {
+      "type": "integer"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "tool",
+    "format",
+    "totalChars"
+  ]
+}
