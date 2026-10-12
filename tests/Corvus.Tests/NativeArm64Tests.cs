@@ -184,6 +184,43 @@ public class NativeArm64Tests
         }
     }
 
+    /// <summary>
+    /// A native method calls (*env)->FindClass(env, "com/example/Native"); JNI_OnLoad gets env through (*vm)->GetEnv(vm,
+    /// &amp;env, JNI_VERSION_1_6) and calls (*env)->RegisterNatives(env, clazz, methods, 1).
+    /// </summary>
+    [Fact]
+    public void Jni_function_table_calls_are_named()
+    {
+        uint name = Data + 0x100;
+        var a = new A64(Code);
+        uint native = a.Here;
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp);
+        a.Word(A64.LdrX(8, 0, 0)).Word(A64.Adrp(a.Here, name, 1, Base)).Word(A64.AddImm(1, 1, name & 0xFFF)).Word(A64.LdrX(8, 8, 6 * 8)).Word(A64.Blr(8));
+        a.Word(A64.LdpFpLrPost).Word(A64.Ret);
+        uint onLoad = a.Here;
+        a.Word(0xA9BE7BFD /* stp x29, x30, [sp, #-32]! */).Word(A64.MovFpSp);
+        a.Word(A64.LdrX(8, 0, 0)).Word(A64.AddImm(1, 31, 16)).Word(A64.MovW(2, 6)).Word(0x72A00022 /* movk w2, #1, lsl #16 */).Word(A64.LdrX(8, 8, 6 * 8)).Word(A64.Blr(8));
+        a.Word(A64.LdrX(0, 31, 16)).Word(A64.LdrX(8, 0, 0)).Word(A64.MovW(3, 1)).Word(A64.LdrX(8, 8, 215 * 8)).Word(A64.Blr(8));
+        a.Word(A64.MovW(0, 6)).Word(0x72A00020 /* movk w0, #1, lsl #16 */).Word(0xA8C27BFD /* ldp x29, x30, [sp], #32 */).Word(A64.Ret);
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("com/example/Native ").CopyTo(data, 0x100);
+        var image = CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), data, entry: native,
+            exports: [new NativeExport("Java_com_example_Native_init", 1, native, null), new NativeExport("JNI_OnLoad", 2, onLoad, null)]);
+        var index = NativeCodeIndex.Build(image);
+        var sites = Native.Calls.Arm64CallSites.For(index);
+        var find = Assert.Single(sites.CallsIn(index.FunctionByStart(native)!));
+        Assert.Equal("JNIEnv::FindClass(?, \"com/example/Native\")", find.Display);
+        var load = sites.CallsIn(index.FunctionByStart(onLoad)!);
+        Assert.Equal(["JavaVM::GetEnv", "JNIEnv::RegisterNatives"], load.Select(s => s.Callee));
+        Assert.Equal(["vm", "penv", "version"], load[0].Arguments.Select(x => x.Name!));
+        Assert.Equal("0x10006", load[0].Arguments[2].Text);
+        Assert.Equal("1", load[1].Arguments[3].Text);
+        Assert.Equal(["JNIEnv::GetMethodID", "JNIEnv::GetFieldID", "JNIEnv::GetStaticMethodID", "JNIEnv::GetStaticFieldID", "JNIEnv::NewStringUTF",
+            "JNIEnv::GetStringUTFChars", "JNIEnv::ExceptionCheck", "JNIEnv::GetModule"],
+            new[] { 33, 94, 113, 144, 167, 169, 228, 233 }.Select(n => Native.Calls.JniInterface.Name(Native.Calls.JniInterface.Table.Env, n)));
+        Assert.Null(Native.Calls.JniInterface.Name(Native.Calls.JniInterface.Table.Env, 234));
+    }
+
     [Fact]
     public void Call_arguments_follow_the_arm64_convention()
     {

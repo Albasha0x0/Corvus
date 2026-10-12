@@ -44,7 +44,7 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
         var steps = code.Blocks[block];
         for (int k = Math.Min(index, steps.Length) - 1; k >= 0; k--)
         {
-            if (++Steps > Budget) return A32Val.Unknown($"stopped after {Budget} steps");
+            if (++Steps > Budget) return A32Val.Unknown($"stopped after {Budget} steps") with { Truncated = true };
             var s = steps[k];
             if (A32Function.IsCall(s.I))
             {

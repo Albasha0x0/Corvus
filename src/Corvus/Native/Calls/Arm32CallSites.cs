@@ -89,10 +89,10 @@ internal sealed class Arm32CallSites : ICallSites
         }
         else
         {
-            callee = s.Text;
+            callee = JniCall(trace, code, b, k) ?? s.Text;
             kind = CalleeKind.Indirect;
         }
-        var signature = ApiSignatures.Find(import?.Name ?? callee, _index.Image);
+        var signature = ApiSignatures.Find(import?.Name ?? callee, _index.Image) ?? (kind == CalleeKind.Indirect ? JniInterface.Signature(callee) : null);
         var resolver = new Arm32Resolver(trace, code) { Budget = 3000 };
         var args = new List<CallArgument>();
         int count = signature != null ? Math.Min(signature.Params.Count, MaxArguments) : GuessedCount(code.Blocks[b], k);
@@ -101,9 +101,9 @@ internal sealed class Arm32CallSites : ICallSites
             var p = signature != null && i < signature.Params.Count ? signature.Params[i] : null;
             var entry = A32Function.ParameterEntry(i);
             string location = A32Function.Name(entry, null);
-            if (p is { IsFloat: true })
+            if (p is { IsFloat: true } or { Type: ApiParamType.Int64 })
             {
-                args.Add(new CallArgument(i, p.Name, p.TypeName, location, ArgKind.Unknown, null, null, "?", "floating-point arguments are not recovered"));
+                args.Add(new CallArgument(i, p.Name, p.TypeName, location, ArgKind.Unknown, null, null, "?", $"{(p.IsFloat ? "floating-point" : "64-bit")} arguments are not recovered"));
                 continue;
             }
             A32Val v = entry.IsSlot
@@ -113,6 +113,65 @@ internal sealed class Arm32CallSites : ICallSites
             args.Add(new CallArgument(i, p?.Name, p?.TypeName, location, argKind, value, rva, text, v.Why.Length > 0 ? v.Why : Describe(v)));
         }
         return new CallSiteInfo(s.Rva, code.Function, callee, kind, import, target, null, signature, signature == null, args, s.Facts.Flow == FlowKind.Jump);
+    }
+
+    /// <summary>
+    /// A blx / bx through [[receiver] + slot] where the receiver is a JNIEnv (a native method's first parameter, or the
+    /// environment JavaVM::GetEnv / AttachCurrentThread stored in a local) or a JavaVM (JNI_OnLoad's first parameter):
+    /// the function of that table, "JNIEnv::FindClass"; null otherwise.
+    /// </summary>
+    private string? JniCall(Arm32Trace trace, A32Function code, int b, int k, bool viaLocal = true)
+    {
+        var s = code.Blocks[b][k];
+        if (s.Facts.Flow is not (FlowKind.IndirectCall or FlowKind.IndirectJump) || s.I.OperandCount == 0
+            || s.I.Op(s.I.OperandCount - 1) is not { Kind: ArmOperandKind.Register } op || op.Reg >= A32Function.Sp) return null;
+        var target = new Arm32Resolver(trace, code) { Budget = 3000 }.Before(A32Loc.Reg(op.Reg), b, k);
+        if (target is not { Kind: A64Kind.Field, Inputs: [{ Kind: A64Kind.Field, Num: 0, Inputs: [var receiver] } table] } || target.Num % 4 != 0) return null;
+        JniInterface.Table? kind = FirstParameter(receiver) ? JniInterface.FirstParameter(_index.NameAt(code.Function.Start))
+            : viaLocal && EnvLocal(trace, code, table.At) ? JniInterface.Table.Env : null;
+        return kind is { } t ? JniInterface.Name(t, (int)(target.Num / 4)) : null;
+    }
+
+    /// <summary>
+    /// The value is the first parameter on every path the resolver finished (reloads and loops included; a path cut at
+    /// the step budget neither confirms nor denies it).
+    /// </summary>
+    private static bool FirstParameter(A32Val v) => v.Kind switch
+    {
+        A64Kind.Incoming => v.Loc is { IsSlot: false, Value: 0 },
+        A64Kind.Merge => v.Inputs is { } inputs && inputs.Any(i => !Open(i)) && inputs.All(i => Open(i) || FirstParameter(i)),
+        _ => false,
+    };
+
+    private static bool Open(A32Val v) => v.Kind == A64Kind.Cycle || v is { Kind: A64Kind.Unknown, Truncated: true } || v is { Kind: A64Kind.Merge, Inputs: { } inputs } && inputs.All(Open);
+
+    /// <summary>
+    /// The receiver of the table load at <paramref name="tableLoad"/> was read from a stack slot whose address an earlier
+    /// JavaVM::GetEnv / AttachCurrentThread call took as its environment out parameter.
+    /// </summary>
+    private bool EnvLocal(Arm32Trace trace, A32Function code, uint tableLoad)
+    {
+        var (b, k) = code.Position(tableLoad);
+        if (b < 0 || A32Function.Memory(code.Blocks[b][k].I) is not { } m || m.Reg >= A32Function.Sp) return false;
+        int? slot = null;
+        for (int j = k - 1; j >= 0 && slot == null; j--)
+        {
+            var s = code.Blocks[b][j];
+            if (A32Function.Dest(s.I) != m.Reg) continue;
+            if (!s.I.Loads || code.Slot(s) is not { } at) return false;
+            slot = at;
+        }
+        if (slot == null) return false;
+        for (int cb = 0; cb < code.Blocks.Length; cb++)
+            for (int ck = 0; ck < code.Blocks[cb].Length; ck++)
+            {
+                var s = code.Blocks[cb][ck];
+                if (s.Rva >= tableLoad || !A32Function.IsCall(s.I)) continue;
+                if (JniCall(trace, code, cb, ck, viaLocal: false) is "JavaVM::GetEnv" or "JavaVM::AttachCurrentThread" or "JavaVM::AttachCurrentThreadAsDaemon"
+                    && new Arm32Resolver(trace, code) { Budget = 600 }.Before(A32Loc.Reg(1), cb, ck) is { Kind: A64Kind.StackAddr } env && (int)(long)env.Num == slot)
+                    return true;
+            }
+        return false;
     }
 
     /// <summary>Without a signature: the argument registers set in the block before the call, up to the highest one.</summary>

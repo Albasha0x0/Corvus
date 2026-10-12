@@ -41,7 +41,7 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
         var steps = code.Blocks[block];
         for (int k = Math.Min(index, steps.Length) - 1; k >= 0; k--)
         {
-            if (++Steps > Budget) return A64Val.Unknown($"stopped after {Budget} steps");
+            if (++Steps > Budget) return A64Val.Unknown($"stopped after {Budget} steps") with { Truncated = true };
             var s = steps[k];
             if (A64Function.IsCall(s.I) && host.IsGuardCheck(code, block, k))
             {

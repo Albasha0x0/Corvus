@@ -293,6 +293,43 @@ public class NativeArm32Tests
         Assert.Contains(index.Callees(stub), c => c.Function == index.FunctionByStart(exported) && c.Kind == XrefKind.TailCall);
     }
 
+    /// <summary>
+    /// Thumb: a native method calls (*env)->FindClass(env, "com/example/Native"); JNI_OnLoad gets env through
+    /// (*vm)->GetEnv(vm, &amp;env, JNI_VERSION_1_6) and calls (*env)->RegisterNatives through it.
+    /// </summary>
+    [Fact]
+    public void Jni_function_table_calls_are_named()
+    {
+        var a = new A32Code(Text);
+        uint lit = 0, add = 0, litVersion = 0;
+        uint native = a.Here;
+        a.H(A32Code.PushLr(0x10)).H(A32Code.LdrImm(2, 0, 0)).Later(2, at => A32Code.LdrLit(1, at, lit));
+        add = a.Here;
+        a.H(A32Code.AddPc(1)).H(A32Code.LdrImm(2, 2, 6 * 4)).H(A32Code.BlxReg(2)).H(A32Code.PopPc(0x10));
+        uint onLoad = a.Here;
+        a.H(A32Code.PushLr(0x10)).H(0xB082 /* sub sp, #8 */).H(A32Code.LdrImm(3, 0, 0)).H(0x4669 /* mov r1, sp */)
+            .Later(2, at => A32Code.LdrLit(2, at, litVersion)).H(A32Code.LdrImm(3, 3, 6 * 4)).H(A32Code.BlxReg(3));
+        a.H(0x9800 /* ldr r0, [sp] */).H(A32Code.LdrImm(3, 0, 0)).T(A32Code.LdrW(3, 3, 215 * 4)).H(A32Code.BlxReg(3));
+        a.H(0xB002 /* add sp, #8 */).H(A32Code.PopPc(0x10)).Align4();
+        lit = a.Here;
+        a.Later(4, _ => Data - (add + 4));
+        litVersion = a.Here;
+        a.W(0x10006);
+        var image = Elf(a.Bytes(), w =>
+        {
+            w.Symbols.Add(new ElfWriter.Symbol("Java_com_example_Native_init", native | 1, Type: 2));
+            w.Symbols.Add(new ElfWriter.Symbol("JNI_OnLoad", onLoad | 1, Type: 2));
+            Encoding.ASCII.GetBytes("com/example/Native ").CopyTo(w.Data, 0);
+        });
+        var index = NativeCodeIndex.Build(image);
+        var sites = Native.Calls.Arm32CallSites.For(index);
+        var find = Assert.Single(sites.CallsIn(index.FunctionByStart(native)!));
+        Assert.Equal("JNIEnv::FindClass(?, \"com/example/Native\")", find.Display);
+        var load = sites.CallsIn(index.FunctionByStart(onLoad)!);
+        Assert.Equal(["JavaVM::GetEnv", "JNIEnv::RegisterNatives"], load.Select(s => s.Callee));
+        Assert.Equal("0x10006", load[0].Arguments[2].Text);
+    }
+
     [Fact]
     public void An_even_entry_point_is_no_state_fact()
     {

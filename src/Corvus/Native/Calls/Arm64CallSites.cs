@@ -135,7 +135,7 @@ internal sealed partial class Arm64CallSites : ICallSites
             callee = s.Instruction.ToString();
             kind = CalleeKind.Indirect;
         }
-        var signature = ApiSignatures.Find(import?.Name ?? dynamic?.Name ?? callee, _index.Image);
+        var signature = ApiSignatures.Find(import?.Name ?? dynamic?.Name ?? callee, _index.Image) ?? (kind == CalleeKind.Indirect ? JniInterface.Signature(callee) : null);
         var args = new List<CallArgument>();
         int ints = 0, floats = 0;
         if (signature != null)
@@ -234,9 +234,69 @@ internal sealed partial class Arm64CallSites : ICallSites
                 return (dyn.FullName, CalleeKind.Dynamic, null, dyn.PointerGlobal, dyn);
             case A64Kind.Global when _dynamic?.ByGlobal.GetValueOrDefault(v.Rva) is { } dyn:
                 return (dyn.FullName, CalleeKind.Dynamic, null, dyn.PointerGlobal, dyn);
+            case A64Kind.Field when JniCall(caller, v, code) is { } jni:
+                return (jni, CalleeKind.Indirect, null, null, null);
             default:
                 return null;
         }
+    }
+
+    /// <summary>
+    /// A call through [[receiver] + slot] where the receiver is a JNIEnv (a native method's first parameter, or the
+    /// environment JavaVM::GetEnv / AttachCurrentThread stored in a local) or a JavaVM (JNI_OnLoad's first parameter):
+    /// the function of that table, "JNIEnv::FindClass".
+    /// </summary>
+    private string? JniCall(NativeFunction caller, A64Val target, A64Function code, bool viaLocal = true)
+    {
+        if (target is not { Kind: A64Kind.Field, Inputs: [{ Kind: A64Kind.Field, Num: 0, Inputs: [var receiver] } table] } || target.Num % 8 != 0) return null;
+        JniInterface.Table? kind = FirstParameter(receiver) ? JniInterface.FirstParameter(_index.NameAt(caller.Start))
+            : viaLocal && EnvLocal(caller, code, table.At) ? JniInterface.Table.Env : null;
+        return kind is { } k ? JniInterface.Name(k, (int)(target.Num / 8)) : null;
+    }
+
+    /// <summary>
+    /// The value is the first parameter on every path the resolver finished (reloads and loops included; a path cut at
+    /// the step budget neither confirms nor denies it).
+    /// </summary>
+    private static bool FirstParameter(A64Val v) => v.Kind switch
+    {
+        A64Kind.Incoming => v.Loc is { IsSlot: false, Value: 0 },
+        A64Kind.Merge => v.Inputs is { } inputs && inputs.Any(i => !Open(i)) && inputs.All(i => Open(i) || FirstParameter(i)),
+        _ => false,
+    };
+
+    private static bool Open(A64Val v) => v.Kind == A64Kind.Cycle || v is { Kind: A64Kind.Unknown, Truncated: true } || v is { Kind: A64Kind.Merge, Inputs: { } inputs } && inputs.All(Open);
+
+    /// <summary>
+    /// The receiver of the table load at <paramref name="tableLoad"/> was read from a stack slot whose address an earlier
+    /// JavaVM::GetEnv / AttachCurrentThread call took as its environment out parameter.
+    /// </summary>
+    private bool EnvLocal(NativeFunction caller, A64Function code, uint tableLoad)
+    {
+        var (b, k) = code.Position(tableLoad);
+        if (b < 0 || A64Function.Memory(code.Blocks[b][k]) is not { Accessor: var a } || a.BaseRegister.Kind != Arm64RegisterKind.X) return false;
+        int r = a.BaseRegister.Index;
+        int? slot = null;
+        for (int j = k - 1; j >= 0 && slot == null; j--)
+        {
+            var s = code.Blocks[b][j];
+            if (A64Function.Dest(s.I) is not { Kind: Arm64RegisterKind.X } d || d.Index != r) continue;
+            if (s.I.Mnemonic is not (Arm64Mnemonic.LDR or Arm64Mnemonic.LDUR) || A64Function.Memory(s) is not { Slot: { } at }) return false;
+            slot = at;
+        }
+        if (slot == null) return false;
+        var trace = Arm64Trace.For(_index);
+        for (int cb = 0; cb < code.Blocks.Length; cb++)
+            for (int ck = 0; ck < code.Blocks[cb].Length; ck++)
+            {
+                var s = code.Blocks[cb][ck];
+                if (s.Rva >= tableLoad || !A64Function.IsCall(s.I) || A64Function.Gpr(s.I, 0) is not (var reg and >= 0 and < 31)) continue;
+                var resolver = new Arm64Resolver(trace, code) { Budget = 600 };
+                if (JniCall(caller, resolver.Before(A64Loc.Reg(reg), cb, ck), code, viaLocal: false) is "JavaVM::GetEnv" or "JavaVM::AttachCurrentThread" or "JavaVM::AttachCurrentThreadAsDaemon"
+                    && resolver.Before(A64Loc.Reg(1), cb, ck) is { Kind: A64Kind.StackAddr } env && (int)(long)env.Num == slot)
+                    return true;
+            }
+        return false;
     }
 
     /// <summary>Without a signature: the argument registers set in the block before the call, up to the highest one.</summary>
