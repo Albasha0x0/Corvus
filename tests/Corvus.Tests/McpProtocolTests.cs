@@ -104,8 +104,11 @@ public abstract class McpProtocolTests : IAsyncLifetime
     internal static List<string> ErrorShapeProblems(CallToolResult result)
     {
         var problems = new List<string>();
-        var blocks = result.Content.OfType<TextContentBlock>().Where(b => !b.Text.StartsWith("[workspace]", StringComparison.Ordinal)).ToList();
+        var all = result.Content.OfType<TextContentBlock>().ToList();
+        var blocks = all.Where(b => !b.Text.StartsWith("[workspace]", StringComparison.Ordinal)).ToList();
         if (result.IsError != true) problems.Add("not IsError");
+        // Some clients show the model only the first block of an error: notices go after it.
+        if (all.Count > 0 && blocks.Count > 0 && !ReferenceEquals(all[0], blocks[0])) problems.Add("a notice precedes the error text");
         if (result.StructuredContent != null) problems.Add("an error result carries structuredContent");
         if (blocks.Count != 2) { problems.Add($"{blocks.Count} text blocks instead of the error text and its JSON"); return problems; }
         var head = System.Text.RegularExpressions.Regex.Match(blocks[0].Text, @"^Error \(([a-z_]+)(, retryable)?\)( in \S+)?: ");
@@ -124,9 +127,11 @@ public abstract class McpProtocolTests : IAsyncLifetime
         else if (head.Success && retryable.GetBoolean() != head.Groups[2].Success) problems.Add("retryable differs from the text");
         if (!json.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.String || message.GetString()!.Length == 0) problems.Add("message is not a non-empty string");
         else if (!blocks[0].Text.Contains(message.GetString()!, StringComparison.Ordinal)) problems.Add("message is not the text's message");
-        if (!json.TryGetProperty("next", out var next) || next.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)) problems.Add("next is not a string or null");
-        else if ((next.ValueKind == JsonValueKind.String) != blocks[0].Text.Contains("\nNext: ", StringComparison.Ordinal)) problems.Add("next differs from the text's Next line");
+        if (!json.TryGetProperty("next", out var next) || next.ValueKind != JsonValueKind.String || next.GetString()!.Length == 0) problems.Add("next is not a non-empty string");
+        else if (!blocks[0].Text.Contains("\nNext: " + next.GetString(), StringComparison.Ordinal)) problems.Add("next differs from the text's Next line");
         if (json.TryGetProperty("details", out var details) && details.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null)) problems.Add("details is not an object or null");
+        // docs/error.schema.json: closed code set, required next, retryAfterMs only on the codes that can wait.
+        problems.AddRange(ErrorSchema.Problems(json));
         return problems;
     }
 
@@ -137,7 +142,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
     {
         var problems = ErrorShapeProblems(result);
         Assert.True(problems.Count == 0, string.Join("\n", problems));
-        return JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Last().Text[ErrorJsonMarker.Length..]).RootElement.Clone();
+        return JsonDocument.Parse(result.Content.OfType<TextContentBlock>().First(b => b.Text.StartsWith(ErrorJsonMarker, StringComparison.Ordinal)).Text[ErrorJsonMarker.Length..]).RootElement.Clone();
     }
 
     private static readonly Dictionary<McpClient, Dictionary<string, JsonElement?>> Schemas = [];
