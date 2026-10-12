@@ -22,7 +22,8 @@ namespace Corvus.Tools;
 /// </summary>
 [McpServerToolType]
 public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, PdbService pdb,
-    Il2CppService il2cpp, Il2CppNavigator navigator, Il2CppNativeNames il2cppNames, Il2CppRawLoader? il2cppRaw = null, NotesService? noteStore = null)
+    Il2CppService il2cpp, Il2CppNavigator navigator, Il2CppNativeNames il2cppNames, Il2CppRawLoader? il2cppRaw = null, NotesService? noteStore = null,
+    AssemblyComparer? comparer = null)
 {
     public const string Names = "names", Pdb = "pdb", Il2CppNames = "il2cpp_names", Patches = "patches", Patterns = "patterns",
         Il2CppMapping = "il2cpp_mapping", NoteCategory = "notes", DotNet = "dotnet";
@@ -90,8 +91,8 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                  "new build's matching PDB) and the Il2Cpp layer (re-applied from the new build's metadata, else mapped through the match); byte patches " +
                  "(migrate_native_patches rules; stubs re-created after the displaced instructions are verified); code patterns at every carried site, " +
                  "checked for drift; for Il2Cpp the method -> RVA mapping by metadata identity; and notes. dryRun=false applies names, layers, then patches; " +
-                 "a re-run reports already_present. Returns a summary, per-category counts with reason codes and a paged item list. .NET assemblies: " +
-                 "compare_assemblies, find_counterpart, export_edits + apply_edits.")]
+                 "a re-run reports already_present. Returns a summary, per-category counts with reason codes and a paged item list. Two .NET " +
+                 "assemblies: notes, mapped by find_counterpart; edits: export_edits + apply_edits.")]
     public Task<UpdateReport> UpdateToNewBuild(
         [Description("The old build: native image id or path (the source of names, layers and patches).")] string oldImage,
         [Description("The new build: native image id or path (load both; the second gets an id like name#2).")] string newImage,
@@ -125,6 +126,8 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         limit = ClampLimit(limit, 2000);
         const int phases = 7;
         void Phase(int done, string message) => progress.Report(new ProgressNotificationValue { Progress = done, Total = phases, Message = message });
+        if (comparer != null && await Task.Run(() => ManagedPair(oldImage, newImage), ct) is { } managed)
+            return await Task.Run(() => DotNetUpdate(managed.Old, managed.New, dryRun, included, categoryFilter, outcomeFilter, offset, limit, sw, ct), ct);
 
         Phase(0, "indexing both builds");
         var oldNative = await Resolve(oldImage, ct);
@@ -321,6 +324,131 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         categories[NoteCategory] = (dryRun ? "previewed" : "applied", $"{old.Count} note(s) on {oldNative.Id}", null);
     }
 
+    /// <summary>Both arguments name .NET assemblies (loaded, or paths of unloaded ones); null when either is a native image.</summary>
+    private (LoadedAssembly Old, LoadedAssembly New)? ManagedPair(string oldImage, string newImage)
+    {
+        LoadedAssembly? One(string image)
+        {
+            if (string.IsNullOrWhiteSpace(image) || workspace.Read(() => workspace.FindNative(image)) != null) return null;
+            try { return workspace.Read(() => workspace.Get(image)); }
+            catch (ToolError) { }
+            var path = image.Trim();
+            if (!Path.IsPathFullyQualified(path) || !File.Exists(path)) return null;
+            var loaded = workspace.LoadAny(path);
+            return loaded.Native == null ? loaded.Assembly : null;
+        }
+        return One(oldImage) is { } o && One(newImage) is { } n ? (o, n) : null;
+    }
+
+    /// <summary>A .NET pair: notes on members follow find_counterpart's match; the other categories belong to the native path.</summary>
+    private UpdateReport DotNetUpdate(LoadedAssembly oldAsm, LoadedAssembly newAsm, bool dryRun, HashSet<string> included, string? categoryFilter, string? outcomeFilter,
+        int offset, int limit, Stopwatch sw, CancellationToken ct)
+    {
+        if (ReferenceEquals(oldAsm, newAsm))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Both arguments name {oldAsm.Id}.", "load the other build too and pass its id (e.g. name#2)");
+        var cmp = workspace.Read(() => comparer!.Compare(oldAsm, newAsm, ct), ct);
+        var items = new List<Item>();
+        var categories = new Dictionary<string, (string Status, string Detail, int? Carried)>();
+        foreach (var c in new[] { Names, Pdb, Il2CppNames, Il2CppMapping, Patches, Patterns })
+            if (included.Contains(c)) categories[c] = ("not_applicable", ".NET builds: export_edits, then apply_edits targetBuild=other", null);
+        if (included.Contains(NoteCategory)) workspace.Read(() => DotNetNoteStep(oldAsm, newAsm, cmp, dryRun, items, categories, ct), ct);
+        categories[DotNet] = ("reported", $"{cmp.TypeMap.Count} type(s) and {cmp.MemberMap.Count} member(s) matched; compare_assemblies lists the changes", null);
+
+        var categoryList = CategoryOrder.Select(c => Summarize(c, items, categories, included)).ToList();
+        var filtered = items.Where(i => (categoryFilter == null || i.Category == categoryFilter) && (outcomeFilter == null || i.Outcome == outcomeFilter)).ToList();
+        var page = filtered.Skip(offset).Take(limit).Select(i => new UpdateItem(i.Category, i.Kind,
+            i.OldRva is { } o ? $"0x{o:X8}" : null, i.NewRva is { } n ? $"0x{n:X8}" : null,
+            i.Value, i.Outcome, i.Reason, Math.Round(i.Confidence, 3), i.Tier, i.Detail)).ToList();
+        var sb = new StringBuilder(dryRun ? "Dry run (nothing changed): " : "Applied: ");
+        sb.Append($"{oldAsm.Id} -> {newAsm.Id} (.NET), {cmp.MemberMap.Count} member(s) matched. ");
+        AppendCategories(sb, categoryList, dryRun, null);
+        sb.Append("Edits: export_edits, then apply_edits targetBuild=other.");
+        int Methods(LoadedAssembly a) => workspace.Read(() => a.Module.GetTypes().Sum(t => t.Methods.Count));
+        return new UpdateReport(sb.ToString(), oldAsm.Id, newAsm.Id, dryRun, CategoryOrder.Where(included.Contains).ToList(),
+            Methods(oldAsm), Methods(newAsm), cmp.MemberMap.Keys.Count(k => k is dnlib.DotNet.MethodDef), categoryList, null,
+            categoryFilter, outcomeFilter, offset, filtered.Count, offset + limit < filtered.Count, page,
+            ["a .NET pair: notes are mapped by find_counterpart; addresses are metadata tokens"], Math.Round(sw.Elapsed.TotalSeconds, 2));
+    }
+
+    /// <summary>
+    /// Notes on the old build's members (and on the whole file) recorded again on the counterpart in the new build, with the
+    /// old token as evidence; ambiguous and unmatched members are reported, not guessed.
+    /// </summary>
+    private int DotNetNoteStep(LoadedAssembly oldAsm, LoadedAssembly newAsm, AssemblyComparer.Comparison cmp, bool dryRun, List<Item> items,
+        Dictionary<string, (string Status, string Detail, int? Carried)> categories, CancellationToken ct)
+    {
+        if (noteStore == null)
+        {
+            categories[NoteCategory] = ("not_applicable", "notes are not available in this server", null);
+            return 0;
+        }
+        var oldMvid = oldAsm.Module.Mvid?.ToString();
+        var newMvid = newAsm.Module.Mvid?.ToString();
+        var old = noteStore.Read(oldAsm.OriginalSha256.ToLowerInvariant()).Where(n => n.Anchor.Kind == NoteAnchor.File)
+            .Concat(oldMvid == null ? [] : noteStore.Read(new NoteAnchor(NoteAnchor.DotNet, Mvid: oldMvid).StoreKey).Where(n => n.Anchor.Kind == NoteAnchor.DotNet))
+            .ToList();
+        if (old.Count == 0)
+        {
+            categories[NoteCategory] = ("not_applicable", $"{oldAsm.Id} has no notes", null);
+            return 0;
+        }
+        var existing = noteStore.Read(newAsm.OriginalSha256.ToLowerInvariant())
+            .Concat(newMvid == null ? [] : noteStore.Read(new NoteAnchor(NoteAnchor.DotNet, Mvid: newMvid).StoreKey)).ToList();
+        var carried = new List<Note>();
+        foreach (var n in old)
+        {
+            ct.ThrowIfCancellationRequested();
+            var text = n.Text.Length > 80 ? n.Text[..77] + "..." : n.Text;
+            NoteAnchor anchor;
+            string reason = "file", detail = "a note on the whole file";
+            double confidence = 1;
+            uint? newToken = null;
+            if (n.Anchor.Kind == NoteAnchor.DotNet)
+            {
+                var member = MetadataUtil.Try(() => oldAsm.Module.ResolveToken(n.Anchor.Token!.Value) as dnlib.DotNet.IMemberDef);
+                if (member == null)
+                {
+                    items.Add(new Item(NoteCategory, "note", n.Anchor.Token, null, text, "refused", "not_in_old_build", 0, null, $"token 0x{n.Anchor.Token:X8} names no member of {oldAsm.Id}"));
+                    continue;
+                }
+                var found = comparer!.FindCounterpart(cmp, member);
+                if (found.Candidates is { } candidates)
+                {
+                    items.Add(new Item(NoteCategory, "note", n.Anchor.Token, null, text, "ambiguous", "ambiguous", 0, null,
+                        $"{Format.MemberLabel(member)}: {found.How} ({string.Join(", ", candidates.Take(3).Select(Format.MemberLabel))})"));
+                    continue;
+                }
+                if (found.Match is not { } match || newMvid == null)
+                {
+                    items.Add(new Item(NoteCategory, "note", n.Anchor.Token, null, text, "refused", "no_counterpart", 0, null, $"{Format.MemberLabel(member)}: {found.How}"));
+                    continue;
+                }
+                newToken = match.MDToken.Raw;
+                (reason, detail) = (found.Tier ?? "matched", $"{Format.MemberLabel(member)} -> {Format.MemberLabel(match)} ({found.How})");
+                confidence = found.Confidence switch { "exact" => 1, "strong" => 0.9, _ => 0.7 };
+                anchor = n.Anchor with { Sha256 = newAsm.OriginalSha256, Mvid = newMvid, Token = newToken, Label = $"{newAsm.Id}:{Format.MemberLabel(match)}" };
+            }
+            else anchor = n.Anchor with { Sha256 = newAsm.OriginalSha256, Label = newAsm.Id };
+            if (existing.Any(e => e.Text == n.Text && e.Anchor.Kind == n.Anchor.Kind && e.Anchor.Token == newToken))
+            {
+                items.Add(new Item(NoteCategory, "note", n.Anchor.Token, newToken, text, "already_present", "same_note", confidence, null, detail));
+                continue;
+            }
+            carried.Add(n with
+            {
+                Id = NotesService.NewId(),
+                Anchor = anchor,
+                Evidence = [.. n.Evidence.Take(NotesService.MaxEvidence - 1), $"carried from {n.Anchor.Label ?? oldAsm.Id} ({reason})"],
+                Revision = 1,
+                Updated = DateTime.UtcNow,
+            });
+            items.Add(new Item(NoteCategory, "note", n.Anchor.Token, newToken, text, dryRun ? "would_carry" : "carried", reason, confidence, null, detail));
+        }
+        if (!dryRun && carried.Count > 0) noteStore.Import(carried);
+        categories[NoteCategory] = (dryRun ? "previewed" : "applied", $"{old.Count} note(s) on {oldAsm.Id}", null);
+        return carried.Count;
+    }
+
     private static UpdateCategory Summarize(string name, List<Item> items, Dictionary<string, (string Status, string Detail, int? Carried)> categories, HashSet<string> included)
     {
         if (!categories.TryGetValue(name, out var c))
@@ -339,6 +467,13 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         var sb = new StringBuilder();
         sb.Append(dryRun ? "Dry run (nothing changed): " : "Applied: ");
         sb.Append($"{oldId} -> {newId}, {match.Pairs.Count} of {match.Old.Functions.Length} old functions matched. ");
+        AppendCategories(sb, categories, dryRun, map);
+        sb.Append(dryRun ? "Run again with dryRun=false to apply." : "Run again to verify: carried items then report already_present.");
+        return sb.ToString();
+    }
+
+    private static void AppendCategories(StringBuilder sb, List<UpdateCategory> categories, bool dryRun, Il2CppMappingSummary? map)
+    {
         foreach (var c in categories.Where(c => c.Status is not ("not_included" or "out_of_scope")))
         {
             if (c.Category == Il2CppMapping && map != null)
@@ -354,8 +489,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                 sb.Append($", {other} not ({string.Join(", ", c.NotCarriedBy.Take(4).Select(r => $"{r.Reason} {r.Count}"))})");
             sb.Append(". ");
         }
-        sb.Append(dryRun ? "Run again with dryRun=false to apply." : "Run again to verify: carried items then report already_present.");
-        return sb.ToString();
     }
 
     private async Task PdbLayer(LoadedNative oldNative, LoadedNative newNative, bool dryRun, List<Item> items,

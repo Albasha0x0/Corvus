@@ -40,7 +40,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
             Edits = new NativeEditService(Env.Workspace, Code);
             Notes = new NotesService(store);
             Tools = new BuildUpdateTools(Env.Workspace, Code, Edits, pdb, Env.Il2Cpp, Env.Il2CppNavigator, new Il2CppNativeNames(Env.Il2Cpp, Env.Il2CppNavigator, Code),
-                noteStore: Notes);
+                noteStore: Notes, comparer: new AssemblyComparer(Env.Workspace));
         }
 
         public async Task<(LoadedNative, NativeCodeIndex)> Load(byte[] image, string name, uint[]? starts)
@@ -183,6 +183,46 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, include: "notes");
         Assert.Equal(2, again.Items.Count(i => i is { Category: "notes", Outcome: "already_present" }));
         Assert.Equal(2, h.Notes.Read(newN.OriginalSha256).Count);
+    }
+
+    [Fact]
+    public async Task DotNet_notes_follow_find_counterpart_to_the_new_build()
+    {
+        using var h = new Harness();
+        LoadedAssembly Build(string folder, string source)
+        {
+            var path = h.Dir.File(Path.Combine(folder, "Lib.dll"));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, Roslyn.Release("Lib", source));
+            return h.Env.Workspace.Load(path);
+        }
+        var oldAsm = Build("v1", "namespace N { public class Shop { public int Describe(int x) { return x * 37 + 11; } public int Gone(int y) { return y ^ 0x5A5A; } } }");
+        var newAsm = Build("v2", "namespace N { public class Shop { public int Summary(int x) { return x * 37 + 11; } } }");
+        NoteAnchor On(string name)
+        {
+            var m = h.Env.Workspace.Read(() => oldAsm.Module.Find("N.Shop", false).Methods.Single(x => x.Name == name));
+            return new NoteAnchor(NoteAnchor.DotNet, Sha256: oldAsm.OriginalSha256, Mvid: oldAsm.Module.Mvid.ToString(), Token: m.MDToken.Raw, Label: $"{oldAsm.Id}:N.Shop::{name}");
+        }
+        h.Notes.Record("checks the license", null, null, On("Describe"), ["license"], null, null);
+        h.Notes.Record("dead code?", "question", null, On("Gone"), null, null, null);
+        h.Notes.Record("obfuscated build", null, null, new NoteAnchor(NoteAnchor.File, Sha256: oldAsm.OriginalSha256, Label: oldAsm.Id), null, null, null);
+
+        var dry = await h.Tools.UpdateToNewBuild(oldAsm.Id, newAsm.Id, include: "notes");
+        var summaryToken = h.Env.Workspace.Read(() => newAsm.Module.Find("N.Shop", false).Methods.Single(x => x.Name == "Summary").MDToken.Raw);
+        Assert.Equal(("would_carry", $"0x{summaryToken:X8}"), One(dry, "notes", i => i.Value == "checks the license") is var d ? (d.Outcome, d.NewAddress) : default);
+        Assert.Equal(("refused", "no_counterpart"), One(dry, "notes", i => i.Value == "dead code?") is var g ? (g.Outcome, g.Reason) : default);
+        Assert.Equal(("would_carry", "file"), One(dry, "notes", i => i.Value == "obfuscated build") is var f ? (f.Outcome, f.Reason) : default);
+        Assert.Equal("reported", dry.Categories.Single(c => c.Category == "dotnet").Status);
+        Assert.Equal("not_applicable", (await h.Tools.UpdateToNewBuild(oldAsm.Id, newAsm.Id)).Categories.Single(c => c.Category == "names").Status);
+
+        await h.Tools.UpdateToNewBuild(oldAsm.Id, newAsm.Id, dryRun: false, include: "notes");
+        var carried = h.Notes.Read(new NoteAnchor(NoteAnchor.DotNet, Mvid: newAsm.Module.Mvid.ToString()).StoreKey).Single();
+        Assert.Equal((summaryToken, $"{newAsm.Id}:N.Shop::Summary(int)"), (carried.Anchor.Token!.Value, carried.Anchor.Label));
+        Assert.Equal(["license"], carried.Tags);
+        Assert.Single(h.Notes.Read(newAsm.OriginalSha256.ToLowerInvariant()));
+
+        var again = await h.Tools.UpdateToNewBuild(oldAsm.Id, newAsm.Id, dryRun: false, include: "notes");
+        Assert.Equal(2, again.Items.Count(i => i.Outcome == "already_present"));
     }
 
     [Fact]
