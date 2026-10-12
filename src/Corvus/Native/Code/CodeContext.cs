@@ -312,14 +312,17 @@ internal sealed class CodeContext
     /// <summary>Relocations inside executable code (instruction operands, x86 tables): all a code decoder needs to look up.</summary>
     public uint[] CodeRelocations { get; }
 
-    public ICodeDecoder NewDecoder(bool computeAccess) => Image.Arch switch
+    public ICodeDecoder NewDecoder(bool computeAccess)
     {
-        NativeArch.X86 or NativeArch.X64 => new X86Decoder(Code, CodeRelocations)
+        X86Decoder X86() => new(Image, Code, CodeRelocations, is64: Image.Is64Bit)
         {
             ComputeAccess = computeAccess, RejectImplausible = !IsKernelMode, CheckRelocations = true, ImageHasRelocations = Relocations.Length > 0,
-        },
-        _ => CodeDecoders.Create(Image, Code, Relocations, ImportSlotSet, DataInCode, ArmModes),
-    };
+        };
+        var primary = Image.Arch is NativeArch.X86 or NativeArch.X64 ? X86() : CodeDecoders.Create(Image, Code, Relocations, ImportSlotSet, DataInCode, ArmModes);
+        if (Code.OtherRanges.Length == 0) return primary;
+        ICodeDecoder other = Image.Arch == NativeArch.Arm64 ? X86() : new Arm64Decoder(Image, Code, Relocations, ImportSlotSet, DataInCode);
+        return new HybridDecoder(primary, other, Code.OtherRanges);
+    }
 
     private HashSet<uint>? _importSlotSet;
     private HashSet<uint> ImportSlotSet => _importSlotSet ??= [.. ImportSlots.Keys];

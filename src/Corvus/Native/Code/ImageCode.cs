@@ -61,26 +61,29 @@ internal sealed class ImageCode
         _regions = regions.ToArray();
         _regionStarts = _regions.Select(r => r.Rva).ToArray();
         TotalBytes = bitBase;
-        // a hybrid image's code of the other instruction set (x64 in ARM64X, ARM64 / ARM64EC in an x64 image) is not this decoder's code
-        if (image is Pe.PeFile pe && Pe.PeHybrid.Of(pe) is { } hybrid)
-        {
-            bool arm = image.Arch == NativeArch.Arm64;
-            _foreign = [.. hybrid.CodeRanges.Where(r => r.Length > 0 && (arm ? r.Arch == "x64" : r.Arch is "ARM64" or "ARM64EC"))
-                .Select(r => (r.Rva, r.Rva + r.Length)).OrderBy(r => r.Item1)];
-        }
+        OtherRanges = OtherInstructionSet(image);
     }
 
-    private readonly (uint Start, uint End)[] _foreign = [];
+    /// <summary>A hybrid image's code of the other instruction set (x64 in ARM64X, ARM64 / ARM64EC in an x64 image), sorted; empty otherwise.</summary>
+    public (uint Start, uint End)[] OtherRanges { get; }
 
-    private bool Foreign(uint rva)
+    /// <summary>The code map ranges of a hybrid PE in the instruction set its header machine does not name, sorted.</summary>
+    public static (uint Start, uint End)[] OtherInstructionSet(INativeImage image)
     {
-        var f = _foreign;
-        int lo = 0, hi = f.Length - 1;
+        if (image is not Pe.PeFile pe || Pe.PeHybrid.Of(pe) is not { } hybrid) return [];
+        bool arm = image.Arch == NativeArch.Arm64;
+        return [.. hybrid.CodeRanges.Where(r => r.Length > 0 && (arm ? r.Arch == "x64" : r.Arch is "ARM64" or "ARM64EC"))
+            .Select(r => (r.Rva, r.Rva + r.Length)).OrderBy(r => r.Item1)];
+    }
+
+    public static bool InRanges((uint Start, uint End)[] ranges, uint rva)
+    {
+        int lo = 0, hi = ranges.Length - 1;
         while (lo <= hi)
         {
             int mid = (lo + hi) >>> 1;
-            if (rva < f[mid].Start) hi = mid - 1;
-            else if (rva >= f[mid].End) lo = mid + 1;
+            if (rva < ranges[mid].Start) hi = mid - 1;
+            else if (rva >= ranges[mid].End) lo = mid + 1;
             else return true;
         }
         return false;
@@ -96,10 +99,10 @@ internal sealed class ImageCode
         return rva - r.Rva < (uint)r.Bytes.Length ? r : null;
     }
 
-    public bool IsCode(uint rva) => RegionAt(rva) != null && (_foreign.Length == 0 || !Foreign(rva));
+    public bool IsCode(uint rva) => RegionAt(rva) != null;
 
     /// <summary>Dense bit index of a code byte, or -1.</summary>
-    public long BitIndex(uint rva) => RegionAt(rva) is { } r && (_foreign.Length == 0 || !Foreign(rva)) ? r.BitBase + (rva - r.Rva) : -1;
+    public long BitIndex(uint rva) => RegionAt(rva) is { } r ? r.BitBase + (rva - r.Rva) : -1;
 }
 
 /// <summary>A fixed-size bit set over the dense code byte index of <see cref="ImageCode"/>.</summary>

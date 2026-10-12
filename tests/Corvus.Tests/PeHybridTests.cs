@@ -14,10 +14,10 @@ public sealed class PeHybridTests
     /// CHPE metadata (code map of an ARM64, an ARM64EC and an x64 range; alternate entry point; auxiliary IAT) and, for ARM64X, the ARM64X
     /// relocations that make the x64 view: machine AMD64, entry point 0x1040, a replaced export directory.
     /// </summary>
-    internal static byte[] Hybrid(ushort machine)
+    internal static byte[] Hybrid(ushort machine, byte[]? text = null)
     {
         var b = new PeBuilder { Machine = machine, ImageBase = Base, EntryPoint = 0x1000 };
-        b.Add(".text", new byte[0x100], 0x60000020);
+        b.Add(".text", text ?? new byte[0x100], 0x60000020);
         var rdata = new byte[0x400];
         const uint RdataRva = 0x2000, Lc = 0, Meta = 0x140, Map = 0x1C0, Table = 0x200;
         BinaryPrimitives.WriteUInt32LittleEndian(rdata.AsSpan((int)Lc), 0x140);
@@ -81,13 +81,23 @@ public sealed class PeHybridTests
     }
 
     [Fact]
-    public void Code_of_the_other_instruction_set_is_not_decoded()
+    public void Code_of_the_other_instruction_set_is_decoded_as_that_set()
     {
-        var arm = new Native.Code.ImageCode(PeFile.FromBytes(Hybrid(0xAA64), "hybrid.dll"));
-        Assert.Equal((true, true, false), (arm.IsCode(0x1000), arm.IsCode(0x1040), arm.IsCode(0x10C0)));
-        Assert.Equal(-1, arm.BitIndex(0x10C0));
-        var x64 = new Native.Code.ImageCode(PeFile.FromBytes(Hybrid(0x8664), "ec.dll"));
-        Assert.Equal((false, false, true), (x64.IsCode(0x1000), x64.IsCode(0x1040), x64.IsCode(0x10C0)));
+        // ARM64 at 0x1000: bl 0x10C0; ret. x64 at 0x10C0: mov eax, 1; ret
+        var text = new byte[0x100];
+        BinaryPrimitives.WriteUInt32LittleEndian(text, 0x94000030);
+        BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(4), 0xD65F03C0);
+        new byte[] { 0xB8, 1, 0, 0, 0, 0xC3 }.CopyTo(text, 0xC0);
+        var image = PeFile.FromBytes(Hybrid(0xAA64, text), "hybrid.dll");
+        Assert.Equal([(0x10C0u, 0x1100u)], Native.Code.ImageCode.OtherInstructionSet(image));
+        var index = Native.Code.NativeCodeIndex.Build(image);
+        Assert.Equal([0x1000u, 0x10C0u], index.Functions.Select(f => f.Start));
+        Assert.All(index.Functions, f => Assert.Equal(0, (int)(f.Flags & Native.Code.FunctionFlags.InvalidCode)));
+        Assert.Equal(2, index.FunctionByStart(0x10C0)!.InstructionCount);
+        Assert.Equal(2, Native.Calls.Arm64Trace.For(index).Code(index.FunctionByStart(0x1000)!, default).Blocks.Sum(b => b.Length));
+        var lines = index.CreateDisassembler().Disassemble(0x1000, 2).Concat(index.CreateDisassembler().Disassemble(0x10C0, 2)).Select(l => l.Text.Replace("  ", " ")).ToList();
+        Assert.StartsWith("bl", lines[0]);
+        Assert.Equal(["mov eax, 1", "ret"], lines[2..].Select(l => string.Join(' ', l.Split(' ', StringSplitOptions.RemoveEmptyEntries))));
     }
 
     [Fact]

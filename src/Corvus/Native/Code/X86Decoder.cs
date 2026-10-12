@@ -37,14 +37,15 @@ internal sealed class X86Decoder : ICodeDecoder
     public X86Decoder(ImageCode code, uint[] sortedRelocations) : this(code.Image, code, sortedRelocations) { }
 
     /// <param name="code">Executable code for <see cref="Decode"/>; null when only <see cref="DecodeMapped"/> is used.</param>
-    public X86Decoder(INativeImage image, ImageCode? code, uint[] sortedRelocations)
+    /// <param name="is64">64-bit code in an image of another architecture (an ARM64X image's x64 ranges); default from the image.</param>
+    public X86Decoder(INativeImage image, ImageCode? code, uint[] sortedRelocations, bool? is64 = null)
     {
         _image = image;
         _code = code;
         _imageBase = image.ImageBase;
         _sizeOfImage = image.SizeOfImage;
         _relocs = sortedRelocations;
-        _is64 = image.Arch == NativeArch.X64;
+        _is64 = is64 ?? image.Arch == NativeArch.X64;
         _hltEnds = image.Format != ImageFormat.Pe;
         if (_hltEnds && !_is64) _pic = new uint[8];
         _decoder = Decoder.Create(_is64 ? 64 : 32, _reader, _imageBase, DecoderOptions.None);

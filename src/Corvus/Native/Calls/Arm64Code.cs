@@ -37,7 +37,7 @@ internal sealed class A64Function
         Function = f;
         Graph = index.GetGraph(f, ct);
         Blocks = new A64Step[Graph.Blocks.Count][];
-        var dec = index.NewDecoder() as Arm64Decoder ?? throw new NotSupportedException("ARM64 decoder unavailable");
+        var dec = HybridDecoder.PrimaryOf(index.NewDecoder()) as Arm64Decoder ?? throw new NotSupportedException("ARM64 decoder unavailable");
         dec.BeginFunction();
         for (int b = 0; b < Graph.Blocks.Count; b++)
         {

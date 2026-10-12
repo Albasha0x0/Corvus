@@ -56,8 +56,8 @@ internal sealed class FunctionDiscovery
         _dec = ctx.NewDecoder(computeAccess: false);
         _peek = ctx.NewDecoder(computeAccess: false);
         _thunks = ctx.NewDecoder(computeAccess: false);
-        _x86Dec = _dec as X86Decoder;
-        _x86Peek = _peek as X86Decoder;
+        _x86Dec = HybridDecoder.PrimaryOf(_dec) as X86Decoder;
+        _x86Peek = HybridDecoder.PrimaryOf(_peek) as X86Decoder;
         _starts = new CodeBitmap(ctx.Code.TotalBytes);
         _covered = new CodeBitmap(ctx.Code.TotalBytes);
         _verifier = new Verifier(this);
@@ -606,7 +606,7 @@ internal sealed class FunctionDiscovery
         {
             d = owner;
             _peek = owner._ctx.NewDecoder(computeAccess: false);
-            _x86Peek = _peek as X86Decoder;
+            _x86Peek = HybridDecoder.PrimaryOf(_peek) as X86Decoder;
             _thunks = owner._ctx.NewDecoder(computeAccess: false);
         }
 

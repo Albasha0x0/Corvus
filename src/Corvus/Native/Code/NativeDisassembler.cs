@@ -18,7 +18,8 @@ public sealed record DisasmLine(uint Rva, ulong Address, string Bytes, string Te
 /// Disassembly at any mapped address: MASM syntax (Iced) for x86 / x64, ARM syntax (AsmArm64) for ARM64. Branch, memory
 /// and immediate targets are shown by name when the symbols know one; x86 immediates only when they are confirmed
 /// addresses (relocated, or in a relocation-free x86 image an absolute push / mov into a section). ARM64 addresses formed
-/// by ADRP pairs and loads through import slots are named in the comment.
+/// by ADRP pairs and loads through import slots are named in the comment. A hybrid PE's ranges of the other instruction set
+/// (x64 in ARM64X, ARM64 in ARM64EC) are decoded as that set.
 /// </summary>
 public sealed class NativeDisassembler
 {
@@ -32,6 +33,9 @@ public sealed class NativeDisassembler
     private readonly AsmArm64.Arm64InstructionFormattingOptions _armOptions = new() { UseUppercaseHex = true };
     private readonly char[] _armText = new char[256];
     private readonly Arm32Decoder? _arm32;
+    private readonly (uint Start, uint End)[] _otherRanges;
+    // the last instruction came from the x86 decoder
+    private bool _x86;
 
     private sealed class Resolver(INativeImage image) : ISymbolResolver
     {
@@ -65,19 +69,17 @@ public sealed class NativeDisassembler
     {
         _image = image;
         _symbols = symbols;
-        if (image.Arch == NativeArch.Arm64)
-        {
-            _arm = new Arm64Decoder(image, null, sortedRelocations);
-            return;
-        }
+        _otherRanges = ImageCode.OtherInstructionSet(image);
+        if (image.Arch == NativeArch.Arm64 || image.Arch == NativeArch.X64 && _otherRanges.Length > 0) _arm = new Arm64Decoder(image, null, sortedRelocations);
+        if (image.Arch == NativeArch.Arm64 && _otherRanges.Length == 0) return;
         if (image.Arch == NativeArch.Arm)
         {
             _arm32 = new Arm32Decoder(image, code, sortedRelocations, armModes ?? new Arm32Modes(image));
             return;
         }
-        if (image.Arch is not (NativeArch.X86 or NativeArch.X64))
+        if (image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64))
             throw new NotSupportedException(InstructionSets.For(image.Arch).Reason);
-        _decoder = new X86Decoder(image, null, sortedRelocations);
+        _decoder = new X86Decoder(image, null, sortedRelocations, is64: image.Is64Bit);
         _resolver = new Resolver(image) { Symbols = symbols };
         _formatter = new MasmFormatter(_resolver);
         _formatter.Options.UppercaseHex = true;
@@ -121,7 +123,8 @@ public sealed class NativeDisassembler
     private DisasmLine? Next(uint rva, IReadOnlyDictionary<uint, string>? labels)
     {
         Insn insn;
-        bool decoded = _arm != null ? _arm.DecodeMapped(rva, out insn) : _arm32 != null ? _arm32.DecodeMapped(rva, out insn) : _decoder!.DecodeMapped(rva, out insn);
+        _x86 = _decoder != null && (_arm == null || (_image.Arch == NativeArch.Arm64) == ImageCode.InRanges(_otherRanges, rva));
+        bool decoded = _x86 ? _decoder!.DecodeMapped(rva, out insn) : _arm != null ? _arm.DecodeMapped(rva, out insn) : _arm32!.DecodeMapped(rva, out insn);
         return decoded ? Line(in insn, labels) : null;
     }
 
@@ -152,8 +155,8 @@ public sealed class NativeDisassembler
         string hex = Convert.ToHexString(bytes, 0, n);
         string text;
         if (insn.Flow == FlowKind.Invalid) text = "(bad)";
-        else if (_arm != null) text = FormatArm64(in insn, labels);
-        else if (_arm32 != null) text = FormatArm32(labels);
+        else if (!_x86 && _arm != null) text = FormatArm64(in insn, labels);
+        else if (!_x86 && _arm32 != null) text = FormatArm32(labels);
         else
         {
             _resolver!.Current = insn;
@@ -167,7 +170,7 @@ public sealed class NativeDisassembler
             if (insn.HasMem) comment = _symbols.CommentFor(insn.MemTarget);
             if (comment == null && insn.HasImm) comment = _symbols.CommentFor(insn.ImmTarget);
         }
-        if ((_arm != null || _arm32 != null) && comment == null && insn.Flow != FlowKind.Invalid && (insn.HasMem || insn.HasImm))
+        if (!_x86 && comment == null && insn.Flow != FlowKind.Invalid && (insn.HasMem || insn.HasImm))
         {
             // the address an ADRP pair, a PC-relative pair or a load through a slot forms is not in the operand text
             uint at = insn.HasImm && _arm32 != null ? insn.ImmTarget : insn.HasMem ? insn.MemTarget : insn.ImmTarget;
