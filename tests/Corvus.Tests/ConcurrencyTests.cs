@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Corvus.Core;
+using Corvus.Services;
 
 namespace Corvus.Tests;
 
@@ -46,6 +47,58 @@ public class ConcurrencyTests
         await Task.WhenAll(readers.Append(writer));
         Assert.Empty(errors);
         Assert.True(env.Fixture.Edits.Count > 10);
+    }
+
+    /// <summary>
+    /// An edit, a reload and an unload issued while export_project decompiles: they wait for the export, which finishes with
+    /// the readers it started with (a reader replaced or disposed under it read freed memory: BadImageFormatException, access violation).
+    /// </summary>
+    [Fact]
+    public async Task ExportHoldsOffEditReloadAndUnloadUntilItEnds()
+    {
+        using var env = new Env(withConsumer: true);
+        using var dir = new TempDir();
+        var consumer = env.Workspace.Get("TestFixture.Consumer");
+        var editTools = new Corvus.Tools.EditTools(env.Workspace, env.Edits, env.History, env.Decompiler, env.Pager);
+        var workspaceTools = new Corvus.Tools.WorkspaceTools(env.Workspace, new Il2CppService(env.Workspace),
+            new IndexingService(env.Workspace, new CallGraphService(env.Workspace), new ServerOptions()), new Corvus.Services.Analysis.UnpackService(env.Workspace));
+        using var paused = new ManualResetEventSlim();
+        using var resume = new ManualResetEventSlim();
+        var during = new ConcurrentQueue<(int Edits, bool Loaded)>();
+        // As export_project runs it (DecompileTools.ExportAssembly), with a progress callback that pauses at the first file.
+        var export = Corvus.Tools.ToolSupport.Read(env.Workspace, () =>
+        {
+            var asm = env.Workspace.Get(consumer.Id);
+            var result = env.Decompiler.ExportProject(asm, dir.File("export"), (_, _, _) =>
+            {
+                during.Enqueue((env.Fixture.Edits.Count, env.Workspace.Assemblies.Contains(consumer)));
+                if (paused.IsSet) return;
+                paused.Set();
+                Assert.True(resume.Wait(30_000), "the writers never queued");
+            }, default);
+            return $"{result.FileCount} files, {result.FailedTypes.Count} failed";
+        }, default);
+        Assert.True(paused.Wait(30_000), "the export reported no progress");
+
+        var writers = new[]
+        {
+            editTools.StubMethod("Fixture.Model.Account::Score", "7"),
+            workspaceTools.ReloadAssembly("TestFixture"),
+            workspaceTools.UnloadAssembly("TestFixture.Consumer"),
+        };
+        // Queued behind the export, as writers or as readers behind the first writer.
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (env.Workspace.Waiting is var (w, r) && w + r < writers.Length && watch.Elapsed < TimeSpan.FromSeconds(30))
+            await Task.Delay(10);
+        Assert.False(writers.Any(t => t.IsCompleted), string.Join("\n", writers.Where(t => t.IsCompleted).Select(t => t.Result)));
+        resume.Set();
+
+        Assert.Matches(@"^\d+ files, 0 failed$", await export);
+        Assert.All(during, d => Assert.Equal((0, true), d));
+        Assert.Contains("stub", await writers[0]);
+        Assert.StartsWith("Reloaded", await writers[1]);
+        Assert.StartsWith("Unloaded", await writers[2]);
+        Assert.NotEmpty(Directory.GetFiles(dir.File("export"), "*.cs", SearchOption.AllDirectories));
     }
 
     /// <summary>Holds the exclusive lock on a dedicated thread until the returned event is set.</summary>
