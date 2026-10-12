@@ -24,9 +24,10 @@ Upgrading needs no manual steps beyond environment variables you set yourself; d
   arguments and env (`NDM_*` keys renamed); a development relay entry stays a relay for the same publish folder. Skill
   folders written by `install --skill` move to `corvus`; `status` reports old entries and `uninstall` removes both.
 - **Update path from 1.1.0.** The release also ships its archives under their old names, so `NetDecompilerMcp update`
-  on 1.1.0 reaches this release, which moves the install to the new folder and puts `corvus` on PATH. Where `update`
-  cannot reach it (a private repository: the old program loses the token on GitHub's redirect to the renamed
-  repository), run the new install script with `GITHUB_TOKEN` set; it takes over the old install.
+  on 1.1.0 reaches this release, which moves the install to the new folder and puts `corvus` on PATH. For a private
+  repository, run it as `NDM_REPO=Albasha0x0/Corvus NetDecompilerMcp update` (1.1.0 loses the token on GitHub's redirect
+  from the old name), or run the new install script with `GITHUB_TOKEN` set; it takes over the old install. Corvus's own
+  `update` keeps the token across GitHub's redirects.
 
 ### Changes in behaviour
 
