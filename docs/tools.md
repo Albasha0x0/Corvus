@@ -1563,9 +1563,9 @@ Replace bytes at a native address in memory, as an undoable edit that every read
 | `force` | boolean |  | `false` | Override the safety checks (mid-instruction, past function end, header bytes, no free relocation slot). |
 | `dryRun` | boolean |  | `false` | Preview only; do not record the patch. |
 | `relocations` | string |  |  | PE base relocations under the patch: auto (default) keeps entries whose new bytes still hold an address, neutralizes the rest and adds entries for new absolute addresses; keep leaves them; neutralize clears all. Undo restores them; ignored with extend. Values: auto, keep, neutralize. |
-| `extend` | boolean |  | `false` | Put the new code in a stub (see placement); the site becomes a jump to it and control returns after the site. For code larger than the site, or to keep it intact. Refused with a reason code when unsafe; PE only. |
+| `extend` | boolean |  | `false` | Put the new code in a stub (see placement); the site becomes a jump to it and control returns after the site. For code larger than the site, or to keep it intact. x86/x64 PE, ELF and Mach-O. Refused with a reason code when unsafe. |
 | `stubMode` | string |  |  | With extend: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after. Values: replace, before, after. |
-| `placement` | string |  |  | With extend: auto (default; a code cave if one fits, else a new section), cave or section (headers and checksum updated; undo restores the file). Values: auto, cave, section. |
+| `placement` | string |  |  | With extend: auto (default; a code cave if one fits, else a new section/segment), cave or section (a new PE section or ELF/Mach-O segment; undo restores the file). Values: auto, cave, section. |
 
 ### patch_asm
 
@@ -1581,9 +1581,9 @@ Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch tar
 | `force` | boolean |  | `false` | Override the safety checks (mid-instruction, past function end, header bytes, no free relocation slot). |
 | `dryRun` | boolean |  | `false` | Preview only; do not record the patch. |
 | `relocations` | string |  |  | PE base relocations under the patch: auto (default) keeps entries whose new bytes still hold an address, neutralizes the rest and adds entries for new absolute addresses; keep leaves them; neutralize clears all. Undo restores them; ignored with extend. Values: auto, keep, neutralize. |
-| `extend` | boolean |  | `false` | Put the new code in a stub (see placement); the site becomes a jump to it and control returns after the site. For code larger than the site, or to keep it intact. Refused with a reason code when unsafe; PE only. |
+| `extend` | boolean |  | `false` | Put the new code in a stub (see placement); the site becomes a jump to it and control returns after the site. For code larger than the site, or to keep it intact. x86/x64 PE, ELF and Mach-O. Refused with a reason code when unsafe. |
 | `stubMode` | string |  |  | With extend: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after. Values: replace, before, after. |
-| `placement` | string |  |  | With extend: auto (default; a code cave if one fits, else a new section), cave or section (headers and checksum updated; undo restores the file). Values: auto, cave, section. |
+| `placement` | string |  |  | With extend: auto (default; a code cave if one fits, else a new section/segment), cave or section (a new PE section or ELF/Mach-O segment; undo restores the file). Values: auto, cave, section. |
 
 ### list_native_edits
 

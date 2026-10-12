@@ -164,7 +164,6 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     public PatchResult PrepareExtendedPatch(NativeCodeIndex index, uint rva, byte[] newBytes, string? assembly,
         StubMode mode, string description, Func<string, ulong?>? resolve, StubPlacement placement = StubPlacement.Auto)
     {
-        if (index.Image is not PeFile) throw LoadedNative.PeOnly(index.Image, "extending a patch with a stub");
         var ext = PatchExtension.Build(index, rva, newBytes, assembly, mode, description, resolve, placement);
         var image = index.Image;
         var before = Disasm(index, rva, ext.Patch.Length);
@@ -260,9 +259,14 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         uint? hit = i < relocs.Count && relocs[i] < end ? relocs[i] : null;
         hit ??= image.Imports.Where(m => m.SlotRva < end && m.SlotRva + ptr > rva).Select(m => (uint?)m.SlotRva).FirstOrDefault();
         if (hit is { } at)
+        {
+            if (image is Native.MachO.MachOFile { HasChainedFixups: true })
+                throw new ToolError(ErrorCode.Conflict, $"fixup_chain: the loader writes the chained-fixup pointer at {NativeAddress.Va(image, at)}, so a patch there is overwritten at load.",
+                    "patch elsewhere, or pass force=true to write the file bytes anyway");
             throw new ToolError(ErrorCode.Conflict, $"relocated_range: the loader writes the pointer at {NativeAddress.Va(image, at)} " +
                 $"({(image.Format == ImageFormat.Elf ? "a dynamic relocation" : "a rebase or bind")}), so a patch there is overwritten at load.",
                 "patch elsewhere, or pass force=true to write the file bytes anyway");
+        }
     }
 
     private static int BinarySearchFirst(IReadOnlyList<uint> sorted, uint value)

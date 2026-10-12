@@ -1,5 +1,7 @@
 using Corvus.Core;
 using Corvus.Native.Code;
+using Corvus.Native.Elf;
+using Corvus.Native.MachO;
 using Corvus.Native.Pe;
 
 namespace Corvus.Native.Patching;
@@ -41,6 +43,8 @@ public static class PatchExtension
 {
     /// <summary>The site must hold at least a 5-byte near jmp (E9 rel32).</summary>
     private const int JmpSize = 5;
+    /// <summary>Page size for aligning an appended ELF segment / Mach-O segment's address and file offset.</summary>
+    private const ulong PageSize = 0x1000;
     private const int MaxCaveScanBytes = 64 * 1024 * 1024;
     private static readonly byte[] FillerBytes = [0xCC, 0x00, 0x90];
 
@@ -155,7 +159,13 @@ public static class PatchExtension
             return new Result(patch, DisasmStub(image, cave, stubBytes), placementText, pad);
         }
 
-        var grown = GrowSection(index, siteRva, siteFileOffset, returnRva, covered, program, resolve, mode, description);
+        var grown = image switch
+        {
+            PeFile => GrowSection(index, siteRva, siteFileOffset, returnRva, covered, program, resolve, mode, description),
+            ElfFile => GrowSegmentElf(index, siteRva, returnRva, covered, program, resolve, mode, description),
+            MachOFile => GrowSegmentMachO(index, siteRva, returnRva, covered, program, resolve, mode, description),
+            _ => throw new ToolError(ErrorCode.Unsupported, $"section_growth_unsupported: a new code region is not supported for {image.Format} images."),
+        };
         return grown with { Patch = grown.Patch with { Stub = grown.Patch.Stub! with { NewCode = (byte[])newBytes.Clone(), NewAssembly = newAssembly } } };
     }
 
@@ -245,19 +255,207 @@ public static class PatchExtension
         return new Result(patch, DisasmStub(index.Image, newRva, stubBytes), placementText, pad);
     }
 
-    /// <summary>Refuses the growth when the stub holds an in-image absolute operand that would need a base relocation (not added for a new section).</summary>
-    private static void RejectStubRelocation(PeFile pe, uint stubRva, byte[] stubBytes)
+    /// <summary>Whether the loader may move the image, so an absolute in-image operand in a new region would need a relocation that is not added.</summary>
+    private static bool IsPositionIndependent(INativeImage image) => image switch
     {
-        if (!PatchRelocations.IsRelocatable(pe)) return; // fixed base: absolute operands are correct as written
-        int bitness = pe.Is64Bit ? 64 : 32;
-        foreach (var o in PatchRelocations.Decode(bitness, pe.ImageBase + stubRva, stubBytes))
+        PeFile pe => PatchRelocations.IsRelocatable(pe),
+        ElfFile elf => elf.Type == 3, // ET_DYN: a shared object or PIE is loaded at a variable base
+        MachOFile macho => (macho.HeaderFlags & 0x200000) != 0 || macho.IsDll, // MH_PIE, or a dylib/bundle
+        _ => true,
+    };
+
+    /// <summary>Refuses the growth when the stub holds an in-image absolute operand that would need a base relocation (not added for a new region).</summary>
+    private static void RejectStubRelocation(INativeImage image, uint stubRva, byte[] stubBytes)
+    {
+        if (!IsPositionIndependent(image)) return; // fixed base: absolute operands are correct as written
+        int bitness = image.Is64Bit ? 64 : 32;
+        foreach (var o in PatchRelocations.Decode(bitness, image.ImageBase + stubRva, stubBytes))
         {
+            // A relocation target is a pointer-sized value (mov r64, imm64 / an absolute pointer) or an absolute memory
+            // operand with no base register. A short immediate is a constant, never an address.
+            bool addressShaped = o.Size == (image.Is64Bit ? 8 : 4) && (!o.IsDisplacement || !o.HasBase);
+            if (!addressShaped) continue;
             ulong value = o.Size == 4 ? o.Value & 0xFFFFFFFF : o.Value;
-            if (value >= pe.ImageBase && value - pe.ImageBase < pe.SizeOfImage)
+            if (value >= image.ImageBase && value - image.ImageBase < image.SizeOfImage)
                 throw new ToolError(ErrorCode.Unsupported,
-                    $"stub_needs_reloc: the stub holds the absolute in-image address 0x{value:X}, which needs a base relocation; a stub in a new section is not given one, so under ASLR / a rebase it would be wrong.",
-                    pe.Is64Bit ? "write the reference RIP-relative (e.g. 'lea rax, [target]'), or load it from already-relocated data" : "load the address from already-relocated data (an existing pointer / IAT slot)");
+                    $"stub_needs_reloc: the stub holds the absolute in-image address 0x{value:X}, which needs a relocation; a stub in a new region is not given one, so under ASLR / a rebase it would be wrong.",
+                    image.Is64Bit ? "write the reference RIP-relative (e.g. 'lea rax, [target]'), or load it from already-relocated data" : "load the address from already-relocated data (an existing pointer / IAT slot)");
         }
+    }
+
+    /// <summary>
+    /// ELF: appends a new PT_LOAD segment for the stub. A free program header slot right after the table takes a new
+    /// entry mapping the stub bytes (appended at a page-aligned end of file) read-execute; e_phnum is bumped. Section
+    /// headers are left as they are (the new mapping has no section) and e_shoff does not move (data is appended past it).
+    /// Refused no_header_space when the program header table has no free slot before the first segment/section content,
+    /// stub_needs_reloc when the stub needs a relocation, and unreachable_section when a near jump cannot reach it.
+    /// </summary>
+    private static Result GrowSegmentElf(NativeCodeIndex index, uint siteRva, uint returnRva, int covered,
+        string program, Func<string, ulong?>? resolve, StubMode mode, string description)
+    {
+        var elf = (ElfFile)index.Image;
+        if (elf.BigEndian)
+            throw new ToolError(ErrorCode.Unsupported, "section_growth_unsupported: appending a segment is supported for little-endian x86/x64 ELF only.");
+        if (elf.ProgramHeaderCountField == 0xFFFF)
+            throw new ToolError(ErrorCode.Unsupported, "no_header_space: the file uses PN_XNUM extended program-header numbering; a new segment is not appended.");
+
+        int entry = elf.ProgramHeaderEntrySize;
+        long slot = elf.ProgramHeaderOffset + (long)elf.ProgramHeaderCountField * entry;
+        long contentLimit = ContentFloorElf(elf, slot);
+        var fileBytes = elf.FileBytes.Span;
+        if (slot + entry > contentLimit || slot + entry > fileBytes.Length || !AllZero(fileBytes, slot, entry))
+            throw new ToolError(ErrorCode.Conflict,
+                $"no_header_space: the program header table has no free {entry}-byte slot before the first segment's content (slot at 0x{slot:X}, limit 0x{contentLimit:X}); a new PT_LOAD does not fit.",
+                "use placement=cave if a code cave exists, or patch in place without extend");
+
+        uint newRva = AlignU(elf.SizeOfImage, (uint)PageSize);
+        long appendOffset = AlignUp(elf.FileSize, (uint)PageSize);
+        var stubBytes = Assemble(elf.Arch, elf.ImageBase + newRva, program, resolve, "stub");
+        RejectStubRelocation(elf, newRva, stubBytes);
+        if (!Rel32(elf.ImageBase + siteRva, elf.ImageBase + newRva) || !Rel32(elf.ImageBase + newRva, elf.ImageBase + returnRva))
+            throw new ToolError(ErrorCode.Conflict,
+                $"unreachable_section: the appended segment at {NativeAddress.Va(elf, newRva)} is not within a rel32 near jump of {NativeAddress.Va(elf, siteRva)}; the stub cannot be reached.",
+                "patch in place, or use a code cave within reach");
+
+        ulong va = elf.ImageBase + newRva;
+        byte[] phdr = elf.Is64Bit
+            ? [.. U32le(1), .. U32le(5), .. U64le((ulong)appendOffset), .. U64le(va), .. U64le(va), .. U64le((ulong)stubBytes.Length), .. U64le((ulong)stubBytes.Length), .. U64le(PageSize)]
+            : [.. U32le(1), .. U32le((uint)appendOffset), .. U32le((uint)va), .. U32le((uint)va), .. U32le((uint)stubBytes.Length), .. U32le((uint)stubBytes.Length), .. U32le(5), .. U32le((uint)PageSize)];
+        Array.Resize(ref phdr, entry); // pad to e_phentsize when larger than the standard
+        var edits = new List<HeaderEdit>
+        {
+            MakeEdit(fileBytes, slot, phdr),
+            MakeEdit(fileBytes, elf.ProgramHeaderCountFieldOffset, U16le((ushort)(elf.ProgramHeaderCountField + 1))),
+        };
+        string name = ".corvus";
+        var growth = new SectionGrowth(name, newRva, (uint)stubBytes.Length, appendOffset, stubBytes, edits);
+        return BuildGrownResult(elf, siteRva, newRva, covered, returnRva, mode, stubBytes, growth, $"segment '{name}'", description);
+    }
+
+    /// <summary>The lowest file offset of real content after the program header table; the slot must end at or below it.</summary>
+    private static long ContentFloorElf(ElfFile elf, long slot)
+    {
+        long floor = elf.FileSize;
+        foreach (var s in elf.Segments)
+            if (s.FileSize > 0 && (long)s.Offset > slot) floor = Math.Min(floor, (long)s.Offset);
+        foreach (var s in elf.Sections)
+            if (s.RawSize > 0 && s.RawOffset > slot) floor = Math.Min(floor, s.RawOffset);
+        if (elf.SectionHeaderOffset > slot) floor = Math.Min(floor, elf.SectionHeaderOffset);
+        return floor;
+    }
+
+    /// <summary>
+    /// Mach-O: appends a new read-execute segment load command for the stub. Free space after the load commands takes a
+    /// new LC_SEGMENT[_64] mapping the stub bytes (appended at a page-aligned end of file); ncmds and sizeofcmds are
+    /// bumped. A universal-file slice is refused (its fat header would have to move). Refused no_header_space when the
+    /// load commands have no room before the first section, stub_needs_reloc, and unreachable_section as for ELF.
+    /// </summary>
+    private static Result GrowSegmentMachO(NativeCodeIndex index, uint siteRva, uint returnRva, int covered,
+        string program, Func<string, ulong?>? resolve, StubMode mode, string description)
+    {
+        var macho = (MachOFile)index.Image;
+        if (macho.Slice != null)
+            throw new ToolError(ErrorCode.Unsupported, "no_header_space: the image is a slice of a universal file; a new segment cannot be appended without moving the fat header.",
+                "use placement=cave, or extract the thin slice first");
+
+        int cmdSize = macho.Is64Bit ? 72 : 56; // segment_command[_64] with no sections
+        long lcEnd = macho.HeaderSize + macho.SizeOfCommands;
+        long contentLimit = ContentFloorMachO(macho, lcEnd);
+        var fileBytes = macho.FileBytes.Span;
+        if (lcEnd + cmdSize > contentLimit || lcEnd + cmdSize > fileBytes.Length || !AllZero(fileBytes, lcEnd, cmdSize))
+            throw new ToolError(ErrorCode.Conflict,
+                $"no_header_space: the load commands have no free {cmdSize}-byte slot before the first section's content (slot at 0x{lcEnd:X}, limit 0x{contentLimit:X}); a new segment does not fit.",
+                "use placement=cave if a code cave exists, or patch in place without extend");
+
+        uint newRva = AlignU(macho.SizeOfImage, (uint)PageSize);
+        long appendOffset = AlignUp(macho.FileSize, (uint)PageSize);
+        var stubBytes = Assemble(macho.Arch, macho.ImageBase + newRva, program, resolve, "stub");
+        RejectStubRelocation(macho, newRva, stubBytes);
+        if (!Rel32(macho.ImageBase + siteRva, macho.ImageBase + newRva) || !Rel32(macho.ImageBase + newRva, macho.ImageBase + returnRva))
+            throw new ToolError(ErrorCode.Conflict,
+                $"unreachable_section: the appended segment at {NativeAddress.Va(macho, newRva)} is not within a rel32 near jump of {NativeAddress.Va(macho, siteRva)}; the stub cannot be reached.",
+                "patch in place, or use a code cave within reach");
+
+        ulong va = macho.ImageBase + newRva;
+        uint vmSize = AlignU((uint)stubBytes.Length, (uint)PageSize);
+        const string name = "__CORVUS";
+        var seg = new List<byte>();
+        seg.AddRange(U32le(macho.Is64Bit ? 0x19u : 0x1u)); // LC_SEGMENT[_64]
+        seg.AddRange(U32le((uint)cmdSize));
+        seg.AddRange(SegName(name));
+        if (macho.Is64Bit)
+        {
+            seg.AddRange(U64le(va)); seg.AddRange(U64le(vmSize));
+            seg.AddRange(U64le((ulong)appendOffset)); seg.AddRange(U64le((ulong)stubBytes.Length));
+        }
+        else
+        {
+            seg.AddRange(U32le((uint)va)); seg.AddRange(U32le(vmSize));
+            seg.AddRange(U32le((uint)appendOffset)); seg.AddRange(U32le((uint)stubBytes.Length));
+        }
+        seg.AddRange(U32le(5));  // maxprot r-x
+        seg.AddRange(U32le(5));  // initprot r-x
+        seg.AddRange(U32le(0));  // nsects
+        seg.AddRange(U32le(0));  // flags
+
+        var edits = new List<HeaderEdit>
+        {
+            MakeEdit(fileBytes, lcEnd, [.. seg]),
+            MakeEdit(fileBytes, 16, U32le(macho.CommandCount + 1)),
+            MakeEdit(fileBytes, 20, U32le(macho.SizeOfCommands + (uint)cmdSize)),
+        };
+        var growth = new SectionGrowth(name, newRva, (uint)stubBytes.Length, appendOffset, stubBytes, edits);
+        return BuildGrownResult(macho, siteRva, newRva, covered, returnRva, mode, stubBytes, growth, $"segment '{name}'", description);
+    }
+
+    /// <summary>The lowest file offset of section/segment content after the load commands; the new command must end at or below it.</summary>
+    private static long ContentFloorMachO(MachOFile macho, long lcEnd)
+    {
+        long floor = macho.FileSize;
+        foreach (var s in macho.AllSections)
+            if (!s.IsZeroFill && s.Size > 0 && s.Offset > lcEnd) floor = Math.Min(floor, s.Offset);
+        foreach (var s in macho.Segments)
+            if (s.FileSize > 0 && (long)s.FileOffset > lcEnd) floor = Math.Min(floor, (long)s.FileOffset);
+        return floor;
+    }
+
+    /// <summary>Assembles the site jump into the appended region and wraps it with the stub in a <see cref="SectionGrowth"/>.</summary>
+    private static Result BuildGrownResult(INativeImage image, uint siteRva, uint newRva, int covered, uint returnRva,
+        StubMode mode, byte[] stubBytes, SectionGrowth growth, string placementName, string description)
+    {
+        var (siteReplacement, pad) = SiteJump(image, siteRva, newRva, covered);
+        string placementText = $"new {placementName} at {NativeAddress.Va(image, newRva)}";
+        var stub = new NativeStub(newRva, growth.AppendFileOffset, new byte[stubBytes.Length], stubBytes, returnRva, mode.ToString().ToLowerInvariant(), placementText);
+        var patch = new NativePatch(siteRva, SiteFileOffset(image, siteRva), SiteOriginal(image, siteRva, covered), siteReplacement, description)
+        {
+            Stub = stub,
+            Growth = growth,
+        };
+        return new Result(patch, DisasmStub(image, newRva, stubBytes), placementText, pad);
+    }
+
+    private static long SiteFileOffset(INativeImage image, uint siteRva) =>
+        image.TryRvaToFileOffset(siteRva, out long off) ? off : throw new ToolError(ErrorCode.InvalidArgument, $"{NativeAddress.Va(image, siteRva)} is not backed by file bytes.");
+
+    private static bool AllZero(ReadOnlySpan<byte> bytes, long offset, int length)
+    {
+        if (offset < 0 || offset + length > bytes.Length) return false;
+        foreach (var b in bytes.Slice((int)offset, length)) if (b != 0) return false;
+        return true;
+    }
+
+    private static byte[] SegName(string name)
+    {
+        var b = new byte[16];
+        System.Text.Encoding.ASCII.GetBytes(name).AsSpan(0, Math.Min(16, name.Length)).CopyTo(b);
+        return b;
+    }
+
+    private static HeaderEdit MakeEdit(ReadOnlySpan<byte> fileBytes, long fileOffset, byte[] replacement)
+    {
+        var original = new byte[replacement.Length];
+        fileBytes.Slice((int)fileOffset, replacement.Length).CopyTo(original);
+        return new HeaderEdit(fileOffset, original, replacement);
     }
 
     private static HeaderEdit MakeEdit(PeFile pe, long fileOffset, byte[] replacement)
@@ -293,6 +491,7 @@ public static class PatchExtension
 
     private static byte[] U16le(ushort v) => [(byte)v, (byte)(v >> 8)];
     private static byte[] U32le(uint v) => [(byte)v, (byte)(v >> 8), (byte)(v >> 16), (byte)(v >> 24)];
+    private static byte[] U64le(ulong v) => [(byte)v, (byte)(v >> 8), (byte)(v >> 16), (byte)(v >> 24), (byte)(v >> 32), (byte)(v >> 40), (byte)(v >> 48), (byte)(v >> 56)];
     private static uint AlignU(uint value, uint alignment) => (value + alignment - 1) & ~(alignment - 1);
     private static long AlignUp(long value, uint alignment) => (value + alignment - 1) & ~(long)(alignment - 1);
 
@@ -308,16 +507,20 @@ public static class PatchExtension
                         "choose a site with no branch target inside it");
     }
 
-    /// <summary>A displaced instruction with an absolute operand carries a base relocation that cannot be moved to the stub.</summary>
+    /// <summary>A displaced instruction with an absolute operand carries a relocation that cannot be moved to the stub.</summary>
     private static void RejectDisplacedRelocations(INativeImage image, uint siteRva, uint siteEnd)
     {
         foreach (var r in image.RelocationRvas)
         {
             if (r >= siteEnd) break;
-            if (r >= siteRva)
+            if (r < siteRva) continue;
+            if (image is MachOFile { HasChainedFixups: true })
                 throw new ToolError(ErrorCode.Unsupported,
-                    $"displaced_absolute_reloc: a displaced instruction has an absolute operand at {NativeAddress.Va(image, r)} with a base relocation; moving it to the stub would require moving the relocation, which is not supported.",
+                    $"fixup_chain: a displaced instruction has a chained-fixup pointer at {NativeAddress.Va(image, r)}; moving it to the stub would break the fixup chain.",
                     "patch in place (no extend), or pick a site whose instructions use relative / RIP-relative operands");
+            throw new ToolError(ErrorCode.Unsupported,
+                $"displaced_absolute_reloc: a displaced instruction has an absolute operand at {NativeAddress.Va(image, r)} with a {(image.Format == ImageFormat.Elf ? "dynamic relocation" : "relocation")}; moving it to the stub would require moving the relocation, which is not supported.",
+                "patch in place (no extend), or pick a site whose instructions use relative / RIP-relative operands");
         }
     }
 

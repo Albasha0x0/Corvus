@@ -59,12 +59,12 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     private const string ExtendDescription =
         "Put the new code in a stub (see placement); the site becomes a jump to it and control returns after the site. For code larger than " +
-        "the site, or to keep it intact. Refused with a reason code when unsafe; PE only.";
+        "the site, or to keep it intact. x86/x64 PE, ELF and Mach-O. Refused with a reason code when unsafe.";
 
     private const string StubModeDescription = "With extend: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after.";
 
     private const string PlacementDescription =
-        "With extend: auto (default; a code cave if one fits, else a new section), cave or section (headers and checksum updated; undo restores the file).";
+        "With extend: auto (default; a code cave if one fits, else a new section/segment), cave or section (a new PE section or ELF/Mach-O segment; undo restores the file).";
 
     private const string ForceDescription = "Override the safety checks (mid-instruction, past function end, header bytes, no free relocation slot).";
 
