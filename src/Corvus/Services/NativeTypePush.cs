@@ -132,7 +132,8 @@ public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
         var prototypes = new List<NativePrototype>();
         if (il2cpp != null)
         {
-            Il2CppLayout? layout = new(native.Image.Is64Bit ? 8u : 4u);
+            // Il2Cpp builds x86 code with the compiler default, __cdecl; Ghidra's x86 default would be __stdcall
+            Il2CppLayout? layout = new(native.Image.Is64Bit ? 8u : 4u) { Convention = native.Image.Arch == NativeArch.X86 ? "__cdecl" : null };
             Il2CppExporter.LayOut(layout, il2cpp.Image.Assemblies, ct);
             var names = NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Il2Cpp)?.Names;
             foreach (var start in il2cpp.Image.Starts)

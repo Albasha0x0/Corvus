@@ -264,6 +264,7 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
         }
         parameters.Add("nd_ptr method");
         var ret = method.ReturnType.ElementType == ElementType.Void ? "void" : layout.TypeOf(method.ReturnType).Name;
-        return $"{ret} {Il2CppLayout.Identifier(name)}({string.Join(", ", parameters)});";
+        var convention = layout.Convention == null ? "" : layout.Convention + " ";
+        return $"{ret} {convention}{Il2CppLayout.Identifier(name)}({string.Join(", ", parameters)});";
     }
 }

@@ -14,6 +14,8 @@ namespace Corvus.Services;
 internal sealed class Il2CppLayout(ulong pointerSize = 8)
 {
     public ulong PointerSize { get; } = pointerSize;
+    /// <summary>The calling convention keyword prototypes carry (x86: "__cdecl"), or null where the platform has one convention.</summary>
+    public string? Convention { get; init; }
     /// <summary>klass and monitor.</summary>
     public ulong ObjectHeader => 2 * PointerSize;
 

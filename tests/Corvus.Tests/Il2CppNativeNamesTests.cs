@@ -127,6 +127,8 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         Assert.Equal(4, batch.PointerSize);
         Assert.Contains(batch.Prototypes, p => p.Rva == 0x1000 && p.Declaration.Contains("struct Fixture_Native_NativeThing* __this"));
         Assert.Contains("nd_ptr monitor;  /* 0x4 */", batch.Declarations);
+        // x86 Il2Cpp code is __cdecl; without it Ghidra applies the program default (__stdcall) or an unknown convention
+        Assert.All(batch.Prototypes, p => Assert.Matches(@"^[^(]* __cdecl [A-Za-z_]\w*\(", p.Declaration));
     }
 
     [Fact]

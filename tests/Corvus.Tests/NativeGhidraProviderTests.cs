@@ -424,6 +424,20 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         Assert.Equal(1, bad.TypeFailures);
     }
 
+    /// <summary>An x86 Il2Cpp prototype carries __cdecl, which replaces the convention Ghidra gave the function (here an export's __stdcall).</summary>
+    [GhidraFact]
+    public async Task X86_prototypes_keep_their_cdecl_convention()
+    {
+        var path = shared.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SysWOW64", "version.dll"));
+        var rva = NativeIdaProviderTests.ExportRva(path, "GetFileVersionInfoSizeW");
+        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        var r = await s.ApplyTypesAsync(new NativeTypeBatch(null, [new NativePrototype(rva, "int __cdecl SampleMethod(void *__this, int count, void *method);")], [], [], 4));
+        Assert.Equal((1, 0), (r.Typed, r.TypeFailures));
+        var f = await s.GetFunctionRecordAsync(rva);
+        output.WriteLine($"{f.CallingConvention}: {f.Prototype}");
+        Assert.Equal("__cdecl", f.CallingConvention);
+    }
+
     [GhidraFact]
     public async Task Call_targets_name_the_references_and_the_decompiler_view()
     {
