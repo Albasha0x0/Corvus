@@ -153,7 +153,7 @@ internal static class SyntheticCrashX86
     public const uint LeafRva = 0x1000, MidRva = 0x1020, TopRva = 0x1040, JumpRva = 0x1060, TrapRva = 0x1070, TailRva = 0x1080, OuterRva = 0x10A0;
 
     /// <summary>A PE32 with .text at 0x1000 and .rdata at 0x2000: exports, and one import whose IAT slot VA the code gets.</summary>
-    private static byte[] Pe32(string dll, uint imageBase, Func<uint, byte[]> text, (string Name, uint Rva)[] exports, (string Module, string Name)? import)
+    internal static byte[] Pe32(string dll, uint imageBase, Func<uint, byte[]> text, (string Name, uint Rva)[] exports, (string Module, string Name)? import)
     {
         var blob = new PeBlob(0x2000);
         uint descriptors = 0, slot = 0;

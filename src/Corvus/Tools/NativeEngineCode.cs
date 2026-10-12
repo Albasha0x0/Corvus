@@ -92,15 +92,25 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
 
     private static string Va(NativeCodeIndex index, uint rva) => NativeAddress.Va(index.Image, rva);
 
-    /// <summary>An engine's function record as lines ("prototype: ...").</summary>
-    public static List<string> RecordLines(EngineFunctionRecord r, Func<uint, string> va)
+    /// <summary>
+    /// An engine's function record as lines ("prototype: ..."). <paramref name="compact"/> summarizes the parameters of a
+    /// signature the engine only guessed (IDA can guess dozens of stack parameters) in one line and clips the prototype.
+    /// </summary>
+    public static List<string> RecordLines(EngineFunctionRecord r, Func<uint, string> va, bool compact = false)
     {
         var lines = new List<string>();
-        if (r.Prototype != null) lines.Add($"prototype: {r.Prototype}");
+        bool guessed = compact && r.SignatureSource is null or "guessed" or "default" or "analysis";
+        if (r.Prototype != null) lines.Add($"prototype{(guessed ? " (guessed)" : "")}: {(guessed ? Format.Clip(r.Prototype, 160) : r.Prototype)}");
         lines.Add($"convention {r.CallingConvention ?? "unknown"}, signature from {r.SignatureSource ?? "nothing (untyped)"}" +
                   (r.StackPurge is { } p ? $", callee pops {p} bytes" : "") + (r.VarArgs ? ", varargs" : ""));
         if (r.Namespace != null) lines.Add($"namespace {r.Namespace}");
-        foreach (var x in r.Parameters) lines.Add($"param {x.Type} {x.Name} in {x.Storage}");
+        if (guessed && r.Parameters.Count > 0)
+        {
+            int stack = r.Parameters.Count(x => x.Storage.Contains("stack", StringComparison.OrdinalIgnoreCase));
+            lines.Add($"{r.Parameters.Count} guessed parameter(s): {r.Parameters.Count - stack} in registers, {stack} on the stack");
+        }
+        else
+            foreach (var x in r.Parameters) lines.Add($"param {x.Type} {x.Name} in {x.Storage}");
         if (r.ReturnType != null) lines.Add($"returns {r.ReturnType}" + (r.ReturnStorage != null ? $" in {r.ReturnStorage}" : ""));
         if (r.Ranges.Count > 0) lines.Add("body " + string.Join(", ", r.Ranges.Select(x => $"{va(x.Start)}-{va(x.End)}")));
         var flags = new List<string>();

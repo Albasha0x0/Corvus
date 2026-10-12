@@ -342,4 +342,41 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.Equal(ErrorCode.LimitExceeded, (await Assert.ThrowsAsync<ToolError>(() =>
             tools.AnalyzeNativeFunction(path, string.Join(",", Enumerable.Range(1, 17).Select(i => $"rva:0x{i:X}"))))).Code);
     }
+
+    [Fact]
+    public async Task X86_push_of_a_volatile_register_in_the_prologue_allocates_stack()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var path = _dir.File("frame32.dll");
+        File.WriteAllBytes(path, SyntheticCrashX86.Pe32("frame32.dll", 0x10000000, _ =>
+        {
+            var text = new byte[0x40];
+            // Local: push ebp; mov ebp, esp; push ecx; mov dword [ebp-4], 5; mov eax, [ebp-4]; mov esp, ebp; pop ebp; ret
+            new byte[] { 0x55, 0x8B, 0xEC, 0x51, 0xC7, 0x45, 0xFC, 5, 0, 0, 0, 0x8B, 0x45, 0xFC, 0x8B, 0xE5, 0x5D, 0xC3 }.CopyTo(text, 0);
+            // Method: push ebp; mov ebp, esp; push ecx; mov [ebp-4], ecx; mov eax, [ebp-4]; mov eax, [eax]; mov esp, ebp; pop ebp; ret
+            new byte[] { 0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC, 0x8B, 0x45, 0xFC, 0x8B, 0x00, 0x8B, 0xE5, 0x5D, 0xC3 }.CopyTo(text, 0x20);
+            return text;
+        }, [("Local", 0x1000), ("Method", 0x1020)], null));
+        var local = await tools.AnalyzeNativeFunction(path, "Local", sections: "signature,frame");
+        NativeLinkTests.Has(local, "ecx / edx not read before written");
+        NativeLinkTests.Has(local, "saved registers: ebp");
+        NativeLinkTests.Has(local, "allocates 4 bytes of stack (push ecx)");
+        var method = await tools.AnalyzeNativeFunction("frame32.dll", "Method", sections: "signature,frame");
+        NativeLinkTests.Has(method, "argument registers read before written: ecx");
+        NativeLinkTests.Has(method, "saved registers: ebp");
+    }
+
+    [Fact]
+    public void A_guessed_engine_prototype_is_summarized()
+    {
+        var parameters = Enumerable.Range(0, 32).Select(i => new Corvus.Native.Providers.EngineParameter($"a{i + 1}", "int", $"stack[0x{4 * i:X}]")).ToList();
+        var record = new Corvus.Native.Providers.EngineFunctionRecord(0x1000, "Load", null, "int __cdecl Load(" + string.Join(", ", parameters.Select(p => $"int {p.Name}")) + ")",
+            "cdecl", "guessed", [(0x1000u, 0x1100u)], null, null, false, false, false, null, parameters, "int", "eax", false);
+        var lines = NativeEngineCode.RecordLines(record, r => $"0x{r:X}", compact: true);
+        Assert.DoesNotContain(lines, l => l.StartsWith("param ", StringComparison.Ordinal));
+        Assert.Contains("32 guessed parameter(s): 0 in registers, 32 on the stack", lines);
+        Assert.True(lines[0].Length < 200, lines[0]);
+        Assert.Equal(32, NativeEngineCode.RecordLines(record with { SignatureSource = "user" }, r => $"0x{r:X}", compact: true).Count(l => l.StartsWith("param ", StringComparison.Ordinal)));
+    }
 }

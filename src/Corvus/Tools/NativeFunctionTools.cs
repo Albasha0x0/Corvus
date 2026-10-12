@@ -300,7 +300,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             if (code.Annotations(native).UserTypes.Types.GetValueOrDefault(f.Start) is { } user) x.Add(Va(f.Start), $"prototype (user): {user}", "prototype");
             if (index.Sourced.CommentAt(f.Start) is { } c) x.Add(Va(f.Start), $"comment ({c.Source.Id()}): {c.Text}", "comment");
             if (record is { } engineRecord)
-                foreach (var line in NativeEngineCode.RecordLines(engineRecord.Value, Va)) x.Add(null, $"{engineRecord.Engine}: {line}", "engine");
+                foreach (var line in NativeEngineCode.RecordLines(engineRecord.Value, Va, compact: true)) x.Add(null, $"{engineRecord.Engine}: {line}", "engine");
         }
 
         void Signature(Section x)
@@ -358,10 +358,12 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             var fc = calls.Code(f, ct);
             var entry = fc.Blocks.Length > 0 ? fc.Blocks[Math.Max(0, fc.BlockIndexOf(f.Start))] : [];
             var pushed = new List<string>();
+            var allocations = AllocationPushes(fc, calls);
             foreach (var d in entry.Take(16))
             {
                 var i = d.I;
-                if (i.Mnemonic == Mnemonic.Push && i.Op0Kind == OpKind.Register) pushed.Add(i.Op0Register.ToString().ToLowerInvariant());
+                if (allocations.Contains(d.Rva)) x.Add(Va(d.Rva), $"allocates {(calls.Is64 ? 8 : 4)} bytes of stack ({i})", "allocation");
+                else if (i.Mnemonic == Mnemonic.Push && i.Op0Kind == OpKind.Register) pushed.Add(i.Op0Register.ToString().ToLowerInvariant());
                 else if (i.Mnemonic == Mnemonic.Sub && i.Op0Kind == OpKind.Register && i.Op0Register.GetFullRegister() == Register.RSP && i.OpCount > 1 && i.Op1Kind != OpKind.Register)
                     x.Add(Va(d.Rva), $"allocates 0x{i.GetImmediate(1):X} bytes of stack ({i})", "allocation");
                 else if (i.Mnemonic == Mnemonic.Call && i.NearBranchTarget != 0 && index.NameAt((uint)(i.NearBranchTarget - image.ImageBase)) is { } probe
@@ -663,9 +665,11 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         var written = new HashSet<Register>();
         var read = new List<string>();
         var info = new InstructionInfoFactory();
+        var allocations = AllocationPushes(fc, calls);
         foreach (var d in fc.Blocks.OrderBy(b => b.Length > 0 ? b[0].Rva : uint.MaxValue).SelectMany(b => b))
         {
             if (d.I.FlowControl is FlowControl.Call or FlowControl.IndirectCall or FlowControl.Return) break;
+            if (allocations.Contains(d.Rva)) continue;
             foreach (var u in info.GetInfo(d.I).GetUsedRegisters())
             {
                 var full = u.Register.GetFullRegister();
@@ -678,5 +682,33 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             }
         }
         return read;
+    }
+
+    /// <summary>
+    /// Pushes of volatile registers in the entry prologue (MSVC push ecx, clang push rax): stack allocation, not a save or an
+    /// argument read. Pushes right before a call pass arguments instead.
+    /// </summary>
+    private static HashSet<uint> AllocationPushes(FunctionCode fc, CallAnalysis calls)
+    {
+        var result = new HashSet<uint>();
+        int b = fc.BlockIndexOf(fc.Function.Start);
+        if (b < 0) return result;
+        Register[] volatiles = calls.Is64 ? calls.Abi.VolatileInts : [Register.EAX, Register.ECX, Register.EDX];
+        var candidates = new List<uint>();
+        foreach (var d in fc.Blocks[b])
+        {
+            var i = d.I;
+            if (i.Mnemonic == Mnemonic.Push && i.Op0Kind == OpKind.Register)
+            {
+                if (volatiles.Contains(i.Op0Register)) candidates.Add(d.Rva);
+                continue;
+            }
+            if (i.Mnemonic == Mnemonic.Mov && i.Op0Kind == OpKind.Register && i.Op1Kind == OpKind.Register
+                && i.Op0Register.GetFullRegister() == Register.RBP && i.Op1Register.GetFullRegister() == Register.RSP)
+                continue;
+            if (i.FlowControl is not (FlowControl.Call or FlowControl.IndirectCall)) result.UnionWith(candidates);
+            break;
+        }
+        return result;
     }
 }
