@@ -48,6 +48,15 @@ public partial class ToolPackageTests
     }
 
     [Fact]
+    public void UpdateWarnsOnADowngrade()
+    {
+        Assert.Contains("a downgrade", Installation.DowngradeWarning("2.0.0", "v1.3.0"));
+        Assert.Null(Installation.DowngradeWarning("1.3.0", "v2.0.0"));
+        Assert.Null(Installation.DowngradeWarning("1.3.0", "1.3.0"));
+        Assert.Null(Installation.DowngradeWarning("1.3.0", "next"));
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public async Task PacksInstallsAndRunsFromALocalFeed()
     {

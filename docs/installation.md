@@ -209,7 +209,7 @@ narrow it, and only what is in scope can fail; `--json` prints the report. Exit 
 ## Update
 
 `corvus update` installs the latest release of an installed copy (checked against `SHA256SUMS`) and refreshes
-existing registrations and skills; it never adds clients. `--version X` installs release X, also an older one;
+existing registrations and skills; it never adds clients. `--version X` installs release X, also an older one (with a downgrade warning);
 `--dry-run` shows the release, asset and checksum manifest it would use. A copy the install scripts did not install
 is not replaced; `update` names the command that updates it instead ([.NET tool](#net-tool)).
 

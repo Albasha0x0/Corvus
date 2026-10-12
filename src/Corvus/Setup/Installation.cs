@@ -104,6 +104,13 @@ internal static class Installation
     /// switches "current" to it, removes unused versions and refreshes existing registrations. With
     /// <paramref name="dryRun"/> it only reports the release, asset and checksum manifest it would use.
     /// </summary>
+    /// <summary>A warning when <paramref name="target"/> is older than the running <paramref name="current"/>, else null.</summary>
+    public static string? DowngradeWarning(string current, string target) =>
+        System.Version.TryParse(target.TrimStart('v'), out var t) && System.Version.TryParse(current, out var c) && t < c
+            ? $"Warning: {target.TrimStart('v')} is older than the installed {current} (a downgrade): its tools, options and saved formats may differ; " +
+              $"corvus update returns to the latest release."
+            : null;
+
     public static int Update(TextWriter output, string? version = null, bool dryRun = false, string? installKind = null)
     {
         if (Root() is not { } root)
@@ -134,6 +141,7 @@ internal static class Installation
             output.WriteLine($"Release {tag} predates Corvus ({FirstRelease} is the first); it cannot replace this install.");
             return 1;
         }
+        if (DowngradeWarning(Version, latest) is { } warning) output.WriteLine(warning);
         JsonNode? Asset(string name) => release["assets"]?.AsArray().FirstOrDefault(a => a?["name"]?.GetValue<string>() == name);
         var asset = Asset(AssetName);
         if (asset == null)
