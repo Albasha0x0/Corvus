@@ -150,7 +150,7 @@ internal static class SyntheticCrash
 internal static class SyntheticCrashX86
 {
     public const uint Base = 0x1000_0000, HaltBase = 0x2000_0000, Stack = 0x00E0_0000;
-    public const uint LeafRva = 0x1000, MidRva = 0x1020, TopRva = 0x1040, JumpRva = 0x1060, TrapRva = 0x1070;
+    public const uint LeafRva = 0x1000, MidRva = 0x1020, TopRva = 0x1040, JumpRva = 0x1060, TrapRva = 0x1070, TailRva = 0x1080, OuterRva = 0x10A0;
 
     /// <summary>A PE32 with .text at 0x1000 and .rdata at 0x2000: exports, and one import whose IAT slot VA the code gets.</summary>
     private static byte[] Pe32(string dll, uint imageBase, Func<uint, byte[]> text, (string Name, uint Rva)[] exports, (string Module, string Name)? import)
@@ -202,7 +202,7 @@ internal static class SyntheticCrashX86
 
     public static byte[] FileImage() => Pe32("synth32.dll", Base, slotVa =>
     {
-        var text = new byte[0x80];
+        var text = new byte[0xC0];
         new byte[] { 0x89, 0x08, 0xC3 }.CopyTo(text, 0x00); // Leaf: mov [eax], ecx; ret
         text[0x20] = 0x56; // Mid: push esi; call Leaf; pop esi; ret
         text[0x21] = 0xE8;
@@ -215,8 +215,13 @@ internal static class SyntheticCrashX86
         new byte[] { 0xFF, 0x15 }.CopyTo(text, 0x70); // Trap: call [halt.dll!Halt]; ret
         BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(0x72), slotVa);
         text[0x76] = 0xC3;
+        new byte[] { 0x89, 0xC8, 0xE9 }.CopyTo(text, 0x80); // Tail: mov eax, ecx; jmp Leaf (a tail call)
+        BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(0x83), (int)LeafRva - (int)(TailRva + 7));
+        new byte[] { 0x55, 0x8B, 0xEC, 0xE8 }.CopyTo(text, 0xA0); // Outer: push ebp; mov ebp, esp; call Tail; pop ebp; ret
+        BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(0xA4), (int)TailRva - (int)(OuterRva + 8));
+        new byte[] { 0x5D, 0xC3 }.CopyTo(text, 0xA8);
         return text;
-    }, [("Leaf", LeafRva), ("Mid", MidRva), ("Top", TopRva), ("Jump", JumpRva), ("Trap", TrapRva)], ("halt.dll", "Halt"));
+    }, [("Leaf", LeafRva), ("Mid", MidRva), ("Top", TopRva), ("Jump", JumpRva), ("Trap", TrapRva), ("Tail", TailRva), ("Outer", OuterRva)], ("halt.dll", "Halt"));
 
     public static byte[] HaltImage() => Pe32("halt.dll", HaltBase, _ => [0x8B, 0xFF, 0xCC, 0xC3], [("Halt", 0x1000)], null); // mov edi, edi; int3; ret
 
@@ -242,6 +247,7 @@ internal static class SyntheticCrashX86
         Put(0x10, jit ? Jit + 5 : 0); // Top's return: into JIT code, or the end
         Put(0x100, Base + JumpRva + 2); // the bad call's return into Jump
         Put(0x200, Base + TrapRva + 6); // Halt's return into Trap
+        Put(0x280, Base + OuterRva + 8); // Leaf's return into Outer, which called Tail (Tail tail-jumped to Leaf); EBP at 0x284
         return stack;
     }
 
@@ -269,6 +275,7 @@ internal static class SyntheticCrashX86
         d.Threads.Add(new MinidumpBuilder.Thread(100, Stack, crash, "main"));
         d.Threads.Add(new MinidumpBuilder.Thread(101, Stack, MinidumpBuilder.ContextX86(0x1234, Stack + 0x100)));
         d.Threads.Add(new MinidumpBuilder.Thread(102, Stack, MinidumpBuilder.ContextX86(HaltBase + 0x1002, Stack + 0x200)));
+        d.Threads.Add(new MinidumpBuilder.Thread(103, Stack, MinidumpBuilder.ContextX86(Base + LeafRva, Stack + 0x280, ebp: Stack + 0x284)));
         d.Exception = (100, 0xC0000005, Base + LeafRva, [1, 0], crash);
         var path = dir.File(name);
         File.WriteAllBytes(path, d.Build());
@@ -298,6 +305,10 @@ public sealed class MinidumpTests
         var trap = await service.Stack(path, "102", true, 64, 0, 64, null, default);
         Assert.Equal(["halt!Halt+0x2", "synth32!Trap+0x6"], trap.Frames.Take(2).Select(f => f.Symbol));
         Assert.Equal("call_target", trap.Frames[1].Method);
+        // Leaf reached by a tail jump from Tail: the return address is Outer's call to Tail; the EBP chain would skip Outer
+        var tail = await service.Stack(path, "103", true, 64, 0, 64, null, default);
+        Assert.Equal(["synth32!Leaf", "synth32!Outer+0x8"], tail.Frames.Select(f => f.Symbol));
+        Assert.Equal("call_target", tail.Frames[1].Method);
 
         var buckets = await new MinidumpService { BucketCache = dir.File("cache") }.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
         Assert.Equal("0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top", Assert.Single(buckets.Buckets).Signature);

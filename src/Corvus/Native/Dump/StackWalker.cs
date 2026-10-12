@@ -403,13 +403,13 @@ public sealed class StackWalker
                      && (ret == 0 || IsPlausibleReturn(ret, strict: false));
         // A function without a frame pointer leaves EBP to an outer frame: its own return address lies below that frame.
         if (_functionStart?.Invoke(top ? ctx.Ip : ctx.Ip - 1) is { } function
-            && CallerOf(function, ctx.Sp, chain ? ebp + 4 : ctx.Sp + MaxScanSlots * 4UL) is { } slot && (!chain || slot < ebp + 4))
+            && CallerOf(function, ctx.Sp, chain ? ebp + 4 : ctx.Sp + MaxScanSlots * 4UL) is { } found && (!chain || found.Slot < ebp + 4))
         {
-            _dump.TryReadU32(slot, out uint ra);
+            _dump.TryReadU32(found.Slot, out uint ra);
             var caller = ctx.Clone();
             caller.Ip = ra;
-            caller.Sp = slot + 4;
-            return (caller, FrameMethod.CallTarget, false, null);
+            caller.Sp = found.Slot + 4;
+            return (caller, FrameMethod.CallTarget, false, found.Via is { } via ? $"the caller called 0x{via:X}, which tail-jumps here: its frame is gone" : null);
         }
         if (chain)
         {
@@ -426,9 +426,10 @@ public sealed class StackWalker
 
     /// <summary>
     /// The first x86 stack slot in [<paramref name="from"/>, <paramref name="limit"/>] holding a return address whose call
-    /// (call rel32, call [abs32], or through a jmp thunk) targets <paramref name="function"/>; null when none.
+    /// (call rel32, call [abs32], or through a jmp thunk) targets <paramref name="function"/>, or a function that tail-jumps
+    /// to it (<c>Via</c>); null when none.
     /// </summary>
-    private ulong? CallerOf(ulong function, ulong from, ulong limit)
+    private (ulong Slot, ulong? Via)? CallerOf(ulong function, ulong from, ulong limit)
     {
         var buffer = new byte[0x400];
         var code = new byte[6];
@@ -444,10 +445,12 @@ public sealed class StackWalker
                 var image = m != null ? _image(m) : null;
                 if (ReadCode(v - 6, code, image, m?.Base ?? 0) < 6) continue;
                 bool calls;
+                ulong? via = null;
                 if (code[1] == 0xE8)
                 {
                     ulong t = (uint)(v + BinaryPrimitives.ReadInt32LittleEndian(code.AsSpan(2)));
                     calls = t == function || JumpTarget(t) == function;
+                    if (!calls && TailJumps(t, function)) (calls, via) = (true, t);
                 }
                 else if (code[0] == 0xFF && code[1] == 0x15)
                 {
@@ -456,7 +459,7 @@ public sealed class StackWalker
                     calls = _dump.TryReadU32(slot, out uint bound) && bound == function || ImportName(slot) is { } imported && imported == ExportName(function);
                 }
                 else continue;
-                if (calls && IsPlausibleReturn(v, strict: true)) return at + (ulong)i;
+                if (calls && IsPlausibleReturn(v, strict: true)) return (at + (ulong)i, via);
             }
             at += (ulong)n;
         }
@@ -479,6 +482,26 @@ public sealed class StackWalker
         if (ReadCode(address, b, m != null ? _image(m) : null, m?.Base ?? 0) < 5 || b[0] != 0xE9) return null;
         return (uint)(address + 5 + (ulong)(long)BinaryPrimitives.ReadInt32LittleEndian(b[1..]));
     }
+
+    private readonly Dictionary<(ulong, ulong), bool> _tailJumps = [];
+
+    /// <summary>
+    /// Whether the code of the function at <paramref name="start"/> holds a jmp rel32 to <paramref name="target"/> within
+    /// its first <see cref="TailWindow"/> bytes: a tail call, whose frame the callee replaced.
+    /// </summary>
+    private bool TailJumps(ulong start, ulong target)
+    {
+        if (_tailJumps.TryGetValue((start, target), out var known)) return known;
+        var m = _dump.ModuleAt(start);
+        var code = new byte[TailWindow];
+        int n = ReadCode(start, code, m != null ? _image(m) : null, m?.Base ?? 0);
+        bool found = false;
+        for (int i = 0; i + 5 <= n && !found; i++)
+            found = code[i] == 0xE9 && (uint)(start + (ulong)i + 5 + (ulong)(long)BinaryPrimitives.ReadInt32LittleEndian(code.AsSpan(i + 1))) == target;
+        return _tailJumps[(start, target)] = found;
+    }
+
+    private const int TailWindow = 512;
 
     /// <summary>The first stack slot at or above <paramref name="from"/> holding a plausible return address.</summary>
     private DumpContext? Scan(ulong from, ulong limit, DumpContext basis)
