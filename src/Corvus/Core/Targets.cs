@@ -27,6 +27,9 @@ public static class Targets
     /// <summary>The not_found every tool reports for an input file that does not exist.</summary>
     public static ToolError FileNotFound(string path) => new(ErrorCode.NotFound, $"File not found: '{path}'", FileNotFoundNext);
 
+    /// <summary>The same for a parameter that names a folder.</summary>
+    public static ToolError DirectoryNotFound(string path) => new(ErrorCode.NotFound, $"Directory not found: '{path}'", FileNotFoundNext);
+
     /// <summary>The not_loaded for a name when nothing of the kind is loaded.</summary>
     internal static ToolError NotLoaded(string message, string value) => new(ErrorCode.NotLoaded, message, $"load_assembly path={value}");
 

@@ -256,7 +256,7 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         var full = Path.GetFullPath(directory);
         if (!Directory.Exists(full))
-            throw new ToolError(ErrorCode.NotFound, $"Directory not found: {full}");
+            throw Targets.DirectoryNotFound(directory);
         Write(() =>
         {
             if (!_searchDirectories.Contains(full, InputFiles.PathComparer))
@@ -504,7 +504,7 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         var full = Path.GetFullPath(directory);
         if (!Directory.Exists(full))
-            throw new ToolError(ErrorCode.NotFound, $"Directory not found: {full}");
+            throw Targets.DirectoryNotFound(directory);
 
         var files = Directory.EnumerateFiles(full, "*.*", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
             .Where(f => f.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))

@@ -314,6 +314,22 @@ public class ToolOutputTests
         Assert.Contains($"[More: offset={next}]", Text(r));
     }
 
+    /// <summary>A missing input path reads the same in every tool: the shared file text, or its directory twin for folder parameters.</summary>
+    [Fact]
+    public async Task MissingPathsShareOneText()
+    {
+        using var dir = new TempDir();
+        var missing = dir.File("no-such");
+        using var workspace = new AssemblyWorkspace();
+        var add = Assert.Throws<ToolError>(() => workspace.AddSearchDirectory(missing));
+        Assert.Equal(Targets.DirectoryNotFound(missing).Message, add.Message);
+        var buckets = await Assert.ThrowsAsync<ToolError>(() => new Corvus.Services.MinidumpService().Bucket(missing, false, null, 4, null, false, false, 10, null, 0, 10, null, default));
+        Assert.Equal(Targets.DirectoryNotFound(missing).Message, buckets.Message);
+        var folders = Assert.Throws<ToolError>(() => new Corvus.Services.Analysis.FolderCompare().Compare(missing, dir.Path, null, null, null, 10, 0, 10, null, default));
+        Assert.Equal(Targets.FileNotFound(missing).Message, folders.Message);
+        Assert.All(new[] { add, buckets, folders }, e => Assert.Equal(Targets.FileNotFoundNext, e.NextFor(null)));
+    }
+
     /// <summary>Timings (compare_folders' seconds) leave the record for _meta, so equal calls give equal records.</summary>
     [Fact]
     public async Task TimingsMoveToMeta()

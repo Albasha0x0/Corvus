@@ -161,7 +161,7 @@ public sealed class FolderCompare
             throw new ToolError(ErrorCode.InvalidArgument, $"{parameter} '{path}' is not a valid path: {ex.Message}");
         }
         if (string.IsNullOrWhiteSpace(path) || !Path.Exists(full))
-            throw new ToolError(ErrorCode.NotFound, $"{parameter}: nothing at '{path}'.", "pass a folder, a zip-family archive (.zip, .nupkg, .apk, ...) or a file");
+            throw Targets.FileNotFound(path ?? "");
         return Path.TrimEndingDirectorySeparator(full);
     }
 

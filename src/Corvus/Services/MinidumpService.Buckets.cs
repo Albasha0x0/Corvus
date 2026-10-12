@@ -60,7 +60,7 @@ public sealed partial class MinidumpService
             throw new ToolError(ErrorCode.InvalidArgument, $"'{folder}' is not a valid folder path: {ex.Message}");
         }
         if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(root))
-            throw new ToolError(ErrorCode.NotFound, $"no folder at '{folder}'.", "pass the folder that holds the .dmp files");
+            throw Targets.DirectoryNotFound(folder ?? "");
         topFrames = Math.Clamp(topFrames, 0, 16);
         maxDumps = Math.Clamp(maxDumps, 1, 100_000);
         offset = Math.Max(0, offset);

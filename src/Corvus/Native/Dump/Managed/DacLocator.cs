@@ -100,7 +100,7 @@ public static class DacLocator
                 if (Existing(System.IO.Path.Combine(full, n)) is { } p) yield return new(p, "dacPath");
         }
         else if (File.Exists(full)) yield return new(full, "dacPath");
-        else throw new ToolError(ErrorCode.NotFound, $"dacPath: nothing at '{path}'.", "pass the DAC file or the folder of the dumped runtime");
+        else throw Targets.FileNotFound(path);
     }
 
     /// <summary>The DAC's file names for this host: the plain name, then the long name debuggers use.</summary>
