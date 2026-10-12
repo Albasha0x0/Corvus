@@ -108,4 +108,19 @@ public class TargetsTests
         Assert.Equal(2, ws.Read(() => ws.Assemblies.Count + ws.Natives.Count(n => n.ManagedView == null)));
         Assert.Throws<ToolError>(() => Targets.PreResolve(ws, "list_types", Args(("assembly", dir.File("gone/x.dll")))));
     }
+
+    [Fact]
+    public void AnAssemblyOverTheCapIsRefusedBeforeItIsRead()
+    {
+        var e = Assert.Throws<ToolError>(() => AssemblyWorkspace.CheckSize("big.dll", AssemblyWorkspace.MaxAssemblyBytes + 1));
+        Assert.Equal(ErrorCode.LimitExceeded, e.Code);
+        Assert.Contains($"{AssemblyWorkspace.MaxAssemblyBytes:N0} bytes", e.Message);
+        AssemblyWorkspace.CheckSize("ok.dll", AssemblyWorkspace.MaxAssemblyBytes);
+
+        using var dir = new TempDir();
+        var big = dir.File("big.dll");
+        using (var f = File.Create(big)) f.SetLength(AssemblyWorkspace.MaxAssemblyBytes + 1); // a length only, never written
+        using var ws = new AssemblyWorkspace();
+        Assert.Equal(ErrorCode.LimitExceeded, Assert.Throws<ToolError>(() => ws.Load(big)).Code);
+    }
 }

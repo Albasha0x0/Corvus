@@ -439,6 +439,16 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>The longest file or directory name Windows, Linux and macOS file systems accept.</summary>
     private const int MaxFileNameLength = 255;
 
+    /// <summary>The .NET load cap, the same as for native images (S10.1); checked before the file is read.</summary>
+    public const long MaxAssemblyBytes = Native.Pe.PeLimits.MaxFileSize;
+
+    internal static void CheckSize(string full, long length)
+    {
+        if (length > MaxAssemblyBytes)
+            throw new ToolError(ErrorCode.LimitExceeded, $"{full} is {length:N0} bytes; .NET assemblies up to {MaxAssemblyBytes:N0} bytes are loaded.",
+                "the cap is fixed; load a smaller file") { Details = new { limit = MaxAssemblyBytes, size = length } };
+    }
+
     private LoadedAssembly LoadCore(string path)
     {
         var full = InputFiles.RequireRegularFile(path);
@@ -454,6 +464,7 @@ public sealed class AssemblyWorkspace : IDisposable
         if (existing != null)
             return existing;
 
+        CheckSize(full, new FileInfo(full).Length);
         byte[] bytes = File.ReadAllBytes(full);
         ModuleDefMD module;
         try
