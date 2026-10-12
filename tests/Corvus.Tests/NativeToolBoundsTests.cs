@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Corvus.Core;
 
 namespace Corvus.Tests;
@@ -28,7 +27,6 @@ public class NativeToolBoundsTests
         var path = dir.File("huge.dll");
         File.WriteAllBytes(path, HugeSections());
         using var h = new NativeToolHarness();
-        var sw = Stopwatch.StartNew();
         var hits = await h.Native.SearchBytes(path, "00 00 00 00", limit: 3);
         Assert.Matches(@"^\d{10} hits \(showing 1-3\)", hits);
         Assert.Contains("(zero fill, not in the file)", hits);
@@ -37,7 +35,44 @@ public class NativeToolBoundsTests
         Assert.Contains("(showing 1000000001-1000000002)", next);
         Assert.Contains("1 function", await h.CodeTools.ListFunctions(path));
         Assert.Contains("0 classes", await h.Analysis.ListCppClasses(path));
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"took {sw.Elapsed}");
+
+        // the scanners behind those tools read the file's bytes, not the 3.5 GB the headers claim (a byte count, not a clock)
+        var counted = new ReadCountingImage(Corvus.Native.Pe.PeFile.Open(path));
+        Corvus.Native.Code.NativeCodeIndex.Build(counted);
+        Corvus.Native.Msvc.MsvcRtti.Analyze(counted);
+        Assert.True(counted.BytesRead < 64 << 20, $"{counted.BytesRead:N0} bytes read");
+    }
+
+    /// <summary>Counts the bytes an analysis reads, zero fill included.</summary>
+    private sealed class ReadCountingImage(Corvus.Native.INativeImage inner) : Corvus.Native.INativeImage
+    {
+        private long _read;
+        public long BytesRead => Interlocked.Read(ref _read);
+        public string Path => inner.Path;
+        public string Sha256 => inner.Sha256;
+        public Corvus.Native.NativeArch Arch => inner.Arch;
+        public bool Is64Bit => inner.Is64Bit;
+        public bool IsDll => inner.IsDll;
+        public ulong ImageBase => inner.ImageBase;
+        public uint EntryPointRva => inner.EntryPointRva;
+        public uint SizeOfImage => inner.SizeOfImage;
+        public IReadOnlyList<Corvus.Native.NativeSection> Sections => inner.Sections;
+        public IReadOnlyList<Corvus.Native.NativeImport> Imports => inner.Imports;
+        public IReadOnlyList<Corvus.Native.NativeExport> Exports => inner.Exports;
+        public IReadOnlyList<Corvus.Native.RuntimeFunction> RuntimeFunctions => inner.RuntimeFunctions;
+        public IReadOnlyList<uint> RelocationRvas => inner.RelocationRvas;
+        public IReadOnlyList<uint> TlsCallbackRvas => inner.TlsCallbackRvas;
+        public IReadOnlyList<Corvus.Native.ParseIssue> Issues => inner.Issues;
+        public bool TryRvaToFileOffset(uint rva, out long fileOffset) => inner.TryRvaToFileOffset(rva, out fileOffset);
+        public bool TryFileOffsetToRva(long fileOffset, out uint rva) => inner.TryFileOffsetToRva(fileOffset, out rva);
+        public Corvus.Native.NativeSection? SectionAt(uint rva) => inner.SectionAt(rva);
+
+        public int Read(uint rva, Span<byte> destination)
+        {
+            int n = inner.Read(rva, destination);
+            Interlocked.Add(ref _read, Math.Max(0, n));
+            return n;
+        }
     }
 
     [Fact]

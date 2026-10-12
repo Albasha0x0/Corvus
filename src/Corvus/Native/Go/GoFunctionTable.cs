@@ -69,7 +69,9 @@ public sealed class GoFunctionTable
     private static GoFunctionTable? Scan(INativeImage image, NativeSection s, byte[] bytes)
     {
         const int Chunk = ScanChunk;
-        for (uint offset = 0; offset < s.MappedSize; offset += Chunk)
+        // the header magic has 0xFF bytes, so the zero fill past the file-backed bytes (can be gigabytes) holds none
+        long backed = image.FileBackedLength(s.Rva, Math.Min(s.MappedSize, (long)image.SizeOfImage - s.Rva));
+        for (uint offset = 0; offset < backed; offset += Chunk)
         {
             int n = image.Read(s.Rva + offset, bytes);
             for (int p = 0; p + 16 <= n && p < Chunk; p += 4)
