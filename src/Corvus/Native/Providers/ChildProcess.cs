@@ -19,8 +19,8 @@ public sealed record ChildProcessStart(string FileName, IReadOnlyList<string> Ar
 /// A child process with redirected stdio whose whole process tree is stopped by <see cref="Kill"/> and by
 /// <see cref="Dispose"/>. On Windows the process is created suspended inside a Job Object with
 /// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, so it cannot start a child outside the job, and the tree also dies when this
-/// process exits for any reason (the job handle is closed by the OS). Elsewhere the child is expected to call
-/// setsid() (the workers do) and the process group is killed.
+/// process exits for any reason (the job handle is closed by the OS). Elsewhere a shell parent runs the child and kills
+/// it (and its process group) within a second of this process ending, killed outright included.
 /// </summary>
 public abstract class ChildProcess : IDisposable
 {
@@ -81,16 +81,57 @@ internal sealed class PosixGroupProcess : ChildProcess
 {
     private readonly Process _process;
     private readonly Task _exited;
+    /// <summary>The worker itself (the shell's child): the id status reports and the process group Kill ends.</summary>
+    private readonly int _workerId;
 
     private PosixGroupProcess(Process process)
     {
         _process = process;
         _exited = process.WaitForExitAsync();
+        _workerId = ReadWorkerId(process.StandardOutput.BaseStream) ?? process.Id;
     }
 
-    public static PosixGroupProcess Launch(ChildProcessStart start)
+    /// <summary>
+    /// Runs "$@" with this shell as its parent, so its id is not reused while the watcher looks at it. Job control (set -m)
+    /// makes the child lead a process group of its own; its first output line is its id, written before it execs. Background
+    /// jobs of a non-interactive shell read /dev/null, hence stdin through fd 3; the shell's own stderr (job notices) is
+    /// dropped, the child's goes through fd 4. The watcher kills the child's group and the child once process $1 is gone.
+    /// </summary>
+    internal const string WatchScript = """
+        w=$1; shift
+        exec 3<&0 4>&2
+        set -m
+        /bin/sh -c 'echo "$$"; exec "$@"' corvus-worker "$@" 0<&3 2>&4 3<&- 4>&- &
+        c=$!
+        set +m
+        exec 3<&- 4>&- 2>/dev/null
+        (while kill -0 "$w" && kill -0 "$c"; do sleep 0.25 || sleep 1; done
+         kill -0 "$w" || { kill -9 -"$c"; kill -9 "$c"; }) </dev/null >/dev/null 2>&1 &
+        s=$!
+        wait "$c"; e=$?
+        kill "$s"
+        exit $e
+        """;
+
+    /// <summary>The id line the script writes first, read a byte at a time so none of the child's output is consumed.</summary>
+    private static int? ReadWorkerId(Stream stdout)
     {
-        var psi = new ProcessStartInfo(start.FileName)
+        Span<byte> one = stackalloc byte[1];
+        int id = 0, digits = 0;
+        while (stdout.Read(one) == 1 && one[0] != (byte)'\n')
+        {
+            if (one[0] is < (byte)'0' or > (byte)'9' || ++digits > 9) return null;
+            id = id * 10 + (one[0] - '0');
+        }
+        return digits > 0 ? id : null;
+    }
+
+    public static PosixGroupProcess Launch(ChildProcessStart start) => Launch(start, Environment.ProcessId);
+
+    /// <param name="watchPid">The process whose end ends the child (tests pass a stand-in for this one).</param>
+    internal static PosixGroupProcess Launch(ChildProcessStart start, int watchPid)
+    {
+        var psi = new ProcessStartInfo("/bin/sh")
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -99,6 +140,8 @@ internal sealed class PosixGroupProcess : ChildProcess
             CreateNoWindow = true,
             WorkingDirectory = start.WorkingDirectory ?? "",
         };
+        foreach (var a in (string[])["-c", WatchScript, "corvus-child", watchPid.ToString(System.Globalization.CultureInfo.InvariantCulture), Resolve(start)])
+            psi.ArgumentList.Add(a);
         foreach (var a in start.Arguments) psi.ArgumentList.Add(a);
         foreach (var (k, v) in start.Environment)
         {
@@ -108,21 +151,45 @@ internal sealed class PosixGroupProcess : ChildProcess
         return new PosixGroupProcess(Process.Start(psi) ?? throw new Win32Exception("process did not start"));
     }
 
-    public override int Id => _process.Id;
+    /// <summary>The executable's full path, searched as Process.Start does; a missing one throws here as it would without the shell.</summary>
+    private static string Resolve(ChildProcessStart start)
+    {
+        var name = start.FileName;
+        string? path;
+        if (name.Contains('/')) path = Path.GetFullPath(name);
+        else
+        {
+            var search = start.Environment.TryGetValue("PATH", out var p) && p != null ? p : Environment.GetEnvironmentVariable("PATH") ?? "";
+            path = new[] { Path.GetDirectoryName(Environment.ProcessPath), Directory.GetCurrentDirectory() }.Concat(search.Split(':'))
+                .Where(d => !string.IsNullOrEmpty(d)).Select(d => Path.Combine(d!, name)).FirstOrDefault(File.Exists);
+        }
+        if (path == null || !File.Exists(path)) throw new Win32Exception(2, $"An error occurred trying to start process '{name}': No such file or directory");
+        if (!OperatingSystem.IsWindows() && (File.GetUnixFileMode(path) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) == 0)
+            throw new Win32Exception(13, $"An error occurred trying to start process '{name}': Permission denied");
+        return path;
+    }
+
+    public override int Id => _workerId;
     public override Stream StandardInput => _process.StandardInput.BaseStream;
     public override Stream StandardOutput => _process.StandardOutput.BaseStream;
     public override Stream StandardError => _process.StandardError.BaseStream;
     public override bool HasExited => _process.HasExited;
     public override int? ExitCode => _process.HasExited ? _process.ExitCode : null;
     public override Task Exited => _exited;
-    public override IReadOnlyList<int> TreeProcessIds() => _process.HasExited ? [] : [_process.Id];
+    public override IReadOnlyList<int> TreeProcessIds() => _process.HasExited ? [] : [_workerId];
 
     [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
     private static extern int SysKill(int pid, int signal);
 
     public override void Kill()
     {
-        try { _ = SysKill(-_process.Id, 9); } catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { }
+        try
+        {
+            // a group keeps its id while members remain, so the group kill is safe after the worker itself ended
+            _ = SysKill(-_workerId, 9);
+            if (!_process.HasExited) _ = SysKill(_workerId, 9);
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { }
         try { _process.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { }
     }
 

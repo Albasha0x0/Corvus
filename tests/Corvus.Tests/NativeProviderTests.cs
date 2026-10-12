@@ -219,6 +219,67 @@ public class NativeProviderTests
         Assert.False(Directory.Exists(snapshotDir));
     }
 
+    [PosixFact("Needs a POSIX shell.")]
+    public void A_posix_child_and_its_children_end_within_a_second_of_the_watched_process()
+    {
+        using var stand = Process.Start(new ProcessStartInfo("/bin/sleep", "600") { UseShellExecute = false })!;
+        using var child = PosixGroupProcess.Launch(new ChildProcessStart("/bin/sh", ["-c", "echo $$; sleep 600 & echo $!; wait"]), stand.Id);
+        using var reader = new StreamReader(child.StandardOutput);
+        Assert.Equal(child.Id, int.Parse(reader.ReadLine()!)); // the worker's own id, not its shell parent's
+        int grandchild = int.Parse(reader.ReadLine()!);
+        Assert.True(Running(grandchild));
+        stand.Kill();
+        stand.WaitForExit();
+        var clock = Stopwatch.StartNew();
+        while ((Running(child.Id) || Running(grandchild)) && clock.ElapsedMilliseconds < 5_000) Thread.Sleep(20);
+        Assert.False(Running(child.Id) || Running(grandchild), "a process outlived the one it watched");
+        Assert.True(clock.ElapsedMilliseconds <= 1_000, $"the tree ended {clock.ElapsedMilliseconds} ms after the watched process");
+        Assert.True(child.Exited.Wait(10_000));
+    }
+
+    [PosixFact("Needs a POSIX shell.")]
+    public void Kill_ends_a_posix_childs_children()
+    {
+        using var child = ChildProcess.Start(new ChildProcessStart("/bin/sh", ["-c", "sleep 600 & echo $!; wait"]));
+        using var reader = new StreamReader(child.StandardOutput);
+        int grandchild = int.Parse(reader.ReadLine()!);
+        child.Kill();
+        Assert.True(child.Exited.Wait(10_000));
+        var clock = Stopwatch.StartNew();
+        while (Running(grandchild) && clock.ElapsedMilliseconds < 5_000) Thread.Sleep(20);
+        Assert.False(Running(grandchild), "the child's child outlived Kill");
+    }
+
+    /// <summary>Running, not a zombie waiting for its parent.</summary>
+    private static bool Running(int pid)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            try { using var p = Process.GetProcessById(pid); return !p.HasExited; }
+            catch (ArgumentException) { return false; }
+        }
+        try
+        {
+            var stat = File.ReadAllText($"/proc/{pid}/stat");
+            return stat[(stat.LastIndexOf(')') + 2)..][0] != 'Z';
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    [PosixFact("Needs a POSIX shell.")]
+    public void A_posix_child_keeps_stdin_and_reports_its_exit_code()
+    {
+        using var child = ChildProcess.Start(new ChildProcessStart("/bin/sh", ["-c", "read line; echo \"got $line\"; exit 7"]));
+        child.StandardInput.Write("hello\n"u8);
+        child.StandardInput.Flush();
+        using var reader = new StreamReader(child.StandardOutput);
+        Assert.Equal("got hello", reader.ReadLine());
+        Assert.True(child.Exited.Wait(10_000));
+        Assert.Equal(7, child.ExitCode);
+        Assert.Throws<System.ComponentModel.Win32Exception>(() => ChildProcess.Start(new ChildProcessStart("/no/such/program", [])));
+    }
+
     [WindowsFact]
     public void Job_close_kills_the_whole_tree()
     {
