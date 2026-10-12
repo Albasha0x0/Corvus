@@ -142,6 +142,25 @@ internal sealed partial class Arm64CallSites : ICallSites
             for (int i = 0; i < Math.Min(signature.Params.Count, 2 * Arguments); i++)
             {
                 var p = signature.Params[i];
+                if (p.IsPair)
+                {
+                    // two doubles: a homogeneous aggregate in two d registers; two integers: two x registers
+                    bool fp = p.Type == ApiParamType.FloatPair;
+                    int at = fp ? floats : ints;
+                    if (fp) floats += 2; else ints += 2;
+                    if (at + 1 >= Arguments)
+                    {
+                        args.Add(new CallArgument(i, p.Name, p.TypeName, "stack", ArgKind.Unknown, null, null, "?", "passed on the stack"));
+                        continue;
+                    }
+                    var half = new ApiParam(p.Name, fp ? ApiParamType.Double : ApiParamType.UInt);
+                    var (lo, hi) = fp ? (Float(caller, steps, k, i, at, "d", half, ct), Float(caller, steps, k, i, at + 1, "d", half, ct))
+                        : (Integer(caller, steps, k, i, at, half, ct), Integer(caller, steps, k, i, at + 1, half, ct));
+                    bool known = lo.Kind == ArgKind.Immediate && hi.Kind == ArgKind.Immediate;
+                    args.Add(new CallArgument(i, p.Name, p.TypeName, $"{lo.Location}:{hi.Location}", known ? ArgKind.Immediate : ArgKind.Unknown, null, null,
+                        $"{{{lo.Text}, {hi.Text}}}", lo.Derivation));
+                    continue;
+                }
                 if (p.IsFloat)
                 {
                     int v = floats++;

@@ -30,6 +30,10 @@ public enum ApiParamType : byte
     Int64,
     /// <summary>A named enumeration or flag set (<see cref="ApiParam.Enum"/>).</summary>
     Enum,
+    /// <summary>A 16-byte struct of two integer eightbytes passed by value.</summary>
+    IntPair,
+    /// <summary>A 16-byte struct of two double eightbytes passed by value (double _Complex).</summary>
+    FloatPair,
 }
 
 /// <summary>
@@ -40,7 +44,9 @@ public sealed record ApiParam(string Name, ApiParamType Type, ApiEnum? Enum = nu
 {
     public bool IsString => Type is ApiParamType.AnsiString or ApiParamType.WideString or ApiParamType.AnsiFormat or ApiParamType.WideFormat;
     /// <summary>Stack slots on x86.</summary>
-    public int Slots32 => Type is ApiParamType.Int64 or ApiParamType.Double ? 2 : 1;
+    public int Slots32 => Type switch { ApiParamType.Int64 or ApiParamType.Double => 2, ApiParamType.IntPair or ApiParamType.FloatPair => 4, _ => 1 };
+    /// <summary>A struct passed by value in two eightbytes.</summary>
+    public bool IsPair => Type is ApiParamType.IntPair or ApiParamType.FloatPair;
     public bool IsFloat => Type is ApiParamType.Float or ApiParamType.Double;
     public string TypeName => Enum?.Name ?? OsEnum ?? Type.ToString().ToLowerInvariant();
 }
@@ -138,7 +144,8 @@ public static class ApiSignatures
     //   enum NAME: ENTRY=value ...
     //   flags NAME@os: ...                     one OS's values (windows, linux, darwin); a NAME parameter decodes with the image's OS
     //   [cdecl] Name(type name, ...[, ...])     a trailing % expands to the A and W forms (str / fmt become astr / wstr, afmt / wfmt)
-    // Types: int uint hex ptr handle hmodule size bool str astr wstr fmt afmt wfmt procname guid float double i64, or an enum / flags name.
+    // Types: int uint hex ptr handle hmodule size bool str astr wstr fmt afmt wfmt procname guid float double i64, pair (two integer
+    // eightbytes) fpair (two doubles), or an enum / flags name.
     private const string Table = """
         flags Access: FILE_ALL_ACCESS=0x1F01FF FILE_GENERIC_READ=0x120089 FILE_GENERIC_WRITE=0x120116 FILE_GENERIC_EXECUTE=0x1200A0 GENERIC_READ=0x80000000 GENERIC_WRITE=0x40000000 GENERIC_EXECUTE=0x20000000 GENERIC_ALL=0x10000000 MAXIMUM_ALLOWED=0x2000000 ACCESS_SYSTEM_SECURITY=0x1000000 SYNCHRONIZE=0x100000 WRITE_OWNER=0x80000 WRITE_DAC=0x40000 READ_CONTROL=0x20000 DELETE=0x10000 FILE_READ_DATA=0x1 FILE_WRITE_DATA=0x2 FILE_APPEND_DATA=0x4 FILE_READ_EA=0x8 FILE_WRITE_EA=0x10 FILE_EXECUTE=0x20 FILE_READ_ATTRIBUTES=0x80 FILE_WRITE_ATTRIBUTES=0x100
         flags FileShare: FILE_SHARE_READ=1 FILE_SHARE_WRITE=2 FILE_SHARE_DELETE=4
@@ -440,6 +447,11 @@ public static class ApiSignatures
         cdecl wcstoul(wstr strSource, ptr endptr, int base)
         cdecl getenv(astr varname)
         cdecl _wgetenv(wstr varname)
+        cdecl cabs(fpair z)
+        cdecl carg(fpair z)
+        cdecl creal(fpair z)
+        cdecl cimag(fpair z)
+        cdecl cpow(fpair x, fpair y)
         cdecl fopen(astr filename, astr mode)
         cdecl _wfopen(wstr filename, wstr mode)
         cdecl fopen_s(ptr pFile, astr filename, astr mode)
@@ -672,6 +684,8 @@ public static class ApiSignatures
         "float" => new(name, ApiParamType.Float),
         "double" => new(name, ApiParamType.Double),
         "i64" => new(name, ApiParamType.Int64),
+        "pair" => new(name, ApiParamType.IntPair),
+        "fpair" => new(name, ApiParamType.FloatPair),
         _ when enums.TryGetValue(type, out var e) => new(name, ApiParamType.Enum, e),
         _ when enums.Keys.Any(k => k.StartsWith(type + "@", StringComparison.Ordinal)) => new(name, ApiParamType.Hex, null, type),
         _ => throw new InvalidOperationException($"Unknown type '{type}' in the API table"),

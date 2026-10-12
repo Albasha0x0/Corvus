@@ -121,6 +121,108 @@ public class SystemVCallTests
         Assert.Equal([10UL, 11], local.Arguments.Select(a => a.Value ?? 0));
     }
 
+    private static (NativeCodeIndex Index, CallAnalysis Calls) Assemble(Action<Assembler> body, byte[]? data = null, params NativeImport[] imports)
+    {
+        var a = new Assembler(64);
+        body(a);
+        var stream = new MemoryStream();
+        a.Assemble(new StreamCodeWriter(stream), Base + Code);
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, stream.ToArray(), data ?? new byte[0x200], imports, entry: Code, format: ImageFormat.Elf));
+        return (index, CallAnalysis.For(index));
+    }
+
+    [Fact]
+    public void A_struct_return_buffer_in_rdi_shifts_the_arguments()
+    {
+        // make(&local, 1, 2): the callee stores both and returns its rdi, as a function returning a 24-byte struct does
+        var (index, analysis) = Assemble(a =>
+        {
+            var make = a.CreateLabel();
+            a.sub(rsp, 0x28);
+            a.lea(rdi, __[rsp + 8]);
+            a.mov(esi, 1);
+            a.mov(edx, 2);
+            a.call(make);
+            a.add(rsp, 0x28);
+            a.ret();
+            a.Label(ref make);
+            a.mov(__qword_ptr[rdi], rsi);
+            a.mov(__qword_ptr[rdi + 8], rdx);
+            a.mov(__qword_ptr[rdi + 16], 0);
+            a.mov(rax, rdi);
+            a.ret();
+        });
+        var call = Assert.Single(analysis.CallsIn(index.FunctionByStart(Code)!));
+        Assert.Equal(["sret", null, null], call.Arguments.Select(x => x.Name));
+        Assert.Equal(["rdi", "rsi", "rdx"], call.Arguments.Select(x => x.Location));
+        Assert.Equal(("&local", 1UL, 2UL), (call.Arguments[0].Text, call.Arguments[1].Value!.Value, call.Arguments[2].Value!.Value));
+        Assert.Equal([0, 1, 2], call.Arguments.Select(x => x.Index));
+    }
+
+    [Fact]
+    public void A_variadic_call_counts_its_vector_arguments_in_al()
+    {
+        // log_values(fmt, 7, 1.5, 2.0) to a local variadic function: al = 2 vector registers
+        uint fmt = Data + 0x100;
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("%d %f %f\0").CopyTo(data, 0x100);
+        var (index, analysis) = Assemble(a =>
+        {
+            var log = a.CreateLabel();
+            a.sub(rsp, 8);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RDI, fmt));
+            a.mov(esi, 7);
+            a.mov(rax, BitConverter.DoubleToInt64Bits(1.5));
+            a.movq(xmm0, rax);
+            a.mov(rax, BitConverter.DoubleToInt64Bits(2.0));
+            a.movq(xmm1, rax);
+            a.mov(eax, 2);
+            a.call(log);
+            a.xor(eax, eax);
+            a.mov(edi, 3);
+            a.call(log);
+            a.add(rsp, 8);
+            a.ret();
+            a.Label(ref log);
+            a.ret();
+        }, data);
+        var calls = analysis.CallsIn(index.FunctionByStart(Code)!);
+        Assert.Equal(["rdi", "rsi", "xmm0", "xmm1"], calls[0].Arguments.Select(x => x.Location));
+        Assert.Equal(["1.5", "2"], calls[0].Arguments.Skip(2).Select(x => x.Text));
+        Assert.Equal(["rdi"], calls[1].Arguments.Select(x => x.Location));
+    }
+
+    [Fact]
+    public void Small_structs_take_two_registers_of_their_class()
+    {
+        // cpow(z1, z2): each double _Complex in two xmm registers under System V; by reference under Microsoft x64
+        uint cpow = Data + 0x10;
+        var (index, analysis) = Assemble(a =>
+        {
+            a.sub(rsp, 8);
+            for (int k = 0; k < 4; k++)
+            {
+                a.mov(rax, BitConverter.DoubleToInt64Bits(k + 1.0));
+                a.AddInstruction(Instruction.Create(Iced.Intel.Code.Movq_xmm_rm64, Register.XMM0 + k, Register.RAX));
+            }
+            a.AddInstruction(CallSlot(cpow));
+            a.add(rsp, 8);
+            a.ret();
+        }, null, new NativeImport("libm.so.6", "cpow", null, 0, cpow, false));
+        var call = Assert.Single(analysis.CallsIn(index.FunctionByStart(Code)!));
+        Assert.Equal(["xmm0:xmm1", "xmm2:xmm3"], call.Arguments.Select(x => x.Location));
+        Assert.Equal(["{1, 2}", "{3, 4}"], call.Arguments.Select(x => x.Text));
+
+        var cabs = new ApiParam("z", ApiParamType.FloatPair);
+        var pair = new ApiParam("s", ApiParamType.IntPair);
+        var n = new ApiParam("n", ApiParamType.Int);
+        // integer pairs take two of rdi..r9, or two stack slots once fewer than two are left; the next integer still takes a register
+        Assert.Equal(["rdi", "rsi:rdx", "rcx:r8", "[rsp+0h]:[rsp+8h]", "r9", "xmm0:xmm1"],
+            X64Abi.SystemV.Assign([n, pair, pair, pair, n, cabs], int.MaxValue, tail: false).Select(x => x.Label));
+        Assert.Equal(["rcx", "rdx"], X64Abi.Microsoft.Assign([cabs, cabs], int.MaxValue, tail: false).Select(x => x.Label));
+        Assert.Equal(["rsi", "xmm0:xmm1"], X64Abi.SystemV.Assign([n, cabs], int.MaxValue, tail: false, structReturn: true).Select(x => x.Label));
+    }
+
     [Fact]
     public void Entry_locations_map_to_parameter_positions()
     {

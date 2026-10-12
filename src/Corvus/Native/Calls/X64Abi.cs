@@ -49,28 +49,38 @@ internal sealed class X64Abi
     /// <summary>
     /// Where each parameter is passed at a call (before the return address is pushed): Microsoft by position, System V by
     /// class with the rest on the stack in order. Floating-point parameters from <paramref name="variadicFrom"/> on go in
-    /// integer registers under Microsoft (System V passes them in xmm registers).
+    /// integer registers under Microsoft (System V passes them in xmm registers). A 16-byte struct takes two registers of
+    /// its class under System V (<see cref="Second"/>), or two stack slots when both are not free; Microsoft passes it
+    /// by reference. <paramref name="structReturn"/>: rdi / rcx holds the caller's buffer for a returned struct.
     /// </summary>
-    public List<(Loc Loc, string Label)> Assign(IReadOnlyList<bool> isFloat, int variadicFrom, bool tail)
+    public List<(Loc Loc, string Label, Loc? Second)> Assign(IReadOnlyList<ApiParam> ps, int variadicFrom, bool tail, bool structReturn = false)
     {
-        var result = new List<(Loc, string)>(isFloat.Count);
-        int ints = 0, floats = 0, stack = 0, shift = tail ? 8 : 0;
-        for (int k = 0; k < isFloat.Count; k++)
+        var result = new List<(Loc, string, Loc?)>(ps.Count);
+        int hidden = structReturn ? 1 : 0, ints = hidden, floats = 0, stack = 0, shift = tail ? 8 : 0;
+        for (int k = 0; k < ps.Count; k++)
         {
-            Register reg = Register.None;
+            var p = ps[k];
+            int position = k + hidden;
+            Register reg = Register.None, second = Register.None;
             if (!IsSystemV)
             {
-                if (k < 4) reg = isFloat[k] && k < variadicFrom ? Register.XMM0 + k : IntArgs[k];
+                // a 16-byte struct goes by reference: its address in the integer register of its position
+                if (position < 4) reg = p.IsFloat && position < variadicFrom ? Register.XMM0 + position : IntArgs[position];
             }
-            else if (isFloat[k]) { if (floats < FloatArgs) reg = Register.XMM0 + floats++; }
+            else if (p.Type == ApiParamType.FloatPair) { if (floats + 2 <= FloatArgs) (reg, second) = (Register.XMM0 + floats, Register.XMM0 + floats + 1); floats += reg != Register.None ? 2 : 0; }
+            else if (p.Type == ApiParamType.IntPair) { if (ints + 2 <= IntArgs.Length) (reg, second) = (IntArgs[ints], IntArgs[ints + 1]); ints += reg != Register.None ? 2 : 0; }
+            else if (p.IsFloat) { if (floats < FloatArgs) reg = Register.XMM0 + floats++; }
             else if (ints < IntArgs.Length) reg = IntArgs[ints++];
             if (reg != Register.None)
             {
-                result.Add((Loc.Of(reg), reg.ToString().ToLowerInvariant()));
+                string label = reg.ToString().ToLowerInvariant() + (second != Register.None ? ":" + second.ToString().ToLowerInvariant() : "");
+                result.Add((Loc.Of(reg), label, second != Register.None ? Loc.Of(second) : null));
                 continue;
             }
-            int slot = (IsSystemV ? stack++ * 8 : HomeArea + 8 * (k - 4)) + shift;
-            result.Add((Loc.Stack(slot), $"[rsp+{slot:X}h]"));
+            int slot = (IsSystemV ? stack * 8 : HomeArea + 8 * (position - 4)) + shift;
+            bool pairOnStack = IsSystemV && p.IsPair;
+            stack += pairOnStack ? 2 : 1;
+            result.Add((Loc.Stack(slot), pairOnStack ? $"[rsp+{slot:X}h]:[rsp+{slot + 8:X}h]" : $"[rsp+{slot:X}h]", pairOnStack ? Loc.Stack(slot + 8) : null));
         }
         return result;
     }

@@ -101,10 +101,16 @@ internal sealed class Arm32CallSites : ICallSites
             var p = signature != null && i < signature.Params.Count ? signature.Params[i] : null;
             var entry = A32Function.ParameterEntry(i);
             string location = A32Function.Name(entry, null);
-            if (p is { IsFloat: true } or { Type: ApiParamType.Int64 })
+            if (p is { IsFloat: true })
             {
-                args.Add(new CallArgument(i, p.Name, p.TypeName, location, ArgKind.Unknown, null, null, "?", $"{(p.IsFloat ? "floating-point" : "64-bit")} arguments are not recovered"));
+                args.Add(new CallArgument(i, p.Name, p.TypeName, location, ArgKind.Unknown, null, null, "?", "floating-point arguments are not recovered"));
                 continue;
+            }
+            if (p is { Type: ApiParamType.Int64 } or { IsPair: true })
+            {
+                // a register pair or a struct: where the later arguments go depends on alignment this does not model
+                args.Add(new CallArgument(i, p.Name, p.TypeName, location, ArgKind.Unknown, null, null, "?", $"{(p.IsPair ? "struct" : "64-bit")} arguments are not recovered"));
+                break;
             }
             A32Val v = entry.IsSlot
                 ? s.Sp is { } sp ? resolver.Before(A32Loc.Slot(sp + entry.Value), b, k) : A32Val.Unknown("sp is not known at the call")

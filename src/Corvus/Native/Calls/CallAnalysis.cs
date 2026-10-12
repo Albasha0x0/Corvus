@@ -305,7 +305,7 @@ public sealed partial class CallAnalysis : ITraceHost
         ApiSignatures.Find(c.Import?.Name ?? c.Dynamic?.Name ?? (c.Kind == CalleeKind.Function ? c.Name : null));
 
     /// <summary>Where the parameters of <paramref name="sig"/> are passed at a call.</summary>
-    internal List<(Loc Loc, string Label)> ParameterLocations(ApiSignature sig, bool tail) => Locations([.. sig.Params], int.MaxValue, tail);
+    internal List<(Loc Loc, string Label, Loc? Second)> ParameterLocations(ApiSignature sig, bool tail) => Locations([.. sig.Params], int.MaxValue, tail);
 
     internal bool IsTransparentCall(in Decoded d) => d.HasMem && d.I.Op0Kind == OpKind.Memory && _checkSlots.Contains(d.MemRva);
 
@@ -477,27 +477,33 @@ public sealed partial class CallAnalysis : ITraceHost
         var sig = ApiSignatures.Find(apiName, Image);
         var args = new List<CallArgument>();
         bool guessed = sig == null;
+        // System V: a local callee that returns its rdi, given a local buffer there, returns a struct through it
+        bool structReturn = Is64 && Abi.IsSystemV && callee is { Kind: CalleeKind.Function, Target: { } target } && ReturnsIncomingRdi(target)
+            && resolver.ValueBefore(Loc.Of(Register.RDI), block, index).Kind == VKind.StackAddr;
+        if (structReturn) args.Add(Argument(resolver, block, index, 0, new ApiParam("sret", ApiParamType.Pointer), (Loc.Of(Register.RDI), "rdi", null)));
+        int first = args.Count;
         if (sig != null)
         {
             var ps = new List<ApiParam>(sig.Params);
             int fixedCount = ps.Count;
-            var locs = Locations(ps, int.MaxValue, tail);
+            var locs = Locations(ps, int.MaxValue, tail, structReturn);
             for (int k = 0; k < ps.Count; k++)
-                args.Add(Argument(resolver, block, index, k, ps[k], locs[k]));
+                args.Add(Argument(resolver, block, index, first + k, ps[k], locs[k]));
             if (sig.Variadic && ps.LastOrDefault(p => p.Type is ApiParamType.AnsiFormat or ApiParamType.WideFormat) is { } fmt
-                && args[ps.IndexOf(fmt)] is { Kind: ArgKind.String } fa && fa.Value == null)
+                && args[first + ps.IndexOf(fmt)] is { Kind: ArgKind.String } fa && fa.Value == null)
             {
                 var extra = ApiSignatures.FormatArguments(Unquote(fa.Text), fmt.Type == ApiParamType.WideFormat, 16);
                 for (int k = 0; k < extra.Count; k++) ps.Add(new ApiParam($"arg{k + 1}", extra[k]));
-                var all = Locations(ps, fixedCount, tail);
+                var all = Locations(ps, fixedCount, tail, structReturn);
                 for (int k = fixedCount; k < ps.Count; k++)
-                    args.Add(Argument(resolver, block, index, k, ps[k], all[k]));
+                    args.Add(Argument(resolver, block, index, first + k, ps[k], all[k]));
             }
         }
         else
         {
             foreach (var (k, loc, label) in tail ? [] : GuessLocations(code, block, index))
-                args.Add(Argument(resolver, block, index, k, null, (loc, label)));
+                if (!structReturn || loc != Loc.Of(Register.RDI))
+                    args.Add(Argument(resolver, block, index, args.Count, label.StartsWith("xmm", StringComparison.Ordinal) ? new ApiParam("", ApiParamType.Double) : null, (loc, label, null)));
         }
         return new CallSiteInfo(d.Rva, code.Function, callee.Name, callee.Kind, callee.Import, callee.Target, callee.Dynamic, sig, guessed, args, tail);
     }
@@ -510,18 +516,37 @@ public sealed partial class CallAnalysis : ITraceHost
     }
 
     /// <summary>Where each parameter is passed (<see cref="X64Abi.Assign"/> on x64).</summary>
-    private List<(Loc Loc, string Label)> Locations(List<ApiParam> ps, int variadicFrom, bool tail)
+    private List<(Loc Loc, string Label, Loc? Second)> Locations(List<ApiParam> ps, int variadicFrom, bool tail, bool structReturn = false)
     {
-        if (Is64) return Abi.Assign(ps.Select(p => p.IsFloat).ToList(), variadicFrom, tail);
-        var result = new List<(Loc, string)>(ps.Count);
+        if (Is64) return Abi.Assign(ps, variadicFrom, tail, structReturn);
+        var result = new List<(Loc, string, Loc?)>(ps.Count);
         int offset = 0;
         foreach (var p in ps)
         {
-            result.Add((Loc.Stack(offset + (tail ? 4 : 0)), $"[esp+{offset + (tail ? 4 : 0):X}h]"));
+            result.Add((Loc.Stack(offset + (tail ? 4 : 0)), $"[esp+{offset + (tail ? 4 : 0):X}h]", null));
             offset += 4 * p.Slots32;
         }
         return result;
     }
+
+    private readonly ConcurrentDictionary<uint, bool> _returnsRdi = new();
+
+    /// <summary>Every return of the local function at <paramref name="target"/> gives back the rdi it was called with.</summary>
+    private bool ReturnsIncomingRdi(uint target) => _returnsRdi.GetOrAdd(target, t =>
+    {
+        if (Index.FunctionByStart(t) is not { ThunkImport: null } f) return false;
+        var code = Code(f, CancellationToken.None);
+        int returns = 0;
+        for (int b = 0; b < code.Blocks.Length; b++)
+        {
+            var insns = code.Blocks[b];
+            if (insns.Length == 0 || insns[^1].I.Mnemonic != Mnemonic.Ret) continue;
+            var v = new ValueResolver(this, code) { Budget = 1500, Slice = true }.ValueBefore(Loc.Of(Register.RAX), b, insns.Length - 1);
+            if (v is not { Kind: VKind.Incoming, Site: var reg } || reg != (uint)Register.RDI) return false;
+            returns++;
+        }
+        return returns > 0;
+    });
 
     /// <summary>
     /// Arguments of a call without a signature: the argument registers (x64) and stack slots set between the previous
@@ -560,6 +585,9 @@ public sealed partial class CallAnalysis : ITraceHost
                 int slot = home + 8 * (k - regs.Length);
                 result.Add(k < regs.Length ? (k, Loc.Of(regs[k]), regs[k].ToString().ToLowerInvariant()) : (k, Loc.Stack(slot), $"[rsp+{slot:X}h]"));
             }
+            // System V variadic call: al holds the number of vector registers that carry arguments
+            if (Abi.IsSystemV && VectorCount(insns, index) is { } vectors)
+                for (int v = 0; v < vectors; v++) result.Add((result.Count, Loc.Of(Register.XMM0 + v), $"xmm{v}"));
             return result;
         }
         // x86: pushes (and esp stores) since the previous call, contiguous from [esp]
@@ -591,12 +619,38 @@ public sealed partial class CallAnalysis : ITraceHost
         return result;
     }
 
-    private CallArgument Argument(ValueResolver resolver, int block, int index, int k, ApiParam? p, (Loc Loc, string Label) loc)
+    /// <summary>The al a System V call sets just before it (mov eax / al, n or xor eax, eax), 0-8; null when it sets none.</summary>
+    private static int? VectorCount(Decoded[] insns, int index)
+    {
+        for (int i = index - 1; i >= 0; i--)
+        {
+            ref readonly var x = ref insns[i].I;
+            if (x.FlowControl is FlowControl.Call or FlowControl.IndirectCall) return null;
+            if ((insns[i].Writes & (1UL << FunctionCode.Bit(Register.RAX))) == 0) continue;
+            if (x.Mnemonic == Mnemonic.Xor && x.Op0Kind == OpKind.Register && x.Op1Kind == OpKind.Register && x.Op0Register == x.Op1Register) return 0;
+            if (x.Mnemonic == Mnemonic.Mov && x.Op0Kind == OpKind.Register && x.Op0Register is Register.EAX or Register.AL
+                && x.Op1Kind is OpKind.Immediate8 or OpKind.Immediate32 && x.GetImmediate(1) <= 8) return (int)x.GetImmediate(1);
+            return null;
+        }
+        return null;
+    }
+
+    private CallArgument Argument(ValueResolver resolver, int block, int index, int k, ApiParam? p, (Loc Loc, string Label, Loc? Second) loc)
     {
         var v = resolver.ValueBefore(loc.Loc, block, index);
-        var (kind, value, rva, text) = Format(v, p, resolver.Code);
-        return new CallArgument(k, p?.Name, p?.TypeName, loc.Label, kind, value, rva, text, v.Why) { Raw = v };
+        var (kind, value, rva, text) = Format(v, p is { IsPair: true } ? Half(p) : p, resolver.Code);
+        if (loc.Second is { } second)
+        {
+            // a struct in two eightbytes: both halves
+            var high = resolver.ValueBefore(second, block, index);
+            var (_, _, _, highText) = Format(high, Half(p!), resolver.Code);
+            return new CallArgument(k, p?.Name, p?.TypeName, loc.Label, kind == ArgKind.Immediate && high.Kind == VKind.Const ? ArgKind.Immediate : ArgKind.Unknown,
+                null, null, $"{{{text}, {highText}}}", v.Why) { Raw = v };
+        }
+        return new CallArgument(k, p?.Name is { Length: > 0 } name ? name : null, p?.TypeName, loc.Label, kind, value, rva, text, v.Why) { Raw = v };
     }
+
+    private static ApiParam Half(ApiParam p) => new(p.Name, p.Type == ApiParamType.FloatPair ? ApiParamType.Double : ApiParamType.UInt);
 
     /// <summary>The short name of the callee of the call at <paramref name="site"/> in <paramref name="code"/>.</summary>
     private string ResultName(FunctionCode code, uint site)
