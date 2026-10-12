@@ -24,10 +24,12 @@ internal sealed class ClrHelperClient : IClrBackend
     private readonly ChildProcess _process;
     private readonly StreamReader _output;
     private readonly StreamWriter _input;
+    private readonly string _temp;
 
-    private ClrHelperClient(ChildProcess process)
+    private ClrHelperClient(ChildProcess process, string temp)
     {
         _process = process;
+        _temp = temp;
         _output = new StreamReader(process.StandardOutput, new UTF8Encoding(false));
         _input = new StreamWriter(process.StandardInput, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
     }
@@ -43,12 +45,25 @@ internal sealed class ClrHelperClient : IClrBackend
     /// <summary>Starts the decoder on <paramref name="dump"/> with the verified DAC; throws when it cannot open the runtime.</summary>
     public static ClrHelperClient Start(string helper, string dump, string dac, string sha256, IReadOnlyList<string> imageDirectories)
     {
-        var process = ChildProcess.Start(new ChildProcessStart(helper, [dump, dac, sha256, string.Join(';', imageDirectories)])
+        // ClrMD creates its default symbol cache (%TEMP%\symbols) on every dump open: the decoder gets a temporary folder of its own
+        var temp = Path.Combine(Path.GetTempPath(), "corvus-clr32", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temp);
+        ChildProcess process;
+        try
         {
-            WorkingDirectory = Path.GetDirectoryName(helper),
-            MemoryLimitBytes = MemoryLimit,
-        });
-        var client = new ClrHelperClient(process);
+            process = ChildProcess.Start(new ChildProcessStart(helper, [dump, dac, sha256, string.Join(';', imageDirectories)])
+            {
+                WorkingDirectory = Path.GetDirectoryName(helper),
+                Environment = new Dictionary<string, string?> { ["TMP"] = temp, ["TEMP"] = temp },
+                MemoryLimitBytes = MemoryLimit,
+            });
+        }
+        catch
+        {
+            DeleteTemp(temp);
+            throw;
+        }
+        var client = new ClrHelperClient(process, temp);
         try
         {
             client.Read(StartTimeout);
@@ -118,6 +133,17 @@ internal sealed class ClrHelperClient : IClrBackend
     {
         try { _input.WriteLine("exit"); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
-        _process.Dispose();
+        _process.Dispose(); // waits for the exit, so the folder is free
+        DeleteTemp(_temp);
+    }
+
+    private static void DeleteTemp(string temp)
+    {
+        try
+        {
+            Directory.Delete(temp, true);
+            Directory.Delete(Path.GetDirectoryName(temp)!); // the shared parent, once no other decoder uses it
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 }
