@@ -101,6 +101,8 @@ public enum FunctionFlags : byte
     /// block reached only through exception metadata.
     /// </summary>
     Funclet = 64,
+    /// <summary>32-bit ARM: the ARM / Thumb state is a guess between two plausible readings.</summary>
+    StateGuessed = 128,
 }
 
 /// <summary>A discovered function. Extents are the union of its basic blocks (functions can be non-contiguous).</summary>

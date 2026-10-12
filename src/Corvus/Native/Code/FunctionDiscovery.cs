@@ -453,7 +453,7 @@ internal sealed class FunctionDiscovery
                 if (_ctx.ArmModes is { } modes && (target & 1) != 0)
                 {
                     target &= ~1u;
-                    modes.Hint(target, true);
+                    modes.HintUnconfirmed(target, true);
                 }
                 result.Add(target);
             }

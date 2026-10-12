@@ -265,6 +265,30 @@ public class NativeArm32Tests
         // an odd address asks for Thumb decoding at the address below it
         Assert.Equal("movs   r0, #2", index.Disassemble(thumb | 1, 1)[0].Text);
         Assert.Contains(index.RefsTo(thumb), x => x.Kind == XrefKind.Pointer);
+        // the even pointer gives no state: cmp; bx lr also reads as Thumb (movs; b), so ARM is a guess
+        Assert.Equal((FunctionFlags.StateGuessed, FunctionFlags.None),
+            (index.FunctionByStart(Text)!.Flags & FunctionFlags.StateGuessed, index.FunctionByStart(thumb)!.Flags & FunctionFlags.StateGuessed));
+    }
+
+    [Fact]
+    public void An_even_entry_point_is_no_state_fact()
+    {
+        // push {r4, lr}; movs r0, #1; pop {r4, pc} at an entry the linker left without bit 0
+        var index = NativeCodeIndex.Build(Elf(Convert.FromHexString("10B5012010BD00BF"), w => w.Entry = Text));
+        Assert.True(index.CreateDisassembler().ThumbAt(Text));
+        Assert.Equal(0, (int)(index.FunctionByStart(Text)!.Flags & FunctionFlags.StateGuessed));
+    }
+
+    [Theory]
+    [InlineData("B000 2DE9 0C70 9FE5 DC40 CDE1 0000 00EF B000 BDE8 FEFF FFEA", false, true)] // push {r4, r5, r7}; ldr r7, [pc, #12]; ldrd; svc #0; pop; b
+    [InlineData("80B5 DDE9 02CE CDE9 02CE BDE8 8040 1BF0 0000 0000 0000 0000", true, true)]  // push {r7, lr}; ldrd; strd; pop.w {r7, lr}; b.w
+    [InlineData("82B0 8DED 000B DDE9 0032 C2F3 0A50 40B1 0000 0000 0000 0000", true, true)]  // sub sp, #8; vstr d0, [sp]; ldrd; ubfx; cbz
+    [InlineData("0000 A0E3 1EFF 2FE1 0000 0000 0000 0000 0000 0000 0000 0000", false, false)] // mov r0, #0; bx lr (Thumb: movs r0, r0; b)
+    public void State_of_code_without_a_fact_is_guessed(string hex, bool thumb, bool sure)
+    {
+        var image = Elf(Convert.FromHexString(hex.Replace(" ", "")));
+        Assert.Equal((thumb, sure), Arm32Modes.Guess(image, Text));
+        Assert.Equal((true, true), Arm32Modes.Guess(image, Text + 2));
     }
 
     [Fact]

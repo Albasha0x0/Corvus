@@ -885,6 +885,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                 f.InstructionCount = r.Instructions;
                 if (_ctx.NoReturn.Contains(f.Start)) { f.Flags |= FunctionFlags.NoReturn; noReturn++; }
                 if (_ctx.Funclets.Contains(f.Start)) f.Flags |= FunctionFlags.Funclet;
+                if (_ctx.ArmModes?.IsUnsure(f.Start) == true) f.Flags |= FunctionFlags.StateGuessed;
                 if (_ctx.Thunks.TryGetValue(f.Start, out var slot) && _ctx.ImportSlots.TryGetValue(slot, out var imp))
                 {
                     f.Flags |= FunctionFlags.Thunk;

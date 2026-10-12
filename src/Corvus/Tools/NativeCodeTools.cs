@@ -84,6 +84,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (index != null && EngineLibraryNames.IsLibrary(index, f.Start)) flags.Add("library");
         if (f.Flags.HasFlag(FunctionFlags.Thunk)) flags.Add("thunk");
         if (index?.ArmModes is { } modes && !modes.At(f.Start)) flags.Add("arm");
+        if (f.Flags.HasFlag(FunctionFlags.StateGuessed)) flags.Add("state guessed");
         if (f.Flags.HasFlag(FunctionFlags.NoReturn)) flags.Add("noreturn");
         if (f.Flags.HasFlag(FunctionFlags.UnresolvedJumps)) flags.Add("unresolved jumps");
         if (f.Flags.HasFlag(FunctionFlags.InvalidCode)) flags.Add("invalid code");

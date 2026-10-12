@@ -389,7 +389,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
             uint target = value;
             if (TryRva(value & ~1u, out uint code) && _code?.IsCode(code) == true)
             {
-                if ((value & 1) != 0) Modes.Hint(code, true);
+                if ((value & 1) != 0) HintThumb(code, confirmed: !FixedAddress);
                 target = value & ~1u;
             }
             if (TryRva(target, out uint taken)) { insn.HasImm = true; insn.ImmTarget = taken; }
@@ -397,6 +397,13 @@ internal sealed class Arm32Decoder : ICodeDecoder
         }
         else if (kind != Known.None) Set(rd, kind, value);
         _relocatedLow[rd] = relocatedLow;
+    }
+
+    /// <summary>An odd address names Thumb code; one no relocation confirms may be a constant that happens to be odd.</summary>
+    private void HintThumb(uint code, bool confirmed)
+    {
+        if (confirmed) Modes.Hint(code, true);
+        else Modes.HintUnconfirmed(code, true);
     }
 
     /// <summary>add rd, pc / add rd, rX, pc where the other register came from an unrelocated literal.</summary>
@@ -435,7 +442,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         if (Array.BinarySearch(_relocs, slot) >= 0 || FixedAddress && _code?.IsCode(slot) == true && TryRva(value & ~1u, out _))
         {
             if (!TryRva(value & ~1u, out uint target)) return;
-            if (_code?.IsCode(target) == true && (value & 1) != 0) Modes.Hint(target, true);
+            if (_code?.IsCode(target) == true && (value & 1) != 0) HintThumb(target, confirmed: Array.BinarySearch(_relocs, slot) >= 0);
             if (!insn.HasImm) { insn.HasImm = true; insn.ImmTarget = _code?.IsCode(target) == true ? target : value - _imageBase; }
             Set(dest, Known.Address, value);
             _literal[dest] = Array.BinarySearch(_relocs, slot) < 0;

@@ -99,7 +99,9 @@ Tests on real files now use `PeFile`; the adapters remain for synthetic images b
   discarded) before parsing it as PE: one extra read of the file and garbage of its size.
 - Instructions are decoded for x86, x64, ARM64 and 32-bit ARM (A32 and Thumb-2); ARMv8 AES / SHA / VMULL.P64 are decoded;
   other rare SIMD encodings decode as `simd` without operands. A function's ARM / Thumb state comes from symbols, mapping symbols, BL / BLX and code pointers, else from
-  sniffing its first words; a stripped image whose functions are reached only through unmarked pointers can be misjudged.
+  decoding its first words in both states and their prologues; when both read plausibly the image's prevailing state is
+  taken and list_functions tags the function "state guessed" (stripped libSkiaSharp armv7: 18,219 of 18,219 functions
+  right, IDA 15,781 of 15,781; static busybox armhf: 99.82% agreement with IDA).
 - `list_resources` and several .NET tools page with a footer that names an `offset` the tool does not take; for native
   images only `list_resources` is affected (an image with thousands of resources).
 - IDA was exercised on a small sample only (`DecompilesThroughIdaAndRecoversCppClasses`, the unload test, and up to
