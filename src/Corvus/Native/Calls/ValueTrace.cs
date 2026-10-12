@@ -642,6 +642,12 @@ public sealed class ValueTrace
             {
                 if (constructions >= _o.MaxWriters || _nodesFull) { _frontier.Add(new TraceFrontier(e.Node, what, $"more code constructing {e.Location}", Next(e))); goto done; }
                 if (Index.FunctionAt(r.From) is not { } g || !CanEnter(g)) continue;
+                if (ImmediateStoreBase(r.From, vftable) is { } stored)
+                {
+                    constructions++;
+                    Uses(g, Slice(g, new SliceSeed(SliceSeedKind.Location, r.From, stored), true));
+                    continue;
+                }
                 foreach (var store in Slice(g, new SliceSeed(SliceSeedKind.Loaded, r.From), true).Nodes
                              .Where(n => n.Kind == SliceNodeKind.FieldStore && n.Base != null && n.Offset == 0 && !n.Derived).ToList())
                 {
@@ -657,6 +663,24 @@ public sealed class ValueTrace
                                                               $"of that type in the {taken} functions holding it" +
                                                               (constructions > 0 ? $" or the {constructions} objects its vftable constructs" : "")),
             };
+    }
+
+    /// <summary>
+    /// The base register of "mov [reg], imm" storing <paramref name="target"/> at <paramref name="rva"/> (x86 "mov dword [ecx], offset vftable",
+    /// x64 "mov qword [rcx], imm32" below 2 GB), or null: no register carries the address, so the object register is followed from the store.
+    /// </summary>
+    private string? ImmediateStoreBase(uint rva, uint target)
+    {
+        if (Index.Image.Arch is not (NativeArch.X86 or NativeArch.X64)) return null;
+        var bytes = new byte[15];
+        int n = Index.Image.Read(rva, bytes);
+        var decoder = Iced.Intel.Decoder.Create(Host.Is64 ? 64 : 32, new Iced.Intel.ByteArrayCodeReader(bytes, 0, n));
+        decoder.IP = Index.Image.ImageBase + rva;
+        decoder.Decode(out var i);
+        return i.Mnemonic == Iced.Intel.Mnemonic.Mov && i.Op0Kind == Iced.Intel.OpKind.Memory && i.Op1Kind is Iced.Intel.OpKind.Immediate32 or Iced.Intel.OpKind.Immediate32to64
+            && i.MemoryIndex == Iced.Intel.Register.None && i.MemoryDisplacement64 == 0 && Iced.Intel.RegisterExtensions.IsGPR(i.MemoryBase)
+            && i.GetImmediate(1) - Index.Image.ImageBase == target
+            ? i.MemoryBase.ToString().ToLowerInvariant() : null;
     }
 
     /// <summary>The call sites of <paramref name="f"/>: in its image, then in other loaded images through their imports.</summary>

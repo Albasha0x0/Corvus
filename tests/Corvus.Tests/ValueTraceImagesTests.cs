@@ -148,6 +148,39 @@ public sealed class ValueTraceImagesTests : IDisposable
         Assert.Contains(g.Values, v => v.Text == "0x31");
     }
 
+    /// <summary>x86 inlined constructor storing the vftable as an immediate ("mov dword [ecx], offset vftable"): no register carries it.</summary>
+    [Fact]
+    public void A_field_read_finds_the_store_of_an_x86_constructor_writing_the_vftable_as_an_immediate()
+    {
+        const uint area = 0x1000, make = 0x1010, vftable = CodeTestImage.SyntheticDataRva + 0x10;
+        const uint vfVa = 0x10000000 + vftable;
+        var code = new byte[0x20];
+        Array.Fill(code, (byte)0xCC);
+        new byte[] { 0x8B, 0x41, 0x08, 0xC3 }.CopyTo(code, 0);                                     // mov eax, [ecx+8]; ret
+        new byte[] { 0xC7, 0x01, 0, 0, 0, 0, 0xC7, 0x41, 0x08, 0x31, 0, 0, 0, 0xC3 }.CopyTo(code, 0x10); // mov dword [ecx], offset vftable; mov dword [ecx+8], 31h; ret
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(code.AsSpan(0x12), vfVa);
+        var data = new byte[0x100];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x10), 0x10000000 + area);
+        var image = CodeTestImage.Synthetic(Native.NativeArch.X86, code, data, relocations: [make + 2, vftable],
+            exports: [new Native.NativeExport("Circle_area", 1, area, null), new Native.NativeExport("MakeCircle", 2, make, null)]);
+        var index = NativeCodeIndex.Build(image);
+        var host = CallAnalysis.For(index);
+        var f = index.FunctionByStart(area)!;
+        var g = ValueTrace.Build(host, new TraceSeed(TraceSeedKind.Location, area + 3, f, "eax", "eax after the load"), new ValueTraceOptions(TraceDirection.Backward),
+            types: new VftableTypes(area, vftable));
+        Assert.Contains(g.Values, v => v.Text == "0x31");
+    }
+
+    /// <summary>Class "Circle": this (ecx) of <paramref name="method"/>, constructed where <paramref name="vftable"/> is stored.</summary>
+    private sealed class VftableTypes(uint method, uint vftable) : ITraceTypes
+    {
+        public string Key => "test";
+        public string? ParameterType(ITraceHost host, NativeFunction f, string location) => f.Start == method && location == "ecx" ? "Circle" : null;
+        public IReadOnlyList<(NativeFunction Function, string Location)> Holders(ITraceHost host, string type) => [];
+        public string? Member(ITraceHost host, string type, long offset) => null;
+        public IReadOnlyList<uint> Vftables(ITraceHost host, string type) => type == "Circle" ? [vftable] : [];
+    }
+
     [Fact]
     public async Task Backward_import_result_comes_from_the_providers_return_values()
     {
