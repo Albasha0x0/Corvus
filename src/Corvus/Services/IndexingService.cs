@@ -88,7 +88,7 @@ public sealed class IndexingService : IDisposable
             }
             ct.ThrowIfCancellationRequested();
             _status = "building call graph";
-            _workspace.Read(() => { _graph.EnsureBuilt(ct); return 0; });
+            _graph.EnsureBuilt(ct);
             _status = "done";
             _logger?.LogInformation("Background indexing done ({Count} assemblies)", pending.Count);
         }

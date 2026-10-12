@@ -28,6 +28,16 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
+    public void BuiltOutsideTheLock_InSections_SameTrees()
+    {
+        var expected = Tree("Account::Charge(int)", callers: true);
+        var sectioned = new CallGraphService(_env.Workspace);
+        sectioned.EnsureBuilt(default);
+        Assert.True(sectioned.IsBuilt);
+        Assert.Equal(expected, _env.Workspace.Read(() => sectioned.Tree(_env.Fixture, _env.Def<MethodDef>("Account::Charge(int)"), true, 3, 300, false, default)));
+    }
+
+    [Fact]
     public void VirtualDispatchAndCrossAssembly()
     {
         var callers = Tree("Account::Charge(int)", callers: true);

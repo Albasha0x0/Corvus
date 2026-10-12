@@ -29,8 +29,18 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
 
     private long StateKey() => ((long)workspace.Generation << 32) | (uint)workspace.Assemblies.Sum(a => a.Version);
 
-    /// <summary>Call under the workspace read lock.</summary>
-    public void EnsureBuilt(CancellationToken ct) => GetGraph(ct);
+    /// <summary>Types per shared-lock section when the graph is built without the caller holding the lock.</summary>
+    private const int SectionTypes = 500;
+
+    /// <summary>
+    /// Builds the graph unless it is current. Called without the workspace lock, it reads the assemblies in sections so a
+    /// queued writer gets in between; an edit meanwhile leaves the graph to be built on first use.
+    /// </summary>
+    public void EnsureBuilt(CancellationToken ct)
+    {
+        if (workspace.LockHeld) GetGraph(ct);
+        else BuildInSections(ct);
+    }
 
     private Graph GetGraph(CancellationToken ct)
     {
@@ -40,35 +50,86 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
             if (_graph?.Key == key) return _graph;
         }
         var resolved = new ConcurrentDictionary<IMethod, MethodDef?>();
-        var loadedModules = workspace.Assemblies.Select(a => a.Module).ToHashSet();
-        var edges = ParallelCollect<(MethodDef From, MethodDef? To, string? External, MethodDef? ExternalDef, uint Offset, string Op)>(workspace.Assemblies, (asm, type, found) =>
+        var loadedModules = workspace.Assemblies.Select(a => (ModuleDef)a.Module).ToHashSet();
+        var edges = Collect(Types(workspace.Assemblies), resolved, loadedModules, ct);
+        foreach (var asm in workspace.Assemblies)
+            DelegateEdges(asm, edges, resolved, loadedModules, ct);
+        return Publish(key, edges);
+    }
+
+    private void BuildInSections(CancellationToken ct)
+    {
+        var (key, assemblies, work) = workspace.Read(() => (StateKey(), workspace.Assemblies, Types(workspace.Assemblies)), ct);
+        lock (_sync)
         {
+            if (_graph?.Key == key) return;
+        }
+        var resolved = new ConcurrentDictionary<IMethod, MethodDef?>();
+        var loadedModules = assemblies.Select(a => (ModuleDef)a.Module).ToHashSet();
+        var edges = new List<Call>();
+        bool Section(Action read) => workspace.Read(() =>
+        {
+            if (StateKey() != key) return false;
+            read();
+            return true;
+        }, ct);
+        for (int start = 0; start < work.Length; start += SectionTypes)
+        {
+            var part = work[start..Math.Min(work.Length, start + SectionTypes)];
+            if (!Section(() => edges.AddRange(Collect(part, resolved, loadedModules, ct)))) return;
+        }
+        foreach (var asm in assemblies)
+            if (!Section(() => DelegateEdges(asm, edges, resolved, loadedModules, ct))) return;
+        Publish(key, edges);
+    }
+
+    private record struct Call(MethodDef From, MethodDef? To, string? External, MethodDef? ExternalDef, uint Offset, string Op);
+
+    private static (LoadedAssembly Assembly, TypeDef Type)[] Types(IEnumerable<LoadedAssembly> assemblies) =>
+        assemblies.SelectMany(a => a.Module.GetTypes().Select(t => (a, t))).ToArray();
+
+    private static List<Call> Collect((LoadedAssembly Assembly, TypeDef Type)[] work, ConcurrentDictionary<IMethod, MethodDef?> resolved,
+        HashSet<ModuleDef> loadedModules, CancellationToken ct)
+    {
+        var buckets = new List<Call>?[work.Length];
+        Parallel.For(0, work.Length, new ParallelOptions { CancellationToken = ct }, i =>
+        {
+            var (asm, type) = work[i];
+            List<Call>? found = null;
             foreach (var m in type.Methods)
                 foreach (var instr in FastIlReader.Instructions(asm, m))
                 {
                     if (!IsCall(instr.OpCode.Code) || AsMethod(instr.Operand) is not { } op) continue;
                     var target = resolved.GetOrAdd(op, o => Try(() => (o is MethodSpec spec ? spec.Method : o).ResolveMethodDef()));
-                    if (target != null && loadedModules.Contains(target.Module))
-                        found.Add((m, target, null, null, instr.Offset, instr.OpCode.Name));
-                    else
-                        found.Add((m, null, Format.MemberLabel(op), target, instr.Offset, instr.OpCode.Name));
+                    found ??= new();
+                    found.Add(target != null && loadedModules.Contains(target.Module)
+                        ? new Call(m, target, null, null, instr.Offset, instr.OpCode.Name)
+                        : new Call(m, null, Format.MemberLabel(op), target, instr.Offset, instr.OpCode.Name));
                 }
-        }, ct).ToList();
+            buckets[i] = found;
+        });
+        var edges = new List<Call>();
+        foreach (var bucket in buckets)
+            if (bucket != null) edges.AddRange(bucket);
+        return edges;
+    }
 
-        // Calls through static delegate fields, to the method each field's delegate calls.
-        foreach (var asm in workspace.Assemblies)
+    /// <summary>Calls through static delegate fields, to the method each field's delegate calls.</summary>
+    private static void DelegateEdges(LoadedAssembly asm, List<Call> edges, ConcurrentDictionary<IMethod, MethodDef?> resolved, HashSet<ModuleDef> loadedModules,
+        CancellationToken ct)
+    {
+        foreach (var site in Simplify.DelegateCalls.Of(asm, ct))
         {
-            foreach (var site in Simplify.DelegateCalls.Of(asm, ct))
-            {
-                var target = resolved.GetOrAdd(site.Target, o => Try(() => (o is MethodSpec spec ? spec.Method : o).ResolveMethodDef()));
-                var via = "via " + Format.MemberLabel(site.Field);
-                if (target != null && loadedModules.Contains(target.Module))
-                    edges.Add((site.Caller, target, null, null, site.Offset, via));
-                else
-                    edges.Add((site.Caller, null, Format.MemberLabel(site.Target), target, site.Offset, via));
-            }
+            var target = resolved.GetOrAdd(site.Target, o => Try(() => (o is MethodSpec spec ? spec.Method : o).ResolveMethodDef()));
+            var via = "via " + Format.MemberLabel(site.Field);
+            edges.Add(target != null && loadedModules.Contains(target.Module)
+                ? new Call(site.Caller, target, null, null, site.Offset, via)
+                : new Call(site.Caller, null, Format.MemberLabel(site.Target), target, site.Offset, via));
         }
+    }
 
+    private Graph Publish(long key, List<Call> edges)
+    {
         var callees = new Dictionary<MethodDef, List<Edge>>();
         var callers = new Dictionary<MethodDef, List<Edge>>();
         var external = new Dictionary<MethodDef, List<string>>();

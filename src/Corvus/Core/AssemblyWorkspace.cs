@@ -73,6 +73,9 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Threads queued for the exclusive and the shared lock (tests order lock waits with these).</summary>
     internal (int Writers, int Readers) Waiting => (_lock.WaitingWriteCount, _lock.WaitingReadCount);
 
+    /// <summary>The calling thread holds the shared or the exclusive lock.</summary>
+    internal bool LockHeld => _lock.IsReadLockHeld || _lock.IsWriteLockHeld;
+
     /// <summary>Waits in slices of this length when the wait can be cancelled.</summary>
     private const int WaitSliceMs = 50;
 
