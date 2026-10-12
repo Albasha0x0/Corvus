@@ -756,9 +756,12 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         if (c.PdbFile is not { } pdb || c.Model is not { } model) return (0, []);
         int count = 0;
         var first = new List<string>();
+        // A global can be listed both in the globals stream and in its module's stream: count it once.
+        var seen = new HashSet<(string, uint?)>();
         foreach (var s in pdb.Symbols)
         {
             if (s.Kind is not (PdbSymbolKind.GlobalData or PdbSymbolKind.LocalData) || s.TypeIndex == 0 || Strip(model, s.TypeIndex) != index) continue;
+            if (!seen.Add((s.Name, s.Rva))) continue;
             count++;
             if (first.Count < 10) first.Add(s.Rva is { } r ? $"{s.Name} at {c.Va(r)}" : s.Name);
         }

@@ -189,6 +189,18 @@ public sealed class NativeTypeInfoTests : IDisposable
     }
 
     [Fact]
+    public async Task A_global_listed_in_two_streams_counts_once()
+    {
+        using var dir = new TempDir();
+        var image = PdbTypeFixture.Image(dir, globalTwice: true);
+        var collector = StructuredOutput.Begin();
+        await _tools.GetNativeType(image, "Game", null, null, null, 0, null, null, 0, 200);
+        var type = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value).Type!;
+        Assert.Equal(1, type.GlobalsOfType);
+        Assert.Equal(["g_Game at 0x140003010"], type.Globals);
+    }
+
+    [Fact]
     public async Task Typed_address_inside_a_global_gives_the_field_path()
     {
         var (text, r) = await Get(address: $"0x{0x140000000 + PdbTypeFixture.GameRva + 0xD8:X}");

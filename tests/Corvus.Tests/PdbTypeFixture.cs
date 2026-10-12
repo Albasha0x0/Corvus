@@ -81,7 +81,8 @@ internal static class PdbTypeFixture
 {
     public const uint GameRva = 0x3010;
 
-    public static byte[] Pdb()
+    /// <param name="globalTwice">g_Game listed twice, as a global in the globals stream and again in its module's stream.</param>
+    public static byte[] Pdb(bool globalTwice = false)
     {
         var t = new TpiBuilder();
         uint args = t.Reserve();                                       // 0x1000 (Player*, int)
@@ -113,19 +114,20 @@ internal static class PdbTypeFixture
         var pdb = PdbBuilder.Sample();
         foreach (var (type, name) in new[] { (playerPtr, "PPlayer"), (game, "Game"), (derived, "Derived"), (dup1, "Dup"), (dup2, "Dup"), (opaque, "Opaque"), (color, "Color") })
             pdb.GlobalRecords.Add(PdbBuilder.Record(0x1108, b => { TpiBuilder.U32(b, type); TpiBuilder.Name(b, name); }));
-        pdb.GlobalRecords.Add(PdbBuilder.Record(0x110D, b => { TpiBuilder.U32(b, game); TpiBuilder.U32(b, GameRva - 0x3000); TpiBuilder.U16(b, 2); TpiBuilder.Name(b, "g_Game"); }));
+        for (int i = 0; i < (globalTwice ? 2 : 1); i++)
+            pdb.GlobalRecords.Add(PdbBuilder.Record(0x110D, b => { TpiBuilder.U32(b, game); TpiBuilder.U32(b, GameRva - 0x3000); TpiBuilder.U16(b, 2); TpiBuilder.Name(b, "g_Game"); }));
         var msf = pdb.Msf();
         msf.Streams[2] = t.Build();
         return msf.Build();
     }
 
     /// <summary>The fixture PDB and a tiny image it matches, as typed.dll and typed.pdb in <paramref name="dir"/>.</summary>
-    public static string Image(TempDir dir)
+    public static string Image(TempDir dir, bool globalTwice = false)
     {
         var path = dir.File("typed.dll");
         if (!File.Exists(path))
         {
-            File.WriteAllBytes(dir.File("typed.pdb"), Pdb());
+            File.WriteAllBytes(dir.File("typed.pdb"), Pdb(globalTwice));
             File.WriteAllBytes(path, PdbTests.TinyImage(PdbBuilder.Sample().Guid, 3, "typed.pdb"));
         }
         return path;
