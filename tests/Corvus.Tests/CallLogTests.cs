@@ -7,17 +7,21 @@ using Corvus.Mcp;
 
 namespace Corvus.Tests;
 
-/// <summary>The optional per-call log: one Debug line per tool call with the tool, outcome and time, never the arguments.</summary>
+/// <summary>The per-call log (S14.1): one information line per tool call with the tool, outcome, time, estimated tokens per part and engine, never the arguments.</summary>
 public class CallLogTests
 {
     private sealed class Capture : ILoggerProvider, ILogger
     {
         public readonly ConcurrentQueue<string> Lines = new();
+        public readonly ConcurrentQueue<IReadOnlyList<KeyValuePair<string, object?>>> Fields = new();
         public ILogger CreateLogger(string categoryName) => this;
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
             Lines.Enqueue($"{logLevel}: {formatter(state, exception)}");
+            if (state is IReadOnlyList<KeyValuePair<string, object?>> fields) Fields.Enqueue(fields);
+        }
         public void Dispose() { }
     }
 
@@ -41,10 +45,35 @@ public class CallLogTests
             return new CallToolResult { Content = [new TextContentBlock { Text = "x" }] };
         }, default);
         Assert.Collection(capture.Lines,
-            l => Assert.Matches(@"^Information: call tool=decompile_type outcome=ok ms=\d+ in=17 out=1 engine=-$", l),
-            l => Assert.Matches(@"^Information: call tool=decompile_type outcome=not_found ms=\d+ in=17 out=\d+ engine=-$", l),
-            l => Assert.Matches(@"^Information: call tool=decompile_type outcome=ok ms=\d+ in=17 out=1 engine=ida$", l));
+            l => Assert.Matches(@"^Information: call tool=decompile_type outcome=ok ms=\d+ textTokens=1 structuredTokens=0 engine=-$", l),
+            l => Assert.Matches(@"^Information: call tool=decompile_type outcome=not_found ms=\d+ textTokens=\d+ structuredTokens=0 engine=-$", l),
+            l => Assert.Matches(@"^Information: call tool=decompile_type outcome=ok ms=\d+ textTokens=1 structuredTokens=0 engine=ida$", l));
         Assert.DoesNotContain(capture.Lines, l => l.Contains("Secret.Path"));
+    }
+
+    /// <summary>The fields a JSON log (CORVUS_LOG_FORMAT=json) writes per call: these and no argument value.</summary>
+    [Fact]
+    public async Task LogLineFieldsAreFixed()
+    {
+        var capture = new Capture();
+        using var services = new ServiceCollection().AddLogging(b => b.AddProvider(capture)).BuildServiceProvider();
+        var request = new CallToolRequestParams
+        {
+            Name = "list_types",
+            Arguments = new Dictionary<string, System.Text.Json.JsonElement> { ["assembly"] = System.Text.Json.JsonSerializer.SerializeToElement("Secret.dll") },
+        };
+        await CallFilter.Run(request, null, services, _ => ValueTask.FromResult(new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = "three words here" }],
+            StructuredContent = System.Text.Json.JsonSerializer.SerializeToElement(new { items = new[] { "abcd" } }),
+        }), default);
+        var fields = Assert.Single(capture.Fields).ToDictionary(f => f.Key, f => f.Value);
+        Assert.Equal(["Tool", "Outcome", "Ms", "TextTokens", "StructuredTokens", "Engine", "{OriginalFormat}"], fields.Keys);
+        Assert.Equal("list_types", fields["Tool"]);
+        Assert.Equal("ok", fields["Outcome"]);
+        Assert.Equal(7L, fields["TextTokens"]); // 3 letter runs, 2 spaces
+        Assert.Equal(CallLog.EstimateTokens("""{"items":["abcd"]}"""), fields["StructuredTokens"]);
+        Assert.DoesNotContain(fields.Values, v => v?.ToString()?.Contains("Secret") == true);
     }
 
     [Theory]
@@ -100,6 +129,8 @@ public class CallLogTests
         Assert.DoesNotContain("Ns.Type", File.ReadAllText(path));
         Assert.Equal(System.Text.Json.JsonValueKind.Null, lines[0].GetProperty("error").ValueKind);
         Assert.Equal(5, lines[0].GetProperty("chars").GetInt64());
+        Assert.Equal(2, lines[0].GetProperty("textTokens").GetInt64()); // "12345": a digit run of 5
+        Assert.Equal(CallLog.RunId, lines[0].GetProperty("run").GetString());
         Assert.True(lines[0].GetProperty("ms").GetDouble() >= 0);
         Assert.Equal("not_found", lines[1].GetProperty("error").GetString());
 

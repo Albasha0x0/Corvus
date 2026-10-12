@@ -24,11 +24,7 @@ internal static partial class CallFilter
         Func<CancellationToken, ValueTask<CallToolResult>> next, CancellationToken cancellationToken)
     {
         var tool = request?.Name;
-        var log = services?.GetService<ILoggerFactory>()?.CreateLogger("Corvus.Calls") is { } l && l.IsEnabled(LogLevel.Information) ? l : null;
-        var started = System.Diagnostics.Stopwatch.GetTimestamp();
-        // Sizes, time and outcome only: arguments can hold paths, code and secrets.
-        long argumentChars = log == null ? 0 : request?.Arguments?.Sum(a => (long)a.Key.Length + a.Value.GetRawText().Length) ?? 0;
-        var engine = Native.Providers.EngineUse.Begin();
+        var log = CallLog.Begin(request, services);
         CallToolResult result;
         try
         {
@@ -36,25 +32,18 @@ internal static partial class CallFilter
         }
         catch (OperationCanceledException)
         {
-            log?.LogInformation("call tool={Tool} outcome=cancelled ms={Ms} in={InChars} out=0 engine={Engine}", tool,
-                (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, argumentChars, engine.Engine ?? "-");
-            CallTrace.For(services?.GetService<ServerOptions>())?.Record(tool, request?.Arguments, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, "cancelled", null);
+            log.Cancelled();
             throw;
         }
-        CallTrace.For(services?.GetService<ServerOptions>())?.Record(tool, request?.Arguments, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            result.IsError == true ? ErrorCodeOf(result).Replace("error ", "") : null, result);
         services?.GetService<ResourceSubscriptions>()?.Check();
         if (tool != null && !ToolEffects.Of(tool).ReadOnly) services?.GetService<Services.EditJournal>()?.Sync();
         if (services?.GetService<ServerOptions>() is { } options && services.GetService<ResultStore>() is { } store)
             result = ResponseBudget.Enforce(result, tool, options, store, request);
-        // engine: the external engine (ida, ghidra) the call sent requests to, "-" for none
-        log?.LogInformation("call tool={Tool} outcome={Outcome} ms={Ms} in={InChars} out={OutChars} engine={Engine}", tool,
-            result.IsError == true ? ErrorCodeOf(result).Replace("error ", "") : "ok", (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            argumentChars, result.Content.OfType<TextContentBlock>().Sum(b => (long)b.Text.Length), engine.Engine ?? "-");
         // Pending workspace notices; trailing blank line because clients join content blocks without a separator.
         var notices = services?.GetService<AssemblyWorkspace>()?.DrainNotices();
         if (notices is { Count: > 0 })
             result.Content.Insert(0, new TextContentBlock { Text = string.Join("\n", notices.Select(n => "[workspace] " + n)) + "\n\n" });
+        log.Completed(result);
         return result;
     }
 
@@ -126,20 +115,6 @@ internal static partial class CallFilter
             // Unexpected exceptions become a descriptive tool error instead of a generic protocol error.
             services?.GetService<ILogger<AssemblyWorkspace>>()?.LogError(ex, "Tool {Tool} failed", tool);
             return ErrorResult.Internal(ex, tool);
-        }
-    }
-
-    private static string ErrorCodeOf(CallToolResult result)
-    {
-        if (ErrorResult.JsonOf(result) is not { } json) return "error";
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.TryGetProperty("code", out var code) ? "error " + code.GetString() : "error";
-        }
-        catch (JsonException)
-        {
-            return "error";
         }
     }
 

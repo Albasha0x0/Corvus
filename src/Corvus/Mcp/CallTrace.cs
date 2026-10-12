@@ -5,9 +5,9 @@ using Corvus.Core;
 namespace Corvus.Mcp;
 
 /// <summary>
-/// Opt-in call trace (CORVUS_TRACE / --trace): one JSON line per tools/call with the time, tool, argument names (values,
-/// secrets masked by <see cref="Redaction"/>, only with --trace-args), milliseconds, error code and result size, appended to
-/// a plain file of its own. A failed write is reported once and never fails a call.
+/// Opt-in call trace (CORVUS_TRACE / --trace): one JSON line per tools/call with the time, run id, tool, argument names
+/// (values, secrets masked by <see cref="Redaction"/>, only with --trace-args), milliseconds, error code, text characters and
+/// estimated tokens per part, appended to a plain file of its own. A failed write is reported once and never fails a call.
 /// </summary>
 public sealed class CallTrace
 {
@@ -38,13 +38,15 @@ public sealed class CallTrace
         }
     }
 
-    public void Record(string? tool, IDictionary<string, JsonElement>? arguments, double milliseconds, string? error, CallToolResult? result)
+    public void Record(string? tool, IDictionary<string, JsonElement>? arguments, double milliseconds, string? error, CallToolResult? result,
+        long textTokens = 0, long structuredTokens = 0)
     {
         var buffer = new MemoryStream();
         using (var w = new Utf8JsonWriter(buffer))
         {
             w.WriteStartObject();
             w.WriteString("ts", DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+            w.WriteString("run", CallLog.RunId);
             w.WriteString("tool", tool);
             if (Arguments)
             {
@@ -68,6 +70,8 @@ public sealed class CallTrace
             if (error != null) w.WriteString("error", error);
             else w.WriteNull("error");
             w.WriteNumber("chars", result?.Content.OfType<TextContentBlock>().Sum(b => (long)b.Text.Length) ?? 0);
+            w.WriteNumber("textTokens", textTokens);
+            w.WriteNumber("structuredTokens", structuredTokens);
             w.WriteEndObject();
         }
         buffer.WriteByte((byte)'\n');
