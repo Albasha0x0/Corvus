@@ -535,7 +535,16 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         [key] = label ?? symbol.Label,
         [key + "Kind"] = symbol.Kind,
         [key + "Token"] = Format.Token(symbol.Member),
+        [key + "Signature"] = Signature(symbol.Member),
     };
+
+    /// <summary>
+    /// A method's or indexer's signature without tokens (generic arity, return and parameter types): it tells overloads of
+    /// one label apart on another build, where the recorded token may name something else.
+    /// </summary>
+    internal static string? Signature(IMemberDef member) => (member switch { MethodDef m => (MethodBaseSig?)m.MethodSig, PropertyDef p => p.PropertySig, _ => null }) is { } sig
+        ? $"{sig.GenParamCount}:{sig.RetType?.FullName}({string.Join(",", sig.Params.Select(t => t?.FullName))})"
+        : null;
 
     private ResolvedSymbol Recorded(LoadedAssembly asm, EditRecord record, string key, bool preferTokens)
     {
@@ -551,6 +560,15 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             if (all.Count > 1 && SymbolResolver.TryParseToken(record.Arg(key + "Token") ?? "", out uint recorded)
                 && all.Where(r => r.Member.MDToken.Raw == recorded).ToList() is [var byToken])
                 return byToken;
+            // On another build the token may name another member; the recorded signature, when the script has one, does not.
+            if (all.Count > 1 && record.Arg(key + "Signature") is { } signature)
+            {
+                if (all.Where(r => Signature(r.Member) == signature).ToList() is [var bySignature]) return bySignature;
+            }
+            else if (all.Count > 1 && record.LegacyLabels)
+                throw new ToolError(ErrorCode.Ambiguous, $"'{label}' names {all.Count} members in {asm.Id}: the script predates generic arity in labels and " +
+                    "recorded no signature, and its recorded token matches none of them:\n" + string.Join("\n", all.Take(30).Select(r => "  " + r)),
+                    "load the build the script was made from too (its recorded tokens then identify each target), or export the script again from that build");
             return SymbolResolver.Single(all, label);
         }
         catch (ToolError) when (Remap?.Invoke(record, key) is { } renamed)

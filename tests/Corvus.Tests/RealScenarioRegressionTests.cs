@@ -616,6 +616,52 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// A legacy label naming Read(string) and Read&lt;T&gt;(string) on a build whose tokens differ (Newtonsoft 13.0.4 script on
+    /// 13.0.1): the recorded token matched neither and the replay failed as ambiguous. The signature recorded since picks
+    /// one; a script without it fails with a clear ambiguity.
+    /// </summary>
+    [Fact]
+    public void LegacyEditScriptsOnABuildWithOtherTokensPickOverloadsByTheRecordedSignature()
+    {
+        using var dir = new TempDir();
+        static string Source(string extra) => "namespace L { public static class C { " + extra + "public static object Read(string s) { return s; } " +
+                                              "public static T Read<T>(string s) { return default(T); } } }";
+        File.WriteAllBytes(dir.File("Old.dll"), ReferenceResolutionTests.Compile("L", Source("")));
+        Directory.CreateDirectory(dir.File("new"));
+        File.WriteAllBytes(dir.File("new/L.dll"), ReferenceResolutionTests.Compile("L", Source("public static int A() { return 1; } public static int B() { return 2; } ")));
+        var script = dir.File("edits.json");
+        using (var env = new Env(dir.File("Old.dll")))
+        {
+            env.Edit(() => env.Edits.StubMethod(env.One("L.C::Read<T>(string)"), "default"));
+            env.Edit(() => env.Edits.StubMethod(env.One("L.C::Read(string)"), "null"));
+            env.Workspace.Read(() => env.History.Export(env.Fixture, script));
+        }
+        var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(script))!.AsObject();
+        Assert.Contains("\"methodSignature\":\"0:System.Object(System.String)\"", json.ToJsonString());
+        foreach (var arg in json["edits"]!.AsArray().SelectMany(e => e!["args"]!.AsObject()).Where(a => a.Value?.ToString().Contains("<T>(") == true).ToList())
+            arg.Value!.ReplaceWith(arg.Value.ToString().Replace("<T>(", "("));
+        Assert.True(json.Remove("labels"));
+        File.WriteAllText(script, json.ToJsonString());
+
+        using (var other = new Env(dir.File("new/L.dll")))
+        {
+            var replay = other.Edit(() => other.History.Apply(script, null, dryRun: false, stopOnError: true, default, Corvus.Services.EditHistoryService.TargetBuild.Other));
+            Assert.Contains("2 applied, 0 failed", replay);
+            Assert.Contains("return null;", other.Decompile("L.C::Read(string)"));
+        }
+
+        foreach (var args in json["edits"]!.AsArray().Select(e => e!["args"]!.AsObject()))
+            args.Remove("methodSignature");
+        File.WriteAllText(script, json.ToJsonString());
+        using (var other = new Env(dir.File("new/L.dll")))
+        {
+            var replay = other.Edit(() => other.History.Apply(script, null, dryRun: true, stopOnError: false, default, Corvus.Services.EditHistoryService.TargetBuild.Other));
+            Assert.Contains("0 would apply, 2 would fail", replay);
+            Assert.Contains("predates generic arity in labels and recorded no signature", replay);
+        }
+    }
+
+    /// <summary>
     /// apply_edits onto a transformed rebuild matched targets against the source build as edited: after the script's
     /// own stub, that body no longer resembled its counterpart (now renamed), so the replay failed and rolled back.
     /// </summary>
