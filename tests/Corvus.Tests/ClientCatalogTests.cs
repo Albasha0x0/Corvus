@@ -117,6 +117,24 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
+    public void ASlowStart_GetsALongerStartupTimeout_OnlyWhenNeeded()
+    {
+        Assert.False(CodexTomlTarget.NeedsStartupTimeout(1.2, null));
+        Assert.True(CodexTomlTarget.NeedsStartupTimeout(6, null));
+        Assert.True(CodexTomlTarget.NeedsStartupTimeout(6, 10));
+        Assert.False(CodexTomlTarget.NeedsStartupTimeout(6, 30));
+
+        _home.Write("[mcp_servers.corvus]\ncommand = \"c\"\nargs = []\n\n[mcp_servers.corvus.env]\nA = \"1\"\n\n[profiles.x]\nm = 1\n", ".codex", "config.toml");
+        var target = (CodexTomlTarget)Client("codex").Target;
+        Assert.True(target.SetStartupTimeout("corvus", 30).Changed);
+        Assert.Equal("[mcp_servers.corvus]\ncommand = \"c\"\nargs = []\nstartup_timeout_sec = 30\n\n[mcp_servers.corvus.env]\nA = \"1\"\n\n[profiles.x]\nm = 1\n",
+            File.ReadAllText(_home.Path(".codex", "config.toml")));
+        Assert.Equal(30, target.Current("corvus")!.StartupTimeout);
+        Assert.False(target.SetStartupTimeout("corvus", 30).Changed);
+        Assert.False(target.SetStartupTimeout("other", 30).Changed);
+    }
+
+    [Fact]
     public void EveryClientEntry_CarriesItsClientId()
     {
         var env = _home.Env(os: HostOs.Windows);

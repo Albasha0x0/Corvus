@@ -537,6 +537,40 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
     [GeneratedRegex(@"^\s*disabled_mcp_servers\s*=\s*\[(?<items>[^\]]*)\]")]
     private static partial Regex DisabledList();
 
+    /// <summary>Codex and Grok Build wait this long for a server to start unless the table says otherwise.</summary>
+    public const double DefaultStartupSeconds = 10;
+
+    /// <summary>What install writes when a start took over half the client's wait.</summary>
+    public const int SafeStartupSeconds = 30;
+
+    /// <summary>Whether a start of <paramref name="seconds"/> needs a longer wait than <paramref name="configured"/> (null: the default).</summary>
+    public static bool NeedsStartupTimeout(double seconds, double? configured) =>
+        seconds > (configured ?? DefaultStartupSeconds) / 2 && (configured ?? DefaultStartupSeconds) < SafeStartupSeconds;
+
+    /// <summary>Sets startup_timeout_sec in the server's table (replacing a smaller one); the rest of the file is untouched.</summary>
+    public ConfigChange SetStartupTimeout(string name, int seconds)
+    {
+        List<string> lines;
+        try { lines = Lines(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new ConfigChange(false, $"left unchanged: {ex.Message}"); }
+        var main = Blocks(lines, name).Where(b => !ServerHeader().Match(lines[b.Start]).Groups["sub"].Success).Select(b => ((int, int)?)b).FirstOrDefault();
+        if (main is not var (start, end)) return new ConfigChange(false, "not registered");
+        var line = $"startup_timeout_sec = {seconds}";
+        var updated = new List<string>(lines);
+        int at = Enumerable.Range(start + 1, end - start - 1).FirstOrDefault(i => StartupTimeoutLine().IsMatch(lines[i]), -1);
+        if (at >= 0) updated[at] = line;
+        else
+        {
+            // After the table's last key, before its trailing blank lines.
+            int insert = end;
+            while (insert > start + 1 && updated[insert - 1].Trim().Length == 0) insert--;
+            updated.Insert(insert, line);
+        }
+        if (updated.SequenceEqual(lines)) return new ConfigChange(false, "already set");
+        Backup();
+        return Write(string.Join("\n", updated).TrimEnd('\n') + "\n", $"startup_timeout_sec = {seconds}");
+    }
+
     public override ConfigChange Enable(string name)
     {
         List<string> lines;

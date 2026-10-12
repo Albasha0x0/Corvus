@@ -316,6 +316,14 @@ internal static class SetupCli
                 row.Message = result.Message;
             }
             else if (row.Action == SetupAction.Blocked) failed++;
+            // A slow start measured by the check: give clients that stop waiting after 10 s more time.
+            if (row.Action is SetupAction.Add or SetupAction.Refresh or SetupAction.Unchanged && row.Client?.Target is CodexTomlTarget toml
+                && report.Server is { Ok: true } checkedServer
+                && CodexTomlTarget.NeedsStartupTimeout(checkedServer.Seconds, toml.Current(ClientCatalog.ServerName)?.StartupTimeout))
+            {
+                var set = toml.SetStartupTimeout(ClientCatalog.ServerName, CodexTomlTarget.SafeStartupSeconds);
+                if (set.Changed) { changed++; row.Message += $"; {set.Message} (the server started in {checkedServer.Seconds:0.0} s)"; }
+            }
             if (row.Action is SetupAction.Add or SetupAction.Refresh or SetupAction.Unchanged && row.Client is { } client
                 && client.Target.DisabledInProjects(ClientCatalog.ServerName) is var projects && (row.Disabled || projects.Count > 0))
             {

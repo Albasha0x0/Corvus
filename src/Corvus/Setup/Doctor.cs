@@ -20,9 +20,6 @@ internal static class Doctor
 
     public static readonly string[] Engines = ["ida", "python", "ghidra"];
 
-    /// <summary>Codex and Grok Build stop waiting for a server after this many seconds unless startup_timeout_sec says otherwise.</summary>
-    private const double DefaultTomlStartupSeconds = 10;
-
     /// <summary>
     /// Fills a client row's state, message and self-test; <paramref name="tests"/> caches one start per distinct
     /// (command, args, env), so clients sharing a registration start it once.
@@ -47,12 +44,12 @@ internal static class Doctor
             return;
         }
         var server = row.Server = Test(new ServerLaunch(entry.Command, entry.Args), entry.Env, tests);
-        var deadline = client.Target is CodexTomlTarget ? entry.StartupTimeout ?? DefaultTomlStartupSeconds : (double?)null;
+        var deadline = client.Target is CodexTomlTarget ? entry.StartupTimeout ?? CodexTomlTarget.DefaultStartupSeconds : (double?)null;
         if (!server.Ok)
             Set(row, StartFailed, $"registered, but the server does not start: {server.Detail}", "Run the registered command by hand to see the error; check its args and env.");
         else if (deadline is { } limit && server.Seconds > limit)
             Set(row, SlowStart, $"registered, but it started in {server.Seconds:0.0} s and {client.Name} waits {limit:0} s",
-                "Set startup_timeout_sec = 30 in the server's table.");
+                $"corvus install --client {client.Id} (it sets startup_timeout_sec = {CodexTomlTarget.SafeStartupSeconds})");
         else if (own && server.MatchesThisBuild != true)
             Set(row, StaleCatalog, $"registered, but its tool catalog differs from this build: {string.Join("; ", server.Differences)}", "corvus install");
         else if (entry.Disabled)

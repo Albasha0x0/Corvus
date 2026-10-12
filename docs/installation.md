@@ -114,7 +114,9 @@ MCP Registry entry (`.mcp/server.json`).
   `disabledMcpServers`) is reported and kept off; `--enable` turns it on.
 - Every entry gets `--client <id>` ([Client profiles](#client-profiles)); clients that cap the number of tools also get
   `--toolsets lean` unless the entry sets its own `--toolsets`. A Codex entry whose `tool_timeout_sec` differs from
-  Codex's 60 s default gets `--client-timeout <seconds>`; install never changes the client's own settings.
+  Codex's 60 s default gets `--client-timeout <seconds>`; install never changes the client's own limits. The one
+  exception is the start: when the server check took over half of the 10 s Codex and Grok Build wait for a server,
+  their table gets `startup_timeout_sec = 30`.
 
 | Option | Effect |
 |---|---|
