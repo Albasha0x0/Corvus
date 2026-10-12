@@ -149,7 +149,7 @@ a plain `install` switches the registration back. publish.ps1 renames files of a
 
 ## What it covers
 
-**MCP features:** 158 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/Corvus/Mcp/ToolEffects.cs`),
+**MCP features:** 158 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/Corvus/Mcp/Contract`),
 resources and resource templates (subscribers get an update notice after each workspace change, through `resources/subscribe` or, on 2026-07-28, the `resourceSubscriptions` of a `subscriptions/listen` stream), 13 prompts, argument completion, progress notifications, structured output for the list,
 search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](docs/errors.md)), strict arguments
 (an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets such as `engine`, `kind`

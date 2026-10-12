@@ -13,7 +13,7 @@ namespace Corvus.Tests;
 /// output schema or a coded tool error ("Error (code) in tool: ..."); an internal error, a protocol error, a hang or a dead
 /// server fails. New tools are covered as soon as they are advertised.
 /// </summary>
-public static class ContractSweep
+public static partial class ContractSweep
 {
     public static readonly TimeSpan CallLimit = TimeSpan.FromSeconds(20);
 
@@ -22,26 +22,24 @@ public static class ContractSweep
     /// (read-only, destructive, open-world) is in the server's ToolEffects table, checked against these and against what the
     /// full sweep observes.
     /// </summary>
-    public static readonly Dictionary<string, string[]> FileWriters = new()
+    internal static readonly Dictionary<string, Dictionary<string, string[]>> FileWritersByFamily = new(StringComparer.Ordinal)
     {
-        ["export_project"] = ["outputDirectory"],
-        ["export_edits"] = ["path"],
-        ["save_session"] = ["path"],
-        ["save_assembly"] = ["outputPath"],
-        ["export_il2cpp_symbols"] = ["outputDirectory"],
-        ["extract_embedded"] = ["outputDirectory"],
-        ["unpack_container"] = ["outputDirectory"],
-        ["get_resource"] = ["savePath"],
-        ["get_android_resource"] = ["savePath"],
-        ["pull_android_package"] = ["outputDirectory"],
-        ["pull_android_file"] = ["outputPath"],
-        ["extract_strings"] = ["savePath"],
-        ["read_result"] = ["outputPath"],
-        ["export_native_annotations"] = ["outputPath"],
-        ["save_native"] = ["outputPath"],
-        ["export_native_patches"] = ["outputPath"],
-        ["export_engine_database"] = ["outputPath"],
+        ["session"] = SessionFileWriters(),
+        ["dotnet"] = DotnetFileWriters(),
+        ["containers"] = ContainersFileWriters(),
+        ["edit"] = EditFileWriters(),
+        ["il2cpp"] = Il2CppFileWriters(),
+        ["native"] = NativeFileWriters(),
+        ["native-edit"] = NativeEditFileWriters(),
+        ["builds"] = BuildsFileWriters(),
+        ["notes"] = NotesFileWriters(),
+        ["engine"] = EngineFileWriters(),
+        ["android"] = AndroidFileWriters(),
+        ["dumps"] = DumpsFileWriters(),
+        ["live"] = LiveFileWriters(),
     };
+
+    public static readonly Dictionary<string, string[]> FileWriters = FileWritersByFamily.Values.SelectMany(d => d).ToDictionary();
 
     /// <summary>Parameters whose value can launch a process or reach the network; a tool with any of them is open-world.</summary>
     public static readonly string[] OpenWorldParameters = ["engine", "crossCheck", "download", "server", "detectItEasy", "downloadDac"];
