@@ -57,6 +57,9 @@ if (-not $VerifyOnly) {
         $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
         if ($bumped -eq $csproj -and $csproj -notmatch "<Version>$([regex]::Escape($Version))</Version>") { Fail "no <Version> in $project" }
         [IO.File]::WriteAllText($project, $bumped)
+        # The MCP Registry entry packed into the .NET tool names the same version (ToolPackageTests).
+        $server = Join-Path $root 'src/Corvus/.mcp/server.json'
+        [IO.File]::WriteAllText($server, [regex]::Replace((Get-Content $server -Raw), '"version": "[^"]+"', "`"version`": `"$Version`""))
 
         # Generated docs and the skill can name the version; regenerate, then run the full suite on the result.
         $env:CORVUS_UPDATE_DOCS = '1'

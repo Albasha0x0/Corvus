@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.Albasha0x0/corvus",
+  "title": "Corvus",
+  "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare, patch.",
+  "version": "1.2.0",
+  "websiteUrl": "https://github.com/Albasha0x0/Corvus",
+  "repository": {
+    "url": "https://github.com/Albasha0x0/Corvus",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "nuget",
+      "registryBaseUrl": "https://api.nuget.org",
+      "identifier": "CorvusRE",
+      "version": "1.2.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

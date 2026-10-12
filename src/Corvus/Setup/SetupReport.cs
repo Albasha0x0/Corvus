@@ -10,6 +10,8 @@ internal sealed class SetupReport
     public required string Command { get; init; }
     public string Version { get; init; } = Installation.Version;
     public string? Executable { get; init; } = Environment.ProcessPath;
+    /// <summary>How this copy was installed: script, dotnet-tool, dnx, winget, scoop, homebrew or source.</summary>
+    public string InstallKind { get; init; } = Mcp.ServerIdentity.InstallKind;
     public required LaunchReport Launch { get; init; }
     public bool DryRun { get; init; }
     /// <summary>Whether any configuration file was written.</summary>

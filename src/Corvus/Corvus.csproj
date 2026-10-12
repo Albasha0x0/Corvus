@@ -12,6 +12,26 @@
     <Version>1.2.0</Version>
   </PropertyGroup>
 
+  <!-- The NuGet .NET tool (dotnet pack): framework-dependent and RID-neutral; the release archives stay self-contained. -->
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>corvus</ToolCommandName>
+    <PackageId>CorvusRE</PackageId>
+    <PackageType>McpServer</PackageType>
+    <Authors>Albasha0x0</Authors>
+    <Description>MCP server and command line for reverse engineering .NET assemblies and native PE, ELF and Mach-O binaries: decompile, search, compare builds, patch and save. Nothing is executed.</Description>
+    <PackageTags>mcp;mcp-server;decompiler;reverse-engineering;dotnet;il2cpp;disassembler</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Albasha0x0/Corvus</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Albasha0x0/Corvus</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The MCP Registry entry nuget.org reads from the package; a test keeps its versions and id equal to the above. -->
+    <None Include=".mcp\server.json" Pack="true" PackagePath="/.mcp/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Visible="false" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Corvus.Tests" />
   </ItemGroup>

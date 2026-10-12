@@ -489,6 +489,8 @@ internal static class SetupCli
         bool failed = false;
         text.WriteLine($"Corvus {Installation.Version}");
         text.WriteLine($"Server command: {string.Join(" ", [launch.Command, .. launch.Args])}");
+        var kind = report.InstallKind;
+        text.WriteLine($"Installed as: {kind}{(Installation.UpdateCommand(kind) is { } update ? $" (update: {update})" : "")}");
 
         var tests = new Dictionary<string, ServerReport>();
         if (audit || named.Count > 0)

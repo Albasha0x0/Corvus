@@ -74,6 +74,27 @@ internal static class Installation
             : $"Checksum mismatch for {assetName} (expected {expected.ToLowerInvariant()}, got {actual}); the download is corrupt or was altered. Nothing was installed.";
     }
 
+    /// <summary>The NuGet package of the .NET tool (dotnet tool install -g, dotnet tool exec / dnx).</summary>
+    public const string PackageId = "CorvusRE";
+
+    /// <summary>The command that updates a copy of this install kind (<see cref="Mcp.ServerIdentity.ClassifyInstall"/>), or null for a build from source.</summary>
+    public static string? UpdateCommand(string installKind, string? version = null) => installKind switch
+    {
+        "script" => "corvus update" + (version is { Length: > 0 } ? $" --version {version.TrimStart('v')}" : ""),
+        "dotnet-tool" => $"dotnet tool update -g {PackageId}" + (version is { Length: > 0 } ? $" --version {version.TrimStart('v')}" : ""),
+        "dnx" => $"dnx {PackageId}" + (version is { Length: > 0 } ? $"@{version.TrimStart('v')}" : "") + " --yes",
+        _ => null,
+    };
+
+    /// <summary>Why <c>update</c> cannot replace a copy the install scripts did not install, and what does.</summary>
+    public static string NotSelfUpdating(string installKind, string? version = null) => installKind switch
+    {
+        "dotnet-tool" => $"This copy is the .NET tool {PackageId}, which the dotnet CLI updates: {UpdateCommand(installKind, version)}",
+        "dnx" => $"This copy runs from the NuGet package cache (dotnet tool exec / dnx), which starts the newest release (or a pinned one) each time: {UpdateCommand(installKind, version)}",
+        _ => "This copy was not installed by the install script, so it cannot update itself." + Environment.NewLine
+            + "Install with the one-line command in the README, or rebuild from source.",
+    };
+
     /// <summary>The GitHub API address of the latest release, or of the release tagged v<paramref name="version"/>.</summary>
     public static string ReleaseApi(string repo, string? version) =>
         version is { Length: > 0 } v ? $"https://api.github.com/repos/{repo}/releases/tags/v{v.TrimStart('v')}" : $"https://api.github.com/repos/{repo}/releases/latest";
@@ -83,12 +104,11 @@ internal static class Installation
     /// switches "current" to it, removes unused versions and refreshes existing registrations. With
     /// <paramref name="dryRun"/> it only reports the release, asset and checksum manifest it would use.
     /// </summary>
-    public static int Update(TextWriter output, string? version = null, bool dryRun = false)
+    public static int Update(TextWriter output, string? version = null, bool dryRun = false, string? installKind = null)
     {
         if (Root() is not { } root)
         {
-            output.WriteLine("This copy was not installed by the install script, so it cannot update itself.");
-            output.WriteLine("Install with the one-line command in the README, or rebuild from source.");
+            output.WriteLine(NotSelfUpdating(installKind ?? Mcp.ServerIdentity.InstallKind, version));
             return 1;
         }
         var repo = Environment.GetEnvironmentVariable("CORVUS_REPO") is { Length: > 0 } r ? r : DefaultRepository;

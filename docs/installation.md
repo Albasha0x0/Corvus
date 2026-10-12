@@ -74,6 +74,23 @@ with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 If `update` cannot reach the release (a private repository: the old program loses the token on GitHub's redirect to
 the renamed repository), run the install script above with `GITHUB_TOKEN` set; it takes over the old install.
 
+## .NET tool
+
+Corvus is also a NuGet .NET tool, `CorvusRE` (command `corvus`), for machines with the .NET 10 SDK. It is not on
+nuget.org yet; pack it from a clone and install it from that folder:
+
+```sh
+dotnet pack src/Corvus -c Release -o feed
+dotnet tool install -g CorvusRE --add-source feed
+corvus install
+```
+
+`dotnet tool exec CorvusRE --add-source feed --yes` (`dnx` for short) runs it without installing. The tool is
+framework-dependent and the same for every platform; the release archives remain the self-contained builds.
+`corvus status` names the install kind (`script`, `dotnet-tool`, `dnx`, `source`), and `corvus update` on a
+.NET tool names the dotnet command that updates it (`dotnet tool update -g CorvusRE`). The package also carries the
+MCP Registry entry (`.mcp/server.json`).
+
 ## Registering with clients
 
 `corvus install [client...]` registers the program it is run from (an installed copy registers its stable
@@ -164,7 +181,8 @@ narrow it, and only what is in scope can fail; `--json` prints the report. Exit 
 
 `corvus update` installs the latest release of an installed copy (checked against `SHA256SUMS`) and refreshes
 existing registrations and skills; it never adds clients. `--version X` installs release X, also an older one;
-`--dry-run` shows the release, asset and checksum manifest it would use.
+`--dry-run` shows the release, asset and checksum manifest it would use. A copy the install scripts did not install
+is not replaced; `update` names the command that updates it instead ([.NET tool](#net-tool)).
 
 ## Uninstall
 
