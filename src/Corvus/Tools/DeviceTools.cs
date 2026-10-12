@@ -20,7 +20,7 @@ public sealed class DeviceTools(DeviceService devices)
     public Task<AndroidDeviceInfo> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
         [Description("Only properties whose name or value contains this.")] string? query = null,
-        [Description("Properties to skip.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Most properties to return.")] int limit = 200,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.DeviceInfo(serial, query, offset, limit, cancellationToken), cancellationToken);
@@ -31,7 +31,7 @@ public sealed class DeviceTools(DeviceService devices)
         [Description(SerialDescription)] string? serial = null,
         [Description("Only package names containing this.")] string? query = null,
         [Description("Android user id (default: the current one).")] int? user = null,
-        [Description("Packages to skip.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Most packages to return.")] int limit = 500,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.Packages(serial, query, user, offset, limit, cancellationToken), cancellationToken);

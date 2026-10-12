@@ -61,14 +61,14 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                  "(never the code index: list_functions has its statistics).")]
     public Task<string> GetPeInfo(
         [Description(ImageDescription)] string image,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var capabilities = Capabilities(native.Image);
         var text = pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}",
             () => PeInfo(native) + CodeText(native.Image, capabilities));
-        return StructuredOutput.With(pager.Page(text, offset, maxChars), Summary(native) with
+        return StructuredOutput.With(pager.Page(text, offset, maxTokens), Summary(native) with
         {
             Capabilities = capabilities.Select(c => new CapabilityEntry(c.Group, c.Count, c.Apis)).ToList(),
         });
@@ -230,7 +230,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description("Only this DLL (name with or without .dll).")] string? module = null,
         [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Bind each import to the export it reaches, with a summary.")] bool bind = false,
-        [Description("Index of the first row.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 500,
         [Description("Also list late-bound imports (waits for the code index).")] bool includeDynamic = false,
         CancellationToken cancellationToken = default)
@@ -306,7 +306,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     public Task<string> ListExports(
         [Description(ImageDescription)] string image,
         [Description("Name substring (case-insensitive; the demangled form too).")] string? filter = null,
-        [Description("Index of the first row.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 500,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
@@ -473,7 +473,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description("pattern is text (ASCII and UTF-16LE).")] bool text = false,
         [Description("Only this section (e.g. .text, .rdata).")] string? section = null,
         [Description("Max hits.")] int limit = 200,
-        [Description("Index of the first hit.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Instead of pattern: up to 50 patterns.")] string[]? patterns = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
@@ -600,14 +600,14 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
         [Description("Bytes to dump (default 256, max 65536); with type, values to read (default 1, max 4096).")] int? length = null,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Value type to read instead of dumping bytes.")] string? type = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
         var rva = NativeAddress.Parse(pe, address);
-        if (!string.IsNullOrWhiteSpace(type)) return pager.Page(ReadValues(native, rva, type.Trim(), length ?? 1), offset, maxChars);
+        if (!string.IsNullOrWhiteSpace(type)) return pager.Page(ReadValues(native, rva, type.Trim(), length ?? 1), offset, maxTokens);
         var buffer = new byte[Math.Clamp(length ?? 256, 1, 65_536)];
         int read = pe.Read(rva, buffer);
         var unset = new bool[read];
@@ -635,7 +635,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         }
         if (gaps.Count > 0)
             sb.AppendLine($"?? uninitialized (no file data; zero at load, run-time values in a process): {string.Join(", ", gaps)}");
-        return pager.Page(sb.ToString(), offset, maxChars);
+        return pager.Page(sb.ToString(), offset, maxTokens);
     }, cancellationToken);
 
     /// <summary>read_bytes type=: <paramref name="count"/> values of a scalar type (le / be suffix for the byte order), or strings one after another.</summary>

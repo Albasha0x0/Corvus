@@ -58,8 +58,8 @@ public sealed partial class NativeAnalysisTools
         [Description(NativeTools.AddressDescription + " Required unless functions is given.")] string? address = null,
         [Description("auto (default): an engine open on this image, else IDA, else Ghidra (or the server's --engine).")] string? engine = null,
         [Description("Prefix each line with the address it was generated from.")] bool addresses = false,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Several functions instead of address: addresses or names, in the order wanted.")] string[]? functions = null,
         [Description("With functions: seconds per function (1-600).")] int perFunctionSeconds = 60,
         [Description("With functions: most decompiled (1-200); the rest get a follow-up call.")] int maxFunctions = 32,
@@ -92,7 +92,7 @@ public sealed partial class NativeAnalysisTools
             if (refs) throw new ToolError(ErrorCode.InvalidArgument, "refs applies to one function (address), not functions.", "drop refs, or decompile one address");
             if (callers) functions = await Callers(native!, session, rva, callersOf!, cancellationToken);
             var (text, report) = await Batch(native!, session, functions!, addresses, Math.Clamp(perFunctionSeconds, 1, 600), Math.Clamp(maxFunctions, 1, 200), cancellationToken);
-            return StructuredOutput.With((pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxChars), report);
+            return StructuredOutput.With((pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxTokens), report);
         }
         if (types != null) await types.EnsureMethodAsync(native!, session, code?.Ready(native!)?.FunctionAt(rva)?.Start ?? rva, cancellationToken);
         DecompiledFunction? decompiled = null;
@@ -117,7 +117,7 @@ public sealed partial class NativeAnalysisTools
         var item = new DecompileItem(address!, NativeAddress.Va(native!.Image, rva), functionStart is { } fs ? NativeAddress.Va(native.Image, fs) : null,
             (decompiled?.Name ?? known?.Name) is { } shown ? NativeTools.DisplayName(shown, native.Image.Format) : null, "ok", null, null, single.Count(c => c == '\n'), single.Length)
             { Refs = objects?.Items };
-        return StructuredOutput.With(header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(single, offset, maxChars) + (offset == 0 && objects != null ? objects.Value.Text : ""),
+        return StructuredOutput.With(header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(single, offset, maxTokens) + (offset == 0 && objects != null ? objects.Value.Text : ""),
             new DecompileReport(native.Id, session.ProviderId, [item], 1, 1, 0, 0, null));
     });
 

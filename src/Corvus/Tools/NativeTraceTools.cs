@@ -104,7 +104,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Call sites bound per parameter or return (1-256).")] int maxCallers = 16,
         [Description("Writers (backward) or readers (forward) per global (1-256).")] int maxWriters = 16,
         [Description("Follow writable globals into their writers / readers.")] bool followGlobals = true,
-        [Description("Index of the first node.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Nodes per page (max 1000).")] int limit = 200,
         [Description("Per-function slices: ours (built-in), ida or ghidra (that decompiler's IR, started when needed; built-in where it cannot " +
                      "place the seed), or auto (default: an engine whose analysis is complete in this session, else ours).")] string? engine = null,

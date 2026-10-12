@@ -612,7 +612,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
         [Description("udt: struct or union.")] string? kind = null,
         [Description("Show this one type in full instead of a list.")] string? name = null,
-        [Description("Index of the first row.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max rows (max 5000).")] int limit = 200,
         [Description(EngineDescription)] string? engine = null,
         [Description("Default: the engine's order.")] string? sort = null,

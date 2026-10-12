@@ -30,7 +30,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Only this type (string, layout, xml, ...).")] string? type = null,
         [Description("Only names matching this (* and ? wildcards).")] string? name = null,
         [Description("Only this configuration: qualifiers as in a directory name (pt-rBR), or default.")] string? config = null,
-        [Description("Rows to skip.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most rows to return.")] int limit = 500,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => packages.Resources(path, type, name, config, offset, limit), cancellationToken);
@@ -43,10 +43,10 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("An entry path (res/xml/x.xml, assets/...), @type/name or a resource id 0x7f...")] string name,
         [Description("Write the entry's bytes to this file.")] string? savePath = null,
         [Description("Replace savePath if it exists.")] bool overwrite = false,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() => packages.Resource(path, name, savePath, overwrite, offset, maxChars), cancellationToken);
+        Task.Run(() => packages.Resource(path, name, savePath, overwrite, offset, maxTokens), cancellationToken);
 
     [McpServerTool(Name = "list_dex_classes", Title = "List DEX classes", UseStructuredContent = true)]
     [Description("Classes defined in the DEX code of an Android package (every classes*.dex): descriptor, Java name, DEX file, access, " +
@@ -55,7 +55,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(CodeDescription)] string path,
         [Description("Only classes whose Java name or descriptor contains this, or matches it (* and ? wildcards).")] string? query = null,
         [Description("Only this package and its subpackages.")] string? package = null,
-        [Description("Classes to skip.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most classes to return.")] int limit = 500,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => dex.ListClasses(path, query, package, offset, limit, cancellationToken), cancellationToken);
@@ -76,15 +76,15 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(CodeDescription)] string path,
         [Description("A method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)) or a class (pkg.C, Lpkg/C;).")] string symbol,
         [Description("Output layout (default smali).")] string? format = null,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => pager.Page(dex.Disassemble(path, symbol, (format ?? "smali").Trim().ToLowerInvariant() switch
         {
             "smali" or "" => false,
             "annotated" => true,
             var f => throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{f}'; use smali or annotated."),
-        }, cancellationToken), offset, maxChars), cancellationToken);
+        }, cancellationToken), offset, maxTokens), cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java")]
     [Description("Java source of a class or one method of an Android package through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+; one session per " +
@@ -94,14 +94,14 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("A class (pkg.C, Lpkg/C;) or a method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)).")] string symbol,
         [Description("Return smali where JADX fails.")] bool smaliFallback = true,
         [Description("Decompiler.")] string? engine = null,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
         if (engine is { Length: > 0 } e && !e.Trim().Equals("jadx", StringComparison.OrdinalIgnoreCase))
             throw new ToolError(ErrorCode.InvalidArgument, $"unknown engine '{e}'; use jadx.");
         var text = await Task.Run(() => java.Decompile(path, symbol, smaliFallback, cancellationToken), cancellationToken).ConfigureAwait(false);
-        return pager.Page(text, offset, maxChars);
+        return pager.Page(text, offset, maxTokens);
     }
 
     [McpServerTool(Name = "map_java_dotnet", Title = "Map Java and .NET", UseStructuredContent = true)]
@@ -123,7 +123,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("ABI to read, or all; default arm64-v8a, else the first.")] string? abi = null,
         [Description("Only rows naming this class (pkg.C or pkg/C).")] string? @class = null,
         [Description("Only this kind.")] string? kind = null,
-        [Description("Rows to skip.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most rows.")] int limit = JniBindings.DefaultLimit,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => jni.List(path, abi, @class, kind, offset, limit, cancellationToken), cancellationToken);
@@ -136,7 +136,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(CodeDescription)] string path,
         [Description("What to search.")] string kind,
         [Description("Case-insensitive substring or * / ? pattern; for const a number.")] string query,
-        [Description("Hits to skip.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most hits to return.")] int limit = 200,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => dex.Search(path, kind, query, offset, limit, cancellationToken), cancellationToken);
@@ -151,7 +151,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
                      "or a string in double quotes.")] string target,
         [Description("to (default: who refers to the target) or from (what it refers to).")] string? direction = null,
         [Description("How to read target (default auto; string: taken literally).")] string? kind = null,
-        [Description("References to skip.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most references to return.")] int limit = 500,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => dex.References(path, target, kind, direction, offset, limit, cancellationToken), cancellationToken);

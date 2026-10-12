@@ -26,15 +26,15 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
     public Task<string> GetExceptionInfo(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Omit for an image summary.")] string? address = null,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, index) = await Open(image, progress, cancellationToken);
-        if (index.Image.Format != ImageFormat.Pe) return pager.Page(Itanium(native.Id, index, address), offset, maxChars);
+        if (index.Image.Format != ImageFormat.Pe) return pager.Page(Itanium(native.Id, index, address), offset, maxTokens);
         var eh = index.ExceptionInfo;
-        if (string.IsNullOrWhiteSpace(address)) return pager.Page(Summary(native.Id, index, eh), offset, maxChars);
+        if (string.IsNullOrWhiteSpace(address)) return pager.Page(Summary(native.Id, index, eh), offset, maxTokens);
 
         uint rva = NativeCodeTools.Address(index, address);
         var fn = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
@@ -56,7 +56,7 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         if (fn.Parent != null && eh.FrameOf(fn.Parent.Start) is { } parentFrame) frames.Add(parentFrame);
         if (frames.Count == 0) sb.AppendLine("No exception handling metadata.");
         foreach (var frame in frames) AppendFrame(sb, index, frame, Name);
-        return pager.Page(sb.ToString(), offset, maxChars);
+        return pager.Page(sb.ToString(), offset, maxTokens);
     });
 
     private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)

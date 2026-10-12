@@ -60,7 +60,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         [Description("same (default) or other.")] string? targetBuild = null,
         [Description("';'-separated folders searched recursively for moved files, by SHA-256.")] string? searchRoots = null,
         [Description("Comma-separated parts: edits, patches, annotations, notes or all (default); files are always loaded.")] string? include = null,
-        [Description("Items to skip.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Items to return (max 2000).")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)

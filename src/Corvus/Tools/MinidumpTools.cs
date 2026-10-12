@@ -40,7 +40,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
         [Description("Thread id, '#index', name or 'exception'. Default: the faulting thread, else the first.")] string? thread = null,
         [Description("Faulting thread: start at the exception context (.ecxr) or, false, at the thread's context when the dump was written.")] bool exceptionContext = true,
         [Description("Max frames walked (up to 1024).")] int maxFrames = 256,
-        [Description("First frame returned.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max frames returned.")] int limit = 100,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
         [Description("auto: .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only.")] string? managed = "auto",
@@ -56,7 +56,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
         [Description("stats (per type) or objects (one row each).")] string? mode = "stats",
         [Description("Type full name, '*' / '?' wildcards; default all.")] string? type = null,
         [Description("Only objects of at least this many bytes.")] long minSize = 0,
-        [Description("First row returned.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max rows returned (up to 1000).")] int limit = MinidumpService.DefaultListLimit,
         [Description("Max objects walked.")] long maxObjects = MinidumpService.DefaultMaxHeapObjects,
         CancellationToken cancellationToken = default) =>

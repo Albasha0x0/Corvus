@@ -23,12 +23,12 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(SimplifiedDescription)] bool simplified = false,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
-        return pager.Page(TypeSource(sym, simplified, cancellationToken), offset, maxChars);
+        return pager.Page(TypeSource(sym, simplified, cancellationToken), offset, maxTokens);
     }, cancellationToken);
 
     [McpServerTool(Name = "decompile_member", Title = "Decompile member to C#")]
@@ -40,14 +40,14 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         [Description("Restrict to this kind (default any).")] string? kind = null,
         [Description(SimplifiedDescription)] bool simplified = false,
         [Description("Start with comments pinning the output to its build: SHA-256, MVID, tokens, IL hashes (docs/il-hash.md).")] bool provenance = false,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, member, SymbolResolver.ParseKind(kind));
         var header = offset == 0 ? NotesHeader(all) : "";
         if (all.Count == 1 && all[0].Member is TypeDef)
-            return header + pager.Page((provenance ? Provenance(all[0].Assembly, [all[0].Member]) : "") + TypeSource(all[0], simplified, cancellationToken), offset, maxChars);
+            return header + pager.Page((provenance ? Provenance(all[0].Assembly, [all[0].Member]) : "") + TypeSource(all[0], simplified, cancellationToken), offset, maxTokens);
         RequireFew(all, member);
 
         var text = pager.GetOrCreate(CacheKey((simplified ? "member-simplified" : "member") + (provenance ? "-provenance" : ""), all), () =>
@@ -55,7 +55,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
                 $"// [{g.Key.Id}]\n" + (provenance ? Provenance(g.Key, g.Select(s => s.Member)) : "") + (simplified
                     ? decompiler.DecompileSimplified(g.Key, g.Select(s => s.Member).ToList(), new SimplifyOptions(), cancellationToken)
                     : decompiler.DecompileMembers(g.Key, g.Select(s => s.Member), cancellationToken)))));
-        return header + pager.Page(text, offset, maxChars);
+        return header + pager.Page(text, offset, maxTokens);
     }, cancellationToken);
 
     /// <summary>One line when the members (a type: and its members) have open notes; empty otherwise, so it costs nothing without notes.</summary>
@@ -103,15 +103,15 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, symbol);
         RequireFew(all, symbol);
         var text = pager.GetOrCreate(CacheKey("il", all), () => string.Join("\n", all.Select(s =>
             $"// [{s.Assembly.Id}] {s.Label}\n{HashLines(s)}{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken)}")));
-        return pager.Page(text, offset, maxChars);
+        return pager.Page(text, offset, maxTokens);
     }, cancellationToken);
 
     /// <summary>One "// IL hash:" line per method of the symbol with its raw IL SHA-256 (docs/il-hash.md), and the method's name unless the symbol is that method.</summary>

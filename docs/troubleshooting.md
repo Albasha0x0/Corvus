@@ -47,19 +47,21 @@ fix it:
 Only `decompile_native`, the engine tools and `engine=ida|ghidra` need an engine; everything else is built in. From the
 command line such errors exit with code 3.
 
-## A result says limit_exceeded, or the text ends with a paging footer
+## A result ends with a paging footer
 
-A result over the response limit is kept, and the error names its id: `read_result id=<id>` pages through it (`query=` searches it, `outputPath=` writes it to a file). Kept results stay on disk for 7 days; an evicted id says so and names the call to repeat. A tool
-that changes state (an edit, a save) still succeeds: it sends the head of its result and the id. Long
-text pages end with a footer naming the next `offset`. Narrow the call where you can (one member instead of a type, a
-`limit`, a filter). The page size is the server option `--max-output`. From the command line, whole results are
-printed unless `--max-output` is given.
+Each part of a result (the text, and the structured content) is kept within a page of estimated tokens: 6,000 for
+lists, 8,000 for code, 6,000 for bytes, 4,000 for reports and 3,000 for edits, or the call's `maxTokens` (500 or more)
+up to the client's ceiling (`CORVUS_MAX_OUTPUT_TOKENS`). Lists return fewer rows with `hasMore` and `nextOffset`, and the
+text ends with `[More: offset=N]`; pass that offset to continue. Code and other long text ends at a line with the same
+footer. A result with no natural order sends its head and names the whole result: `read_result id=<id>` pages through
+it, searches it (`query=`) or writes it to a file (`outputPath=`); kept results stay on disk for 7 days, and an evicted
+id says so and names the call to repeat. Read-only calls never fail for size. Narrow the call where you can (one member
+instead of a type, a filter).
 
 ## Claude Code saves a result to a file instead of showing it
 
 Claude Code keeps tool results up to 50,000 characters in context unless the tool raises that limit. Every tool of
-this server declares `anthropic/maxResultSizeChars` above its default page, so a default page stays in context. A
-larger `maxChars` on a call, or a larger `--max-output`, can pass the client's limit again.
+this server declares `anthropic/maxResultSizeChars` above its largest page, so a page stays in context.
 
 ## A call ends with timeout
 

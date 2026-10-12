@@ -51,7 +51,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         [Description("Seed kinds, comma-separated: strings, names, imports, exports, classes, constants (default all).")] string? kinds = null,
         [Description("Matches followed (1-500); the rest are counted.")] int maxSeeds = 50,
         [Description("Caller levels searched for hubs (0-3).")] int callerDepth = 1,
-        [Description("Index of the first function.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Functions per page (max 500).")] int limit = 50,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

@@ -26,8 +26,8 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
         [Description("Only bodies whose name contains this text ('Int32', '__Canon').")] string? instantiation = null,
         [Description("Max bodies disassembled; the rest are listed with addresses.")] int maxBodies = 4,
         [Description("Max instructions per body.")] int maxInstructions = 5000,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         Targets.Prepare(workspace, assembly);
@@ -66,7 +66,7 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
                     "decompile_member / get_il show the IL the JIT compiles at run time" + (instantiation != null ? "; or drop the instantiation filter" : ""));
             if (shown > bodiesLimit) sb.AppendLine($"({shown - bodiesLimit} more bodies not disassembled; raise maxBodies or filter with instantiation)");
             foreach (var m in missing) sb.AppendLine("No precompiled code: " + m);
-            return pager.Page(sb.ToString(), offset, maxChars);
+            return pager.Page(sb.ToString(), offset, maxTokens);
         });
     }, cancellationToken);
 

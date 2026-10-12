@@ -44,7 +44,7 @@ public sealed partial class NativeCodeTools
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Only this section, e.g. .data.")] string? section = null,
-        [Description("Index of the first row.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 300,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,

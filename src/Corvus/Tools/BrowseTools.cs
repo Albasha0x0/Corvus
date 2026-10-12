@@ -19,7 +19,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     public Task<string> ListNamespaces(
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Substring (case-insensitive).")] string? filter = null,
-        [Description("Index of the first namespace.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max namespaces.")] int limit = 2000,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
@@ -64,7 +64,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description("Treat filter as a regular expression.")] bool regex = false,
         [Description("Only this kind.")] string? kind = null,
         [Description("Include nested types.")] bool includeNested = true,
-        [Description("Index of the first result.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max results.")] int limit = 300,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {

@@ -25,15 +25,15 @@ public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerato
         [Description("Omit to detect it.")] string? style = null,
         [Description("The C/C++ project the header is for, scanned for a host function table and helpers.")] string? projectDir = null,
         [Description("Where the header will be saved (absolute or relative to projectDir; default projectDir); #include paths are relative to it.")] string? headerPath = null,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
         var only = members?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
         var target = CppBindingGenerator.ChooseStyle(style, projectDir, headerPath, options, cancellationToken,
             il2cppAssembly: style == null && IsIl2CppDummy(sym.Assembly.Module));
-        return pager.Page(generator.Generate(sym.Assembly, (TypeDef)sym.Member, only, includeInherited, target), offset, maxChars);
+        return pager.Page(generator.Generate(sym.Assembly, (TypeDef)sym.Member, only, includeInherited, target), offset, maxTokens);
     }, cancellationToken);
 
     /// <summary>Whether the module's methods carry a dumper's [Address] attribute (the first 2,000 looked at).</summary>

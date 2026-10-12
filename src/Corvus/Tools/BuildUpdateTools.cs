@@ -103,7 +103,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Most sites (names and patches) to make code patterns for (0-1000).")] int maxPatterns = 100,
         [Description("Only items of this category.")] string? category = null,
         [Description("Only items with this outcome.")] string? outcome = null,
-        [Description("Items to skip.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Items to return (max 2000).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

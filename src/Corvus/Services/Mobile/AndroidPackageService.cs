@@ -59,7 +59,7 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
 
     /// <summary>A file entry (binary XML decoded) or a resource's values; savePath writes the entry's bytes.</summary>
-    public string Resource(string path, string name, string? savePath, bool overwrite, int offset, int? maxChars)
+    public string Resource(string path, string name, string? savePath, bool overwrite, int offset, int? maxTokens)
     {
         using var p = AndroidPackage.Open(path);
         name = name.Trim();
@@ -75,7 +75,7 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
                 var text = new StringBuilder($"{table.Name(id) ?? name} (0x{id:x8}): {rows.Count} value(s)\n");
                 foreach (var r in rows) text.AppendLine($"  [{(r.Config.Length == 0 ? "default" : r.Config)}] {r.ValueType}: {r.Value}");
                 if (files.Count > 0) text.AppendLine($"Files: {string.Join(", ", files)} (pass one as name to read it).");
-                return pager.Page(text.ToString(), offset, maxChars);
+                return pager.Page(text.ToString(), offset, maxTokens);
             }
             entry = files[0];
             if (files.Count > 1) header = $"{table.Name(id)}: {files.Count} files by configuration ({string.Join(", ", files)}); showing {entry}.\n";
@@ -106,7 +106,7 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
             var kind = Blob.Identify(bytes);
             body = $"{entry}: {bytes.Length:N0} bytes, {kind}, SHA-256 {Blob.Sha256(bytes)}; pass savePath to write it.\n" + Hex(bytes.AsSpan(0, Math.Min(256, bytes.Length)));
         }
-        return pager.Page((header ?? "") + body, offset, maxChars);
+        return pager.Page((header ?? "") + body, offset, maxTokens);
     }
 
     private static (uint Id, List<ResourceRow> Rows) Lookup(IResourceTable table, string name)

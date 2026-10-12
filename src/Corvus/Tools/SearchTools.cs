@@ -21,7 +21,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description("Only types in namespaces starting with this.")] string? @namespace = null,
         [Description("Treat query as a regular expression.")] bool regex = false,
         [Description("Max results.")] int limit = 100,
-        [Description("Index of the first result.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         limit = ClampLimit(limit);
@@ -47,7 +47,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Treat query as a regular expression.")] bool regex = false,
         [Description("Max results.")] int limit = 200,
-        [Description("Index of the first result.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Il2Cpp: max functions listed per literal.")] int usesPerLiteral = 10,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
@@ -126,7 +126,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description("Decimal, 0x hex, negative or floating-point.")] string value,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Max results.")] int limit = 200,
-        [Description("Index of the first result.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         limit = ClampLimit(limit);
@@ -153,7 +153,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description("Instruction pattern.")] string pattern,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Max matches.")] int limit = 100,
-        [Description("Index of the first match.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         limit = ClampLimit(limit);

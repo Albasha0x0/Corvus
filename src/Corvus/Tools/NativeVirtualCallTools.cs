@@ -58,7 +58,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only sites in this function: " + NativeTools.AddressDescription)] string? function = null,
         [Description("Only sites with this status.")] string? status = null,
-        [Description("Index of the first site.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max sites (max 1000).")] int limit = 100,
         [Description("Compare a sample with the engine's view (runs IDA or Ghidra; minutes on a large image the first time).")] bool crossCheck = false,
         [Description("Cross-check: functions to sample.")] int sampleFunctions = 100,

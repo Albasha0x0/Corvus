@@ -62,7 +62,7 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
         [Description(AnchorDescription)] string? anchor = null,
         [Description("Only notes with this tag.")] string? tag = null,
         [Description("Text substring (case-insensitive).")] string? text = null,
-        [Description("Notes to skip.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Notes to return (max 500).")] int limit = 50,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {

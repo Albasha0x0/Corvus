@@ -213,7 +213,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
                                      detail, structured);
     }
 
-    public async Task<string> Disassemble(LoadedNative native, NativeCodeIndex index, uint rva, bool function, int max, int offset, int? maxChars,
+    public async Task<string> Disassemble(LoadedNative native, NativeCodeIndex index, uint rva, bool function, int max, int offset, int? maxTokens,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await Session(native, choice, progress, ct);
@@ -249,10 +249,10 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             sb.AppendLine($"  {index.Image.ImageBase + i.Rva:X}  {Convert.ToHexString(i.Bytes),-24} {i.Text}{(comment != null ? "  ; " + comment : "")}");
         }
         if (d.Truncated && function) sb.AppendLine("; ... truncated by the engine");
-        return $"; {choice.Line}\n" + pager.Page(sb.ToString(), offset, maxChars);
+        return $"; {choice.Line}\n" + pager.Page(sb.ToString(), offset, maxTokens);
     }
 
-    public async Task<string> Cfg(LoadedNative native, NativeCodeIndex index, uint rva, int offset, int? maxChars,
+    public async Task<string> Cfg(LoadedNative native, NativeCodeIndex index, uint rva, int offset, int? maxTokens,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await Session(native, choice, progress, ct);
@@ -299,7 +299,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             unresolved.Add(new CfgUnresolvedJump(V(b.StartRva), "no switch recognized by the engine"));
         }
         foreach (var t in graph.TailCalls) sb.AppendLine($"  tail call to {index.NameAt(t) ?? V(t)}");
-        return StructuredOutput.With(choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxChars),
+        return StructuredOutput.With(choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxTokens),
             new CfgReport(native.Id, name, V(graph.StartRva), choice.Engine, blocks, switches, unresolved, [.. graph.TailCalls.Select(V)], false));
 
         string EndKind(NativeBlockInfo b) => b.Kind switch
@@ -444,7 +444,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         return sb.ToString();
     }
 
-    public async Task<string> CallTree(LoadedNative native, NativeCodeIndex index, uint rva, bool callers, int depth, int maxNodes, int offset, int? maxChars,
+    public async Task<string> CallTree(LoadedNative native, NativeCodeIndex index, uint rva, bool callers, int depth, int maxNodes, int offset, int? maxTokens,
         CallEdgeFilter edges, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await Session(native, choice, progress, ct);
@@ -510,6 +510,6 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             : $"[virtual?: one of {index.VirtualCalls.SiteAt(v.From)?.TargetCount ?? 0}, ours]";
 
         await Walk(root.StartRva, 0, null);
-        return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxChars);
+        return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxTokens);
     }
 }

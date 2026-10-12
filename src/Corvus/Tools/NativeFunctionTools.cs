@@ -78,8 +78,8 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         [Description("Add the pseudocode section.")] bool pseudocode = false,
         [Description("With several addresses: one component view (internal calls, shared data, interface).")] bool component = false,
         [Description("Pseudocode engine (default auto).")] string? engine = null,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -146,7 +146,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             }
             return built;
         }, cancellationToken);
-        return StructuredOutput.With(pager.Page(text, offset, maxChars), report);
+        return StructuredOutput.With(pager.Page(text, offset, maxTokens), report);
     });
 
     private static List<string> Sections(string? list, bool pseudocode)

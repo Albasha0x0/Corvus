@@ -8,8 +8,6 @@ namespace Corvus.Tests;
 public abstract class ResultBoundsTests : IAsyncLifetime
 {
     private const int MaxOutput = 20_000;
-    /// <summary>The largest page a caller can ask for with maxChars (see OutputPager.Page).</summary>
-    private const int MaxPage = 500_000;
     private readonly TempDir _dir = new();
     private McpClient _client = null!;
 
@@ -37,7 +35,7 @@ public abstract class ResultBoundsTests : IAsyncLifetime
         private static IEnumerable<(string Tool, Dictionary<string, object?> Args)> Unbounded() =>
         [
             ("decompile_type", new() { ["type"] = "Newtonsoft.Json.Serialization.JsonSerializerInternalReader" }),
-            ("decompile_type", new() { ["type"] = "Newtonsoft.Json.Serialization.JsonSerializerInternalReader", ["maxChars"] = int.MaxValue }),
+            ("decompile_type", new() { ["type"] = "Newtonsoft.Json.Serialization.JsonSerializerInternalReader", ["maxTokens"] = int.MaxValue }),
             ("get_il", new() { ["symbol"] = "Newtonsoft.Json.Serialization.JsonSerializerInternalReader" }),
             ("search_symbols", new() { ["query"] = "*", ["limit"] = int.MaxValue }),
             ("list_types", new() { ["limit"] = int.MaxValue }),
@@ -51,7 +49,7 @@ public abstract class ResultBoundsTests : IAsyncLifetime
             ("survey_features", new() { ["assembly"] = "Newtonsoft.Json" }),
         ];
 
-        /// <summary>Each page stays within the server's limit (or the caller's maxChars, itself capped), text and structured content alike.</summary>
+        /// <summary>Each part of a page stays within its class budget (or maxTokens up to the client ceiling) + 5%, in estimated tokens.</summary>
         [Trait("Speed", "Slow")]
         [Fact]
         public async Task HugeResultsComeBackPaged()
@@ -66,10 +64,11 @@ public abstract class ResultBoundsTests : IAsyncLifetime
                 int structured = result.StructuredContent?.ToString().Length ?? 0;
                 output.WriteLine($"{tool} ({string.Join(", ", args.Keys)}): {text.Length} chars of text, {structured} structured, {watch.ElapsedMilliseconds} ms");
                 if (result.IsError == true) problems.Add($"{tool}: {text[..Math.Min(300, text.Length)]}");
-                // The page plus its header and footer.
-                int limit = (args.ContainsKey("maxChars") ? MaxPage : MaxOutput) + 500;
-                if (text.Length > limit) problems.Add($"{tool} ({string.Join(", ", args.Keys)}): {text.Length} chars of text, over {limit}");
-                if (structured > MaxOutput + 500) problems.Add($"{tool}: {structured} chars of structured content, over {MaxOutput + 500}");
+                int budget = args.ContainsKey("maxTokens") ? Corvus.Core.ClientProfiles.Unknown.MaxTokens : Corvus.Mcp.OutputClasses.Budget(Corvus.Mcp.ToolContract.Of(tool).Output);
+                int limit = budget * 105 / 100, textTokens = Corvus.Core.TokenEstimate.Of(text);
+                int structuredTokens = result.StructuredContent is { } s ? Corvus.Core.TokenEstimate.Of(s.ToString()) : 0;
+                if (textTokens > limit) problems.Add($"{tool} ({string.Join(", ", args.Keys)}): {textTokens} tokens of text, over {limit}");
+                if (structuredTokens > limit) problems.Add($"{tool}: {structuredTokens} tokens of structured content, over {limit}");
             }
             Assert.True(problems.Count == 0, string.Join("\n", problems));
         }

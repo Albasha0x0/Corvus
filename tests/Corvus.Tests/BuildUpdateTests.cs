@@ -151,7 +151,7 @@ public class BuildUpdateTests : IDisposable
         var v13 = RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll");
         using var env = new Env(v12);
         var newer = env.Workspace.Load(v13);
-        var text = await new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler).CompareAssemblies(env.Fixture.Id, newer.Id, maxChars: 200_000);
+        var text = await new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler).CompareAssemblies(env.Fixture.Id, newer.Id, maxTokens: 50_000);
         Assert.Contains("Newtonsoft.Json.Utilities.StringUtils/SnakeCaseState -> Newtonsoft.Json.Utilities.StringUtils/SeparatedCaseState", text);
         Assert.DoesNotContain("<PrivateImplementationDetails>", text);
         Assert.DoesNotContain("DisplayClass", text);

@@ -122,7 +122,7 @@ internal sealed class NativeToolHarness : IDisposable
         string Va(uint rva) => $"0x{pe.ImageBase + rva:X}";
 
         await Run(path, "get_pe_info", "", ct => Native.GetPeInfo(id, cancellationToken: ct), mustSucceed: true);
-        await Run(path, "get_pe_info", "page 2", ct => Native.GetPeInfo(id, offset: 1000, maxChars: 1000, cancellationToken: ct)); // offset past the end is invalid_argument
+        await Run(path, "get_pe_info", "page 2", ct => Native.GetPeInfo(id, offset: 1000, maxTokens: 500, cancellationToken: ct)); // offset past the end is invalid_argument
         await Run(path, "list_imports", "", ct => Native.ListImports(id, cancellationToken: ct), mustSucceed: true);
         await Run(path, "list_exports", "", ct => Native.ListExports(id, cancellationToken: ct), mustSucceed: true);
         await Run(path, "list_exports", "filter, page", ct => Native.ListExports(id, filter: "a", offset: 3, limit: 7, cancellationToken: ct), mustSucceed: true);

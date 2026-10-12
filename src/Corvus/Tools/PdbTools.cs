@@ -117,7 +117,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name or decorated name substring (case-insensitive); empty for all.")] string? query = null,
         [Description("Only this kind (default all).")] string? kind = null,
-        [Description("Index of the first row.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 200,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {

@@ -20,7 +20,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
         [Description("Text format (auto detects it).")] string? format = "auto",
         [Description("Native image ids or paths (';'-separated); default every loaded one.")] string? images = null,
         [Description("Module load addresses, 'name=0xBASE;...', when the text has no module list.")] string? moduleBases = null,
-        [Description("First frame returned.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max frames returned.")] int limit = StackTextService.DefaultLimit,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => stacks.Symbolize(text, path, format, images, moduleBases, offset, limit, cancellationToken), cancellationToken);
@@ -39,7 +39,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
         [Description("auto: managed signatures for CLR exceptions when a local DAC is found; off: native only.")] string? managed = "auto",
         [Description("Most dumps bucketed, newest first.")] int maxDumps = MinidumpService.DefaultMaxDumps,
         [Description("Folders with the crashed program's binaries (';'-separated), for modules not at their recorded paths.")] string? imageDirectories = null,
-        [Description("First bucket returned.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max buckets returned.")] int limit = MinidumpService.DefaultListLimit,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress =>

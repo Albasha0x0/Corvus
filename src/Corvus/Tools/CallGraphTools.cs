@@ -26,8 +26,8 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         [Description("Stop after this many nodes.")] int maxNodes = 300,
         [Description("Callees: also calls into assemblies not loaded (framework).")] bool includeExternal = false,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
         bool callers = (direction ?? "").Trim().ToLowerInvariant() switch
@@ -47,7 +47,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 // Lines below the header, two spaces per level.
                 var nodes = ReferenceTools.Lines(text).Skip(1)
                     .Select(l => new CallGraphService.TreeNode(Math.Max(1, (l.Length - l.TrimStart(' ').Length) / 2), l.Trim(), null, "native", null)).ToList();
-                return StructuredOutput.With(pager.Page(text, offset, maxChars), new CallTree($"native {native}", directionName, levels, nodes, nodes.Count, false));
+                return StructuredOutput.With(pager.Page(text, offset, maxTokens), new CallTree($"native {native}", directionName, levels, nodes, nodes.Count, false));
             }, cancellationToken);
         }
         if (link != null) await link.WarmUp(null, cancellationToken);
@@ -59,7 +59,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 : (m, left, indent) => link.NativeCallees(m, left, indent, max, cancellationToken);
             var nodes = new List<CallGraphService.TreeNode>();
             var text = graph.Tree(sym.Assembly, (MethodDef)sym.Member, callers, levels, max, includeExternal, cancellationToken, hook, nodes, out bool truncated);
-            return StructuredOutput.With(pager.Page(text, offset, maxChars),
+            return StructuredOutput.With(pager.Page(text, offset, maxTokens),
                 new CallTree($"{sym.Label} [{sym.Assembly.Id}]", directionName, levels, nodes, nodes.Count, truncated));
         }, cancellationToken);
     }

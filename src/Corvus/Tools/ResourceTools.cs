@@ -45,20 +45,20 @@ public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService r
         [Description("Entry inside a .resources container.")] string? entry = null,
         [Description("Write the raw bytes to this file.")] string? savePath = null,
         [Description("Replace savePath if it exists.")] bool overwrite = false,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
         {
-            if (workspace.FindNative(assembly) is { ManagedView: null } native) return pager.Page(NativeResourceService.Get(native, name, savePath, overwrite: overwrite), offset, maxChars);
+            if (workspace.FindNative(assembly) is { ManagedView: null } native) return pager.Page(NativeResourceService.Get(native, name, savePath, overwrite: overwrite), offset, maxTokens);
             var asm = workspace.Get(assembly);
             try
             {
-                return pager.Page(resources.Get(asm, name, entry, savePath, baml: bytes => decompiler.DecompileBaml(asm, bytes, cancellationToken), overwrite: overwrite), offset, maxChars);
+                return pager.Page(resources.Get(asm, name, entry, savePath, baml: bytes => decompiler.DecompileBaml(asm, bytes, cancellationToken), overwrite: overwrite), offset, maxTokens);
             }
             catch (ToolError ex) when (ex.Code == ErrorCode.NotFound && name.Contains('/') && workspace.NativeViewOf(asm) is { } view)
             {
                 // Mixed-mode: TYPE/NAME[/LANGUAGE] that is not a managed resource names a Win32 resource of the native view.
-                return pager.Page(NativeResourceService.Get(view, name, savePath, overwrite: overwrite), offset, maxChars);
+                return pager.Page(NativeResourceService.Get(view, name, savePath, overwrite: overwrite), offset, maxTokens);
             }
         }, cancellationToken);
 }

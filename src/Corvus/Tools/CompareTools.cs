@@ -70,8 +70,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [Description("Also show compiler-generated types and members (closures, state machines, backing fields), which change with every recompile.")] bool includeCompilerGenerated = false,
         [Description("Write the whole assembly's token map (old -> new token, status, tier, confidence, body hash equality) to this JSON file.")] string? tokenMapPath = null,
         [Description("Replace an existing token map file.")] bool overwrite = false,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var oldAsm = workspace.Get(oldAssembly);
@@ -163,7 +163,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             cmp.Ambiguous.Keys.Count(m => m is not TypeDef && (@namespace == null || (m.DeclaringType?.FullName.StartsWith(@namespace, StringComparison.Ordinal) ?? false))),
             cmp.OldSkippedBodies, cmp.NewSkippedBodies, hiddenTypes + hiddenMembers,
             offset == 0 ? items : [], items.Count, false, mapFile, mapEntries);
-        return StructuredOutput.With(pager.Page(sb.ToString(), offset, maxChars), result);
+        return StructuredOutput.With(pager.Page(sb.ToString(), offset, maxTokens), result);
     }, cancellationToken);
 
     private static ChangeItem TypeItem(TypeChange t)

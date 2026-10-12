@@ -110,8 +110,8 @@ public sealed partial class NativeCodeTools
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Instructions to inspect (1-64).")] int count = 1,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("auto (default): the built-in decoder for x86 / x64 / ARM, else IDA, else Ghidra.")]
         string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -138,7 +138,7 @@ public sealed partial class NativeCodeTools
         var (text, report) = choice.External
             ? await InspectWithEngine(native, index, rva, n, choice, progress, cancellationToken)
             : await Task.Run(() => Inspect(native.Id, index, rva, n, choice, cancellationToken), cancellationToken);
-        return StructuredOutput.With(choice.Line + "\n" + Coverage(index) + pager.Page(text, offset, maxChars), report);
+        return StructuredOutput.With(choice.Line + "\n" + Coverage(index) + pager.Page(text, offset, maxTokens), report);
     });
 
     internal static (string Text, InstructionReport Report) Inspect(string imageId, NativeCodeIndex index, uint rva, int count, EngineChoice choice, CancellationToken ct)

@@ -28,7 +28,7 @@ public sealed partial class NativeCodeTools
         [Description("Only this function: " + NativeTools.AddressDescription)] string? function = null,
         [Description("Range start (with end, or alone: to the end of its section).")] string? start = null,
         [Description("Range end (exclusive).")] string? end = null,
-        [Description("Index of the first match to return.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max matches (max 2000).")] int limit = 100,
         [Description("Max instructions scanned (max 5000000).")] int maxInstructions = 500_000,
         [Description(EngineDescription)] string? engine = null,

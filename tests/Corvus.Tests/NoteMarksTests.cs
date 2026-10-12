@@ -59,7 +59,7 @@ public sealed class NoteMarksTests : IDisposable
         Assert.Single(rig.Engine.MarkPushes);
 
         rig.Notes.Record("second", "hypothesis", null, At(rig.Native, 0x1000), null, null, null);
-        Assert.Contains("// notes: 2 mark(s) in ida", await rig.Analysis.DecompileNative(rig.Native.Id, "rva:0x1000", addresses: false, offset: 0, maxChars: 50_000));
+        Assert.Contains("// notes: 2 mark(s) in ida", await rig.Analysis.DecompileNative(rig.Native.Id, "rva:0x1000", addresses: false, offset: 0, maxTokens: 50_000));
         Assert.Equal([0x1000u, 0x1004u], rig.Engine.MarkPushes[1].Marks.Select(m => m.Rva));
     }
 

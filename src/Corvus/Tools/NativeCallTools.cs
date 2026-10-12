@@ -67,7 +67,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call instruction, or an address in a function (all calls in it): " + NativeTools.AddressDescription)] string? address = null,
         [Description("Only calls to this API, module!name or function; without address, every call to it in the image.")] string? callee = null,
-        [Description("Index of the first call site.")] int offset = 0,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max call sites (max 1000).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

@@ -124,12 +124,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> DiffEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only this edit (number from list_edits).")] int? number = null,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
         {
-            var (text, complete) = history.Diff(workspace.Get(assembly), number, Math.Max(0, offset) + pager.MaxChars(maxChars), cancellationToken);
-            return pager.Page(text, offset, maxChars, complete);
+            var (text, complete) = history.Diff(workspace.Get(assembly), number, Math.Max(0, offset) + pager.MaxChars(maxTokens), cancellationToken);
+            return pager.Page(text, offset, maxTokens, complete);
         }, cancellationToken);
 
     [McpServerTool(Name = "export_edits", Title = "Export edits as a script")]

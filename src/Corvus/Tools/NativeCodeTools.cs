@@ -110,7 +110,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
         [Description("address (default), name, size (largest first) or callers (most called first).")] string? sort = null,
-        [Description("Index of the first row.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 300,
         [Description(EngineDescription)] string? engine = null,
         [Description("Smallest size in bytes.")] long? minSize = null,
@@ -173,8 +173,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(NativeTools.AddressDescription)] string address,
         [Description("The whole containing function; false: maxInstructions from the address.")] bool function = true,
         [Description("Max instructions.")] int maxInstructions = 2000,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -184,7 +184,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         int max = Math.Clamp(maxInstructions, 1, 200_000);
         var choice = Choose(mode, native, index);
         if (choice.External)
-            return await _engine!.Disassemble(native, index, Address(index, address), function, max, offset, maxChars, choice, progress, cancellationToken);
+            return await _engine!.Disassemble(native, index, Address(index, address), function, max, offset, maxTokens, choice, progress, cancellationToken);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var rva = Address(index, address);
         var fn = function ? index.FunctionAt(rva) : null;
@@ -216,7 +216,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             if (warnings.Count > 0) sb.Append("; warnings:\n").AppendJoin("", warnings.Select(w => $";   {w}\n"));
             return sb.ToString();
         });
-        return $"; {choice.Line}\n" + Coverage(index) + pager.Page(text + await BoundImports(native, index, fn, cancellationToken), offset, maxChars);
+        return $"; {choice.Line}\n" + Coverage(index) + pager.Page(text + await BoundImports(native, index, fn, cancellationToken), offset, maxTokens);
     });
 
     /// <summary>Where the imports a function calls are bound (one line each), for the disassembly footer.</summary>
@@ -245,8 +245,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     public Task<string> GetCfg(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -255,12 +255,12 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var choice = Choose(mode, native, index);
         if (choice.External)
-            return await _engine!.Cfg(native, index, Address(index, address), offset, maxChars, choice, progress, cancellationToken);
+            return await _engine!.Cfg(native, index, Address(index, address), offset, maxTokens, choice, progress, cancellationToken);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var fn = FunctionAt(index, Address(index, address));
         var graph = index.GetGraph(fn, cancellationToken);
         var (text, report) = OurCfg(native, index, fn, graph);
-        return StructuredOutput.With(choice.Line + "\n" + pager.Page(text, offset, maxChars), report);
+        return StructuredOutput.With(choice.Line + "\n" + pager.Page(text, offset, maxTokens), report);
     });
 
     /// <summary>"case 3, 4" (or "default ...") for a switch case reference from the jump at <paramref name="jump"/> to <paramref name="target"/>.</summary>
@@ -303,8 +303,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("both: depth 1, with call sites.")] string direction = "callees",
         [Description("Levels (1-8).")] int depth = 3,
         [Description("Max nodes.")] int maxNodes = 500,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Call edges to follow: all (default), direct (no virtual edges) or virtual (only virtual edges).")] string? calls = null,
         [Description(EngineDescription + " An engine's edges get the RTTI virtual calls it lacks; other images use the built-in index.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -331,16 +331,16 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         {
             var sites = choice.External ? await _engine!.CallSites(native, index, Address(index, function), edges, choice, progress, cancellationToken)
                 : OurCallSites(index, FunctionAt(index, Address(index, function)), edges, cancellationToken);
-            return choice.Line + "\n" + pager.Page(sites, offset, maxChars);
+            return choice.Line + "\n" + pager.Page(sites, offset, maxTokens);
         }
         if (choice.External)
-            return await _engine!.CallTree(native, index, Address(index, function), callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), offset, maxChars,
+            return await _engine!.CallTree(native, index, Address(index, function), callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), offset, maxTokens,
                 edges, choice, progress, cancellationToken);
         uint at = Address(index, function);
         if (callers && index.FunctionAt(at) == null && index.Image.Imports.FirstOrDefault(i => i.SlotRva == at) is { } import)
         {
             if (link != null) await link.WarmUp(null, cancellationToken);
-            return choice.Line + "\n" + pager.Page(workspace.Read(() => ImportCallerTree(native, index, import, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), edges, cancellationToken)), offset, maxChars);
+            return choice.Line + "\n" + pager.Page(workspace.Read(() => ImportCallerTree(native, index, import, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), edges, cancellationToken)), offset, maxTokens);
         }
         var fn = FunctionAt(index, at);
         if (link != null)
@@ -369,7 +369,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             foreach (var child in node.Children) Walk(child, level + 1);
         }
         Walk(root, 0);
-        return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxChars);
+        return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxTokens);
     });
 
     /// <summary>Callers of an import: the functions calling through its slot (or a thunk jumping through it), each with its own callers.</summary>
@@ -409,7 +409,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Case-insensitive substring, or a regex with regex=true; omit to list all.")] string? query = null,
         [Description("Treat query as a regular expression.")] bool regex = false,
-        [Description("Index of the first row.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows (default 300).")] int limit = 300,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,

@@ -22,7 +22,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         [Description("Restrict symbol resolution to this kind.")] string? kind = null,
         [Description("Methods: include calls through base / interface declarations.")] bool includeVirtualCalls = true,
         [Description("Max results.")] int limit = 300,
-        [Description("Index of the first reference.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default)
     {
         limit = ClampLimit(limit);
@@ -105,7 +105,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         [Description(SymbolOrNativeDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Collapse repeated targets into one line with a count.")] bool distinct = false,
-        [Description("Index of the first entry.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max entries.")] int limit = 2000,
         CancellationToken cancellationToken = default)
     {
@@ -168,7 +168,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         [Description(SymbolDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Max results.")] int limit = 200,
-        [Description("Index of the first result.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method, referenced: true);

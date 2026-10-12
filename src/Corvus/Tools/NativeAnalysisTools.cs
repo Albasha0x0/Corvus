@@ -42,8 +42,8 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Include each vftable's slot addresses.")] bool slots = false,
-        [Description(OffsetDescription)] int offset = 0,
-        [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("auto or ours (default: RTTI), ida or ghidra.")] string? engine = null,
         [Description("engine=ghidra: plain namespaces and libraries too.")] bool namespaces = false,
         RequestContext<CallToolRequestParams> context = null!,
@@ -51,14 +51,14 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
     {
         var mode = EngineModes.Resolve(engine, EngineMode.Auto);
         if (mode == EngineMode.Ida)
-            return await OrderedProgress.Run(context, progress => IdaClasses(image, filter, offset, maxChars, progress, cancellationToken));
+            return await OrderedProgress.Run(context, progress => IdaClasses(image, filter, offset, maxTokens, progress, cancellationToken));
         if (mode == EngineMode.Ghidra)
-            return await OrderedProgress.Run(context, progress => EngineClasses(image, filter, namespaces, offset, maxChars, progress, cancellationToken));
-        return await Task.Run(() => RttiClasses(image, filter, slots, offset, maxChars, cancellationToken), cancellationToken);
+            return await OrderedProgress.Run(context, progress => EngineClasses(image, filter, namespaces, offset, maxTokens, progress, cancellationToken));
+        return await Task.Run(() => RttiClasses(image, filter, slots, offset, maxTokens, cancellationToken), cancellationToken);
     }
 
     /// <summary>Ghidra's class namespaces (and with <paramref name="all"/> its other namespaces), sorted by name.</summary>
-    private async Task<string> EngineClasses(string image, string? filter, bool all, int offset, int? maxChars, IProgress<ProgressNotificationValue> progress,
+    private async Task<string> EngineClasses(string image, string? filter, bool all, int offset, int? maxTokens, IProgress<ProgressNotificationValue> progress,
         CancellationToken ct)
     {
         var native = await Task.Run(() => ResolveImage(workspace, image), ct);
@@ -72,11 +72,11 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
                                    (filter != null ? $"; {shown.Count} match '{filter}'" : "") + "\nEngine: ghidra\n");
         foreach (var n in shown)
             sb.AppendLine($"{n.Kind} {n.Name}  ({Plural(n.Functions, "function")})" + (n.Vftable is { } v ? $"  vftable {NativeAddress.Va(native.Image, v)}" : ""));
-        return pager.Page(sb.ToString(), offset, maxChars);
+        return pager.Page(sb.ToString(), offset, maxTokens);
     }
 
     /// <summary>IDA's C++ structs (C++ objects, base classes or a vftable pointer) with their bases, vftable and Class:: functions.</summary>
-    private async Task<string> IdaClasses(string image, string? filter, int offset, int? maxChars, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    private async Task<string> IdaClasses(string image, string? filter, int offset, int? maxTokens, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var native = await Task.Run(() => ResolveImage(workspace, image), ct);
         var session = await engines.Session(native, Native.Providers.Ida.IdaProvider.ProviderId, new Progress<NativeProviderProgress>(p =>
@@ -97,10 +97,10 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
             else if (r[3].GetInt32() > 0) sb.Append($"  vftable type with {Plural(r[3].GetInt32(), "slot")}");
             sb.AppendLine();
         }
-        return pager.Page(sb.ToString(), offset, maxChars);
+        return pager.Page(sb.ToString(), offset, maxTokens);
     }
 
-    private string RttiClasses(string image, string? filter, bool slots, int offset, int? maxChars, CancellationToken cancellationToken)
+    private string RttiClasses(string image, string? filter, bool slots, int offset, int? maxTokens, CancellationToken cancellationToken)
     {
         var (native, _) = Resolve(image, "rva:0");
         var result = native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken));
@@ -136,7 +136,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         }
         if (pe.Format == ImageFormat.MachO)
             foreach (var line in AppleNames.ClassLines(native, filter, slots, rva => index?.NameAt(rva) is { } n ? NativeTools.DisplayName(n, ImageFormat.MachO) : null, cancellationToken)) sb.AppendLine(line);
-        return pager.Page(sb.ToString(), offset, maxChars);
+        return pager.Page(sb.ToString(), offset, maxTokens);
     }
 
     public sealed record VerdictCount(string Status, string Reason, int Count);
@@ -165,7 +165,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
     public Task<NativeImportReport> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only declarations with this status or reason code (e.g. contradicted, missing_export).")] string? status = null,
-        [Description("Index of the first row.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows (max 5000).")] int limit = 500,
         [Description("Target platform (default auto).")] string? platform = null,
         RequestContext<CallToolRequestParams> context = null!,

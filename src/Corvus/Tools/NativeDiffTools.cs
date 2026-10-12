@@ -142,7 +142,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("Only pairs of this tier (1-5); 0 for all.")] int tier = 0,
         [Description(UseNamesDescription)] bool useNames = true,
         [Description("Least similarity for a fuzzy match (0-1).")] double minScore = 0.7,
-        [Description("Items to skip.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Items to return (max 2000).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)

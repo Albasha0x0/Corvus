@@ -469,8 +469,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
                         $"{tool.Name}: '{typo}' does not suggest '{name}': {Text(miss)}");
                 }
             });
-            var snake = Text(await _client.CallToolAsync("decompile_member", new Dictionary<string, object?> { ["max_chars"] = 10 }));
-            Assert.Contains("unknown parameter 'max_chars'. Did you mean 'maxChars'?", snake);
+            var snake = Text(await _client.CallToolAsync("decompile_member", new Dictionary<string, object?> { ["max_tokens"] = 600 }));
+            Assert.Contains("unknown parameter 'max_tokens'. Did you mean 'maxTokens'?", snake);
         }
 
         [Fact]
@@ -874,11 +874,11 @@ public abstract class McpProtocolTests : IAsyncLifetime
         public async Task PagingOverTheWire()
         {
             await using var client = await StartServerAsync("--load", Env.FixturePath, "--max-output", "2000");
-            var first = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["maxChars"] = 1000 }));
+            var first = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["maxTokens"] = 500 }));
             var match = System.Text.RegularExpressions.Regex.Match(first, @"offset=(\d+)");
             Assert.True(match.Success, $"no truncation footer in {first.Length} chars: {first[..Math.Min(400, first.Length)]}");
             var offset = int.Parse(match.Groups[1].Value);
-            var second = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["offset"] = offset, ["maxChars"] = 1000 }));
+            var second = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["offset"] = offset, ["maxTokens"] = 500 }));
             Assert.StartsWith($"[Continuing from offset {offset}]", second);
         }
     }
