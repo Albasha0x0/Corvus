@@ -143,15 +143,23 @@ public sealed partial class NativeCodeIndex
             relations.Sort((a, b) => a.Child.CompareTo(b.Child));
             var related = relations.Select(r => r.Child).ToHashSet();
 
-            // functions that call or tail-call each child start
+            // functions that call or tail-call each child start (found on several threads, recorded in function order)
             var callers = new Dictionary<uint, HashSet<int>>();
+            var calling = new bool[results.Length];
+            var walked0 = results;
+            ForEachIndex(results.Length, g =>
+            {
+                foreach (var x in walked0[g].Xrefs)
+                    if (x.Kind is XrefKind.Call or XrefKind.TailCall && related.Contains(x.To)) { calling[g] = true; return; }
+            });
             for (int g = 0; g < results.Length; g++)
-                foreach (var x in results[g].Xrefs)
-                    if (x.Kind is XrefKind.Call or XrefKind.TailCall && related.Contains(x.To))
-                    {
-                        if (!callers.TryGetValue(x.To, out var set)) callers[x.To] = set = [];
-                        set.Add(g);
-                    }
+                if (calling[g])
+                    foreach (var x in results[g].Xrefs)
+                        if (x.Kind is XrefKind.Call or XrefKind.TailCall && related.Contains(x.To))
+                        {
+                            if (!callers.TryGetValue(x.To, out var set)) callers[x.To] = set = [];
+                            set.Add(g);
+                        }
 
             var demoted = new HashSet<int>();
             var extra = new Dictionary<int, List<(uint Root, MsvcEhChildKind Kind, int Child)>>();
