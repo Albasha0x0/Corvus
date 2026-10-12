@@ -143,9 +143,9 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     }
 
     /// <summary>The synthetic image with Dog::Speak loading the frozen string "hi" (lea rcx, [rip+string]; ret), written to <paramref name="dir"/>.</summary>
-    internal static (string Path, T.World World) WriteImage(TempDir dir, string name = "app.exe")
+    internal static (string Path, T.World World) WriteImage(TempDir dir, string name = "app.exe", bool dispatchCells = false)
     {
-        var w = T.Build(16);
+        var w = T.Build(16, dispatchCells: dispatchCells);
         var pe = (PeFile)w.Aot.Image;
         var bytes = pe.FileBytes.ToArray();
         Assert.True(pe.TryRvaToFileOffset(T.SpeakCode, out long at));
@@ -284,6 +284,41 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Contains("; virtual Sample.Zoo.Dog slot 1: System_Object__vslot1 (or an override)", text);
     }
 
+    /// <summary>vtable calls on this and interface calls through a dispatch cell become call edges: find_virtual_calls, callees and callers see them.</summary>
+    [Fact]
+    public async Task VirtualCalls_BecomeCallEdges()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(dir.File("ann")));
+        var (path, _) = WriteImage(dir, dispatchCells: true);
+        var native = env.Workspace.LoadAny(path).Native!;
+        var index = await code.Index(native, null, default);
+
+        Assert.Equal([T.SpeakCode], index.VirtualTargets(T.SpeakCode + 13));      // call [rax+18h] on this: Dog slot 0
+        Assert.Equal(XrefKind.VirtualExact, index.VirtualEdgesFrom(T.SpeakCode + 13, T.SpeakCode + 14).Single().Kind);
+        Assert.Empty(index.VirtualTargets(T.SpeakCode + 19));                      // a MethodTable of an unknown type
+        Assert.Equal([T.EqualsCode], index.VirtualTargets(T.SpeakCode + 29));     // slot 1 through the CFG dispatch call
+        Assert.Contains(index.VirtualEdgesTo(T.EqualsCode), x => x.From == T.SpeakCode + 29);
+        // lea r11, [rip + cell]; call [r11] (a function the index finds from its start here)
+        var withCaller = NativeCodeIndex.Build(native.Image, new CodeIndexOptions { SymbolStarts = [T.InterfaceCaller] });
+        Assert.True(NativeAotCode.AddVirtualCalls(native, withCaller) > 0);
+        Assert.Equal((T.SpeakCode, XrefKind.VirtualPossible), withCaller.VirtualEdgesFrom(T.InterfaceCaller + 7, T.InterfaceCaller + 8).Select(x => (x.To, x.Kind)).Single());
+
+        var report = await new Corvus.Tools.NativeVirtualCallTools(env.Workspace, code).Report(native.Id, function: "Sample_Zoo_Dog__Speak");
+        output.WriteLine(Corvus.Tools.NativeVirtualCallTools.Text(report));
+        Assert.Equal(3, report.Total);
+        Assert.Equal(["exact", "unresolved", "exact"], report.Items.Select(i => i.Status));
+        Assert.Equal("Sample.Zoo.Dog", report.Items[0].Class);
+        Assert.Equal("receiver_unknown", report.Items[1].Reason);
+        Assert.Contains(report.Notes, n => n.StartsWith("NativeAOT: ", StringComparison.Ordinal));
+
+        // a second build (from the saved index) adds nothing twice
+        int sites = index.VirtualCalls.Sites.Count;
+        NativeAotCode.AddVirtualCalls(native, index);
+        Assert.Equal(sites, index.VirtualCalls.Sites.Count);
+    }
+
     [Fact]
     public async Task ResolveAddress_DescribesMethodTablesFrozenObjectsMethodsAndSections()
     {
@@ -339,6 +374,9 @@ public class NativeAotNamesTests(ITestOutputHelper output)
                 else typed++;
         output.WriteLine($"  disassembly comments: {literals} string literals, {typed} virtual calls on this, {untyped} other virtual calls");
         if (native.Image.Arch == Corvus.Native.NativeArch.X64) Assert.True(literals > 1000 && typed > 100 && untyped > 1000);
+        var vc = index.VirtualCalls;
+        output.WriteLine($"  virtual calls: {vc.Stats.Exact} exact, {vc.Stats.Possible} possible, {vc.Stats.Edges} edges; {string.Join("; ", vc.Notes.Where(n => n.StartsWith("NativeAOT", StringComparison.Ordinal)))}");
+        if (native.Image.Arch == Corvus.Native.NativeArch.X64) Assert.True(vc.Stats.Exact + vc.Stats.Possible > 250, $"{vc.Stats.Exact} exact, {vc.Stats.Possible} possible");
 
         var strings = NativeAotNames.View(native)!.Frozen.Objects.Where(o => o.Text != null).ToList();
         int referenced = strings.Count(o => index.CountRefsTo(o.Rva) > 0);

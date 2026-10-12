@@ -1164,7 +1164,7 @@ Callers or callees of a native function, several levels deep, through thunks and
 
 **Native virtual calls** (read-only, idempotent, open-world, long-running)
 
-Virtual call sites resolved through RTTI (MSVC or Itanium): calls through a vftable slot, also through stack spills, this adjustments and CFG dispatch. The receiver's class comes from a vftable stored into the object (also by its constructor), this of a virtual method, or decorated names; the slot's implementations in it and its derived classes are the targets: one is exact, several possible, else unresolved with the reason. The edges feed the call graph tools. crossCheck=true compares a sample with IDA (else Ghidra) and reports the agreement rate.
+Virtual call sites resolved through RTTI (MSVC or Itanium) or NativeAOT MethodTables: calls through a vftable slot, also through stack spills, this adjustments and CFG dispatch. The receiver's class comes from a vftable stored into the object (also by its constructor), this of a virtual method, or decorated names; the slot's implementations in it and its derived classes are the targets: one is exact, several possible, else unresolved with the reason. The edges feed the call graph tools. crossCheck=true compares a sample with IDA (else Ghidra) and reports the agreement rate.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

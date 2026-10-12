@@ -49,7 +49,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [property: Description("Coverage notes.")] IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_virtual_calls", Title = "Native virtual calls", UseStructuredContent = true, OutputSchemaType = typeof(VirtualCallReport))]
-    [Description("Virtual call sites resolved through RTTI (MSVC or Itanium): calls through a vftable slot, also through stack spills, this " +
+    [Description("Virtual call sites resolved through RTTI (MSVC or Itanium) or NativeAOT MethodTables: calls through a vftable slot, also through stack spills, this " +
                  "adjustments and CFG dispatch. The receiver's class comes from a vftable stored into the object (also by its constructor), this of " +
                  "a virtual method, or decorated names; the slot's implementations in it and its derived classes are the targets: one is exact, " +
                  "several possible, else unresolved with the reason. The edges feed the call graph tools. crossCheck=true compares a sample with " +
@@ -137,6 +137,9 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
 
         var rtti = list.Any(s => s.ClassTypeDescriptor != 0) ? native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken)) : null;
         var classNames = rtti?.Classes.GroupBy(c => c.TypeDescriptorRva).ToDictionary(g => g.Key, g => g.First().Name) ?? [];
+        var aotTypes = list.Any(s => s.ClassTypeDescriptor == 0 && s.VftableRva != 0) ? NativeAotNames.View(native, cancellationToken)?.Types : null;
+        string? ClassOf(VirtualCallSite s) => s.ClassTypeDescriptor != 0 ? classNames.GetValueOrDefault(s.ClassTypeDescriptor)
+            : aotTypes?.ByRva.GetValueOrDefault(s.VftableRva)?.Name; // NativeAOT: the MethodTable holds the vtable
         string Va(uint r) => NativeAddress.Va(index.Image, r);
         string Where(uint r) => index.FunctionAt(r) is { } f ? $"{f.Name}+0x{r - f.Start:X}" : Va(r);
         int start = Math.Clamp(offset, 0, list.Count);
@@ -144,7 +147,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         {
             var targets = index.VirtualTargets(s.Rva);
             return new VirtualCallRow(Va(s.Rva), Where(s.Rva), VirtualCallSet.StatusCode(s.Status), VirtualCallSet.ReasonCode(s.Reason),
-                VirtualCallSet.ReceiverCode(s.Receiver), s.ClassTypeDescriptor != 0 ? classNames.GetValueOrDefault(s.ClassTypeDescriptor) : null, s.Slot,
+                VirtualCallSet.ReceiverCode(s.Receiver), ClassOf(s), s.Slot,
                 s.VfptrOffset, s.VftableRva != 0 ? Va(s.VftableRva) : null, s.TailCall, s.Incomplete, s.TargetCount,
                 targets.Take(16).Select(t => $"{index.NameAt(t) ?? $"sub_{t:X}"} @ {Va(t)}").ToList());
         }).ToList();

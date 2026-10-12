@@ -58,6 +58,32 @@ public sealed partial class NativeCodeIndex
         VirtualCalls = set;
     }
 
+    /// <summary>
+    /// Adds sites resolved from metadata outside the build (NativeAOT MethodTables). They replace sites the build left
+    /// unresolved; a resolved site keeps its own targets, so adding the same sites again changes nothing.
+    /// </summary>
+    public void AddVirtualCalls(IReadOnlyList<VirtualCallSite> sites, IReadOnlyList<CodeXref> edges, string note)
+    {
+        lock (_virtualGate)
+        {
+            var existing = new Dictionary<uint, VirtualCallSite>(VirtualCalls.Sites.Count);
+            foreach (var s in VirtualCalls.Sites) existing[s.Rva] = s;
+            var added = sites.Where(s => !existing.TryGetValue(s.Rva, out var old) || old.Status == VirtualCallStatus.Unresolved && s.Status != VirtualCallStatus.Unresolved).ToList();
+            if (added.Count == 0) return;
+            foreach (var s in added) existing[s.Rva] = s;
+            var addedRvas = added.Select(s => s.Rva).ToHashSet();
+            var merged = existing.Values.OrderBy(s => s.Rva).ToArray();
+            var allEdges = _virtualEdges.Concat(edges.Where(e => addedRvas.Contains(e.From))).Distinct().OrderBy(e => e.From).ThenBy(e => e.To).ToArray();
+            int exact = merged.Count(s => s.Status == VirtualCallStatus.Exact), possible = merged.Count(s => s.Status == VirtualCallStatus.Possible);
+            var stats = VirtualCalls.Stats with { Sites = merged.Length, Exact = exact, Possible = possible, Unresolved = merged.Length - exact - possible, Edges = allEdges.Length };
+            // notes on why the build found no sites (no RTTI) no longer apply
+            IReadOnlyList<string> notes = VirtualCalls.Sites.Count == 0 ? [note] : [.. VirtualCalls.Notes, note];
+            SetVirtualCalls(new VirtualCallSet(merged, stats, notes), allEdges);
+        }
+    }
+
+    private readonly object _virtualGate = new();
+
     /// <summary>x86 / x64 through the data flow, ARM64 and ARM32 through their call shapes.</summary>
     internal static bool ResolvesVirtualCalls(INativeImage image) => image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
 

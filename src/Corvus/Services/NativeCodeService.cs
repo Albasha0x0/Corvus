@@ -310,6 +310,8 @@ public sealed class NativeCodeService
                             native.Analysis.TryRemove(typeof(RebasedIndex), out _);
                             try { owner.ApplyAnnotations(native, done.Result); }
                             catch (Exception ex) { logger?.LogWarning(ex, "Applying annotations to {Id} failed", native.Id); }
+                            try { NativeAotCode.AddVirtualCalls(native, done.Result, ct); }
+                            catch (Exception ex) when (ex is not OperationCanceledException) { logger?.LogWarning(ex, "Resolving the NativeAOT virtual calls of {Id} failed", native.Id); }
                             if (done.Result.LoadedFromCache)
                                 logger?.LogInformation("Loaded the saved index of {Id}: {Functions} functions, {Xrefs} references in {Seconds:0.0} s", native.Id,
                                     done.Result.Stats.Functions, done.Result.Stats.Xrefs, done.Result.CacheLoadTime.TotalSeconds);
