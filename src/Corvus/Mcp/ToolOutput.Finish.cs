@@ -76,13 +76,13 @@ public static partial class ToolOutput
             if (body) record["code"] = s;
         }
         Set(end, slice);
-        if (!body || page.Render == null || call.Fits(record.ToJsonString(Json)) || !text.Contains(page.Rendered, StringComparison.Ordinal)) return;
+        if (!body || page.Render == null || call.Fits(record.ToJsonString(Wire)) || !text.Contains(page.Rendered, StringComparison.Ordinal)) return;
         int lo = page.Offset + 1, hi = end;
         while (lo < hi)
         {
             int mid = (lo + hi + 1) / 2;
             Set(mid, page.Render(mid).Slice);
-            if (call.Fits(record.ToJsonString(Json))) lo = mid; else hi = mid - 1;
+            if (call.Fits(record.ToJsonString(Wire))) lo = mid; else hi = mid - 1;
         }
         // Back to the last whole line, when the page has one.
         int nl = slice.LastIndexOf('\n', Math.Max(0, lo - page.Offset - 1));
@@ -102,10 +102,10 @@ public static partial class ToolOutput
         var items = (JsonArray)record["items"]!;
         int offset = (int)record["offset"]!, total = (int)record["total"]!, count = items.Count;
         bool truncated = record.Remove("truncated", out var tr) && tr?.GetValueKind() == JsonValueKind.True;
-        var itemJson = items.Select(i => i?.ToJsonString(Json) ?? "null").ToList();
+        var itemJson = items.Select(i => i?.ToJsonString(Wire) ?? "null").ToList();
         var empty = (JsonObject)record.DeepClone();
         ((JsonArray)empty["items"]!).Clear();
-        int recordMax = Math.Max(1, Fitting(call, empty.ToJsonString(Json), itemJson));
+        int recordMax = Math.Max(1, Fitting(call, empty.ToJsonString(Wire), itemJson));
         int k;
         var rows = call.RowPage;
         if (rows != null && rows.Offset == offset && rows.Rendered is var rendered && text.Contains(rendered, StringComparison.Ordinal))
@@ -203,7 +203,7 @@ public static partial class ToolOutput
     private static void Bound(OutputCall call, string tool, JsonObject? record, ref string text, ResultStore? store, bool readOnly, KeptOrigin? origin)
     {
         bool textOver = !call.Fits(text);
-        bool recordOver = record != null && !call.Fits(record.ToJsonString(Json));
+        bool recordOver = record != null && !call.Fits(record.ToJsonString(Wire));
         if (!textOver && !recordOver) return;
         var whole = text.Length > 0 ? text : record!.ToJsonString(new JsonSerializerOptions(Json) { WriteIndented = true });
         var id = store?.Keep(whole, origin ?? new KeptOrigin(tool), record?.ToJsonString(Json));
@@ -217,7 +217,7 @@ public static partial class ToolOutput
         }
         if (record == null) return;
         if (id != null) record["resultId"] = id;
-        while (!call.Fits(record.ToJsonString(Json)) && TrimLargest(record)) { }
+        while (!call.Fits(record.ToJsonString(Wire)) && TrimLargest(record)) { }
     }
 
     /// <summary>Removes the last element of the record's largest array, else shortens its longest string; false when nothing is left to trim.</summary>

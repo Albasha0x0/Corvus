@@ -121,14 +121,14 @@ public static partial class ToolOutput
     {
         var node = Serialize(record) as JsonObject;
         if (node?["items"] is JsonArray a) a.Clear();
-        return Fitting(call, node?.ToJsonString(Json) ?? "{}", items.Select(i => i?.ToJsonString(Json) ?? "null").ToList());
+        return Fitting(call, node?.ToJsonString(Wire) ?? "{}", items.Select(i => i?.ToJsonString(Wire) ?? "null").ToList());
     }
 
     /// <summary>How many item JSONs fit beside a record of <paramref name="emptyJson"/> (items empty) in the budget.</summary>
     private static int Fitting(OutputCall call, string emptyJson, List<string> items)
     {
-        // Room for the envelope fields set later.
-        long tokens = call.Tokens - TokenEstimate.Of(emptyJson) - 60, chars = (call.Chars ?? int.MaxValue) - emptyJson.Length - 200L;
+        // Room for the envelope fields, warnings and notices set later; item estimates do not add up exactly.
+        long tokens = call.Tokens - TokenEstimate.Of(emptyJson) - 60 - call.Tokens / 50, chars = (call.Chars ?? int.MaxValue) - emptyJson.Length - 200L;
         int n = 0;
         foreach (var item in items)
         {
@@ -142,6 +142,9 @@ public static partial class ToolOutput
 
     /// <summary>Compact JSON with relaxed escaping; nulls are dropped by <see cref="StripNulls"/>.</summary>
     internal static readonly JsonSerializerOptions Json = Catalog.ToolSerializerOptions;
+
+    /// <summary>The transport's encoding (it escapes non-ASCII and HTML-sensitive characters): sizes are measured in it.</summary>
+    internal static readonly JsonSerializerOptions Wire = ModelContextProtocol.McpJsonUtilities.DefaultOptions;
 
     internal static JsonNode? Serialize(object value) => value is JsonNode n ? n.DeepClone() : JsonSerializer.SerializeToNode(value, value.GetType(), Json);
 }
