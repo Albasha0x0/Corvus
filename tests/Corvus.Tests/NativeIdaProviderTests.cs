@@ -312,6 +312,51 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task A_users_database_beside_the_input_is_copied_when_it_was_made_from_that_input()
+    {
+        var dir = new TempDir();
+        _owned.Add(dir);
+        var input = Path.Combine(dir.Path, "imagehlp.dll");
+        File.Copy(System64, input);
+        var rva = ExportRva(input, Export);
+        // the user's database, as the IDA GUI leaves it next to the file
+        await using (var made = (IdaSession)await Isolated().OpenAsync(input, null, Offline))
+        {
+            await made.SetNameAsync(rva, "named_in_the_users_database");
+            await made.RunScriptAsync("ida_netnode.netnode('$ corvus stamps', 0, False).kill()"); // IDA's own record of the input remains
+            await made.CallAsync("save_as", IdaProvider.Args(("path", Path.Combine(dir.Path, "imagehlp.i64"))), default);
+        }
+        var user = Path.Combine(dir.Path, "imagehlp.i64");
+        var before = AnalysisCache.HashFile(user);
+
+        await using (var s = (IdaSession)await Isolated().OpenAsync(input, null, Offline))
+        {
+            output.WriteLine(s.DatabaseNote);
+            Assert.True(s.ReusedDatabase);
+            Assert.Contains("copy of " + user, s.DatabaseNote);
+            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "named_in_the_users_database");
+            await s.SetNameAsync(rva, "changed_in_the_copy");
+            await s.SaveAsync();
+        }
+        Assert.Equal(before, AnalysisCache.HashFile(user)); // never written
+
+        // beside other bytes it is not used: the image is analyzed from scratch
+        var other = Path.Combine(dir.Path, "other", "imagehlp.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(other)!);
+        var bytes = File.ReadAllBytes(System64);
+        bytes[^1] ^= 0xFF;
+        File.WriteAllBytes(other, bytes);
+        File.Copy(user, Path.ChangeExtension(other, ".i64"));
+        await using (var s = (IdaSession)await Isolated().OpenAsync(other, null, Offline))
+        {
+            output.WriteLine(s.DatabaseNote);
+            Assert.False(s.ReusedDatabase);
+            Assert.Contains("was not used", s.DatabaseNote);
+            Assert.DoesNotContain(await s.ListFunctionsAsync(), f => f.Name == "named_in_the_users_database");
+        }
+    }
+
+    [IdaFact]
     public async Task A_tight_script_loop_stops_in_place_at_its_limit()
     {
         var dir = new TempDir();

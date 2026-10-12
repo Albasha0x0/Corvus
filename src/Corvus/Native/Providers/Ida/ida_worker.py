@@ -275,6 +275,15 @@ def op_open(args):
         made_from = node.hashstr_buf(INPUT_STAMP) if node is not None else None
         if isinstance(made_from, bytes):
             made_from = made_from.decode("ascii", "replace")
+        if made_from is None and args.get("adopted"):
+            # a copy of the user's own database: IDA records the hashes of the input it was made from
+            recorded = m.ida_nalt.retrieve_input_file_sha256()
+            recorded_md5 = m.ida_nalt.retrieve_input_file_md5()
+            if (recorded and recorded.hex() == sha) or (not recorded and recorded_md5 and recorded_md5.hex() == args.get("md5")):
+                stamp_node(True).hashset_buf(INPUT_STAMP, sha)
+                made_from = sha
+            else:
+                made_from = "IDA's record " + (recorded.hex() if recorded else recorded_md5.hex() if recorded_md5 else "none")
         if made_from != sha:
             m.idapro.close_database(False)
             _state["open"] = False

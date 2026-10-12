@@ -29,7 +29,33 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     {
         AnalysisComplete ? null : "no auto-analysis: functions made where asked",
         Entry?.SnapshotOf is { } pid ? $"read-only snapshot of the database process {pid} has open: edits are not saved" : null,
+        _adoptedFrom != null ? $"started from a copy of {_adoptedFrom} (that file is never changed)" : null,
+        _adoptionRejected,
     }.Where(n => n != null)) is { Length: > 0 } note ? note : null;
+
+    private string? _adopting, _adoptedFrom, _adoptionRejected;
+
+    /// <summary>The user's own IDA database beside the input (x.i64 or x.dll.i64), which a new cache entry starts from.</summary>
+    internal static string? UserDatabase(string source) =>
+        new[] { Path.ChangeExtension(source, ".i64"), source + ".i64" }.FirstOrDefault(p => File.Exists(p) && new FileInfo(p).Length > 0);
+
+    /// <summary>Copies the user's database into the cache entry; the worker accepts it only when IDA's record of its input matches.</summary>
+    private void Adopt()
+    {
+        if (File.Exists(_databasePath) || Entry!.SnapshotOf != null || UserDatabase(Entry.SourcePath) is not { } user) return;
+        try
+        {
+            using (var from = new FileStream(user, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16, FileOptions.SequentialScan))
+            using (var to = new FileStream(_databasePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16))
+                from.CopyTo(to);
+            _adopting = user;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            TryDelete(_databasePath);
+            _adoptionRejected = $"{user} was not used: {ex.Message}";
+        }
+    }
     protected override string? DatabaseLocation => _databasePath.Length > 0 ? _databasePath : null;
 
     private string Profile => (Options.Symbols == SymbolMode.Off ? "nopdb" : "default") + (Options.Analysis == EngineAnalysis.None ? "-noauto" : "");
@@ -55,6 +81,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         _databasePath = Path.Combine(Entry.Directory, IdaProvider.DatabaseFileName(ida, Profile));
         IdaProvider.CheckPathLength(Entry.InputCopy, "input copy", provider.Cache.Root, OperatingSystem.IsWindows());
         IdaProvider.CheckPathLength(_databasePath, "IDA database", provider.Cache.Root, OperatingSystem.IsWindows());
+        Adopt();
     }
 
     /// <summary>
@@ -125,8 +152,22 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         if (Options.Symbols == SymbolMode.Off) idaArgs.Add("-Opdb:off");
         var remaining = Options.OpenTimeout - clock.Elapsed;
         if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
-        var info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs), ("auto", Options.Analysis != EngineAnalysis.None),
-            ("sha256", Entry.Sha256)), remaining, cancellationToken).ConfigureAwait(false);
+        var adopting = reuse ? _adopting : null;
+        _adopting = null;
+        JsonElement info;
+        try
+        {
+            info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
+                ("auto", Options.Analysis != EngineAnalysis.None), ("sha256", Entry.Sha256), ("adopted", adopting != null),
+                ("md5", adopting != null ? Md5(Entry.InputCopy) : null)), remaining, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ToolError e) when (adopting != null)
+        {
+            // the session rebuilds the database from the input
+            _adoptionRejected = $"{adopting} was not used: {e.Message}";
+            throw;
+        }
+        _adoptedFrom = adopting;
 
         var loadedBase = info.GetProperty("imagebase").GetUInt64();
         if (loadedBase != _headerImageBase)
@@ -141,6 +182,12 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         if (info.TryGetProperty("idb", out var idb) && idb.GetString() is { Length: > 0 } actual && !PathsEqual(actual, _databasePath))
             _databasePath = actual;
         Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
+    }
+
+    private static string Md5(string path)
+    {
+        using var s = File.OpenRead(path);
+        return Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(s));
     }
 
     private static bool PathsEqual(string a, string b) =>

@@ -43,4 +43,6 @@ Name priority: user > pdb > nativeaot > il2cpp > objc > swift > napi > ida > ghi
 names, patches, Il2Cpp prototypes, RTTI and PDB types into the engine's database; --prewarm ida|ghidra|auto analyzes images
 as they load; get_engine_status shows each engine session of an image (opening stage, analysis complete or partial, language,
 database, worker). Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
+An IDA database left beside the input (x.i64 or x.dll.i64) that IDA made from the same bytes starts the image's engine
+database the first time: a copy is used, the file itself is never changed; get_engine_status names it.
 Editing and engine type edits: the edits topic. Build-to-build: the builds topic.
