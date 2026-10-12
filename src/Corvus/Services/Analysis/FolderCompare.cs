@@ -108,6 +108,7 @@ public sealed class FolderCompare
             StreamingInventory.Hash(oldInv, oldPrevious, ref budget, d => progress?.Invoke(d, toHash), ct);
             hashedBefore = oldInv.Hashed + oldInv.Reused;
             StreamingInventory.Hash(newInv, newPrevious, ref budget, d => progress?.Invoke(hashedBefore + d, toHash), ct);
+            progress?.Invoke(toHash, toHash); // reused hashes are not reported one by one
         }
         Remember(Key(oldRoot, exclude, maxEntries), oldInv);
         Remember(Key(newRoot, exclude, maxEntries), newInv);

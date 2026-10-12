@@ -208,6 +208,16 @@ public sealed class FolderCompareTests : IDisposable
     }
 
     [Fact]
+    public void ProgressEndsAtTheTotal()
+    {
+        var a = Folder("a", ("1.txt", "1"), ("2.txt", "2"));
+        var b = Folder("b", ("1.txt", "1"), ("3.txt", "3"));
+        var reports = new List<(int Done, int Total)>();
+        _service.Compare(a, b, "changed", null, null, FolderCompare.DefaultMaxEntries, 0, 10, (d, t) => { lock (reports) reports.Add((d, t)); }, default);
+        Assert.Equal((4, 4), reports[^1]);
+    }
+
+    [Fact]
     public void MissingPathIsNotFound()
     {
         var a = Folder("a");
