@@ -49,7 +49,8 @@ Questions: [docs/faq.md](docs/faq.md). Something not working: `corvus status`, t
 
 **Guides** on a sample program built from source, each step's output checked by a test:
 [first session](docs/guides/1-first-session.md) · [decode and patch](docs/guides/2-decode-and-patch.md) ·
-[new build](docs/guides/3-new-build.md).
+[new build](docs/guides/3-new-build.md). **Showcases:** [decompile, rebuild, run](docs/showcase/round-trip.md) ·
+[inside a single-file app](docs/showcase/single-file.md).
 
 **Lawful use.** Analyze software you own or are permitted to analyze. Decompiling, patching or redistributing
 third-party code can be restricted by its license and by law where you live; you are responsible for complying.
@@ -682,7 +683,7 @@ tests/
   TestFixture/            sample assembly covering every feature (inheritance, async, resources, stand-in Il2Cpp attributes)
   TestFixture.Consumer/   second assembly that uses the first (cross-assembly and virtual-dispatch references)
   Corvus.Tests/ service, patching, concurrency, protocol and real-assembly tests
-samples/Notes/            v1 and v2 of the guides' sample program (docs/guides), built by the test project
+samples/Notes/            v1 and v2 of the guides' sample program (docs/guides, docs/showcase), built by the test project
 ```
 
 To add a tool, put the logic in a service, then add a `[McpServerTool]` method in `Tools/` that wraps it in

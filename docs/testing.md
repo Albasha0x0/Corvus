@@ -43,7 +43,7 @@ CORVUS_UPDATE_DOCS=1 dotnet test
 
 ## Guides and showcases
 
-`docs/guides` run on the sample in `samples/Notes`, which the test project builds. Each
+`docs/guides` and `docs/showcase` run on the sample in `samples/Notes`, which the test project builds. Each
 `<!-- check: ... -->` comment marks the fenced block after it: `setup` commands must succeed, a `batch` runs its steps
 in one session, a `run` starts the sample, and the `output` block that follows must equal what they print, with
 repository paths made relative and each SHA-256 and GUID replaced by a label (`<sha256-1>`). The quick set checks the

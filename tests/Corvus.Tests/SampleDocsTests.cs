@@ -43,7 +43,7 @@ public partial class SampleDocsTests
     public void PagesAreWellFormed()
     {
         var pages = Pages().ToList();
-        Assert.True(pages.Count >= 3, $"only {pages.Count} guide and showcase pages");
+        Assert.True(pages.Count >= 5, $"only {pages.Count} guide and showcase pages");
         foreach (var page in pages)
         {
             var name = Path.GetRelativePath(Root, page);
