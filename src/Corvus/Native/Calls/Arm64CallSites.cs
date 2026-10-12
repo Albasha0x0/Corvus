@@ -157,7 +157,7 @@ internal sealed partial class Arm64CallSites : ICallSites
         else
         {
             for (int r = GuessedCount(steps, k); ints < r; ints++) args.Add(Integer(caller, steps, k, ints, ints, null, ct));
-            foreach (var (v, width) in GuessedFloats(steps, k)) args.Add(Float(caller, steps, k, args.Count, v, width, null, ct));
+            foreach (var (v, width) in GuessedFloats(caller, steps, k, ct)) args.Add(Float(caller, steps, k, args.Count, v, width, null, ct));
         }
         return new CallSiteInfo(s.Rva, caller, callee, kind, import, target, dynamic, signature, signature == null, args, s.Facts.Flow == FlowKind.Jump);
     }

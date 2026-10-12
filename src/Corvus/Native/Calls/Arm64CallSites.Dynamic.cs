@@ -151,29 +151,58 @@ internal sealed partial class Arm64CallSites
 
     private static bool IsVector(Arm64RegisterAny r) => A64Function.IsVector(r);
 
-    /// <summary>Without a signature: the v registers set in the block before the call, up to the highest one, with the width last written.</summary>
-    private static List<(int Register, string Width)> GuessedFloats(List<Step> steps, int k)
+    /// <summary>
+    /// Without a signature: the v registers set before the call, up to the highest one, with the width last written: in
+    /// the call's block, then while no call intervenes in the blocks that alone lead to it.
+    /// </summary>
+    private List<(int Register, string Width)> GuessedFloats(NativeFunction caller, List<Step> steps, int k, CancellationToken ct)
     {
         var widths = new string?[Arguments];
         int highest = -1;
-        for (int j = k - 1; j >= 0; j--)
+        bool Note(in Arm64Instruction i, bool call)
         {
-            if (steps[j].Facts.Flow is FlowKind.Call or FlowKind.IndirectCall) break;
-            if (Arm64Extensions.IsBranch(steps[j].Instruction.Id) || A64Function.Dest(steps[j].Instruction) is not { } d || !IsVector(d) || d.Index >= Arguments) continue;
+            if (call) return false;
+            if (Arm64Extensions.IsBranch(i.Id) || A64Function.Dest(i) is not { } d || !IsVector(d) || d.Index >= Arguments) return true;
             widths[d.Index] ??= d.VKind == Arm64RegisterVKind.S ? "s" : "d";
             highest = Math.Max(highest, d.Index);
+            return true;
+        }
+        bool open = true;
+        for (int j = k - 1; j >= 0 && open; j--) open = Note(steps[j].Instruction, steps[j].Facts.Flow is FlowKind.Call or FlowKind.IndirectCall);
+        if (open)
+        {
+            var code = Arm64Trace.For(_index).Code(caller, ct);
+            int b = code.Position(steps[k].Rva).Block;
+            for (int hops = 0; open && hops < 4 && b >= 0 && code.Predecessors(b).ToList() is [var p]; hops++, b = p)
+                for (int j = code.Blocks[p].Length - 1; j >= 0 && open; j--) open = Note(code.Blocks[p][j].I, A64Function.IsCall(code.Blocks[p][j].I));
         }
         return Enumerable.Range(0, highest + 1).Select(r => (r, widths[r] ?? "d")).ToList();
     }
 
-    /// <summary>A floating-point argument in v<paramref name="reg"/> (its s or d view), from the call's block.</summary>
+    /// <summary>A floating-point argument in v<paramref name="reg"/> (its s or d view): from the call's block, else through the predecessors.</summary>
     private CallArgument Float(NativeFunction caller, List<Step> steps, int k, int index, int reg, string width, ApiParam? p, CancellationToken ct)
     {
         var type = p?.TypeName ?? (width == "s" ? "float" : "double");
         if (FloatBits(steps, k, reg, width == "s", 0) is not ({ } bits, var derivation))
-            return new CallArgument(index, p?.Name, type, width + reg, ArgKind.Unknown, null, null, "?", FloatWhy(steps, k, reg));
+        {
+            var why = FloatWhy(steps, k, reg);
+            if (why != "set before the block" || FloatAcross(caller, steps[k].Rva, reg, ct) is not { } across)
+                return new CallArgument(index, p?.Name, type, width + reg, ArgKind.Unknown, null, null, "?", why);
+            if (across.Kind != A64Kind.Const)
+                return new CallArgument(index, p?.Name, type, width + reg, ArgKind.Unknown, null, null, "?", across.Why.Length > 0 ? across.Why : across.Kind.ToString().ToLowerInvariant());
+            (bits, derivation) = (width == "s" ? across.Num & 0xFFFFFFFF : across.Num, across.Why);
+        }
         var text = CallAnalysis.FormatNumber(bits, p ?? new ApiParam("", width == "s" ? ApiParamType.Float : ApiParamType.Double));
         return new CallArgument(index, p?.Name, type, width + reg, ArgKind.Immediate, bits, null, text, derivation);
+    }
+
+    /// <summary>The value v<paramref name="reg"/> holds before the call at <paramref name="site"/>, through the function's blocks.</summary>
+    private A64Val? FloatAcross(NativeFunction caller, uint site, int reg, CancellationToken ct)
+    {
+        var trace = Arm64Trace.For(_index);
+        var code = trace.Code(caller, ct);
+        var (b, i) = code.Position(site);
+        return b < 0 ? null : new Arm64Resolver(trace, code) { Budget = 1500 }.Before(A64Loc.Reg(A64Function.VBase + reg), b, i);
     }
 
     private string FloatWhy(List<Step> steps, int k, int reg)

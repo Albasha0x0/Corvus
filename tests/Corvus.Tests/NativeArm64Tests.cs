@@ -328,6 +328,48 @@ public class NativeArm64Tests
         Assert.Equal("_O_WRONLY|_O_TRUNC|_O_EXCL", Flags(ImageFormat.Pe));
     }
 
+    /// <summary>
+    /// d0 set before a branch reaches pow(d0, d1); s0 set before an unconditional branch reaches a callee without a
+    /// signature; d0 that differs between the paths stays unknown.
+    /// </summary>
+    [Fact]
+    public void Arm64_floating_point_arguments_set_in_predecessor_blocks()
+    {
+        uint pow = Data + 0x18;
+        var a = new A64(Code);
+        uint skip = 0, next = 0, helper = 0, other = 0, join = 0;
+        A64 Got(uint slot) => a.Word(A64.Adrp(a.Here, slot, 16, Base)).Word(A64.LdrX(17, 16, slot & 0xFFF)).Word(A64.Blr(17));
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp);
+        a.Word(0x1E6F1000 /* fmov d0, #1.5 */).Later(at => A64.Cbz(at, skip, 1)).Word(A64.Nop);
+        skip = a.Here;
+        a.Word(0x1E601001 /* fmov d1, #2.0 */);
+        uint powCall = a.Here + 8;
+        Got(pow);
+        a.Word(0x1E2E1000 /* fmov s0, #1.0 */).Later(at => A64.B(at, next));
+        next = a.Here;
+        uint helperCall = a.Here;
+        a.Later(at => A64.Bl(at, helper));
+        a.Word(0x1E6F1000 /* fmov d0, #1.5 */).Later(at => A64.Cbz(at, other, 2)).Word(0x1E601000 /* fmov d0, #2.0 */).Later(at => A64.B(at, join));
+        other = a.Here;
+        a.Word(A64.Nop);
+        join = a.Here;
+        a.Word(0x1E601001 /* fmov d1, #2.0 */);
+        uint mixedCall = a.Here + 8;
+        Got(pow);
+        a.Word(A64.LdpFpLrPost).Word(A64.Ret);
+        helper = a.Here;
+        a.Word(A64.Ret);
+        var image = CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), entry: Code, imports: [Import("pow", pow)]);
+        var index = NativeCodeIndex.Build(image);
+        var sites = Native.Calls.Arm64CallSites.For(index).CallsIn(index.FunctionByStart(Code)!);
+        Assert.Equal("pow(1.5, 2)", sites.Single(s => s.Rva == powCall).Display);
+        var guessed = sites.Single(s => s.Rva == helperCall);
+        Assert.Equal(["s0"], guessed.Arguments.Select(x => x.Location));
+        Assert.Equal("1f", guessed.Arguments[0].Text);
+        var mixed = sites.Single(s => s.Rva == mixedCall);
+        Assert.Equal(("?", "2"), (mixed.Arguments[0].Text, mixed.Arguments[1].Text));
+    }
+
     [Fact]
     public void Relocated_words_and_zero_fill_are_not_code()
     {
