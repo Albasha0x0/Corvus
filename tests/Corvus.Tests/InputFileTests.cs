@@ -9,6 +9,18 @@ namespace Corvus.Tests;
 public class InputFileTests
 {
     [PosixFact]
+    public void ElectronLayoutSkipsAFifoBesideTheArchive()
+    {
+        using var dir = new TempDir();
+        var resources = Directory.CreateDirectory(Path.Combine(dir.Path, "resources")).FullName;
+        File.WriteAllBytes(Path.Combine(resources, "app.asar"), [0]);
+        using (var mk = Process.Start(new ProcessStartInfo("mkfifo", [dir.File("pipe")]) { UseShellExecute = false })!) mk.WaitForExit();
+        var layout = Task.Run(() => Electron.LayoutOf(Path.Combine(resources, "app.asar")));
+        Assert.True(layout.Wait(TimeSpan.FromSeconds(30)), "the probe blocked on the FIFO");
+        Assert.Empty(layout.Result.Executables);
+    }
+
+    [PosixFact]
     public void FifoIsRefusedWithoutBlocking()
     {
         using var dir = new TempDir();

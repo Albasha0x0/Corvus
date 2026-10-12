@@ -165,6 +165,8 @@ public static class Electron
 
     private static bool Magic(string file, string magic)
     {
+        // A FIFO beside the archive (the runtime's debug pipes in /tmp) would block the open.
+        if (!InputFiles.IsRegularOrUnknown(file)) return false;
         try
         {
             using var f = File.OpenRead(file);

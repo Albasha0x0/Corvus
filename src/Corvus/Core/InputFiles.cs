@@ -38,6 +38,9 @@ public static class InputFiles
     private static ToolError NotRegular(string full, string kind, string what) =>
         new(ErrorCode.InvalidArgument, $"{full} is {kind}, not a regular {what}; reading it could block indefinitely.", "pass the path of a regular file");
 
+    /// <summary>False for a FIFO, socket or device, which a probe must not open.</summary>
+    public static bool IsRegularOrUnknown(string path) => OperatingSystem.IsWindows() || UnixFileType(path) == null;
+
     /// <summary>The kind of a non-regular file, or null for a regular one or when the type cannot be read.</summary>
     private static string? UnixFileType(string full)
     {
