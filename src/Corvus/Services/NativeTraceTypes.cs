@@ -11,8 +11,8 @@ namespace Corvus.Services;
 
 /// <summary>
 /// Pointer types of function parameters for value tracing through struct fields, per loaded image: the user's function
-/// types (set_native_type), the PDB's procedure types and RTTI (a vftable slot's this is its class). The user's types win
-/// over the PDB's, the PDB's over RTTI.
+/// types (set_native_type), the PDB's procedure types and RTTI (a vftable slot's this is its class; a primary vftable
+/// stored at +0 constructs its class). The user's types win over the PDB's, the PDB's over RTTI.
 /// </summary>
 internal sealed partial class NativeTraceTypes : ITraceTypes
 {
@@ -42,6 +42,7 @@ internal sealed partial class NativeTraceTypes : ITraceTypes
         public readonly Dictionary<uint, Dictionary<string, string>> ByFunction = [];
         public readonly Dictionary<string, List<(uint Start, string Location)>> ByType = new(StringComparer.Ordinal);
         public PdbTypeModel? Model;
+        public readonly Dictionary<string, List<uint>> Vftables = new(StringComparer.Ordinal);
         public string Key = "";
 
         public void Add(uint start, string location, string type)
@@ -72,6 +73,12 @@ internal sealed partial class NativeTraceTypes : ITraceTypes
             if (model.Node(model.DefinitionOf(index) is > 0 and var d ? d : index) is { IsAggregate: true } node)
                 return node.Members.FirstOrDefault(m => m.Kind == PdbMemberKind.Data && m.Offset == offset)?.Name;
         return null;
+    }
+
+    public IReadOnlyList<uint> Vftables(ITraceHost host, string type)
+    {
+        var image = Of(host);
+        return image.Vftables.GetValueOrDefault(type) ?? [];
     }
 
     private Image Of(ITraceHost host)
@@ -185,8 +192,12 @@ internal sealed partial class NativeTraceTypes : ITraceTypes
         var location = host.Is64 ? host.ParameterLocation(0) : "ecx";
         foreach (var c in rtti.Classes)
             foreach (var v in c.Vtables.Where(v => v.Offset == 0))
+            {
+                if (!image.Vftables.TryGetValue(c.Name, out var list)) image.Vftables[c.Name] = list = [];
+                list.Add(v.VftableRva);
                 foreach (var slot in v.SlotRvas)
                     if (host.Index.FunctionByStart(slot) != null) image.Add(slot, location, c.Name);
+            }
     }
 
     [GeneratedRegex(@"^(?:const\s+|volatile\s+)*(?:struct\s+|class\s+|union\s+)?((?:\w+::)*\w+)\s*(?:const\s*)?\*\s*(?:const\s*)?\w*$", RegexOptions.CultureInvariant)]

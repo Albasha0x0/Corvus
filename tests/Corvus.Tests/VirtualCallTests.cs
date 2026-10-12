@@ -23,7 +23,7 @@ public class VirtualCallTests(ITestOutputHelper output)
     private static readonly string[] Functions =
     [
         "Base_f", "Base_g", "Mid_f", "Leaf_g", "Other_f", "StoreThenCall", "Leaf_ctor", "ConstructThenCall", "UnknownReceiver", "purecall",
-        "Shape_name", "Circle_area", "Multi_g", "Multi_h", "Second_h", CallBase, GetLeaf, "UseGetLeaf",
+        "Shape_name", "Circle_area", "Multi_g", "Multi_h", "Second_h", CallBase, GetLeaf, "UseGetLeaf", "MakeCircle",
     ];
 
     /// <summary>int __cdecl CallBase(class Base *) and class Leaf * __cdecl GetLeaf(void): classes from decorated names.</summary>
@@ -164,7 +164,15 @@ public class VirtualCallTests(ITestOutputHelper output)
         Put("purecall", a => a.ud2());
         // this->area(): Shape's slot is pure, Circle's is the only implementation
         Put("Shape_name", a => { a.mov(rax, __qword_ptr[rcx]); a.jmp(__qword_ptr[rax]); });
-        Put("Circle_area", a => { a.mov(eax, 3); a.ret(); });
+        Put("Circle_area", a => { a.mov(eax, __dword_ptr[rcx + 8]); a.ret(); });
+        // an inlined Circle constructor: the vftable at +0, then the field at +8
+        Put("MakeCircle", a =>
+        {
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RAX, vftables["Circle"]));
+            a.mov(__qword_ptr[rcx], rax);
+            a.mov(__dword_ptr[rcx + 8], 0x31);
+            a.ret();
+        });
         // this adjusted to the Second subobject (+8): Multi's vftable there
         Put("Multi_g", a => { a.lea(rcx, __[rcx + 8]); a.mov(rax, __qword_ptr[rcx]); a.jmp(__qword_ptr[rax]); });
         Put("Multi_h", a => { a.mov(eax, 4); a.ret(); });

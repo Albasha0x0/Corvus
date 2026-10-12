@@ -97,6 +97,8 @@ internal interface ITraceTypes
     IReadOnlyList<(NativeFunction Function, string Location)> Holders(ITraceHost host, string type);
     /// <summary>The member of <paramref name="type"/> at <paramref name="offset"/>, or null.</summary>
     string? Member(ITraceHost host, string type, long offset);
+    /// <summary>The primary vftables of class <paramref name="type"/>: code that stores one at +0 constructs that class (an inlined constructor).</summary>
+    IReadOnlyList<uint> Vftables(ITraceHost host, string type) => [];
 }
 
 /// <summary>Other loaded images a trace continues into: the code an import binds to, and the call sites that reach a function through imports.</summary>
@@ -601,20 +603,13 @@ public sealed class ValueTrace
         var holders = _types!.Holders(Host, e.Location!);
         var what = e.Backward ? "writers" : "readers";
         int taken = 0, found = 0;
-        foreach (var (g, location) in holders)
+        var seen = new HashSet<uint>();
+        void Uses(NativeFunction g, FunctionSlice uses)
         {
-            if (taken >= _o.MaxWriters)
-            {
-                _frontier.Add(new TraceFrontier(e.Node, what, $"{holders.Count - taken} more of {holders.Count} functions holding {e.Location}", Next(e)));
-                break;
-            }
-            if (_nodesFull) { _frontier.Add(new TraceFrontier(e.Node, "nodes", $"{holders.Count - taken} functions holding {e.Location} not searched", Next(e))); break; }
-            taken++;
-            if (!CanEnter(g)) { _frontier.Add(new TraceFrontier(e.Node, "functions", $"{Where(g.Start)}: maxFunctions={_o.MaxFunctions} reached", Next(e))); continue; }
-            var uses = Slice(g, new SliceSeed(SliceSeedKind.Parameter, g.Start, location), true);
             var kind = e.Backward ? SliceNodeKind.FieldStore : SliceNodeKind.Dereference;
             foreach (var u in uses.Nodes.Where(u => u.Kind == kind && u.Base == null && u.Offset == e.Offset && !u.Derived).ToList())
             {
+                if (!seen.Add(u.Address)) continue;
                 found++;
                 if (e.Backward)
                 {
@@ -628,11 +623,39 @@ public sealed class ValueTrace
                 Materialize(slice, e.Depth + 1, origin, false, "load", u.Address, null, e.Returns);
             }
         }
+        foreach (var (g, location) in holders)
+        {
+            if (taken >= _o.MaxWriters)
+            {
+                _frontier.Add(new TraceFrontier(e.Node, what, $"{holders.Count - taken} more of {holders.Count} functions holding {e.Location}", Next(e)));
+                break;
+            }
+            if (_nodesFull) { _frontier.Add(new TraceFrontier(e.Node, "nodes", $"{holders.Count - taken} functions holding {e.Location} not searched", Next(e))); break; }
+            taken++;
+            if (!CanEnter(g)) { _frontier.Add(new TraceFrontier(e.Node, "functions", $"{Where(g.Start)}: maxFunctions={_o.MaxFunctions} reached", Next(e))); continue; }
+            Uses(g, Slice(g, new SliceSeed(SliceSeedKind.Parameter, g.Start, location), true));
+        }
+        // objects typed by a vftable store at +0 (an inlined constructor): the object register from that store on
+        int constructions = 0;
+        foreach (uint vftable in _types.Vftables(Host, e.Location!))
+            foreach (var r in Index.RefsTo(vftable).Where(r => r.Kind == XrefKind.Address))
+            {
+                if (constructions >= _o.MaxWriters || _nodesFull) { _frontier.Add(new TraceFrontier(e.Node, what, $"more code constructing {e.Location}", Next(e))); goto done; }
+                if (Index.FunctionAt(r.From) is not { } g || !CanEnter(g)) continue;
+                foreach (var store in Slice(g, new SliceSeed(SliceSeedKind.Loaded, r.From), true).Nodes
+                             .Where(n => n.Kind == SliceNodeKind.FieldStore && n.Base != null && n.Offset == 0 && !n.Derived).ToList())
+                {
+                    constructions++;
+                    Uses(g, Slice(g, new SliceSeed(SliceSeedKind.Location, store.Address, store.Base), true));
+                }
+            }
+        done:
         if (found == 0)
             _nodes[e.Node] = Get(e.Node) with
             {
                 Derivation = AppendNote(Get(e.Node).Derivation, $"no {(e.Backward ? "store to" : "load from")} {e.Location}+0x{e.Offset:X} through a parameter " +
-                                                              $"of that type in the {taken} functions holding it"),
+                                                              $"of that type in the {taken} functions holding it" +
+                                                              (constructions > 0 ? $" or the {constructions} objects its vftable constructs" : "")),
             };
     }
 

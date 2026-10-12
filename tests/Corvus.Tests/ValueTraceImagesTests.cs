@@ -136,6 +136,19 @@ public sealed class ValueTraceImagesTests : IDisposable
     }
 
     [Fact]
+    public void A_field_read_through_a_vftable_slot_finds_the_store_of_an_inlined_constructor()
+    {
+        var (image, _) = VirtualCallTests.Synthetic();
+        var native = new LoadedNative("synthetic", "synthetic", image);
+        var index = NativeCodeIndex.Build(image);
+        var host = CallAnalysis.For(index);
+        var types = new NativeTraceTypes(_ => native, _ => UserTypeLayer.Empty, "rtti");
+        var area = index.Functions.Single(f => f.Name == "Circle_area");
+        var g = ValueTrace.Build(host, new TraceSeed(TraceSeedKind.Location, area.Start + 3, area, "eax", "eax after the load"), new ValueTraceOptions(TraceDirection.Backward), types: types);
+        Assert.Contains(g.Values, v => v.Text == "0x31");
+    }
+
+    [Fact]
     public async Task Backward_import_result_comes_from_the_providers_return_values()
     {
         var (tools, ws) = Rig();
