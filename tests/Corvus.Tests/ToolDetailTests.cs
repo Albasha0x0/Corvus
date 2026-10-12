@@ -80,7 +80,9 @@ public class ToolDetailTests : IDisposable
         var kinds = env.Search.SearchConstants("0x428A2F98", env.Workspace.Assemblies, 50, default).Items
             .Select(h => $"{h.Owner.DeclaringType.Name}: {h.Kind}").ToList();
         Assert.Contains(kinds, k => k.StartsWith("LongDigest: array initializer element [0] (high half) of ulong[]"));
+        // SHA-224 and SHA-256 share one data field: each method using it is reported.
         Assert.Contains(kinds, k => k.StartsWith("Sha224Digest: array initializer element [0] of uint[]"));
+        Assert.Contains(kinds, k => k.StartsWith("Sha256Digest: array initializer element [0] of uint[]"));
     }
 
     [Fact]

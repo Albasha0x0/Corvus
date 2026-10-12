@@ -90,7 +90,8 @@ public sealed class SearchService(ServerOptions? options = null)
         // Constant tables (CRC, S-boxes, round constants) live in array initializer data, not IL; each is decoded
         // with the element type of the newarr / span creation that uses it.
         var dataFields = new System.Collections.Concurrent.ConcurrentBag<(LoadedAssembly Asm, FieldDef Field)>();
-        var users = new System.Collections.Concurrent.ConcurrentDictionary<FieldDef, (MethodDef User, TypeSig? Element)>();
+        // Every user: the compiler shares one data field between identical initializers in different methods.
+        var users = new System.Collections.Concurrent.ConcurrentDictionary<FieldDef, System.Collections.Concurrent.ConcurrentDictionary<MethodDef, TypeSig?>>();
         var hits = ParallelCollect<ConstantHit>(scope, (asm, type, found) =>
         {
             foreach (var f in type.Fields)
@@ -115,10 +116,11 @@ public sealed class SearchService(ServerOptions? options = null)
                         : instr.OpCode.Code is Code.Ldc_I8 or Code.Ldc_R4 or Code.Ldc_R8 ? instr.Operand : null;
                     if (literal != null && NumericEquals(literal, target))
                         found.Add(new ConstantHit(asm, m, instr.Offset, instr.OpCode.Name, Format.Literal(literal)));
-                    if (instr.OpCode.Code is Code.Ldtoken or Code.Ldsflda && instr.Operand is FieldDef { HasFieldRVA: true } data && !users.ContainsKey(data))
+                    if (instr.OpCode.Code is Code.Ldtoken or Code.Ldsflda && instr.Operand is FieldDef { HasFieldRVA: true } data
+                        && !(users.TryGetValue(data, out var seen) && seen.ContainsKey(m)))
                     {
                         il ??= FastIlReader.Instructions(asm, m).ToList();
-                        users.TryAdd(data, (m, ElementTypeAround(il, index)));
+                        users.GetOrAdd(data, _ => new()).TryAdd(m, ElementTypeAround(il, index));
                     }
                 }
             }
@@ -127,14 +129,19 @@ public sealed class SearchService(ServerOptions? options = null)
         foreach (var (asm, field) in dataFields.OrderBy(d => d.Asm.Id, StringComparer.Ordinal).ThenBy(d => d.Field.MDToken.Raw))
         {
             if (MetadataUtil.Try(() => field.InitialValue) is not { Length: > 0 } data) continue;
-            var (user, element) = users.TryGetValue(field, out var u) ? u : (null, null);
-            var matches = ArrayMatches(data, element, target).ToList();
-            if (matches.Count == 0) continue;
-            string where = matches.Count == 1
-                ? $"element {matches[0]}"
-                : $"elements {string.Join(", ", matches.Take(10))}{(matches.Count > 10 ? $" (+{matches.Count - 10} more)" : "")}";
-            hits.Add(new ConstantHit(asm, (IMemberDef?)user ?? field, null,
-                $"array initializer {where}{(element != null ? $" of {Format.Type(element)}[]" : "")} (data {field.Name})", Format.Literal(target)));
+            IEnumerable<(MethodDef? User, TypeSig? Element)> owners = users.TryGetValue(field, out var u)
+                ? u.OrderBy(p => p.Key.MDToken.Raw).Select(p => ((MethodDef?)p.Key, p.Value))
+                : [(null, null)];
+            foreach (var (user, element) in owners)
+            {
+                var matches = ArrayMatches(data, element, target).ToList();
+                if (matches.Count == 0) continue;
+                string where = matches.Count == 1
+                    ? $"element {matches[0]}"
+                    : $"elements {string.Join(", ", matches.Take(10))}{(matches.Count > 10 ? $" (+{matches.Count - 10} more)" : "")}";
+                hits.Add(new ConstantHit(asm, (IMemberDef?)user ?? field, null,
+                    $"array initializer {where}{(element != null ? $" of {Format.Type(element)}[]" : "")} (data {field.Name})", Format.Literal(target)));
+            }
         }
         return SearchResult<ConstantHit>.From(hits, limit);
     }
