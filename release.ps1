@@ -1,6 +1,7 @@
 # Cuts a release from a clean main: bumps the version, checks the release notes, regenerates the generated docs, runs the
-# full suite, commits and tags. With -Push it pushes main and the tag, waits for release.yml, verifies every archive
-# against SHA256SUMS, sets the GitHub release body from the notes and prints the manual channel checklist.
+# full suite, commits and tags. With -Push it pushes main and the tag, waits for release.yml, verifies every asset
+# (archives, MCP bundles, the NuGet tool package) against SHA256SUMS, sets the GitHub release body from the notes and
+# prints the manual channel checklist.
 # Usage:  ./release.ps1 -Version 1.2.0              # bump, check, test, commit, tag (local only)
 #         ./release.ps1 -Version 1.2.0 -Push        # ... then push, wait for the workflow and verify the release
 #         ./release.ps1 -Version 1.2.0 -VerifyOnly  # verify an existing release and print the checklist
@@ -41,6 +42,9 @@ $assets = @(foreach ($name in 'corvus', 'NetDecompilerMcp') { $rids | ForEach-Ob
 # MCP bundles for the targets marked bundle: true: the release archive under server/ plus mcpb/manifest.json for its platform.
 $bundleRids = [regex]::Matches((Get-Content $workflow -Raw), 'rid: ([a-z0-9-]+)[^}\n]*bundle: true') | ForEach-Object { $_.Groups[1].Value }
 $assets += $bundleRids | ForEach-Object { "corvus-$_.mcpb" }
+# The NuGet .NET tool, attached for the nuget.org push once the repository is public.
+$nupkg = "CorvusRE.$Version.nupkg"
+$assets += $nupkg
 
 function New-Bundles([string]$dir) {
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
@@ -168,7 +172,7 @@ foreach ($asset in $assets | Where-Object { $_ -ne 'SHA256SUMS' }) {
     $hash = (Get-FileHash (Join-Path $work $asset) -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($hash -ne $sums[$asset]) { Fail "$asset does not match SHA256SUMS" }
 }
-Write-Host "Verified $($assets.Count - 1) archives against SHA256SUMS."
+Write-Host "Verified $($assets.Count - 1) assets against SHA256SUMS."
 
 # The release body is this version's notes.
 $body = Join-Path $work 'notes.md'
@@ -180,7 +184,16 @@ Write-Host "Release $tag is published. Manual channel steps:"
 Write-Host "  [ ] Install check: run the install script on a clean machine or account (GITHUB_TOKEN while the repository is private),"
 Write-Host "      then 'corvus version' (expect $Version) and 'corvus status'."
 Write-Host "  [ ] Update check: 'corvus update --dry-run' on an older install names $tag and SHA256SUMS."
+Write-Host "  [ ] MCP bundle: install corvus-<rid>.mcpb in a client that takes bundles (Claude Desktop); the server starts and lists its tools."
+Write-Host "  [ ] .NET tool: 'dotnet tool install -g CorvusRE --add-source <folder with $nupkg>', then 'corvus version' (expect $Version)"
+Write-Host "      and 'corvus status' (Installed as: dotnet-tool); 'dnx CorvusRE --add-source <folder> --yes version' likewise."
 Write-Host "  [ ] Announce: the release notes link, https://github.com/$Repo/releases/tag/$tag"
+Write-Host "  Channels that need the public repository (not done while it is private):"
+Write-Host "  [ ] nuget.org: 'dotnet nuget push $nupkg --source https://api.nuget.org/v3/index.json --api-key <key>' (the verified asset)."
+Write-Host "  [ ] MCP Registry: 'mcp-publisher publish' with src/Corvus/.mcp/server.json, after nuget.org lists $Version"
+Write-Host "      (the package README needs the line 'mcp-name: io.github.Albasha0x0/corvus' for the ownership check)."
+Write-Host "  [ ] winget, Scoop, Homebrew: manifests in their own repositories, with the archive hashes below."
+Write-Host "  [ ] Claude Code plugin marketplace entry."
 Write-Host "  Archive hashes for package manifests:"
 foreach ($asset in $assets | Where-Object { $_ -ne 'SHA256SUMS' }) { Write-Host ("    {0}  {1}" -f $sums[$asset], $asset) }
 Remove-Item $work -Recurse -Force

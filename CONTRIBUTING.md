@@ -56,9 +56,11 @@ catalog, the client catalog, the guide) and checked by tests: after changing the
 
 Write the version's section at the top of `docs/release-notes.md` ("Changes in behaviour" first), then run
 `./release.ps1 -Version X.Y.Z` on a clean `main`: it bumps the version, regenerates the generated docs, runs the full
-suite, commits and tags. `-Push` also pushes, waits for the release workflow, checks that every archive and
-`SHA256SUMS` is attached and matches, sets the release body from the notes and prints the manual checklist;
-`-VerifyOnly` does the checks for a release already pushed.
+suite, commits and tags. `-Push` also pushes, waits for the release workflow, checks that every asset (archives, MCP
+bundles, the `CorvusRE` NuGet tool package) and `SHA256SUMS` is attached and matches, sets the release body from the
+notes and prints the manual checklist, which also lists the channels that wait for a public repository (nuget.org,
+MCP Registry, winget, Scoop, Homebrew, plugin marketplace); `-VerifyOnly` does the checks for a release already
+pushed. The workflow makes the bundles with `./release.ps1 -Bundle`.
 
 ## Reporting problems
 

@@ -18,6 +18,21 @@ public class ReleaseScriptTests
     }
 
     [Fact]
+    public void ChecksAndListsEveryChannel()
+    {
+        // Assets the verification expects, matching what release.yml attaches.
+        Assert.Contains("\"corvus-$_.mcpb\"", Script);
+        Assert.Contains($"\"{Corvus.Setup.Installation.PackageId}.$Version.nupkg\"", Script);
+        var workflow = File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), ".github", "workflows", "release.yml"));
+        Assert.Contains($"{Corvus.Setup.Installation.PackageId}.*.nupkg", workflow);
+        Assert.Contains("dotnet pack src/Corvus/Corvus.csproj", workflow);
+        foreach (var channel in new[] { "MCP bundle:", ".NET tool:", "nuget.org:", "MCP Registry:", "winget, Scoop, Homebrew:", "plugin marketplace" })
+            Assert.Contains(channel, Script);
+        // The repository stays private until the user decides: the script itself never pushes a package anywhere.
+        Assert.DoesNotMatch(@"(?m)^\s*(?:Run|&)\s.*nuget push", Script);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void ParsesAsPowerShell()
     {

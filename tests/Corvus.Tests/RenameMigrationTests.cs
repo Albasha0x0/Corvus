@@ -356,8 +356,8 @@ public sealed class RenameMigrationTests : IDisposable
         Assert.Contains("Compress-Archive -Path out/* -DestinationPath corvus-${{ matrix.rid }}.zip", workflow);
         Assert.Contains("Copy-Item out/corvus.exe out/NetDecompilerMcp.exe\n          Compress-Archive -Path out/* -DestinationPath NetDecompilerMcp-${{ matrix.rid }}.zip", workflow);
         Assert.Contains("cp -p out/corvus out/NetDecompilerMcp\n          tar -czf NetDecompilerMcp-${{ matrix.rid }}.tar.gz -C out .", workflow);
-        Assert.Contains("sha256sum corvus-* NetDecompilerMcp-* > SHA256SUMS", workflow);
-        Assert.Contains("            corvus-*\n            NetDecompilerMcp-*\n            SHA256SUMS", workflow);
+        Assert.Contains("sha256sum corvus-* NetDecompilerMcp-* CorvusRE.*.nupkg > SHA256SUMS", workflow);
+        Assert.Contains("            corvus-*\n            NetDecompilerMcp-*\n            CorvusRE.*.nupkg\n            SHA256SUMS", workflow);
         var release = File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), "release.ps1"));
         Assert.Contains("foreach ($name in 'corvus', 'NetDecompilerMcp')", release);
     }

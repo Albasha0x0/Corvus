@@ -85,7 +85,8 @@ bundle; `corvus update` and the install scripts manage only the script install.
 ## .NET tool
 
 Corvus is also a NuGet .NET tool, `CorvusRE` (command `corvus`), for machines with the .NET 10 SDK. It is not on
-nuget.org yet; pack it from a clone and install it from that folder:
+nuget.org yet: download `CorvusRE.<version>.nupkg` from a release (listed in `SHA256SUMS`) into a folder, or pack it
+from a clone, and install it from that folder:
 
 ```sh
 dotnet pack src/Corvus -c Release -o feed
