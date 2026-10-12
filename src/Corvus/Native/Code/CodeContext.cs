@@ -237,23 +237,46 @@ internal sealed class CodeContext
         var entries = Image.RuntimeFunctions;
         var byBegin = new Dictionary<uint, RuntimeFunction>();
         foreach (var rf in entries) byBegin.TryAdd(rf.BeginRva, rf);
-        var sorted = new List<(uint, uint, uint)>(entries.Count);
-        foreach (var rf in entries)
+        // chains are followed on several threads; handlers are added in entry order afterwards
+        var primaries = new uint[entries.Count];
+        var handlers = new uint[entries.Count];
+        var po = new ParallelOptions { MaxDegreeOfParallelism = Options.MaxParallelism > 0 ? Options.MaxParallelism : Environment.ProcessorCount };
+        if (entries.Count > 0) Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(0, entries.Count, 4096), po, range =>
         {
+            for (int i = range.Item1; i < range.Item2; i++)
+            {
+                var rf = entries[i];
+                if (rf.EndRva <= rf.BeginRva) continue;
+                // ARM and ARM64 .pdata have no chained entries: each one is a function
+                primaries[i] = Image.Arch == NativeArch.X64 ? PrimaryOf(rf, byBegin, out handlers[i]) : rf.BeginRva;
+            }
+        });
+        var keys = new ulong[entries.Count];
+        var sorted = new (uint, uint, uint)[entries.Count];
+        int n = 0;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            var rf = entries[i];
             if (rf.EndRva <= rf.BeginRva) continue;
-            // ARM and ARM64 .pdata have no chained entries: each one is a function
-            uint primary = Image.Arch == NativeArch.X64 ? PrimaryOf(rf, byBegin) : rf.BeginRva;
+            if (handlers[i] != 0) ExceptionHandlers.Add(handlers[i]);
+            uint primary = primaries[i];
             if (!PdataRanges.TryGetValue(primary, out var list)) PdataRanges[primary] = list = [];
             list.Add((rf.BeginRva, rf.EndRva));
-            sorted.Add((rf.BeginRva, rf.EndRva, primary));
+            keys[n] = (ulong)rf.BeginRva << 32 | (uint)n;
+            sorted[n++] = (rf.BeginRva, rf.EndRva, primary);
         }
-        sorted.Sort((a, b) => a.Item1.CompareTo(b.Item1));
-        PdataSorted = sorted.ToArray();
+        // entries sharing a begin stay in .pdata order
+        KeySort.Sort(ref keys, ref sorted, n, Options.MaxParallelism);
+        PdataSorted = sorted[..n];
     }
 
-    /// <summary>Follows UNW_FLAG_CHAININFO links (x64 UNWIND_INFO) to the function the entry is a fragment of.</summary>
-    private uint PrimaryOf(RuntimeFunction rf, Dictionary<uint, RuntimeFunction> byBegin)
+    /// <summary>
+    /// Follows UNW_FLAG_CHAININFO links (x64 UNWIND_INFO) to the function the entry is a fragment of; <paramref name="handler"/> is the
+    /// language-specific handler the last unwind information names when it is code, else 0.
+    /// </summary>
+    private uint PrimaryOf(RuntimeFunction rf, Dictionary<uint, RuntimeFunction> byBegin, out uint handler)
     {
+        handler = 0;
         Span<byte> header = stackalloc byte[4];
         Span<byte> chained = stackalloc byte[12];
         var current = rf;
@@ -278,8 +301,8 @@ internal sealed class CodeContext
                 // UNW_FLAG_EHANDLER / UNW_FLAG_UHANDLER: the language-specific handler RVA follows the unwind codes
                 if ((flags & 3) != 0 && Read(at, chained[..4]) == 4)
                 {
-                    uint handler = BinaryPrimitives.ReadUInt32LittleEndian(chained);
-                    if (Code.IsCode(handler)) ExceptionHandlers.Add(handler);
+                    uint named = BinaryPrimitives.ReadUInt32LittleEndian(chained);
+                    if (Code.IsCode(named)) handler = named;
                 }
                 return current.BeginRva;
             }
