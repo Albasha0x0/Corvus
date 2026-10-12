@@ -91,12 +91,15 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
             uint rva = NativeCodeTools.Address(index, address!);
             if (index.FunctionAt(rva) is not { } fn || !home.ByStart.TryGetValue(fn.Start, out var q))
                 throw new ToolError(ErrorCode.NotFound, $"{Va(index, rva)} is in no function.", "pass an address inside a function (list_functions)");
-            var scopeImages = new List<ImagePrints> { home };
+            // In load order (ties rank by it).
+            var scopeImages = new List<ImagePrints>();
             var ids = new Dictionary<NativeCodeIndex, string> { [index] = native.Id };
-            if (sc == "all")
+            if (sc == "image") scopeImages.Add(home);
+            else
                 foreach (var other in workspace.Read(() => workspace.Natives.ToList()))
                 {
-                    if (ReferenceEquals(other, native) || other.Image.Arch != index.Image.Arch) continue;
+                    if (ReferenceEquals(other, native)) { scopeImages.Add(home); continue; }
+                    if (other.Image.Arch != index.Image.Arch) continue;
                     try
                     {
                         var prints = await Prints(other, progress, cancellationToken);
@@ -105,12 +108,14 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
                     }
                     catch (ToolError e) { notes.Add($"{other.Id} skipped: {e.Message}"); }
                 }
+            if (!scopeImages.Contains(home)) scopeImages.Insert(0, home);
             var q0 = home.Functions[q];
             if (q0.Failed || q0.Sketch == null) notes.Add("the function's code could not be decoded, so nothing is compared");
-            int keep = Math.Min(SimilarFunctions.MaxRescored, Math.Max(200, (offset + limit) * 4));
+            // One pool per query, whatever the page, so pages of one query never overlap or skip.
+            const int keep = SimilarFunctions.MaxRescored;
             int compared = 0;
             var hits = await Task.Run(() => SimilarFunctions.Similar(home, q, scopeImages, min, minInstructions, keep, cancellationToken, out compared), cancellationToken);
-            if (hits.Count >= keep / 2) notes.Add($"the {keep} best sketch candidates were rescored; a later page rescores more");
+            if (hits.Count >= keep / 2) notes.Add($"only the {keep} best sketch candidates were rescored; raise minScore to see a complete list");
             var page = hits.Skip(offset).Take(limit).Select(h => Match(home, q0, h, ids[h.Image.Index])).ToList();
             return new SimilarityReport(native.Id, v, Name(index, fn), Va(index, fn.Start), compared, offset, hits.Count, offset + limit < hits.Count,
                 page, [], notes, Math.Round(sw.Elapsed.TotalSeconds, 2));

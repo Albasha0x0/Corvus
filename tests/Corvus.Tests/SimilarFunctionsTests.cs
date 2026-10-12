@@ -146,6 +146,24 @@ public class SimilarFunctionsTests
     }
 
     [Fact]
+    public void Ties_across_identical_images_rank_by_scope_order_in_every_run()
+    {
+        var (a, b) = (X64Sample.Value, X64());
+        List<(bool, uint, double)> Run() => SimilarFunctions.Similar(a.Prints, a.Of("H"), [a.Prints, b.Prints], 0.0, 1, 200, default, out _)
+            .Select(h => (ReferenceEquals(h.Image, b.Prints), h.Image.Functions[h.Index].Start, h.Score)).ToList();
+        var first = Run();
+        for (int i = 0; i < 10; i++) Assert.Equal(first, Run());
+        // b's copies of a's functions score the same; with equal score and code, a's come first
+        var hits = SimilarFunctions.Similar(a.Prints, a.Of("H"), [a.Prints, b.Prints], 0.0, 1, 200, default, out _);
+        for (int i = 1; i < hits.Count; i++)
+            if (hits[i].Score == hits[i - 1].Score && hits[i].Code == hits[i - 1].Code && !ReferenceEquals(hits[i].Image, hits[i - 1].Image))
+                Assert.Same(b.Prints, hits[i].Image);
+        var reversed = SimilarFunctions.Similar(a.Prints, a.Of("H"), [b.Prints, a.Prints], 0.0, 1, 200, default, out _);
+        Assert.Contains(reversed.Zip(reversed.Skip(1)), p => p.First.Score == p.Second.Score && p.First.Code == p.Second.Code
+                                                            && ReferenceEquals(p.First.Image, b.Prints) && ReferenceEquals(p.Second.Image, a.Prints));
+    }
+
+    [Fact]
     public void Sketch_estimates_follow_the_exact_jaccard()
     {
         var rnd = new Random(7);
@@ -247,6 +265,16 @@ public class SimilarFunctionsTests
         Assert.True(similar.Matches.Count <= 2);
         Assert.Equal(similar.Total > 2, similar.Truncated);
         Assert.All(similar.Matches, m => Assert.Equal("a.dll", m.Image));
+        // pages of one query share one candidate pool: a walk sees every match once
+        var all = await tools.FindSimilarFunctions(path, "First", minScore: 0, minInstructions: 1, limit: 500);
+        var walked = new List<string>();
+        for (int at = 0; at < all.Total; at += 2)
+        {
+            var page = await tools.FindSimilarFunctions(path, "First", minScore: 0, minInstructions: 1, offset: at, limit: 2);
+            Assert.Equal(all.Total, page.Total);
+            walked.AddRange(page.Matches.Select(m => m.Address));
+        }
+        Assert.Equal(all.Matches.Select(m => m.Address), walked);
         var clusters = await tools.FindSimilarFunctions(path, minInstructions: 1);
         Assert.Equal("clusters", clusters.View);
         Assert.Equal("duplicates", (await tools.FindSimilarFunctions(path, view: "duplicates")).View);

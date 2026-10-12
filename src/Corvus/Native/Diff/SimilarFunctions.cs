@@ -150,7 +150,10 @@ public static class SimilarFunctions
             }, local => { foreach (var x in local.Hits) pre.Add(x); Interlocked.Add(ref scanned, local.Seen); });
         }
         compared = scanned;
-        var top = pre.OrderByDescending(x => x.Score).ThenBy(x => x.Image.Functions[x.Index].Start).Take(keep).ToList();
+        // Ties: the order of scope, then the address, so equal scores across identical images rank the same in every run.
+        var rank = new Dictionary<ImagePrints, int>(ReferenceEqualityComparer.Instance);
+        for (int k = 0; k < scope.Count; k++) rank.TryAdd(scope[k], k);
+        var top = pre.OrderByDescending(x => x.Score).ThenBy(x => rank[x.Image]).ThenBy(x => x.Image.Functions[x.Index].Start).Take(keep).ToList();
 
         // pass 2: exact 3-gram sets of the best candidates
         var mine = ExactShingles(home, q, ct);
@@ -177,7 +180,7 @@ public static class SimilarFunctions
             return decoders;
         }, _ => { });
         return hits.Where(h => h != null).Select(h => h!)
-            .OrderByDescending(h => h.Score).ThenByDescending(h => h.Code).ThenBy(h => h.Image.Functions[h.Index].Start).ToList();
+            .OrderByDescending(h => h.Score).ThenByDescending(h => h.Code).ThenBy(h => rank[h.Image]).ThenBy(h => h.Image.Functions[h.Index].Start).ToList();
     }
 
     /// <summary>Containment of the smaller set in the larger estimated from Jaccard and the set sizes; 0 when the candidate is not larger.</summary>
