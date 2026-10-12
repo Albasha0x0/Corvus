@@ -64,29 +64,19 @@ public sealed partial class NativeCodeIndex
         private readonly uint[] _ownerStarts, _ownerEnds;
         private readonly int[] _owners;
 
-        public WalkView(uint[] starts, WalkResult[] results, Dictionary<uint, int> index)
+        public WalkView(uint[] starts, WalkResult[] results, Dictionary<uint, int> index, int parallelism)
         {
             _starts = starts;
             _results = results;
             _index = index;
-            var all = new List<(uint S, uint E, int F)>();
+            int total = 0;
+            foreach (var r in results) total += r.RangeStarts.Length;
+            var keys = new ulong[total];
+            var ends = new uint[total];
+            int at = 0;
             for (int i = 0; i < results.Length; i++)
-                for (int r = 0; r < results[i].RangeStarts.Length; r++) all.Add((results[i].RangeStarts[r], results[i].RangeEnds[r], i));
-            all.Sort((a, b) => a.S != b.S ? a.S.CompareTo(b.S) : a.F.CompareTo(b.F));
-            var os = new List<uint>(all.Count);
-            var oe = new List<uint>(all.Count);
-            var of = new List<int>(all.Count);
-            uint covered = 0;
-            foreach (var (s0, e, f) in all)
-            {
-                uint s = Math.Max(s0, covered);
-                if (s >= e) continue;
-                os.Add(s); oe.Add(e); of.Add(f);
-                covered = e;
-            }
-            _ownerStarts = os.ToArray();
-            _ownerEnds = oe.ToArray();
-            _owners = of.ToArray();
+                for (int r = 0; r < results[i].RangeStarts.Length; r++, at++) { keys[at] = (ulong)results[i].RangeStarts[r] << 32 | (uint)i; ends[at] = results[i].RangeEnds[r]; }
+            (_ownerStarts, _ownerEnds, _owners) = KeySort.OwnerMap(keys, ends, parallelism);
         }
 
         public uint? FunctionContaining(uint rva)
@@ -132,7 +122,7 @@ public sealed partial class NativeCodeIndex
             report.Report("decoding exception metadata", 0, 0);
             var index = new Dictionary<uint, int>(starts.Length);
             for (int i = 0; i < starts.Length; i++) index[starts[i]] = i;
-            var view = new WalkView(starts, results, index);
+            var view = new WalkView(starts, results, index, options.MaxParallelism);
             try
             {
                 plan.Eh = MsvcEh.Analyze(image, view, ct: ct);
@@ -258,7 +248,7 @@ public sealed partial class NativeCodeIndex
             report.Report("attaching landing pads", 0, 0);
             var index = new Dictionary<uint, int>(starts.Length);
             for (int i = 0; i < starts.Length; i++) index[starts[i]] = i;
-            var view = new WalkView(starts, results, index);
+            var view = new WalkView(starts, results, index, options.MaxParallelism);
             var byOwner = new Dictionary<int, List<FunctionChunk>>();
             foreach (var (function, pad, catches) in pads)
             {

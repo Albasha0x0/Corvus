@@ -90,7 +90,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
     private NativeCodeIndex(INativeImage image, CodeSupport support, string? note, CodeContext? ctx, NativeFunction[] functions,
         uint[] rangeStarts, uint[] rangeEnds, CodeXref[] xrefs, StringLiteral[] strings, List<string> truncations, CodeIndexStats stats,
-        int[]? byTo = null)
+        int[]? byTo = null, int parallelism = 0)
     {
         Image = image;
         Support = support;
@@ -115,34 +115,30 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             if (e.ForwardedTo == null && e.Name != null) _exportNames.TryAdd(e.Rva, e.Name);
 
         // owner map: first function (lowest index) wins where ranges of several functions overlap
-        var owners = new List<(uint S, uint E, int F)>(rangeStarts.Length);
+        var ownerKeys = new ulong[rangeStarts.Length];
+        var ownerEnds = new uint[rangeStarts.Length];
+        int at = 0;
         foreach (var f in functions)
-            for (int r = f.FirstRange; r < f.FirstRange + f.RangeCount; r++) owners.Add((rangeStarts[r], rangeEnds[r], f.Index));
-        owners.Sort((a, b) => a.S != b.S ? a.S.CompareTo(b.S) : a.F.CompareTo(b.F));
-        var os = new List<uint>(owners.Count);
-        var oe = new List<uint>(owners.Count);
-        var of = new List<int>(owners.Count);
-        uint covered = 0;
-        foreach (var (s0, e, f) in owners)
-        {
-            uint s = Math.Max(s0, covered);
-            if (s >= e) continue;
-            os.Add(s); oe.Add(e); of.Add(f);
-            covered = e;
-        }
-        _ownerStarts = os.ToArray();
-        _ownerEnds = oe.ToArray();
-        _ownerFunctions = of.ToArray();
+            for (int r = f.FirstRange; r < f.FirstRange + f.RangeCount; r++, at++) { ownerKeys[at] = (ulong)rangeStarts[r] << 32 | (uint)f.Index; ownerEnds[at] = rangeEnds[r]; }
+        (_ownerStarts, _ownerEnds, _ownerFunctions) = KeySort.OwnerMap(ownerKeys[..at], ownerEnds[..at], parallelism);
 
         if (byTo != null) { _byTo = byTo; return; }
-        _byTo = new int[xrefs.Length];
+        _byTo = ByTo(xrefs, parallelism);
+    }
+
+    /// <summary>Indexes of <paramref name="xrefs"/> sorted by (To, From, index): the same at any thread count.</summary>
+    private static int[] ByTo(CodeXref[] xrefs, int parallelism)
+    {
+        var byTo = new int[xrefs.Length];
         var keys = new ulong[xrefs.Length];
         for (int i = 0; i < xrefs.Length; i++)
         {
-            _byTo[i] = i;
+            byTo[i] = i;
             keys[i] = (ulong)xrefs[i].To << 32 | xrefs[i].From;
         }
-        Array.Sort(keys, _byTo);
+        KeySort.Sort(ref keys, ref byTo, xrefs.Length, parallelism);
+        KeySort.OrderTies(keys, byTo, xrefs.Length);
+        return byTo;
     }
 
     /// <summary>
@@ -683,6 +679,14 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return imp.Name != null ? $"{module}!{imp.Name}" : $"{module}!#{imp.Ordinal}";
     }
 
+    /// <summary>Cross-references with the same source and target by kind.</summary>
+    private sealed class KindOrder : IComparer<CodeXref>
+    {
+        public static readonly KindOrder Instance = new();
+
+        public int Compare(CodeXref a, CodeXref b) => a.Kind.CompareTo(b.Kind);
+    }
+
     /// <summary>The union of code ranges, merged and sorted for containment tests.</summary>
     private sealed class CodeCover
     {
@@ -691,7 +695,11 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
         public CodeCover(uint[] starts, uint[] ends)
         {
-            var order = Enumerable.Range(0, starts.Length).OrderBy(i => starts[i]).ToArray();
+            // ties in start order do not change the union
+            var keys = new ulong[starts.Length];
+            var order = new int[starts.Length];
+            for (int i = 0; i < starts.Length; i++) { keys[i] = (ulong)starts[i] << 32 | (uint)i; order[i] = i; }
+            KeySort.Sort(ref keys, ref order, keys.Length, 0);
             var s = new List<uint>(order.Length);
             var e = new List<uint>(order.Length);
             foreach (int i in order)
@@ -950,7 +958,8 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             var stats = new CodeIndexStats(functions.Length, thunks, noReturn, instructions, blocks, xrefs.Length, strings.Length,
                 switches, unresolved, invalid, _passes, _rounds, _sw.Elapsed);
             report.Done();
-            return new NativeCodeIndex(image, CodeSupport.Full, null, _ctx, functions, rangeStarts, rangeEnds, xrefs, strings, _truncations, stats);
+            return new NativeCodeIndex(image, CodeSupport.Full, null, _ctx, functions, rangeStarts, rangeEnds, xrefs, strings, _truncations, stats,
+                parallelism: options.MaxParallelism);
         }
 
         /// <summary>
@@ -1028,7 +1037,8 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                 keys[n++] = (ulong)x.From << 32 | x.To;
             }
             ct.ThrowIfCancellationRequested();
-            Array.Sort(keys, all, 0, n);
+            KeySort.Sort(ref keys, ref all, n, options.MaxParallelism);
+            KeySort.OrderTies(keys, all, n, KindOrder.Instance);
             int w = 0;
             for (int k = 0; k < n; k++)
             {
