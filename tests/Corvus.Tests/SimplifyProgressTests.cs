@@ -137,8 +137,11 @@ public sealed class SimplifyProgressTests : IDisposable
         }
     }
 
+    /// <summary>The default instruction budgets with time limits a loaded machine cannot reach: the outcomes these tests check are the budgets'.</summary>
+    private static readonly EvaluationLimits Unhurried = new(MethodTimeLimitMs: 600_000, InitializerTimeLimitMs: 600_000);
+
     private static string Simplify(Env env, EvaluationLimits? limits = null, bool dryRun = true) =>
-        env.Edit(() => env.Edits.SimplifyMethods(env.One("Big.Use").Assembly, env.One("Big.Use"), new SimplifyOptions(Limits: limits), dryRun, default));
+        env.Edit(() => env.Edits.SimplifyMethods(env.One("Big.Use").Assembly, env.One("Big.Use"), new SimplifyOptions(Limits: limits ?? Unhurried), dryRun, default));
 
     [Fact]
     public void InitializersThatCommitStateRunPastTheBudget()
@@ -177,7 +180,7 @@ public sealed class SimplifyProgressTests : IDisposable
     public void TheCeilingStopsARunAndTheStopIsRemembered()
     {
         using var env = new Env(Fixture());
-        var report = Simplify(env, new EvaluationLimits(InitializerInstructionCeiling: 300_000));
+        var report = Simplify(env, Unhurried with { InitializerInstructionCeiling = 300_000 });
         Assert.Matches(@"Big\.Table::Get\(\): static constructor of Big\.Table cannot be evaluated: the type initializer ran past the instruction budget in the extended tier for initializers that make progress, and stopped: it reached the ceiling of 300,000 instructions \[instruction-budget\]", report);
         Assert.Matches(@"Big\.Table: [\d,]+ instructions, stopped: it reached the ceiling of 300,000 instructions", report);
         // Table1 and Table2 both need it: the stopped run is not repeated.
