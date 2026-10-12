@@ -144,15 +144,13 @@ public partial class UnpackTests
         using var sandbox = new TempDir();
         var input = Path.Combine(sandbox.Path, $"app-{Guid.NewGuid():N}.apk");
         System.IO.File.WriteAllBytes(input, BuildApk().Apk);
-        var tempBefore = Directory.Exists(Path.Combine(Path.GetTempPath(), "corvus-unpacked"))
-            ? Directory.GetDirectories(Path.Combine(Path.GetTempPath(), "corvus-unpacked")).Length : 0;
 
         Assert.NotEmpty(Search(input, "Account").Matches);
 
         Assert.Equal([input], Directory.GetFileSystemEntries(sandbox.Path));
-        var tempAfter = Directory.Exists(Path.Combine(Path.GetTempPath(), "corvus-unpacked"))
-            ? Directory.GetDirectories(Path.Combine(Path.GetTempPath(), "corvus-unpacked")).Length : 0;
-        Assert.Equal(tempBefore, tempAfter);
+        // default unpack folders are named after their input, which no other run shares
+        var unpacked = Path.GetDirectoryName(UnpackService.DefaultOutput(input, new string('0', 64)))!;
+        Assert.Empty(Directory.Exists(unpacked) ? Directory.GetDirectories(unpacked, Path.GetFileNameWithoutExtension(input) + "*") : []);
         Assert.Empty(_workspace.Assemblies);
     }
 

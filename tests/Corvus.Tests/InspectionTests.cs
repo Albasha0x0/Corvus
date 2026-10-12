@@ -314,8 +314,14 @@ public class InspectionTests : IDisposable
         Assert.All(saved.Contents.Where(p => p.Kind == "text"), p => Assert.Equal(SecretText, File.ReadAllText(p.SavedTo!)));
         Assert.All(saved.Contents, p => Assert.Matches(@"^embedded_\d\d\.\w+$", Path.GetFileName(p.SavedTo!)));
 
-        var byDefault = Inspection.ExtractEmbedded(null, path, true, null, false, default);
-        try { Assert.Equal("corvus-embedded", Path.GetFileName(Path.GetDirectoryName(byDefault.OutputDirectory!))); }
+        // The default folder (under %TEMP%) is named after the file and its hash: a name of this run's own, so concurrent runs do not share it.
+        var unique = Save($"Encoded-{Guid.NewGuid():N}.dll", File.ReadAllBytes(path));
+        var byDefault = Inspection.ExtractEmbedded(null, unique, true, null, false, default);
+        try
+        {
+            Assert.Equal("corvus-embedded", Path.GetFileName(Path.GetDirectoryName(byDefault.OutputDirectory!)));
+            Assert.StartsWith(Path.GetFileNameWithoutExtension(unique), Path.GetFileName(byDefault.OutputDirectory!), StringComparison.Ordinal);
+        }
         finally { Directory.Delete(byDefault.OutputDirectory!, recursive: true); }
 
         var url = Assert.Single(Inspection.ExtractStrings(null, path, ["url"], null, null, false, default).Values);
