@@ -557,6 +557,7 @@ are unset:
 | `CORVUS_HOSTAPI_PROJECT_DIR` | Root of a C/C++ project with a host function table | `hostapi` detection on a real project; bindings compile against its headers |
 | `CORVUS_EXPORT_REAL=1` | Exports real NuGet libraries (downloaded on restore) and builds them: 0 errors expected (a few minutes) | exported projects build |
 | `CORVUS_EXPORT_LIST` | A text file of assembly paths: exports and builds each, 0 errors expected; writes error counts by code next to it | exported projects build |
+| `CORVUS_STUB_APPS` | `;`-separated `assembly path\|member\|method\|type` entries (tokens) for .NET apps with missing references | first resolutions build stubs: info, attributes, decompile, a dry-run patch, added types and members, diff; verify_native_imports, find_references and decompile_type each within 10 s |
 
 simplify_methods is checked two ways, both in a collection that runs alone after the parallel tests (slow: they run
 with `CORVUS_ALL_TESTS=1`):
