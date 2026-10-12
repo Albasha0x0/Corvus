@@ -1606,6 +1606,46 @@ def op_load_pdb(args):
     return result
 
 
+class ScriptStopped(BaseException):
+    # raised inside a running script when its request is cancelled or reaches its deadline
+    pass
+
+
+_script = {"thread": None, "request": None}
+_script_lock = threading.Lock()
+
+
+def script_started(request):
+    with _script_lock:
+        _script["thread"], _script["request"] = threading.get_ident(), request
+
+
+def script_ended():
+    # also drops an interrupt sent but not yet raised, so it cannot reach the worker's own code
+    import ctypes
+    with _script_lock:
+        tid = _script["thread"]
+        _script["thread"] = _script["request"] = None
+        if tid is not None:
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(tid), None)
+
+
+def interrupt_scripts():
+    # A loop that makes no calls never reaches the profile hook: a stopped script gets ScriptStopped raised in its thread
+    # (between bytecodes; a native call finishes first), again every half second while it swallows it.
+    import ctypes
+    while True:
+        time.sleep(0.5)
+        with _script_lock:
+            r, tid = _script["request"], _script["thread"]
+            if r is None or tid is None:
+                continue
+            if r.stop is None and r.deadline is not None and time.time() >= r.deadline:
+                stop_request(r.id, "deadline")
+            if r.stop is not None:
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(tid), ctypes.py_object(ScriptStopped))
+
+
 _py_globals = None
 PY_MODULES = ("idaapi", "idc", "idautils", "ida_auto", "ida_bytes", "ida_entry", "ida_frame", "ida_funcs", "ida_gdl", "ida_hexrays", "ida_ida",
               "ida_lines", "ida_loader", "ida_nalt", "ida_name", "ida_netnode", "ida_segment", "ida_typeinf", "ida_ua", "ida_xref")
@@ -1646,6 +1686,7 @@ def op_python(args):
         sys.setprofile(stop_hook)  # a script that calls functions stops on cancel or at the deadline
         tree = ast.parse(args.get("code") or "", "<ida_python>", "exec")
         last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
+        script_started(_current)
         exec(compile(tree, "<ida_python>", "exec"), g)
         if last is not None:
             v = eval(compile(ast.Expression(last.value), "<ida_python>", "eval"), g)
@@ -1653,6 +1694,7 @@ def op_python(args):
     except BaseException:
         error = traceback.format_exc(limit=8)
     finally:
+        script_ended()
         sys.setprofile(None)
         sys.stdout, sys.stderr = saved
     changed(m)
@@ -3468,6 +3510,7 @@ def main():
         threading.Thread(target=watch_parent, args=(parent,), daemon=True).start()
     threading.Thread(target=heartbeat, daemon=True).start()
     threading.Thread(target=read_requests, daemon=True).start()
+    threading.Thread(target=interrupt_scripts, daemon=True).start()
     send({"event": "ready", "protocol": PROTOCOL, "pid": os.getpid()})
     while True:
         r = _queue.get()

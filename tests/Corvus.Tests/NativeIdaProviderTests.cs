@@ -312,6 +312,27 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task A_tight_script_loop_stops_in_place_at_its_limit()
+    {
+        var dir = new TempDir();
+        _owned.Add(dir);
+        // a long grace: an answer before it means the worker stopped the work itself rather than being killed
+        var provider = new IdaProvider(new IdaProviderOptions { CacheRoot = dir.Path, CancelGrace = TimeSpan.FromSeconds(60) });
+        _owned.Add(provider);
+        await using (var s = (IdaSession)await provider.OpenAsync(System64, null, Offline with { RequestTimeout = TimeSpan.FromSeconds(3) }))
+        {
+            var pid = s.WorkerProcessId!.Value;
+            var clock = Stopwatch.StartNew();
+            var e = await Assert.ThrowsAsync<ToolError>(() => s.RunScriptAsync("x = 0\nwhile True:\n    try:\n        x += 1\n    except Exception:\n        pass"));
+            output.WriteLine($"tight loop: {e.Code} after {clock.Elapsed.TotalSeconds:0.0} s: {e.Message}");
+            Assert.Equal(ErrorCode.Timeout, e.Code);
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"took {clock.Elapsed}");
+            Assert.Equal(pid, s.WorkerProcessId);
+            Assert.Equal("2", (await s.RunScriptAsync("1 + 1")).Result);
+        }
+    }
+
+    [IdaFact]
     public async Task Request_that_ignores_cancel_is_killed_and_the_next_request_restarts()
     {
         var path = System64;
