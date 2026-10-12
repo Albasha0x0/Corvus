@@ -8,7 +8,7 @@ namespace Corvus.Native.Code;
 /// candidates that must decode cleanly before they are accepted (relocated pointers in data, addresses taken by code,
 /// x86 and ARM prologues in gaps between known code). Every byte is decoded at most once per offset (global bitmaps).
 /// </summary>
-internal sealed class FunctionDiscovery
+internal sealed partial class FunctionDiscovery
 {
     /// <summary>Instructions a weak candidate may decode during verification.</summary>
     private const int VerifyLimit = 20_000;
@@ -17,14 +17,12 @@ internal sealed class FunctionDiscovery
     private readonly ICodeDecoder _dec;
     private readonly ICodeDecoder _peek;
     private readonly ICodeDecoder _thunks;
-    // the same decoders on x86 / x64, for the heuristics that read x86 instructions (prologues, frames, SEH scopes)
-    private readonly X86Decoder? _x86Dec;
+    // the peek decoder on x86 / x64, for the heuristics that read x86 instructions (prologues, frames)
     private readonly X86Decoder? _x86Peek;
     private readonly CodeBitmap _starts;
     private readonly CodeBitmap _covered;
     private readonly Dictionary<uint, FunctionSource> _functions = [];
     private readonly Queue<uint> _roots = new();
-    private readonly Stack<(uint Rva, IndexBound Bound)> _work = new();
     private readonly HashSet<uint> _addressCandidates = [];
     /// <summary>Addresses in executable sections that code reads or writes as memory: data, never a function.</summary>
     private readonly HashSet<uint> _dataInCode = [];
@@ -42,6 +40,7 @@ internal sealed class FunctionDiscovery
     private readonly Dictionary<uint, (bool Ok, bool Funclet, uint[] Consulted)> _speculated = [];
     private HashSet<uint> _batch = [];
     private readonly Dictionary<uint, uint?> _thunkCache = [];
+    private readonly Explorer _direct;
     private readonly CancellationToken _ct;
     private readonly Action<long>? _progress;
     private long _decoded;
@@ -56,34 +55,37 @@ internal sealed class FunctionDiscovery
         _dec = ctx.NewDecoder(computeAccess: false);
         _peek = ctx.NewDecoder(computeAccess: false);
         _thunks = ctx.NewDecoder(computeAccess: false);
-        _x86Dec = HybridDecoder.PrimaryOf(_dec) as X86Decoder;
         _x86Peek = HybridDecoder.PrimaryOf(_peek) as X86Decoder;
         _starts = new CodeBitmap(ctx.Code.TotalBytes);
         _covered = new CodeBitmap(ctx.Code.TotalBytes);
         _verifier = new Verifier(this);
+        _direct = new Explorer(this, _dec, _peek, thunks: null, speculative: false);
     }
 
     /// <summary>Function starts and how each was found.</summary>
     public Dictionary<uint, FunctionSource> Run()
     {
         var image = _ctx.Image;
-        foreach (var (primary, _) in _ctx.PdataRanges) Add(primary, FunctionSource.Pdata, strong: true);
-        if (image.EntryPointRva != 0 && _ctx.Code.IsCode(image.EntryPointRva)) Add(image.EntryPointRva, FunctionSource.EntryPoint, strong: true);
+        var roots = new List<(uint Rva, FunctionSource Source)>();
+        foreach (var (primary, _) in _ctx.PdataRanges) roots.Add((primary, FunctionSource.Pdata));
+        if (image.EntryPointRva != 0 && _ctx.Code.IsCode(image.EntryPointRva)) roots.Add((image.EntryPointRva, FunctionSource.EntryPoint));
         foreach (var t in image.TlsCallbackRvas)
-            if (_ctx.Code.IsCode(t)) Add(t, FunctionSource.TlsCallback, strong: true);
-        foreach (var t in _ctx.GuardCfFunctions) Add(t, FunctionSource.GuardCf, strong: true);
-        foreach (var t in _ctx.ExceptionHandlers) Add(t, FunctionSource.ExceptionHandler, strong: true);
+            if (_ctx.Code.IsCode(t)) roots.Add((t, FunctionSource.TlsCallback));
+        foreach (var t in _ctx.GuardCfFunctions) roots.Add((t, FunctionSource.GuardCf));
+        foreach (var t in _ctx.ExceptionHandlers) roots.Add((t, FunctionSource.ExceptionHandler));
         if (_ctx.Options.SymbolStarts is { } symbols)
             foreach (var t in symbols)
-                if (_ctx.Code.IsCode(t)) Add(t, FunctionSource.Symbol, strong: true);
+                if (_ctx.Code.IsCode(t)) roots.Add((t, FunctionSource.Symbol));
         foreach (var d in image.DeclaredFunctions)
-            if (_ctx.Code.IsCode(d.Rva)) Add(d.Rva, Source(d.Source), strong: true);
+            if (_ctx.Code.IsCode(d.Rva)) roots.Add((d.Rva, Source(d.Source)));
         if (Go.GoFunctionTable.Of(image) is { } go)
             foreach (var f in go.Functions)
-                if (_ctx.Code.IsCode(f.Rva)) Add(f.Rva, FunctionSource.GoTable, strong: true);
+                if (_ctx.Code.IsCode(f.Rva)) roots.Add((f.Rva, FunctionSource.GoTable));
         var exports = image.Exports.Where(e => e.ForwardedTo == null && _ctx.Code.IsCode(e.Rva)).ToList();
         foreach (var e in exports)
-            if (ExportKind(e.Name) == true) Add(e.Rva, FunctionSource.Export, strong: true);
+            if (ExportKind(e.Name) == true) roots.Add((e.Rva, FunctionSource.Export));
+        FindThunkSlots(roots.Select(r => r.Rva));
+        foreach (var (rva, source) in roots) Add(rva, source, strong: true);
         Drain();
         // exports that may be data (undecorated or ordinal-only names; data merged into the code section)
         foreach (var e in exports)
@@ -94,7 +96,7 @@ internal sealed class FunctionDiscovery
             {
                 // a landing pad runs in its function's ARM / Thumb state
                 if (_ctx.ArmModes is { } modes) modes.Hint(pad, modes.StartMode(function));
-                Explore(pad, chunk: true);
+                _direct.Explore(pad, chunk: true);
             }
         Drain();
 
@@ -215,7 +217,8 @@ internal sealed class FunctionDiscovery
             while (_roots.Count > 0)
             {
                 Heartbeat();
-                Explore(_roots.Dequeue());
+                if (_roots.Count >= _ctx.Options.ParallelExploreMin && Workers() is { } workers) ExploreInParallel(workers);
+                else _direct.Explore(_roots.Dequeue());
             }
             if (_farJumps.Count == 0) return;
             // targets of far jumps that no function's code reached meanwhile: tail calls (a jump back from a function's
@@ -227,150 +230,6 @@ internal sealed class FunctionDiscovery
             }
             _farJumps.Clear();
         }
-    }
-
-    // exploring a landing pad: part of another function, so neither a jump as its first instruction nor a far jump (into
-    // the function's cold part) is a tail call
-    private bool _chunk;
-
-    /// <param name="chunk">Explores a landing pad: its callees become functions, it does not.</param>
-    private void Explore(uint root, bool chunk = false)
-    {
-        _chunk = chunk;
-        List<(uint Begin, uint End)>? own = _ctx.PdataRanges.TryGetValue(root, out var r) ? r : null;
-        _ctx.ArmModes?.Fix(root);
-        _dec.BeginFunction(root);
-        _work.Clear();
-        _work.Push((root, IndexBound.None));
-        while (_work.Count > 0)
-        {
-            var (a, bound) = _work.Pop();
-            var region = _ctx.Code.RegionAt(a);
-            if (region == null) continue;
-            if (_starts[region.BitBase + (a - region.Rva)])
-            {
-                if (bound.IsKnown && _pendingSwitches.Count > 0) RetrySwitches(a, bound, own, root);
-                continue;
-            }
-            _dec.BeginRun(bound);
-            while (true)
-            {
-                if (a - region.Rva >= (uint)region.Bytes.Length)
-                {
-                    region = _ctx.Code.RegionAt(a);
-                    if (region == null) break;
-                }
-                long bit = region.BitBase + (a - region.Rva);
-                if (_starts[bit]) break;
-                _dec.Decode(region, a, out var insn);
-                if (insn.Flow == FlowKind.Invalid) break;
-                _starts[bit] = true;
-                int n = (int)Math.Min(insn.Length, region.End - a);
-                _covered.SetRange(bit, n);
-                if ((++_decoded & 0xFFFF) == 0)
-                {
-                    _ct.ThrowIfCancellationRequested();
-                    _progress?.Invoke(_decoded);
-                }
-                if (insn.HasMem && _ctx.Code.IsCode(insn.MemTarget))
-                {
-                    if (insn.MemAccess == OperandAccess.Address) _addressCandidates.Add(insn.MemTarget);
-                    else
-                    {
-                        _dataInCode.Add(insn.MemTarget);
-                        // [index*4 + table] in code: an x86 switch table (or another pointer table), whatever the dispatch
-                        if (_x86Dec is { } x86 && x86.Last.MemoryIndex != Iced.Intel.Register.None && x86.Last.MemoryIndexScale == 4) _codeTables.Add(insn.MemTarget);
-                    }
-                }
-                if (insn.HasImm && _ctx.Code.IsCode(insn.ImmTarget)) _addressCandidates.Add(insn.ImmTarget);
-                if (!Follow(in insn, root, own)) break;
-                a = insn.Next;
-            }
-        }
-    }
-
-    /// <summary>Queues the successors of one instruction; false when the linear run ends.</summary>
-    private bool Follow(in Insn insn, uint root, List<(uint Begin, uint End)>? own)
-    {
-        switch (insn.Flow)
-        {
-            case FlowKind.Call:
-                if (insn.HasTarget && insn.Target != insn.Next && _ctx.Code.IsCode(insn.Target))
-                {
-                    if (_ctx.LocalSubroutines.Contains(insn.Target)
-                        || (!_functions.ContainsKey(insn.Target) && (LocalFinallyCall(in insn) || UsesCallerFrame(insn.Target)) && _ctx.LocalSubroutines.Add(insn.Target)))
-                    {
-                        _work.Push((insn.Target, IndexBound.None));
-                        return true;
-                    }
-                    Add(insn.Target, FunctionSource.Call, strong: true);
-                    if (IsNoReturnTarget(insn.Target)) return false;
-                }
-                return true;
-            case FlowKind.IndirectCall:
-                return !(insn.HasMem && _ctx.NoReturn.Contains(insn.MemTarget));
-            case FlowKind.Jump:
-                if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
-                // a function that is only a jump (adjustor / ICF thunk), a jump to an import thunk, an x86 jump to a standard
-                // prologue, an ARM32 jump that changes state, is computed (a veneer) or reaches a bx pc stub: tail calls to functions
-                if (own == null && !_chunk && !_functions.ContainsKey(insn.Target) && IsFarJump(in insn, root))
-                {
-                    _farJumps.Add(insn.Target);
-                    return false;
-                }
-                if (insn.Rva == root && insn.Target != root && !_chunk || ThunkSlot(insn.Target) != null || (_x86Dec is { Is64: false } && StartsWithPrologue(insn.Target))
-                    || _dec is Arm32Decoder arm && (arm.LastSwitchesState || arm.LastIsComputed || arm.IsStateSwitchStub(insn.Target)))
-                    Add(insn.Target, FunctionSource.TailJump, strong: true);
-                else Branch(insn.Target, root, own, IndexBound.None);
-                return false;
-            case FlowKind.ConditionalJump:
-                if (insn.HasTarget && _ctx.Code.IsCode(insn.Target))
-                {
-                    // a conditional tail call to an import stub or a linker veneer (ARM32 bne.w): exploring it here would make the stub a
-                    // block of this function; other far conditional targets stay blocks (functions larger than any distance rule)
-                    if (own == null && !_functions.ContainsKey(insn.Target) && (ThunkSlot(insn.Target) != null || IsVeneer(insn.Target)))
-                    {
-                        Add(insn.Target, FunctionSource.TailJump, strong: true);
-                        return true;
-                    }
-                    _dec.ConditionalBounds(out var taken, out _);
-                    Branch(insn.Target, root, own, taken);
-                }
-                return true;
-            case FlowKind.IndirectJump:
-                // a conditional dispatch (ARM32 ldrls pc / addls pc) falls through to its default
-                if (insn.HasMem && _ctx.ImportSlots.ContainsKey(insn.MemTarget)) return insn.Conditional;
-                if (_dec.MatchSwitch(out _) is { } m && _ctx.ReadSwitch(insn.Rva, m, own, out _) is { } table) FollowSwitch(table);
-                else if (!insn.Conditional) _pendingSwitches.Add(insn.Rva);
-                return insn.Conditional;
-            case FlowKind.Next:
-                return true;
-            case FlowKind.Return:
-                return insn.Conditional;
-            default:
-                return false;
-        }
-    }
-
-    /// <summary>A path with a known index bound reaches decoded code: retries the unresolved switches it leads to.</summary>
-    private void RetrySwitches(uint a, IndexBound bound, List<(uint Begin, uint End)>? own, uint root)
-    {
-        if (_pendingSwitches.GetViewBetween(a, a + 512).Count == 0) return;
-        _peek.BeginFunction(root);
-        foreach (uint jump in _pendingSwitches.GetViewBetween(a, a + 512).ToList())
-        {
-            if (SwitchDispatch.Redecode(_peek, _ctx, a, bound, jump, own) is not { } table) continue;
-            _pendingSwitches.Remove(jump);
-            FollowSwitch(table);
-        }
-    }
-
-    /// <summary>Queues the cases; the tables are data inside code, marked covered so no gap scan decodes them.</summary>
-    private void FollowSwitch(SwitchTable table)
-    {
-        MarkData(table.TableRva, (uint)(table.EntryCount * table.EntrySize));
-        if (table.IndexTableRva is { } it) MarkData(it, (uint)table.IndexEntryCount);
-        foreach (var t in table.Targets) _work.Push((t, IndexBound.None));
     }
 
     private void MarkData(uint rva, uint length)
@@ -390,26 +249,13 @@ internal sealed class FunctionDiscovery
     /// ELF: an unconditional jump far from the jump (and from the function's start) or past another function's start is a
     /// tail call (a static executable's _start jumping to __libc_start_main 650 KB away); a function's blocks stay together.
     /// </summary>
-    private bool IsFarJump(in Insn insn, uint root)
+    private bool IsFarJump(in Insn insn, uint root, Func<uint, uint, bool>? anyStartBetween = null)
     {
         if (_ctx.Image.Format != ImageFormat.Elf) return false;
         uint t = insn.Target;
         if (t > insn.Rva ? t - insn.Rva > FarJump : t < root && root - t > FarJump) return true;
         // a jump over the start of another known function leaves this one
-        return t > insn.Rva + 1 && _sortedStarts.GetViewBetween(insn.Rva + 1, t - 1).Count > 0;
-    }
-
-    private void Branch(uint target, uint root, List<(uint Begin, uint End)>? own, IndexBound bound)
-    {
-        if (target != root && _functions.ContainsKey(target)) return;
-        // x64: a jump out of a .pdata function into code no .pdata entry covers is a tail call to a leaf function,
-        // unless it lands right after the function's own range (an epilogue the unwind data leaves out)
-        if (own != null && !InRanges(own, target) && _ctx.PdataOwner(target) == null && !JustAfter(own, target))
-        {
-            Add(target, FunctionSource.TailJump, strong: true);
-            return;
-        }
-        _work.Push((target, bound));
+        return t > insn.Rva + 1 && (anyStartBetween == null ? AnyStartBetween(insn.Rva + 1, t - 1) : anyStartBetween(insn.Rva + 1, t - 1));
     }
 
     private static bool JustAfter(List<(uint Begin, uint End)> ranges, uint rva)
@@ -550,29 +396,6 @@ internal sealed class FunctionDiscovery
         for (int i = 0; i < batch.Count; i++) _speculated[batch[i]] = results[i];
     }
 
-    /// <summary>x86: a call just after leaving an SEH scope to a block shortly after it (the __finally block).</summary>
-    private bool LocalFinallyCall(in Insn call) =>
-        call.Target > call.Rva && call.Target - call.Rva < 0x400 && _x86Dec?.PreviousLeavesSehScope() == true;
-
-    /// <summary>
-    /// x86: the code at <paramref name="rva"/> reads or writes [ebp+x] before it sets ebp, so it runs in its
-    /// caller's frame (a __finally block called by the function that owns it), not as a function of its own.
-    /// </summary>
-    private bool UsesCallerFrame(uint rva)
-    {
-        if (_x86Peek is not { Is64: false } peek) return false;
-        for (int n = 0; n < 8; n++)
-        {
-            if (!peek.Decode(rva, out var insn) || insn.Flow == FlowKind.Invalid) return false;
-            ref readonly var x = ref peek.Last;
-            if (x.Op0Kind == Iced.Intel.OpKind.Register && x.Op0Register == Iced.Intel.Register.EBP && x.Mnemonic != Iced.Intel.Mnemonic.Push) return false;
-            if (UsesEbpMemory(in x)) return true;
-            if (insn.Flow != FlowKind.Next) return false;
-            rva = insn.Next;
-        }
-        return false;
-    }
-
     /// <summary>
     /// Instructions legal in compiled code but rare enough that a weak candidate containing them is more likely
     /// data: pusha / popa, one-byte xchg with eax (PE), ret with an odd or large byte count.
@@ -612,7 +435,7 @@ internal sealed class FunctionDiscovery
         private readonly X86Decoder? _x86Peek;
         private readonly ICodeDecoder _thunks;
         private readonly Dictionary<uint, uint?> _thunkCache = [];
-        private readonly HashSet<uint> _seen = [];
+        private readonly ScratchSet _seen = new();
         private readonly Stack<uint> _work = new();
         public List<uint>? Consulted;
 
@@ -654,9 +477,7 @@ internal sealed class FunctionDiscovery
         {
             funclet = false;
             bool frame = false;
-            // reused across candidates (hundreds of thousands in a large image); clearing costs the capacity, so a large one is dropped
             var seen = _seen;
-            if (seen.Count > 4096) seen.TrimExcess();
             seen.Clear();
             var work = _work;
             work.Clear();

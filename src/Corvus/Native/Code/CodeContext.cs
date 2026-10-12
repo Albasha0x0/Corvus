@@ -24,6 +24,8 @@ public sealed record CodeIndexOptions
     public int MaxVirtualTargets { get; init; } = 64;
     /// <summary>Weak candidates in one batch from which they are verified in parallel first (the result is the same either way).</summary>
     internal int ParallelVerifyBatch { get; init; } = 4096;
+    /// <summary>Queued roots from which discovery explores them in parallel (the result is the same either way).</summary>
+    internal int ParallelExploreMin { get; init; } = 256;
 }
 
 /// <summary>What the analysis knows about the image while it runs: shared, read-only during each pass.</summary>
@@ -459,7 +461,9 @@ internal static class SwitchDispatch
     /// Decodes linearly from <paramref name="from"/> with <paramref name="bound"/> known on entry; when that reaches
     /// the indirect jump at <paramref name="jump"/> without leaving the straight-line path, matches its switch table.
     /// </summary>
-    public static SwitchTable? Redecode(ICodeDecoder dec, CodeContext ctx, uint from, IndexBound bound, uint jump, List<(uint Begin, uint End)>? own)
+    /// <param name="noReturn">Whether a call target never returns (default: the context's set).</param>
+    public static SwitchTable? Redecode(ICodeDecoder dec, CodeContext ctx, uint from, IndexBound bound, uint jump, List<(uint Begin, uint End)>? own,
+        Func<uint, bool>? noReturn = null)
     {
         dec.BeginRun(bound);
         uint a = from;
@@ -473,7 +477,7 @@ internal static class SwitchDispatch
                 return m != null ? ctx.ReadSwitch(jump, m, own, out _) : null;
             }
             if (insn.Flow is FlowKind.Jump or FlowKind.Trap || insn.Flow is FlowKind.Return or FlowKind.IndirectJump && !insn.Conditional) return null;
-            if (insn.Flow == FlowKind.Call && insn.HasTarget && ctx.NoReturn.Contains(insn.Target)) return null;
+            if (insn.Flow == FlowKind.Call && insn.HasTarget && (noReturn ?? ctx.NoReturn.Contains)(insn.Target)) return null;
             a = insn.Next;
         }
         return null;

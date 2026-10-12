@@ -49,7 +49,8 @@ public sealed partial class NativeCodeIndex
     }
 
     /// <summary>Writes everything a loaded index needs (functions, ranges, cross-references, strings, exception metadata, analysis state).</summary>
-    internal void WritePayload(PayloadWriter w)
+    /// <param name="times">false writes zero elapsed times, so builds of the same bytes compare equal.</param>
+    internal void WritePayload(PayloadWriter w, bool times = true)
     {
         if (_ctx == null || Support != CodeSupport.Full) throw new InvalidOperationException("Only a full code index is saved.");
         w.Strings(Truncations);
@@ -57,7 +58,7 @@ public sealed partial class NativeCodeIndex
         var s = Stats;
         w.I32(s.Functions); w.I32(s.Thunks); w.I32(s.NoReturnFunctions); w.I64(s.Instructions); w.I64(s.Blocks); w.I64(s.Xrefs);
         w.I32(s.Strings); w.I32(s.ResolvedSwitches); w.I32(s.UnresolvedJumps); w.I32(s.FunctionsWithInvalidCode); w.I32(s.DiscoveryPasses);
-        w.I32(s.NoReturnRounds); w.I64(s.Elapsed.Ticks);
+        w.I32(s.NoReturnRounds); w.I64(times ? s.Elapsed.Ticks : 0);
 
         int n = _functions.Length;
         var u = new uint[n];
@@ -124,8 +125,8 @@ public sealed partial class NativeCodeIndex
         w.UInts(thunks.Select(t => _ctx.Thunks[t]).ToArray());
         w.DeltaUInts(_ctx.ArmModes?.ArmStarts ?? []);
 
-        WriteEh(w, ExceptionInfo);
-        WriteVirtualCalls(w);
+        WriteEh(w, ExceptionInfo, times);
+        WriteVirtualCalls(w, times);
     }
 
     private static uint[] Sorted(IEnumerable<uint> values)
@@ -135,7 +136,7 @@ public sealed partial class NativeCodeIndex
         return a;
     }
 
-    private static void WriteEh(PayloadWriter w, MsvcEhResult eh)
+    private static void WriteEh(PayloadWriter w, MsvcEhResult eh, bool times)
     {
         w.I32(eh.Frames.Count);
         foreach (var f in eh.Frames)
@@ -180,7 +181,7 @@ public sealed partial class NativeCodeIndex
         w.I32(eh.RejectCount);
         var s = eh.Stats;
         w.I32(s.Frames); w.I32(s.CSpecific); w.I32(s.Cxx3); w.I32(s.Cxx4); w.I32(s.GsOnly); w.I32(s.Seh3); w.I32(s.Seh4); w.I32(s.Unknown);
-        w.I32(s.Children); w.I32(s.Fragments); w.I32(s.Rejected); w.I64(s.Elapsed.Ticks);
+        w.I32(s.Children); w.I32(s.Fragments); w.I32(s.Rejected); w.I64(times ? s.Elapsed.Ticks : 0);
     }
 
     /// <summary>

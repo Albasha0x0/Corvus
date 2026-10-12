@@ -112,7 +112,7 @@ public sealed partial class NativeCodeIndex
         }
     }
 
-    private void WriteVirtualCalls(PayloadWriter w)
+    private void WriteVirtualCalls(PayloadWriter w, bool times)
     {
         var sites = VirtualCalls.Sites;
         int n = sites.Count;
@@ -142,7 +142,7 @@ public sealed partial class NativeCodeIndex
         w.Bytes(sites.Select(s => s.Incomplete ? (byte)1 : (byte)0).ToArray());
         var st = VirtualCalls.Stats;
         w.I32(st.Sites); w.I32(st.Exact); w.I32(st.Possible); w.I32(st.Unresolved); w.I32(st.Edges); w.I32(st.RttiClasses); w.I32(st.FunctionsAnalyzed);
-        w.I32(st.FunctionsNotConverged); w.I32(st.PureTargetsExcluded); w.I32(st.IncompleteSites); w.I64(st.Elapsed.Ticks);
+        w.I32(st.FunctionsNotConverged); w.I32(st.PureTargetsExcluded); w.I32(st.IncompleteSites); w.I64(times ? st.Elapsed.Ticks : 0);
         w.Strings(VirtualCalls.Notes);
 
         int e = _virtualEdges.Length;
