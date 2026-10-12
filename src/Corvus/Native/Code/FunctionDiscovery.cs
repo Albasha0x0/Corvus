@@ -354,12 +354,19 @@ internal sealed partial class FunctionDiscovery
     {
         // the speculative run took every batch candidate as a function: valid when each address it asked about is a
         // function now exactly when it is a batch candidate
-        if (_speculated.Remove(rva, out var spec) && spec.Consulted.All(c => _functions.ContainsKey(c) == _batch.Contains(c)))
+        if (_speculated.Remove(rva, out var spec) && SameAnswers(spec.Consulted))
         {
             funclet = spec.Funclet;
             return spec.Ok;
         }
         return _verifier.Run(rva, out funclet);
+    }
+
+    private bool SameAnswers(uint[] consulted)
+    {
+        foreach (uint c in consulted)
+            if (_functions.ContainsKey(c) != _batch.Contains(c)) return false;
+        return true;
     }
 
     /// <summary>
