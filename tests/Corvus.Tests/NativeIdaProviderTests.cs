@@ -87,6 +87,12 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         Assert.Equal("kept_list_renamed", after.Single(f => f.StartRva == exportRva).Name);
         await s.RunScriptAsync("1"); // scripts may change anything
         Assert.NotSame(after, await s.ListFunctionsAsync(withReferences: false));
+
+        var strings = await s.ListStringsAsync(1000);
+        Assert.NotEmpty(strings);
+        Assert.Same(strings, await s.ListStringsAsync(1000));
+        await s.SetCommentAsync(exportRva, "edit");
+        Assert.NotSame(strings, await s.ListStringsAsync(1000));
     }
 
     [IdaFact]

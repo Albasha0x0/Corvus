@@ -184,6 +184,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     protected override bool ReadsOnly(string op) => AnalysisComplete && ReadOps.Contains(op);
 
     private (long Generation, bool References, IReadOnlyList<NativeFunctionInfo> List)? _functions;
+    private (long Generation, int Max, IReadOnlyList<EngineString> List)? _strings;
 
     /// <summary>The engine's functions, kept until a request may have changed the database (37k functions take the worker about a second).</summary>
     public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default)
@@ -428,8 +429,16 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     public async Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
         WorkerRows.DataList(await CallAsync("defined_data", WorkerRows.Args(("max", Math.Clamp(max, 1, 500_000))), cancellationToken).ConfigureAwait(false));
 
-    public async Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default) =>
-        WorkerRows.Strings(await CallAsync("defined_strings", WorkerRows.Args(("max", Math.Clamp(max, 1, 500_000))), cancellationToken).ConfigureAwait(false));
+    /// <summary>The engine's string items, kept like the function list (a walk over every item of a large image takes seconds).</summary>
+    public async Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default)
+    {
+        max = Math.Clamp(max, 1, 500_000);
+        long generation = Generation;
+        if (_strings is { } c && c.Generation == generation && c.Max == max) return c.List;
+        var list = WorkerRows.Strings(await CallAsync("defined_strings", WorkerRows.Args(("max", max)), cancellationToken).ConfigureAwait(false));
+        if (ReadsOnly("defined_strings")) _strings = (generation, max, list);
+        return list;
+    }
 
     public async Task<EngineFunctionRecord> GetFunctionRecordAsync(uint rva, CancellationToken cancellationToken = default) =>
         WorkerRows.FunctionRecord(await CallAsync("function_info", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
