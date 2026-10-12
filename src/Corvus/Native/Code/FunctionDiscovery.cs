@@ -1,10 +1,12 @@
+using System.Buffers.Binary;
+
 namespace Corvus.Native.Code;
 
 /// <summary>
 /// Finds function starts: the roots the image declares (.pdata, exports, entry point, TLS callbacks), then everything
 /// reachable from them by recursive descent (call targets, x64 jumps leaving a .pdata function), then weaker
 /// candidates that must decode cleanly before they are accepted (relocated pointers in data, addresses taken by code,
-/// x86 prologues in gaps between known code). Every byte is decoded at most once per offset (global bitmaps).
+/// x86 and ARM prologues in gaps between known code). Every byte is decoded at most once per offset (global bitmaps).
 /// </summary>
 internal sealed class FunctionDiscovery
 {
@@ -101,6 +103,7 @@ internal sealed class FunctionDiscovery
             foreach (var t in _addressCandidates.ToList()) TryCandidate(t, FunctionSource.CodeAddress);
             Drain();
             if (_ctx.Options.ScanPrologues && _x86Peek != null) ScanGaps(image.Arch == NativeArch.X86 && image.Format == ImageFormat.Pe);
+            else if (_ctx.Options.ScanPrologues && image.Arch is NativeArch.Arm or NativeArch.Arm64) ScanArmGaps();
            
             if (_functions.Count != before) continue;
             // pointers stored inside code sections last: by now the functions owning switch tables there are
@@ -765,6 +768,77 @@ internal sealed class FunctionDiscovery
                 p++;
             }
         }
+    }
+
+    /// <summary>
+    /// ARM32 / ARM64 code nothing references: a standard prologue in a gap between known code starts a function when it
+    /// verifies (A32 push {..., lr} at 4-byte alignment, T32 push {..., lr} at 2, A64 stp x29, x30 after optional pac / bti,
+    /// stack and register saves).
+    /// </summary>
+    private void ScanArmGaps()
+    {
+        bool arm64 = _ctx.Image.Arch == NativeArch.Arm64;
+        // Windows on ARM is Thumb only
+        bool armState = !arm64 && _ctx.Image.Format != ImageFormat.Pe;
+        foreach (var region in _ctx.Code.Regions)
+        {
+            var bytes = region.Bytes;
+            for (int p = 0; p + 4 <= bytes.Length; p += 2)
+            {
+                if ((p & 0xFFFF) == 0) Heartbeat();
+                if (_covered[region.BitBase + p]) continue;
+                bool? thumb = arm64 ? ((p & 3) == 0 && IsArm64Prologue(bytes, p) ? false : null) : Arm32Prologue(bytes, p, armState);
+                if (thumb is not { } t) continue;
+                uint rva = region.Rva + (uint)p;
+                if (InsideDeclared(rva) || InDataInCode(rva)) continue;
+                if (!arm64) _ctx.ArmModes?.Hint(rva, t);
+                if (TryCandidate(rva, FunctionSource.CodeGap)) Drain();
+                else if (t == false && !arm64) p += 2; // the A32 word's upper half is no Thumb start
+            }
+        }
+    }
+
+    private bool InDataInCode(uint rva)
+    {
+        var ranges = _ctx.DataInCode;
+        int lo = 0, hi = ranges.Length - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (rva < ranges[mid].Start) hi = mid - 1;
+            else if (rva >= ranges[mid].End) lo = mid + 1;
+            else return true;
+        }
+        return false;
+    }
+
+    /// <summary>A push of lr at <paramref name="p"/>: false in A32 (stmdb sp!, {..., lr}), true in T32 (push / push.w), null when none.</summary>
+    internal static bool? Arm32Prologue(byte[] b, int p, bool armState)
+    {
+        if (armState && (p & 3) == 0 && (BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p)) & 0xFFFF4000) == 0xE92D4000) return false;
+        ushort h = BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(p));
+        // push {r4-r7 subset, lr} with at least one low register: a bare B500 is too common in data
+        if ((h & 0xFF00) == 0xB500 && (h & 0xFF) != 0) return true;
+        // push.w {..., lr}: neither sp nor pc in the list
+        return h == 0xE92D && (BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(p + 2)) & 0xE000) == 0x4000 ? true : null;
+    }
+
+    /// <summary>
+    /// An A64 prologue at <paramref name="p"/>: up to four of pac / bti, sub sp, sp, #imm and stp of registers to the
+    /// stack, one of them stp x29, x30.
+    /// </summary>
+    internal static bool IsArm64Prologue(byte[] b, int p)
+    {
+        for (int k = 0; k < 4 && p + 4 * k + 4 <= b.Length; k++)
+        {
+            uint w = BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 4 * k));
+            bool stp = (w & 0xFE4003E0) == 0xA80003E0 && (w & 0x01000000) != 0; // stp x, x, [sp, #imm]! or [sp, #imm]
+            if (stp && (w & 0x7C1F) == 0x781D) return true;                    // Rt x29, Rt2 x30
+            bool pac = w is 0xD503233F or 0xD503237F or 0xD503245F or 0xD50324DF; // paciasp, pacibsp, bti c, bti jc
+            bool sub = (w & 0xFF8003FF) == 0xD10003FF;                            // sub sp, sp, #imm
+            if (!(stp || (pac && k == 0) || sub)) return false;
+        }
+        return false;
     }
 
     private (uint Start, uint End)[]? _declared;

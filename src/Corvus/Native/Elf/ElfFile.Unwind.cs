@@ -32,7 +32,8 @@ public sealed partial class ElfFile
         }
 
         foreach (var (start, range) in ReadEhFrame(log)) Add(start, range, DeclaredSource.Unwind);
-        foreach (var (start, size) in ReadExidx(log)) Add(start, size, DeclaredSource.Unwind);
+        // the linker merges neighbors with the same unwinding into one entry, so an entry may span several functions: no extent
+        foreach (var (start, _) in ReadExidx(log)) Add(start, null, DeclaredSource.Unwind);
         foreach (var s in DynamicSymbols.Concat(StaticSymbols))
             if (s.IsDefined && s.IsFunction && s.Value != 0) Add(s.Value, s.Size, DeclaredSource.Symbol);
         foreach (var va in Initializers(log)) Add(va, null, DeclaredSource.Initializer);

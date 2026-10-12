@@ -169,6 +169,34 @@ public class NativeArm32Tests
     }
 
     [Fact]
+    public void Unreferenced_functions_with_a_prologue_in_gaps_are_found()
+    {
+        var code = new byte[0x30];
+        BinaryPrimitives.WriteUInt32LittleEndian(code, 0xE12FFF1E); // entry: bx lr
+        uint[] arm = [0xE92D4010, 0xE1A04000, 0xE8BD8010];          // push {r4, lr}; mov r4, r0; pop {r4, pc}
+        for (int i = 0; i < arm.Length; i++) BinaryPrimitives.WriteUInt32LittleEndian(code.AsSpan(0x10 + 4 * i), arm[i]);
+        ushort[] thumb = [0xB510, 0x2001, 0xBD10];                    // push {r4, lr}; movs r0, #1; pop {r4, pc}
+        for (int i = 0; i < thumb.Length; i++) BinaryPrimitives.WriteUInt16LittleEndian(code.AsSpan(0x20 + 2 * i), thumb[i]);
+        var index = NativeCodeIndex.Build(Elf(code, w => w.Entry = Text));
+        Assert.Equal([Text, Text + 0x10, Text + 0x20], index.Functions.Select(f => f.Start));
+        var dis = index.CreateDisassembler();
+        Assert.Equal([false, false, true], index.Functions.Select(f => dis.ThumbAt(f.Start) == true));
+        Assert.All(index.Functions.Skip(1), f => Assert.True((f.Sources & FunctionSource.CodeGap) != 0));
+        Assert.Equal(3, index.FunctionByStart(Text + 0x20)!.InstructionCount);
+
+        // an .ARM.exidx entry the linker merged over both functions does not hide them
+        var merged = NativeCodeIndex.Build(Elf(code, w => { w.Entry = Text; w.Exidx.Add((Text, true)); w.Exidx.Add((Text + 0x30, true)); }));
+        Assert.Equal([Text, Text + 0x10, Text + 0x20], merged.Functions.Select(f => f.Start));
+
+        // A64: stp x29, x30, [sp, #-16]!; mov x29, sp; ldp x29, x30, [sp], #16; ret after the entry's ret
+        var a64 = new byte[0x20];
+        uint[] words = [0xD65F03C0, 0, 0, 0, 0xA9BF7BFD, 0x910003FD, 0xA8C17BFD, 0xD65F03C0];
+        for (int i = 0; i < words.Length; i++) BinaryPrimitives.WriteUInt32LittleEndian(a64.AsSpan(4 * i), words[i]);
+        var arm64 = NativeCodeIndex.Build(ElfFile.FromBytes(new ElfWriter { Machine = ElfWriter.EmAarch64, Entry = Text, Text = a64 }.Build(), "a64.so"));
+        Assert.Equal([Text, Text + 0x10], arm64.Functions.Select(f => f.Start));
+    }
+
+    [Fact]
     public void Thumb_and_arm_functions_with_interworking_literals_and_imports()
     {
         var (image, helper, armFn, plt) = Sample();
