@@ -106,6 +106,54 @@ public class ItaniumEhTests
         Assert.Contains("EXIDX_CANTUNWIND", table.At(Text + 0x18)!.Notes.Single());
     }
 
+    /// <summary>pr1 (16-bit scopes) and pr2 (32-bit scopes) descriptors: cleanup, catch (...), a typed catch by reference, a no-throw region, an exception specification.</summary>
+    [Fact]
+    public void Arm32_pr1_and_pr2_scope_descriptors()
+    {
+        const uint Text = ElfWriter.TextRva, Slot = ElfWriter.DataRva, TypeInfo = ElfWriter.DataRva + 0x10;
+        static uint Rel(uint target, uint at) => (target - at) & 0x7FFFFFFF;
+        ElfFile Build(uint extab)
+        {
+            var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = new byte[0x80], Data = new byte[0x100] };
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(w.Data, TypeInfo);
+            w.Symbols.Add(new ElfWriter.Symbol("_ZTI3Foo", TypeInfo, 8, Type: 1));
+            w.Extab.Add((Text + 0x40 | 1, null,
+            [
+                0x8100B0B0,
+                0x00040008, Rel(Text + 0x50, extab + 8),                     // cleanup [+4, +0xC)
+                0x00040009, Rel(Text + 0x55, extab + 16), 0xFFFFFFFF,       // catch (...) [+4, +0xC), Thumb landing pad
+                0x000D0004, 0x80000001, Slot - (extab + 32), Rel(Text + 0x58, extab + 36), // throw(Foo) [+0xC, +0x10)
+                0,
+            ]));
+            uint e2 = extab + 44;
+            w.Extab.Add((Text + 0x60 | 1, null,
+            [
+                0x8200B0B0,
+                9, 4, Rel(Text + 0x70, e2 + 12) | 0x80000000, Slot - (e2 + 16), // catch (Foo&) [+4, +0xC)
+                5, 8, Rel(Text + 0x74, e2 + 28), 0xFFFFFFFE,                  // no-throw [+8, +0xC)
+                0,
+            ]));
+            return ElfFile.FromBytes(w.Build(), "lib.so");
+        }
+        var image = Build(Build(0).Sections.Single(s => s.Name == ".ARM.extab").Rva);
+        var table = ItaniumEh.Of(image);
+
+        var pr1 = table.At(Text + 0x40)!;
+        Assert.Equal("__aeabi_unwind_cpp_pr1", pr1.Personality);
+        Assert.Empty(pr1.Notes);
+        Assert.Equal([
+                (Text + 0x44, Text + 0x4C, (uint?)(Text + 0x50), "cleanup"),
+                (Text + 0x44, Text + 0x4C, Text + 0x54, "catch (...)"),
+                (Text + 0x4C, Text + 0x50, Text + 0x58, "exception specification throw(Foo)"),
+            ], pr1.CallSites.Select(c => (c.Start, c.End, c.LandingPad, c.Actions.Single())));
+        var pr2 = table.At(Text + 0x60)!;
+        Assert.Equal("__aeabi_unwind_cpp_pr2", pr2.Personality);
+        Assert.Equal([
+                (Text + 0x64, Text + 0x6C, (uint?)(Text + 0x70), "catch (Foo&)"),
+                (Text + 0x68, Text + 0x6C, Text + 0x74, "no-throw region (terminate)"),
+            ], pr2.CallSites.Select(c => (c.Start, c.End, c.LandingPad, c.Actions.Single())));
+    }
+
     [Fact]
     public void Arm32_library_lsdas_through_the_generic_personality()
     {

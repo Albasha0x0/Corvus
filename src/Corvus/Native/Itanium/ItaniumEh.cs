@@ -127,8 +127,8 @@ public static class ItaniumEh
             var eh = new List<string>();
             if (e.CantUnwind) eh.Add("EXIDX_CANTUNWIND: the function cannot be unwound through");
             if (e.Note != null) eh.Add(e.Note);
-            var sites = e.Lsda is { } at ? lsda.CallSites(at, e.Begin, out _) : null;
-            if (sites == null && e.Lsda != null) eh.Add("LSDA not readable");
+            var sites = e.Lsda is not { } at ? null : e.PersonalityIndex is 1 or 2 ? lsda.ArmScopes(at, e.Begin, wide: e.PersonalityIndex == 2) : lsda.CallSites(at, e.Begin, out _);
+            if (sites == null && e.Lsda != null) eh.Add(e.PersonalityIndex is 1 or 2 ? "scope descriptors not readable" : "LSDA not readable");
             var personality = e.PersonalityIndex is { } k ? $"__aeabi_unwind_cpp_pr{k}" : e.Personality is { } p ? lsda.PointerName(p, indirect: false) : null;
             list.Add(new ItaniumEhFunction(e.Begin, e.End, "ARM EHABI", personality, e.Lsda, sites ?? [], eh));
         }
@@ -243,6 +243,80 @@ public static class ItaniumEh
             return result;
         }
 
+        /// <summary>
+        /// The scope descriptors of the ARM personalities (EHABI 9.2) from <paramref name="at"/> to a zero word: a scope (16-bit
+        /// length and offset for pr1, 32-bit for pr2; bit 0 of each gives the kind), then a cleanup's landing pad, a catch's
+        /// landing pad and type (-1: any, -2: a no-throw region), or an exception specification's types and optional landing pad.
+        /// </summary>
+        public List<ItaniumCallSite>? ArmScopes(uint at, uint functionStart, bool wide)
+        {
+            var section = image.SectionAt(at);
+            if (section == null) return null;
+            uint limit = section.Rva + section.MappedSize;
+            var result = new List<ItaniumCallSite>();
+            bool Word(out uint value)
+            {
+                Span<byte> b = stackalloc byte[4];
+                value = 0;
+                if (at + 4 > limit || image.Read(at, b) != 4) return false;
+                value = BinaryPrimitives.ReadUInt32LittleEndian(b);
+                at += 4;
+                return true;
+            }
+            // a Thumb landing pad's bit 0 is dropped
+            uint? Prel31(uint word, uint from) => ((from + (uint)((int)(word << 1) >> 1)) & ~1u) is var r && image.SectionAt(r) != null ? r : null;
+            // R_ARM_TARGET2 as Linux and Android resolve it: pc-relative, indirect through a GOT slot
+            string Type(uint word, uint from) => PointerName((ulong)((long)image.ImageBase + from + (int)word), indirect: true);
+            while (result.Count < MaxCallSites && Word(out uint first) && first != 0)
+            {
+                uint length, offset;
+                if (wide) { length = first; if (!Word(out offset)) return result; }
+                else { length = first & 0xFFFF; offset = first >> 16; }
+                uint start = functionStart + (offset & ~1u), end = start + (length & ~1u);
+                switch ((offset & 1) << 1 | length & 1)
+                {
+                    case 0:
+                        if (!Word(out uint cleanup)) return result;
+                        result.Add(new ItaniumCallSite(start, end, Prel31(cleanup, at - 4), ["cleanup"]));
+                        break;
+                    case 1:
+                    {
+                        if (!Word(out uint handler)) return result;
+                        uint handlerAt = at - 4;
+                        if (!Word(out uint type)) return result;
+                        var action = type switch
+                        {
+                            0xFFFFFFFF => "catch (...)",
+                            0xFFFFFFFE => "no-throw region (terminate)",
+                            _ => $"catch ({Type(type, at - 4)}{((handler & 0x80000000) != 0 ? "&" : "")})",
+                        };
+                        result.Add(new ItaniumCallSite(start, end, Prel31(handler, handlerAt), [action]));
+                        break;
+                    }
+                    case 2:
+                    {
+                        if (!Word(out uint count)) return result;
+                        var types = new List<string>();
+                        for (uint k = 0; k < (count & 0x7FFFFFFF) && k < 256; k++)
+                        {
+                            if (!Word(out uint type)) return result;
+                            types.Add(Type(type, at - 4));
+                        }
+                        uint? unexpected = null;
+                        if ((count & 0x80000000) != 0)
+                        {
+                            if (!Word(out uint p)) return result;
+                            unexpected = Prel31(p, at - 4);
+                        }
+                        result.Add(new ItaniumCallSite(start, end, unexpected, [$"exception specification throw({string.Join(", ", types)})"]));
+                        break;
+                    }
+                    default: return result; // reserved kind: the rest cannot be parsed
+                }
+            }
+            return result;
+        }
+
         /// <summary>The action chain from <paramref name="at"/>: filters &gt; 0 catch a type, 0 is a cleanup, &lt; 0 an exception specification.</summary>
         private void Actions(ByteView d, long at, long typeBase, byte ttEnc, ulong va, List<string> names)
         {
@@ -331,7 +405,9 @@ public static class ItaniumEh
                     ops.AddRange([(byte)(e0 >> 8), (byte)e0]);
                     Words(extab + 4, (int)(e0 >> 16 & 0xFF));
                 }
-                result.Add(new EhabiEntry(begin, end, false, index, null, [.. ops], null, index is 1 or 2 ? "the ARM personality's scope descriptors are not decoded" : null));
+                // pr1 / pr2: the scope descriptors follow the unwind opcodes
+                uint? descriptors = index is 1 or 2 ? extab + 4 + 4 * (e0 >> 16 & 0xFF) : null;
+                result.Add(new EhabiEntry(begin, end, false, index, null, [.. ops], descriptors, null));
                 continue;
             }
             int extra = (int)(e1 >> 24);

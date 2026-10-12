@@ -107,14 +107,17 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
             sb.AppendLine("No exception handling metadata (no FDE, compact unwind or .ARM.exidx entry).");
             return sb.ToString();
         }
-        sb.AppendLine($"{eh.Source} {Va(eh.Begin)}-{Va(eh.End)}" + (eh.Personality != null ? $", personality {eh.Personality}" : "") + (eh.Lsda is { } l ? $", LSDA {Va(l)}" : ", no LSDA"));
+        sb.AppendLine($"{eh.Source} {Va(eh.Begin)}-{Va(eh.End)}" + (eh.Personality != null ? $", personality {eh.Personality}" : "") + (eh.Lsda is { } l ? $", {(ArmPersonality(eh) ? "scope descriptors" : "LSDA")} {Va(l)}" : ", no LSDA"));
         foreach (var note in eh.Notes) sb.AppendLine($"Note: {note}");
         if (eh.CallSites.Count > 0) sb.AppendLine($"Call sites ({eh.CallSites.Count}):");
         string Name(uint r) => index.NameAt(r) is { } n ? $"{n} ({Va(r)})" : Va(r);
         foreach (var c in eh.CallSites)
-            sb.AppendLine($"  {Va(c.Start)}-{Va(c.End)}: " + (c.LandingPad is { } pad ? $"landing pad {Name(pad)}" + (c.Actions.Count > 0 ? ": " + string.Join(", ", c.Actions) : "") : "no landing pad (unwinds through)"));
+            sb.AppendLine($"  {Va(c.Start)}-{Va(c.End)}: " + (c.LandingPad is { } pad ? $"landing pad {Name(pad)}" + (c.Actions.Count > 0 ? ": " + string.Join(", ", c.Actions) : "") : c.Actions.Count > 0 ? string.Join(", ", c.Actions) : "no landing pad (unwinds through)"));
         return sb.ToString();
     }
+
+    /// <summary>__aeabi_unwind_cpp_pr1 / pr2: the entry's data are scope descriptors, not an LSDA.</summary>
+    private static bool ArmPersonality(Native.Itanium.ItaniumEhFunction eh) => eh.Source == "ARM EHABI" && eh.Personality is "__aeabi_unwind_cpp_pr1" or "__aeabi_unwind_cpp_pr2";
 
     private static string Summary(string id, NativeCodeIndex index, MsvcEhResult eh)
     {
