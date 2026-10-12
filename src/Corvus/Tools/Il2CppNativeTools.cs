@@ -26,6 +26,7 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var native = await Task.Run(() =>
         {
             var id = workspace.Read(() => workspace.FindNative(image)?.Id);
@@ -34,8 +35,10 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
                     "pass the game's GameAssembly.dll");
             return workspace.Read(() => workspace.GetNative(id ?? image));
         }, cancellationToken);
+        var loaded = clock.Elapsed;
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), cancellationToken);
+        var indexed = clock.Elapsed - loaded;
         if (clear)
         {
             var removed = workspace.Read(() => names.Clear(native, index));
@@ -54,7 +57,7 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
                 return workspace.Read(() => names.Apply(native, index, workspace.Scope(null), cancellationToken));
             }
         }, cancellationToken);
-        return read + Render(native.Id, report);
+        return read + Render(native.Id, report, clock.Elapsed, indexed);
     });
 
     /// <summary>The game files around a game binary, when its metadata is found; null otherwise.</summary>
@@ -64,9 +67,11 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
         catch (ToolError) { return null; }
     }
 
-    internal static string Render(string id, Il2CppNativeNames.Report r)
+    /// <summary>The report; <paramref name="total"/> is the whole call, which includes the code index build and the metadata read.</summary>
+    internal static string Render(string id, Il2CppNativeNames.Report r, TimeSpan total, TimeSpan index)
     {
-        var sb = new StringBuilder($"{id}: il2cpp names from {r.Assemblies}{(r.DumpDirectory != null ? $" (dump {r.DumpDirectory})" : "")} in {r.Elapsed.TotalSeconds:0.00} s\n");
+        var sb = new StringBuilder($"{id}: il2cpp names from {r.Assemblies}{(r.DumpDirectory != null ? $" (dump {r.DumpDirectory})" : "")} " +
+                                   $"in {total.TotalSeconds:0.00} s (code index {index.TotalSeconds:0.00} s, naming {r.Elapsed.TotalSeconds:0.00} s)\n");
         sb.AppendLine($"  functions named: {r.Functions}" + (r.FunctionsNotDiscovered > 0
             ? $" ({r.FunctionsNotDiscovered} at addresses the code index did not find as function starts: named as labels)" : ""));
         if (r.SharedFunctions > 0)
