@@ -124,14 +124,14 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         await rig.Engines.Session(rig.Native, engine, null, default);
         output.WriteLine($"{engine} opened in {clock.Elapsed.TotalSeconds:0.0} s");
         clock.Restart();
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var first = await rig.Search.SearchDecompiled(id, @"\breturn\b", engine: engine, limit: 5);
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
         output.WriteLine($"{engine} search ({clock.Elapsed.TotalSeconds:0.0} s):\n{string.Join('\n', first.Split('\n').Take(6))}");
         Assert.Equal(engine, report.Engine);
         Assert.InRange(report.Hits.Count, 5, 400);
         Assert.Equal("hits", report.StoppedBy);
-        collector = StructuredOutput.Begin();
+        collector = ToolOutput.Collect();
         clock.Restart();
         await rig.Search.SearchDecompiled(id, @"\breturn\b", engine: engine, cursor: report.Cursor!.Value, maxFunctions: 40, limit: 2000);
         var next = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
@@ -166,7 +166,7 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
 
         // list_functions view=candidates: the engine's code outside functions
         clock.Restart();
-        collector = StructuredOutput.Begin();
+        collector = ToolOutput.Collect();
         var candidates = await rig.CodeTools.ListFunctions(id, engine: engine, view: "candidates", limit: 5);
         var candidateList = Assert.IsType<FunctionList>(collector.Value);
         output.WriteLine($"{engine} candidates ({clock.Elapsed.TotalSeconds:0.0} s):\n{string.Join('\n', candidates.Split('\n').Take(5))}");

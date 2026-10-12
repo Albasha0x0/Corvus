@@ -616,26 +616,18 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.Equal(2, json.GetProperty("items").GetArrayLength());
         Assert.Equal(1, json.GetProperty("offset").GetInt32());
         Assert.True(json.GetProperty("total").GetInt32() > 3);
-        Assert.True(json.GetProperty("truncated").GetBoolean());
+        Assert.False(json.TryGetProperty("truncated", out _));
+        Assert.Equal(2, json.GetProperty("limit").GetInt32());
+        Assert.True(json.GetProperty("hasMore").GetBoolean());
+        Assert.Equal(3, json.GetProperty("nextOffset").GetInt32());
         Assert.Contains($"(showing 2-3)", text);
+        Assert.Contains("[More: offset=3]", text);
 
         (_, json) = await Call("get_call_tree", new() { ["method"] = "Account::Charge(int)", ["direction"] = "callers" });
         Assert.Contains(json.GetProperty("items").EnumerateArray(), n => n.GetProperty("kind").GetString() == "method" && n.GetProperty("level").GetInt32() == 1);
 
         (_, json) = await Call("list_exports", new() { ["image"] = McpProtocolTests.NativeSample(_dir) });
         Assert.True(json.GetProperty("items")[0].GetProperty("ordinal").GetInt32() > 0);
-    }
-
-    [Fact]
-    public void StructuredContentIsCutToThePageSize()
-    {
-        var big = new Corvus.Tools.TypeList(Enumerable.Range(0, 5_000).Select(i => new Corvus.Tools.TypeEntry("A", $"0x{i:X8}", "class", $"Ns.Type{i}")).ToList(), 0, 5_000, false);
-        var json = Corvus.Mcp.StructuredOutput.Serialize(big, 20_000);
-        Assert.True(json.GetRawText().Length <= 20_000);
-        Assert.True(json.GetProperty("truncated").GetBoolean());
-        Assert.InRange(json.GetProperty("items").GetArrayLength(), 100, 4_999);
-        Assert.Equal(5_000, json.GetProperty("total").GetInt32());
-        Assert.False(Corvus.Mcp.StructuredOutput.Serialize(big with { Items = big.Items.Take(3).ToList() }, 20_000).GetProperty("truncated").GetBoolean());
     }
 }
 

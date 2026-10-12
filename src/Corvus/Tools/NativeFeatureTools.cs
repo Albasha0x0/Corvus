@@ -164,7 +164,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
             foreach (var e in f.Evidence.Take(6)) sb.AppendLine($"      {e.Site}  {e.Kind}: {Format.Clip(e.Detail, 200)}");
             if (f.EvidenceTotal > 6) sb.AppendLine($"      ... {f.EvidenceTotal - 6} more (structured output)");
         }
-        if (r.Truncated) sb.AppendLine($"  [More functions: call again with offset={r.Offset + r.Functions.Count}]");
+        if (r.Truncated) sb.AppendLine($"  [More: offset={r.Offset + r.Functions.Count}]");
         if (r.Hubs.Count > 0)
         {
             sb.AppendLine("\nHubs (callers reaching several of them):");

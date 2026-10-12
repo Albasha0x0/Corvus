@@ -43,7 +43,7 @@ public sealed class ResolveAddressFacetTests : IDisposable
 
     private async Task<(string Text, AddressInfo Info)> Resolve(NativeTools tools, string id, string address)
     {
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await tools.ResolveAddress(id, address);
         return (text, Assert.IsType<AddressInfo>(collector.Value));
     }

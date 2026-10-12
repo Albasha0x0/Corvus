@@ -297,7 +297,7 @@ public class NativeSwitchTests
         var options = new ServerOptions { BackgroundIndexing = false };
         using var workspace = new AssemblyWorkspace(options);
         var tools = new NativeCodeTools(workspace, new NativeCodeService(workspace, options), new OutputPager(options));
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await tools.GetCfg(path, "0x140001000");
         string Va(uint r) => $"0x{Base64 + r:X}";
         Assert.Contains($"switch at {Va(rva(jump))} (jmp rcx): rva table {Va(TableRva)} (4-byte entries, 4); value = index + 5; default {Va(rva(dflt))}", text);

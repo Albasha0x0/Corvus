@@ -36,14 +36,14 @@ public sealed class FunctionCandidatesTests : IDisposable
     public async Task Candidates_are_ranked_by_calls_then_other_references_and_paged()
     {
         var (tools, image) = Setup();
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await tools.ListFunctions(image, view: "candidates", limit: 3);
         var list = Assert.IsType<FunctionList>(collector.Value);
         Assert.Contains("4 runs of code in no function (ida;", text);
         Assert.Equal(["0x140001400", "0x140001200", "0x140001100"], list.Items.Select(i => i.Address));
         Assert.Equal((4, true, 16, 4), (list.Total, list.Truncated, list.Items[0].Size, list.Items[0].References));
         Assert.Contains("0x140001400       16  5 instructions; refs to start: 2 call, 1 jump, 1 data", text);
-        Assert.Contains("[More: call again with offset=3]", text);
+        Assert.Contains("[More: offset=3]", text);
         Assert.Contains($"Next: define_native image={image} address=0x140001400 kind=function", text);
     }
 

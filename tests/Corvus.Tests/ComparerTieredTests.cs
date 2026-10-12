@@ -215,7 +215,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
         var mapPath = _dir.File("map.json");
 
-        var collector = Corvus.Mcp.StructuredOutput.Begin();
+        var collector = Corvus.Mcp.ToolOutput.Collect();
         var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id, tokenMapPath: mapPath);
         var result = Assert.IsType<CompareTools.AssemblyComparison>(collector.Value);
         Assert.Equal((env.Fixture.OriginalSha256, newer.OriginalSha256), (result.Old.Sha256, result.New.Sha256));

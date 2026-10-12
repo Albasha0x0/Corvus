@@ -82,7 +82,7 @@ Loaded assemblies with their ids (for other tools), versions, paths, Il2Cpp dumm
 | `offset` | integer |  | `0` | Index of the first assembly. |
 | `limit` | integer |  | `100` | Max assemblies. |
 
-Structured output: `assemblies`, `searchDirectories`, `backgroundIndexing`, `container`, `total`, `nativeImages`.
+Structured output: `assemblies`, `searchDirectories`, `backgroundIndexing`, `container`, `total`, `nativeImages`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### server_status
 
@@ -95,7 +95,7 @@ Which server runs (version, program, install kind, client), a catalog digest, wh
 | `expectedCatalogDigest` | string |  |  | Catalog digest to compare (t92-0123456789ab.p5-01234567). |
 | `expectedExecutable` | string |  |  | Registered server program path, compared with the running one. |
 
-Structured output: `server`, `version`, `informationalVersion`, `executable`, `executableMatches`, `installKind`, `startedAt`, `uptimeSeconds`, `protocolVersion`, `client`, `catalogDigest`, `catalogMatches`, `catalogDifference`, `tools`, `loadedAssemblies`, `backgroundIndexing`, `workingSetMB`, `capabilities`, `longRunningTools`, `toolsets`, `unavailableTools`, `notes`, `engineTimeLimits`, `engineSessions`, `toolsFileAndTrace`, `sections`.
+Structured output: `server`, `version`, `informationalVersion`, `executable`, `executableMatches`, `installKind`, `startedAt`, `uptimeSeconds`, `protocolVersion`, `client`, `catalogDigest`, `catalogMatches`, `catalogDifference`, `tools`, `loadedAssemblies`, `backgroundIndexing`, `workingSetMB`, `capabilities`, `longRunningTools`, `toolsets`, `unavailableTools`, `notes`, `engineTimeLimits`, `engineSessions`, `toolsFileAndTrace`, `sections`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### read_result
 
@@ -125,7 +125,7 @@ Write this session's work to one JSON file: every loaded file (path, relative pa
 | `overwrite` | boolean |  | `false` | Replace the file if it exists. |
 | `include` | string |  |  | Comma-separated parts: edits, patches, annotations, notes or all (default); files are always listed. |
 
-Structured output: `path`, `files`, `editedAssemblies`, `edits`, `patchedImages`, `patches`, `names`, `comments`, `notes`.
+Structured output: `path`, `files`, `editedAssemblies`, `edits`, `patchedImages`, `patches`, `names`, `comments`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### load_session
 
@@ -143,7 +143,7 @@ Restore a save_session file: find each file (recorded path, relative path, else 
 | `offset` | integer |  | `0` | Items to skip. |
 | `limit` | integer |  | `200` | Items to return (max 2000). |
 
-Structured output: `path`, `dryRun`, `targetBuild`, `outcomes`, `offset`, `total`, `truncated`, `items`, `notes`.
+Structured output: `path`, `dryRun`, `targetBuild`, `outcomes`, `offset`, `total`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ## dotnet
 
@@ -162,7 +162,7 @@ List namespaces with their type counts (nested types under their outer type's na
 | `offset` | integer |  | `0` | Index of the first namespace. |
 | `limit` | integer |  | `2000` | Max namespaces. |
 
-Structured output: `items`, `offset`, `total`, `truncated`.
+Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_types
 
@@ -181,7 +181,7 @@ List types, optionally by namespace, name filter and kind.
 | `offset` | integer |  | `0` | Index of the first result. |
 | `limit` | integer |  | `300` | Max results. |
 
-Structured output: `items`, `offset`, `total`, `truncated`, `notEvaluated`.
+Structured output: `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_type_info
 
@@ -195,7 +195,7 @@ Outline of a type without decompiling: declaration, attributes, nested types, fi
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `includeCompilerGenerated` | boolean |  | `false` | Include compiler-generated members (backing fields, lambdas, state machines). |
 
-Structured output: `type`, `fullName`, `declaration`, `declaringType`, `attributes`, `nestedTypes`, `fields`, `properties`, `events`, `methods`, `compilerGeneratedHidden`, `truncated`.
+Structured output: `type`, `fullName`, `declaration`, `declaringType`, `attributes`, `nestedTypes`, `fields`, `properties`, `events`, `methods`, `compilerGeneratedHidden`, `truncated`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_assembly_info
 
@@ -207,7 +207,7 @@ Assembly overview: identity (MVID, SHA-256), target framework, entry point, coun
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 
-Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `references`, `attributes`, `tables`, `heaps`, `metadataIssueCount`, `metadataIssues`.
+Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `references`, `attributes`, `tables`, `heaps`, `metadataIssueCount`, `metadataIssues`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_attributes
 
@@ -245,7 +245,7 @@ What a symbol string or token resolves to: every match with kind, assembly, toke
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
 
-Structured output: `items`, `offset`, `total`, `truncated`, `notEvaluated`.
+Structured output: `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### decompile_type
 
@@ -316,7 +316,7 @@ Find types and members by name across loaded assemblies: a case-insensitive subs
 | `limit` | integer |  | `100` | Max results. |
 | `offset` | integer |  | `0` | Index of the first result. |
 
-Structured output: `items`, `offset`, `total`, `truncated`, `notEvaluated`.
+Structured output: `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### search_strings
 
@@ -333,7 +333,7 @@ Find string literals (ldstr and string constants) by substring, wildcard or rege
 | `offset` | integer |  | `0` | Index of the first result. |
 | `usesPerLiteral` | integer |  | `10` | Il2Cpp: max functions listed per literal. |
 
-Structured output: `items`, `offset`, `total`, `truncated`, `notEvaluated`.
+Structured output: `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### search_constants
 
@@ -348,7 +348,7 @@ Find a numeric constant (magic number, opcode id, flag, crypto constant) in IL l
 | `limit` | integer |  | `200` | Max results. |
 | `offset` | integer |  | `0` | Index of the first result. |
 
-Structured output: `value`, `items`, `offset`, `total`, `truncated`.
+Structured output: `value`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### search_il
 
@@ -363,7 +363,7 @@ Find methods containing an IL instruction sequence: elements separated by ';' or
 | `limit` | integer |  | `100` | Max matches. |
 | `offset` | integer |  | `0` | Index of the first match. |
 
-Structured output: `items`, `offset`, `total`, `truncated`.
+Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### find_references
 
@@ -380,7 +380,7 @@ Every usage of a symbol across loaded assemblies ('Used By'): a method's call si
 | `limit` | integer |  | `300` | Max results. |
 | `offset` | integer |  | `0` | Index of the first reference. |
 
-Structured output: `target`, `items`, `nativeCallSites`, `offset`, `total`, `truncated`.
+Structured output: `target`, `items`, `nativeCallSites`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### find_callees
 
@@ -396,7 +396,7 @@ What a method uses ('Uses'): calls, field reads / writes, types instantiated or 
 | `offset` | integer |  | `0` | Index of the first entry. |
 | `limit` | integer |  | `2000` | Max entries. |
 
-Structured output: `method`, `items`, `nativeLines`, `offset`, `total`, `truncated`.
+Structured output: `method`, `items`, `nativeLines`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### find_overrides
 
@@ -411,7 +411,7 @@ Methods overriding a virtual / abstract method or implementing an interface meth
 | `limit` | integer |  | `200` | Max results. |
 | `offset` | integer |  | `0` | Index of the first result. |
 
-Structured output: `method`, `items`, `offset`, `total`, `truncated`.
+Structured output: `method`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_call_tree
 
@@ -430,7 +430,7 @@ Multi-level callers or callees of a method across loaded assemblies; callers inc
 | `offset` | integer |  | `0` | Character offset from the truncation footer. |
 | `maxChars` | integer |  |  | Page size in characters (default ~60000). |
 
-Structured output: `root`, `direction`, `depth`, `items`, `total`, `truncated`.
+Structured output: `root`, `direction`, `depth`, `items`, `total`, `truncated`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### find_call_paths
 
@@ -447,7 +447,7 @@ How execution reaches a method: call chains from 'from' to 'to', or from entry p
 | `includeVirtual` | boolean |  | `true` | Follow virtual dispatch (native: RTTI virtual calls, resolved function pointers); false avoids chains through widely overridden methods. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 
-Structured output: `target`, `from`, `items`, `total`, `truncated`.
+Structured output: `target`, `from`, `items`, `total`, `truncated`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_resources
 
@@ -459,7 +459,7 @@ List manifest resources: embedded files, .resources containers (with entry count
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 
-Structured output: `assembly`, `items`, `total`, `truncated`.
+Structured output: `assembly`, `items`, `total`, `truncated`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_resource
 
@@ -530,7 +530,7 @@ First look at any file or loaded assembly, without executing it: hashes, type, e
 | `path` | string |  |  | Any file (assembly, bundle, .nupkg, .apk, zip, .asar, native executable); pass this or assembly. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
 
-Structured output: `file`, `container`, `assemblies`, `highlights`, `notes`, `nativeAot`, `nativeImage`, `packers`, `android`, `triage`, `electron`, `go`.
+Structured output: `file`, `container`, `assemblies`, `highlights`, `notes`, `nativeAot`, `nativeImage`, `packers`, `android`, `triage`, `electron`, `go`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### survey_features
 
@@ -545,7 +545,7 @@ Rule-based (capa-style) survey of the APIs an assembly calls, its P/Invokes and 
 | `category` | string |  |  | Only this category (network, injection, ...) or ATT&CK technique prefix (T1055). |
 | `image` | string |  |  | A loaded native image (instead of assembly). |
 
-Structured output: `assembly`, `methodsScanned`, `features`, `notes`.
+Structured output: `assembly`, `methodsScanned`, `features`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### extract_strings
 
@@ -562,7 +562,7 @@ Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mute
 | `format` | string |  |  | json (default) or csv (implied by a .csv savePath). Values: json, csv. |
 | `overwrite` | boolean |  | `false` | Replace savePath if it exists. |
 
-Structured output: `assembly`, `total`, `values`, `savedTo`, `notes`.
+Structured output: `assembly`, `total`, `values`, `savedTo`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### extract_embedded
 
@@ -580,7 +580,7 @@ Embedded content of an assembly (resources, static byte arrays, long string lite
 | `xorText` | boolean |  | `false` | Also recover 1-16 byte XOR keys over unreadable data, keeping clearly natural text or configuration (heuristic, slower). |
 | `includeMedia` | boolean |  | `false` | Also list and save images (else only counted). |
 
-Structured output: `assembly`, `contents`, `outputDirectory`, `notes`.
+Structured output: `assembly`, `contents`, `outputDirectory`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### search_container
 
@@ -595,7 +595,7 @@ Find types and members by name in every managed assembly inside a container (bun
 | `kind` | string |  |  | Restrict to this kind; omit for all (events included). Values: type, method, field, property. |
 | `limit` | integer |  | `200` | Max matches (max 5000). |
 
-Structured output: `source`, `container`, `assembliesSearched`, `matches`, `total`, `truncated`, `notes`.
+Structured output: `source`, `container`, `assembliesSearched`, `matches`, `total`, `truncated`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### unpack_container
 
@@ -609,7 +609,7 @@ Extract the .NET assemblies inside a container and load them: single-file bundle
 | `outputDirectory` | string |  |  | New or empty directory, or an earlier unpack of the same file; default under temp. |
 | `load` | boolean |  | `true` | Load the extracted assemblies (ids in loadedAs). |
 
-Structured output: `source`, `container`, `outputDirectory`, `files`, `notes`.
+Structured output: `source`, `container`, `outputDirectory`, `files`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### unity_overview
 
@@ -622,7 +622,7 @@ Overview of a Unity title in seconds, without loading it (listings, headers and 
 | `path` | string | yes |  | The title's folder, executable, *_Data folder, UnityPlayer.dll, GameAssembly.dll or global-metadata.dat; an extracted APK folder or a macOS / iOS .app. |
 | `detectItEasy` | boolean |  | `false` | Also run Detect It Easy (diec, CORVUS_DIE or PATH) on the main binaries; launches it, about a second per file. |
 
-Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`.
+Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ## edit
 
@@ -912,7 +912,7 @@ Overview of a native image. PE: machine, kind, subsystem, base, entry point, tim
 | `offset` | integer |  | `0` | Character offset from the truncation footer. |
 | `maxChars` | integer |  |  | Page size in characters (default ~60000). |
 
-Structured output: `image`, `path`, `machine`, `kind`, `format`, `subsystem`, `fileSize`, `sha256`, `imageBase`, `entryPoint`, `timestamp`, `dotNet`, `mitigationsOn`, `mitigationsOff`, `sections`, `importModules`, `importFunctions`, `delayImportModules`, `exports`, `tlsCallbacks`, `pdbPath`, `pdbGuid`, `pdbAge`, `signer`, `checksumMatches`, `overlaySize`, `issues`, `capabilities`, `code`.
+Structured output: `image`, `path`, `machine`, `kind`, `format`, `subsystem`, `fileSize`, `sha256`, `imageBase`, `entryPoint`, `timestamp`, `dotNet`, `mitigationsOn`, `mitigationsOff`, `sections`, `importModules`, `importFunctions`, `delayImportModules`, `exports`, `tlsCallbacks`, `pdbPath`, `pdbGuid`, `pdbAge`, `signer`, `checksumMatches`, `overlaySize`, `issues`, `capabilities`, `code`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_engine_status
 
@@ -925,7 +925,7 @@ IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `engine` | string |  |  | Default auto: both. Values: auto, ida, ghidra. |
 
-Structured output: `image`, `engines`.
+Structured output: `image`, `engines`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_imports
 
@@ -943,7 +943,7 @@ Functions a native image imports, per DLL or library (delay-loaded and lazy bind
 | `limit` | integer |  | `500` | Max rows. |
 | `includeDynamic` | boolean |  | `false` | Also list late-bound imports (waits for the code index). |
 
-Structured output: `image`, `items`, `offset`, `total`, `truncated`, `bindings`.
+Structured output: `image`, `items`, `offset`, `total`, `bindings`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_exports
 
@@ -958,7 +958,7 @@ A native image's exported functions and data: ordinal, VA, name (demangled C++ f
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `500` | Max rows. |
 
-Structured output: `image`, `items`, `offset`, `total`, `truncated`.
+Structured output: `image`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### resolve_address
 
@@ -972,7 +972,7 @@ What a native address is: RVA, VA, file offset, section and access, nearest expo
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
 
-Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `lines`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `more`.
+Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `lines`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `more`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### search_bytes
 
@@ -1016,7 +1016,7 @@ Exact number conversions instead of mental arithmetic: signed and unsigned decim
 | `numbers` | string[] | yes |  | Numbers to convert. |
 | `size` | integer |  |  | Width in bytes: 1, 2, 4 or 8 (default: the smallest that fits). |
 
-Structured output: `items`.
+Structured output: `items`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_functions
 
@@ -1040,7 +1040,7 @@ Functions of a native image (x86 / x64 / ARM): address, size, name (user, PDB, I
 | `descending` | boolean |  |  | Sort direction instead of the sort's default. |
 | `view` | string |  |  | functions (default), or candidates: IDA or Ghidra code in no function, most referenced first. Values: functions, candidates. |
 
-Structured output: `image`, `functions`, `items`, `offset`, `total`, `truncated`, `coverage`, `engine`, `engineNote`.
+Structured output: `image`, `functions`, `items`, `offset`, `total`, `coverage`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `resultId`.
 
 ### list_globals
 
@@ -1057,7 +1057,7 @@ Named data items of a native image outside code, from every name source (PDB wit
 | `limit` | integer |  | `300` | Max rows. |
 | `engine` | string |  |  | auto (default): a finished IDA / Ghidra analysis of this session, else ours (the built-in index); never starts one. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
-Structured output: `image`, `items`, `offset`, `total`, `truncated`, `engine`.
+Structured output: `image`, `items`, `offset`, `total`, `engine`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### disassemble
 
@@ -1090,7 +1090,7 @@ What is at an address of a native image, instruction by instruction: decoded, mi
 | `maxChars` | integer |  |  | Page size in characters (default ~60000). |
 | `engine` | string |  |  | auto (default): the built-in decoder for x86 / x64 / ARM, else IDA, else Ghidra. Values: auto, ours, ida, ghidra. |
 
-Structured output: `image`, `engine`, `engineNote`, `items`, `notes`.
+Structured output: `image`, `engine`, `engineNote`, `items`, `notes`, `code`, `offset`, `nextOffset`, `totalChars`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### search_instructions
 
@@ -1127,7 +1127,7 @@ Basic blocks of the native function containing an address: range, instruction co
 | `maxChars` | integer |  |  | Page size in characters (default ~60000). |
 | `engine` | string |  |  | auto (default): a finished IDA / Ghidra analysis of this session, else ours (the built-in index); never starts one. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
-Structured output: `image`, `function`, `address`, `engine`, `blocks`, `switches`, `unresolvedJumps`, `tailCalls`, `truncated`.
+Structured output: `image`, `function`, `address`, `engine`, `blocks`, `switches`, `unresolvedJumps`, `tailCalls`, `truncated`, `code`, `offset`, `nextOffset`, `totalChars`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### find_xrefs
 
@@ -1147,7 +1147,7 @@ What references a native address: calls (also via import slots and thunks), jump
 | `kind` | string |  |  | any (default); code: calls, jumps; data: reads, writes, pointers, address-taken. Values: any, code, data. |
 | `scope` | string |  |  | Struct member: typed (default) or all (every function; call again to continue). Values: typed, all. |
 
-Structured output: `image`, `target`, `items`, `offset`, `total`, `truncated`, `boundTo`, `engine`, `engineNote`.
+Structured output: `image`, `target`, `items`, `offset`, `total`, `boundTo`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### native_call_tree
 
@@ -1184,7 +1184,7 @@ Virtual call sites resolved through RTTI (MSVC or Itanium) or NativeAOT MethodTa
 | `sampleFunctions` | integer |  | `100` | Cross-check: functions to sample. |
 | `seconds` | integer |  | `300` | Cross-check: time budget in seconds. |
 
-Structured output: `image`, `sites`, `exact`, `possible`, `unresolved`, `edges`, `directEdges`, `rttiClasses`, `total`, `offset`, `truncated`, `items`, `crossCheck`, `notes`.
+Structured output: `image`, `sites`, `exact`, `possible`, `unresolved`, `edges`, `directEdges`, `rttiClasses`, `total`, `offset`, `items`, `crossCheck`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### search_native_strings
 
@@ -1201,7 +1201,7 @@ Strings (ASCII and UTF-16) a native image's code or data references, with addres
 | `limit` | integer |  | `300` | Max rows (default 300). |
 | `engine` | string |  |  | auto (default): a finished IDA / Ghidra analysis of this session, else ours (the built-in index); never starts one. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
-Structured output: `image`, `items`, `offset`, `total`, `truncated`, `notEvaluated`.
+Structured output: `image`, `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_call_arguments
 
@@ -1217,7 +1217,7 @@ Call sites of a native image (x86 / x64 / ARM) with their argument values, recov
 | `offset` | integer |  | `0` | Index of the first call site. |
 | `limit` | integer |  | `100` | Max call sites (max 1000). |
 
-Structured output: `image`, `scope`, `total`, `offset`, `calls`, `notes`.
+Structured output: `image`, `scope`, `total`, `offset`, `calls`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### trace_native_values
 
@@ -1242,7 +1242,7 @@ Traces a value through native code (x86 / x64 / ARM) across functions. Backward 
 | `limit` | integer |  | `200` | Nodes per page (max 1000). |
 | `engine` | string |  |  | Per-function slices: ours (built-in), ida or ghidra (that decompiler's IR, started when needed; built-in where it cannot place the seed), or auto (default: an engine whose analysis is complete in this session, else ours). Values: auto, ours, ida, ghidra. |
 
-Structured output: `image`, `engine`, `seed`, `direction`, `values`, `nodes`, `edges`, `frontier`, `totalNodes`, `totalEdges`, `functions`, `offset`, `truncated`, `notes`.
+Structured output: `image`, `engine`, `seed`, `direction`, `values`, `nodes`, `edges`, `frontier`, `totalNodes`, `totalEdges`, `functions`, `offset`, `truncated`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### resolve_call_targets
 
@@ -1262,7 +1262,7 @@ Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with 
 | `limit` | integer |  | `100` | Max sites (max 1000). |
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
 
-Structured output: `image`, `scope`, `engine`, `total`, `byStatus`, `byMechanism`, `topUnresolved`, `offset`, `truncated`, `items`, `notes`.
+Structured output: `image`, `scope`, `engine`, `total`, `byStatus`, `byMechanism`, `topUnresolved`, `offset`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### analyze_native_function
 
@@ -1282,7 +1282,7 @@ Everything known about one native function, in sections bounded by maxItems with
 | `offset` | integer |  | `0` | Character offset from the truncation footer. |
 | `maxChars` | integer |  |  | Page size in characters (default ~60000). |
 
-Structured output: `image`, `address`, `name`, `size`, `end`, `sections`, `next`, `batch`, `component`.
+Structured output: `image`, `address`, `name`, `size`, `end`, `sections`, `next`, `batch`, `component`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### trace_native_feature
 
@@ -1301,7 +1301,7 @@ Finds the native code behind a behaviour from a text or value: strings, function
 | `offset` | integer |  | `0` | Index of the first function. |
 | `limit` | integer |  | `50` | Functions per page (max 500). |
 
-Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `truncated`, `hubs`, `notes`.
+Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `truncated`, `hubs`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### find_similar_functions
 
@@ -1320,7 +1320,7 @@ Functions like a given one in a native image, ranked by score with evidence: ins
 | `offset` | integer |  | `0` | Items to skip. |
 | `limit` | integer |  | `20` | Items to return (max 500). |
 
-Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `truncated`, `matches`, `groups`, `notes`.
+Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `truncated`, `matches`, `groups`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_exception_info
 
@@ -1372,7 +1372,7 @@ A native type's layout (fields with offset, size and bit fields, bases, padding;
 | `engine` | string |  |  | Engine for source=engine (default auto). Values: auto, ida, ghidra. |
 | `read` | boolean |  | `false` | Add the field values at address (with name or id: that type read there). |
 
-Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `owner`, `ownerAddress`, `paths`, `offset`, `truncated`, `notes`, `readAddress`, `value`.
+Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `owner`, `ownerAddress`, `paths`, `offset`, `truncated`, `notes`, `readAddress`, `value`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### decompile_native
 
@@ -1395,7 +1395,7 @@ C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra.
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600; default CORVUS_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x. |
 | `callersOf` | string |  |  | Instead of address: decompile the functions calling this one (engine references). |
 
-Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`.
+Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`, `code`, `offset`, `nextOffset`, `totalChars`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### search_decompiled
 
@@ -1414,7 +1414,7 @@ Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pse
 | `cursor` | integer |  | `0` | From the previous result. |
 | `limit` | integer |  | `100` | Max hits (max 2000). |
 
-Structured output: `image`, `engine`, `pattern`, `hits`, `functions`, `from`, `searched`, `failed`, `cursor`, `stoppedBy`.
+Structured output: `image`, `engine`, `pattern`, `hits`, `functions`, `from`, `searched`, `failed`, `cursor`, `stoppedBy`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### emulate_native
 
@@ -1451,7 +1451,7 @@ Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports 
 | `limit` | integer |  | `500` | Max rows (max 5000). |
 | `platform` | string |  |  | Target platform (default auto). Values: auto, windows, linux, osx, android, ios. |
 
-Structured output: `assembly`, `declarations`, `counts`, `filter`, `offset`, `total`, `truncated`, `items`, `dynamicLoads`, `dynamicLoadsTotal`, `metadataIssues`, `notes`.
+Structured output: `assembly`, `declarations`, `counts`, `filter`, `offset`, `total`, `items`, `dynamicLoads`, `dynamicLoadsTotal`, `metadataIssues`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### load_pdb
 
@@ -1498,7 +1498,7 @@ What a NativeAOT image's own metadata recovers (.NET 7-10; PE, ELF, Mach-O). vie
 | `offset` | integer |  | `0` | First row for the list views; character offset for summary and type. |
 | `limit` | integer |  | `200` | Max rows for the list views. |
 
-Structured output: `image`, `view`, `summary`, `coverage`, `items`, `offset`, `total`, `truncated`.
+Structured output: `image`, `view`, `summary`, `coverage`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `resultId`.
 
 ## native-edit
 
@@ -1640,7 +1640,7 @@ Write the image's in-memory byte patches for other tools: ida an IDAPython scrip
 | `format` | string |  |  | Default json. Values: ida, dif, ips, ips32, json. |
 | `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
 
-Structured output: `image`, `outputPath`, `format`, `patches`, `relocationEdits`, `changedBytes`, `records`, `checksumUpdated`, `bytes`, `originalSha256`, `notes`.
+Structured output: `image`, `outputPath`, `format`, `patches`, `relocationEdits`, `changedBytes`, `records`, `checksumUpdated`, `bytes`, `originalSha256`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ## builds
 
@@ -1665,7 +1665,7 @@ Compare two builds of an assembly (load both; the second gets an id like Name#2)
 | `offset` | integer |  | `0` | Character offset from the truncation footer. |
 | `maxChars` | integer |  |  | Page size in characters (default ~60000). |
 
-Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `total`, `truncated`, `tokenMapFile`, `tokenMapEntries`.
+Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `total`, `truncated`, `tokenMapFile`, `tokenMapEntries`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### find_counterpart
 
@@ -1698,7 +1698,7 @@ Two folders, zip-family archives (by central-directory CRC) or files, per entry:
 | `offset` | integer |  | `0` |  |
 | `limit` | integer |  | `100` |  |
 
-Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `truncated`, `entries`, `notes`, `seconds`.
+Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `truncated`, `entries`, `notes`, `seconds`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### compare_native_images
 
@@ -1717,7 +1717,7 @@ Match the functions of two builds of one native image (x86 / x64 / ARM64). Tiers
 | `offset` | integer |  | `0` | Items to skip. |
 | `limit` | integer |  | `100` | Items to return (max 2000). |
 
-Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `offset`, `total`, `truncated`, `pairs`, `unmatched`, `ambiguousFunctions`, `notes`.
+Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `offset`, `total`, `truncated`, `pairs`, `unmatched`, `ambiguousFunctions`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### diff_function
 
@@ -1737,7 +1737,7 @@ What changed in one function between two builds (paired through compare_native_i
 | `useNames` | boolean |  | `true` | Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only. |
 | `engine` | string |  |  | view=pseudocode: auto (default): a finished IDA / Ghidra analysis of this session, else ours (the built-in index); never starts one. ida / ghidra: that engine, started when needed. Values: auto, ida, ghidra. |
 
-Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `rows`, `unified`, `candidates`, `truncated`, `notes`.
+Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `rows`, `unified`, `candidates`, `truncated`, `notes`, `code`, `offset`, `nextOffset`, `totalChars`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### map_address_between_builds
 
@@ -1752,7 +1752,7 @@ Where an address of the old build is in the new build: a function start to the m
 | `address` | string | yes |  | Address in the old build: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `useNames` | boolean |  | `true` | Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only. |
 
-Structured output: `oldImage`, `newImage`, `oldAddress`, `newAddress`, `confidence`, `reason`, `detail`, `oldFunction`, `newFunction`, `tier`, `candidates`.
+Structured output: `oldImage`, `newImage`, `oldAddress`, `newAddress`, `confidence`, `reason`, `detail`, `oldFunction`, `newFunction`, `tier`, `candidates`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### make_code_pattern
 
@@ -1771,7 +1771,7 @@ A byte pattern for an address that survives rebuilds: instruction bytes with dis
 | `format` | string |  |  | Syntax: ida (default), x64dbg, mask (\x48\x00 x?) or bitmask (0x48, 0x00 0b01). Values: ida, x64dbg, mask, bitmask. |
 | `end` | string |  |  | anchor=range: exclusive end, an address or +length. |
 
-Structured output: `image`, `address`, `pattern`, `length`, `fixedBytes`, `unique`, `hits`, `anchor`, `patternAddress`, `referenceOffset`, `operandOffset`, `operandSize`, `operandKind`, `instructionEnd`, `note`, `references`, `engine`.
+Structured output: `image`, `address`, `pattern`, `length`, `fixedBytes`, `unique`, `hits`, `anchor`, `patternAddress`, `referenceOffset`, `operandOffset`, `operandSize`, `operandKind`, `instructionEnd`, `note`, `references`, `engine`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### search_code_pattern
 
@@ -1786,7 +1786,7 @@ Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the ex
 | `allSections` | boolean |  | `false` | Search every section, not only executable ones. |
 | `limit` | integer |  | `200` | Max hits (max 5000). |
 
-Structured output: `pattern`, `length`, `images`, `total`, `truncated`, `hits`, `notes`.
+Structured output: `pattern`, `length`, `images`, `total`, `truncated`, `hits`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### migrate_native_names
 
@@ -1807,7 +1807,7 @@ Copy names and comments from the old build to the new build's user annotations t
 | `offset` | integer |  | `0` | Entries to skip in the report. |
 | `limit` | integer |  | `200` | Entries to return (max 5000). |
 
-Structured output: `oldImage`, `newImage`, `dryRun`, `considered`, `set`, `skipped`, `skippedBy`, `offset`, `total`, `truncated`, `entries`, `notes`.
+Structured output: `oldImage`, `newImage`, `dryRun`, `considered`, `set`, `skipped`, `skippedBy`, `offset`, `total`, `truncated`, `entries`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### migrate_native_patches
 
@@ -1825,7 +1825,7 @@ Carry byte patches from an old build to a new one through the build matcher (com
 | `offset` | integer |  | `0` | Entries to skip in the report. |
 | `limit` | integer |  | `200` | Entries to return (max 5000). |
 
-Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `patches`, `applied`, `wouldApply`, `refused`, `refusedBy`, `offset`, `total`, `truncated`, `entries`, `notes`.
+Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `patches`, `applied`, `wouldApply`, `refused`, `refusedBy`, `offset`, `total`, `truncated`, `entries`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### update_to_new_build
 
@@ -1850,7 +1850,7 @@ Carry work on an old build of a native image (x86 / x64 / ARM64) to its new buil
 | `offset` | integer |  | `0` | Items to skip. |
 | `limit` | integer |  | `100` | Items to return (max 2000). |
 
-Structured output: `summary`, `oldImage`, `newImage`, `dryRun`, `included`, `oldFunctions`, `newFunctions`, `functionsMatched`, `categories`, `il2CppMapping`, `category`, `outcome`, `offset`, `total`, `truncated`, `items`, `notes`.
+Structured output: `summary`, `oldImage`, `newImage`, `dryRun`, `included`, `oldFunctions`, `newFunctions`, `functionsMatched`, `categories`, `il2CppMapping`, `category`, `outcome`, `offset`, `total`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ## notes
 
@@ -1871,7 +1871,7 @@ Record a finding, question, hypothesis or todo anchored to a native address, a .
 | `tags` | string |  |  | Comma-separated tags (at most 10). |
 | `evidence` | string |  |  | Where it was seen, ';'-separated (at most 10), e.g. a tool call. |
 
-Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
+Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### update_note
 
@@ -1891,7 +1891,7 @@ Change a note in part: status, kind, text, tags, evidence. A note changed since 
 | `removeTags` | string |  |  | Comma-separated tags to remove. |
 | `addEvidence` | string |  |  | ';'-separated evidence entries to add. |
 
-Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
+Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_notes
 
@@ -1909,7 +1909,7 @@ Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists 
 | `offset` | integer |  | `0` | Notes to skip. |
 | `limit` | integer |  | `50` | Notes to return (max 500). |
 
-Structured output: `items`, `offset`, `total`, `truncated`, `notes`.
+Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ## engine
 
@@ -2106,7 +2106,7 @@ Write a native image's engine database (analysis plus names, comments and types 
 | `force` | boolean |  | `false` | Replace outputPath if it exists. |
 | `engine` | string |  |  | Default: the extension's engine, else IDA. Values: auto, ida, ghidra. |
 
-Structured output: `image`, `engine`, `path`, `bytes`, `note`.
+Structured output: `image`, `engine`, `path`, `bytes`, `note`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ## android
 
@@ -2122,7 +2122,7 @@ AndroidManifest.xml of an Android package, decoded: package, versions, SDKs; use
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab (base module) or split set (.apks, .xapk, .apkm). |
 
-Structured output: `package`, `versionCode`, `versionName`, `minSdk`, `targetSdk`, `maxSdk`, `compileSdk`, `split`, `permissions`, `declaredPermissions`, `application`, `components`, `queries`, `features`, `libraries`, `metaData`, `highlights`, `issues`.
+Structured output: `package`, `versionCode`, `versionName`, `minSdk`, `targetSdk`, `maxSdk`, `compileSdk`, `split`, `permissions`, `declaredPermissions`, `application`, `components`, `queries`, `features`, `libraries`, `metaData`, `highlights`, `issues`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_android_resources
 
@@ -2139,7 +2139,7 @@ Compiled resources of an Android package (resources.arsc or a bundle's resources
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `500` | Most rows to return. |
 
-Structured output: `items`, `offset`, `total`, `truncated`, `types`.
+Structured output: `items`, `offset`, `total`, `types`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_android_resource
 
@@ -2170,7 +2170,7 @@ Classes defined in the DEX code of an Android package (every classes*.dex): desc
 | `offset` | integer |  | `0` | Classes to skip. |
 | `limit` | integer |  | `500` | Most classes to return. |
 
-Structured output: `items`, `offset`, `total`, `truncated`, `notes`.
+Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_dex_class
 
@@ -2183,7 +2183,7 @@ One DEX class in full: superclass, interfaces, generic signature, enclosing and 
 | `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex, or a jar / zip with classes*.dex. |
 | `class` | string | yes |  | Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner. |
 
-Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`.
+Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`, `code`, `offset`, `nextOffset`, `totalChars`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### disassemble_dex
 
@@ -2228,7 +2228,7 @@ Search the DEX code of an Android package. kind=string: string literals with the
 | `offset` | integer |  | `0` | Hits to skip. |
 | `limit` | integer |  | `200` | Most hits to return. |
 
-Structured output: `items`, `offset`, `total`, `truncated`, `notes`.
+Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### find_dex_references
 
@@ -2245,7 +2245,7 @@ Cross-references in DEX code with the method and code offset of each instruction
 | `offset` | integer |  | `0` | References to skip. |
 | `limit` | integer |  | `500` | Most references to return. |
 
-Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `total`, `truncated`, `notes`.
+Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### map_java_dotnet
 
@@ -2258,7 +2258,7 @@ The other side of a Java / .NET bridge, ready for decompile_member or get_dex_cl
 | `symbol` | string | yes |  | A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->m(I)V), or a .NET type or member. |
 | `path` | string |  |  | The .apk / .aab whose assemblies to read without loading; optional when they are loaded. |
 
-Structured output: `query`, `direction`, `items`, `notes`.
+Structured output: `query`, `direction`, `items`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_jni_bindings
 
@@ -2275,7 +2275,7 @@ Java native methods of an Android package paired with their code in lib/<abi>/*.
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Most rows. |
 
-Structured output: `items`, `offset`, `total`, `truncated`, `libraries`, `notes`.
+Structured output: `items`, `offset`, `total`, `libraries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_android_devices
 
@@ -2285,7 +2285,7 @@ Android devices and emulators adb sees: serial, state, product, model, transport
 
 No parameters.
 
-Structured output: `items`, `unparsed`.
+Structured output: `items`, `unparsed`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_android_device_info
 
@@ -2300,7 +2300,7 @@ A device's properties (getprop), paged and filterable, with a summary: SDK, rele
 | `offset` | integer |  | `0` | Properties to skip. |
 | `limit` | integer |  | `200` | Most properties to return. |
 
-Structured output: `serial`, `summary`, `properties`, `offset`, `total`, `truncated`.
+Structured output: `serial`, `summary`, `properties`, `offset`, `total`, `truncated`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### list_android_packages
 
@@ -2316,7 +2316,7 @@ Packages installed on a device (pm list packages -f -U -i): name, APK path, uid 
 | `offset` | integer |  | `0` | Packages to skip. |
 | `limit` | integer |  | `500` | Most packages to return. |
 
-Structured output: `serial`, `items`, `offset`, `total`, `truncated`.
+Structured output: `serial`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### get_android_package_info
 
@@ -2329,7 +2329,7 @@ One installed package (dumpsys package): versions, SDKs, paths, ABI, flags, inst
 | `package` | string | yes |  | Package name, e.g. com.example.app. |
 | `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
 
-Structured output: `serial`, `package`, `versionName`, `versionCode`, `minSdk`, `targetSdk`, `codePath`, `dataDir`, `primaryCpuAbi`, `flags`, `firstInstallTime`, `lastUpdateTime`, `installer`, `uid`, `permissions`, `users`.
+Structured output: `serial`, `package`, `versionName`, `versionCode`, `minSdk`, `targetSdk`, `codePath`, `dataDir`, `primaryCpuAbi`, `flags`, `firstInstallTime`, `lastUpdateTime`, `installer`, `uid`, `permissions`, `users`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### pull_android_package
 
@@ -2343,7 +2343,7 @@ Copies every APK of an installed package (base and splits) into a new or empty d
 | `outputDirectory` | string | yes |  | A new or empty directory to write the APKs to. |
 | `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
 
-Structured output: `serial`, `package`, `files`, `summary`.
+Structured output: `serial`, `package`, `files`, `summary`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### pull_android_file
 
@@ -2358,7 +2358,7 @@ Copies one file from a device (directories are refused) to outputPath, with its 
 | `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
 | `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
 
-Structured output: `remote`, `local`, `size`, `sha256`.
+Structured output: `remote`, `local`, `size`, `sha256`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### read_android_log
 
@@ -2422,7 +2422,7 @@ Summary of a Windows minidump (.dmp): OS, CPU, process; the exception (code, fau
 | `dacPath` | string |  |  | The dumped runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that runtime build is not installed here. |
 | `downloadDac` | boolean |  | `false` | Download the DAC from a symbol server when no local copy matches (network; refused under CORVUS_OFFLINE=1). |
 
-Structured output: `id`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `moduleCount`, `modulesOffset`, `modulesTruncated`, `modules`, `threadCount`, `threadsOffset`, `threadsTruncated`, `threads`, `unloadedModuleCount`, `unloadedModules`, `memory`, `handleCount`, `handleTypes`, `streams`, `comments`, `issues`, `notes`.
+Structured output: `id`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `moduleCount`, `modulesOffset`, `modulesTruncated`, `modules`, `threadCount`, `threadsOffset`, `threadsTruncated`, `threads`, `unloadedModuleCount`, `unloadedModules`, `memory`, `handleCount`, `handleTypes`, `streams`, `comments`, `issues`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### dump_stack
 
@@ -2441,7 +2441,7 @@ Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP c
 | `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; kept for later calls on the dump. The dump's folder is always searched. |
 | `managed` | string |  | `auto` | auto: .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only. Values: auto, off. |
 
-Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `truncated`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`.
+Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `truncated`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### dump_heap
 
@@ -2459,7 +2459,7 @@ The .NET GC heap of a minidump (through the DAC). stats: count and size per type
 | `limit` | integer |  | `50` | Max rows returned (up to 1000). |
 | `maxObjects` | integer |  | `5000000` | Max objects walked. |
 
-Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `walkStopped`, `total`, `offset`, `truncated`, `matchedBytes`, `types`, `objects`, `notes`.
+Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `walkStopped`, `total`, `offset`, `truncated`, `matchedBytes`, `types`, `objects`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### dump_object
 
@@ -2475,7 +2475,7 @@ One .NET object of a minidump (through the DAC): type, size, fields (references 
 | `maxFields` | integer |  | `100` | Max fields listed, nested ones included. |
 | `maxArrayItems` | integer |  | `32` | Max array elements listed. |
 
-Structured output: `dump`, `address`, `type`, `size`, `assembly`, `token`, `buildCheck`, `value`, `length`, `fields`, `truncated`, `notes`.
+Structured output: `dump`, `address`, `type`, `size`, `assembly`, `token`, `buildCheck`, `value`, `length`, `fields`, `truncated`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### read_dump_memory
 
@@ -2490,7 +2490,7 @@ Hex dump of a dump's memory at an address, with what is there (module!function, 
 | `length` | integer |  | `256` | Bytes to read (up to 65536). |
 | `imageFallback` | boolean |  | `true` | Read bytes the dump does not hold from the module image. |
 
-Structured output: `dump`, `address`, `requested`, `length`, `source`, `location`, `region`, `protection`, `hex`, `bytes`, `note`.
+Structured output: `dump`, `address`, `requested`, `length`, `source`, `location`, `region`, `protection`, `hex`, `bytes`, `note`, `code`, `offset`, `nextOffset`, `totalChars`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### symbolize_stack_text
 
@@ -2508,7 +2508,7 @@ Resolves crash text against the loaded build: Unity Player.log / error.log backt
 | `offset` | integer |  | `0` | First frame returned. |
 | `limit` | integer |  | `200` | Max frames returned. |
 
-Structured output: `format`, `exception`, `total`, `offset`, `truncated`, `frames`, `unrecognizedLines`, `unrecognizedSample`, `modulesMissing`, `notes`.
+Structured output: `format`, `exception`, `total`, `offset`, `truncated`, `frames`, `unrecognizedLines`, `unrecognizedSample`, `modulesMissing`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ### bucket_minidumps
 
@@ -2530,7 +2530,7 @@ Groups a folder of minidumps by signature: exception code | faulting module!func
 | `offset` | integer |  | `0` | First bucket returned. |
 | `limit` | integer |  | `50` | Max buckets returned. |
 
-Structured output: `folder`, `dumps`, `total`, `offset`, `truncated`, `buckets`, `failed`, `notes`.
+Structured output: `folder`, `dumps`, `total`, `offset`, `truncated`, `buckets`, `failed`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.
 
 ## live
 
@@ -2558,4 +2558,4 @@ A running local process (Windows), as open_minidump / dump_stack show a dump: mo
 | `imageDirectories` | string |  |  | Folders with the program's binaries (';'-separated) for modules whose own file is not readable. |
 | `timeoutSeconds` | integer |  | `20` | Time limit in seconds (up to 120). |
 
-Structured output: `processId`, `name`, `path`, `architecture`, `wow64`, `startTimeUtc`, `runtime`, `access`, `moduleCount`, `modulesOffset`, `modulesTruncated`, `modules`, `regionCount`, `regionsTotal`, `regionFilter`, `regionsOffset`, `regionsTruncated`, `regions`, `threadCount`, `threadsOffset`, `threadsTruncated`, `threads`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `elapsedMs`, `notes`.
+Structured output: `processId`, `name`, `path`, `architecture`, `wow64`, `startTimeUtc`, `runtime`, `access`, `moduleCount`, `modulesOffset`, `modulesTruncated`, `modules`, `regionCount`, `regionsTotal`, `regionFilter`, `regionsOffset`, `regionsTruncated`, `regions`, `threadCount`, `threadsOffset`, `threadsTruncated`, `threads`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `notes`, `notices`, `warnings`, `coverage`, `resultId`.

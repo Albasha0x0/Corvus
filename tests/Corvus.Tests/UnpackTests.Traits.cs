@@ -240,15 +240,15 @@ public partial class UnpackTests
         var merged = Save("IlMerged.dll", IlMerged());
         await using var client = await McpProtocolTests.StartServerAsync("--no-index", "--load", fx.ReadyToRunDll, "--load", Env.FixturePath, "--load", merged);
 
-        // No path: the workspace, with a null container (nulls are emitted; the schema marks every property required).
+        // No path: the workspace, without a container (nulls are omitted).
         var stateResult = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?>());
         await McpProtocolTests.AssertMatchesOutputSchema(client, "list_assemblies", stateResult);
         var state = Structured(stateResult);
-        Assert.Equal(JsonValueKind.Null, Prop(state, "container").ValueKind);
+        Assert.False(state.TryGetProperty("container", out _));
         var byId = Prop(state, "assemblies").EnumerateArray().ToDictionary(a => Prop(a, "id").GetString()!);
         Assert.True(Prop(byId["Hello"], "readyToRun").GetBoolean());
         Assert.False(Prop(byId["TestFixture"], "readyToRun").GetBoolean());
-        Assert.Equal(JsonValueKind.Null, Prop(byId["TestFixture"], "merged").ValueKind);
+        Assert.False(byId["TestFixture"].TryGetProperty("merged", out _));
         Assert.StartsWith("Merged assembly (ILMerge-style)", Prop(byId["IlMerged"], "merged").GetString());
 
         // A container path lists its assemblies without loading them.

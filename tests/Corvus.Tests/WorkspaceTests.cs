@@ -110,7 +110,7 @@ public class WorkspaceTests
         var pager = new OutputPager(new ServerOptions { MaxOutputChars = 2_000 });
         var text = string.Join("\n", Enumerable.Range(0, 500).Select(i => $"line {i:D4}"));
         var first = pager.Page(text);
-        Assert.Contains("Call again with offset=", first);
+        Assert.Contains("\n[More: offset=", first);
         int next = int.Parse(System.Text.RegularExpressions.Regex.Match(first, @"offset=(\d+)").Groups[1].Value);
         Assert.Equal('\n', text[next - 1]);
         Assert.StartsWith($"[Continuing from offset {next}]", pager.Page(text, next));

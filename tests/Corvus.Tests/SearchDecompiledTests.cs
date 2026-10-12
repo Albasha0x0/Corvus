@@ -52,7 +52,7 @@ public sealed class SearchDecompiledTests : IDisposable
     public async Task Hits_come_in_address_order_with_line_numbers()
     {
         var (tools, engine, native) = Setup(Forty);
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await tools.SearchDecompiled(native.Id, "memcpy\\(");
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
         Assert.Equal(39, report.Functions); // the thunk is left out
@@ -73,7 +73,7 @@ public sealed class SearchDecompiledTests : IDisposable
     public async Task The_filter_narrows_the_scope_and_exact_case_is_inline()
     {
         var (tools, _, native) = Setup(Forty);
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         await tools.SearchDecompiled(native.Id, "(?-i)MemCpy", filter: "/^f_[0-9]$/");
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
         Assert.Equal(10, report.Functions);
@@ -89,7 +89,7 @@ public sealed class SearchDecompiledTests : IDisposable
         int calls = 0;
         while (cursor is { } c)
         {
-            var collector = StructuredOutput.Begin();
+            var collector = ToolOutput.Collect();
             var text = await tools.SearchDecompiled(native.Id, "memcpy", cursor: c, limit: 4);
             var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
             Assert.True(report.Hits.Count <= 5, text); // the last function's hits are kept whole
@@ -102,7 +102,7 @@ public sealed class SearchDecompiledTests : IDisposable
             cursor = report.Cursor;
             Assert.True(++calls < 20);
         }
-        var collectorAll = StructuredOutput.Begin();
+        var collectorAll = ToolOutput.Collect();
         await tools.SearchDecompiled(native.Id, "memcpy");
         var whole = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collectorAll.Value);
         Assert.Equal(whole.Hits, all);
@@ -116,12 +116,12 @@ public sealed class SearchDecompiledTests : IDisposable
             Forty(e);
             e.Slow[0x1000 + 30 * 0x10] = 5;
         });
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         await tools.SearchDecompiled(native.Id, "memcpy", maxFunctions: 10);
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
         Assert.Equal((10, 10, "functions"), (report.Searched, report.Cursor!.Value, report.StoppedBy));
 
-        collector = StructuredOutput.Begin();
+        collector = ToolOutput.Collect();
         var text = await tools.SearchDecompiled(native.Id, "memcpy", cursor: 10, seconds: 1);
         report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
         Assert.Equal("time", report.StoppedBy);

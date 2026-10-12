@@ -158,7 +158,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         sb.AppendLine($"{native.Id} ({Path.GetFileName(s.Path)}): {Plural(matches.Count, "symbol")} (showing {(fit == 0 ? 0 : offset + 1)}-{offset + fit}):");
         foreach (var line in lines.Take(fit)) sb.AppendLine(line);
         if (fit < lines.Count) sb.AppendLine(OutputPager.CapNote(fit, lines.Count, offset + fit));
-        else if (offset + page.Count < matches.Count) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+        else if (offset + page.Count < matches.Count) sb.AppendLine($"[More: offset={offset + page.Count}]");
         return pager.Page(sb.ToString());
     }, cancellationToken);
 

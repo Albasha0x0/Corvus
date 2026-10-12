@@ -66,7 +66,7 @@ public class EditHistoryTests : IDisposable
         Assert.False(complete);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(first, "^--- ", System.Text.RegularExpressions.RegexOptions.Multiline));
         Assert.StartsWith(first, whole);
-        Assert.Contains("of 3000+. Call again with offset=", new OutputPager(new ServerOptions()).Page(new string('x', 3_000), 0, 1_000, complete: false));
+        Assert.Matches(@"\[More: offset=\d+\] \(chars 0-\d+ of 3000\+\)$", new OutputPager(new ServerOptions()).Page(string.Concat(Enumerable.Repeat("a, ", 1_000)), 0, 500, complete: false));
         Assert.Equal((whole, true), _env.Workspace.Read(() => _env.History.Diff(_env.Fixture, null, whole.Length, default)));
     }
 

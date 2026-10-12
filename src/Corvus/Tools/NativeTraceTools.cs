@@ -395,7 +395,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         }
         foreach (var note in r.Notes) sb.AppendLine("Note: " + note);
         if (index.Truncations.Count > 0) sb.AppendLine("Note: " + string.Join("; ", index.Truncations));
-        if (r.Truncated) sb.AppendLine($"[More nodes: call again with offset={r.Offset + r.Nodes.Count}]");
+        if (r.Truncated) sb.AppendLine($"[More: offset={r.Offset + r.Nodes.Count}]");
         sb.AppendLine("Derivations and edges are in the structured output.");
         return sb.ToString();
     }

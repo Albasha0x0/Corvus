@@ -55,7 +55,7 @@ public class IncompleteResultTests
         using var h = new NativeToolHarness();
 
         Assert.Contains(Slow, await h.CodeTools.SearchNativeStrings(path, "aaaZ"));
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await h.CodeTools.SearchNativeStrings(path, Catastrophic, regex: true);
         Assert.StartsWith("Incomplete: the regex timed out on 1 string", text);
         var list = Assert.IsType<NativeStringList>(collector.Value);
@@ -93,12 +93,12 @@ public class IncompleteResultTests
             using var env = new Env(path);
             var search = new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings, env.Pager);
 
-            var collector = StructuredOutput.Begin();
+            var collector = ToolOutput.Collect();
             var strings = await search.SearchStrings(Catastrophic, regex: true);
             Assert.StartsWith("Incomplete: the regex timed out on 1 string", strings);
             Assert.Equal(1, Assert.IsType<StringList>(collector.Value).NotEvaluated);
 
-            collector = StructuredOutput.Begin();
+            collector = ToolOutput.Collect();
             var symbols = await search.SearchSymbols(Catastrophic, kind: "type", regex: true);
             Assert.StartsWith("Incomplete: the regex timed out on ", symbols);
             Assert.True(Assert.IsType<SymbolList>(collector.Value).NotEvaluated > 0);

@@ -269,14 +269,14 @@ public sealed class Il2CppStringTests : IDisposable
               "hello \u0001world"
                   Il2Cpp literal, slot RVA 0x3000; loaded by 2 functions:
                   in Fixture.Native.NativeThing::First()  RVA 0x1000  [TestFixture] 0x
-            """.Replace("\r\n", "\n").Replace("\n", Environment.NewLine), text);
+            """.Replace("\r\n", "\n"), text);
         Assert.Contains("in Fixture.Native.NativeThing::Second()  RVA 0x1100  [TestFixture]", text);
         Assert.Contains("""
               "other hello"
                   Il2Cpp literal, slot RVA 0x3010; loaded by 1 function:
                   in function at RVA 0x1300 (no method name in the dump)
-            """.Replace("\r\n", "\n").Replace("\n", Environment.NewLine), text);
-        Assert.Contains("\"unused hello\"" + Environment.NewLine + "      Il2Cpp literal, slot RVA 0x3018; no code loads it", text);
+            """.Replace("\r\n", "\n"), text);
+        Assert.Contains("\"unused hello\"\n      Il2Cpp literal, slot RVA 0x3018; no code loads it", text);
 
         var quote = await search.SearchStrings("say*");
         Assert.Contains("in Fixture.Native.NativeThing::First()  RVA 0x1000  [TestFixture]", quote);
@@ -288,7 +288,7 @@ public sealed class Il2CppStringTests : IDisposable
         Assert.Contains("\"other hello\"", page);
         Assert.DoesNotContain("\"hello", page);
         Assert.Contains("… 1 more functions", page);
-        Assert.Contains("[More: call again with offset=2]", page);
+        Assert.Contains("[More: offset=2]", page);
 
         // The method's literals, and a literal slot address.
         var info = await il2cpp.GetIl2CppInfo("Fixture.Native.NativeThing::First");
@@ -310,7 +310,7 @@ public sealed class Il2CppStringTests : IDisposable
         var (search, il2cpp, _) = Tools(env);
         var text = await search.SearchStrings("hello");
         Assert.Contains("code references unknown: no game binary next to the dump", text);
-        Assert.Contains("Il2Cpp literal, slot RVA 0x3000" + Environment.NewLine, text);
+        Assert.Contains("Il2Cpp literal, slot RVA 0x3000\n", text);
         Assert.Contains("string literals: unknown (no game binary next to the dump)", await il2cpp.GetIl2CppInfo("Fixture.Native.NativeThing::First"));
     }
 

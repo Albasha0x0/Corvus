@@ -206,11 +206,12 @@ public class ErrorContractTests
         Assert.Empty(McpProtocolTests.ErrorShapeProblems(error));
         Assert.NotNull(ErrorResult.JsonOf(error));
 
-        // A success keeps its notice in front.
+        // A success keeps its own text first and the notice last.
         workspace.Notify("reloaded app.dll");
         var ok = await CallFilter.Run(new CallToolRequestParams { Name = "get_type_info" }, null, services,
             _ => ValueTask.FromResult(new CallToolResult { Content = [new TextContentBlock { Text = "class X" }] }), default);
-        Assert.StartsWith("[workspace] reloaded app.dll", ((TextContentBlock)ok.Content[0]).Text);
+        Assert.StartsWith("class X", ((TextContentBlock)ok.Content[0]).Text);
+        Assert.StartsWith("[workspace] reloaded app.dll", ((TextContentBlock)ok.Content[^1]).Text);
     }
 
     [Fact]

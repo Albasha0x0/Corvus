@@ -50,7 +50,7 @@ public sealed class FormatLoadTests
     public async Task GetPeInfo_DescribesElfAndMachO()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
-        var collector = Mcp.StructuredOutput.Begin();
+        var collector = Mcp.ToolOutput.Collect();
         var elf = await h.Native.GetPeInfo(NativeFixtures.LinuxArm64DbgShim);
         var t = Text(elf);
         Assert.Contains("soname libdbgshim.so", t);
@@ -80,7 +80,7 @@ public sealed class FormatLoadTests
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var elf = (ElfFile)NativeImageLoader.Open(NativeFixtures.LinuxArm64DbgShim);
-        var collector = Mcp.StructuredOutput.Begin();
+        var collector = Mcp.ToolOutput.Collect();
         var imports = await h.Native.ListImports(NativeFixtures.LinuxArm64DbgShim, limit: 5000);
         var list = Assert.IsType<ImportList>(collector.Value);
         Assert.Equal(elf.Imports.Count, list.Total);

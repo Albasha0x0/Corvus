@@ -35,7 +35,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
                                    (offset >= r.Total ? $" (none from offset {offset})" : offset > 0 ? $" (showing {offset + 1}-{offset + page.Count})" : TruncationNote(page.Count, r.Total)) + ":\n");
         foreach (var s in page)
             sb.AppendLine($"  {s.Kind,-8} {s.Label}  [{s.Assembly.Id}] {Format.Token(s.Member)}");
-        if (offset > 0 && result.Truncated) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+        if (offset > 0 && result.Truncated) sb.AppendLine($"[More: offset={offset + page.Count}]");
         return StructuredOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
 
@@ -85,7 +85,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
                 l.Uses?.SelectMany(u => u.Methods.Count > 0 ? u.Methods.Take(3).Select(m => Format.MemberLabel(m.Method)) : [$"RVA 0x{u.Function:X}"])
                     .Take(Math.Max(0, usesPerLiteral)).ToList()));
         }
-        if (offset + shown < total) sb.AppendLine($"[More: call again with offset={offset + shown}]");
+        if (offset + shown < total) sb.AppendLine($"[More: offset={offset + shown}]");
         sb.Append(SkippedBodiesNote(scope));
         return StructuredOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
@@ -141,7 +141,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
                                    (offset >= r.Total ? $" (none from offset {offset})" : offset > 0 ? $" (showing {offset + 1}-{offset + page.Count})" : TruncationNote(page.Count, r.Total)) + ":\n");
         foreach (var h in page)
             sb.AppendLine($"  {Format.MemberLabel(h.Owner)}{(h.ILOffset is { } o ? $" @IL_{o:X4}" : "")}  {h.Kind} {h.Value}  [{h.Assembly.Id}] {Format.Token(h.Owner)}");
-        if (offset > 0 && result.Truncated) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+        if (offset > 0 && result.Truncated) sb.AppendLine($"[More: offset={offset + page.Count}]");
         sb.Append(SkippedBodiesNote(scope));
         return StructuredOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
@@ -172,7 +172,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
             foreach (var line in m.Instructions.Take(24)) sb.AppendLine("      " + line);
             if (m.Instructions.Count > 24) sb.AppendLine($"      … {m.Instructions.Count - 24} more instructions");
         }
-        if (offset > 0 && result.Truncated) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+        if (offset > 0 && result.Truncated) sb.AppendLine($"[More: offset={offset + page.Count}]");
         sb.Append(SkippedBodiesNote(scope));
         return StructuredOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);

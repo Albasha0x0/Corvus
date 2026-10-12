@@ -21,7 +21,7 @@ public sealed class PeInfoCodeTests : IDisposable
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
         var tools = new NativeTools(workspace, new OutputPager(options), code);
         var path = McpProtocolTests.NativeSample(_dir);
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var before = await tools.GetPeInfo(path);
         var beforeRecord = System.Text.Json.JsonSerializer.Serialize(collector.Value);
         Assert.Contains("Capabilities (from static imports):", before);
@@ -30,7 +30,7 @@ public sealed class PeInfoCodeTests : IDisposable
 
         var native = workspace.Read(() => workspace.Natives[0]);
         await code.Index(native, null, default);
-        collector = StructuredOutput.Begin();
+        collector = ToolOutput.Collect();
         Assert.Equal(before, await tools.GetPeInfo(native.Id));
         Assert.Equal(beforeRecord, System.Text.Json.JsonSerializer.Serialize(collector.Value));
     }

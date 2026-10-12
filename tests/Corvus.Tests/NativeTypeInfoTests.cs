@@ -36,7 +36,7 @@ public sealed class NativeTypeInfoTests : IDisposable
     private async Task<(string Text, NativeTypeInfoTools.NativeTypeReport Report)> Get(string? name = null, string? id = null, string? address = null, string? at = null,
         int depth = 0, string? format = null, int offset = 0, int limit = 200, string? source = null)
     {
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await _tools.GetNativeType(_image, name, id, address, at, depth, source, format, offset, limit);
         _output.WriteLine(text);
         return (text, Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value));
@@ -125,7 +125,7 @@ public sealed class NativeTypeInfoTests : IDisposable
         // pointer values are named from the code index once it is built (a read does not wait for it)
         await _code.Index(_env.Workspace.LoadAny(_image).Native!, null, default);
 
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await _tools.GetNativeType(_image, name: "Player", address: $"rva:0x{player:X}", depth: 2, read: true);
         _output.WriteLine(text);
         var r = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value);
@@ -142,12 +142,12 @@ public sealed class NativeTypeInfoTests : IDisposable
 
         // a typed address reads its owner from the start; a plain name needs an address
         Assert.Null((await Get(address: "g_Game")).Report.Type!.Fields.Single(f => f.Name == "count").Value);
-        var owner = StructuredOutput.Begin();
+        var owner = ToolOutput.Collect();
         await _tools.GetNativeType(_image, address: $"rva:0x{player:X}", read: true);
         var game = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(owner.Value);
         Assert.Equal(("0x140003010", "3"), (game.ReadAddress, game.Type!.Fields.Single(f => f.Name == "count").Value));
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.GetNativeType(_image, name: "Player", read: true))).Code);
-        var color = StructuredOutput.Begin();
+        var color = ToolOutput.Collect();
         await _tools.GetNativeType(_image, name: "Color", address: $"rva:0x{player + 4:X}", read: true);
         Assert.Equal("Red | Green (3)", Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(color.Value).Value);
 
@@ -171,7 +171,7 @@ public sealed class NativeTypeInfoTests : IDisposable
         var native = _env.Workspace.Read(() => _env.Workspace.Natives[0]);
         _code.Annotations(native).SetName(0x3150, "sample_flag");
         _code.Annotations(native).ChangeUserTypes(l => l.WithType(0x3150, "int").WithAnalysis(new(0x3160, "data", null, "dword[2]")));
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await tools.ListGlobals(_image);
         _output.WriteLine(text);
         var list = Assert.IsType<GlobalList>(collector.Value);
@@ -183,7 +183,7 @@ public sealed class NativeTypeInfoTests : IDisposable
         // code is not a global
         Assert.DoesNotContain(list.Items, g => g.Section == ".text");
 
-        var filtered = StructuredOutput.Begin();
+        var filtered = ToolOutput.Collect();
         await tools.ListGlobals(_image, filter: "sample", section: ".DATA");
         Assert.Equal(["sample_flag"], Assert.IsType<GlobalList>(filtered.Value).Items.Select(g => g.Name));
     }
@@ -193,7 +193,7 @@ public sealed class NativeTypeInfoTests : IDisposable
     {
         using var dir = new TempDir();
         var image = PdbTypeFixture.Image(dir, globalTwice: true);
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         await _tools.GetNativeType(image, "Game", null, null, null, 0, null, null, 0, 200);
         var type = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value).Type!;
         Assert.Equal(1, type.GlobalsOfType);
@@ -358,7 +358,7 @@ public sealed class NativeTypeInfoMsvcTests(ITestOutputHelper output) : IDisposa
         var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(_dir.File("ann")));
         _ = new PdbService(code);
         var tools = new NativeTypeInfoTools(env.Workspace, code);
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await tools.GetNativeType(built.Exe, "Packet", at: "0x24", depth: 1);
         output.WriteLine(text);
         var report = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value);
@@ -402,7 +402,7 @@ public sealed class NativeTypeInfoIdaTests(ITestOutputHelper output) : IDisposab
         await new NativeTypeTools(workspace, engines, user, code).DeclareNativeTypes(image, "struct SampleTyped { int length; struct { short a, b; } pair; char data[16]; };");
         var tools = new NativeTypeInfoTools(workspace, code, engines, user);
 
-        var collector = StructuredOutput.Begin();
+        var collector = ToolOutput.Collect();
         var text = await tools.GetNativeType(image, "SampleTyped", source: "engine", at: "0x6");
         output.WriteLine(text);
         var report = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value);

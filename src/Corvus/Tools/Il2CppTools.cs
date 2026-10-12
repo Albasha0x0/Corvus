@@ -225,7 +225,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
 
     private static void AppendMore(StringBuilder sb, int offset, int limit, int total, string indent)
     {
-        if (offset + limit < total) sb.AppendLine($"{indent}[More: call again with offset={offset + limit}]");
+        if (offset + limit < total) sb.AppendLine($"{indent}[More: offset={offset + limit}]");
     }
 
     private const int MaxLiteralsPerMethod = 100;

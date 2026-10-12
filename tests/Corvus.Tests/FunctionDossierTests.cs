@@ -133,7 +133,7 @@ public sealed class FunctionDossierTests : IDisposable
         var (ws, tools) = Rig();
         using var _ = ws;
         var (path, inner) = ComponentSample(_dir);
-        var record = StructuredOutput.Begin();
+        var record = ToolOutput.Collect();
         var text = await tools.AnalyzeNativeFunction(path, $"Outer,{inner}", component: true);
         NativeLinkTests.Has(text, "Component of 2 functions [component.dll]");
         Assert.Matches(@"Outer -> sub_[0-9A-F]+ \(2 sites\)", text);
@@ -176,7 +176,7 @@ public sealed class FunctionDossierTests : IDisposable
         NativeLinkTests.Has(helper, "CreateFileW(");
         NativeLinkTests.Has(helper, "GENERIC_READ");
         NativeLinkTests.Has(helper, "loop: back edge");
-        NativeLinkTests.Has(helper, $"== annotations =={Environment.NewLine}  (none)");
+        NativeLinkTests.Has(helper, "== annotations ==\n  (none)");
         NativeLinkTests.Has(helper, "Next:");
         NativeLinkTests.Has(helper, "trace_native_values image=dossier.dll address=0x");
 
@@ -197,16 +197,16 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.DoesNotContain("== identity", flow);
         // no engine in this server: pseudocode reports why, the rest is there
         var both = await tools.AnalyzeNativeFunction(path, "Helper", sections: "identity,callers", pseudocode: true);
-        NativeLinkTests.Has(both, $"== pseudocode =={Environment.NewLine}  error: no decompiler engine is set up in this server");
+        NativeLinkTests.Has(both, "== pseudocode ==\n  error: no decompiler engine is set up in this server");
         NativeLinkTests.Has(both, "== callers (");
         var params_ = await tools.AnalyzeNativeFunction(path, "Helper", sections: "params");
         NativeLinkTests.Has(params_, "parameter 1 (rcx): L\"config.ini\"");
         var e = await Assert.ThrowsAsync<ToolError>(() => tools.AnalyzeNativeFunction(path, "Helper", sections: "identity,nonsense"));
         Assert.Equal(ErrorCode.InvalidArgument, e.Code);
         // a second call (a later page) is served from the cache, text and record alike
-        var first = StructuredOutput.Begin();
+        var first = ToolOutput.Collect();
         await tools.AnalyzeNativeFunction(path, "Helper", sections: "flow,callers");
-        var second = StructuredOutput.Begin();
+        var second = ToolOutput.Collect();
         await tools.AnalyzeNativeFunction(path, "Helper", sections: "flow,callers", offset: 10);
         Assert.Same(first.Value, second.Value);
         var capped = await tools.AnalyzeNativeFunction(path, "Helper", sections: "callees,data", maxItems: 1);
@@ -331,7 +331,7 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.DoesNotContain("0x80000000 (", helper); // GENERIC_READ: an all-ones-style mask, not a magic number
         Assert.DoesNotContain("== constants", await tools.AnalyzeNativeFunction(path, "Helper")); // opt-in
 
-        var record = StructuredOutput.Begin();
+        var record = ToolOutput.Collect();
         var both = await tools.AnalyzeNativeFunction(path, "Main, Helper, Main, 0x1", sections: "identity");
         Assert.Equal(2, both.Split("== identity").Length - 1);
         NativeLinkTests.Has(both, "0x1: ");

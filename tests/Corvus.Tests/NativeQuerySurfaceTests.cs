@@ -43,7 +43,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
     /// <summary>The structured record a tool call hands to the call filter.</summary>
     internal static async Task<T> Structured<T>(Func<Task<string>> call)
     {
-        var collector = Mcp.StructuredOutput.Begin();
+        var collector = Mcp.ToolOutput.Collect();
         await call();
         return Assert.IsType<T>(collector.Value);
     }

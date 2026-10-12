@@ -5,30 +5,20 @@ using Corvus.Core;
 namespace Corvus.Mcp;
 
 /// <summary>
-/// Bounds every tool result, errors included. A result larger than the page size the call asked for (plus room for
-/// headers and footers) is kept in the <see cref="ResultStore"/>: a success becomes a limit_exceeded error naming the
-/// kept result, an error keeps its code and sends the head of its message with the kept result's id. A tool that can
-/// change state stays a success with the head of its result, since an error would read as if nothing had changed.
-/// No tool can send a frame the client would truncate or reject.
+/// The frame safety net (S1.7) behind <see cref="ToolOutput"/>: no part of a result may pass the call's budget × 4 + 16,000
+/// characters. Results are fitted by tokens long before that; this only bounds what escaped (an error with a huge message).
+/// An error keeps its code and sends the head of its message with the kept result's id; a success keeps its head, never an error.
 /// </summary>
 internal static class ResponseBudget
 {
-    private static readonly JsonSerializerOptions IndentedJson = new(Catalog.ToolSerializerOptions) { WriteIndented = true };
-
-    /// <summary>Room for paging headers/footers on top of the page size.</summary>
+    /// <summary>Characters beside budget × 4 that a part may take.</summary>
     public const int Slack = 16_000;
 
     /// <summary>Characters of an oversized error's message that are sent; the rest is in the kept result.</summary>
     public const int ErrorHeadChars = 4_000;
 
-    public static int Budget(ServerOptions options, CallToolRequestParams? request)
-    {
-        var page = options.MaxOutputChars;
-        if (request?.Arguments is { } args && args.TryGetValue("maxChars", out var value) && value.ValueKind == JsonValueKind.Number
-            && value.TryGetInt32(out var requested) && requested > page)
-            page = Math.Min(requested, 500_000);
-        return page + Slack;
-    }
+    /// <summary>The character cap of each part for a call with <paramref name="tokens"/> of budget.</summary>
+    public static long Frame(int tokens) => tokens * 4L + Slack;
 
     /// <summary>Characters sent: the text blocks plus the structured content, both of which go over the wire.</summary>
     public static long Size(CallToolResult result)
@@ -39,42 +29,28 @@ internal static class ResponseBudget
         return size;
     }
 
-    public static CallToolResult Enforce(CallToolResult result, string? tool, ServerOptions options, ResultStore store, CallToolRequestParams? request)
+    public static CallToolResult Enforce(CallToolResult result, string? tool, int tokens, ResultStore store, CallToolRequestParams? request = null)
     {
-        var budget = Budget(options, request);
-        // Text and structured content each carry one page.
-        long limit = result.StructuredContent is null ? budget : 2L * budget;
-        var size = Size(result);
-        if (size <= limit) return result;
-        if (result.IsError == true) return BoundError(result, tool, store, size, limit, request);
-        if (tool != null && !ToolEffects.Of(tool).ReadOnly) return Head(result, tool, store, size, budget, limit, request);
-
-        var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text));
-        if (text.Length == 0 && result.StructuredContent is { } s)
-            text = JsonSerializer.Serialize(s, IndentedJson);
-        var id = store.Keep(text, CallLog.Origin(tool, request?.Arguments), result.StructuredContent?.GetRawText());
-        var error = new ToolError(ErrorCode.LimitExceeded,
-            $"the result is {size:N0} characters, over the {limit:N0}-character response limit. It is kept as {id}.",
-            $"read_result id={id} pages through it; or narrow the call (limit, filters, one member instead of a type)")
-        {
-            Details = new { resultId = id, chars = size, limit },
-        };
-        return ErrorResult.From(error, tool);
+        long limit = Frame(tokens);
+        long text = result.Content.OfType<TextContentBlock>().Sum(b => (long)b.Text.Length);
+        long structured = result.StructuredContent is { } s ? s.GetRawText().Length : 0;
+        if (text <= limit && structured <= limit) return result;
+        if (result.IsError == true) return BoundError(result, tool, store, text + structured, limit, request);
+        return Head(result, tool ?? "?", store, Size(result), limit, request);
     }
 
-    private static CallToolResult Head(CallToolResult result, string tool, ResultStore store, long size, int budget, long limit, CallToolRequestParams? request)
+    private static CallToolResult Head(CallToolResult result, string tool, ResultStore store, long size, long limit, CallToolRequestParams? request)
     {
-        var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text));
-        if (text.Length == 0 && result.StructuredContent is { } s)
-            text = JsonSerializer.Serialize(s, IndentedJson);
+        var text = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text));
+        if (text.Length == 0 && result.StructuredContent is { } s) text = s.GetRawText();
         var id = store.Keep(text, CallLog.Origin(tool, request?.Arguments), result.StructuredContent?.GetRawText());
-        int keep = Math.Min(text.Length, budget - Slack);
+        var note = $"\n[Cut to fit the response: the whole result ({size:N0} chars) is kept as {id}; read_result id={id} pages through it]";
+        int keep = (int)Math.Min(text.Length, limit - note.Length);
         if (keep > 0 && keep < text.Length && char.IsHighSurrogate(text[keep - 1])) keep--;
         return new CallToolResult
         {
-            Content = [new TextContentBlock { Text = text[..keep] + $"\n\n[The call completed. Its result is {size:N0} characters, over the {limit:N0}-character response limit, " +
-                                                     $"so it is cut here; the whole result is kept as {id}: read_result id={id} pages through it.]" }],
-            StructuredContent = result.StructuredContent is { } structured && structured.GetRawText().Length <= budget ? structured : null,
+            Content = [new TextContentBlock { Text = text[..keep] + note }],
+            StructuredContent = result.StructuredContent is { } structured && structured.GetRawText().Length <= limit ? structured : null,
             Meta = result.Meta,
         };
     }

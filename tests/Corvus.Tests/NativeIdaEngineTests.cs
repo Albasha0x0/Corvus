@@ -579,10 +579,10 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         foreach (var f in functions)
         {
             var at = $"rva:0x{f.Start:X}";
-            var collector = Mcp.StructuredOutput.Begin();
+            var collector = Mcp.ToolOutput.Collect();
             await rig.Tools.GetCfg(path, at, engine: "ours");
             var ours = Assert.IsType<CfgReport>(collector.Value);
-            collector = Mcp.StructuredOutput.Begin();
+            collector = Mcp.ToolOutput.Collect();
             await rig.Tools.GetCfg(path, at, engine: "ida");
             var ida = Assert.IsType<CfgReport>(collector.Value);
             foreach (var sw in ours.Switches)

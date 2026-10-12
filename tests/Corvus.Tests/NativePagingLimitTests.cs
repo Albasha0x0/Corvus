@@ -44,7 +44,7 @@ public class NativePagingLimitTests
         var pager = new OutputPager(new ServerOptions { MaxOutputChars = 2_000 });
         var rows = Enumerable.Range(0, 300).Select(i => $"row {i:D4} " + new string('x', 80)).ToList();
         var text = pager.PageRows(rows, 0, 200, "row");
-        var note = System.Text.RegularExpressions.Regex.Match(text, @"\[(\d+) of 200 rows fit in the output limit; use offset=(\d+)");
+        var note = System.Text.RegularExpressions.Regex.Match(text, @"showing 1-(\d+)\):[\s\S]*\[More: offset=(\d+)\]\n$");
         Assert.True(note.Success, text);
         Assert.Equal(note.Groups[1].Value, note.Groups[2].Value);
         int fit = int.Parse(note.Groups[1].Value);
@@ -61,7 +61,7 @@ public class NativePagingLimitTests
     {
         var pager = new OutputPager(new ServerOptions());
         var text = pager.PageRows(Enumerable.Range(0, 10).Select(i => $"r{i}").ToList(), 0, 4, "row");
-        Assert.Contains("[More: call again with offset=4]", text);
-        Assert.DoesNotContain("rows fit", text);
+        Assert.EndsWith("[More: offset=4]\n", text);
+        Assert.Contains("10 rows (showing 1-4):", text);
     }
 }

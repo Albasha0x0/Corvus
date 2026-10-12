@@ -558,7 +558,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         }
         if (section != null && !pe.Sections.Any(s => s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)))
             throw new ToolError(ErrorCode.NotFound, $"No section '{section}'. Sections: {string.Join(", ", pe.Sections.Select(s => s.Name))}.");
-        var more = offset + hits.Count < total ? $"\n[More: call again with offset={offset + hits.Count}]" : "";
+        var more = offset + hits.Count < total ? $"\n[More: offset={offset + hits.Count}]" : "";
         return $"{total} hit{(total == 1 ? "" : "s")}{(offset > 0 || hits.Count < total ? $" (showing {(hits.Count == 0 ? 0 : offset + 1)}-{offset + hits.Count})" : "")}\n" +
                string.Join("\n", hits) + more;
     }

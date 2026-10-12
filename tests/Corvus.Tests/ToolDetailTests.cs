@@ -94,7 +94,7 @@ public class ToolDetailTests : IDisposable
         Assert.Contains("Fixture.Model.PremiumAccount::Score()", all);
         var first = await tools.FindOverrides("Fixture.Model.Entity::Score", limit: 1);
         Assert.Contains("(showing 1-1)", first);
-        Assert.Contains("[More: call again with offset=1]", first);
+        Assert.Contains("[More: offset=1]", first);
     }
 
     [Fact]

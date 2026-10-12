@@ -30,7 +30,7 @@ public class NativeToolBoundsTests
         var hits = await h.Native.SearchBytes(path, "00 00 00 00", limit: 3);
         Assert.Matches(@"^\d{10} hits \(showing 1-3\)", hits);
         Assert.Contains("(zero fill, not in the file)", hits);
-        Assert.Contains("[More: call again with offset=3]", hits);
+        Assert.Contains("[More: offset=3]", hits);
         var next = await h.Native.SearchBytes(path, "00 00 00 00", limit: 2, offset: 1_000_000_000);
         Assert.Contains("(showing 1000000001-1000000002)", next);
         Assert.Contains("1 function", await h.CodeTools.ListFunctions(path));
@@ -133,7 +133,7 @@ public class NativeToolBoundsTests
         using var h = new NativeToolHarness();
         var first = await h.Native.SearchBytes(Kernel32, "00 ?? ?? 00", limit: 10_000);
         Assert.True(first.Length < 60_000, $"{first.Length} chars");
-        var more = System.Text.RegularExpressions.Regex.Match(first, @"\[More: call again with offset=(\d+)\]");
+        var more = System.Text.RegularExpressions.Regex.Match(first, @"\[More: offset=(\d+)\]");
         Assert.True(more.Success);
         var second = await h.Native.SearchBytes(Kernel32, "00 ?? ?? 00", limit: 10, offset: int.Parse(more.Groups[1].Value));
         Assert.Contains($"(showing {int.Parse(more.Groups[1].Value) + 1}-", second);

@@ -50,6 +50,7 @@ public static partial class Catalog
             ToolEffects.Apply(tools);
             ParameterDomains.Apply(tools);
             DropNullDefaults(tools);
+            ToolOutput.ApplyEnvelope(tools);
         });
         return builder;
     }

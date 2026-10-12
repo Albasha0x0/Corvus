@@ -88,7 +88,7 @@ public sealed class Il2CppNavigationTests(ITestOutputHelper output) : IDisposabl
         var paged = await tools.FindMethodByAddress("0x1100", limit: 1);
         Assert.Contains("[RVA] exact start: Fixture.Native.NativeThing::Second()", paged);
         Assert.DoesNotContain("Shared<object>", paged);
-        Assert.Contains("[More: call again with offset=1]", paged);
+        Assert.Contains("[More: offset=1]", paged);
         Assert.Contains("Shared<object>", await tools.FindMethodByAddress("0x1100", offset: 1));
         Assert.Contains("0x52000 is not inside a known function or at a metadata slot", await tools.FindMethodByAddress("0x52000"));
         var type = await tools.FindMethodByAddress("0x5000");
@@ -111,7 +111,7 @@ public sealed class Il2CppNavigationTests(ITestOutputHelper output) : IDisposabl
         var generic = await tools.GetIl2CppInfo("Fixture.Native.NativeThing::Shared", limit: 2);
         Assert.Contains("generic instantiations in script.json: 3 (showing 1-2)", generic);
         Assert.Contains("Fixture.Native.NativeThing$$Shared<object>  RVA 0x1100", generic);
-        Assert.Contains("[More: call again with offset=2]", generic);
+        Assert.Contains("[More: offset=2]", generic);
         Assert.Contains("Fixture.Native.NativeThing_TypeInfo  RVA 0x5000  (Fixture_Native_NativeThing_c*)", await tools.GetIl2CppInfo("NativeThing"));
 
         // Names that only script.json has, as users write them.
@@ -281,7 +281,7 @@ public sealed class Il2CppNavigationTests(ITestOutputHelper output) : IDisposabl
         var same = await tools.GetIl2CppInfo("Ov.Box`1::Same(int)");
         Assert.Contains("generic instantiations in script.json: 1; 2 methods share the name, told apart by generic arity and C signature (1 ambiguous)", same);
         Assert.Contains("Ov.Box<int>$$Same  RVA 0x2400  (ambiguous, the same C signature as Ov.Box`1::Same(T)  [Ov] 0x06000007)", same);
-        Assert.Contains("Ov.Box<string>$$Same  RVA 0x2500" + Environment.NewLine, await tools.GetIl2CppInfo("Ov.Box`1::Same(T)"));
+        Assert.Contains("Ov.Box<string>$$Same  RVA 0x2500\n", await tools.GetIl2CppInfo("Ov.Box`1::Same(T)"));
     }
 
     /// <summary>

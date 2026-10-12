@@ -48,7 +48,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
                 sb.AppendLine($"  native call sites ({nativeSites.Count}):");
                 foreach (var row in nativeSites.Take(limit)) sb.AppendLine("      " + row);
             }
-            if (offset > 0 && offset + page.Count < r.Total) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+            if (offset > 0 && offset + page.Count < r.Total) sb.AppendLine($"[More: offset={offset + page.Count}]");
             sb.Append(SkippedBodiesNote(workspace.Assemblies));
             var result = new ReferenceList($"{target.Label} [{target.Assembly.Id}]", page.Select(i => Entry(i, null)).ToList(), nativeSites.Take(limit).ToList(),
                 offset, r.Total, offset + page.Count < r.Total);
@@ -145,7 +145,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             var sb = new StringBuilder($"{label} uses {Plural(list.Count, "item")}" +
                                        (offset > 0 || page.Count < entries.Count ? $" (showing {(page.Count == 0 ? 0 : offset + 1)}-{offset + page.Count} of {entries.Count})" : "") + ":\n");
             foreach (var e in page) sb.AppendLine(e.Line);
-            if (offset + page.Count < entries.Count) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+            if (offset + page.Count < entries.Count) sb.AppendLine($"[More: offset={offset + page.Count}]");
             var result = new CalleeList(label, page.Select(e => new CalleeEntry(distinct ? null : (int)e.Callee.ILOffset, distinct ? null : e.Callee.OpCode,
                     e.Callee.Kind, e.Callee.Target, e.Callee.TargetAssembly?.Id, NativeTarget(e.Callee), e.Count)).ToList(),
                 [], offset, entries.Count, offset + page.Count < entries.Count);

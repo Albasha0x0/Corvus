@@ -51,7 +51,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
             foreach (var e in shown)
                 sb.AppendLine($"  {(e.Namespace.Length == 0 ? "<global>" : e.Namespace)}  ({e.Types})");
         }
-        if (result.Truncated) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+        if (result.Truncated) sb.AppendLine($"[More: offset={offset + page.Count}]");
         return StructuredOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
 
