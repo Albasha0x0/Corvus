@@ -372,16 +372,20 @@ internal sealed class FunctionWalker
         // extents: runs merged into sorted, non-overlapping ranges
         int count = 0;
         foreach (var r in _runs) if (r.End > r.Start) count++;
-        var spans = new ulong[count];
+        if (_spans.Length < count) _spans = new ulong[Math.Max(count, _spans.Length * 2)];
+        var spans = _spans;
         count = 0;
         foreach (var r in _runs) if (r.End > r.Start) spans[count++] = (ulong)r.Start << 32 | r.End;
-        Array.Sort(spans);
-        var starts = new List<uint>();
-        var ends = new List<uint>();
+        Array.Sort(spans, 0, count);
+        var starts = _rangeStarts;
+        var ends = _rangeEnds;
+        starts.Clear();
+        ends.Clear();
         // no address is decoded twice, so two runs that intersect decode one byte range at two offsets
         bool overlapping = false;
-        foreach (ulong span in spans)
+        for (int k = 0; k < count; k++)
         {
+            ulong span = spans[k];
             uint s = (uint)(span >> 32), e = (uint)span;
             if (ends.Count > 0 && s <= ends[^1])
             {
@@ -395,13 +399,20 @@ internal sealed class FunctionWalker
         if (overlapping) result.Flags |= FunctionFlags.OverlappingCode;
         result.RangeStarts = starts.ToArray();
         result.RangeEnds = ends.ToArray();
-        int blocks = 0;
+        int blocks = 0, nonEmpty = 0;
         foreach (var l in _leaders.Items) if (_visited.Contains(l)) blocks++;
-        result.Blocks = Math.Max(blocks, _runs.Count(r => r.InsnCount > 0));
+        foreach (var r in _runs) if (r.InsnCount > 0) nonEmpty++;
+        result.Blocks = Math.Max(blocks, nonEmpty);
         result.Xrefs = _xrefs.ToArray();
         result.FallsInto = _fallsInto.ToArray();
-        result.Callees = _callees.Items.Where(c => c != start && !_ctx.ImportSlots.ContainsKey(c)).ToArray();
+        _calleeScratch.Clear();
+        foreach (uint c in _callees.Items) if (c != start && !_ctx.ImportSlots.ContainsKey(c)) _calleeScratch.Add(c);
+        result.Callees = _calleeScratch.ToArray();
     }
+
+    // Summarize scratch, reused across walks
+    private ulong[] _spans = new ulong[64];
+    private readonly List<uint> _rangeStarts = [], _rangeEnds = [], _calleeScratch = [];
 
     private FunctionGraph BuildGraph(NativeFunction function, WalkResult result)
     {
