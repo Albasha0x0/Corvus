@@ -25,7 +25,7 @@ public class MsvcDemangleCorpusTests(ITestOutputHelper output)
         report.AppendLine($"{names.Count} names (harvest {harvest.TotalSeconds:F1} s, total {sw.Elapsed.TotalSeconds:F1} s)");
         full.Write(report, "full");
         nameOnly.Write(report, "name-only");
-        var path = Path.Combine(Path.GetTempPath(), "corvus-test-msvc-demangle-report.txt");
+        var path = TestReports.File("msvc-demangle");
         File.WriteAllText(path, report.ToString());
         output.WriteLine(report.ToString().Split('\n').Take(60).Aggregate("", (a, l) => a + l + "\n"));
         output.WriteLine($"report: {path}");

@@ -63,6 +63,17 @@ public sealed class Env : IDisposable
     public void Dispose() => Workspace.Dispose();
 }
 
+/// <summary>Report files that slow tests leave for reading after the run.</summary>
+public static class TestReports
+{
+    /// <summary>%TEMP%\corvus-test-reports\&lt;name&gt;-&lt;time&gt;-&lt;pid&gt;.txt: a name per run, so concurrent runs do not write one file.</summary>
+    public static string File(string name)
+    {
+        var dir = Directory.CreateDirectory(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "corvus-test-reports")).FullName;
+        return System.IO.Path.Combine(dir, $"{name}-{DateTime.Now:yyyyMMdd-HHmmss}-{Environment.ProcessId}.txt");
+    }
+}
+
 /// <summary>Temporary directory deleted on dispose.</summary>
 public sealed class TempDir : IDisposable
 {
