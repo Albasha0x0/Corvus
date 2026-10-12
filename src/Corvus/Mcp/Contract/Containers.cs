@@ -1,6 +1,9 @@
+using L = Corvus.Mcp.LatencyClass;
+using O = Corvus.Mcp.OutputClass;
+
 namespace Corvus.Mcp;
 
-// Contract rows of the containers family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs and ParameterDomains.cs.
+// Contract rows of the containers family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs, ParameterDomains.cs and ToolContract.cs.
 
 public static partial class ToolEffects
 {
@@ -23,5 +26,19 @@ public static partial class ParameterDomains
     {
         ["search_container"] = new Dictionary<string, Domain> { ["kind"] = Of(["type", "method", "field", "property"], "any") },
         ["extract_strings"] = new Dictionary<string, Domain> { ["format"] = Of(["json", "csv"]) },
+    };
+}
+
+public sealed partial record ToolContract
+{
+    private static Dictionary<string, ToolContract> ContainersTools() => new(StringComparer.Ordinal)
+    {
+        ["summarize_file"] = Row(O.Report, L.Interactive, lean: true, core: true),
+        ["survey_features"] = Row(O.Report, L.Interactive, core: true),
+        ["extract_strings"] = Row(O.List, L.Interactive, core: true, sort: "category, count descending, value", noDryRun: "writes only with savePath; overwrite=false refuses an existing file"),
+        ["extract_embedded"] = Row(O.List, L.Interactive, core: true, sort: "discovery order", noDryRun: "writes new names only, never over a different file"),
+        ["search_container"] = Row(O.List, L.Interactive, core: true, sort: "container entry, metadata order"),
+        ["unpack_container"] = Row(O.Edit, L.Long, lean: true, core: true, noDryRun: "extracts only into an empty directory or its own earlier unpack"),
+        ["unity_overview"] = Row(O.Report, L.Interactive, core: true),
     };
 }

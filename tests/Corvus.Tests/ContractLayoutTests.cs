@@ -24,6 +24,7 @@ public class ContractLayoutTests
     {
         AssertFamilies("ToolEffects", ToolEffects.ByFamily, rows => rows.Keys);
         AssertFamilies("ParameterDomains", ParameterDomains.ByFamily, rows => rows.Keys);
+        AssertFamilies("ToolContract", ToolContract.ByFamily, rows => rows.Keys);
         AssertFamilies("ContractSweep.FileWriters", ContractSweep.FileWritersByFamily, rows => rows.Keys);
         Assert.Equal(Toolsets.Families.Sum(f => f.Tools.Length), ToolEffects.Table.Count);
     }

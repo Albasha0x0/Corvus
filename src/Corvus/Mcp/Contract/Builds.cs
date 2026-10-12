@@ -1,6 +1,9 @@
+using L = Corvus.Mcp.LatencyClass;
+using O = Corvus.Mcp.OutputClass;
+
 namespace Corvus.Mcp;
 
-// Contract rows of the builds family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs and ParameterDomains.cs.
+// Contract rows of the builds family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs, ParameterDomains.cs and ToolContract.cs.
 
 public static partial class ToolEffects
 {
@@ -37,5 +40,23 @@ public static partial class ParameterDomains
             ["category"] = Of(["names", "pdb", "il2cpp_names", "patches", "patterns", "il2cpp_mapping", "notes", "dotnet"]),
             ["outcome"] = Of(["carried", "would_carry", "already_present", "refused", "not_applicable", "ambiguous"]),
         },
+    };
+}
+
+public sealed partial record ToolContract
+{
+    private static Dictionary<string, ToolContract> BuildsTools() => new(StringComparer.Ordinal)
+    {
+        ["compare_assemblies"] = Row(O.Report, L.Long, noDryRun: "writes only with tokenMapPath; overwrite=false refuses an existing file"),
+        ["find_counterpart"] = Row(O.Report, L.Instant),
+        ["compare_folders"] = Row(O.Report, L.Interactive),
+        ["compare_native_images"] = Row(O.Report, L.Long),
+        ["diff_function"] = Row(O.Code, L.Interactive),
+        ["map_address_between_builds"] = Row(O.Report, L.Instant),
+        ["make_code_pattern"] = Row(O.Report, L.Instant),
+        ["search_code_pattern"] = Row(O.List, L.Instant, sort: "image, section, address"),
+        ["migrate_native_names"] = Row(O.Edit, L.Long, dryRun: true),
+        ["migrate_native_patches"] = Row(O.Edit, L.Long, dryRun: true),
+        ["update_to_new_build"] = Row(O.Report, L.Long, dryRun: true),
     };
 }

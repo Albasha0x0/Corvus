@@ -1,6 +1,9 @@
+using L = Corvus.Mcp.LatencyClass;
+using O = Corvus.Mcp.OutputClass;
+
 namespace Corvus.Mcp;
 
-// Contract rows of the engine family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs and ParameterDomains.cs.
+// Contract rows of the engine family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs, ParameterDomains.cs and ToolContract.cs.
 
 public static partial class ToolEffects
 {
@@ -38,5 +41,24 @@ public static partial class ParameterDomains
         ["ida_python"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
         ["export_engine_database"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["ghidra_script"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ghidra"]) },
+    };
+}
+
+public sealed partial record ToolContract
+{
+    private static Dictionary<string, ToolContract> EngineTools() => new(StringComparer.Ordinal)
+    {
+        ["set_native_type"] = Row(O.Edit, L.Engine, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
+        ["set_native_local"] = Row(O.Edit, L.Engine, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
+        ["set_native_stack_var"] = Row(O.Edit, L.Engine, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
+        ["get_native_frame"] = Row(O.Report, L.Engine),
+        ["declare_native_types"] = Row(O.Edit, L.Engine, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
+        ["list_native_types"] = Row(O.List, L.Engine, sort: "engine order (sort= changes it)"),
+        ["define_native"] = Row(O.Edit, L.Engine, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
+        ["reanalyze_native"] = Row(O.Edit, L.Long, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
+        ["set_native_operand"] = Row(O.Edit, L.Engine, noDryRun: "N13: the native edit journal undoes it (EL-6)"),
+        ["ida_python"] = Row(O.Report, L.Long, noDryRun: "runs arbitrary code; off unless --ida-scripting"),
+        ["ghidra_script"] = Row(O.Report, L.Long, noDryRun: "runs arbitrary code; off unless --ghidra-scripting"),
+        ["export_engine_database"] = Row(O.Edit, L.Long, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),
     };
 }

@@ -1,6 +1,9 @@
+using L = Corvus.Mcp.LatencyClass;
+using O = Corvus.Mcp.OutputClass;
+
 namespace Corvus.Mcp;
 
-// Contract rows of the native family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs and ParameterDomains.cs.
+// Contract rows of the native family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs, ParameterDomains.cs and ToolContract.cs.
 
 public static partial class ToolEffects
 {
@@ -80,5 +83,46 @@ public static partial class ParameterDomains
         ["analyze_native_function"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["search_pdb_symbols"] = new Dictionary<string, Domain> { ["kind"] = Of(["function", "data", "public", "all"], "functions", "publics") },
         ["find_similar_functions"] = new Dictionary<string, Domain> { ["view"] = Of(["similar", "duplicates", "clusters"]), ["scope"] = Of(["image", "all"]) },
+    };
+}
+
+public sealed partial record ToolContract
+{
+    private static Dictionary<string, ToolContract> NativeTools() => new(StringComparer.Ordinal)
+    {
+        ["get_pe_info"] = Row(O.Report, L.Instant, lean: true, core: true),
+        ["get_engine_status"] = Row(O.Report, L.Instant),
+        ["list_imports"] = Row(O.List, L.Interactive, lean: true, core: true, sort: "import directory order"),
+        ["list_exports"] = Row(O.List, L.Instant, lean: true, core: true, sort: "ordinal"),
+        ["resolve_address"] = Row(O.Report, L.Instant, lean: true, core: true),
+        ["search_bytes"] = Row(O.List, L.Interactive, lean: true, core: true, sort: "section, address"),
+        ["read_bytes"] = Row(O.Bytes, L.Instant, lean: true, core: true),
+        ["convert_number"] = Row(O.Report, L.Instant, core: true),
+        ["list_functions"] = Row(O.List, L.Interactive, lean: true, core: true, sort: "address (sort= changes it)"),
+        ["list_globals"] = Row(O.List, L.Interactive, core: true, sort: "address"),
+        ["disassemble"] = Row(O.Bytes, L.Interactive, lean: true, core: true),
+        ["inspect_instruction"] = Row(O.Bytes, L.Interactive, core: true),
+        ["search_instructions"] = Row(O.List, L.Interactive, core: true, sort: "function address"),
+        ["get_cfg"] = Row(O.Bytes, L.Interactive, core: true),
+        ["find_xrefs"] = Row(O.List, L.Interactive, lean: true, core: true, sort: "source address"),
+        ["native_call_tree"] = Row(O.List, L.Interactive, core: true, sort: "call-site address at each level"),
+        ["find_virtual_calls"] = Row(O.List, L.Interactive, core: true, sort: "call-site address"),
+        ["search_native_strings"] = Row(O.List, L.Interactive, lean: true, core: true, sort: "address"),
+        ["get_call_arguments"] = Row(O.List, L.Interactive, core: true, sort: "call-site address"),
+        ["trace_native_values"] = Row(O.Report, L.Interactive, core: true),
+        ["resolve_call_targets"] = Row(O.List, L.Interactive, core: true, sort: "call-site address"),
+        ["analyze_native_function"] = Row(O.Report, L.Interactive, lean: true, core: true),
+        ["trace_native_feature"] = Row(O.Report, L.Interactive, core: true),
+        ["find_similar_functions"] = Row(O.List, L.Interactive, core: true, sort: "score descending, image, address"),
+        ["get_exception_info"] = Row(O.Report, L.Interactive, core: true),
+        ["list_cpp_classes"] = Row(O.List, L.Interactive, core: true, sort: "name, type descriptor address"),
+        ["get_native_type"] = Row(O.Report, L.Interactive, core: true),
+        ["decompile_native"] = Row(O.Code, L.Engine, lean: true, core: true),
+        ["search_decompiled"] = Row(O.List, L.Long, core: true, sort: "function address"),
+        ["emulate_native"] = Row(O.Report, L.Engine, core: true),
+        ["verify_native_imports"] = Row(O.List, L.Long, core: true, sort: "status severity, module, entry point"),
+        ["load_pdb"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "N14: clear=true removes the saved PDB names"),
+        ["search_pdb_symbols"] = Row(O.List, L.Instant, core: true, sort: "address"),
+        ["get_nativeaot_info"] = Row(O.Report, L.Interactive, core: true),
     };
 }

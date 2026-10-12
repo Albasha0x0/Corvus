@@ -1,6 +1,9 @@
+using L = Corvus.Mcp.LatencyClass;
+using O = Corvus.Mcp.OutputClass;
+
 namespace Corvus.Mcp;
 
-// Contract rows of the session family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs and ParameterDomains.cs.
+// Contract rows of the session family (Core/Toolsets.cs); the tables and their rules are in ToolEffects.cs, ParameterDomains.cs and ToolContract.cs.
 
 public static partial class ToolEffects
 {
@@ -30,5 +33,21 @@ public static partial class ParameterDomains
             ["slice"] = Of(["arm64e", "arm64", "x86_64", "x86_64h", "arm64_32", "armv7", "armv7s", "armv7k", "i386", "arm64-v8a", "armeabi-v7a", "x86"],
                 [.. Enumerable.Range(0, 64).Select(i => i.ToString(System.Globalization.CultureInfo.InvariantCulture))]),
         },
+    };
+}
+
+public sealed partial record ToolContract
+{
+    private static Dictionary<string, ToolContract> SessionTools() => new(StringComparer.Ordinal)
+    {
+        ["load_assembly"] = Row(O.Edit, L.Interactive, lean: true, core: true, noDryRun: "only adds to the session; unload_assembly removes it"),
+        ["unload_assembly"] = Row(O.Edit, L.Instant, lean: true, core: true, noDryRun: "load_assembly restores the file; unsaved edits are named in the result"),
+        ["reload_assembly"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "rereads the file from disk; unsaved edits are named in the result"),
+        ["add_search_directory"] = Row(O.Edit, L.Instant, core: true, noDryRun: "only adds a directory for reference resolution"),
+        ["list_assemblies"] = Row(O.List, L.Instant, lean: true, core: true, sort: "load order"),
+        ["server_status"] = Row(O.Report, L.Interactive, lean: true, core: true),
+        ["read_result"] = Row(O.List, L.Instant, lean: true, core: true, sort: "kept text order", noDryRun: "writes only with outputPath; overwrite=false refuses an existing file"),
+        ["save_session"] = Row(O.Edit, L.Instant, core: true, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),
+        ["load_session"] = Row(O.Edit, L.Long, core: true, dryRun: true),
     };
 }
