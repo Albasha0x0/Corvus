@@ -269,7 +269,17 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     public string PatchMethodCSharp(ResolvedSymbol symbol, string code, bool dryRun, CancellationToken ct)
     {
         RequireBodyMethod(symbol);
-        var outcome = MergeSafely(symbol.Assembly, dryRun, target => csharp.PatchMethod(symbol, code, target, ct), ct);
+        CSharpPatcher.Outcome outcome;
+        try
+        {
+            outcome = MergeSafely(symbol.Assembly, dryRun, target => csharp.PatchMethod(symbol, code, target, ct), ct);
+        }
+        catch (ToolError ex)
+        {
+            var withNext = CSharpPatcher.WithPatchNext(ex, symbol);
+            if (ReferenceEquals(withNext, ex)) throw;
+            throw withNext;
+        }
         var helpers = (outcome.Added.Count > 0 ? $"\nCompiler-generated helpers added: {string.Join(", ", outcome.Added.Take(10))}" : "") + Relaxed(outcome);
         if (dryRun)
             return $"Dry run — compiled OK; {symbol.Label} would become:\n{outcome.Listing}{helpers}";

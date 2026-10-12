@@ -51,6 +51,20 @@ public class CSharpAdvancedTests : IDisposable
 
     private string AddTypes(string code) => _env.Edit(() => _env.Edits.AddTypesCSharp(_env.Fixture, code, false, default));
 
+    [Fact]
+    public void CompileErrorsNameTheTargetWithANext()
+    {
+        var ex = Assert.Throws<ToolError>(() => Patch("Account::Tick", "return 5;"));
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Contains("CS0127", ex.Message);
+        Assert.DoesNotContain("__PatchHelpers__", ex.Message);
+        Assert.DoesNotContain("__patch", ex.Message);
+        Assert.Contains("Account.Tick", ex.Message);
+        Assert.StartsWith("Fixture.Model.Account::Tick(float) returns void: use 'return;'", ex.Remediation);
+        var score = Assert.Throws<ToolError>(() => Patch("Account::Score", "return;"));
+        Assert.Contains("returns Int32: use 'return <value>;'", score.Remediation);
+    }
+
     /// <summary>
     /// The target's reference copy carries only metadata (writing every body and resource made the first patch of a large
     /// assembly take seconds), grants the patch assembly its internals, drops stand-in tokens, and is written once.

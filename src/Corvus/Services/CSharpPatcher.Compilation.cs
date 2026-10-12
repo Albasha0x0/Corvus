@@ -413,6 +413,33 @@ public sealed partial class CSharpPatcher
         _ => node.Kind().ToString(),
     };
 
+    private const string CompileFailed = "C# compilation failed";
+    private const string ContextErrors = "Errors outside your code";
+
+    /// <summary>A failed body compile with the next step for its diagnostics, naming the patched method.</summary>
+    internal static ToolError WithPatchNext(ToolError error, ResolvedSymbol target)
+    {
+        if (error.Code != ErrorCode.InvalidArgument || !error.Message.StartsWith(CompileFailed, StringComparison.Ordinal) || target.Member is not MethodDef method)
+            return error;
+        var ids = System.Text.RegularExpressions.Regex.Matches(error.Message, @"^\s+(CS\d{4}) at ", System.Text.RegularExpressions.RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        var label = target.Label;
+        var steps = new List<string>();
+        if (ids.Contains("CS0127")) steps.Add($"{label} returns void: use 'return;' without a value");
+        if (ids.Contains("CS0126")) steps.Add($"{label} returns {method.ReturnType.TypeName}: use 'return <value>;'");
+        if (ids.Contains("CS0656"))
+            steps.Add($"the references {target.Assembly.Id} compiles against lack a member the compiler needs: add_search_directory with the framework folder the app ships, then patch {label} again");
+        if (ids.Contains("CS1705"))
+            steps.Add($"a reference resolved older than the one {target.Assembly.Id} was built against: add_search_directory with the framework folder it targets");
+        if (ids.Overlaps(["CS0102", "CS0111", "CS0542"]))
+            steps.Add($"the decompiled {method.DeclaringType.Name} has colliding (obfuscated) member names: rename_symbol them first");
+        if (error.Message.Contains(ContextErrors, StringComparison.Ordinal))
+            steps.Add($"{(steps.Count > 0 ? "or " : "")}patch {label} with patch_method_il (its body does not depend on the decompiled type)");
+        if (steps.Count == 0)
+            steps.Add($"fix the body for {label} ({Format.MemberLabel(method)}) and call again");
+        return new ToolError(error.Code, error.Message, string.Join("; ", steps)) { Details = error.Details, Partial = error.Partial };
+    }
+
     private static string FormatErrors(IEnumerable<Diagnostic> diagnostics, SyntaxTree tree, List<string> missing)
     {
         var userNodes = tree.GetRoot().GetAnnotatedNodes(UserCode).ToList();
@@ -422,7 +449,7 @@ public sealed partial class CSharpPatcher
         SyntaxNode? UserNodeAt(Diagnostic d) =>
             d.Location.SourceTree == tree ? userNodes.FirstOrDefault(n => n.Span.Contains(d.Location.SourceSpan.Start)) : null;
 
-        var sb = new StringBuilder($"C# compilation failed ({errors.Count} error(s)). Nothing was changed.\n");
+        var sb = new StringBuilder($"{CompileFailed} ({errors.Count} error(s)). Nothing was changed.\n");
         foreach (var d in errors.Take(20))
         {
             int line = d.Location.GetLineSpan().StartLinePosition.Line;
@@ -440,7 +467,7 @@ public sealed partial class CSharpPatcher
         }
         if (errors.Count > 20) sb.AppendLine($"  … {errors.Count - 20} more");
         if (errors.Any(e => UserNodeAt(e) == null))
-            sb.AppendLine("Errors outside your code come from the decompiled declaration of the surrounding type (e.g. signatures the decompiler cannot express). If they persist, use patch_method_il.");
+            sb.AppendLine(ContextErrors + " come from the decompiled declaration of the surrounding type (e.g. signatures the decompiler cannot express). If they persist, use patch_method_il.");
         if (missing.Count > 0)
             sb.AppendLine($"Unresolved references (load them or add_search_directory): {string.Join(", ", missing)}");
         return sb.ToString();

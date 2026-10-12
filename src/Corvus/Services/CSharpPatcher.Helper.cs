@@ -80,7 +80,7 @@ public sealed partial class CSharpPatcher
         helperRoot = helperRoot.ReplaceNodes(helperBodies, (original, _) => original.WithAdditionalAnnotations(UserCode));
         var helperTree = CSharpSyntaxTree.Create(helperRoot, parseOptions);
 
-        using var compiled = Compile(asm, helperTree, targetImage, ct);
+        using var compiled = CompileHelper(asm, helperTree, targetImage, methods, ct);
         var helperType = compiled.Find((hasNamespace ? ns!.ToDisplayString() + "." : "") + HelperClass, isReflectionName: false)
                          ?? throw new ToolError("Internal: compiled helper class not found.");
         var merger = new ModuleMerger(target, compiled, asm.AssemblyName);
@@ -112,6 +112,24 @@ public sealed partial class CSharpPatcher
             listing.Append(string.Join("\n", jobs[0].Target.Body.Instructions.Select(x => "  " + x)));
         }
         return new Outcome(merger.Added, listing.ToString(), relaxed);
+    }
+
+    /// <summary>Compiles the helper class; diagnostics name the user's members, not the helper class and its methods.</summary>
+    private ModuleDefMD CompileHelper(LoadedAssembly asm, SyntaxTree helperTree, byte[]? targetImage, List<(IMethodSymbol Symbol, string Name)> methods, CancellationToken ct)
+    {
+        try
+        {
+            return Compile(asm, helperTree, targetImage, ct);
+        }
+        catch (ToolError ex) when (ex.Code == ErrorCode.InvalidArgument)
+        {
+            var message = ex.Message;
+            foreach (var (symbol, name) in methods)
+                message = message.Replace($"{HelperClass}.{name}", $"{symbol.ContainingType.Name}.{symbol.Name}", StringComparison.Ordinal)
+                                 .Replace(name, symbol.Name, StringComparison.Ordinal);
+            message = message.Replace(HelperClass, methods[0].Symbol.ContainingType.Name, StringComparison.Ordinal);
+            throw new ToolError(ex.Code, message, ex.Remediation) { Details = ex.Details, Partial = ex.Partial };
+        }
     }
 
     private static string HelperMethod(IMethodSymbol symbol, string name, BlockSyntax body)
