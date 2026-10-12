@@ -34,6 +34,19 @@ public partial class CommunityFilesTests
         Assert.True(File.Exists(Path.Combine(Root, ".github", "PULL_REQUEST_TEMPLATE.md")));
     }
 
+    [Fact]
+    public void SolutionProjectNamesAreUniquePerFolder()
+    {
+        // The SDK's solution parser refuses two projects of one name in a folder; local runs build the test project and never parse it.
+        var solution = System.Xml.Linq.XDocument.Load(Path.Combine(Root, "Corvus.slnx"));
+        foreach (var folder in solution.Descendants("Folder"))
+        {
+            var names = folder.Elements("Project").Select(p => Path.GetFileNameWithoutExtension((string)p.Attribute("Path")!)).ToList();
+            Assert.True(names.Count == names.Distinct(StringComparer.OrdinalIgnoreCase).Count(), $"Corvus.slnx folder {(string?)folder.Attribute("Name")} repeats a project name: {string.Join(", ", names)}");
+            Assert.All(folder.Elements("Project"), p => Assert.True(File.Exists(Path.Combine(Root, (string)p.Attribute("Path")!)), $"Corvus.slnx names {(string?)p.Attribute("Path")}, which does not exist"));
+        }
+    }
+
     private static string FindRoot()
     {
         var root = AppContext.BaseDirectory;
