@@ -3,6 +3,10 @@
     <Project Path="src/Corvus/Corvus.csproj" />
     <Project Path="src/Corvus.Clr32/Corvus.Clr32.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Notes/v1/Notes.csproj" />
+    <Project Path="samples/Notes/v2/Notes.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Corvus.Tests/Corvus.Tests.csproj" />
     <Project Path="tests/TestFixture.Consumer/TestFixture.Consumer.csproj" />

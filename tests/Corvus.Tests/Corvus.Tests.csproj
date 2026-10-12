@@ -91,6 +91,12 @@
     <ProjectReference Include="..\TestFixture.FakeTools\TestFixture.FakeTools.csproj" />
   </ItemGroup>
 
+  <!-- The guides' samples: built in their own bin/ folders, where the guide and showcase pages read them. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\samples\Notes\v1\Notes.csproj;..\..\samples\Notes\v2\Notes.csproj" ReferenceOutputAssembly="false" Private="false"
+                      SkipGetTargetFrameworkProperties="true" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;TargetFramework" />
+  </ItemGroup>
+
   <!-- Programs the tests compile with external toolchains (pipeline round trip, NativeAOT samples): data, not part of this project. -->
   <ItemGroup>
     <Compile Remove="PipelineSamples\**" />

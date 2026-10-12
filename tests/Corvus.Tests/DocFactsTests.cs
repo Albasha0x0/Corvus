@@ -19,6 +19,7 @@ public partial class DocFactsTests
     private static IEnumerable<string> MarkdownFiles() =>
         new[] { "README.md", "CONTRIBUTING.md", "SECURITY.md" }
             .Concat(Directory.EnumerateFiles(Path.Combine(Root, "docs"), "*.md").Select(f => Path.GetRelativePath(Root, f)))
+            .Concat(SampleDocsTests.Pages().Select(f => Path.GetRelativePath(Root, f)))
             .Concat(Directory.EnumerateFiles(Path.Combine(Root, "skills"), "*.md", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(Root, f)))
             .Select(f => f.Replace('\\', '/'));
 
@@ -149,7 +150,8 @@ public partial class DocFactsTests
         // Prompt names read like tools; list_changed is a notification.
         var tools = ToolCli.CatalogTools.Concat(ToolCli.CatalogPrompts).Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
         string[] notTools = ["dump_from_memory", "list_changed"];
-        foreach (var file in new[] { "README.md", "docs/cli.md", "docs/faq.md", "docs/troubleshooting.md", "docs/installation.md", "docs/testing.md" })
+        foreach (var file in new[] { "README.md", "docs/cli.md", "docs/faq.md", "docs/troubleshooting.md", "docs/installation.md", "docs/testing.md" }
+                     .Concat(SampleDocsTests.Pages().Select(f => Path.GetRelativePath(Root, f).Replace('\\', '/'))))
         {
             var unknown = McpProtocolTests.UnknownTools(Read(file), tools, notTools);
             Assert.True(unknown.Count == 0, $"{file} names tools that do not exist: {string.Join(", ", unknown)}");
