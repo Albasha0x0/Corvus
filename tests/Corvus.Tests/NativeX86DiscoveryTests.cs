@@ -192,6 +192,30 @@ public class NativeX86DiscoveryTests
     }
 
     [Fact]
+    public void Arm64_tail_jump_only_targets_become_functions_but_cold_blocks_do_not()
+    {
+        uint[] words =
+        [
+            0x14000006,             // b main
+            0x11000400, 0xD65F03C0, // leaf: add w0, w0, #1; ret
+            0x12800000, 0xA8C17BFD, 0xD65F03C0, // cold: mov w0, #-1; ldp x29, x30, [sp], #16; ret
+            0xA9BF7BFD,             // main: stp x29, x30, [sp, #-16]!
+            0x35000040,             // cbnz w0, +8
+            0x17FFFFFB,             // b cold
+            0xA8C17BFD,             // ldp x29, x30, [sp], #16
+            0x7100141F,             // cmp w0, #5
+            0x54000040,             // b.eq +8
+            0x17FFFFF5,             // b leaf
+            0x52800000, 0xD65F03C0, // mov w0, #0; ret
+        ];
+        var code = new byte[words.Length * 4];
+        for (int i = 0; i < words.Length; i++) BinaryPrimitives.WriteUInt32LittleEndian(code.AsSpan(i * 4), words[i]);
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, code, entry: Code, format: ImageFormat.Elf));
+        Assert.NotNull(index.FunctionByStart(Code + 4));
+        Assert.Null(index.FunctionByStart(Code + 12));
+    }
+
+    [Fact]
     public void A_short_jump_over_nops_is_alignment_fill_not_a_function()
     {
         // f: call g; ret; then GNU as fill "jmp +13; 13 x nop" up to g
