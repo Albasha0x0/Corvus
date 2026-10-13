@@ -303,18 +303,26 @@ public class NativeX86DiscoveryTests
     [InlineData(9)] // the index scaled into another frame slot (mov eax, [ebp-8]; shl eax, 2; mov [ebp-12], eax), bounded in the first, reloaded scaled
     [InlineData(10)] // the GOT pointer spilled, the slot reused on a path decoded first; the dispatch block reloads it on the path that kept it
     [InlineData(11)] // a byte element at a large GOT offset compared, then loaded: cmp byte [ebx + eax*2 + k], 2; ja; movzx ecx, byte [ebx + eax*2 + k]
+    [InlineData(13)] // bound before the GOT setup, across the get_pc_thunk call
     public void I386_position_independent_switch_tables_resolve(int form)
     {
         const uint Got = Data, Table = Data + 0x40;
-        Label thunk = default, dflt = default, next = default, disp = default;
+        Label thunk = default, dflt = default, next = default, disp = default, ext = default;
         var cases = new Label[3];
         var (code, rva) = Assemble(32, a =>
         {
-            thunk = a.CreateLabel(); dflt = a.CreateLabel(); next = a.CreateLabel(); disp = a.CreateLabel();
+            thunk = a.CreateLabel(); dflt = a.CreateLabel(); next = a.CreateLabel(); disp = a.CreateLabel(); ext = a.CreateLabel();
             for (int i = 0; i < 3; i++) cases[i] = a.CreateLabel();
             a.mov(eax, __dword_ptr[esp + 4]);
             var got = form switch { 1 => edx, 2 => ebp, 3 => esi, _ => ebx };
-            if (form == 2)
+            if (form == 13)
+            {
+                a.cmp(eax, 2);
+                a.ja(dflt);
+                a.call(thunk);
+                a.Label(ref next);
+            }
+            else if (form == 2)
             {
                 a.cmp(eax, 2);
                 a.ja(dflt);
@@ -334,6 +342,11 @@ public class NativeX86DiscoveryTests
             else if (form == 7) { a.mov(__dword_ptr[esp + 8], ebx); a.xor(ebx, ebx); a.push(ecx); a.cmp(eax, 2); a.ja(dflt); a.mov(edx, __dword_ptr[esp + 12]); a.pop(ecx); }
             else if (form == 6) { a.mov(esi, eax); a.cmp(__byte_ptr[esi], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[esi]); }
             else if (form == 8) { a.xor(esi, esi); a.cmp(__byte_ptr[eax + esi], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[eax + esi]); }
+            else if (form == 12)
+            {
+                a.mov(__dword_ptr[esp + 8], ebx); a.test(ecx, ecx); a.jne(disp); a.push(1); a.push(2); a.call(ext); a.lea(esi, __[esi]);
+                a.Label(ref disp); a.cmp(eax, 2); a.ja(dflt); a.mov(edx, __dword_ptr[esp + 8]);
+            }
             else if (form == 11) { a.cmp(__byte_ptr[ebx + eax * 2 + 0x123456], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[ebx + eax * 2 + 0x123456]); }
             else if (form == 10)
             {
@@ -345,11 +358,12 @@ public class NativeX86DiscoveryTests
                 a.mov(__dword_ptr[ebp - 8], eax); a.mov(eax, __dword_ptr[ebp - 8]); a.shl(eax, 2); a.mov(__dword_ptr[ebp - 12], eax);
                 a.xor(eax, eax); a.cmp(__dword_ptr[ebp - 8], 2); a.ja(dflt); a.mov(ecx, __dword_ptr[ebp - 12]);
             }
-            else if (form != 2) { a.cmp(eax, 2); a.ja(dflt); }
+            else if (form is not (2 or 13)) { a.cmp(eax, 2); a.ja(dflt); }
             switch (form)
             {
                 case 7:
-                case 10: a.mov(eax, __dword_ptr[edx + eax * 4 + (int)(Table - Got)]); a.add(eax, edx); a.jmp(eax); break;
+                case 10:
+                case 12: a.mov(eax, __dword_ptr[edx + eax * 4 + (int)(Table - Got)]); a.add(eax, edx); a.jmp(eax); break;
                 case 8:
                 case 11:
                 case 6: a.mov(eax, __dword_ptr[ebx + ecx * 4 + (int)(Table - Got)]); a.add(eax, ebx); a.jmp(eax); break;
@@ -367,6 +381,8 @@ public class NativeX86DiscoveryTests
             a.ret();
             a.Label(ref thunk);
             a.mov(form == 1 ? edx : ebx, __dword_ptr[esp]);
+            a.ret();
+            a.Label(ref ext);
             a.ret();
         });
         int add = code.AsSpan().IndexOf([(byte)0x77, (byte)0x77, (byte)0, (byte)0]);

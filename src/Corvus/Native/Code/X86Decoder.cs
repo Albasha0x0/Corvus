@@ -801,6 +801,11 @@ internal sealed class X86Decoder : ICodeDecoder
     private static bool IsCall(in Instruction x) =>
         x.FlowControl is FlowControl.Call or FlowControl.IndirectCall && !(x.Code == Iced.Intel.Code.Call_rel32_32 && x.NearBranchTarget == x.NextIP);
 
+    /// <summary>A call that may change <paramref name="reg"/>: not "call $+5", nor a get_pc_thunk loading another register.</summary>
+    private bool CallChanges(in Instruction x, Register reg) =>
+        IsCall(in x) && !(x.Code == Iced.Intel.Code.Call_rel32_32 && TryRva(x.NearBranchTarget, out uint t) && PcThunkRegister(t) is var r and >= 0
+            && Register.RAX + r != reg);
+
     private static bool WritesRegister(in Instruction x, Register full) =>
         (x.Op0Kind == OpKind.Register && x.Op0Register.GetFullRegister() == full && x.Mnemonic is not (Mnemonic.Cmp or Mnemonic.Test or Mnemonic.Push or Mnemonic.Bt))
         || (x.Mnemonic == Mnemonic.Xchg && x.Op1Kind == OpKind.Register && x.Op1Register.GetFullRegister() == full);
@@ -1021,7 +1026,7 @@ internal sealed class X86Decoder : ICodeDecoder
         for (; k < _ringCount; k++)
         {
             ref var x = ref Back(k);
-            if (IsCall(in x)) return -1;
+            if (CallChanges(in x, reg)) return -1;
             if (WritesRegister(in x, reg)) return k;
         }
         return -1;
@@ -1050,7 +1055,7 @@ internal sealed class X86Decoder : ICodeDecoder
         for (; k < _ringCount; k++)
         {
             ref var x = ref Back(k);
-            if (IsCall(in x)) return false;
+            if (CallChanges(in x, current) || (inSlot && (CallChanges(in x, slotBase) || CallChanges(in x, slotIndex)))) return false;
             if (x.FlowControl == FlowControl.ConditionalBranch)
             {
                 pending = x.ConditionCode;
