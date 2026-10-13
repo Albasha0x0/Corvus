@@ -324,7 +324,22 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     /// </summary>
     private CSharpPatcher.Outcome MergeSafely(LoadedAssembly asm, bool dryRun, Func<ModuleDef, CSharpPatcher.Outcome> merge, CancellationToken ct)
     {
+        // A replayed edit compiled before: it merges once, into the module; a rebuild in progress rolls a failure back itself.
+        if (_replaying && !dryRun)
+        {
+            if (_rebuilding) return merge(asm.Module);
+            try
+            {
+                return merge(asm.Module);
+            }
+            catch
+            {
+                Rebuild(asm, asm.Edits.ToList(), ct);
+                throw;
+            }
+        }
         CSharpPatcher.Outcome preview;
+        using var reuse = csharp.ReuseCompiles();
         using (var scratch = ModuleDefMD.Load(asm.GetImageBytes(), workspace.DnlibContext))
         {
             scratch.EnableTypeDefFindCache = true;
@@ -495,8 +510,19 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     /// </summary>
     internal Func<EditRecord, string, ResolvedSymbol?>? Remap { get; set; }
 
+    // Set while recorded edits are replayed (Apply) and while an assembly is rebuilt from its edits (Rebuild).
+    [ThreadStatic] private static bool _replaying, _rebuilding;
+
     /// <summary>Re-applies a recorded edit. <paramref name="preferTokens"/>: replaying on the same original image.</summary>
-    public string Apply(EditRecord record, LoadedAssembly asm, bool preferTokens, CancellationToken ct) => record.Kind switch
+    public string Apply(EditRecord record, LoadedAssembly asm, bool preferTokens, CancellationToken ct)
+    {
+        bool outer = _replaying;
+        _replaying = true;
+        try { return ApplyRecord(record, asm, preferTokens, ct); }
+        finally { _replaying = outer; }
+    }
+
+    private string ApplyRecord(EditRecord record, LoadedAssembly asm, bool preferTokens, CancellationToken ct) => record.Kind switch
     {
         "rename_symbol" => Rename(Recorded(asm, record, "symbol", preferTokens), Required(record, "newName")),
         "rename_namespace" => RenameNamespace(asm, Required(record, "oldNamespace"), Required(record, "newNamespace"), record.Arg("includeSubNamespaces") == "true"),
@@ -540,6 +566,23 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     public void Rebuild(LoadedAssembly asm, IReadOnlyList<EditRecord> records, CancellationToken ct)
     {
         var (previousModule, previousEdits) = asm.ResetToOriginal(workspace.DnlibContext);
+        bool outer = _rebuilding;
+        _rebuilding = true;
+        try
+        {
+            ReplayAll(asm, records, previousModule, previousEdits, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            asm.RestoreState(previousModule, previousEdits); // a cancelled undo or revert changes nothing
+            throw;
+        }
+        finally { _rebuilding = outer; }
+        previousModule.Dispose();
+    }
+
+    private void ReplayAll(LoadedAssembly asm, IReadOnlyList<EditRecord> records, ModuleDefMD previousModule, List<EditRecord> previousEdits, CancellationToken ct)
+    {
         for (int i = 0; i < records.Count; i++)
         {
             try
@@ -555,7 +598,6 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
                 throw new ToolError(ErrorCode.Conflict, $"Edit #{number} ({records[i].Description}) could not be re-applied: {reason}\nNothing was changed.");
             }
         }
-        previousModule.Dispose();
     }
 
     private static Dictionary<string, string?> SymbolArgs(string key, ResolvedSymbol symbol, string? label = null) => new()

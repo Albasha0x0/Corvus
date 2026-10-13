@@ -73,8 +73,8 @@ public class CSharpAdvancedTests : IDisposable
     public void TheTargetsReferenceCopyIsMetadataOnlyAndCached()
     {
         var image = _env.Fixture.GetImageBytes();
-        var friend = Services.CSharpPatcher.FriendImage(image, "Fixture.__patch", ["System.Runtime"]);
-        Assert.Same(friend, Services.CSharpPatcher.FriendImage(image, "Fixture.__patch", ["System.Runtime"]));
+        var friend = Services.CSharpPatcher.FriendImage(image, "Fixture.__patch", ["System.Runtime"], default);
+        Assert.Same(friend, Services.CSharpPatcher.FriendImage(image, "Fixture.__patch", ["System.Runtime"], default));
         using var module = dnlib.DotNet.ModuleDefMD.Load(friend);
         Assert.Contains(module.Assembly.CustomAttributes, ca => ca.TypeFullName == "System.Runtime.CompilerServices.InternalsVisibleToAttribute"
                                                                 && ca.ConstructorArguments[0].Value?.ToString() == "Fixture.__patch");

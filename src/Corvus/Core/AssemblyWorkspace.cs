@@ -969,6 +969,8 @@ public sealed class AssemblyWorkspace : IDisposable
         // Resolution probes the file system; a scan over every call site asks for the same few references over and
         // over, unresolvable ones included. Results are kept for one workspace generation (loads, unloads, searches).
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, AssemblyDef?> _cache = new();
+        // Misses while stubs are off: a stub build resolves every member reference of the loaded code, missing ones again and again.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _missesWithoutStubs = new();
         private int _cacheGeneration = -1;
 
         public AssemblyDef? Resolve(IAssembly assembly, ModuleDef sourceModule)
@@ -980,14 +982,17 @@ public sealed class AssemblyWorkspace : IDisposable
             if (_cacheGeneration != generation)
             {
                 _cache.Clear();
+                _missesWithoutStubs.Clear();
                 _cacheGeneration = generation;
             }
             var key = string.Join("|", name, assembly.Version, Convert.ToHexString(assembly.PublicKeyOrToken?.Token?.Data ?? []),
                 sourceModule?.Location is { } location ? SafeDirectory(location) : "", sourceModule == null ? "" : Frameworks.RequesterFramework(sourceModule));
             if (_cache.TryGetValue(key, out var known)) return known;
+            if (_stubsOff > 0 && _missesWithoutStubs.ContainsKey(key)) return null;
             var resolved = ResolveUncached(name, assembly, sourceModule);
             // A miss while stubs are off is not the reference's answer for the rest of the generation.
             if (resolved != null || _stubsOff == 0) _cache[key] = resolved;
+            else _missesWithoutStubs[key] = true;
             return resolved;
         }
 

@@ -28,32 +28,39 @@ public sealed partial class CSharpPatcher
 
     /// <summary>The assembly's own (current) image plus the transitive closure of its references.</summary>
     /// <param name="clashing">Simple names of types a compilation found in two references (CS0433); see <see cref="HideClashingTypes"/>.</param>
-    private List<MetadataReference> BuildReferences(LoadedAssembly asm, byte[]? targetImage, out List<string> missing, IReadOnlySet<string>? clashing = null)
+    private List<MetadataReference> BuildReferences(LoadedAssembly asm, byte[]? targetImage, out List<string> missing, CancellationToken ct, IReadOnlySet<string>? clashing = null)
     {
         var targetBytes = targetImage ?? asm.GetImageBytes();
-        var closure = Closure(asm, targetBytes);
+        var closure = Closure(asm);
         missing = [.. closure.Missing];
         var images = closure.Images.ToList();
-        var friend = FriendImage(targetBytes, asm.AssemblyName + PatchSuffix, closure.StandIns);
+        var friend = FriendImage(targetBytes, asm.AssemblyName + PatchSuffix, closure.StandIns, ct);
         images[0] = (images[0].Name, friend, images[0].Path);
         var references = images.Select(i => Reference(i.Image)).ToList();
-        if (clashing is { Count: > 0 }) HideClashingTypes(asm, images, references, clashing);
+        if (clashing is { Count: > 0 }) HideClashingTypes(asm, images, references, clashing, ct);
+        // The first compile of an assembly writes every reference copy it needs: seconds each for large ones.
+        var copies = new byte[]?[images.Count];
+        Parallel.For(1, images.Count, new ParallelOptions { CancellationToken = ct }, i => copies[i] = ReferenceCopy(images[i].Image, closure.StandIns, ct));
         for (int i = 1; i < images.Count; i++)
-            if (ReferenceCopy(images[i].Image, closure.StandIns) is { } image)
+            if (copies[i] is { } image)
                 references[i] = Reference(image);
         return SingleCoreLibrary(references, images);
     }
 
-    /// <summary>The images of a target and its reference closure (the target's own first), the names not found, and those resolved to stand-ins.</summary>
-    private sealed record ReferenceClosure(int Generation, IReadOnlyList<(string Name, byte[] Image, string Path)> Images, IReadOnlyList<string> Missing,
+    /// <summary>
+    /// The images of a target's reference closure (the target's own first, replaced by the caller), the names not found,
+    /// and those resolved to stand-ins.
+    /// </summary>
+    private sealed record ReferenceClosure(int Generation, int Version, IReadOnlyList<(string Name, byte[] Image, string Path)> Images, IReadOnlyList<string> Missing,
         HashSet<string> StandIns);
 
-    // Per target image: one patch compiles several times, and the same reference bytes let Roslyn reuse what it read.
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], ReferenceClosure> Closures = new();
+    // Per assembly state: every compile of an edit and of the edits after it reads the same reference bytes, so Roslyn and
+    // the reference copies below reuse what they made from them.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedAssembly, ReferenceClosure> Closures = new();
 
-    private ReferenceClosure Closure(LoadedAssembly asm, byte[] targetBytes)
+    private ReferenceClosure Closure(LoadedAssembly asm)
     {
-        if (Closures.TryGetValue(targetBytes, out var cached) && cached.Generation == workspace.Generation) return cached;
+        if (Closures.TryGetValue(asm, out var cached) && cached.Generation == workspace.Generation && cached.Version == asm.Version) return cached;
         var missing = new List<string>();
         var images = new List<(string Name, byte[] Image, string Path)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -68,7 +75,7 @@ public sealed partial class CSharpPatcher
             queue.Enqueue((module, owned, path));
         }
 
-        Enqueue(asm.AssemblyName, targetBytes, asm.Module, owned: false, asm.FilePath);
+        Enqueue(asm.AssemblyName, [], asm.Module, owned: false, asm.FilePath);
         bool netFramework = Frameworks.ResolvesAsNetFramework(asm.Module); // applies to the whole reference closure
         var targetFramework = Frameworks.RequesterFramework(asm.Module);
         while (queue.Count > 0)
@@ -89,7 +96,7 @@ public sealed partial class CSharpPatcher
                 try
                 {
                     // Embedded (Costura) assemblies resolve their references from the host's folder.
-                    var bytes = target.Bytes ?? File.ReadAllBytes(target.File!);
+                    var bytes = target.Bytes ?? RuntimeFile(target.File!) ?? throw new IOException(target.File);
                     Enqueue(name, bytes, ModuleDefMD.Load(bytes), owned: true, target.File ?? from);
                 }
                 catch
@@ -100,8 +107,8 @@ public sealed partial class CSharpPatcher
             }
             if (owned) module.Dispose();
         }
-        var closure = new ReferenceClosure(workspace.Generation, images, missing, stubbed);
-        Closures.AddOrUpdate(targetBytes, closure);
+        var closure = new ReferenceClosure(workspace.Generation, asm.Version, images, missing, stubbed);
+        Closures.AddOrUpdate(asm, closure);
         return closure;
     }
 
@@ -109,12 +116,12 @@ public sealed partial class CSharpPatcher
     /// Writes the target's reference copy (<see cref="FriendImage"/>) on another thread while the caller decompiles the
     /// shadow: for a large assembly both take seconds. The compile that needs it waits for it on the cache lock.
     /// </summary>
-    private void PrefetchFriendImage(LoadedAssembly asm)
+    private void PrefetchFriendImage(LoadedAssembly asm, CancellationToken ct)
     {
         var bytes = asm.GetImageBytes();
-        var standIns = Closure(asm, bytes).StandIns;
+        var standIns = Closure(asm).StandIns;
         var friend = asm.AssemblyName + PatchSuffix;
-        _ = Task.Run(() => FriendImage(bytes, friend, standIns));
+        _ = Task.Run(() => FriendImage(bytes, friend, standIns, CancellationToken.None), ct);
     }
 
     /// <summary>
@@ -124,7 +131,7 @@ public sealed partial class CSharpPatcher
     /// copies (all of them when none is public and none is used) are renamed out of reach in their reference copies.
     /// </summary>
     private static void HideClashingTypes(LoadedAssembly asm, List<(string Name, byte[] Image, string Path)> images, List<MetadataReference> references,
-        IReadOnlySet<string> clashing)
+        IReadOnlySet<string> clashing, CancellationToken ct)
     {
         var all = images.Select(i => TopLevelTypes(i.Image)).ToList();
         var defined = all.Select(types => types.Where(t => clashing.Contains(Format.StripArity(t.Name))).ToList()).ToList();
@@ -156,7 +163,7 @@ public sealed partial class CSharpPatcher
                 if (all[i].Any(t => t.FullName == other)) Hide(i, other);
         }
         foreach (var (i, names) in hide)
-            if (WithTypesRenamed(images[i].Image, names) is { } renamed)
+            if (WithTypesRenamed(images[i].Image, names, ct) is { } renamed)
             {
                 images[i] = (images[i].Name, renamed, images[i].Path);
                 references[i] = Reference(renamed);
@@ -184,30 +191,22 @@ public sealed partial class CSharpPatcher
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException) { return []; }
     }
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], TokenFreeImage> RenamedImages = new();
+    private static readonly DerivedImages RenamedImages = new();
 
     /// <summary>The image with the top-level types <paramref name="fullNames"/> given unspeakable names; null when it cannot be rewritten. Cached per image.</summary>
-    private static byte[]? WithTypesRenamed(byte[] image, HashSet<string> fullNames)
-    {
-        var key = string.Join(",", fullNames.Order(StringComparer.Ordinal));
-        lock (RenamedImages)
+    private static byte[]? WithTypesRenamed(byte[] image, HashSet<string> fullNames, CancellationToken ct) =>
+        RenamedImages.Get(image, string.Join(",", fullNames.Order(StringComparer.Ordinal)), () =>
         {
-            if (RenamedImages.TryGetValue(image, out var cached) && cached.Names == key) return cached.Image;
-            byte[]? result;
             try
             {
-                using var module = ModuleDefMD.Load(image);
-                foreach (var t in module.Types.Where(t => fullNames.Contains(t.FullName)))
-                    t.Name = "<hidden>" + t.Name;
-                using var ms = new MemoryStream();
-                FaithfulWriter.WritePlain(module, ms);
-                result = ms.ToArray();
+                return Rewritten(image, module =>
+                {
+                    foreach (var t in module.Types.Where(t => fullNames.Contains(t.FullName)))
+                        t.Name = "<hidden>" + t.Name;
+                });
             }
-            catch (Exception ex) when (ex is not OperationCanceledException) { result = null; }
-            RenamedImages.AddOrUpdate(image, new TokenFreeImage(key, result));
-            return result;
-        }
-    }
+            catch (Exception ex) when (ex is not OperationCanceledException) { return null; }
+        }, ct);
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], MetadataReference> References = new();
 
@@ -219,21 +218,10 @@ public sealed partial class CSharpPatcher
     /// key, so a reference naming one by its token does not bind to it, CS0012) and any-version references reset (see
     /// <see cref="IsAnyVersion"/>); null when it needs neither.
     /// </summary>
-    private static byte[]? ReferenceCopy(byte[] image, HashSet<string> names)
-    {
-        var key = string.Join(",", names.Order(StringComparer.OrdinalIgnoreCase));
-        lock (TokenFreeImages)
-        {
-            if (TokenFreeImages.TryGetValue(image, out var cached) && cached.Names == key) return cached.Image;
-            var result = RewriteReferences(image, names);
-            TokenFreeImages.AddOrUpdate(image, new TokenFreeImage(key, result));
-            return result;
-        }
-    }
+    private static byte[]? ReferenceCopy(byte[] image, HashSet<string> names, CancellationToken ct) =>
+        TokenFreeImages.Get(image, string.Join(",", names.Order(StringComparer.OrdinalIgnoreCase)), () => RewriteReferences(image, names), ct);
 
-    private sealed record TokenFreeImage(string Names, byte[]? Image);
-
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], TokenFreeImage> TokenFreeImages = new();
+    private static readonly DerivedImages TokenFreeImages = new();
 
     private static byte[]? RewriteReferences(byte[] image, HashSet<string> names)
     {
@@ -245,15 +233,39 @@ public sealed partial class CSharpPatcher
                 if (!md.AssemblyReferences.Select(md.GetAssemblyReference).Any(r => (!r.PublicKeyOrToken.IsNil && names.Contains(md.GetString(r.Name))) || IsAnyVersion(r.Version)))
                     return null;
             }
-            using var module = ModuleDefMD.Load(image);
-            FixReferences(module, names);
-            using var ms = new MemoryStream();
-            FaithfulWriter.WritePlain(module, ms);
-            return ms.ToArray();
+            return Rewritten(image, module => FixReferences(module, names));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return null; // compile against it as it is
+        }
+    }
+
+    /// <summary>
+    /// A compile reference changed by <paramref name="change"/>, written as metadata only: Roslyn reads no method body or
+    /// resource of a reference, and writing them took seconds per large reference. Written as it is when that fails.
+    /// </summary>
+    private static byte[] Rewritten(byte[] image, Action<ModuleDefMD> change)
+    {
+        try
+        {
+            using var module = ModuleDefMD.Load(image);
+            change(module);
+            foreach (var m in module.GetTypes().SelectMany(t => t.Methods))
+                m.Body = null;
+            module.Resources.Clear();
+            using var ms = new MemoryStream();
+            // Compiled code names members by name, so tokens need not be kept.
+            module.Write(ms, new dnlib.DotNet.Writer.ModuleWriterOptions(module));
+            return ms.ToArray();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            using var module = ModuleDefMD.Load(image);
+            change(module);
+            using var ms = new MemoryStream();
+            FaithfulWriter.WritePlain(module, ms);
+            return ms.ToArray();
         }
     }
 
@@ -275,7 +287,7 @@ public sealed partial class CSharpPatcher
     /// <summary>Name suffix of the assembly a patch is compiled into (it references the target).</summary>
     internal const string PatchSuffix = ".__patch";
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], TokenFreeImage> FriendImages = new();
+    private static readonly DerivedImages FriendImages = new();
 
     /// <summary>
     /// The target image as a compile reference that grants the patch assembly access to its internals
@@ -285,18 +297,10 @@ public sealed partial class CSharpPatcher
     /// and any-version references are reset (see <see cref="ReferenceCopy"/>). Only metadata is written: Roslyn reads no method body or resource of a
     /// reference, and rewriting them made the first patch of a large assembly take seconds. Cached per image.
     /// </summary>
-    internal static byte[] FriendImage(byte[] image, string friend, HashSet<string> standIns)
-    {
-        var key = friend + "|" + string.Join(",", standIns.Order(StringComparer.OrdinalIgnoreCase));
-        lock (FriendImages)
-        {
-            if (FriendImages.TryGetValue(image, out var cached) && cached.Names == key) return cached.Image!;
+    internal static byte[] FriendImage(byte[] image, string friend, HashSet<string> standIns, CancellationToken ct) =>
+        FriendImages.Get(image, friend + "|" + string.Join(",", standIns.Order(StringComparer.OrdinalIgnoreCase)),
             // Metadata only, as a plain IL image (also for ReadyToRun and mixed-mode targets); else written as it is.
-            var result = Friend(image, friend, standIns, metadataOnly: true) ?? Friend(image, friend, standIns, metadataOnly: false) ?? image;
-            FriendImages.AddOrUpdate(image, new TokenFreeImage(key, result));
-            return result;
-        }
-    }
+            () => Friend(image, friend, standIns, metadataOnly: true) ?? Friend(image, friend, standIns, metadataOnly: false) ?? image, ct)!;
 
     private static byte[]? Friend(byte[] image, string friend, HashSet<string> standIns, bool metadataOnly)
     {
@@ -402,6 +406,49 @@ public sealed partial class CSharpPatcher
         }
         catch (BadImageFormatException) { return false; }
         catch (InvalidOperationException) { return false; }
+    }
+
+    /// <summary>
+    /// Images made from an image and a key, once per pair while the image lives. Each is made outside any lock: a caller
+    /// waiting for another thread's result (seconds for a large assembly) stops when its call is cancelled.
+    /// </summary>
+    internal sealed class DerivedImages
+    {
+        private sealed record Entry(string Key, TaskCompletionSource<byte[]?> Done);
+
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], Entry> _entries = new();
+
+        public byte[]? Get(byte[] image, string key, Func<byte[]?> make, CancellationToken ct)
+        {
+            while (true)
+            {
+                Entry entry;
+                bool mine = false;
+                lock (_entries)
+                {
+                    if (!_entries.TryGetValue(image, out entry!) || entry.Key != key)
+                    {
+                        entry = new Entry(key, new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously));
+                        _entries.AddOrUpdate(image, entry);
+                        mine = true;
+                    }
+                }
+                if (mine)
+                {
+                    try { entry.Done.SetResult(make()); }
+                    catch (Exception ex)
+                    {
+                        lock (_entries)
+                            if (_entries.TryGetValue(image, out var current) && ReferenceEquals(current, entry)) _entries.Remove(image);
+                        entry.Done.SetException(ex);
+                        throw;
+                    }
+                }
+                try { entry.Done.Task.Wait(ct); }
+                catch (AggregateException) { continue; } // the maker failed: make it here
+                return entry.Done.Task.Result;
+            }
+        }
     }
 
     private static string MemberName(SyntaxNode node) => node switch

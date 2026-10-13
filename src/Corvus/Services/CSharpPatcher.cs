@@ -51,7 +51,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         {
             try
             {
-                var model = Bind(asm, tree, null);
+                var model = Bind(asm, tree, ct);
                 var boundBody = tree.GetRoot(ct).GetAnnotatedNodes(UserCode).OfType<BlockSyntax>().First();
                 return CompileViaHelper(asm, model, [new HelperJob(boundBody, Counterpart(target, method))], target, null, ct);
             }
@@ -142,7 +142,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         {
             var phase2 = ShadowTree(asm, type, (root, typeNode) =>
                 (CompilationUnitSyntax)new StubRewriter(null, null).Visit(root.ReplaceNode(typeNode, typeNode.AddMembers(members.Select(BlockBodies).ToArray())))!, ct);
-            var model = Bind(asm, phase2, null);
+            var model = Bind(asm, phase2, ct);
             var jobs = new List<HelperJob>();
             foreach (var body in phase2.GetRoot(ct).GetAnnotatedNodes(UserCode).SelectMany(n => n.DescendantNodesAndSelf()).OfType<BlockSyntax>()
                          .Where(b => b.Parent is BaseMethodDeclarationSyntax or AccessorDeclarationSyntax && b.Parent is not ConstructorDeclarationSyntax && b.Parent.Parent?.Parent is not null))
@@ -154,8 +154,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
             }
             if (jobs.Count > 0)
             {
-                var image = WriteImage(target);
-                var outcome = CompileViaHelper(asm, model, jobs, target, image, ct);
+                var outcome = CompileViaHelper(asm, model, jobs, target, () => WriteImage(target), ct);
                 added.AddRange(outcome.Added);
                 relaxed.AddRange(outcome.Relaxed);
             }

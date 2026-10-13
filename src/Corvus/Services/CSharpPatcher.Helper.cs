@@ -40,7 +40,7 @@ public sealed partial class CSharpPatcher
     /// Compiles every job's body as a method of one helper class and copies the results into the target methods.
     /// <paramref name="model"/> must belong to the tree that contains the job bodies (a shadow compilation, bound only).
     /// </summary>
-    private Outcome CompileViaHelper(LoadedAssembly asm, SemanticModel model, IReadOnlyList<HelperJob> jobs, ModuleDef target, byte[]? targetImage, CancellationToken ct)
+    private Outcome CompileViaHelper(LoadedAssembly asm, SemanticModel model, IReadOnlyList<HelperJob> jobs, ModuleDef target, Func<byte[]>? targetImage, CancellationToken ct)
     {
         var root = (CompilationUnitSyntax)model.SyntaxTree.GetRoot(ct);
         var methods = new List<(IMethodSymbol Symbol, string Name)>();
@@ -115,7 +115,7 @@ public sealed partial class CSharpPatcher
     }
 
     /// <summary>Compiles the helper class; diagnostics name the user's members, not the helper class and its methods.</summary>
-    private ModuleDefMD CompileHelper(LoadedAssembly asm, SyntaxTree helperTree, byte[]? targetImage, List<(IMethodSymbol Symbol, string Name)> methods, CancellationToken ct)
+    private ModuleDefMD CompileHelper(LoadedAssembly asm, SyntaxTree helperTree, Func<byte[]>? targetImage, List<(IMethodSymbol Symbol, string Name)> methods, CancellationToken ct)
     {
         try
         {

@@ -15,15 +15,23 @@ public sealed partial class CSharpPatcher
     /// <summary>Decompiles the top-level type containing <paramref name="type"/> and applies <paramref name="transform"/>.</summary>
     private SyntaxTree ShadowTree(LoadedAssembly asm, TypeDef type, Func<CompilationUnitSyntax, TypeDeclarationSyntax, CompilationUnitSyntax> transform, CancellationToken ct)
     {
-        PrefetchFriendImage(asm);
-        var source = decompiler.DecompileType(asm, TopLevel(type), ct, compilable: true);
+        var top = TopLevel(type);
+        var key = $"{asm.Id}|{asm.Version}|{top.MDToken.Raw:X8}";
+        string source;
+        if (Replay.Value?.Sources.TryGetValue(key, out var earlier) == true) source = earlier;
+        else
+        {
+            PrefetchFriendImage(asm, ct);
+            source = decompiler.DecompileType(asm, top, ct, compilable: true);
+            Replay.Value?.Sources[key] = source;
+        }
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var root = CSharpSyntaxTree.ParseText(source, parseOptions, cancellationToken: ct).GetCompilationUnitRoot(ct);
         var typeNode = FindTypeDeclaration(root, type)
                        ?? throw new ToolError(ErrorCode.Unsupported, IsDelegate(type)
                            ? $"{type.FullName} is a delegate that also declares methods or fields (a code transformer construct); C# cannot declare those, so its code cannot be patched in C#: use patch_method_il instead."
                            : $"Could not locate {type.FullName} in its decompiled source; use patch_method_il instead.");
-        return CSharpSyntaxTree.Create(UsingsInsideNamespaces((CompilationUnitSyntax)new InternalTypes().Visit(transform(root, typeNode))!), parseOptions);
+        return Reused(CSharpSyntaxTree.Create(UsingsInsideNamespaces((CompilationUnitSyntax)new InternalTypes().Visit(transform(root, typeNode))!), parseOptions));
     }
 
     /// <summary>
@@ -78,16 +86,18 @@ public sealed partial class CSharpPatcher
     }
 
     /// <summary>A semantic model of <paramref name="tree"/> (not emitted; errors are irrelevant for binding).</summary>
-    private SemanticModel Bind(LoadedAssembly asm, SyntaxTree tree, byte[]? targetImage)
+    private SemanticModel Bind(LoadedAssembly asm, SyntaxTree tree, CancellationToken ct)
     {
-        var compilation = CreateCompilation(asm, tree, targetImage, out _, withUsings: true);
-        return compilation.GetSemanticModel(tree);
+        if (Replay.Value?.Models.TryGetValue(tree, out var earlier) == true) return earlier;
+        var model = CreateCompilation(asm, tree, null, out _, withUsings: true, ct).GetSemanticModel(tree);
+        Replay.Value?.Models[tree] = model;
+        return model;
     }
 
     private CSharpCompilation CreateCompilation(LoadedAssembly asm, SyntaxTree tree, byte[]? targetImage, out List<string> missing, bool withUsings,
-        IReadOnlySet<string>? clashing = null)
+        CancellationToken ct, IReadOnlySet<string>? clashing = null)
     {
-        var plain = CSharpCompilation.Create(asm.AssemblyName + PatchSuffix, [tree], BuildReferences(asm, targetImage, out missing, clashing), CreateOptions());
+        var plain = CSharpCompilation.Create(asm.AssemblyName + PatchSuffix, [tree], BuildReferences(asm, targetImage, out missing, ct, clashing), CreateOptions());
         if (!withUsings) return plain;
         var usings = DefaultUsings.Where(ns => NamespaceExists(plain, ns)).ToList();
         return usings.Count == 0 ? plain
@@ -138,9 +148,29 @@ public sealed partial class CSharpPatcher
         return ms.ToArray();
     }
 
-    private ModuleDefMD Compile(LoadedAssembly asm, SyntaxTree tree, byte[]? targetImage, CancellationToken ct)
+    /// <summary>
+    /// Compiles <paramref name="tree"/>; <paramref name="targetImage"/>, when given, is the target image to compile against
+    /// (made only when no earlier run of the same edit compiled this tree, see <see cref="ReplayCache"/>).
+    /// </summary>
+    private ModuleDefMD Compile(LoadedAssembly asm, SyntaxTree tree, Func<byte[]>? targetImage, CancellationToken ct)
     {
-        var withUsings = CreateCompilation(asm, tree, targetImage, out var missing, withUsings: true);
+        var cache = Replay.Value;
+        var key = cache == null ? "" : (targetImage == null ? "module|" : "image|") + tree.GetText(ct);
+        if (cache?.Images.TryGetValue(key, out var image) != true)
+        {
+            image = CompileImage(asm, tree, targetImage?.Invoke(), ct);
+            cache?.Images[key] = image;
+        }
+        return ModuleDefMD.Load(image!, workspace.DnlibContext);
+    }
+
+    /// <summary>Roslyn compile runs of this patcher (tests check that an edit compiles each tree once).</summary>
+    internal int Compiles;
+
+    private byte[] CompileImage(LoadedAssembly asm, SyntaxTree tree, byte[]? targetImage, CancellationToken ct)
+    {
+        Interlocked.Increment(ref Compiles);
+        var withUsings = CreateCompilation(asm, tree, targetImage, out var missing, withUsings: true, ct);
         // Drop decompiled using directives for namespaces no resolved reference provides; an unused import must not fail the patch.
         var root = tree.GetRoot(ct);
         var unknown = root.DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.UsingDirectiveSyntax>()
@@ -150,7 +180,7 @@ public sealed partial class CSharpPatcher
         if (unknown.Count > 0)
         {
             tree = tree.WithRootAndOptions(root.RemoveNodes(unknown, SyntaxRemoveOptions.KeepNoTrivia)!, tree.Options);
-            withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true);
+            withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true, ct);
         }
         using var pe = new MemoryStream();
         var emit = withUsings.Emit(pe, cancellationToken: ct);
@@ -161,7 +191,7 @@ public sealed partial class CSharpPatcher
             var newRoot = tree.GetRoot(ct).RemoveNodes(unbound.SelectMany(a => a.Parent is AttributeListSyntax { Attributes.Count: 1 } list ? [list] : new SyntaxNode[] { a }),
                 SyntaxRemoveOptions.KeepNoTrivia)!;
             tree = tree.WithRootAndOptions(newRoot, tree.Options);
-            withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true);
+            withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true, ct);
             pe.SetLength(0);
             emit = withUsings.Emit(pe, cancellationToken: ct);
         }
@@ -169,7 +199,7 @@ public sealed partial class CSharpPatcher
         if (!emit.Success && ClashingTypeNames(emit.Diagnostics) is { Count: > 0 } clashed)
         {
             clashing = clashed;
-            withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true, clashing);
+            withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true, ct, clashing);
             pe.SetLength(0);
             emit = withUsings.Emit(pe, cancellationToken: ct);
         }
@@ -179,7 +209,7 @@ public sealed partial class CSharpPatcher
             // by its decompiled copy; only bodies are taken from the result, so the copy is compiled without those interfaces.
             using var retry = new MemoryStream();
             var without = tree.WithRootAndOptions(tree.GetRoot(ct).RemoveNodes(interfaces, SyntaxRemoveOptions.KeepNoTrivia)!, tree.Options);
-            var compilation = CreateCompilation(asm, without, targetImage, out _, withUsings: true, clashing);
+            var compilation = CreateCompilation(asm, without, targetImage, out _, withUsings: true, ct, clashing);
             var result = compilation.Emit(retry, cancellationToken: ct);
             // Their explicit implementations (stubs unless one is the patched member) go too.
             var orphans = result.Diagnostics.Where(d => d.Id == "CS0540" && d.Location.SourceTree == without)
@@ -189,20 +219,20 @@ public sealed partial class CSharpPatcher
             {
                 without = without.WithRootAndOptions(without.GetRoot(ct).RemoveNodes(orphans, SyntaxRemoveOptions.KeepNoTrivia)!, tree.Options);
                 retry.SetLength(0);
-                result = CreateCompilation(asm, without, targetImage, out _, withUsings: true, clashing).Emit(retry, cancellationToken: ct);
+                result = CreateCompilation(asm, without, targetImage, out _, withUsings: true, ct, clashing).Emit(retry, cancellationToken: ct);
             }
             if (result.Success)
-                return ModuleDefMD.Load(retry.ToArray(), workspace.DnlibContext);
+                return retry.ToArray();
         }
         if (!emit.Success && withUsings.SyntaxTrees.Length > 1)
         {
             using var retry = new MemoryStream();
             if (withUsings.RemoveSyntaxTrees(withUsings.SyntaxTrees.Skip(1)).Emit(retry, cancellationToken: ct).Success)
-                return ModuleDefMD.Load(retry.ToArray(), workspace.DnlibContext);
+                return retry.ToArray();
         }
         if (!emit.Success)
             throw new ToolError(ErrorCode.InvalidArgument, FormatErrors(emit.Diagnostics, tree, missing));
-        return ModuleDefMD.Load(pe.ToArray(), workspace.DnlibContext);
+        return pe.ToArray();
     }
 
     /// <summary>Interfaces in base lists of the decompiled declaration that its types fail to implement (CS0535, CS0738).</summary>
