@@ -118,6 +118,7 @@ internal sealed partial class FunctionDiscovery
                 case OpKind.PendingRemove: RemovePending((uint)op.A); break;
                 case OpKind.FarJump: _farJumps.Add((uint)op.A); break;
                 case OpKind.LocalSubroutine: _ctx.LocalSubroutines.Add((uint)op.A); break;
+                case OpKind.Jump: _jumps.Add(((uint)(op.A >> 32), (uint)op.A, op.B)); break;
             }
         return true;
     }
@@ -150,7 +151,7 @@ internal sealed partial class FunctionDiscovery
         // reads that answered false (true answers stay true: what they read only grows)
         Decoded, Invalid, NotFunction, NoStartBetween, NotLocalSubroutine, NotNoReturn, PendingQuery,
         // writes, replayed in order
-        Covered, AddFunction, AddressCandidate, DataInCode, CodeTable, PendingAdd, PendingRemove, FarJump, LocalSubroutine,
+        Covered, AddFunction, AddressCandidate, DataInCode, CodeTable, PendingAdd, PendingRemove, FarJump, LocalSubroutine, Jump,
     }
 
     /// <summary>One read or write of a speculative run: an address or bit index (an added function's thunk slot above it) and a length, bound or source.</summary>
@@ -332,6 +333,12 @@ internal sealed partial class FunctionDiscovery
             return false;
         }
 
+        private void WriteJump(uint site, uint target, uint root)
+        {
+            if (_speculative) Log.Add(new Op(OpKind.Jump, (long)site << 32 | target, root));
+            else d._jumps.Add((site, target, root));
+        }
+
         private void Write(OpKind kind, uint rva)
         {
             if (_speculative) { Log.Add(new Op(kind, rva, 0)); return; }
@@ -387,7 +394,12 @@ internal sealed partial class FunctionDiscovery
                     if (insn.Rva == root && insn.Target != root && !_chunk || ThunkSlot(insn.Target) != null && !FallsInto(insn.Target) || (_x86Dec is { Is64: false } && d.StartsWithPrologue(insn.Target))
                         || _dec is Arm32Decoder arm && (arm.LastSwitchesState || arm.LastIsComputed || arm.IsStateSwitchStub(insn.Target)))
                         AddFunction(insn.Target, FunctionSource.TailJump);
-                    else Branch(insn.Target, root, own, IndexBound.None);
+                    else
+                    {
+                        // x86 / x64 without unwind ranges: a jump that may leave the function (F5 tail calls, decided after discovery)
+                        if (own == null && !_chunk && _x86Dec != null && (insn.Target < root || insn.Target - insn.Rva > 16)) WriteJump(insn.Rva, insn.Target, root);
+                        Branch(insn.Target, root, own, IndexBound.None);
+                    }
                     return false;
                 case FlowKind.ConditionalJump:
                     if (insn.HasTarget && _ctx.Code.IsCode(insn.Target))

@@ -129,6 +129,7 @@ internal sealed partial class FunctionDiscovery
             Drain();
             changed = _functions.Count != before;
         }
+        if (AddTailTargets()) Drain();
         DropHeadedPdataStarts();
         return _functions;
     }

@@ -86,6 +86,45 @@ public class NativeX86DiscoveryTests
     }
 
     [Fact]
+    public void Tail_jump_only_targets_outside_the_function_become_functions_but_cold_blocks_do_not()
+    {
+        Label leaf = default, cold = default, entry = default, after = default;
+        var (code, rva) = Assemble(64, a =>
+        {
+            leaf = a.CreateLabel(); cold = a.CreateLabel(); entry = a.CreateLabel(); after = a.CreateLabel();
+            a.jmp(entry);
+            a.int3();
+            // a leaf only ever tail-jumped to, before the function that jumps to it
+            a.Label(ref leaf);
+            a.lea(eax, __[rdi + 1]);
+            a.ret();
+            a.int3();
+            // out-of-line code of the function below: it pops the function's own saves
+            a.Label(ref cold);
+            a.mov(eax, -1);
+            a.pop(rbx);
+            a.ret();
+            a.int3();
+            a.Label(ref entry);
+            a.push(rbx);
+            a.test(edi, edi);
+            a.je(cold);
+            a.cmp(edi, 5);
+            a.je(after);
+            a.pop(rbx);
+            a.jmp(leaf);
+            a.Label(ref after);
+            a.xor(eax, eax);
+            a.pop(rbx);
+            a.ret();
+        });
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code, format: ImageFormat.Elf));
+        Assert.NotNull(index.FunctionByStart(rva(leaf)));
+        Assert.Null(index.FunctionByStart(rva(cold)));
+        Assert.Contains(index.RefsTo(rva(leaf)), x => x.Kind == XrefKind.TailCall);
+    }
+
+    [Fact]
     public void A_short_jump_over_nops_is_alignment_fill_not_a_function()
     {
         // f: call g; ret; then GNU as fill "jmp +13; 13 x nop" up to g
