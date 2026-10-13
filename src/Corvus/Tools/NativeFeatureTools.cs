@@ -43,8 +43,8 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
     [McpServerTool(Name = "trace_native_feature", Title = "Trace a native feature", UseStructuredContent = true, OutputSchemaType = typeof(FeatureReport))]
     [Description("Finds the native code behind a behaviour from a text or value: strings, function and data names, imports (also late-bound), " +
                  "exports, RTTI classes and, for a number, constants matching query (\"quoted\": exact) are followed to their references (with " +
-                 "decoded API arguments), grouped by function and ranked; hubs are callers within callerDepth reaching several of them. An open " +
-                 "IDA / Ghidra session adds its strings, references and matching pseudocode lines. Pages reuse the computed trace.")]
+                 "decoded API arguments), grouped by function and ranked; hubs are callers within callerDepth reaching several of them. An engine " +
+                 "(engine=, or auto: one that analyzed these bytes) adds its strings, references and matching pseudocode lines. Pages reuse the trace.")]
     public Task<string> TraceNativeFeature(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Case-insensitive substring, or a regex with regex=true.")] string query,
@@ -55,10 +55,12 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Functions per page (max 500).")] int limit = 50,
         [Description(MaxTokensDescription)] int? maxTokens = null,
+        [Description(NativeCodeTools.EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "query is empty.", "pass the text to find");
+        var (mode, named) = EngineChoice.Mode(engine, engines);
         var wanted = Kinds(kinds);
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
         var waited = System.Diagnostics.Stopwatch.StartNew();
@@ -66,19 +68,25 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         {
             Progress = (float)waited.Elapsed.TotalSeconds, Message = $"indexing {native.Id}: {p.Phase}",
         })), cancellationToken);
-        var session = engines?.OpenSession(native);
-        var engine = session != null ? await Engine(session, cancellationToken) : null;
+        // the same rule as the code tools: the result does not depend on which sessions earlier calls opened
+        var choice = EngineChoice.Of(mode, named, engines, native, null);
+        ToolOutput.Engine(choice.Engine, choice.Note);
+        var session = choice.External
+            ? await engines!.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p => progress.Report(new ProgressNotificationValue
+                { Progress = (float)waited.Elapsed.TotalSeconds, Message = $"{NativeEngineService.DisplayName(choice.Engine)} {p.Stage}" })), cancellationToken)
+            : null;
+        var engineView = session != null ? await Engine(session, cancellationToken) : null;
         var result = await Task.Run(() =>
         {
             var classes = wanted.HasFlag(FeatureKinds.Classes)
                 ? native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken)).Classes
                     .SelectMany(c => c.Vtables.Take(1).Select(v => new FeatureClass(c.Name, v.VftableRva, v.SlotRvas))).ToList()
                 : [];
-            return FeatureTrace.Run(index, query.Trim(), regex, wanted, Math.Clamp(maxSeeds, 1, 500), Math.Clamp(callerDepth, 0, 3), classes, cancellationToken, engine);
+            return FeatureTrace.Run(index, query.Trim(), regex, wanted, Math.Clamp(maxSeeds, 1, 500), Math.Clamp(callerDepth, 0, 3), classes, cancellationToken, engineView);
         }, cancellationToken);
         if (session != null) result = await Pseudocode(session, result, query.Trim(), regex, cancellationToken);
         var report = Report(native.Id, index, result, Math.Max(0, offset), Math.Clamp(limit, 1, 500));
-        return ToolOutput.With(Text(index, report, result), report);
+        return ToolOutput.With(choice.Line + "\n" + Text(index, report, result), report);
     });
 
     /// <summary>The open session's strings and references (references are read on demand, by the trace's thread).</summary>

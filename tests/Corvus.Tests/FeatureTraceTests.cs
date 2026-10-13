@@ -96,6 +96,7 @@ public sealed class FeatureTraceTests : IDisposable
         var (ws, _, tools) = Rig();
         using var _ = ws;
         var text = await tools.TraceNativeFeature(Sample(), "settings");
+        Assert.StartsWith("Engine: ours (", text); // no engine has analyzed the bytes: the result names the rule's choice
         NativeLinkTests.Has(text, "string  0x");
         NativeLinkTests.Has(text, "L\"open settings file\"");
         NativeLinkTests.Has(text, "uses L\"open settings file\" at +0xA");

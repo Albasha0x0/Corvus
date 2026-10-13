@@ -32,7 +32,7 @@ public static partial class ToolEffects
         ["trace_native_values"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["resolve_call_targets"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["analyze_native_function"] = Reads(longRunning: true, openWorld: true), // pseudocode=true runs IDA or Ghidra
-        ["trace_native_feature"] = Reads(longRunning: true),
+        ["trace_native_feature"] = Reads(longRunning: true, openWorld: true), // engine=ida or ghidra runs that engine
         ["find_similar_functions"] = Reads(longRunning: true),
         ["get_exception_info"] = Reads(longRunning: true),
         ["list_cpp_classes"] = Reads(openWorld: true), // engine=ida|ghidra runs the engine
@@ -53,6 +53,7 @@ public static partial class ParameterDomains
         ["verify_native_imports"] = new Dictionary<string, Domain> { ["platform"] = Of(["auto", "windows", "linux", "osx", "android", "ios"], "macos") },
         ["get_nativeaot_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "sections", "types", "type", "methods", "strings", "statics"]) },
         ["get_pe_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "code"]) },
+        ["trace_native_feature"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["list_functions"] = new Dictionary<string, Domain> { ["sort"] = Of(["address", "name", "size", "callers"]), ["engine"] = Engine,
             ["view"] = Of(["functions", "candidates"]) },
         ["disassemble"] = new Dictionary<string, Domain> { ["engine"] = Engine },
