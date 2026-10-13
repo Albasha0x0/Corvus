@@ -116,14 +116,34 @@ public static class NativeAotNames
         {
             var field = st.Fields.LastOrDefault(f => st.Rva + f.Offset <= rva);
             lines.Add(rva == st.Rva ? $"NativeAOT {StaticsComment(st, aot.Hydrated.PointerSize)}"
-                : $"NativeAOT static {(field != null ? $"{st.Owner}::{field.Name}" : $"data of {st.Owner}")} (+0x{rva - st.Rva - (field?.Offset ?? 0):X}) in the non-GC statics at rva 0x{st.Rva:X}");
+                : field != null ? $"NativeAOT static {st.Owner}::{field.Name} (+0x{rva - st.Rva - field.Offset:X}) in the non-GC statics at rva 0x{st.Rva:X}"
+                // No field name in the metadata: the owner and the offset still say which static it is.
+                : $"NativeAOT static {st.Owner ?? "of an unknown type"}::field_0x{rva - st.Rva:X} in the non-GC statics at rva 0x{st.Rva:X}");
         }
+        else if (UnnamedStatic(aot.Statics.Bases, rva) is { } owned)
+            lines.Add($"NativeAOT static {owned.Owner}::field_0x{rva - owned.Rva:X} in the non-GC statics at rva 0x{owned.Rva:X} (the metadata keeps no field names for it)");
         foreach (var m in aot.Names.Methods.Where(m => m.Rva == rva).Take(Il2CppNativeNames.SharedListed))
             lines.Add($"NativeAOT method {m.Name.Full} (from the {(m.Origin == "invoke" ? "reflection invoke map" : "stack-trace map")}{(m.Hidden ? ", hidden from stack traces" : "")})");
         if (rva == aot.Header.Rva) lines.Add($"NativeAOT module header, ReadyToRun {aot.ReadyToRunVersion} ({aot.Runtime})");
         else if (lines.Count == 0 && aot.Header.Sections.FirstOrDefault(s => s.HasEnd && rva >= s.StartRva && rva < s.EndRva) is { } section)
             lines.Add($"in NativeAOT module section {section.Name} (+0x{rva - section.StartRva:X})");
         return lines;
+    }
+
+    /// <summary>Bytes past an owned non-GC statics base without field metadata still read as its fields (statics blocks are small).</summary>
+    private const uint UnnamedStaticsSpan = 0x400;
+
+    /// <summary>The owned non-GC statics base, without field metadata, that <paramref name="rva"/> lies just after (before the next base); null otherwise.</summary>
+    internal static NativeAotStaticBase? UnnamedStatic(IReadOnlyList<NativeAotStaticBase> bases, uint rva)
+    {
+        int lo = 0, hi = bases.Count - 1, at = -1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (bases[mid].Rva < rva) { at = mid; lo = mid + 1; } else hi = mid - 1;
+        }
+        if (at < 0 || bases[at] is not { Kind: NativeAotStaticsKind.NonGc, Owner: not null, Fields.Count: 0 } b || rva - b.Rva >= UnnamedStaticsSpan) return null;
+        return at + 1 < bases.Count && bases[at + 1].Rva <= rva ? null : b;
     }
 
     /// <summary>Names every method body, vtable slot, MethodTable and frozen object of <paramref name="aot"/>.</summary>

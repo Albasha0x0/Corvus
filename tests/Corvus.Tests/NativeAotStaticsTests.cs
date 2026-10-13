@@ -99,6 +99,22 @@ public class NativeAotStaticsTests
         Assert.Null(statics.At(f.Unowned)!.Owner);
     }
 
+    /// <summary>Bytes just past an owned non-GC statics base that has no field metadata read as Owner::field_0xN; never past the next base.</summary>
+    [Fact]
+    public void Statics_WithoutFieldNamesKeepTheirOwner()
+    {
+        NativeAotStaticBase[] bases =
+        [
+            new(NativeAotStaticsKind.NonGc, 0x1000, "App.Settings", "code", 0, []),
+            new(NativeAotStaticsKind.NonGc, 0x1010, null, null, 0, []),
+            new(NativeAotStaticsKind.NonGc, 0x2000, "App.Known", "code", 8, [new NativeAotStaticField("Count", "int", 0)]),
+        ];
+        Assert.Equal(0x1000u, NativeAotNames.UnnamedStatic(bases, 0x1008)!.Rva);
+        Assert.Null(NativeAotNames.UnnamedStatic(bases, 0x1000)); // the base itself is named
+        Assert.Null(NativeAotNames.UnnamedStatic(bases, 0x1014)); // past the next base, which has no owner
+        Assert.Null(NativeAotNames.UnnamedStatic(bases, 0x2004)); // field metadata names those
+    }
+
     [Fact]
     public void Statics_NamedInTheLayerAndDescribed()
     {
