@@ -36,6 +36,9 @@ public sealed record AndroidPackageDetails(string Serial, string Package, string
 
 public sealed record PulledFile(string Remote, string Local, long Size, string Sha256);
 
+/// <summary>A change made to a device: what, on which device, to which package (and its version code after an install).</summary>
+public sealed record DeviceChange(string Text, string Serial, string Kind, string? Package, string? VersionCode);
+
 /// <summary>A logcat line in threadtime form; a line in another form has only its message.</summary>
 public sealed record AndroidLogLine(string? Time, int? Pid, int? Tid, [property: Description("V, D, I, W, E, F.")] string? Priority, string? Tag, string Message);
 
@@ -403,7 +406,7 @@ public sealed partial class DeviceService(ServerOptions options)
     }
 
     /// <summary>Installs an APK, every APK of a split set (.apks / .xapk / .apkm) or of a directory, in one session.</summary>
-    public string Install(string path, bool replace, bool downgrade, bool grantPermissions, string? serial, CancellationToken ct)
+    public DeviceChange Install(string path, bool replace, bool downgrade, bool grantPermissions, string? serial, CancellationToken ct)
     {
         RequireChanges("install_android_package");
         var full = SafeFile.FullPath(path);
@@ -450,7 +453,8 @@ public sealed partial class DeviceService(ServerOptions options)
             }
             Check(r, "installing");
             if (!output.Contains("Success", StringComparison.Ordinal)) throw new ToolError(ErrorCode.Failed, $"adb did not report success: {Tail(output)}");
-            return $"Installed {apks.Count} APK(s) on {s}: {string.Join(", ", apks.Select(Path.GetFileName))}.";
+            var (package, version) = Identity(apks);
+            return new DeviceChange($"Installed {apks.Count} APK(s) on {s}: {string.Join(", ", apks.Select(Path.GetFileName))}.", s, "install", package, version);
         }
         finally
         {
@@ -463,7 +467,23 @@ public sealed partial class DeviceService(ServerOptions options)
     [GeneratedRegex(@"Failure \[([A-Z_]+)[^\]]*\]")]
     private static partial Regex InstallFailure();
 
-    public string Uninstall(string package, bool keepData, string? serial, CancellationToken ct)
+    /// <summary>The package name and version code of the base APK (the first that has a manifest); nulls when none reads.</summary>
+    private static (string? Package, string? VersionCode) Identity(IEnumerable<string> apks)
+    {
+        foreach (var apk in apks)
+        {
+            try
+            {
+                using var p = Core.Mobile.AndroidPackage.Open(apk);
+                var m = Core.Mobile.AndroidManifestSummary.Of(p.Manifest, p.Resources);
+                if (m.Split == null && m.Package.Length > 0) return (m.Package, m.VersionCode);
+            }
+            catch (ToolError) { }
+        }
+        return (null, null);
+    }
+
+    public DeviceChange Uninstall(string package, bool keepData, string? serial, CancellationToken ct)
     {
         RequireChanges("uninstall_android_package");
         package = PackageName(package);
@@ -477,6 +497,6 @@ public sealed partial class DeviceService(ServerOptions options)
             throw new ToolError(output.Contains("DELETE_FAILED_INTERNAL_ERROR", StringComparison.Ordinal) || output.Contains("Unknown package", StringComparison.Ordinal)
                 ? ErrorCode.NotFound : ErrorCode.Failed, $"uninstall failed: {Tail(output)}");
         Check(r, "uninstalling");
-        return $"Uninstalled {package} from {s}{(keepData ? " (data kept)" : "")}.";
+        return new DeviceChange($"Uninstalled {package} from {s}{(keepData ? " (data kept)" : "")}.", s, keepData ? "uninstall, data kept" : "uninstall", package, null);
     }
 }

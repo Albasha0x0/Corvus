@@ -133,15 +133,17 @@ public sealed class DeviceTests : IDisposable
         Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => Service().Uninstall(FakeDevice.Package, false, null, default)).Code);
 
         var allowed = Service(allowChanges: true);
-        Assert.StartsWith("Installed 1 APK(s)", allowed.Install(apk, true, false, true, null, default));
+        var installed = allowed.Install(apk, true, false, true, null, default);
+        Assert.StartsWith("Installed 1 APK(s)", installed.Text);
+        Assert.Equal(("install", "com.example.app", FakeDevice.Serial), (installed.Kind, installed.Package, installed.Serial));
         Assert.Equal(["-s", FakeDevice.Serial, "install-multiple", "-r", "-g", apk], _fake.ArgumentLists.Last());
         var set = AndroidSamples.Save(_dir, "app.apks", ContainerFixtures.Zip(("splits/base-master.apk", AndroidSamples.Apk()), ("splits/config.en.apk", [1])));
-        Assert.StartsWith("Installed 2 APK(s)", allowed.Install(set, false, false, false, null, default));
+        Assert.StartsWith("Installed 2 APK(s)", allowed.Install(set, false, false, false, null, default).Text);
         var old = AndroidSamples.Save(_dir, "old.apk", AndroidSamples.Apk());
         var downgrade = Assert.Throws<ToolError>(() => allowed.Install(old, true, false, false, null, default));
         Assert.Equal(ErrorCode.Conflict, downgrade.Code);
         Assert.Contains("downgrade=true", downgrade.Remediation);
-        Assert.StartsWith("Uninstalled com.example.app", allowed.Uninstall(FakeDevice.Package, true, null, default));
+        Assert.StartsWith("Uninstalled com.example.app", allowed.Uninstall(FakeDevice.Package, true, null, default).Text);
         Assert.Equal(["-s", FakeDevice.Serial, "uninstall", "-k", FakeDevice.Package], _fake.ArgumentLists.Last());
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => allowed.Uninstall("com.missing", false, null, default)).Code);
     }

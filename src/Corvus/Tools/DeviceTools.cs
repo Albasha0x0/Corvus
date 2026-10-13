@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Services.Mobile;
 
@@ -100,7 +101,7 @@ public sealed class DeviceTools(DeviceService devices)
         return ToolOutput.List(page, skip, ToolSupport.ClampLimit(limit), total, Row, rows => new AndroidLogPage(log.Serial, rows, skip, total), "line", header);
     }, cancellationToken);
 
-    [McpServerTool(Name = "install_android_package", Title = "Install package on device")]
+    [McpServerTool(Name = "install_android_package", Title = "Install package on device", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Installs an APK, a split set or a directory of APKs on a device in one session; failures come back by their " +
                  "INSTALL_FAILED_ code. Changes the device: needs the server option --allow-device-changes.")]
     public Task<string> InstallAndroidPackage(
@@ -110,14 +111,18 @@ public sealed class DeviceTools(DeviceService devices)
         [Description("Grant all requested runtime permissions.")] bool grantPermissions = false,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() => devices.Install(path, replace, downgrade, grantPermissions, serial, cancellationToken), cancellationToken);
+        Task.Run(() => Outcome(devices.Install(path, replace, downgrade, grantPermissions, serial, cancellationToken)), cancellationToken);
 
-    [McpServerTool(Name = "uninstall_android_package", Title = "Uninstall package from device")]
+    /// <summary>A device change as an edit outcome: the package (or the device when unknown) and its version code after an install.</summary>
+    private static string Outcome(DeviceChange c) =>
+        ToolOutput.Edit(new EditOutcome(true, false, [new EditChange(c.Kind, c.Package != null ? $"{c.Serial}:{c.Package}" : c.Serial, null, c.VersionCode)], []), c.Text);
+
+    [McpServerTool(Name = "uninstall_android_package", Title = "Uninstall package from device", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Removes an app from a device, with its data unless keepData. Changes the device: needs the server option --allow-device-changes.")]
     public Task<string> UninstallAndroidPackage(
         [Description("Package name, e.g. com.example.app.")] string package,
         [Description("Keep the app's data and cache.")] bool keepData = false,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() => devices.Uninstall(package, keepData, serial, cancellationToken), cancellationToken);
+        Task.Run(() => Outcome(devices.Uninstall(package, keepData, serial, cancellationToken)), cancellationToken);
 }

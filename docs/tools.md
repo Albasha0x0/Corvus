@@ -2512,6 +2512,8 @@ Installs an APK, a split set or a directory of APKs on a device in one session; 
 | `grantPermissions` | boolean |  | `false` | Grant all requested runtime permissions. |
 | `serial` | string |  |  | Device serial; optional with one device ready. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+
 ### uninstall_android_package
 
 **Uninstall package from device** (destructive, idempotent, open-world)
@@ -2523,6 +2525,8 @@ Removes an app from a device, with its data unless keepData. Changes the device:
 | `package` | string | yes |  | Package name, e.g. com.example.app. |
 | `keepData` | boolean |  | `false` | Keep the app's data and cache. |
 | `serial` | string |  |  | Device serial; optional with one device ready. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
 
 ## dumps
 
