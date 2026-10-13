@@ -35,9 +35,11 @@ public sealed partial class CSharpPatcher
     }
 
     /// <summary>
-    /// Moves the file's using directives into its namespace declarations, so the names they import bind before types of
-    /// the global namespace: references are imported with their internals, and an internal global 'Exception' (a .NET
-    /// Framework assembly has one) took every 'catch (Exception)' of patched code. System, which user code may rely on
+    /// Moves the file's using directives into a declaration of each namespace's first name segment, so the names they import
+    /// bind before types of the global namespace (references are imported with their internals, and an internal global
+    /// 'Exception' of a .NET Framework assembly took every 'catch (Exception)' of patched code) and still after the types of
+    /// every enclosing namespace, as at file level (inside Microsoft.CodeAnalysis.CSharp.Syntax, CSharpSyntaxNode is
+    /// Microsoft.CodeAnalysis.CSharp's, not that of an imported InternalSyntax). System, which user code may rely on
     /// without a directive, is always among them.
     /// </summary>
     private static CompilationUnitSyntax UsingsInsideNamespaces(CompilationUnitSyntax root)
@@ -48,7 +50,28 @@ public sealed partial class CSharpPatcher
         if (!moved.Any(u => u.Alias == null && u.StaticKeyword.IsKind(SyntaxKind.None) && u.Name?.ToString() == "global::System"))
             moved = moved.Insert(0, SF.ParseCompilationUnit("using global::System;\n").Usings[0]);
         root = root.WithUsings(SF.List(root.Usings.Where(u => !u.GlobalKeyword.IsKind(SyntaxKind.None))));
-        return root.ReplaceNodes(root.Members.OfType<BaseNamespaceDeclarationSyntax>(), (_, ns) => ns.WithUsings(moved.AddRange(ns.Usings)));
+        return root.ReplaceNodes(root.Members.OfType<BaseNamespaceDeclarationSyntax>(), (_, ns) => Outermost(ns, moved));
+    }
+
+    private static MemberDeclarationSyntax Outermost(BaseNamespaceDeclarationSyntax ns, SyntaxList<UsingDirectiveSyntax> moved)
+    {
+        if (ns.Name is not QualifiedNameSyntax) return ns.WithUsings(moved.AddRange(ns.Usings));
+        var (first, rest) = SplitFirst(ns.Name.ToString());
+        // A file-scoped namespace (the decompiler's form) becomes a block, nested in the first segment's.
+        var inner = ns is NamespaceDeclarationSyntax block ? block.WithName(SF.ParseName(rest).WithTriviaFrom(block.Name))
+            : SF.NamespaceDeclaration(SF.Token(SyntaxKind.NamespaceKeyword).WithTrailingTrivia(SF.Space), SF.ParseName(rest),
+                SF.Token(SyntaxKind.OpenBraceToken).WithTrailingTrivia(SF.LineFeed), ns.Externs, ns.Usings, ns.Members,
+                SF.Token(SyntaxKind.CloseBraceToken).WithLeadingTrivia(SF.LineFeed), default);
+        return SF.NamespaceDeclaration(SF.Token(SyntaxKind.NamespaceKeyword).WithTrailingTrivia(SF.Space), SF.IdentifierName(first),
+            SF.Token(SyntaxKind.OpenBraceToken).WithTrailingTrivia(SF.LineFeed), default, moved,
+            SF.SingletonList<MemberDeclarationSyntax>(inner), SF.Token(SyntaxKind.CloseBraceToken).WithLeadingTrivia(SF.LineFeed), default);
+    }
+
+    /// <summary>"A.B.C" as ("A", "B.C").</summary>
+    internal static (string First, string Tail) SplitFirst(string name)
+    {
+        int dot = name.IndexOf('.');
+        return dot < 0 ? (name, "") : (name[..dot].Trim(), name[(dot + 1)..].Trim());
     }
 
     /// <summary>The directive with its name from the global namespace: inside a namespace, 'System' could name a nested one.</summary>

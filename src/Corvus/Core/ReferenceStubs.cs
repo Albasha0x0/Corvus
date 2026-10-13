@@ -26,6 +26,8 @@ internal static class ReferenceStubs
         public bool Field, Virtual;
         /// <summary>Public unless loaded code overrides it as protected.</summary>
         public MethodAttributes Access = MethodAttributes.Public;
+        /// <summary>Parameters (0-based) an override declares out: C# matches out and ref apart (CS0115), metadata only by [Out].</summary>
+        public HashSet<int>? Out;
     }
 
     private sealed class StubType
@@ -214,6 +216,8 @@ internal static class ReferenceStubs
                                 overridden.Virtual = true;
                                 // Overrides keep the base accessibility; cross-assembly protected internal appears as protected.
                                 if (md.Access is MethodAttributes.Family or MethodAttributes.FamORAssem) overridden.Access = MethodAttributes.Family;
+                                overridden.Out ??= md.Parameters.Where(p => p.IsNormalMethodParameter && p.ParamDef?.IsOut == true && p.Type is ByRefSig)
+                                    .Select(p => p.MethodSigIndex).ToHashSet();
                             }
                 }
                 foreach (var ii in t.Interfaces)
@@ -415,7 +419,8 @@ internal static class ReferenceStubs
                 for (int i = 0; i < ms.GenParamCount; i++)
                     md.GenericParameters.Add(new GenericParamUser((ushort)i, GenericParamAttributes.NonVariant, "M" + i));
                 for (int i = 0; i < sig.Params.Count; i++)
-                    md.ParamDefs.Add(new ParamDefUser(m.Name.StartsWith("set_", StringComparison.Ordinal) && i == sig.Params.Count - 1 ? "value" : "p" + i, (ushort)(i + 1)));
+                    md.ParamDefs.Add(new ParamDefUser(m.Name.StartsWith("set_", StringComparison.Ordinal) && i == sig.Params.Count - 1 ? "value" : "p" + i, (ushort)(i + 1),
+                        m.Out?.Contains(i) == true ? ParamAttributes.Out : 0));
                 // C# reads modreq(InAttribute) only next to [IsReadOnly] (also on the property): a ref readonly return or an in parameter of a virtual.
                 if (ReadOnlyRef(sig.RetType))
                     md.ParamDefs.Add(new ParamDefUser(null, 0));

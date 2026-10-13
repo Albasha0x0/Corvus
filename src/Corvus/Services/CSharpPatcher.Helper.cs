@@ -66,11 +66,14 @@ public sealed partial class CSharpPatcher
         }
 
         bool hasNamespace = ns is { IsGlobalNamespace: false };
-        if (hasNamespace) source.AppendLine($"namespace {ns!.ToDisplayString()} {{");
+        var (first, rest) = hasNamespace ? SplitFirst(ns!.ToDisplayString()) : ("", "");
+        if (hasNamespace) source.AppendLine($"namespace {first} {{");
         source.Append(usings);
+        if (rest.Length > 0) source.AppendLine($"namespace {rest} {{");
         source.AppendLine($"internal static class {HelperClass} {{");
         source.Append(body);
         source.AppendLine("}");
+        if (rest.Length > 0) source.AppendLine("}");
         if (hasNamespace) source.AppendLine("}");
 
         // Mark the bodies as user code so compile errors point at the user's lines.
