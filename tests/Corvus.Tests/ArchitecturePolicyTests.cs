@@ -56,6 +56,14 @@ public sealed class ArchitecturePolicyTests : IDisposable
             Assert.Contains("instructions-not-decoded", System.Text.Json.JsonSerializer.Serialize(e.Details));
         }
 
+        // patch_asm assembles x86/x64 only: the refusal names the real machine too
+        var asm = await Assert.ThrowsAsync<ToolError>(() =>
+            new NativeEditTools(workspace, code, new NativeEditService(workspace, code)).PatchAsm(path, f, "nop"));
+        Assert.Equal(ErrorCode.Unsupported, asm.Code);
+        Assert.Contains(archName, asm.Message);
+        Assert.DoesNotContain("Other", asm.Message);
+        Assert.Contains($"\"arch\":\"{machineName}\"", System.Text.Json.JsonSerializer.Serialize(asm.Details));
+
         // composite reports: a success, with code facts marked not decoded
         var collector = ToolOutput.Collect();
         var dossier = await new NativeFunctionTools(workspace, code, pager).AnalyzeNativeFunction(path, f);

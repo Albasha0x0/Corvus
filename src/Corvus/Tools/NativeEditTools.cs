@@ -492,8 +492,11 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var (native, index, note) = await OpenToPatch(image, dryRun, progress, cancellationToken);
         var rva = Address(index, address);
         if (index.Image.Arch is not (NativeArch.X86 or NativeArch.X64))
-            throw new ToolError(ErrorCode.Unsupported, $"patch_asm assembles x86 and x64; {native.Id} is {index.Image.Arch}.",
-                "assemble the instructions elsewhere and pass their bytes to patch_bytes");
+            throw new ToolError(ErrorCode.Unsupported, $"patch_asm assembles x86 and x64; {native.Id} is {index.Image.ArchName()}.",
+                "assemble the instructions elsewhere and pass their bytes to patch_bytes")
+            {
+                Details = new { reason = "not-assembled", arch = index.Image.MachineName },
+            };
         ulong startVa = index.Image.ImageBase + rva;
         Func<string, ulong?> resolve = name =>
         {
