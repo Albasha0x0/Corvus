@@ -37,7 +37,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
 
     public sealed record FeatureReport(string Image, string Query, IReadOnlyList<FeatureSeedRecord> Seeds,
         [property: Description("Every match, followed or not (maxSeeds).")] int TotalSeeds, [property: Description("Functions of this page, ranked.")] IReadOnlyList<FeatureFunctionRecord> Functions,
-        int TotalFunctions, int Offset, bool Truncated, [property: Description("The offset of the next page of functions.")] int? NextOffset,
+        int TotalFunctions, int Offset, [property: Description("The offset of the next page of functions.")] int? NextOffset,
         IReadOnlyList<FeatureHubRecord> Hubs, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "trace_native_feature", Title = "Trace a native feature", UseStructuredContent = true, OutputSchemaType = typeof(FeatureReport))]
@@ -155,7 +155,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         var page = r.Functions.Skip(offset).Take(limit).Select(f => new FeatureFunctionRecord(Va(f.Function.Start), f.Name, f.Score, f.Seeds,
             f.Evidence.Select(e => new FeatureEvidenceRecord(Va(e.Site), e.Kind, e.Detail, e.Seed)).ToList(), f.EvidenceTotal, f.Flags)).ToList();
         return new FeatureReport(id, r.Query, r.Seeds.Select(s => new FeatureSeedRecord(s.Id, s.Kind, Va(s.Rva), s.Text, s.References, s.Error)).ToList(), r.TotalSeeds, page,
-            r.Functions.Count, offset, offset + page.Count < r.Functions.Count, offset + page.Count < r.Functions.Count ? offset + page.Count : null,
+            r.Functions.Count, offset, offset + page.Count < r.Functions.Count ? offset + page.Count : null,
             r.Hubs.Take(20).Select(h => new FeatureHubRecord(Va(h.Function.Start), h.Name, h.Reaches.Select(Va).ToList(), h.Depth)).ToList(), r.Notes);
     }
 
@@ -174,7 +174,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
             foreach (var e in f.Evidence.Take(6)) sb.AppendLine($"      {e.Site}  {e.Kind}: {OneLine(Format.Clip(e.Detail, 200))}");
             if (f.EvidenceTotal > 6) sb.AppendLine($"      ... {f.EvidenceTotal - 6} more (structured output)");
         }
-        if (r.Truncated) sb.AppendLine($"  [More: offset={r.Offset + r.Functions.Count}]");
+        if (r.NextOffset is { } next) sb.AppendLine($"  [More: offset={next}]");
         if (r.Hubs.Count > 0)
         {
             sb.AppendLine("\nHubs (callers reaching several of them):");

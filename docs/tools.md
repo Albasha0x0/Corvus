@@ -39,6 +39,8 @@ Load a .NET assembly (.dll/.exe) or every assembly in a directory (application f
 | `loadProviders` | boolean |  |  | For a file: also load the DLLs its imports bind to (one level, at most 16), so the call tools continue into them. |
 | `slice` | string |  |  | Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a). Values: arm64e, arm64, x86_64, x86_64h, arm64_32, armv7, armv7s, armv7k, i386, arm64-v8a, armeabi-v7a, x86. |
 
+Structured output: `ids`, `text`.
+
 ### unload_assembly
 
 **Unload assembly** (destructive, idempotent)
@@ -48,6 +50,8 @@ Remove an assembly from the workspace (unsaved edits are discarded).
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
+
+Structured output: `ids`, `text`.
 
 ### reload_assembly
 
@@ -59,6 +63,8 @@ Re-read an assembly from disk (after an update or an overwriting save_assembly),
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 
+Structured output: `ids`, `text`.
+
 ### add_search_directory
 
 **Add reference search directory** (edit, idempotent)
@@ -68,6 +74,8 @@ Add a directory for resolving referenced assemblies that are not loaded (an appl
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `directory` | string | yes |  | Directory path. |
+
+Structured output: `ids`, `text`.
 
 ### list_assemblies
 
@@ -113,7 +121,7 @@ Read a kept result (resultId; kept on disk 7 days): page it, search it with quer
 | `outputPath` | string |  |  | Write the whole result to this file; returns path, bytes and SHA-256. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
 
-Structured output: `id`, `tool`, `format`, `totalChars`, `offset`, `nextOffset`, `code`, `matches`, `path`, `bytes`, `sha256`.
+Structured output: `id`, `tool`, `totalChars`, `offset`, `nextOffset`, `code`, `matches`, `path`, `bytes`, `sha256`.
 
 ### save_session
 
@@ -1373,7 +1381,7 @@ Finds the native code behind a behaviour from a text or value: strings, function
 | `maxTokens` | integer |  |  | Page size in tokens. |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
-Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `truncated`, `nextOffset`, `hubs`, `notes`.
+Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `nextOffset`, `hubs`, `notes`.
 
 ### find_similar_functions
 

@@ -1,6 +1,2 @@
 # Exemptions from: every tool returns structured content described by an output schema (S4)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-add_search_directory
-load_assembly
-reload_assembly
-unload_assembly

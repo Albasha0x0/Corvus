@@ -14,7 +14,7 @@ public sealed record ReadResultMatch(int Offset, string Line);
 /// read_result's record: a page of the kept result (code, offset, nextOffset, totalChars), the matching lines of a query, or
 /// the file the whole result was written to.
 /// </summary>
-public sealed record ReadResultRecord(string Id, string Tool, string Format, int TotalChars)
+public sealed record ReadResultRecord(string Id, string Tool, int TotalChars)
 {
     public int? Offset { get; init; }
     public int? NextOffset { get; init; }

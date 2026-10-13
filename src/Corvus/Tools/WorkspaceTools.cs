@@ -45,7 +45,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public sealed record WorkspaceList(IReadOnlyList<WorkspaceEntry> Items, int Offset, int Total, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing,
         UnpackService.ContainerListing? Container = null);
 
-    [McpServerTool(Name = "load_assembly", Title = "Load assembly")]
+    /// <summary>The record of load, unload, reload and add_search_directory: the ids the call loaded, unloaded or reloaded, and its text.</summary>
+    public sealed record WorkspaceChange(IReadOnlyList<string> Ids, string Text);
+
+    private static string Changed(IEnumerable<string> ids, string text) => ToolOutput.With(text, new WorkspaceChange([.. ids], text));
+
+    [McpServerTool(Name = "load_assembly", Title = "Load assembly", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceChange))]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (application folder, Unity *_Data/Managed, DummyDll folder). " +
                  "A native PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, as name[slice]); folder loads skip native files. " +
                  "An Il2Cpp game (folder or global-metadata.dat, .apk/.xapk/.aab/.ipa, iOS .app, memory dump) is read by the built-in metadata " +
@@ -65,7 +70,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             int step = 0;
             var result = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: true,
                 m => progress?.Report(new ProgressNotificationValue { Progress = ++step, Message = $"Il2Cpp: {m}" }), cancellationToken);
-            return Il2CppRawLoader.Describe(result);
+            return Changed(result.Load.Loaded.Select(a => a.Id).Concat(result.Binary != null ? [result.Binary.Id] : []), Il2CppRawLoader.Describe(result));
         }
         if (!Directory.Exists(path))
         {
@@ -74,14 +79,14 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             if (native != null && loaded == null)
             {
                 var image = native.Image;
-                return $"Loaded native image {native.Id}: {Native.NativeImageExtensions.KindText(image)}\n  {native.FilePath}\n  " +
+                return Changed([native.Id], $"Loaded native image {native.Id}: {Native.NativeImageExtensions.KindText(image)}\n  {native.FilePath}\n  " +
                        $"{Plural(image.Sections.Count, "section")}, {Plural(image.Imports.Count, "import")}, {Plural(image.Exports.Count, "export")}" +
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
                        (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers +
                        (Il2CppMetadataNear(native.FilePath) is { } metadata
                            ? $"\n  Il2Cpp game: its metadata is {metadata}; load_assembly that file (or the game folder) reads it with the built-in reader " +
                              "(dummy assemblies, addresses, field offsets, string literals), or apply_il2cpp_names on this image does it"
-                           : "");
+                           : ""));
             }
             return workspace.Read(() =>
             {
@@ -89,15 +94,15 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 var asm = workspace.FindByPath(loaded!.FilePath)
                           ?? throw new ToolError(ErrorCode.Conflict, $"{loaded.Id} was unloaded by another call right after loading.", "repeat load_assembly");
                 var types = MetadataUtil.CountedTypes(asm.Module);
-                return $"Loaded {asm.Id}: {asm.FullAssemblyName}\n  {asm.FilePath}\n  {types.Count} types, " +
+                return Changed(native != null ? [asm.Id, native.Id] : [asm.Id], $"Loaded {asm.Id}: {asm.FullAssemblyName}\n  {asm.FilePath}\n  {types.Count} types, " +
                        $"{MetadataUtil.NamespaceCount(types)} namespaces" +
                        (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy DLL: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "") +
-                       (native != null ? $"\n  mixed-mode (C++/CLI): its native code is also loaded as native image {native.Id} for the native tools" : "") + providers;
+                       (native != null ? $"\n  mixed-mode (C++/CLI): its native code is also loaded as native image {native.Id} for the native tools" : "") + providers);
             });
         }
 
         var report = workspace.LoadDirectory(path, recursive, (done, total, file) => Report(progress, done, total, $"Loading {Path.GetFileName(file)}"));
-        return FormatLoad(workspace, path, report);
+        return Changed(report.Loaded.Select(a => a.Id), FormatLoad(workspace, path, report));
     }, cancellationToken));
 
     /// <summary>
@@ -252,7 +257,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         _ => $"{e.Path}  {e.Size:N0} bytes" + (e.Detail != null ? $", {e.Detail}" : ""),
     };
 
-    [McpServerTool(Name = "unload_assembly", Title = "Unload assembly")]
+    [McpServerTool(Name = "unload_assembly", Title = "Unload assembly", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceChange))]
     [Description("Remove an assembly from the workspace (unsaved edits are discarded).")]
     public Task<string> UnloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
@@ -260,15 +265,15 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             if (workspace.Read(() => workspace.FindNative(assembly)) is { ManagedView: null } native)
             {
                 workspace.UnloadNative(native);
-                return $"Unloaded {native.Id}.";
+                return Changed([native.Id], $"Unloaded {native.Id}.");
             }
             var asm = workspace.Read(() => workspace.Get(assembly));
             int edits = asm.Edits.Count;
             workspace.Unload(asm);
-            return $"Unloaded {asm.Id}{(edits > 0 ? $" (discarded {Plural(edits, "unsaved edit")})" : "")}.";
+            return Changed([asm.Id], $"Unloaded {asm.Id}{(edits > 0 ? $" (discarded {Plural(edits, "unsaved edit")})" : "")}.");
         }, cancellationToken);
 
-    [McpServerTool(Name = "reload_assembly", Title = "Reload assembly")]
+    [McpServerTool(Name = "reload_assembly", Title = "Reload assembly", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceChange))]
     [Description("Re-read an assembly from disk (after an update or an overwriting save_assembly), discarding unsaved edits.")]
     public Task<string> ReloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
@@ -276,14 +281,14 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             if (workspace.Read(() => workspace.FindNative(assembly)) is { ManagedView: null } native)
             {
                 var reloaded = workspace.ReloadNative(native);
-                return $"Reloaded {reloaded.Id} from {reloaded.FilePath} (sha256 {reloaded.Image.Sha256[..16]}).";
+                return Changed([reloaded.Id], $"Reloaded {reloaded.Id} from {reloaded.FilePath} (sha256 {reloaded.Image.Sha256[..16]}).");
             }
             var asm = workspace.Read(() => workspace.Get(assembly));
             var fresh = workspace.Reload(asm);
-            return $"Reloaded {fresh.Id} from {fresh.FilePath}.";
+            return Changed([fresh.Id], $"Reloaded {fresh.Id} from {fresh.FilePath}.");
         }, cancellationToken);
 
-    [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory")]
+    [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceChange))]
     [Description("Add a directory for resolving referenced assemblies that are not loaded (an application or framework folder), for decompilation, navigation and C# patching.")]
     public Task<string> AddSearchDirectory([Description("Directory path.")] string directory, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
@@ -302,6 +307,6 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 text += $"\nNote: {full} has no assemblies itself; subfolders are not searched." +
                         (subfolders.Length > 0 ? " Add one of these instead:\n  " + string.Join("\n  ", subfolders) : "");
             }
-            return text;
+            return Changed([], text);
         }, cancellationToken);
 }

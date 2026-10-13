@@ -188,12 +188,12 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             var path = SafeFile.WriteAllBytes(outputPath, bytes, overwrite);
             var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
             return ToolOutput.With($"Wrote {kept.Id} ({kept.Info.Tool}, {format}) to {path}: {bytes.Length:N0} bytes, SHA-256 {sha}.",
-                new ReadResultRecord(kept.Id, kept.Info.Tool, format, body.Length) { Path = path, Bytes = bytes.Length, Sha256 = sha });
+                new ReadResultRecord(kept.Id, kept.Info.Tool, body.Length) { Path = path, Bytes = bytes.Length, Sha256 = sha });
         }
         var header = $"[{kept.Id}: {kept.Info.Tool} result, {format}, {body.Length:N0} chars]\n";
         // Inside a call the page leaves room for its header and for the record carrying the same page.
         long budget = OutputCall.Budgeted is { } call ? call.Tokens * 85 / 100 - 60 : maxTokens ?? ReadResultTokens;
-        var record = new ReadResultRecord(kept.Id, kept.Info.Tool, format, body.Length) { Offset = offset };
+        var record = new ReadResultRecord(kept.Id, kept.Info.Tool, body.Length) { Offset = offset };
         if (query != null)
         {
             var hits = new List<ReadResultMatch>();

@@ -149,6 +149,25 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(fixtures.Items.Count, fixtures.Total);
     }
 
+    /// <summary>load, reload and unload_assembly and add_search_directory return the ids they changed beside their text (S4).</summary>
+    [Fact]
+    public async Task WorkspaceChangesReturnTheirIds()
+    {
+        var tools = new WorkspaceTools(_workspace, new Il2CppService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
+        async Task<WorkspaceTools.WorkspaceChange> Change(Func<Task<string>> call)
+        {
+            var collector = Corvus.Mcp.ToolOutput.Collect();
+            var text = await call();
+            var record = Assert.IsType<WorkspaceTools.WorkspaceChange>(collector.Value);
+            Assert.Equal(text, record.Text);
+            return record;
+        }
+        var id = Assert.Single((await Change(() => tools.LoadAssembly(Env.FixturePath))).Ids);
+        Assert.Equal([id], (await Change(() => tools.ReloadAssembly(id))).Ids);
+        Assert.Empty((await Change(() => tools.AddSearchDirectory(_dir.Path))).Ids);
+        Assert.Equal([id], (await Change(() => tools.UnloadAssembly(id))).Ids);
+    }
+
     [Fact]
     public void StringDecoder_NeedsDecoding_NotJustAnIntToStringHelper()
     {

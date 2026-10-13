@@ -7,9 +7,6 @@
     "tool": {
       "type": "string"
     },
-    "format": {
-      "type": "string"
-    },
     "totalChars": {
       "type": "integer"
     },
@@ -72,7 +69,6 @@
   "required": [
     "id",
     "tool",
-    "format",
     "totalChars"
   ]
 }
