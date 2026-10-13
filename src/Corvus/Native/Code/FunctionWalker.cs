@@ -209,6 +209,17 @@ internal sealed class FunctionWalker
 
     private bool IsNoReturnCall(uint target) => _ctx.NoReturn.Contains(target);
 
+    private ICodeDecoder? _peek;
+
+    /// <summary>A direct call to a function that does not return comes next (bl abort after a failing check's call): still this function's code.</summary>
+    private bool AbortFollows(uint rva)
+    {
+        if (_ctx.FunctionStarts.Contains(rva)) return false;
+        _peek ??= _ctx.NewDecoder(computeAccess: false);
+        _peek.BeginRun(IndexBound.None);
+        return _peek.Decode(rva, out var next) && next.Flow == FlowKind.Call && next.HasTarget && next.Target != next.Next && IsNoReturnCall(next.Target);
+    }
+
     /// <summary>Handles control flow of one instruction; true when the run ends here.</summary>
     private bool Step(in Insn insn, uint start, List<(uint Begin, uint End)>? own, ref Run run, WalkResult result)
     {
@@ -225,7 +236,7 @@ internal sealed class FunctionWalker
                     return false;
                 }
                 _callees.Add(insn.Target);
-                if (IsNoReturnCall(insn.Target)) { run.EndKind = RunEnd.NoReturnCall; return true; }
+                if (IsNoReturnCall(insn.Target) && !AbortFollows(insn.Next)) { run.EndKind = RunEnd.NoReturnCall; return true; }
                 return false;
 
             case FlowKind.IndirectCall:

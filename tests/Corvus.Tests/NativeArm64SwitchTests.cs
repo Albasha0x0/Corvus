@@ -260,4 +260,25 @@ public class NativeArm64SwitchTests
         Assert.Equal((3, dflt), (sw.EntryCount, sw.Default));
         Assert.Equal(caseAt, sw.Cases.Select(c => c.Target));
     }
+
+    /// <summary>bl fail; bl abort, both functions that do not return (abort also called elsewhere): the call to abort is still the caller's code and reference.</summary>
+    [Fact]
+    public void A_call_that_does_not_return_after_one_that_does_not_is_code()
+    {
+        var a = new A64(Code);
+        uint fail = 0, abort = 0, other = 0;
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp).Later(at => A64.Cbz(at, other, 0)).Later(at => A64.Bl(at, abort));
+        other = a.Here;
+        a.Later(at => A64.Bl(at, fail));
+        uint second = a.Here;
+        a.Later(at => A64.Bl(at, abort));
+        fail = a.Here;
+        a.Word(A64.Brk1);
+        abort = a.Here;
+        a.Word(A64.Brk1);
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), new byte[0x100], entry: Code));
+        Assert.True((index.FunctionByStart(fail)!.Flags & FunctionFlags.NoReturn) != 0);
+        Assert.Contains(index.RefsTo(abort), x => x.From == second && x.Kind == XrefKind.Call);
+        Assert.Equal(second + 4, index.FunctionByStart(Code)!.End);
+    }
 }
