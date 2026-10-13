@@ -165,6 +165,9 @@ public class RealWorldShapeTests : IDisposable
         var unity = Save("unity.apk", ContainerFixtures.Zip(("AndroidManifest.xml", [1]), ("lib/armeabi-v7a/libmonobdwgc-2.0.so", [2]),
             ("assets/bin/Data/Managed/Assembly-CSharp.dll", ContainerFixtures.Module("Assembly-CSharp", _ => { }))));
         Assert.Equal("Android package (Unity Mono)", Inspection.Summarize(null, unity, default).Container);
+        var il2cpp = Save("il2cpp.apk", ContainerFixtures.Zip(("AndroidManifest.xml", [1]), ("lib/arm64-v8a/libil2cpp.so", [2]),
+            ("assets/bin/Data/Managed/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA])));
+        Assert.Equal("Android package (Unity Il2Cpp)", Inspection.Summarize(null, il2cpp, default).Container);
         var aab = Save("app.aab", ContainerFixtures.Zip(("BundleConfig.pb", [1]), ("base/manifest/AndroidManifest.xml", [2]), ("base/dex/classes.dex", [3])));
         Assert.Equal("Android App Bundle (no .NET runtime or assemblies)", Inspection.Summarize(null, aab, default).Container);
     }

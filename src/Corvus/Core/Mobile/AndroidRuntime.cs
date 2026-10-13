@@ -10,6 +10,14 @@ public static class AndroidRuntime
 {
     private const uint Il2CppMetadataMagic = 0xFAB11BAF;
     private static readonly byte[] HermesMagic = [0xC6, 0x1F, 0xBC, 0x03, 0xC1, 0x03, 0x19, 0x1F];
+    private const string Metadata = "assets/bin/Data/Managed/Metadata/global-metadata.dat";
+
+    /// <summary>libil2cpp.so or the Il2Cpp metadata: the entries that make a package a Unity Il2Cpp build.</summary>
+    public static bool IsIl2CppEntry(string entry) =>
+        entry == Metadata || (entry.StartsWith("lib/", StringComparison.Ordinal) && entry.EndsWith("/libil2cpp.so", StringComparison.Ordinal));
+
+    public static bool IsUnityMonoEntry(string entry) =>
+        entry.StartsWith("assets/bin/Data/Managed/", StringComparison.Ordinal) && entry.EndsWith(".dll", StringComparison.Ordinal);
 
     public static IReadOnlyList<AndroidRuntimeFamily> Detect(AndroidPackage package)
     {
@@ -24,7 +32,6 @@ public static class AndroidRuntime
         if (dotnet.Count > 0) result.Add(new("dotnet-android", dotnet, "Xamarin / .NET MAUI: unpack_container extracts the assemblies by name; map_java_dotnet links Java wrappers to .NET types"));
 
         var il2cpp = Libs("libil2cpp.so");
-        const string Metadata = "assets/bin/Data/Managed/Metadata/global-metadata.dat";
         if (il2cpp.Count > 0 || package.Contains(Metadata))
         {
             string? note = null;
@@ -38,7 +45,7 @@ public static class AndroidRuntime
             }
             result.Add(new("unity-il2cpp", il2cpp, note ?? "Unity Il2Cpp: no global-metadata.dat in this APK (an asset pack or split may hold it)"));
         }
-        var mono = entries.Where(e => e.StartsWith("assets/bin/Data/Managed/", StringComparison.Ordinal) && e.EndsWith(".dll", StringComparison.Ordinal)).Take(4).ToList();
+        var mono = entries.Where(IsUnityMonoEntry).Take(4).ToList();
         if (mono.Count > 0) result.Add(new("unity-mono", mono, "Unity Mono: the Managed assemblies load directly"));
 
         var flutter = Libs("libflutter.so", "libapp.so");

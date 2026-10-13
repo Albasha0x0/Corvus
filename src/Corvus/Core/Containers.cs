@@ -265,9 +265,10 @@ public static class Containers
         string? android = entries.Any(e => e.FullName == "AndroidManifest.xml") ? "Android package"
             : entries.Any(e => e.FullName is "BundleConfig.pb" or "base/manifest/AndroidManifest.xml") ? "Android App Bundle"
             : null;
-        // Unity Mono ships its Managed folder as plain .dll entries, which would otherwise read as Xamarin / MAUI.
+        // Same rules as AndroidRuntime.Detect; Il2Cpp first since its metadata also sits under Managed/.
         string kind = android != null
-                ? entries.Any(e => e.FullName.Contains("assets/bin/Data/Managed/", StringComparison.Ordinal)) ? android + " (Unity Mono)"
+                ? entries.Any(e => Mobile.AndroidRuntime.IsIl2CppEntry(e.FullName)) ? android + " (Unity Il2Cpp)"
+                : entries.Any(e => Mobile.AndroidRuntime.IsUnityMonoEntry(e.FullName)) ? android + " (Unity Mono)"
                 : entries.Any(e => IsAndroidDotNet(e.FullName)) ? android + " (Xamarin / MAUI)"
                 : android + " (no .NET runtime or assemblies)"
             : entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)) ? "NuGet package"
