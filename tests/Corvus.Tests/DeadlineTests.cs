@@ -8,6 +8,8 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>The effective deadline (STANDARDS S9.1) and joined identical calls.</summary>
+// Deadlines are timed, so the class runs alone (parallel classes starve small CI runners).
+[Collection(nameof(SerialTimingTests))]
 public sealed class DeadlineTests
 {
     private static ServiceProvider Services(ServerOptions options) =>

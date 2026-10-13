@@ -6,6 +6,8 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>The call deadline: tools not marked long-running end with a timeout error after DeadlineFactor x --timeout.</summary>
+// Deadlines are timed, so the class runs alone (parallel classes starve small CI runners).
+[Collection(nameof(SerialTimingTests))]
 public class CallDeadlineTests
 {
     private static ServiceProvider Services(int timeoutSeconds = 1) =>

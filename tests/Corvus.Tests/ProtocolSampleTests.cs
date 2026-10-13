@@ -224,8 +224,12 @@ public partial class ProtocolSampleTests
         string[] a = recorded.Split('\n'), b = current.Split('\n');
         int i = 0;
         while (i < a.Length && i < b.Length && a[i] == b[i]) i++;
-        static string At(string[] lines, int at) => at < lines.Length ? lines[at].Trim() is var t && t.Length > 200 ? t[..200] : lines[at].Trim() : "(end)";
-        return $"line {i + 1}: recorded {At(a, i)} | now {At(b, i)}";
+        string x = i < a.Length ? a[i] : "", y = i < b.Length ? b[i] : "";
+        int c = 0;
+        while (c < x.Length && c < y.Length && x[c] == y[c]) c++;
+        int from = Math.Max(0, c - 60);
+        string Around(string s) => s.Length <= from ? "(end)" : s.Substring(from, Math.Min(160, s.Length - from));
+        return $"line {i + 1}, char {c + 1}: recorded …{Around(x)} | now …{Around(y)}";
     }
 
     // Never from inside a \uXXXX escape (JSON kept as a JSON string escapes its quotes).
@@ -233,7 +237,11 @@ public partial class ProtocolSampleTests
     private static partial Regex Volatile();
 
     /// <summary>Tools whose written file holds the machine's image path, so its size differs per checkout.</summary>
-    private static readonly HashSet<string> PathSized = ["export_native_patches", "export_native_annotations"];
+    private static readonly HashSet<string> PathSized = ["export_native_patches", "export_native_annotations", "export_il2cpp_symbols"];
+
+    /// <summary>How many symbol folders a PDB lookup searched depends on the machine's symbol paths.</summary>
+    [GeneratedRegex(@"\(\d+ places searched\)")]
+    private static partial Regex PlacesSearched();
 
     /// <summary>The written file's size in the text (", 642 bytes;") and the record ("bytes":642).</summary>
     [GeneratedRegex(@"(, )\d+(?= bytes;)|(""bytes"":\s*)\d+")]
@@ -273,6 +281,7 @@ public partial class ProtocolSampleTests
         // Separators inside a fixture path are '/' on every OS (JSON text escapes a backslash as two).
         text = (json ? FixturePathJson() : FixturePath()).Replace(text, m => Backslashes().Replace(m.Value, "/"));
         text = Entropy().Replace(text, m => m.Groups[1].Value[0] == '"' ? m.Groups[1].Value + "\"<entropy>\"" : m.Groups[1].Value + "<entropy>");
+        text = PlacesSearched().Replace(text, "(<n> places searched)");
         if (tool is "record_note" or "update_note" or "list_notes" or "read_result")
             text = Timestamp().Replace(NoteId().Replace(text, "<note>"), "<time>");
         if (PathSized.Contains(tool))
