@@ -126,13 +126,18 @@ public partial class ProtocolSampleTests
     [GeneratedRegex("[0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|r-[0-9a-f]{12}")]
     private static partial Regex Volatile();
 
-    /// <summary>Machine paths, hashes (a built fixture's MD5 differs per checkout), GUIDs and result ids become labels.</summary>
+    /// <summary>A file's entropy in the text ("entropy 5.24") and the record ("entropy":5.24).</summary>
+    [GeneratedRegex(@"(entropy |""entropy"":\s*)\d+(\.\d+)?")]
+    private static partial Regex Entropy();
+
+    /// <summary>Machine paths, hashes and entropy (a built fixture's bytes differ per checkout), GUIDs and result ids become labels.</summary>
     private static string Normalize(string text)
     {
         foreach (var (path, label) in new[] { (Path.GetDirectoryName(Env.FixturePath)!, "<fixtures>"), (DocsTests.RepoRoot(), "<repo>") })
             foreach (var form in new[] { path, path.Replace('\\', '/'), JsonEncodedText.Encode(path).ToString() })
                 text = text.Replace(form, label, StringComparison.OrdinalIgnoreCase);
         text = text.Replace(@"<fixtures>\\", "<fixtures>/").Replace(@"<fixtures>\", "<fixtures>/");
+        text = Entropy().Replace(text, m => m.Groups[1].Value[0] == '"' ? m.Groups[1].Value + "\"<entropy>\"" : m.Groups[1].Value + "<entropy>");
         return Volatile().Replace(text, "<id>").ReplaceLineEndings("\n");
     }
 }
