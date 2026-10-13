@@ -89,6 +89,13 @@ public static partial class ToolOutput
         }
         Set(end, slice);
         if (!body || page.Render == null || call.Fits(record.ToJsonString(Wire)) || !text.Contains(page.Rendered, StringComparison.Ordinal)) return;
+        // The rest of the record alone is over the budget: shortening the page cannot help, the record is trimmed later.
+        Set(page.Offset + 1, page.Render(page.Offset + 1).Slice);
+        if (!call.Fits(record.ToJsonString(Wire)))
+        {
+            Set(end, slice);
+            return;
+        }
         int lo = page.Offset + 1, hi = end;
         while (lo < hi)
         {
@@ -244,7 +251,8 @@ public static partial class ToolOutput
         bool textOver = !call.Fits(text);
         bool recordOver = record != null && !call.Fits(record.ToJsonString(Wire));
         if (!textOver && !recordOver) return;
-        var whole = text.Length > 0 ? text : record!.ToJsonString(new JsonSerializerOptions(Json) { WriteIndented = true });
+        // The part that is cut is kept: a text page that fits already carries its own continuation.
+        var whole = textOver && text.Length > 0 ? text : record!.ToJsonString(new JsonSerializerOptions(Json) { WriteIndented = true });
         var id = store?.Keep(whole, origin ?? new KeptOrigin(tool), record?.ToJsonString(Json));
         var note = id != null
             ? $"[Cut to fit the response: the whole {(readOnly ? "result" : "outcome")} ({whole.Length:N0} chars) is kept as {id}; read_result id={id} pages through it]"

@@ -150,6 +150,32 @@ public class ToolOutputTests
         Assert.Equal(big, services.GetRequiredService<ResultStore>().Read(id).Text);
     }
 
+    /// <summary>
+    /// A text page that fits beside a record that does not: the kept result is the record, not the page (whose own footer would
+    /// read as read_result's continuation), and the page is not shortened for a record it cannot fit.
+    /// </summary>
+    [Fact]
+    public async Task OversizedRecordBesideAPageKeepsTheRecord()
+    {
+        var options = new ServerOptions();
+        using var services = Services(options);
+        var pager = new OutputPager(options);
+        var body = string.Concat(Enumerable.Range(0, 400).Select(i => $"line {i}\n"));
+        var rows = Enumerable.Range(0, 3_000).Select(i => new { block = $"0x{i:X8}", successors = new[] { $"0x{i + 1:X8}" } }).ToList();
+        var r = await Call(services, "get_cfg", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.Text(pager, body, 0, new { function = "f", blocks = rows }) }],
+        }, new() { ["maxTokens"] = 2_000 });
+        var text = Text(r);
+        Assert.StartsWith("line 0\nline 1\n", text);
+        Assert.DoesNotContain("[More: offset=", text);
+        var id = Record(r).GetProperty("resultId").GetString()!;
+        var kept = services.GetRequiredService<ResultStore>().Read(id).Text;
+        Assert.StartsWith("{", kept);
+        Assert.DoesNotContain("[More: offset=", kept);
+        Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 2_100);
+    }
+
     /// <summary>maxTokens raises the page up to the client ceiling; below 500 it is an argument error.</summary>
     [Fact]
     public async Task MaxTokensSetsTheBudget()
