@@ -2,8 +2,10 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native.Annotations;
 using Corvus.Services;
+using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
@@ -16,7 +18,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     public const string Loaded = "loaded", AlreadyLoaded = "already_loaded", WouldLoad = "would_load", Applied = "applied", WouldApply = "would_apply",
         AlreadyPresent = "already_present", Refused = "refused", NotFound = "not_found";
 
-    public sealed record SessionSaved(string Path, int Files, int EditedAssemblies, int Edits, int PatchedImages, int Patches, int Names, int Comments, int Notes);
+    public sealed record SessionSaved(string OutputPath, int Files, int EditedAssemblies, int Edits, int PatchedImages, int Patches, int Names, int Comments, int Notes);
 
     public sealed record SessionItem(
         [property: Description("file, il2cpp, dump, edits, patches, names, comments, journal or notes.")] string Kind,
@@ -31,22 +33,25 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     public sealed record SessionLoadReport(string Path, bool DryRun, string TargetBuild, IReadOnlyList<OutcomeCount> Outcomes,
         int Offset, int Total, bool Truncated, IReadOnlyList<SessionItem> Items, IReadOnlyList<string> Notes);
 
-    [McpServerTool(Name = "save_session", Title = "Save the session", UseStructuredContent = true)]
+    [McpServerTool(Name = "save_session", Title = "Save the session", UseStructuredContent = true, OutputSchemaType = typeof(SessionSaved))]
     [Description("Write this session's work to one JSON file: every loaded file (path, relative path, SHA-256), .NET edits, native patches, names and comments, " +
                  "notes, Il2Cpp games and open minidumps. load_session restores it here or on another machine.")]
-    public Task<SessionSaved> SaveSession(
-        [Description("Output file path (.json).")] string path,
+    public Task<string> SaveSession(
+        [Description("Output file path (.json).")] string outputPath,
         [Description("Replace the file if it exists.")] bool overwrite = false,
         [Description("Comma-separated parts: edits, patches, annotations, notes or all (default); files are always listed.")] string? include = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var parts = SessionService.ParseInclude(include);
-        if (string.IsNullOrWhiteSpace(path)) throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.");
-        var doc = sessions.Build(path, parts);
-        var full = SafeFile.WriteAllText(path, SessionService.Serialize(doc), overwrite);
-        return new SessionSaved(full, doc.Files.Count, doc.DotNet.Count, doc.DotNet.Sum(d => d.Script.Edits.Count), doc.Native.Count(n => n.Patches != null),
+        if (string.IsNullOrWhiteSpace(outputPath)) throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.", "pass outputPath, e.g. work.session.json");
+        var doc = sessions.Build(outputPath, parts);
+        var full = SafeFile.WriteAllText(outputPath, SessionService.Serialize(doc), overwrite);
+        var saved = new SessionSaved(full, doc.Files.Count, doc.DotNet.Count, doc.DotNet.Sum(d => d.Script.Edits.Count), doc.Native.Count(n => n.Patches != null),
             doc.Native.Sum(n => n.Patches is { } p && p.TryGetProperty("patches", out var list) ? list.GetArrayLength() : 0),
             doc.Native.Sum(n => n.Annotations?.Names.Count ?? 0), doc.Native.Sum(n => n.Annotations?.Comments.Count ?? 0), doc.Notes?.Count ?? 0);
+        return ToolOutput.With($"Saved the session to {full}: {Plural(saved.Files, "file")}, {Plural(saved.Edits, "edit")} in {Plural(saved.EditedAssemblies, "assembly")}, " +
+            $"{Plural(saved.Patches, "patch")} in {Plural(saved.PatchedImages, "image")}, {Plural(saved.Names, "name")}, {Plural(saved.Comments, "comment")}, " +
+            $"{Plural(saved.Notes, "note")}. load_session path={full} restores it.", saved);
     }, cancellationToken);
 
     [McpServerTool(Name = "load_session", Title = "Load a session", UseStructuredContent = true)]

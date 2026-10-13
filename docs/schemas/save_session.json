@@ -1,7 +1,7 @@
 {
   "type": "object",
   "properties": {
-    "path": {
+    "outputPath": {
       "type": "string"
     },
     "files": {
@@ -48,7 +48,7 @@
     }
   },
   "required": [
-    "path",
+    "outputPath",
     "files",
     "editedAssemblies",
     "edits",

@@ -123,11 +123,11 @@ Write this session's work to one JSON file: every loaded file (path, relative pa
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | Output file path (.json). |
+| `outputPath` | string | yes |  | Output file path (.json). |
 | `overwrite` | boolean |  | `false` | Replace the file if it exists. |
 | `include` | string |  |  | Comma-separated parts: edits, patches, annotations, notes or all (default); files are always listed. |
 
-Structured output: `path`, `files`, `editedAssemblies`, `edits`, `patchedImages`, `patches`, `names`, `comments`, `notes`.
+Structured output: `outputPath`, `files`, `editedAssemblies`, `edits`, `patchedImages`, `patches`, `names`, `comments`, `notes`.
 
 ### load_session
 

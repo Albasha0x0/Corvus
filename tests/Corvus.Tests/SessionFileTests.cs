@@ -84,7 +84,11 @@ public sealed class SessionFileTests : IDisposable
         var native = a.Workspace.FindNative("native.dll")!;
         a.Notes.Record("f2 returns a constant", null, null, new NoteAnchor(NoteAnchor.Native, Sha256: native.OriginalSha256, Rva: 0x1040, Label: "native.dll@f2"), null, null, null);
         var path = _dir.File(Path.Combine(folder, "work.session.json"));
-        var saved = await a.Tools.SaveSession(path);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await a.Tools.SaveSession(path);
+        var saved = Assert.IsType<SessionFileTools.SessionSaved>(collector.Value);
+        Assert.Equal(path, saved.OutputPath);
+        Assert.StartsWith($"Saved the session to {path}: 2 files, 1 edit in 1 assembly, 1 patch in 1 image, 1 name, 1 comment, 1 note.", text);
         Assert.Equal((2, 1, 1, 1, 1, 1, 1, 1), (saved.Files, saved.EditedAssemblies, saved.Edits, saved.PatchedImages, saved.Patches, saved.Names, saved.Comments, saved.Notes));
         await Assert.ThrowsAsync<ToolError>(() => a.Tools.SaveSession(path));
         return path;
