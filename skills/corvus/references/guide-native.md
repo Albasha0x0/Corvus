@@ -5,7 +5,7 @@
 Native files (PE .exe/.dll/.sys without .NET metadata, ELF, Mach-O; x86, x64, ARM64 and 32-bit ARM / Thumb): load_assembly the file, or pass its path as image.
 The first code tool call on an image waits for its code index (seconds; minutes for a very large image); progress reports the phase.
 Overview: get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed; capability groups;
-code statistics once the index is built), list_imports
+view=code: code statistics, late-bound imports, modules loaded by name), list_imports
 (includeDynamic=true adds GetProcAddress imports; bind=true shows each binding), list_exports (MSVC names demangled),
 list_resources / get_resource, survey_features.
 Code: list_functions, list_globals (named data with types), disassemble, inspect_instruction (operands, registers, flags, flow; mid-instruction and data
@@ -46,4 +46,9 @@ as they load; server_status shows each engine session (opening stage and seconds
 database, worker). Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
 An IDA database left beside the input (x.i64 or x.dll.i64) that IDA made from the same bytes starts the image's engine
 database the first time: a copy is used, the file itself is never changed; server_status names the database.
+Other instruction sets (MIPS, PowerPC, RISC-V, s390x, ...): format tools answer (get_pe_info, list_imports, list_exports, list_functions
+from declared starts, resolve_address, read_bytes, search_bytes, search_native_strings, get_exception_info); code tools (disassemble,
+inspect_instruction, search_instructions, get_cfg, find_xrefs, native_call_tree, find_virtual_calls, get_call_arguments, trace_native_values,
+resolve_call_targets, find_similar_functions) go through IDA or Ghidra, else refuse with unsupported (details.reason instructions-not-decoded,
+details.arch the file's machine name); reports mark their code facts "not decoded" with coverage partial.
 Editing and engine type edits: the edits topic. Build-to-build: the builds topic.
