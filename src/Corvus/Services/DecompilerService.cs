@@ -232,20 +232,26 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     {
         var image = asm.GetImageBytes();
         var tokens = members.Select(asm.ImageToken).ToList();
-        byte[] simplified;
+        byte[]? simplified = null;
         List<Simplify.MethodChange> changes;
         using (var scratch = new LoadedAssembly(asm.Id, asm.FilePath, image, LoadScratch(image, asm.FilePath)))
         {
             var methods = tokens.Select(t => scratch.Module.ResolveToken(t)).SelectMany(MethodsOf).Distinct().ToList();
             changes = new Simplify.MethodSimplifier(scratch.Module, options).Run(methods, ct);
             foreach (var c in changes.Where(c => c.Changed)) c.Method.Body = c.NewBody!;
-            simplified = scratch.WriteToBytes();
+            // Nothing changed: the loaded assembly is the view (writing and loading a large image costs seconds).
+            if (changes.Any(c => c.Changed)) simplified = scratch.WriteToBytes();
         }
 
-        using var view = new LoadedAssembly(asm.Id, asm.FilePath, simplified, LoadScratch(simplified, asm.FilePath));
-        var viewMembers = tokens.Select(t => view.Module.ResolveToken(t) as Dn.IMemberDef
-                                             ?? throw new ToolError($"Member 0x{t:X8} is missing from the simplified image.")).ToList();
-        var text = viewMembers is [Dn.TypeDef type] ? DecompileType(view, type, ct) : DecompileMembers(view, viewMembers, ct);
+        string text;
+        if (simplified == null) text = members is [Dn.TypeDef only] ? DecompileType(asm, only, ct) : DecompileMembers(asm, members, ct);
+        else
+        {
+            using var view = new LoadedAssembly(asm.Id, asm.FilePath, simplified, LoadScratch(simplified, asm.FilePath));
+            var viewMembers = tokens.Select(t => view.Module.ResolveToken(t) as Dn.IMemberDef
+                                                 ?? throw new ToolError($"Member 0x{t:X8} is missing from the simplified image.")).ToList();
+            text = viewMembers is [Dn.TypeDef type] ? DecompileType(view, type, ct) : DecompileMembers(view, viewMembers, ct);
+        }
 
         var changed = changes.Where(c => c.Changed).ToList();
         var summary = $"// Simplified view ({options.Describe()}; the assembly is unchanged): {changed.Count} of {changes.Count} method(s) simplified";

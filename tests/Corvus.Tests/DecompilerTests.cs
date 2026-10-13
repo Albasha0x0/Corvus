@@ -103,4 +103,16 @@ public class DecompilerTests : IDisposable
         Assert.Contains("field initializers: they run as part of this constructor", inContext);
         Assert.Contains("_balance = 100", inContext);
     }
+
+    /// <summary>A simplified view with nothing to simplify decompiles the loaded assembly as it is.</summary>
+    [Fact]
+    public void SimplifiedViewWithoutChangesIsThePlainDecompile()
+    {
+        var member = _env.One("Account::CheckLicense").Member;
+        var simplified = _env.Workspace.Read(() => _env.Decompiler.DecompileSimplified(_env.Fixture, [member], new Corvus.Services.Simplify.SimplifyOptions(), default));
+        var plain = _env.Workspace.Read(() => _env.Decompiler.DecompileMembers(_env.Fixture, [member], default));
+        Assert.StartsWith("// Simplified view (", simplified);
+        Assert.Contains(": 0 of 1 method(s) simplified", simplified);
+        Assert.EndsWith(plain, simplified);
+    }
 }
