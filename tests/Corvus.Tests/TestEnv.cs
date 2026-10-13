@@ -58,7 +58,7 @@ public sealed class Env : IDisposable
     public List<Il2CppNavigator.AddressResult> Locate(ulong address, string kind = "auto") =>
         Workspace.Read(() => Il2CppNavigator.Locate(address, kind, Workspace.Assemblies));
 
-    public Corvus.Tools.Il2CppTools Il2CppTools() => new(Workspace, Il2Cpp, new Il2CppExporter(Il2Cpp), Il2CppStrings, Il2CppNavigator, Pager);
+    public Corvus.Tools.Il2CppTools Il2CppTools() => new(Workspace, Il2Cpp, new Il2CppExporter(Il2Cpp), Il2CppStrings, Il2CppNavigator);
 
     public void Dispose() => Workspace.Dispose();
 }

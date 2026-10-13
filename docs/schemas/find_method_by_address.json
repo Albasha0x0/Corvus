@@ -1,0 +1,105 @@
+{
+  "type": "object",
+  "properties": {
+    "address": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "method, script_method, function (no name), literal, metadata_slot or method_info.",
+            "type": "string"
+          },
+          "method": {
+            "description": "The method, slot name or literal.",
+            "type": "string"
+          },
+          "addressKind": {
+            "description": "How the address was read: va, rva or offset.",
+            "type": "string"
+          },
+          "rva": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "assembly": {
+            "type": "string"
+          },
+          "function": {
+            "description": "RVA of the function (or slot) start.",
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "offsetInFunction": {
+            "type": "string"
+          },
+          "basis": {
+            "description": "inferred: past the function's known length or its last start, a guess; absent when within known bounds.",
+            "type": "string"
+          },
+          "relation": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "method",
+          "addressKind",
+          "rva"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "address",
+    "items",
+    "offset",
+    "total"
+  ]
+}

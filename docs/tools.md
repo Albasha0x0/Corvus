@@ -884,6 +884,8 @@ Il2Cpp dummy DLLs (built-in reader, Il2CppDumper or Cpp2IL): native addresses (R
 | `offset` | integer |  | `0` | Index of the first entry of each long list. |
 | `limit` | integer |  | `20` | Max entries of each long list. |
 
+Structured output: `symbol`, `members`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+
 ### find_method_by_address
 
 **Native address to method** (read-only, idempotent)
@@ -898,6 +900,8 @@ Map a native address (from IDA, Ghidra or a crash log) of an Il2Cpp game to the 
 | `offset` | integer |  | `0` | Index of the first method to list when many share the code. |
 | `limit` | integer |  | `20` | Max methods listed. |
 
+Structured output: `address`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+
 ### export_il2cpp_symbols
 
 **Export IDA/Ghidra scripts** (destructive, idempotent, long-running)
@@ -911,6 +915,8 @@ Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scri
 | `baseName` | string |  | `il2cpp` | Base name of the generated files. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `overwrite` | boolean |  | `false` | Replace files of the same names if they exist. |
+
+Structured output: `functions`, `structs`, `files`.
 
 ### generate_cpp_binding
 

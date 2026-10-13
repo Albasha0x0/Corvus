@@ -42,7 +42,7 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
             ("_ghidra.py", wanted.Contains("ghidra")), ("_script.json", wanted.Contains("json")) };
         // Refused before writing anything, so a conflict leaves no partial set.
         if (!overwrite && planned.Where(p => p.Item2).Select(p => Path.Combine(dir, baseName + p.Item1)).FirstOrDefault(Path.Exists) is { } existing)
-            throw new ToolError(ErrorCode.Conflict, $"{existing} exists: pass overwrite=true to replace it.");
+            throw new ToolError(ErrorCode.Conflict, $"{existing} exists.", "pass overwrite=true to replace it, or another outputDirectory");
         var files = new List<string>();
 
         string? headerPath = null;

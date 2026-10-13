@@ -99,6 +99,31 @@ public sealed class Il2CppNavigationTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("its code: RVA 0x1000 (Fixture.Native.NativeThing::First()", info);
     }
 
+    /// <summary>get_il2cpp_info and find_method_by_address records: members with their numbers, long lists and matches as paged items.</summary>
+    [Fact]
+    public async Task RecordsCarryTheAddressesAndPages()
+    {
+        using var env = LoadDump();
+        var tools = env.Il2CppTools();
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.GetIl2CppInfo("Fixture.Native.NativeThing::Shared", limit: 2);
+        var info = Assert.IsType<Corvus.Tools.Il2CppInfo>(collector.Value);
+        Assert.Equal(("method", "TestFixture"), (info.Members[0].Kind, info.Members[0].Assembly));
+        Assert.Equal((2, 3), (info.Items.Count, info.Total));
+        Assert.All(info.Items, i => Assert.Equal("instantiation", i.Kind));
+        Assert.Equal("0x1100", info.Items.Single(i => i.Name == "Fixture.Native.NativeThing$$Shared<object>").Rva);
+
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.FindMethodByAddress("0x1100", limit: 1);
+        var lookup = Assert.IsType<Corvus.Tools.Il2CppLookup>(collector.Value);
+        var match = Assert.Single(lookup.Items);
+        Assert.Equal(("method", "Fixture.Native.NativeThing::Second()", "0x1100", "0x0", 2), (match.Kind, match.Method, match.Function, match.OffsetInFunction, lookup.Total));
+        Assert.Null(match.Basis);
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.FindMethodByAddress("0x5010");
+        Assert.Equal("method_info", Assert.Single(Assert.IsType<Corvus.Tools.Il2CppLookup>(collector.Value).Items).Kind);
+    }
+
     [Fact]
     public async Task EntitiesNameTheirCodeAndSlots()
     {

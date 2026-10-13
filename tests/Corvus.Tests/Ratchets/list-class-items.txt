@@ -5,7 +5,6 @@ dump_heap
 dump_stack
 extract_embedded
 extract_strings
-find_method_by_address
 find_similar_functions
 get_call_arguments
 list_assemblies
