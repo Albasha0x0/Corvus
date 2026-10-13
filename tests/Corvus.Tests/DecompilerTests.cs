@@ -115,4 +115,15 @@ public class DecompilerTests : IDisposable
         Assert.Contains(": 0 of 1 method(s) simplified", simplified);
         Assert.EndsWith(plain, simplified);
     }
+
+    /// <summary>A write that changes no assembly keeps the decompiler's type systems; an edit of the assembly replaces its own.</summary>
+    [Fact]
+    public void TypeSystemsOutliveWritesThatChangeNoAssembly()
+    {
+        var first = _env.Workspace.Read(() => _env.Decompiler.GetTypeSystem(_env.Fixture));
+        _env.Workspace.Write(() => 0);
+        Assert.Same(first, _env.Workspace.Read(() => _env.Decompiler.GetTypeSystem(_env.Fixture)));
+        _env.Edit(() => _env.Edits.StubMethod(_env.One("Account::Score"), "3"));
+        Assert.NotSame(first, _env.Workspace.Read(() => _env.Decompiler.GetTypeSystem(_env.Fixture)));
+    }
 }

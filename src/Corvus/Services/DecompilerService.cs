@@ -18,7 +18,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     // Weak keys: entries are collected with their assembly.
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedAssembly, TypeSystemEntry> _typeSystems = new();
 
-    private sealed record TypeSystemEntry(long Key, DecompilerTypeSystem TypeSystem);
+    private sealed record TypeSystemEntry(string Key, DecompilerTypeSystem TypeSystem);
 
     public static DecompilerSettings CreateSettings() => new(LanguageVersion.Latest)
     {
@@ -28,15 +28,27 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         UseSdkStyleProjectFormat = true,
     };
 
-    private DecompilerTypeSystem GetTypeSystem(LoadedAssembly asm)
+    internal DecompilerTypeSystem GetTypeSystem(LoadedAssembly asm)
     {
-        // Keyed by workspace generation and the assembly's edit version; several edits can occur under one write lock.
-        long key = ((long)workspace.Generation << 32) | (uint)asm.Version;
+        var key = TypeSystemKey();
         if (_typeSystems.TryGetValue(asm, out var entry) && entry.Key == key)
             return entry.TypeSystem;
         var ts = new DecompilerTypeSystem(asm.GetPEFile(), workspace.CreateDecompilerResolver(asm), CreateSettings());
         _typeSystems.AddOrUpdate(asm, new TypeSystemEntry(key, ts));
         return ts;
+    }
+
+    /// <summary>
+    /// What a type system depends on: the loaded assemblies with their edit versions (references resolve to them) and the
+    /// search directories. Writes that change none of these (notes, failed edits, other generations) keep the type systems.
+    /// </summary>
+    internal string TypeSystemKey()
+    {
+        var sb = new StringBuilder();
+        foreach (var a in workspace.Assemblies)
+            sb.Append(a.Id).Append(':').Append(a.Version).Append(':').Append(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a)).Append('|');
+        foreach (var d in workspace.SearchDirectories) sb.Append(d).Append('|');
+        return sb.ToString();
     }
 
     private CSharpDecompiler CreateDecompiler(LoadedAssembly asm, CancellationToken token, bool compilable = false)

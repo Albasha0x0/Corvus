@@ -219,7 +219,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
             : decompiler.DecompileType(sym.Assembly, (TypeDef)sym.Member, ct)));
 
     private string CacheKey(string kind, IEnumerable<ResolvedSymbol> symbols) =>
-        $"{workspace.Generation}|{kind}|{string.Join(",", symbols.Select(s => s.Assembly.Id + (s.Member.MDToken.Rid != 0 ? Format.Token(s.Member) : Format.MemberLabel(s.Member))))}"; // added members share token (new)
+        $"{decompiler.TypeSystemKey()}|{kind}|{string.Join(",", symbols.Select(s => s.Assembly.Id + (s.Member.MDToken.Rid != 0 ? Format.Token(s.Member) : Format.MemberLabel(s.Member))))}"; // added members share token (new)
 
     /// <summary>More than 25 matches: ambiguous, naming up to 25 in details.matches and as many as fit the error budget in the text.</summary>
     private static void RequireFew(IReadOnlyList<ResolvedSymbol> all, string query)
