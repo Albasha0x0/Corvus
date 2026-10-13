@@ -247,7 +247,8 @@ internal sealed class X86Decoder : ICodeDecoder
         _spills = 0;
         _esp = 0;
         _espKnown = true;
-        _stateAt.Clear();
+        // Clear costs the capacity a large function left: shrink it back
+        if (_stateAt.Count > 0) { _stateAt.Clear(); if (_stateAt.EnsureCapacity(0) > 4096) _stateAt.TrimExcess(256); }
         _states = 0;
         _dispatchState = -1;
         _scaledSlots.Clear();

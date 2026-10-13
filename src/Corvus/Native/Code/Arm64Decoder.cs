@@ -68,7 +68,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
     {
         Array.Clear(_savedState);
         _walking = true;
-        _stateAt.Clear();
+        if (_stateAt.Count > 0) { _stateAt.Clear(); if (_stateAt.EnsureCapacity(0) > 4096) _stateAt.TrimExcess(256); }
         _statePool.Clear();
         _dispatchState = -1;
         _slots.Clear();
