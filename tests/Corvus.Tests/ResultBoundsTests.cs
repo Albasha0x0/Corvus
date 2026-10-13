@@ -109,7 +109,7 @@ public abstract class ResultBoundsTests : IAsyncLifetime
             var read = await _client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Newtonsoft.Json.JsonConvert", ["section"] = "methods", ["limit"] = 500 }, cancellationToken: limit.Token);
             Assert.Contains("SerializeObject", Text(read));
             var edit = await _client.CallToolAsync("stub_method",
-                new Dictionary<string, object?> { ["method"] = "Newtonsoft.Json.JsonConvert::ToString(bool)", ["value"] = "\"x\"" }, cancellationToken: limit.Token);
+                new Dictionary<string, object?> { ["method"] = "Newtonsoft.Json.JsonConvert::ToString(bool)", ["value"] = "\"x\"", ["dryRun"] = false }, cancellationToken: limit.Token);
             Assert.True(edit.IsError != true, Text(edit));
             Assert.Equal(files, Files());
             output.WriteLine($"read and edit after the cancellation: {watch.ElapsedMilliseconds} ms");

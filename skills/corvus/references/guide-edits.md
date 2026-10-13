@@ -2,7 +2,7 @@
 
 <!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-Editing and saving (in memory until saved; dryRun=true previews).
+Editing and saving (in memory until saved; edit tools preview by default, dryRun=false applies).
 .NET: rename_symbol, rename_namespace, stub_method (always return X), patch_method_csharp (C# body; lambdas, async, LINQ),
 add_members_csharp, add_types_csharp, patch_method_il (prepend hooks, IL that C# cannot express).
 simplify_methods cleans transformed code. fold: calls that compute a string from constant inputs (string decoders; char,
@@ -14,7 +14,7 @@ dispatcher whose state differs between runs is kept (flattened-shape). inline: f
 proxies) call their real target when the field's initializer always sets the same one (else delegate-target). Every body is
 stack-verified or left unchanged, with a reason code (docs/simplify.md). decompile_member simplified=true previews it.
 Review: list_edits, diff_edits; undo_edit, revert_edits. Carry edits: export_edits writes a script, apply_edits replays it
-(tied to its build: another build needs targetBuild=other; dryRun=true first). Unsaved edits and patches are journaled; a
+(tied to its build: another build needs targetBuild=other). Unsaved edits and patches are journaled; a
 file whose last session ended without saving gets a [workspace] notice naming the journal to replay.
 save_assembly writes a new file (never overwrites the original without overwrite=true; keeps a .bak; untouched parts are
 written byte-for-byte, anything that cannot be is listed; strict=true refuses such a save).

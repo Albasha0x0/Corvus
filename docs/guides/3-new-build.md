@@ -19,7 +19,7 @@ script used here.
 {"tool": "load_assembly", "args": {"path": "samples/Notes/v1/bin/Notes.dll"}}
 {"tool": "load_assembly", "args": {"path": "samples/Notes/v2/bin/Notes.dll"}}
 {"tool": "compare_assemblies", "args": {"oldAssembly": "Notes", "newAssembly": "Notes#2"}}
-{"tool": "apply_edits", "args": {"path": "samples/Notes/v1/bin/patched/notes-v1.edits.json", "assembly": "Notes#2", "targetBuild": "other"}}
+{"tool": "apply_edits", "args": {"path": "samples/Notes/v1/bin/patched/notes-v1.edits.json", "assembly": "Notes#2", "targetBuild": "other", "dryRun": false}}
 {"tool": "save_assembly", "args": {"assembly": "Notes#2", "outputPath": "samples/Notes/v2/bin/patched/Notes.dll", "overwrite": true}}
 ```
 

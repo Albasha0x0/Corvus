@@ -401,7 +401,7 @@ public sealed class DevRelayRealServerTests
             Assert.Contains("TestFixture", listed);
             Assert.True(processes.First().HasExited || await processes.First().Exited.WaitAsync(TimeSpan.FromSeconds(10)).ContinueWith(t => t.IsCompletedSuccessfully));
 
-            await Call("rename_symbol", new() { ["symbol"] = "Account", ["newName"] = "Customer" });
+            await Call("rename_symbol", new() { ["symbol"] = "Account", ["newName"] = "Customer", ["dryRun"] = false });
             Mark("three");
             await Task.Delay(1000);
             Assert.Contains("unsaved edit(s) pending", await Call("list_assemblies", []));

@@ -21,7 +21,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("New name (for a type: the simple name without namespace).")] string newName,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Restrict symbol resolution to this kind.")] string? kind = null,
-        [Description(DryRunDescription)] bool dryRun = false,
+        [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, symbol, SymbolResolver.ParseKind(kind));
@@ -35,7 +35,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Existing namespace ('' for the global namespace).")] string oldNamespace,
         [Description("New namespace.")] string newNamespace,
         [Description("Also rewrite namespaces that start with oldNamespace + '.'.")] bool includeSubNamespaces = false,
-        [Description(DryRunDescription)] bool dryRun = false,
+        [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var asm = workspace.Get(assembly);
@@ -48,7 +48,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description(SymbolDescription)] string method,
         [Description("true/false, an integer (decimal or 0x hex), a float, a \"quoted string\" or null; omit for void or default(T).")] string? value = null,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(DryRunDescription)] bool dryRun = false,
+        [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
@@ -63,7 +63,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description(SymbolDescription)] string method,
         [Description("The new body's statements only.")] string code,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(DryRunDescription + " Shows the IL that would be written.")] bool dryRun = false,
+        [Description("Default true: preview the IL that would be written; pass dryRun=false to apply.")] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
@@ -80,7 +80,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("The type to extend. " + SymbolDescription)] string type,
         [Description("C# member declarations.")] string code,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(DryRunDescription)] bool dryRun = false,
+        [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
@@ -93,7 +93,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> AddTypesCSharp(
         [Description(AssemblyDescription)] string assembly,
         [Description("C# source declaring the new types.")] string code,
-        [Description(DryRunDescription)] bool dryRun = false,
+        [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var asm = workspace.Get(assembly);
@@ -149,7 +149,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> ApplyEdits(
         [Description("The .json edit script.")] string path,
         [Description("Target assembly; omit for the one named in the script.")] string? assembly = null,
-        [Description("Apply every edit for real (compiled, stack-checked), report, then roll back.")] bool dryRun = false,
+        [Description("Default true: apply every edit (compiled, stack-checked), report, roll back; pass dryRun=false to keep them.")] bool dryRun = true,
         [Description("Roll everything back on the first failure.")] bool stopOnError = true,
         [Description("same: only the script's build; other: another build, symbols re-resolved by name.")] string targetBuild = "same",
         CancellationToken cancellationToken = default) => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
@@ -169,7 +169,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("IL instructions, one per line.")] string il,
         [Description("replace or prepend.")] string mode = "replace",
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(DryRunDescription)] bool dryRun = false,
+        [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
@@ -188,7 +188,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Comma-separated passes: fold, cfg, inline (default: all).")] string? passes = null,
         [Description("Max evaluation call depth (default 8).")] int? maxDepth = null,
         [Description("Max IL instructions per evaluated call, nested calls included (default 100000).")] int? budget = null,
-        [Description(DryRunDescription)] bool dryRun = false,
+        [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description("Evaluate machine reads (module path, directories, special folders, environment, machine / user names) against fixed stand-ins " +
                      "(docs/simplify.md), so code depending on them folds; results then hold for that environment. Without it they are reported (external-io).")] bool deterministicEnvironment = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>

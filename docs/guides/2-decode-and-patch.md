@@ -18,10 +18,10 @@ it with the string it returns, then straightens the switch; the second `decompil
 ```json
 {"tool": "load_assembly", "args": {"path": "samples/Notes/v1/bin/Notes.dll"}}
 {"tool": "decompile_member", "args": {"member": "Notes.LicenseCheck::Verify"}}
-{"tool": "simplify_methods", "args": {"symbol": "Notes.LicenseCheck::Verify"}}
+{"tool": "simplify_methods", "args": {"symbol": "Notes.LicenseCheck::Verify", "dryRun": false}}
 {"tool": "decompile_member", "args": {"member": "Notes.LicenseCheck::Verify"}}
-{"tool": "rename_symbol", "args": {"symbol": "Notes.Strings::D", "newName": "Decode"}}
-{"tool": "stub_method", "args": {"method": "Notes.LicenseCheck::Verify", "value": "true"}}
+{"tool": "rename_symbol", "args": {"symbol": "Notes.Strings::D", "newName": "Decode", "dryRun": false}}
+{"tool": "stub_method", "args": {"method": "Notes.LicenseCheck::Verify", "value": "true", "dryRun": false}}
 {"tool": "save_assembly", "args": {"assembly": "Notes", "outputPath": "samples/Notes/v1/bin/patched/Notes.dll", "overwrite": true}}
 {"tool": "export_edits", "args": {"assembly": "Notes", "path": "samples/Notes/v1/bin/patched/notes-v1.edits.json", "overwrite": true}}
 ```

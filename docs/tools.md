@@ -649,7 +649,7 @@ Rename a type, method, field, property (with its accessors) or event in memory. 
 | `newName` | string | yes |  | New name (for a type: the simple name without namespace). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `kind` | string |  |  | Restrict symbol resolution to this kind. Values: type, method, field, property, event. |
-| `dryRun` | boolean |  | `false` | Preview the change without applying it. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
 ### rename_namespace
 
@@ -663,7 +663,7 @@ Move every type of a namespace (optionally its sub-namespaces) to a new namespac
 | `oldNamespace` | string | yes |  | Existing namespace ('' for the global namespace). |
 | `newNamespace` | string | yes |  | New namespace. |
 | `includeSubNamespaces` | boolean |  | `false` | Also rewrite namespaces that start with oldNamespace + '.'. |
-| `dryRun` | boolean |  | `false` | Preview the change without applying it. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
 ### stub_method
 
@@ -676,11 +676,11 @@ Replace a method's body with 'return <value>;' (or 'return;' for void) in memory
 | `method` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `value` | string |  |  | true/false, an integer (decimal or 0x hex), a float, a "quoted string" or null; omit for void or default(T). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `dryRun` | boolean |  | `false` | Preview the change without applying it. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
 ### patch_method_csharp
 
-**Replace method body with C#** (destructive)
+**Replace method body with C#** (destructive, long-running)
 
 Replace a method's body with C# statements compiled against the assembly and its references (private / internal members accessible). Methods, constructors and accessors; lambdas, LINQ, local functions, async and yield work. Compile errors give lines relative to your code. Returns the decompiled result.
 
@@ -689,7 +689,7 @@ Replace a method's body with C# statements compiled against the assembly and its
 | `method` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `code` | string | yes |  | The new body's statements only. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `dryRun` | boolean |  | `false` | Preview the change without applying it. Shows the IL that would be written. |
+| `dryRun` | boolean |  | `true` | Default true: preview the IL that would be written; pass dryRun=false to apply. |
 
 ### patch_method_il
 
@@ -703,11 +703,11 @@ Rewrite a method body from IL text, in memory (stack-validated first). Easiest: 
 | `il` | string | yes |  | IL instructions, one per line. |
 | `mode` | string |  | `replace` | replace or prepend. Values: replace, prepend. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `dryRun` | boolean |  | `false` | Preview the change without applying it. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
 ### add_members_csharp
 
-**Add members to a type (C#)** (edit)
+**Add members to a type (C#)** (edit, long-running)
 
 Add members written in C# to an existing class or struct: methods, fields, properties, events, constructors, nested types; compiled against the assembly (private / internal members accessible). Field and property initializers are not supported (initialize from a method).
 
@@ -716,11 +716,11 @@ Add members written in C# to an existing class or struct: methods, fields, prope
 | `type` | string | yes |  | The type to extend. Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `code` | string | yes |  | C# member declarations. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `dryRun` | boolean |  | `false` | Preview the change without applying it. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
 ### add_types_csharp
 
-**Add new types (C#)** (edit)
+**Add new types (C#)** (edit, long-running)
 
 Add classes, structs, interfaces, enums or delegates written in C# (with their namespace) to an assembly; they can use its private / internal types. patch_method_csharp then calls into them from existing methods.
 
@@ -728,7 +728,7 @@ Add classes, structs, interfaces, enums or delegates written in C# (with their n
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 | `code` | string | yes |  | C# source declaring the new types. |
-| `dryRun` | boolean |  | `false` | Preview the change without applying it. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
 ### simplify_methods
 
@@ -743,7 +743,7 @@ Compiler-style cleanup of method bodies in memory, for transformed code. Passes:
 | `passes` | string |  |  | Comma-separated passes: fold, cfg, inline (default: all). |
 | `maxDepth` | integer |  |  | Max evaluation call depth (default 8). |
 | `budget` | integer |  |  | Max IL instructions per evaluated call, nested calls included (default 100000). |
-| `dryRun` | boolean |  | `false` | Preview the change without applying it. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 | `deterministicEnvironment` | boolean |  | `false` | Evaluate machine reads (module path, directories, special folders, environment, machine / user names) against fixed stand-ins (docs/simplify.md), so code depending on them folds; results then hold for that environment. Without it they are reported (external-io). |
 
 ### list_edits
@@ -771,7 +771,7 @@ Unified diff of the decompiled C# of every member the edits touched (or one edit
 
 ### undo_edit
 
-**Undo an edit** (destructive)
+**Undo an edit** (destructive, long-running)
 
 Undo the last edit or any earlier one by number: the remaining edits are re-applied to the original image; if one depended on the undone edit, nothing changes and the conflict is reported.
 
@@ -804,7 +804,7 @@ Save an assembly's edits as a JSON edit script bound to its build (SHA-256, MVID
 
 ### apply_edits
 
-**Apply an edit script** (destructive)
+**Apply an edit script** (destructive, long-running)
 
 Replay a JSON edit script (export_edits) onto an assembly; each edit reports ok/FAILED. On its own build recorded tokens are used; another build is refused unless targetBuild=other, which re-resolves symbols by name (following renames when the source build is loaded) and lists what was remapped. Scripts without a build binding apply with a warning.
 
@@ -812,7 +812,7 @@ Replay a JSON edit script (export_edits) onto an assembly; each edit reports ok/
 |---|---|---|---|---|
 | `path` | string | yes |  | The .json edit script. |
 | `assembly` | string |  |  | Target assembly; omit for the one named in the script. |
-| `dryRun` | boolean |  | `false` | Apply every edit for real (compiled, stack-checked), report, then roll back. |
+| `dryRun` | boolean |  | `true` | Default true: apply every edit (compiled, stack-checked), report, roll back; pass dryRun=false to keep them. |
 | `stopOnError` | boolean |  | `true` | Roll everything back on the first failure. |
 | `targetBuild` | string |  | `same` | same: only the script's build; other: another build, symbols re-resolved by name. Values: same, other. |
 
