@@ -131,6 +131,8 @@ public sealed class JsoncEditorTests : IDisposable
         Assert.True(File.Exists(target.Path + ".corvus.bak"));
     }
 
+    // 480 random edits (11 s in the quick set); the other cases here stay quick
+    [Trait("Speed", "Slow")]
     [Fact]
     public void RandomEditSequences_KeepEveryComment_AndMatchTheModel()
     {
