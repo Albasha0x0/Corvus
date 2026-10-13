@@ -345,6 +345,7 @@ public sealed class RealScenarioRegressionTests
     /// A netstandard library's closure has the runtime's System.Private.CoreLib (through a framework dependency) and the
     /// System.Memory package, which define the same types: every C# patch using spans failed with CS0433 (System.Text.Json).
     /// </summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void CSharpPatchesOfANetStandardLibraryCompileAgainstOneCopyOfTheSpanTypes()
     {
