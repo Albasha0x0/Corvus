@@ -123,7 +123,7 @@ public static class UnityOverview
                 "unpack_container (or list_assemblies with path) extracts a Mono package's assemblies; unity_overview then reads the extracted folder");
         }
         var layout = Resolve(full, ct) ?? throw new ToolError(ErrorCode.Unsupported,
-            $"{full} is not a Unity title: reason not_a_unity_title. Looked for {LookedFor}.",
+            $"{full} is not a Unity title (no UnityPlayer, libunity, GameAssembly or data folder in it or 4 folders above): reason not_a_unity_title.",
             "pass the game folder (the one with the executable), its <Game>_Data folder, UnityPlayer.dll or GameAssembly.dll")
         {
             Details = new { reason = "not_a_unity_title", path = full, lookedFor = LookedFor },

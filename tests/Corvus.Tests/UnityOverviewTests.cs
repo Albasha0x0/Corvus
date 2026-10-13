@@ -175,9 +175,21 @@ public sealed class UnityOverviewTests : IDisposable
     {
         var e = Assert.Throws<ToolError>(() => UnityOverview.Inspect(Env.FixturePath, false, default));
         Assert.Equal(ErrorCode.Unsupported, e.Code);
+        Assert.Contains("not a Unity title (no UnityPlayer, libunity, GameAssembly or data folder", e.Message);
         Assert.Contains("not_a_unity_title", e.Message);
-        Assert.Contains("globalgamemanagers", e.Message);
+        Assert.Contains("globalgamemanagers", System.Text.Json.JsonSerializer.Serialize(e.Details)); // the full list stays in details
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => UnityOverview.Inspect(_dir.File("missing"), false, default)).Code);
+    }
+
+    [Fact]
+    public async Task The_tool_text_is_rows_with_the_record_beside_it()
+    {
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await new Corvus.Tools.UnityTools().UnityOverviewTool(MonoSample(_dir));
+        var report = Assert.IsType<UnityOverview.Report>(collector.Value);
+        Assert.DoesNotContain("{\"", text);
+        Assert.Contains($"Backend: mono, {report.Backend.ManagedAssemblies} assemblies", text);
+        Assert.Contains("Next:\n  load_assembly path=", text);
     }
 
     internal static byte[] SerializedHeader(int format, string version)

@@ -76,6 +76,34 @@ public sealed record AssemblyRow(string Path, string Name, string Kind, string A
 
 internal static class ContainerText
 {
+    public static string Unity(UnityOverview.Report r)
+    {
+        var sb = new StringBuilder($"{Escape(r.Product ?? Path.GetFileName(r.GameDirectory))}{(r.Company != null ? " by " + Escape(r.Company) : "")}: Unity " +
+                                   $"{r.Engine.Version ?? "version unknown"} ({r.Engine.Agreement}), {r.Platform} {r.Architecture}{(r.ArchitectureSource != null ? $" (from {Escape(r.ArchitectureSource)})" : "")}\n");
+        sb.Append($"Game: {r.GameDirectory}\n");
+        if (r.DataDirectory != null) sb.Append($"Data: {r.DataDirectory}\n");
+        if (r.Executable != null) sb.Append($"Executable: {r.Executable}\n");
+        foreach (var c in r.Engine.Claims) sb.Append($"  version {Escape(c.Version)} from {c.Source}: {Escape(c.File)}\n");
+        if (r.Engine.MetadataRange != null) sb.Append($"  metadata implies Unity {r.Engine.MetadataRange} ({r.Engine.MetadataCheck})\n");
+        var b = r.Backend;
+        sb.Append($"Backend: {b.Kind}");
+        if (b.Kind == "il2cpp") sb.Append($", metadata {b.MetadataState}{(b.MetadataVersion is { } v ? $" v{v}" : "")}{(b.MetadataStateReason != null ? $" ({Escape(b.MetadataStateReason)})" : "")}, {b.Metadata ?? "no metadata"}; binary {b.NativeBinary ?? "not found"}");
+        else if (b.Kind == "mono") sb.Append($", {b.ManagedAssemblies} assemblies ({b.ManagedState}) in {b.ManagedDirectory}{(b.MonoRuntime != null ? ", " + b.MonoRuntime : "")}{(b.DotnetProfile != null ? ", " + b.DotnetProfile : "")}");
+        if (b.ScriptingAssemblies is { } s) sb.Append($", {s} scripting assemblies");
+        if (b.UnreadableNameRatio is { } ratio) sb.Append($", {ratio:P0} unreadable names of {b.NamesRead}");
+        sb.Append('\n');
+        foreach (var e in b.Evidence) sb.Append("  evidence: ").Append(Escape(e)).Append('\n');
+        if (r.Markers.Count > 0) sb.Append("Markers:\n");
+        foreach (var m in r.Markers) sb.Append($"  {m.Category} {Escape(m.Name)}: {Escape(m.Evidence)} ({m.Source})\n");
+        if (r.Folders.Count > 0) sb.Append("Folders:\n");
+        foreach (var f in r.Folders) sb.Append($"  {f.Kind} {Escape(f.Path)} ({f.Entries} entries){(f.Note != null ? " " + Escape(f.Note) : "")}\n");
+        if (r.NextSteps.Count > 0) sb.Append("Next:\n");
+        foreach (var n in r.NextSteps)
+            sb.Append($"  {n.Tool ?? n.Action} {string.Join(" ", n.Arguments.Select(a => $"{a.Key}={a.Value}"))}: {Escape(n.Reason)}\n");
+        foreach (var n in r.Notes) sb.Append("Note: ").Append(Escape(n)).Append('\n');
+        return sb.ToString();
+    }
+
     private const int MaxHighlights = 25, MaxEntryPoints = 10, MaxNotes = 12;
 
     /// <summary>The views of a summary: overview, managed (with assemblies), each provider view that applies, all.</summary>
