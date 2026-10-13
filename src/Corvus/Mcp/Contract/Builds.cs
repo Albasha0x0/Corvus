@@ -52,7 +52,7 @@ public sealed partial record ToolContract
         ["compare_assemblies"] = Row(O.Report, L.Long),
         ["find_counterpart"] = Row(O.Report, L.Instant),
         ["compare_folders"] = Row(O.Report, L.Interactive),
-        ["compare_native_images"] = Row(O.Report, L.Long),
+        ["compare_native_images"] = Row(O.List, L.Long, sort: "old address (unmatched: old, then new)"),
         ["diff_function"] = Row(O.Code, L.Interactive),
         ["map_address_between_builds"] = Row(O.Report, L.Instant),
         ["make_code_pattern"] = Row(O.Report, L.Instant),

@@ -1802,20 +1802,21 @@ Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`,
 
 **Compare native builds** (read-only, idempotent, long-running)
 
-Match the functions of two builds of one native image (x86 / x64 / ARM64). Tiers, each accepting a pair only when unique on both sides: 1 same name, import thunk or identical bytes (addresses masked); 2 same control-flow graph and instruction shapes; 3 same imports, strings and constants; 4 call-graph propagation from matched pairs (callees, callers, vtable slots, moved neighbours) to a fixed point; 5 fuzzy similarity above minScore with a margin over the runner-up. Returns per-tier counts and one paged list (view). The first call waits for both code indexes; results are cached until names change.
+Match the functions of two builds of one native image (x86 / x64 / ARM64) in tiers: 1 same name, import or identical bytes; 2 same control flow; 3 same imports, strings and constants; 4 call-graph neighbours; 5 fuzzy above minScore. A pair is taken only when unique on both sides. Returns per-tier counts and one view's rows by old address (unmatched: old, then new). The first call waits for both code indexes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
 | `newImage` | string | yes |  | The newer build: native image id or path. |
-| `view` | string |  |  | pairs (default), changed (pairs whose code differs), unmatched or ambiguous (with candidates). Values: pairs, changed, unmatched, ambiguous. |
+| `view` | string |  | `pairs` | pairs, changed (code differs), unmatched or ambiguous (with candidates). Values: pairs, changed, unmatched, ambiguous. |
 | `tier` | integer |  | `0` | Only pairs of this tier (1-5); 0 for all. |
-| `useNames` | boolean |  | `true` | Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
 | `minScore` | number |  | `0.7` | Least similarity for a fuzzy match (0-1). |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `100` | Items to return (max 2000). |
+| `limit` | integer |  | `40` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `offset`, `total`, `pairs`, `unmatched`, `ambiguousFunctions`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### diff_function
 

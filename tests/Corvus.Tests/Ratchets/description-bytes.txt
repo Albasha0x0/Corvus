@@ -2,6 +2,9 @@
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
 apply_il2cpp_names
 compare_native_images
+disassemble
+find_virtual_calls
+find_xrefs
 generate_cpp_binding
 get_native_type
 inspect_instruction

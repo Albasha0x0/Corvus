@@ -2,7 +2,6 @@
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
 apply_edits.stopOnError
 compare_assemblies.listAddedRemovedTypes
-compare_native_images.useNames
 decompile_java.smaliFallback
 diff_function.useNames
 disassemble.function

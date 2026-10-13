@@ -350,22 +350,38 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal("reapply_from_metadata", One(r, "il2cpp_names", _ => true).Reason);
     }
 
-    /// <summary>compare_native_images returns the rows of its view only: an empty array of another view read as the page (G1 rows match).</summary>
+    /// <summary>compare_native_images: one view's rows as items, by old address, in both parts and paged by rows.</summary>
     [Fact]
-    public async Task Comparison_record_holds_only_the_views_rows()
+    public async Task Comparison_pages_one_views_rows()
     {
         using var h = new Harness();
         var (oldN, _) = await h.Load(Image(false, 0), "old.dll", OldStarts);
         var (newN, _) = await h.Load(Image(true, Shift), "new.dll", NewStarts(Shift));
         var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
-        var pairs = await tools.CompareNativeImages(oldN.Id, newN.Id);
-        Assert.NotNull(pairs.Pairs);
-        Assert.Null(pairs.Unmatched);
-        Assert.Null(pairs.AmbiguousFunctions);
-        var unmatched = await tools.CompareNativeImages(oldN.Id, newN.Id, view: "unmatched");
-        Assert.Equal((true, false, false), (unmatched.Unmatched != null, unmatched.Pairs != null, unmatched.AmbiguousFunctions != null));
-        var ambiguous = await tools.CompareNativeImages(oldN.Id, newN.Id, view: "ambiguous");
-        Assert.Equal((true, false, false), (ambiguous.AmbiguousFunctions != null, ambiguous.Pairs != null, ambiguous.Unmatched != null));
+        async Task<(NativeDiffTools.NativeComparison, string)> Compare(string view = "pairs", int offset = 0, int limit = 40) =>
+            await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() => tools.CompareNativeImages(oldN.Id, newN.Id, view, offset: offset, limit: limit));
+
+        var (pairs, text) = await Compare();
+        Assert.Equal("pairs", pairs.View);
+        Assert.All(pairs.Items, r => Assert.NotNull(r.Tier));
+        Assert.Equal(pairs.Items.Select(r => r.Old).Order(StringComparer.Ordinal), pairs.Items.Select(r => r.Old));
+        var f1 = pairs.Items.Single(r => r.Old == Va(F1));
+        Assert.Equal((Va(F1 + Shift), true), (f1.New, f1.Identical));
+        Assert.Contains($"{Va(F1)} -> {Va(F1 + Shift)} ", text);
+        Assert.Contains("identical, moved", text);
+        Assert.Contains($"{pairs.Matched} of {pairs.OldFunctions} old functions matched", text);
+
+        var (page, pageText) = await Compare(offset: 1, limit: 1);
+        Assert.Equal(pairs.Items[1], Assert.Single(page.Items));
+        Assert.Contains("(showing 2-2)", pageText);
+
+        var (unmatched, unmatchedText) = await Compare("unmatched");
+        var removed = unmatched.Items.Single(r => r.Old == Va(F5));
+        Assert.Equal((null, "below_min_score"), (removed.New, removed.Reason));
+        Assert.Contains($"old {Va(F5)} ", unmatchedText);
+        Assert.Contains("below_min_score (best ", unmatchedText);
+        var (ambiguous, _) = await Compare("ambiguous");
+        Assert.All(ambiguous.Items, r => Assert.NotEmpty(r.Candidates!));
     }
 
     [Fact]

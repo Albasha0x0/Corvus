@@ -26,38 +26,40 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         "Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only.";
     internal const string CodeOnlyDescription = "Match functions by code only, not by export, PDB, Il2Cpp or user names.";
 
-    public sealed record TierCount(
-        [property: Description("1 name_or_bytes, 2 structure, 3 signature, 4 call_graph, 5 fuzzy.")] int Tier, string Name, int Pairs);
-
-    public sealed record FunctionPair(
-        string OldAddress, string NewAddress, string OldName, string NewName,
-        int Tier,
-        [property: Description("What matched: name, import_thunk, identical_bytes, structure, signature, callee_position, callee, caller, context, table_slot, fuzzy.")] string Basis,
-        [property: Description("Similarity 0-1 (1 for name and identical-byte matches).")] double Score,
-        uint OldSize, uint NewSize, int OldBlocks, int NewBlocks, int OldCalls, int NewCalls,
-        [property: Description("Same bytes after masking addresses.")] bool Identical,
-        [property: Description("What differs: size, blocks, instructions, calls; 'identical' or 'moved' when nothing else.")] string Changes);
-
-    public sealed record UnmatchedFunction(
-        [property: Description("old or new.")] string Side, string Address, string Name, uint Size, int Blocks,
-        [property: Description("ambiguous, below_min_score, too_small, not_decoded, not_in_new_build, new_in_this_build.")] string Reason,
-        [property: Description("Best similarity seen to any candidate, when one was compared.")] double? BestScore);
+    /// <summary>
+    /// One row of compare_native_images: a pair (both addresses, tier, basis, score, sizes; the new name and counts only where
+    /// they differ), an unmatched function (one side, reason) or an ambiguous one (one side, reason, candidates).
+    /// </summary>
+    public sealed record FunctionRow(string? Old, string? New, string? OldName, string? NewName)
+    {
+        public int? Tier { get; init; }
+        [Description("name, import_thunk, identical_bytes, structure, signature, callee_position, callee, caller, context, table_slot, fuzzy.")]
+        public string? Basis { get; init; }
+        public double? Score { get; init; }
+        public uint? OldSize { get; init; }
+        public uint? NewSize { get; init; }
+        public int? OldBlocks { get; init; }
+        public int? NewBlocks { get; init; }
+        public int? OldCalls { get; init; }
+        public int? NewCalls { get; init; }
+        [Description("Same bytes after masking addresses.")] public bool? Identical { get; init; }
+        [Description("Unmatched: ambiguous, below_min_score, too_small, not_decoded, not_in_new_build, new_in_this_build; ambiguous: identical_code, same_structure, same_signature, close_scores.")]
+        public string? Reason { get; init; }
+        public double? BestScore { get; init; }
+        public IReadOnlyList<MatchCandidate>? Candidates { get; init; }
+    }
 
     public sealed record MatchCandidate(string Address, string Name, double Score);
 
-    public sealed record AmbiguousEntry(string Side, string Address, string Name,
-        [property: Description("identical_code, same_structure, same_signature or close_scores.")] string Reason,
-        IReadOnlyList<MatchCandidate> Candidates);
+    public sealed record TierCount(int Tier, string Name, int Pairs);
 
     public sealed record NativeComparison(
         string OldImage, string NewImage, int OldFunctions, int NewFunctions, int Matched,
         [property: Description("Matched pairs with identical masked bytes.")] int Identical,
         int Changed, int UnmatchedOld, int UnmatchedNew, int Ambiguous,
         IReadOnlyList<TierCount> Tiers,
-        [property: Description("The list returned: pairs, changed, unmatched or ambiguous.")] string View,
-        int Offset, int Total, bool Truncated,
-        [property: Description("The rows of view pairs or changed (only that view's array is present).")] IReadOnlyList<FunctionPair>? Pairs,
-        IReadOnlyList<UnmatchedFunction>? Unmatched, IReadOnlyList<AmbiguousEntry>? AmbiguousFunctions,
+        [property: Description("pairs, changed, unmatched or ambiguous.")] string View,
+        IReadOnlyList<FunctionRow> Items, int Offset, int Total,
         [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes);
 
     public sealed record AddressMapping(
@@ -132,72 +134,79 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     public sealed record PatternSearch(string Pattern, int Length, int Images, int Total, bool Truncated, IReadOnlyList<PatternHit> Hits, IReadOnlyList<string> Notes);
 
-    [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true)]
-    [Description("Match the functions of two builds of one native image (x86 / x64 / ARM64). Tiers, each accepting a pair only when unique on " +
-                 "both sides: 1 same name, import thunk or identical bytes (addresses masked); 2 same control-flow graph and instruction shapes; 3 same " +
-                 "imports, strings and constants; 4 call-graph propagation from matched pairs (callees, callers, vtable slots, moved neighbours) to a " +
-                 "fixed point; 5 fuzzy similarity above minScore with a margin over the runner-up. Returns per-tier counts and one paged list (view). " +
-                 "The first call waits for both code indexes; results are cached until names change.")]
-    public async Task<NativeComparison> CompareNativeImages(
+    [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
+    [Description("Match the functions of two builds of one native image (x86 / x64 / ARM64) in tiers: 1 same name, import or identical bytes; 2 same " +
+                 "control flow; 3 same imports, strings and constants; 4 call-graph neighbours; 5 fuzzy above minScore. A pair is taken only " +
+                 "when unique on both sides. Returns per-tier counts and one view's rows by old address (unmatched: old, then new). The first " +
+                 "call waits for both code indexes.")]
+    public Task<string> CompareNativeImages(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
-        [Description("pairs (default), changed (pairs whose code differs), unmatched or ambiguous (with candidates).")] string? view = null,
+        [Description("pairs, changed (code differs), unmatched or ambiguous (with candidates).")] string view = "pairs",
         [Description("Only pairs of this tier (1-5); 0 for all.")] int tier = 0,
-        [Description(UseNamesDescription)] bool useNames = true,
+        [Description(CodeOnlyDescription)] bool codeOnly = false,
         [Description("Least similarity for a fuzzy match (0-1).")] double minScore = 0.7,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Items to return (max 2000).")] int limit = 100,
+        [Description(LimitDescription)] int limit = 40,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var v = (view ?? "pairs").Trim().ToLowerInvariant();
+        var v = (string.IsNullOrWhiteSpace(view) ? "pairs" : view).Trim().ToLowerInvariant();
         if (v is not ("pairs" or "changed" or "unmatched" or "ambiguous"))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use pairs, changed, unmatched or ambiguous");
         if (tier is < 0 or > 5) throw new ToolError(ErrorCode.InvalidArgument, $"tier must be 0-5, not {tier}.");
-        var (oldNative, newNative, match) = await Match(oldImage, newImage, useNames, minScore, context, cancellationToken);
+        if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.");
+        var pair = await pairs.Match(oldImage, newImage, new MatchOptions { UseNames = !codeOnly, MinScore = minScore }, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        var match = pair.Match;
         var o = match.Old.Index;
         var n = match.New.Index;
         offset = Math.Max(0, offset);
-        limit = ClampLimit(limit, 2000);
 
-        var pairs = new List<FunctionPair>();
-        var unmatched = new List<UnmatchedFunction>();
-        var ambiguous = new List<AmbiguousEntry>();
-        int total;
+        IReadOnlyList<FunctionRow> rows;
         if (v is "pairs" or "changed")
-        {
-            var selected = match.Pairs.Where(p => tier == 0 || p.Tier == tier)
-                .Where(p => v == "pairs" || !Identical(match, p)).OrderBy(p => match.Old.Functions[p.Old].Start).ToList();
-            total = selected.Count;
-            pairs.AddRange(selected.Skip(offset).Take(limit).Select(p => Pair(match, p)));
-        }
-        else if (v == "unmatched")
-        {
-            var all = Unmatched(match).ToList();
-            total = all.Count;
-            unmatched.AddRange(all.Skip(offset).Take(limit));
-        }
+            rows = match.Pairs.Where(p => tier == 0 || p.Tier == tier).Where(p => v == "pairs" || !Identical(match, p))
+                .OrderBy(p => match.Old.Functions[p.Old].Start).Select(p => Pair(match, p)).ToList();
+        else if (v == "unmatched") rows = Unmatched(match).ToList();
         else
-        {
-            var all = match.Ambiguous.Values.OrderBy(a => !a.OldSide).ThenBy(a => Prints(match, a.OldSide)[a.Index].Start).ToList();
-            total = all.Count;
-            foreach (var a in all.Skip(offset).Take(limit))
+            rows = match.Ambiguous.Values.OrderBy(a => !a.OldSide).ThenBy(a => Prints(match, a.OldSide)[a.Index].Start).Select(a =>
             {
                 var self = Prints(match, a.OldSide)[a.Index];
-                var otherSide = Prints(match, !a.OldSide);
+                var other = Prints(match, !a.OldSide);
                 var (selfIndex, otherIndex) = a.OldSide ? (o, n) : (n, o);
-                ambiguous.Add(new AmbiguousEntry(a.OldSide ? "old" : "new", Va(selfIndex, self.Start), Name(selfIndex, self.Function), a.Reason,
-                    a.Candidates.Take(8).Select(c => new MatchCandidate(Va(otherIndex, otherSide[c.Index].Start), Name(otherIndex, otherSide[c.Index].Function),
-                        Math.Round(c.Score, 3))).ToList()));
-            }
-        }
+                var (at, name) = (Va(selfIndex, self.Start), Name(selfIndex, self.Function));
+                return new FunctionRow(a.OldSide ? at : null, a.OldSide ? null : at, a.OldSide ? name : null, a.OldSide ? null : name)
+                {
+                    Reason = a.Reason,
+                    Candidates = [.. a.Candidates.Take(8).Select(c => new MatchCandidate(Va(otherIndex, other[c.Index].Start), Name(otherIndex, other[c.Index].Function), Math.Round(c.Score, 3)))],
+                };
+            }).ToList();
 
         int identical = match.Pairs.Count(p => Identical(match, p));
         var tiers = Enumerable.Range(1, 5).Select(t => new TierCount(t, MatchResult.TierNames[t], match.Pairs.Count(p => p.Tier == t))).ToList();
-        var notes = Notes(match);
-        return new NativeComparison(oldNative.Id, newNative.Id, match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, identical,
-            match.Pairs.Count - identical, match.ByOld.Count(m => m == null), match.ByNew.Count(m => m == null), match.Ambiguous.Count, tiers, v,
-            offset, total, offset + limit < total, v is "pairs" or "changed" ? pairs : null, v == "unmatched" ? unmatched : null, v == "ambiguous" ? ambiguous : null, notes);
+        var record = new NativeComparison(pair.Old.Id, pair.New.Id, match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, identical,
+            match.Pairs.Count - identical, match.ByOld.Count(m => m == null), match.ByNew.Count(m => m == null), match.Ambiguous.Count, tiers, v, [], offset, rows.Count, Notes(match));
+        var head = new System.Text.StringBuilder($"{record.OldImage} -> {record.NewImage}: {record.Matched} of {record.OldFunctions} old functions matched " +
+            $"({identical} identical, {record.Changed} changed); {record.UnmatchedOld} old and {record.UnmatchedNew} new unmatched, {record.Ambiguous} ambiguous. " +
+            $"Tiers: {string.Join(", ", tiers.Select(t => $"{t.Tier} {t.Name} {t.Pairs}"))}.\n");
+        foreach (var note in record.Notes) head.Append("Note: ").Append(note).Append('\n');
+        head.Append($"View {v}{(tier > 0 && v is "pairs" or "changed" ? $", tier {tier}" : "")}:\n");
+        return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, RowText, page => record with { Items = page },
+            v is "pairs" or "changed" ? "pair" : "function", head.ToString());
+    });
+
+    private static string RowText(FunctionRow r)
+    {
+        if (r.Tier is { } t)
+        {
+            static string Delta<T>(string what, T a, T? b) where T : struct => b is { } x ? $" {what} {a}->{x}" : "";
+            var changes = Delta("size", r.OldSize ?? 0, r.NewSize) + Delta("blocks", r.OldBlocks ?? 0, r.NewBlocks) + Delta("calls", r.OldCalls ?? 0, r.NewCalls);
+            var what = r.Identical == true ? r.Old == r.New ? " identical" : " identical, moved" : changes.Length > 0 ? changes : " code changed, same shape";
+            return $"{r.Old} -> {r.New} {r.OldName}{(r.NewName != null ? $" / {r.NewName}" : "")}  tier {t} {r.Basis} {r.Score:0.##}{what}";
+        }
+        var (side, at, name) = r.Old != null ? ("old", r.Old, r.OldName) : ("new", r.New, r.NewName);
+        return $"{side} {at} {name}  {r.Reason}" + (r.BestScore is { } b ? $" (best {b:0.##})" : "") +
+               (r.Candidates is { Count: > 0 } c ? ": " + string.Join(", ", c.Select(x => $"{x.Address} {x.Name} {x.Score:0.##}")) : "");
     }
 
     [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true)]
@@ -636,22 +645,19 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private static bool Identical(MatchResult m, FunctionMatch p) =>
         !m.Old.Functions[p.Old].Failed && m.Old.Functions[p.Old].BytesHash == m.New.Functions[p.New].BytesHash;
 
-    private static FunctionPair Pair(MatchResult m, FunctionMatch p)
+    private static FunctionRow Pair(MatchResult m, FunctionMatch p)
     {
         var (a, b) = (m.Old.Functions[p.Old], m.New.Functions[p.New]);
-        bool identical = Identical(m, p);
-        var changes = new List<string>();
-        if (a.Size != b.Size) changes.Add($"size {a.Size} -> {b.Size}");
-        if (a.Blocks != b.Blocks) changes.Add($"blocks {a.Blocks} -> {b.Blocks}");
-        if (a.Instructions != b.Instructions) changes.Add($"instructions {a.Instructions} -> {b.Instructions}");
-        if (a.CallSites != b.CallSites) changes.Add($"calls {a.CallSites} -> {b.CallSites}");
-        if (!identical && changes.Count == 0) changes.Add("code changed, same shape");
-        if (changes.Count == 0) changes.Add(a.Start != b.Start ? "identical, moved" : "identical");
-        return new FunctionPair(Va(m.Old.Index, a.Start), Va(m.New.Index, b.Start), Name(m.Old.Index, a.Function), Name(m.New.Index, b.Function),
-            p.Tier, p.Basis, p.Score, a.Size, b.Size, a.Blocks, b.Blocks, a.CallSites, b.CallSites, identical, string.Join(", ", changes));
+        var (oldName, newName) = (Name(m.Old.Index, a.Function), Name(m.New.Index, b.Function));
+        // the new side's name and counts only where they differ
+        return new FunctionRow(Va(m.Old.Index, a.Start), Va(m.New.Index, b.Start), oldName, newName != oldName ? newName : null)
+        {
+            Tier = p.Tier, Basis = p.Basis, Score = Math.Round(p.Score, 3), OldSize = a.Size, NewSize = b.Size != a.Size ? b.Size : null, OldBlocks = a.Blocks,
+            NewBlocks = b.Blocks != a.Blocks ? b.Blocks : null, OldCalls = a.CallSites, NewCalls = b.CallSites != a.CallSites ? b.CallSites : null, Identical = Identical(m, p),
+        };
     }
 
-    private static IEnumerable<UnmatchedFunction> Unmatched(MatchResult m)
+    private static IEnumerable<FunctionRow> Unmatched(MatchResult m)
     {
         foreach (var (prints, byX, old) in new[] { (m.Old.Functions, m.ByOld, true), (m.New.Functions, m.ByNew, false) })
         {
@@ -666,7 +672,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                     : best >= 0.3 ? "below_min_score"
                     : p.Instructions < 3 ? "too_small"
                     : old ? "not_in_new_build" : "new_in_this_build";
-                yield return new UnmatchedFunction(old ? "old" : "new", Va(index, p.Start), Name(index, p.Function), p.Size, p.Blocks, reason, best);
+                var (at, name) = (Va(index, p.Start), Name(index, p.Function));
+                yield return new FunctionRow(old ? at : null, old ? null : at, old ? name : null, old ? null : name)
+                    { OldSize = old ? p.Size : null, NewSize = old ? null : p.Size, OldBlocks = old ? p.Blocks : null, NewBlocks = old ? null : p.Blocks, Reason = reason, BestScore = best };
             }
         }
     }

@@ -38,7 +38,6 @@
         "type": "object",
         "properties": {
           "tier": {
-            "description": "1 name_or_bytes, 2 structure, 3 signature, 4 call_graph, 5 fuzzy.",
             "type": "integer"
           },
           "name": {
@@ -56,25 +55,18 @@
       }
     },
     "view": {
-      "description": "The list returned: pairs, changed, unmatched or ambiguous.",
+      "description": "pairs, changed, unmatched or ambiguous.",
       "type": "string"
     },
-    "offset": {
-      "type": "integer"
-    },
-    "total": {
-      "type": "integer"
-    },
-    "pairs": {
-      "description": "The rows of view pairs or changed (only that view's array is present).",
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "oldAddress": {
+          "old": {
             "type": "string"
           },
-          "newAddress": {
+          "new": {
             "type": "string"
           },
           "oldName": {
@@ -87,11 +79,10 @@
             "type": "integer"
           },
           "basis": {
-            "description": "What matched: name, import_thunk, identical_bytes, structure, signature, callee_position, callee, caller, context, table_slot, fuzzy.",
+            "description": "name, import_thunk, identical_bytes, structure, signature, callee_position, callee, caller, context, table_slot, fuzzy.",
             "type": "string"
           },
           "score": {
-            "description": "Similarity 0-1 (1 for name and identical-byte matches).",
             "type": "number"
           },
           "oldSize": {
@@ -116,87 +107,12 @@
             "description": "Same bytes after masking addresses.",
             "type": "boolean"
           },
-          "changes": {
-            "description": "What differs: size, blocks, instructions, calls; 'identical' or 'moved' when nothing else.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "oldAddress",
-          "newAddress",
-          "oldName",
-          "newName",
-          "tier",
-          "basis",
-          "score",
-          "oldSize",
-          "newSize",
-          "oldBlocks",
-          "newBlocks",
-          "oldCalls",
-          "newCalls",
-          "identical",
-          "changes"
-        ]
-      }
-    },
-    "unmatched": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "side": {
-            "description": "old or new.",
-            "type": "string"
-          },
-          "address": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "size": {
-            "type": "integer"
-          },
-          "blocks": {
-            "type": "integer"
-          },
           "reason": {
-            "description": "ambiguous, below_min_score, too_small, not_decoded, not_in_new_build, new_in_this_build.",
+            "description": "Unmatched: ambiguous, below_min_score, too_small, not_decoded, not_in_new_build, new_in_this_build; ambiguous: identical_code, same_structure, same_signature, close_scores.",
             "type": "string"
           },
           "bestScore": {
-            "description": "Best similarity seen to any candidate, when one was compared.",
             "type": "number"
-          }
-        },
-        "required": [
-          "side",
-          "address",
-          "name",
-          "size",
-          "blocks",
-          "reason"
-        ]
-      }
-    },
-    "ambiguousFunctions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "side": {
-            "type": "string"
-          },
-          "address": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "reason": {
-            "description": "identical_code, same_structure, same_signature or close_scores.",
-            "type": "string"
           },
           "candidates": {
             "type": "array",
@@ -220,15 +136,14 @@
               ]
             }
           }
-        },
-        "required": [
-          "side",
-          "address",
-          "name",
-          "reason",
-          "candidates"
-        ]
+        }
       }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
     },
     "notes": {
       "description": "What was not covered (functions that did not decode, capped work).",
@@ -281,6 +196,7 @@
     "ambiguous",
     "tiers",
     "view",
+    "items",
     "offset",
     "total",
     "notes"
