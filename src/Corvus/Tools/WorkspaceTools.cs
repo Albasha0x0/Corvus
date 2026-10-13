@@ -234,11 +234,13 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                     Slices = n.Image is Native.MachO.MachOFile { Slices.Count: > 0 } m ? [.. m.Slices.Select(x => x.Name)] : null,
                 });
             }
-            return ((rows, assemblies.Count + natives.Count), workspace.SearchDirectories.ToList());
+            return ((rows, assemblies.Count + natives.Count, natives.Count == 0), workspace.SearchDirectories.ToList());
         });
-        var (page, count) = all;
+        var (page, count, onlyAssemblies) = all;
         var head = $"Search directories: {(directories.Count == 0 ? "none" : string.Join("; ", directories))}\nBackground indexing: {indexing.Status}\n";
-        return ToolOutput.List(page, offset, limit, count, Row, rows => new WorkspaceList(rows, offset, count, directories, indexing.Status), "file", head);
+        // a native image or a mix counts as images (.NET assemblies are PE images too)
+        return ToolOutput.List(page, offset, limit, count, Row, rows => new WorkspaceList(rows, offset, count, directories, indexing.Status),
+            onlyAssemblies ? "assembly" : "image", head);
     }, cancellationToken);
 
     private static string Row(WorkspaceEntry e) => e.Kind switch

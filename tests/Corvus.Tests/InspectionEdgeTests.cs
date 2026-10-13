@@ -141,7 +141,8 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(2, page.Items.Count);
         Assert.Equal(all.Total, page.Total);
         Assert.Equal(all.Items[1].Id, page.Items[0].Id);
-        Assert.Contains($"{all.Total} files (showing 2-3):\n  {page.Items[0].Id}  ", text);
+        // S4: rows of loaded assemblies are counted as assemblies, not files
+        Assert.Contains($"{all.Total} assemblies (showing 2-3):\n  {page.Items[0].Id}  ", text);
         Assert.Contains("[More: offset=3]", text);
         var (_, fixtures) = await List(filter: "testfixture");
         Assert.All(fixtures.Items, a => Assert.Contains("TestFixture", a.Id, StringComparison.OrdinalIgnoreCase));
