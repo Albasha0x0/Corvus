@@ -1,28 +1,14 @@
 # Exemptions from: every tool has a full-set test on a real library that names it (S12.3)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-declare_native_types
-define_native
-emulate_native
-export_engine_database
-get_android_device_info
-get_android_manifest
-get_android_package_info
-get_android_resource
-get_engine_status
-get_native_frame
-ghidra_script
-install_android_package
-list_android_devices
-list_android_packages
-list_android_resources
-list_native_types
-pull_android_file
-pull_android_package
-read_android_log
-reanalyze_native
-search_decompiled
-set_native_local
-set_native_operand
-set_native_stack_var
-set_native_type
-uninstall_android_package
+get_android_device_info # permanent: needs a real device; DeviceTests cover the parsing against a fake adb
+get_android_manifest # permanent: no package ships a compiled AndroidManifest.xml; AndroidResourceTests cover built ones
+get_android_package_info # permanent: needs a real device; DeviceTests cover the parsing against a fake adb
+get_android_resource # permanent: no package ships a resources.arsc or compiled XML; AndroidResourceTests cover built ones
+install_android_package # permanent: changes a real device; DeviceTests cover it against a fake adb
+list_android_devices # permanent: needs a real device; DeviceTests cover the parsing against a fake adb
+list_android_packages # permanent: needs a real device; DeviceTests cover the parsing against a fake adb
+list_android_resources # permanent: no package ships a resources.arsc; AndroidResourceTests cover built ones
+pull_android_file # permanent: needs a real device; DeviceTests cover it against a fake adb
+pull_android_package # permanent: needs a real device; DeviceTests cover it against a fake adb
+read_android_log # permanent: needs a real device; DeviceTests cover the parsing against a fake adb
+uninstall_android_package # permanent: changes a real device; DeviceTests cover it against a fake adb
