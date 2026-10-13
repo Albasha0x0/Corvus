@@ -9,7 +9,6 @@ namespace Corvus.Tests;
 /// Generated documentation: docs/tools.md from the tool catalog and the client table of docs/installation.md from the
 /// client catalog. Run the tests with CORVUS_UPDATE_DOCS=1 to regenerate them.
 /// </summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class DocsTests
 {
     internal static string RepoRoot()

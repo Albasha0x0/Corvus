@@ -9,7 +9,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>The server host over in-process streams: the same catalog and request filters as the stdio server.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class ServerHostTests
 {
     [Fact]

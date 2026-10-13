@@ -9,7 +9,6 @@ namespace Corvus.Tests;
 /// S12.2 recorded samples: ProtocolSamples/&lt;tool&gt;.json holds a call on the fixture and its normalized response; a change
 /// of shape shows as a diff. CORVUS_UPDATE_DOCS=1 records every sample again (and the <see cref="Seed"/> calls).
 /// </summary>
-[Collection(InProcessCatalogCollection.Name)]
 public partial class ProtocolSampleTests
 {
     private static string Folder => Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests", "ProtocolSamples");

@@ -6,7 +6,6 @@ using Corvus.Core;
 namespace Corvus.Tests;
 
 /// <summary>The dotnet read tools over the protocol: row pages and their records, sections and views, basis, folded tools.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public sealed class DotnetToolTests : IAsyncLifetime
 {
     private InProcessServer _server = null!;

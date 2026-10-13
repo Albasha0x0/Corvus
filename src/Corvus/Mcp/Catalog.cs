@@ -74,6 +74,8 @@ public static partial class Catalog
     /// WithToolsFromAssembly with the tools made on all cores: building each tool's schemas from its method took about 0.7 s
     /// one by one, before the server could answer initialize. Same tools, same order.
     /// </summary>
+    private static readonly Lock BuildGate = new();
+
     internal static IMcpServerBuilder WithToolsInParallel(this IMcpServerBuilder builder, System.Reflection.Assembly assembly, JsonSerializerOptions serializerOptions)
     {
         const System.Reflection.BindingFlags all = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static
@@ -86,13 +88,16 @@ public static partial class Catalog
         builder.Services.AddSingleton(services =>
         {
             var tools = new McpServerTool[methods.Length];
-            Parallel.For(0, methods.Length, i =>
-            {
-                var (type, method) = methods[i];
-                var options = new McpServerToolCreateOptions { Services = services, SerializerOptions = serializerOptions };
-                tools[i] = method.IsStatic ? McpServerTool.Create(method, (object?)null, options)
-                    : McpServerTool.Create(method, r => r.Services is { } s ? ActivatorUtilities.CreateInstance(s, type) : Activator.CreateInstance(type)!, options);
-            });
+            // One catalog build at a time: two builds making the same tool at once race in the SDK and leak a RequestContext
+            // parameter into its schema (servers in one process: tests).
+            lock (BuildGate)
+                Parallel.For(0, methods.Length, i =>
+                {
+                    var (type, method) = methods[i];
+                    var options = new McpServerToolCreateOptions { Services = services, SerializerOptions = serializerOptions };
+                    tools[i] = method.IsStatic ? McpServerTool.Create(method, (object?)null, options)
+                        : McpServerTool.Create(method, r => r.Services is { } s ? ActivatorUtilities.CreateInstance(s, type) : Activator.CreateInstance(type)!, options);
+                });
             return new ToolSet(tools);
         });
         for (int i = 0; i < methods.Length; i++)

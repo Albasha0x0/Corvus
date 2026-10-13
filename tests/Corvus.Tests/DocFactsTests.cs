@@ -8,7 +8,6 @@ namespace Corvus.Tests;
 /// Facts the README and docs state that the code decides: clients, release targets, commands, environment variables,
 /// the release-notes version, links, command-line examples and tool names.
 /// </summary>
-[Collection(InProcessCatalogCollection.Name)]
 public partial class DocFactsTests
 {
     private static readonly string Root = DocsTests.RepoRoot();

@@ -5,7 +5,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>The per-tool contract table: complete, consistent with the effects and the catalog, and the profiles of D6, D12 and D14.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class ToolContractTests
 {
     private static readonly string[] AllTools = Toolsets.Families.SelectMany(f => f.Tools).ToArray();

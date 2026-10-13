@@ -5,7 +5,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>S2.1 list shape over the catalog: a tool whose record has rows beside a total pages by rows and says where to go on.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class ListShapeTests
 {
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild(Toolsets.All).Tools;

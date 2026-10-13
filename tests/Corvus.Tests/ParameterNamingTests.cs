@@ -5,7 +5,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>S7.1 canonical parameter names and S7.2 schema conventions, over the catalog.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class ParameterNamingTests
 {
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild(Toolsets.All).Tools;

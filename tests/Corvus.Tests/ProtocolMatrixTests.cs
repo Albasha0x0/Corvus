@@ -7,7 +7,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>S13.3: the list, record and error shapes hold at every protocol version clients speak, and tools/list is answered from the cache.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class ProtocolMatrixTests
 {
     [Theory]

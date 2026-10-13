@@ -5,7 +5,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>S4 structured output over the catalog: every tool returns a record with an output schema.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class StructuredCoverageTests
 {
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild(Toolsets.All).Tools;

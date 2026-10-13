@@ -4,7 +4,6 @@ using Corvus.Setup;
 namespace Corvus.Tests;
 
 /// <summary>The generated skill: the repository copy is current, it names only real tools, and install / status / uninstall manage it.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public sealed class SkillTests : IDisposable
 {
     private readonly SetupHome _home = new();

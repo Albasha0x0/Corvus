@@ -5,7 +5,6 @@ using Corvus.Native.Providers;
 namespace Corvus.Tests;
 
 /// <summary>server_status identity, the unavailable-tools table and the client _meta keys.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class ServerIdentityTests
 {
     private static readonly List<System.Text.Json.Nodes.JsonNode> AllTools = Catalog.OfThisBuild().Tools;

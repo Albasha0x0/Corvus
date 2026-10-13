@@ -6,7 +6,6 @@ using static Corvus.Tests.AndroidSamples;
 namespace Corvus.Tests;
 
 /// <summary>The Android list tools over MCP: readable rows with their noun, the list envelope, and cut resource values.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public sealed class AndroidListTests : IDisposable
 {
     private readonly TempDir _dir = new();

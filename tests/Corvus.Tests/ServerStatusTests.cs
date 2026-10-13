@@ -5,7 +5,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>server_status (S14.2): the record matches its output schema and carries the status sections.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class ServerStatusTests
 {
     [Fact]

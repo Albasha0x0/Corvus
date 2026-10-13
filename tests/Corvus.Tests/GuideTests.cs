@@ -4,7 +4,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>The instructions fit the client cut, every tool description too, and the guide names every tool and only real ones.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class GuideTests
 {
     private static readonly List<System.Text.Json.Nodes.JsonNode> Tools = Catalog.OfThisBuild().Tools;

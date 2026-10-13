@@ -6,7 +6,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>S8.3 wording of tool and parameter descriptions: what a tool returns first, no machine paths or notes to self.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public partial class DescriptionStyleTests
 {
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild(Toolsets.All).Tools;

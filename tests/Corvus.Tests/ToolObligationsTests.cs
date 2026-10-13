@@ -6,7 +6,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>S12 obligations per tool: a contract row, a dryRun policy that matches the schema, a quick-sweep entry, a protocol sample and a real-data test.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public partial class ToolObligationsTests
 {
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild(Toolsets.All).Tools;

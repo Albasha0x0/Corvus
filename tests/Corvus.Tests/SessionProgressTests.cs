@@ -7,7 +7,6 @@ using ModelContextProtocol.Protocol;
 namespace Corvus.Tests;
 
 /// <summary>load_session over the protocol: progress from its first step, and its text and record pages.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public sealed class SessionProgressTests : IDisposable
 {
     private readonly TempDir _dir = new();

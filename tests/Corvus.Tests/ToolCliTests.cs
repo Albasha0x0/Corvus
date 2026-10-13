@@ -4,7 +4,6 @@ using Corvus.Setup;
 namespace Corvus.Tests;
 
 /// <summary>The tool CLI: commands from the catalog, argument typing, output forms and exit codes, run in process.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class ToolCliTests
 {
     internal static async Task<(int Code, string Out, string Error)> RunWithInput(string stdin, params string[] args)

@@ -11,7 +11,6 @@ namespace Corvus.Tests;
 /// The generated catalog passes the strictest schema consumers (function-calling APIs that reject root unions, compile
 /// patterns as ECMAScript or RE2, and cap schema sizes), and its size grows only by a deliberate decision.
 /// </summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class CatalogAuditTests
 {
     /// <summary>Largest input schema of one tool, compact UTF-8 JSON.</summary>

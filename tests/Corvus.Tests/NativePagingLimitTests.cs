@@ -6,7 +6,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>Paged native tools: a limit below 1 is an error, and rows cut by the output limit say where to continue.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class NativePagingLimitTests
 {
     private static readonly Dictionary<string, JsonObject> Schemas =

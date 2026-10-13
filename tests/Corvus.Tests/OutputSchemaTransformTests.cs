@@ -5,7 +5,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>The output-schema policy: compact schemas in tools/list, nullable properties optional, results without nulls.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class OutputSchemaTransformTests
 {
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;

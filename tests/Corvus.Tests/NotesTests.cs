@@ -10,7 +10,6 @@ using Corvus.Tools;
 namespace Corvus.Tests;
 
 /// <summary>record_note / update_note / list_notes: persistence, partial updates, revision conflicts, anchors, filters, concurrent writers.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public sealed class NotesTests : IDisposable
 {
     private readonly TempDir _dir = new();

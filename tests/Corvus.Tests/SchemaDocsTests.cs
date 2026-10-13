@@ -4,7 +4,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>docs/schemas/&lt;tool&gt;.json: each structured tool's described output schema (tools/list sends the compact form).</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class SchemaDocsTests
 {
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping, NewLine = "\n" };
