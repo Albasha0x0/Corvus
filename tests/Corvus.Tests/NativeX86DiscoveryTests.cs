@@ -376,4 +376,33 @@ public class NativeX86DiscoveryTests
         Assert.Equal(cases.Select(rva), sw.Targets);
         Assert.Equal(form == 5 ? null : rva(dflt), sw.Default);
     }
+
+    /// <summary>
+    /// A PE function reached only through "mov [ecx], offset handler" reads an array inside a large structure
+    /// ([eax + ecx*4 + 0x41000], an unrelocated displacement past 64 KB): plausible code, so the handler is a function.
+    /// </summary>
+    [Fact]
+    public void An_address_taken_function_indexing_a_large_structure_verifies()
+    {
+        Label handler = default;
+        var (code, rva) = Assemble(32, a =>
+        {
+            handler = a.CreateLabel();
+            a.mov(ecx, __dword_ptr[esp + 4]);
+            a.mov(__dword_ptr[ecx], 0x77777777);
+            a.ret();
+            a.int3();
+            a.Label(ref handler);
+            a.push(ebx);
+            a.mov(eax, __dword_ptr[esp + 8]);
+            a.mov(ecx, __dword_ptr[esp + 12]);
+            a.mov(eax, __dword_ptr[eax + ecx * 4 + 0x41000]);
+            a.pop(ebx);
+            a.ret();
+        });
+        int imm = code.AsSpan().IndexOf([(byte)0x77, (byte)0x77, (byte)0x77, (byte)0x77]);
+        BinaryPrimitives.WriteUInt32LittleEndian(code.AsSpan(imm), 0x10000000 + rva(handler));
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, code, entry: Code));
+        Assert.True(index.FunctionByStart(rva(handler)) is { } f && (f.Sources & FunctionSource.CodeAddress) != 0);
+    }
 }
