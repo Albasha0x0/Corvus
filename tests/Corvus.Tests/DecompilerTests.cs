@@ -91,4 +91,16 @@ public class DecompilerTests : IDisposable
         foreach (var expected in new[] { "Id: TestFixture", "Target framework", "PE32", "Sections:", ".text", "Metadata streams", "References:", "System.Runtime", "Il2Cpp metadata: 2 methods" })
             Assert.Contains(expected, report);
     }
+
+    /// <summary>A constructor with nothing stored before its base call is shown alone; one with field initializers in its type.</summary>
+    [Fact]
+    public void ConstructorsWithoutInitializersAreShownAlone()
+    {
+        var alone = _env.Decompile("PremiumAccount::.ctor");
+        Assert.DoesNotContain("they run as part of this constructor", alone);
+        Assert.Contains("base(\"PremiumAccount\")", alone);
+        var inContext = _env.Decompile("Fixture.Model.Account::.ctor");
+        Assert.Contains("field initializers: they run as part of this constructor", inContext);
+        Assert.Contains("_balance = 100", inContext);
+    }
 }

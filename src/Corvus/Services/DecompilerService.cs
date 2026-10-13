@@ -70,13 +70,14 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             var sb = new StringBuilder();
             sb.AppendLine($"// Whole-type decompilation failed ({ex.GetType().Name}: {FirstLine(ex.Message)}); decompiling members individually.");
             sb.AppendLine($"// {Format.TypeHeader(type)}");
+            var trees = new Dictionary<Dn.TypeDef, Syn.SyntaxTree>();
             var members = type.Fields.Cast<Dn.IMemberDef>().Concat(type.Properties).Concat(type.Events)
                 .Concat(type.Methods.Where(m => !m.IsGetter && !m.IsSetter && !m.IsAddOn && !m.IsRemoveOn))
                 .Concat(type.NestedTypes);
             foreach (var m in members)
             {
                 token.ThrowIfCancellationRequested();
-                sb.AppendLine(DecompileMemberSafe(asm, m, decompiler, token));
+                sb.AppendLine(DecompileMemberSafe(asm, m, decompiler, token, trees));
             }
             return sb.ToString();
         }
@@ -99,7 +100,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     public string DecompileMembers(LoadedAssembly asm, IEnumerable<Dn.IMemberDef> members, CancellationToken ct) => WithTimeout(token =>
     {
         var decompiler = CreateDecompiler(asm, token);
-        var parts = members.Select(m => DecompileMemberSafe(asm, m, decompiler, token));
+        // Constructors shown in their type decompile the type once for all of them.
+        var trees = new Dictionary<Dn.TypeDef, Syn.SyntaxTree>();
+        var parts = members.Select(m => DecompileMemberSafe(asm, m, decompiler, token, trees));
         return asm.DecompilerNote + string.Join("\n", parts);
     }, ct);
 
@@ -108,9 +111,12 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// (instance or static) and the constructors, since the engine moves part of its body into initializers or a
     /// primary constructor. Null when there are none.
     /// </summary>
-    private static string? ConstructorInContext(LoadedAssembly asm, Dn.MethodDef ctor, CSharpDecompiler decompiler)
+    private static string? ConstructorInContext(LoadedAssembly asm, Dn.MethodDef ctor, CSharpDecompiler decompiler, Dictionary<Dn.TypeDef, Syn.SyntaxTree> trees)
     {
-        var tree = decompiler.Decompile(Handle(asm, ctor.DeclaringType));
+        if (!MayHaveInitializers(ctor)) return null;
+        if (!trees.TryGetValue(ctor.DeclaringType, out var whole))
+            trees[ctor.DeclaringType] = whole = decompiler.Decompile(Handle(asm, ctor.DeclaringType));
+        var tree = (Syn.SyntaxTree)whole.Clone();
         var declaration = tree.Descendants.OfType<Syn.TypeDeclaration>().FirstOrDefault(t =>
             t.GetSymbol() is ITypeDefinition td && !td.MetadataToken.IsNil && MetadataTokens.GetToken(td.MetadataToken) == (int)asm.ImageToken(ctor.DeclaringType));
         if (declaration == null) return null;
@@ -136,7 +142,26 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                writer.ToString().TrimEnd() + "\n";
     }
 
-    private string DecompileMemberSafe(LoadedAssembly asm, Dn.IMemberDef member, CSharpDecompiler decompiler, CancellationToken token)
+    /// <summary>
+    /// Whether the engine can move part of the constructor into initializers or a primary constructor: it stores a field of
+    /// its type before calling the base or another constructor (a static constructor: at all). Otherwise the constructor is
+    /// shown alone, without decompiling its whole type.
+    /// </summary>
+    private static bool MayHaveInitializers(Dn.MethodDef ctor)
+    {
+        var type = ctor.DeclaringType;
+        bool Own(object? operand) => MetadataUtil.AsField(operand) is { } f && f.DeclaringType is { } owner && Dn.TypeEqualityComparer.Instance.Equals(owner, type);
+        foreach (var instr in MetadataUtil.SafeInstructions(ctor))
+        {
+            if (instr.OpCode.Code is Dn.Emit.Code.Stfld or Dn.Emit.Code.Stsfld && Own(instr.Operand)) return true;
+            // The base or this(...) call ends what can become initializers (a struct has none, so it is read to the end).
+            if (!ctor.IsStatic && instr.OpCode.Code == Dn.Emit.Code.Call && MetadataUtil.AsMethod(instr.Operand) is { Name.String: ".ctor" }) return false;
+        }
+        return false;
+    }
+
+    private string DecompileMemberSafe(LoadedAssembly asm, Dn.IMemberDef member, CSharpDecompiler decompiler, CancellationToken token,
+        Dictionary<Dn.TypeDef, Syn.SyntaxTree> trees)
     {
         var header = $"// {Format.MemberLabel(member)}  [token {Format.Token(member)}]";
         if (MetadataUtil.IsReferenceAssembly(asm.Module))
@@ -145,7 +170,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             header += "\n// Warning: this method body is not valid IL (encrypted, or dumped from memory before decryption): the code below is meaningless.";
         try
         {
-            if (member is Dn.MethodDef { IsConstructor: true } ctor && ConstructorInContext(asm, ctor, decompiler) is { } inContext)
+            if (member is Dn.MethodDef { IsConstructor: true } ctor && ConstructorInContext(asm, ctor, decompiler, trees) is { } inContext)
                 return header + "\n" + inContext;
             // An accessor decompiles to a bare block; its property or event names it.
             if (member is Dn.MethodDef accessor && AccessorOwner(accessor) is { } owner)
