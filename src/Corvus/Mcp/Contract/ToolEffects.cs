@@ -87,8 +87,9 @@ public static partial class ToolEffects
             t.Annotations = new ToolAnnotations
             {
                 ReadOnlyHint = e.ReadOnly,
-                DestructiveHint = e.Destructive,
-                IdempotentHint = e.Idempotent,
+                // MCP reads these two only when readOnlyHint is false; a read-only tool leaves them out (4.6 KB of tools/list).
+                DestructiveHint = e.ReadOnly ? null : e.Destructive,
+                IdempotentHint = e.ReadOnly ? null : e.Idempotent,
                 OpenWorldHint = e.OpenWorld,
             };
             t.Meta ??= new JsonObject();

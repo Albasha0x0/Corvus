@@ -554,7 +554,7 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
             var t = tool.ProtocolTool;
             if (!table.TryGetValue(t.Name, out var e)) { problems.Add($"{t.Name}: no entry in ToolEffects.Table"); continue; }
             var a = t.Annotations;
-            if (a?.ReadOnlyHint != e.ReadOnly || a.DestructiveHint != e.Destructive || a.IdempotentHint != e.Idempotent || a.OpenWorldHint != e.OpenWorld)
+            if (a?.ReadOnlyHint != e.ReadOnly || a.DestructiveHint != (e.ReadOnly ? null : e.Destructive) || a.IdempotentHint != (e.ReadOnly ? null : e.Idempotent) || a.OpenWorldHint != e.OpenWorld)
                 problems.Add($"{t.Name}: advertised annotations differ from ToolEffects.Table");
             if (string.IsNullOrEmpty(t.Title) || a?.Title != null) problems.Add($"{t.Name}: the title belongs at the top level only");
             if (e.ReadOnly && ContractSweep.FileWriters.ContainsKey(t.Name)) problems.Add($"{t.Name}: writes files but is read-only in ToolEffects.Table");
