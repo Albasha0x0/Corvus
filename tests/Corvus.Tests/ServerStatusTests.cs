@@ -39,6 +39,18 @@ public class ServerStatusTests
         Assert.Equal(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), Field("run", "pid"));
         // moved out of the record's top level into the budget section
         Assert.Null(structured["maxOutputChars"]);
+
+        // S2: the data folder is named once, so the default status fits the report budget with room for a 260-character folder.
+        var root = Corvus.Native.Providers.DataFolder.Root;
+        Assert.Equal(root, Field("run", "dataDir"));
+        var json = structured.ToJsonString();
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(json, System.Text.RegularExpressions.Regex.Escape(JsonEncodedText.Encode(root).ToString())));
+        Assert.Null(structured["warnings"]);
+        int room = Corvus.Core.TokenEstimate.Of(JsonEncodedText.Encode(new string('a', 40) + string.Concat(Enumerable.Repeat(@"\Some Folder-Name", 13))).ToString());
+        Assert.InRange(Corvus.Core.TokenEstimate.Of(json) + room, 1, CallFilter.FitTokens(OutputClasses.Budget(OutputClass.Report)));
+        Assert.InRange(Corvus.Core.TokenEstimate.Of((string)JsonNode.Parse(output)!["text"]!) + room, 1, CallFilter.FitTokens(OutputClasses.Budget(OutputClass.Report)));
+        var ghidra = structured["unavailableTools"]!.AsArray().Where(g => ((string)g!["reason"]!).StartsWith("Ghidra", StringComparison.Ordinal)).ToList();
+        Assert.True(ghidra.Count <= 1, "one row per reason");
     }
 
     [Fact]

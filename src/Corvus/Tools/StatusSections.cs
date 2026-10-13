@@ -56,7 +56,7 @@ internal sealed class ResultsStatus : IStatusSection
         yield return new("mode", s.Mode == "disk" ? "disk and memory" : "memory only", source);
         if (s.Root != null)
         {
-            yield return new("folder", s.Root, source);
+            yield return new("folder", StatusPaths.Short(s.Root), source);
             yield return new("disk", $"{s.Entries} results, {Megabytes(s.Bytes)} of {s.MaxBytes >> 20} MB, unused results kept {s.MaxAge.TotalDays:0} days",
                 $"{ResultCacheOptions.MaxMegabytesVariable}, {ResultCacheOptions.MaxDaysVariable}");
         }
@@ -79,18 +79,18 @@ internal sealed class CachesStatus : IStatusSection
         var engines = services.GetService<NativeEngineService>();
         var code = services.GetService<NativeCodeService>();
         if (engines?.CacheStatus() is { } db)
-            yield return new("engineDatabases", $"{db.Root}: {db.Entries} entries, {ResultsStatus.Megabytes(db.Bytes)} of {db.MaxBytes >> 20} MB, unused entries kept {db.MaxAge.TotalDays:0} days; " +
+            yield return new("engineDatabases", $"{StatusPaths.Short(db.Root)}: {db.Entries} entries, {ResultsStatus.Megabytes(db.Bytes)} of {db.MaxBytes >> 20} MB, unused entries kept {db.MaxAge.TotalDays:0} days; " +
                 $"this session {db.Evicted} evicted" + (db.LastError != null ? $"; last problem: {db.LastError}" : ""),
                 $"{Native.Providers.AnalysisCache.RootVariable}, {Native.Providers.AnalysisCache.MaxMegabytesVariable}, _DAYS");
         if (code != null)
         {
             yield return code.IndexCache?.Status() is { } c
-                ? new("codeIndex", $"{c.Root}: {c.Entries} entries, {ResultsStatus.Megabytes(c.Bytes)} of {c.MaxBytes >> 20} MB, unused entries kept {c.MaxAge.TotalDays:0} days; " +
+                ? new("codeIndex", $"{StatusPaths.Short(c.Root)}: {c.Entries} entries, {ResultsStatus.Megabytes(c.Bytes)} of {c.MaxBytes >> 20} MB, unused entries kept {c.MaxAge.TotalDays:0} days; " +
                     $"this session {c.Hits} loaded, {c.Misses} not found, {c.Rejected} unusable (rebuilt), {c.Writes} saved, {c.Evicted} evicted" +
                     (c.LastError != null ? $"; last problem: {c.LastError}" : ""), "--index-cache")
                 : new("codeIndex", "off: every image's code index is built when it is opened", "--index-cache off or CORVUS_CODE_INDEX_CACHE=off");
             var s = code.ImportStats;
-            yield return new("importedNames", $"{code.AnnotationRoot}; this session {s.LayersRestored} layer(s) restored on load ({s.NamesRestored} names), {s.LayersSaved} saved" +
+            yield return new("importedNames", $"{StatusPaths.Short(code.AnnotationRoot)}; this session {s.LayersRestored} layer(s) restored on load ({s.NamesRestored} names), {s.LayersSaved} saved" +
                 (s.LastProblem != null ? $"; last problem: {s.LastProblem}" : ""));
         }
         if (services.GetService<OutputPager>() is { } pager)
@@ -144,5 +144,20 @@ internal sealed class RunStatus : IStatusSection
         new("runId", CallLog.RunId),
         new("pid", Environment.ProcessId.ToString(CultureInfo.InvariantCulture)),
         new("started", ServerIdentity.StartedAt.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)),
+        new("dataDir", Native.Providers.DataFolder.Root,
+            Environment.GetEnvironmentVariable(Native.Providers.DataFolder.RootVariable) is { Length: > 0 } ? Native.Providers.DataFolder.RootVariable : "default"),
     ];
+}
+
+/// <summary>Status paths under the data folder name it once (run.dataDir), so a long folder does not repeat in every section.</summary>
+internal static class StatusPaths
+{
+    public const string DataDir = "<dataDir>";
+
+    public static string Short(string path)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Native.Providers.DataFolder.Root);
+        return path.StartsWith(root, StringComparison.OrdinalIgnoreCase) && (path.Length == root.Length || path[root.Length] is '/' or '\\')
+            ? DataDir + path[root.Length..] : path;
+    }
 }

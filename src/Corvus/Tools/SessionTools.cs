@@ -21,6 +21,9 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     public sealed record NoteCounts(int Open, int Total, string Store);
 
+    /// <summary>Unavailable tools sharing one reason and fix; a tool's entry names its mode when only that mode is affected.</summary>
+    public sealed record UnavailableGroup(IReadOnlyList<string> Tools, string Reason, string? Remediation);
+
     [Description("The --tools-file whitelist in effect (list name or path) and the tools it names; the call trace file (--trace / CORVUS_TRACE).")]
     public sealed record CatalogFilter(string? ToolsFile, int? ToolsFileTools, string? TraceFile);
 
@@ -64,8 +67,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         IReadOnlyList<string> LongRunningTools,
         [property: Description("Tool families and whether this server registers them; every family unless the server was started with --toolsets <list> (or CORVUS_TOOLSETS: all, core, or names such as core,dumps).")]
         IReadOnlyList<Toolset> Toolsets,
-        [property: Description("Registered tools, or modes of them (e.g. engine=ida), that cannot work here, with the reason and the fix.")]
-        IReadOnlyList<ToolAvailability.Unavailable> UnavailableTools,
+        [property: Description("Registered tools, or modes of them (e.g. engine=ida), that cannot work here: one row per reason and fix.")]
+        IReadOnlyList<UnavailableGroup> UnavailableTools,
         [property: Description("Analyst notes in the per-user store (record_note): open, total and the store directory.")]
         NoteCounts? Notes,
         EngineLimits EngineTimeLimits,
@@ -132,7 +135,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             toolCount, loaded, indexing.Status, Environment.WorkingSet / (1024 * 1024), capabilities,
             ToolEffects.LongRunning.Where(registered.Contains).ToList(),
             Core.Toolsets.Families.Select(f => new Toolset(f.Name, f.Tools.Any(registered.Contains), Profiles.InCore(f), f.Tools.Length, f.Description)).ToList(),
-            ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting),
+            Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting)),
             NoteCountsOf(notes),
             new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds),
             (engines?.SessionStates() ?? []).Select(e => new EngineSession(e.Image, e.State.Engine, e.State.WorkerPid, e.State.State, e.State.BusyOp,
@@ -153,8 +156,12 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     {
         if (notes == null) return null;
         var (open, total) = notes.Counts();
-        return new NoteCounts(open, total, notes.Root);
+        return new NoteCounts(open, total, StatusPaths.Short(notes.Root));
     }
+
+    /// <summary>One row per (reason, fix), in first-seen order: 24 engine tools share the one engine-not-found text.</summary>
+    internal static List<UnavailableGroup> Group(IEnumerable<ToolAvailability.Unavailable> rows) =>
+        [.. rows.GroupBy(r => (r.Reason, r.Remediation)).Select(g => new UnavailableGroup([.. g.Select(r => r.Mode == null ? r.Tool : $"{r.Tool} {r.Mode}")], g.Key.Reason, g.Key.Remediation))];
 
     /// <summary>Page size of read_result when maxTokens is not given.</summary>
     public const int ReadResultTokens = 6_000;

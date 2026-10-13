@@ -137,16 +137,16 @@
       }
     },
     "unavailableTools": {
-      "description": "Registered tools, or modes of them (e.g. engine=ida), that cannot work here, with the reason and the fix.",
+      "description": "Registered tools, or modes of them (e.g. engine=ida), that cannot work here: one row per reason and fix.",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "tool": {
-            "type": "string"
-          },
-          "mode": {
-            "type": "string"
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "reason": {
             "type": "string"
@@ -156,7 +156,7 @@
           }
         },
         "required": [
-          "tool",
+          "tools",
           "reason"
         ]
       }
