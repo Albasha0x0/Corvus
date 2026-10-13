@@ -25,4 +25,28 @@ public class NativeListBudgetTests
             Assert.Contains($"offset={next}", text);
         }
     }
+
+    [WindowsFact]
+    public async Task Read_bytes_pages_64_KiB_by_bytes_with_contiguous_pages()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        int offset = 0, pages = 0, bytes = 0;
+        string? expected = null;
+        while (true)
+        {
+            var result = await server.Client.CallToolAsync("read_bytes", new Dictionary<string, object?> { ["image"] = Kernel32, ["address"] = "rva:0x1000", ["length"] = 65536, ["offset"] = offset });
+            var text = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text));
+            Assert.True(TokenEstimate.Of(text) <= 6300, $"page {pages}: {TokenEstimate.Of(text)} tokens");
+            var record = JsonDocument.Parse(result.StructuredContent!.Value.GetRawText()).RootElement;
+            if (expected != null) Assert.Equal(expected, record.GetProperty("address").GetString());
+            bytes += record.GetProperty("length").GetInt32();
+            pages++;
+            if (!record.TryGetProperty("nextOffset", out var next)) break;
+            offset = next.GetInt32();
+            expected = record.GetProperty("nextAddress").GetString();
+            Assert.Contains($"offset={offset}", text);
+        }
+        Assert.Equal(65536, bytes);
+        Assert.InRange(pages, 16, 64);
+    }
 }

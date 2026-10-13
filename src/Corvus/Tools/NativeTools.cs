@@ -680,7 +680,16 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         return true;
     }
 
-    [McpServerTool(Name = "read_bytes", Title = "Read native bytes or values")]
+    /// <summary>read_bytes' record: the page of the hex dump and where the next one starts.</summary>
+    public sealed record ByteDump(string Image,
+        [property: Description("VA of the first byte on this page.")] string Address,
+        [property: Description("Bytes on this page.")] int Length,
+        [property: Description("The page: hex and ASCII, 16 bytes a line.")] string Code,
+        [property: Description("Byte offset from the requested address of the next page; absent on the last.")] int? NextOffset,
+        [property: Description("VA of the next page's first byte; absent on the last.")] string? NextAddress,
+        [property: Description("Bytes read from the requested address (all pages).")] int TotalBytes);
+
+    [McpServerTool(Name = "read_bytes", Title = "Read native bytes or values", UseStructuredContent = true, OutputSchemaType = typeof(ByteDump))]
     [Description("Hex dump (with ASCII) of a native image's bytes at an address, as the loader maps them (.bss as ??). type= reads length values " +
                  "instead: u8-u64, i8-i64 (be suffix: u32be), f32, f64, ptr (target named), C names (int, DWORD, char *), cstr or wstr. Structs: " +
                  "get_native_type read=true.")]
@@ -688,42 +697,77 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
         [Description("Bytes to dump (default 256, max 65536); with type, values to read (default 1, max 4096).")] int? length = null,
-        [Description(CharOffsetDescription)] int offset = 0,
+        [Description("Dump: bytes from address to start at (a page's nextOffset); type: a character offset.")] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Value type to read instead of dumping bytes.")] string? type = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
         var rva = NativeAddress.Parse(pe, address);
-        if (!string.IsNullOrWhiteSpace(type)) return pager.Page(ReadValues(native, rva, type.Trim(), length ?? 1), offset, maxTokens);
+        if (!string.IsNullOrWhiteSpace(type))
+            return ToolOutput.Text(pager, ReadValues(native, rva, type.Trim(), length ?? 1), offset,
+                new ByteDump(native.Id, NativeAddress.Va(pe, rva), 0, "", null, null, 0), maxTokens);
         var buffer = new byte[Math.Clamp(length ?? 256, 1, 65_536)];
         int read = pe.Read(rva, buffer);
         var unset = new bool[read];
         for (int i = 0; i < read; i++) unset[i] = Uninitialized(pe, rva + (uint)i);
-        var sb = new StringBuilder(NativeAddress.Describe(pe, rva) + ", " + (read < buffer.Length
+        if (offset < 0 || offset > 0 && offset >= read)
+            throw new ToolError(ErrorCode.InvalidArgument, $"offset {offset} is outside the {Plural(read, "byte")} read.", $"pass an offset below {read} (a page's nextOffset)");
+        int first = offset / 16 * 16;
+        var head = NativeAddress.Describe(pe, rva) + ", " + (read < buffer.Length
             ? $"{read:N0} of {buffer.Length:N0} bytes requested: incomplete, nothing is mapped at 0x{pe.ImageBase + rva + (uint)read:X}"
-            : Plural(read, "byte")) + (length > buffer.Length ? $" (length {length:N0} capped at {buffer.Length:N0})" : "") + "\n");
-        for (int row = 0; row < read; row += 16)
+            : Plural(read, "byte")) + (length > buffer.Length ? $" (length {length:N0} capped at {buffer.Length:N0})" : "") + "\n";
+        string Row(int row)
         {
+            var sb = new StringBuilder();
             int n = Math.Min(16, read - row);
             sb.Append($"{pe.ImageBase + rva + (uint)row:X}  ");
             for (int i = 0; i < 16; i++) sb.Append(i >= n ? "   " : unset[row + i] ? "?? " : $"{buffer[row + i]:X2} ");
             sb.Append(' ');
             for (int i = 0; i < n; i++) sb.Append(unset[row + i] ? '?' : buffer[row + i] is >= 0x20 and < 0x7F ? (char)buffer[row + i] : '.');
-            sb.AppendLine();
+            return sb.Append('\n').ToString();
         }
-        var gaps = new List<string>();
-        for (int i = 0; i < read; i++)
+        string Gaps(int from, int to)
         {
-            if (!unset[i]) continue;
-            int start = i;
-            while (i + 1 < read && unset[i + 1]) i++;
-            uint at = rva + (uint)start;
-            gaps.Add($"0x{pe.ImageBase + at:X}-0x{pe.ImageBase + rva + (uint)i + 1:X} ({Plural(i - start + 1, "byte")}{(pe.SectionAt(at) is { } s ? $", {s.Name}" : "")})");
+            var gaps = new List<string>();
+            for (int i = from; i < to; i++)
+            {
+                if (!unset[i]) continue;
+                int start = i;
+                while (i + 1 < to && unset[i + 1]) i++;
+                uint at = rva + (uint)start;
+                gaps.Add($"0x{pe.ImageBase + at:X}-0x{pe.ImageBase + rva + (uint)i + 1:X} ({Plural(i - start + 1, "byte")}{(pe.SectionAt(at) is { } s ? $", {s.Name}" : "")})");
+            }
+            return gaps.Count > 0 ? $"?? uninitialized (no file data; zero at load, run-time values in a process): {string.Join(", ", gaps)}\n" : "";
         }
-        if (gaps.Count > 0)
-            sb.AppendLine($"?? uninitialized (no file data; zero at load, run-time values in a process): {string.Join(", ", gaps)}");
-        return pager.Page(sb.ToString(), offset, maxTokens);
+        int rows = (read - first + 15) / 16;
+        (string Text, ByteDump Record) Render(int k)
+        {
+            int end = Math.Min(read, first + k * 16);
+            var body = string.Concat(Enumerable.Range(0, k).Select(i => Row(first + i * 16)));
+            bool more = end < read;
+            var text = (first == 0 ? head : $"[Continuing at byte {first}]\n") + body + Gaps(first, end) +
+                       (more ? $"{OutputPager.More(end)} (next address 0x{pe.ImageBase + rva + (uint)end:X})\n" : $"[End: {Plural(read, "byte")}]\n");
+            return (text, new ByteDump(native.Id, $"0x{pe.ImageBase + rva + (uint)first:X}", end - first, body, more ? end : null,
+                more ? $"0x{pe.ImageBase + rva + (uint)end:X}" : null, read));
+        }
+        int fit = rows;
+        // the page holds as many whole lines as fit the budget in both parts
+        if (OutputCall.Budgeted is { } call && !Fits(call, Render(rows)))
+        {
+            int lo = 1, hi = rows;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                if (Fits(call, Render(mid))) lo = mid; else hi = mid - 1;
+            }
+            fit = lo;
+        }
+        var (page, record) = Render(Math.Max(Math.Min(1, rows), fit));
+        return ToolOutput.With(page, record);
+
+        static bool Fits(OutputCall call, (string Text, ByteDump Record) page) =>
+            call.Fits(page.Text) && call.Fits(System.Text.Json.JsonSerializer.Serialize(page.Record, ToolOutput.Wire) + new string(' ', 400));
     }, cancellationToken);
 
     /// <summary>read_bytes type=: <paramref name="count"/> values of a scalar type (le / be suffix for the byte order), or strings one after another.</summary>

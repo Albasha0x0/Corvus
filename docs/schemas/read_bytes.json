@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "address": {
+      "description": "VA of the first byte on this page.",
+      "type": "string"
+    },
+    "length": {
+      "description": "Bytes on this page.",
+      "type": "integer"
+    },
+    "code": {
+      "description": "The page: hex and ASCII, 16 bytes a line.",
+      "type": "string"
+    },
+    "nextOffset": {
+      "description": "Byte offset from the requested address of the next page; absent on the last.",
+      "type": "integer"
+    },
+    "nextAddress": {
+      "description": "VA of the next page's first byte; absent on the last.",
+      "type": "string"
+    },
+    "totalBytes": {
+      "description": "Bytes read from the requested address (all pages).",
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "address",
+    "length",
+    "code",
+    "totalBytes"
+  ]
+}
