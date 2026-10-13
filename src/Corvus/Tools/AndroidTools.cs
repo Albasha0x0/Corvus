@@ -75,7 +75,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     [Description("Smali of a method or class of an Android package's DEX code, in baksmali's layout. format=annotated adds code offsets and units.")]
     public Task<string> DisassembleDex(
         [Description(CodeDescription)] string path,
-        [Description("A method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)) or a class (pkg.C, Lpkg/C;).")] string symbol,
+        [Description("A method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)) or a class (pkg.C, Lpkg/C;).")] string symbol,
         [Description("Output layout (default smali).")] string? format = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -88,11 +88,11 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         }, cancellationToken), offset, maxTokens), cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java")]
-    [Description("Java source of a class or one method of an Android package through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+; one session per " +
-                 "package kept loaded). Without JADX: provider_unavailable; disassemble_dex gives smali.")]
+    [Description("Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+). A member, " +
+                 "anonymous or lambda class comes from the code JADX writes it in. Without JADX: provider_unavailable; disassemble_dex gives smali.")]
     public async Task<string> DecompileJava(
-        [Description(CodeDescription)] string path,
-        [Description("A class (pkg.C, Lpkg/C;) or a method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)).")] string symbol,
+        [Description("An .apk, .aab or split set, a .dex, or a jar (DEX or .class files).")] string path,
+        [Description("A class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)).")] string symbol,
         [Description("Return smali where JADX fails.")] bool smaliFallback = true,
         [Description("Decompiler.")] string? engine = null,
         [Description(CharOffsetDescription)] int offset = 0,

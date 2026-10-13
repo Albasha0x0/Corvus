@@ -363,6 +363,7 @@ internal sealed class DexBuilder
                         case int i: U8(0x04 | 3 << 5); U32((uint)i); break;
                         case string s: U8(0x17 | 3 << 5); U32((uint)p.S[s]); break;
                         case string[] arr: U8(0x1c); Uleb((uint)arr.Length); foreach (var s in arr) { U8(0x17 | 3 << 5); U32((uint)p.S[s]); } break;
+                        case null: U8(0x1e); break;
                     }
                 }
             }

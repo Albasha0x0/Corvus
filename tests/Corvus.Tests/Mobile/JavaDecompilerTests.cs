@@ -56,6 +56,67 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         }
     }
 
+    /// <summary>A package with a member class, an anonymous class and a lambda class, which JADX writes inside other code.</summary>
+    private string NestedApk()
+    {
+        var b = new DexBuilder();
+        var outer = b.Class("Lp/Outer;", 1, source: "Outer.java");
+        outer.Method("run", "V", [], 1, Asm.NewInstance(0, "Lp/Outer$1;"), Asm.ReturnVoid()).Registers = 2;
+        outer.Method("make", "V", [], 1, Asm.NewInstance(0, "Lp/L;"), Asm.ReturnVoid()).Registers = 2;
+        var named = b.Class("Lp/Outer$Named;", 9, source: "Outer.java");
+        named.Annotations.Add(("Ldalvik/annotation/EnclosingClass;", 2, [("value", "Lp/Outer;")]));
+        named.Annotations.Add(("Ldalvik/annotation/InnerClass;", 2, [("accessFlags", 9), ("name", "Named")]));
+        var anonymous = b.Class("Lp/Outer$1;", 0x10, source: "Outer.java");
+        anonymous.Annotations.Add(("Ldalvik/annotation/EnclosingMethod;", 2, [("value", "Lp/Outer;->run()V")]));
+        anonymous.Annotations.Add(("Ldalvik/annotation/InnerClass;", 2, [("accessFlags", 0), ("name", null!)]));
+        anonymous.Method("a", "V", [], 1, Asm.ReturnVoid()).Registers = 1;
+        b.Class("Lp/L;", 0x1011, source: "Outer.java");
+        return Save(_dir, "nested.apk", AndroidSamples.Apk(30, ("classes.dex", b.Build())));
+    }
+
+    [Fact]
+    public async Task NestedClasses_ComeFromWhereJadxWritesThem()
+    {
+        var (service, env) = Fake();
+        using (env)
+        using (service)
+        {
+            _fake.Set("mcp", new JsonObject
+            {
+                ["get_class_source"] = new JsonObject
+                {
+                    ["p.Outer"] = "package p;\r\n\r\npublic class Outer {\r\n\r\n    /* loaded from: classes.dex */\r\n    public static class Named {\r\n        void f() { String s = \"}\"; }\r\n    }\r\n\r\n    void run() { }\r\n}\r\n",
+                    ["p.Outer$Named"] = "",
+                    ["*"] = "!class not found",
+                },
+                ["get_method_body"] = new JsonObject { ["p.Outer$1"] = "!class did not resolve", ["*"] = "{\"mode\":\"java\",\"body\":\"    void host() { }\"}" },
+            });
+            var apk = NestedApk();
+            Assert.Equal("// Lp/Outer$Named; (JADX, from the source of Lp/Outer;)\n/* loaded from: classes.dex */\npublic static class Named {\n    void f() { String s = \"}\"; }\n}",
+                await service.Decompile(apk, "p.Outer$Named", true, default));
+            Assert.Equal("// Lp/Outer$1; is an anonymous class inside Lp/Outer;->run()V; JADX writes it there:\n// Lp/Outer;->run()V (JADX, java)\n    void host() { }",
+                await service.Decompile(apk, "Lp/Outer$1;", true, default));
+            Assert.StartsWith("// Lp/L; is a lambda class inside Lp/Outer;->make()V;", await service.Decompile(apk, "p.L", true, default));
+            Assert.StartsWith("// Lp/Outer$1;->a()V: in a class JADX writes elsewhere\n// Lp/Outer$1; is an anonymous class", await service.Decompile(apk, "Lp/Outer$1;->a()V", true, default));
+        }
+    }
+
+    /// <summary>A jar of .class files goes to JADX by name, without a DEX index.</summary>
+    [Fact]
+    public async Task ClassFileJar_DecompilesByName()
+    {
+        var (service, env) = Fake();
+        using (env)
+        using (service)
+        {
+            var jar = Save(_dir, "lib.jar", ContainerFixtures.Zip(("p/A.class", [0xCA, 0xFE, 0xBA, 0xBE])));
+            Assert.Equal("// p.A (JADX)\n// source of p.A", await service.Decompile(jar, "p.A", true, default));
+            Assert.StartsWith("// p.A::compute(String) (JADX, java, overload 2 of 2)", await service.Decompile(jar, "p.A::compute(String)", true, default));
+            Assert.StartsWith("// p.A::compute(I) (JADX, java, overload 1 of 2)", await service.Decompile(jar, "Lp/A;->compute(I)", true, default));
+            Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => service.Decompile(jar, "p.A::compute(long)", true, default))).Code);
+        }
+    }
+
     [Fact]
     public async Task SmaliFallbackHint_NamesOurParameter()
     {

@@ -2298,7 +2298,7 @@ Smali of a method or class of an Android package's DEX code, in baksmali's layou
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
-| `symbol` | string | yes |  | A method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)) or a class (pkg.C, Lpkg/C;). |
+| `symbol` | string | yes |  | A method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)) or a class (pkg.C, Lpkg/C;). |
 | `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
@@ -2307,12 +2307,12 @@ Smali of a method or class of an Android package's DEX code, in baksmali's layou
 
 **Decompile Java** (read-only, idempotent, open-world, long-running)
 
-Java source of a class or one method of an Android package through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+; one session per package kept loaded). Without JADX: provider_unavailable; disassemble_dex gives smali.
+Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+). A member, anonymous or lambda class comes from the code JADX writes it in. Without JADX: provider_unavailable; disassemble_dex gives smali.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
-| `symbol` | string | yes |  | A class (pkg.C, Lpkg/C;) or a method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)). |
+| `path` | string | yes |  | An .apk, .aab or split set, a .dex, or a jar (DEX or .class files). |
+| `symbol` | string | yes |  | A class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)). |
 | `smaliFallback` | boolean |  | `true` | Return smali where JADX fails. |
 | `engine` | string |  |  | Decompiler. Values: jadx. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |

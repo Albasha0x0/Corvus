@@ -71,7 +71,17 @@ static int Jadx(JsonObject script, string? log)
             var arguments = request["params"]!["arguments"]?.AsObject() ?? [];
             if (log != null) File.AppendAllText(log, JsonSerializer.Serialize(new { tool = name, arguments }) + "\n");
             if (name == "load_apk" && script["crashOnLoad"]?.GetValue<bool>() == true) Environment.Exit(3);
-            string text = answers[name] is { } canned ? canned.GetValue<string>()
+            // A canned answer is text, or an object of answers by class_name ("*" for the rest; "!" before a text marks an error).
+            var key = arguments["class_name"]?.GetValue<string>() ?? "";
+            string? canned = answers[name] switch
+            {
+                JsonValue v => v.GetValue<string>(),
+                JsonObject byClass => (byClass[key] ?? byClass["*"])?.GetValue<string>(),
+                _ => null,
+            };
+            bool failed = canned?.StartsWith('!') == true;
+            if (failed) canned = canned![1..];
+            string text = canned != null ? canned
                 : name switch
                 {
                     "load_apk" => """{"state":"LOADED","class_count":1}""",
@@ -85,7 +95,7 @@ static int Jadx(JsonObject script, string? log)
                     }),
                     _ => "unknown tool",
                 };
-            result = new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }), ["isError"] = text == "unknown tool" };
+            result = new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }), ["isError"] = failed || text == "unknown tool" };
         }
         stdout.WriteLine(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result }.ToJsonString());
     }
