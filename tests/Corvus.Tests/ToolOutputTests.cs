@@ -374,4 +374,18 @@ public class ToolOutputTests
         var text = RecordText.Render(record, (0, 2, 2, false, 2));
         Assert.Equal("image: a.dll\n2 rows (showing 1-2):\n  name                size\n  x                   1\n  \\u2063Error (oops)  22\n[End: 2 rows]\n", text);
     }
+
+    /// <summary>Fields past the column cap (dump_stack's token, ilOffset) stay in the text as one key=value cell.</summary>
+    [Fact]
+    public void RendererKeepsFieldsPastTheColumnCap()
+    {
+        var row = new JsonObject();
+        for (int i = 0; i < 12; i++) row[$"c{i}"] = i;
+        row["token"] = "0x06000006";
+        row["ilOffset"] = 60;
+        var record = new JsonObject { ["frames"] = new JsonArray(row, new JsonObject { ["c0"] = 1 }), ["offset"] = 0, ["total"] = 2 };
+        var text = RecordText.Render(record, "frames", (0, 2, 2, false, 2));
+        Assert.EndsWith("more", text.Split('\n')[1]);
+        Assert.Contains("token=0x06000006; ilOffset=60", text);
+    }
 }

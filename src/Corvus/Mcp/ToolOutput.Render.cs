@@ -83,10 +83,18 @@ internal static class RecordText
             return;
         }
         var columns = new List<string>();
+        bool more = false;
         foreach (var r in rows.Cast<JsonObject>())
             foreach (var (k, v) in r)
-                if (v is not null && !columns.Contains(k) && columns.Count < MaxColumns) columns.Add(k);
-        var cells = rows.Cast<JsonObject>().Select(r => columns.Select(c => r[c] is { } v ? Cell(v) : "").ToList()).ToList();
+                if (v is not null && !columns.Contains(k))
+                {
+                    if (columns.Count < MaxColumns) columns.Add(k);
+                    else more = true;
+                }
+        // Fields past the last column go into one key=value cell, so the text keeps every field of the record.
+        var cells = rows.Cast<JsonObject>().Select(r => columns.Select(c => r[c] is { } v ? Cell(v) : "")
+            .Concat(more ? [string.Join("; ", r.Where(p => p.Value is not null && !columns.Contains(p.Key)).Select(p => $"{p.Key}={Cell(p.Value!)}"))] : []).ToList()).ToList();
+        if (more) columns.Add("more");
         // Columns empty in every row are left out.
         var used = Enumerable.Range(0, columns.Count).Where(i => cells.Any(row => row[i].Length > 0)).ToList();
         var widths = used.Select(i => Math.Min(MaxColumn, Math.Max(columns[i].Length, cells.Max(row => row[i].Length)))).ToList();
