@@ -303,6 +303,7 @@ public class NativeX86DiscoveryTests
     [InlineData(9)] // the index scaled into another frame slot (mov eax, [ebp-8]; shl eax, 2; mov [ebp-12], eax), bounded in the first, reloaded scaled
     [InlineData(10)] // the GOT pointer spilled, the slot reused on a path decoded first; the dispatch block reloads it on the path that kept it
     [InlineData(11)] // a byte element at a large GOT offset compared, then loaded: cmp byte [ebx + eax*2 + k], 2; ja; movzx ecx, byte [ebx + eax*2 + k]
+    [InlineData(12)] // the dispatch block also follows a call with pushed arguments and alignment fill: it starts in the state of the branch to it
     [InlineData(13)] // bound before the GOT setup, across the get_pc_thunk call
     public void I386_position_independent_switch_tables_resolve(int form)
     {

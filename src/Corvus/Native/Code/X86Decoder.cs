@@ -92,6 +92,7 @@ internal sealed class X86Decoder : ICodeDecoder
         _ringCount = 0;
         _runBound = incoming;
         _runStart = true;
+        _padAfterCall = 0;
     }
 
     /// <summary>Decodes the instruction at <paramref name="rva"/>; false when the address is not in executable code.</summary>
@@ -185,7 +186,13 @@ internal sealed class X86Decoder : ICodeDecoder
             if (kind == OpKind.Memory) hasMemory = true;
             else if (kind is OpKind.Immediate32 or OpKind.Immediate64 or OpKind.Immediate32to64) hasImmediate = true;
         }
-        if (_runStart && _walking) RestoreState(rva);
+        if (_walking)
+        {
+            // a branch target reached by falling through a call and alignment padding: the call does not return (padding is never
+            // laid where flow continues after a call), so the target starts in the state of the branch to it
+            if (_runStart || (_padAfterCall == 2 && _stateAt.ContainsKey(rva))) RestoreState(rva);
+            _padAfterCall = insn.Flow is FlowKind.Call or FlowKind.IndirectCall ? 1 : _padAfterCall > 0 && IsFill(in i) ? 2 : 0;
+        }
         if (hasMemory) ResolveMemory(in i, ref insn);
         if (hasImmediate) ResolveImmediate(in i, ref insn);
         if (_walking) TrackKnown(in i, in insn);
@@ -379,6 +386,15 @@ internal sealed class X86Decoder : ICodeDecoder
         }
         return _states++;
     }
+
+    // 1 right after a call, 2 after a call and alignment fill, else 0
+    private int _padAfterCall;
+
+    /// <summary>A nop form compilers pad with: nop, xchg ax, ax, mov / lea of a register to itself.</summary>
+    private static bool IsFill(in Instruction i) =>
+        i.Mnemonic == Mnemonic.Nop
+        || i.Mnemonic is Mnemonic.Xchg or Mnemonic.Mov && i.Op0Kind == OpKind.Register && i.Op1Kind == OpKind.Register && i.Op0Register == i.Op1Register
+        || i.Mnemonic == Mnemonic.Lea && i.MemoryBase == i.Op0Register && i.MemoryIndex == Register.None && i.MemoryDisplacement64 == 0;
 
     /// <summary>At the first instruction of a run: the state the branch to it saw.</summary>
     private void RestoreState(uint rva)
