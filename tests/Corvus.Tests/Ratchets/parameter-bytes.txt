@@ -1,7 +1,2 @@
 # Exemptions from: a parameter description is at most 160 bytes (S8.1)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-find_xrefs.engine
-get_il2cpp_info.symbol
-simplify_methods.symbol
-trace_native_values.engine
-trace_native_values.location

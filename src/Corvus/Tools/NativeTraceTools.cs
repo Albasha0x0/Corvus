@@ -81,8 +81,8 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("More nodes follow (call again with offset).")] bool Truncated,
         IReadOnlyList<string> Notes);
 
-    private const string LocationHelp = "a register (rdx, ecx, xmm1; ARM64 x1, w2, d0; ARM32 r1, s0, d0), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), " +
-                                        "op1 / op2 (an operand of the instruction) or result (the value the call at address returns)";
+    private const string LocationHelp = "a register (rdx, xmm1, x1, w2, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) " +
+                                        "or result (the call's return)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
     [Description("Traces a value through native code (x86 / x64 / ARM) across functions. Backward: constants, strings, function pointers, API " +
@@ -104,8 +104,8 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Stop at writable globals, not following their writers / readers.")] bool stopAtGlobals = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Nodes per page (max 1000).")] int limit = 200,
-        [Description("Per-function slices: ours (built-in), ida or ghidra (that decompiler's IR, started when needed; built-in where it cannot " +
-                     "place the seed), or auto (default: an engine that has analyzed these bytes, else ours).")] string? engine = null,
+        [Description("Slices: ours, ida or ghidra (its IR, started when needed; ours where it cannot place the seed), or auto (default: an " +
+                     "engine that analyzed the bytes, else ours).")] string? engine = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

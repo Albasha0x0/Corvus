@@ -35,7 +35,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
                  "generic instantiations, a type's metadata slots (Ns.Type_TypeInfo), and names only script.json has ('List`1<int>::Add', 'Method$Ns.Type.M()'). " +
                  "With stringliteral.json and the binary: the string literals a method's code loads.")]
     public Task<string> GetIl2CppInfo(
-        [Description(SymbolDescription + " Or a script.json name of an instantiation or metadata slot.")] string symbol,
+        [Description("Type or member ('Ns.Type', 'Ns.Type::Method(int)', short name, token), or a script.json name of an instantiation or metadata slot.")] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("With a type: a vtable slot number to resolve to its implementing method, or 'all'.")] string? slot = null,
         [Description("Index of the first entry of each long list.")] int offset = 0,

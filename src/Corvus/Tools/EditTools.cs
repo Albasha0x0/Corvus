@@ -229,7 +229,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "dead code, flattened control flow), inline (forwarders, delegate call proxies). Bodies are stack-verified; what is left has a reason " +
                  "code (docs/simplify.md).")]
     public Task<string> SimplifyMethods(
-        [Description("A method, or a type (nested types included). " + SymbolDescription + " Omit for the whole assembly.")] string? symbol = null,
+        [Description("A method or a type (nested types included): 'Ns.Type', 'Ns.Type::Method(int)', a short name or a token. Omit for the whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
         [Description("Passes to run; omit for all three.")] string[]? passes = null,
         [Description("Max evaluation call depth.")] int maxDepth = 8,

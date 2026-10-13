@@ -756,7 +756,7 @@ Clean transformed method bodies: fold (string decoders with constant inputs run 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string |  |  | A method, or a type (nested types included). Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). Omit for the whole assembly. |
+| `symbol` | string |  |  | A method or a type (nested types included): 'Ns.Type', 'Ns.Type::Method(int)', a short name or a token. Omit for the whole assembly. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. Required when symbol is omitted. |
 | `passes` | string[] |  |  | Passes to run; omit for all three. |
 | `maxDepth` | integer |  | `8` | Max evaluation call depth. |
@@ -878,7 +878,7 @@ Il2Cpp dummy DLLs (built-in reader, Il2CppDumper or Cpp2IL): native addresses (R
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). Or a script.json name of an instantiation or metadata slot. |
+| `symbol` | string | yes |  | Type or member ('Ns.Type', 'Ns.Type::Method(int)', short name, token), or a script.json name of an instantiation or metadata slot. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `slot` | string |  |  | With a type: a vtable slot number to resolve to its implementing method, or 'all'. |
 | `offset` | integer |  |  | Index of the first entry of each long list. |
@@ -1202,7 +1202,7 @@ What references a native address: calls (also via import slots and thunks), jump
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `200` | Max rows. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 targets. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Adds the RTTI virtual calls an engine lacks. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Adds RTTI virtual calls. Values: auto, ours, ida, ghidra. |
 | `direction` | string |  |  | to (default), from or both. Values: to, from, both. |
 | `kind` | string |  |  | any, code (calls, jumps), data (reads, writes, pointers) or metadata (.pdata, CFG, export tables). Values: any, code, data, metadata. |
 | `scope` | string |  |  | Struct member: typed (default) or all (every function; call again to continue). Values: typed, all. |
@@ -1297,7 +1297,7 @@ Traces a value through native code (x86 / x64 / ARM) across functions. Backward:
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | An instruction, a call, a function start (with argument) or a writable global. Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `location` | string |  |  | The value at address: a register (rdx, ecx, xmm1; ARM64 x1, w2, d0; ARM32 r1, s0, d0), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), op1 / op2 (an operand of the instruction) or result (the value the call at address returns). |
+| `location` | string |  |  | The value at address: a register (rdx, xmm1, x1, w2, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) or result (the call's return). |
 | `argument` | string |  |  | An argument of the call at address, or a parameter of the function starting there: 1-based position or API parameter name. |
 | `direction` | string |  |  | backward (default: the values that reach it), forward (its uses) or both. Values: backward, forward, both. |
 | `maxDepth` | integer |  | `3` | Function boundaries to cross (0-8). |
@@ -1308,7 +1308,7 @@ Traces a value through native code (x86 / x64 / ARM) across functions. Backward:
 | `stopAtGlobals` | boolean |  |  | Stop at writable globals, not following their writers / readers. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `200` | Nodes per page (max 1000). |
-| `engine` | string |  |  | Per-function slices: ours (built-in), ida or ghidra (that decompiler's IR, started when needed; built-in where it cannot place the seed), or auto (default: an engine that has analyzed these bytes, else ours). Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | Slices: ours, ida or ghidra (its IR, started when needed; ours where it cannot place the seed), or auto (default: an engine that analyzed the bytes, else ours). Values: auto, ours, ida, ghidra. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `image`, `engine`, `seed`, `direction`, `values`, `nodes`, `edges`, `frontier`, `totalNodes`, `totalEdges`, `functions`, `offset`, `truncated`, `notes`.

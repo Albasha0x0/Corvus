@@ -33,7 +33,7 @@ public sealed partial class NativeCodeTools
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 200,
         [Description("Instead of address: up to 100 targets.")] string[]? addresses = null,
-        [Description(EngineDescription + " Adds the RTTI virtual calls an engine lacks.")]
+        [Description(EngineDescription + " Adds RTTI virtual calls.")]
         string? engine = null,
         [Description("to (default), from or both.")] string? direction = null,
         [Description("any, code (calls, jumps), data (reads, writes, pointers) or metadata (.pdata, CFG, export tables).")] string? kind = null,
