@@ -10,6 +10,7 @@ namespace Corvus.Tests;
 /// CORVUS_NATIVE_SWEEP_LIMIT caps the number of files per directory (default 400; 0 = all).
 /// </summary>
 [Trait("Speed", "Slow")]
+[Collection(SweepCollection.Name)]
 public class NativeCodeSweepTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan PerFileLimit = TimeSpan.FromSeconds(120);

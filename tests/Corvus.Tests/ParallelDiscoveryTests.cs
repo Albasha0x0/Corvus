@@ -5,6 +5,7 @@ using Corvus.Tests.NativeFormats;
 namespace Corvus.Tests;
 
 /// <summary>Function discovery explores roots in parallel and commits them in queue order: the saved index is the same at any thread count.</summary>
+[Collection(SweepCollection.Name)]
 public class ParallelDiscoveryTests
 {
     private static byte[] Payload(INativeImage image, CodeIndexOptions options)

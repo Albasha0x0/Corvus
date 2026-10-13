@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- CORVUS_ALL_TESTS=1: the slow sweeps spread their own work over every processor, so only a few test classes run at once;
-     otherwise the per-call time limits of the contract sweep and the native sweeps measure a starved machine. -->
+<!-- CORVUS_ALL_TESTS=1: the sweeps spread their own work over every processor and run alone in SweepCollection, after the
+     parallel classes; the other classes mostly wait on engine processes and real-data reads, so many run at once. -->
 <RunSettings>
   <xUnit>
-    <MaxParallelThreads>4</MaxParallelThreads>
+    <MaxParallelThreads>12</MaxParallelThreads>
   </xUnit>
 </RunSettings>

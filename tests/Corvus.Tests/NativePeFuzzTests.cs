@@ -12,6 +12,7 @@ namespace Corvus.Tests;
 /// the section table and the directories (seeded, so a failure names the iteration that reproduces it).
 /// CORVUS_PE_FUZZ_ITERATIONS sets the iteration count; CORVUS_PE_FUZZ_SEED the base seed.
 /// </summary>
+[Collection(SweepCollection.Name)]
 public sealed class NativePeFuzzTests(ITestOutputHelper output)
 {
     [Fact]
