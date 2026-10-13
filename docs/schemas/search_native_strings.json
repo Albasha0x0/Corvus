@@ -17,7 +17,7 @@
             "type": "string"
           },
           "text": {
-            "description": "Text (clipped at 400 characters).",
+            "description": "Text, clipped at maxLength.",
             "type": "string"
           },
           "references": {
@@ -25,6 +25,10 @@
           },
           "firstFunction": {
             "type": "string"
+          },
+          "length": {
+            "description": "The full length in characters when Text is clipped.",
+            "type": "integer"
           }
         },
         "required": [

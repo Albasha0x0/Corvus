@@ -81,6 +81,12 @@ public class NativeToolsTests
 
         var strings = await tools.SearchNativeStrings("kernel32.dll", ".dll", limit: 5);
         Assert.Contains("refs", strings);
+        // long strings are clipped with their length in both parts
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var clipped = await tools.SearchNativeStrings("kernel32.dll", ".dll", limit: 50, maxLength: 16);
+        Assert.Contains("chars)\"", clipped);
+        var stringList = Assert.IsType<NativeStringList>(collector.Value);
+        Assert.Contains(stringList.Items, i => i.Length > 16 && i.Text.Length == 16);
         Assert.StartsWith("Error (not_found)", (await Assert.ThrowsAsync<ToolError>(() => tools.GetCfg("kernel32.dll", "rva:0"))).Render(null));
         Assert.StartsWith("Error (invalid_argument)", (await Assert.ThrowsAsync<ToolError>(() => tools.NativeCallTree("kernel32.dll", "BaseThreadInitThunk", direction: "up"))).Render(null));
     }

@@ -116,7 +116,10 @@ internal static class EngineDoc
 }
 
 public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16, il2cpp (a string literal slot), nativeaot (a frozen String object) or engine:type (e.g. ghidra:unicode).")] string Encoding,
-    [property: Description("Text (clipped at 400 characters).")] string Text, int References, string? FirstFunction);
+    [property: Description("Text, clipped at maxLength.")] string Text, int References, string? FirstFunction)
+{
+    [Description("The full length in characters when Text is clipped.")] public int? Length { get; init; }
+}
 
 public sealed record NativeStringList(string Image, IReadOnlyList<NativeStringEntry> Items, int Offset, int Total, bool Truncated)
 {

@@ -446,10 +446,16 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows (default 100).")] int limit = 100,
         [Description(EngineDescription)] string? engine = null,
+        [Description("Characters shown per string (default 200, max 4000); longer ones are clipped with their length.")] int maxLength = 200,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        int clip = Math.Clamp(maxLength, 16, 4000);
+        // file text reaches the model here: markers are escaped and long strings clipped with their length
+        string Show(string t) => Format.EscapeMarkers(t.Length <= clip ? Escape(t) : Escape(t[..clip]) + $"…(+{t.Length - clip} chars)");
+        NativeStringEntry Entry(string address, string encoding, string t, int refs, string? first) =>
+            new(address, encoding, Format.EscapeMarkers(t.Length <= clip ? t : t[..clip]), refs, first) { Length = t.Length > clip ? t.Length : null };
         Regex? pattern = null;
         if (regex && !string.IsNullOrEmpty(query))
         {
@@ -475,14 +481,14 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (frozenChars.Contains(s.Rva)) continue;
-            var text = index.ReadString(s, 400);
+            var text = index.ReadString(s, Math.Max(400, clip + 1));
             bool match = query == null || (pattern != null ? timeouts.IsMatch(pattern, text) : text.Contains(query, StringComparison.OrdinalIgnoreCase));
             if (!match) continue;
             var refs = index.RefsTo(s.Rva, 1);
             var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
-            rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {(s.Encoding == StringEncoding.Utf16 ? "L" : " ")}\"{Format.Clip(Escape(text), 200)}\"  " +
+            rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {(s.Encoding == StringEncoding.Utf16 ? "L" : " ")}\"{Show(text)}\"  " +
                      $"{index.CountRefsTo(s.Rva)} refs{(first != null ? $", first in {first}" : "")}");
-            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, s.Rva), s.Encoding == StringEncoding.Utf16 ? "utf16" : "ascii", text, index.CountRefsTo(s.Rva), first));
+            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(Entry(NativeAddress.Va(index.Image, s.Rva), s.Encoding == StringEncoding.Utf16 ? "utf16" : "ascii", text, index.CountRefsTo(s.Rva), first));
         }
         // Il2Cpp string literals live in the metadata file; code loads them through slots named by apply_il2cpp_names.
         if (Il2CppNativeNames.Of(native) is { } il2cpp)
@@ -494,9 +500,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                 uint slot = il2cpp.LiteralSlots[i];
                 var refs = index.RefsTo(slot, 1);
                 var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
-                rows.Add($"{NativeAddress.Va(index.Image, slot)}  il2cpp \"{Format.Clip(Escape(text), 200)}\"  slot {index.NameAt(slot)}, " +
+                rows.Add($"{NativeAddress.Va(index.Image, slot)}  il2cpp \"{Show(text)}\"  slot {index.NameAt(slot)}, " +
                          $"{index.CountRefsTo(slot)} refs{(first != null ? $", first in {first}" : "")}");
-                if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, slot), "il2cpp", Format.Clip(text, 400), index.CountRefsTo(slot), first));
+                if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(Entry(NativeAddress.Va(index.Image, slot), "il2cpp", text, index.CountRefsTo(slot), first));
             }
         foreach (var o in frozen)
         {
@@ -504,9 +510,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             if (query != null && !(pattern != null ? timeouts.IsMatch(pattern, o.Text!) : o.Text!.Contains(query, StringComparison.OrdinalIgnoreCase))) continue;
             var refs = index.RefsTo(o.Rva, 1);
             var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
-            rows.Add($"{NativeAddress.Va(index.Image, o.Rva)}  nativeaot \"{Format.Clip(Escape(o.Text!), 200)}\"  {index.NameAt(o.Rva) ?? "frozen string"}, " +
+            rows.Add($"{NativeAddress.Va(index.Image, o.Rva)}  nativeaot \"{Show(o.Text!)}\"  {index.NameAt(o.Rva) ?? "frozen string"}, " +
                      $"{index.CountRefsTo(o.Rva)} refs{(first != null ? $", first in {first}" : "")}");
-            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, o.Rva), "nativeaot", Format.Clip(o.Text!, 400), index.CountRefsTo(o.Rva), first));
+            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(Entry(NativeAddress.Va(index.Image, o.Rva), "nativeaot", o.Text!, index.CountRefsTo(o.Rva), first));
         }
         // the engine's strings the built-in index has not listed (unreferenced, or of other string types)
         var listed = index.Strings.Select(s => s.Rva).ToHashSet();
@@ -518,8 +524,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             var refs = index.RefsTo(s.Rva, 1);
             var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
             var kind = $"{choice.Engine}:{s.Type}";
-            rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {kind} \"{Format.Clip(Escape(s.Text), 200)}\"  {index.CountRefsTo(s.Rva)} refs{(first != null ? $", first in {first}" : "")}");
-            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, s.Rva), kind, s.Text, index.CountRefsTo(s.Rva), first));
+            rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {kind} \"{Show(s.Text)}\"  {index.CountRefsTo(s.Rva)} refs{(first != null ? $", first in {first}" : "")}");
+            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(Entry(NativeAddress.Va(index.Image, s.Rva), kind, s.Text, index.CountRefsTo(s.Rva), first));
         }
         return ToolOutput.With((choice.External ? choice.Line + "\n" : "") + timeouts.Note("string") + pager.PageRows(rows, offset, limit, "string"),
             new NativeStringList(native.Id, items, pageStart, rows.Count, pageStart + items.Count < rows.Count) { NotEvaluated = timeouts.Count });
