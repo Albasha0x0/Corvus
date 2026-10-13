@@ -103,7 +103,16 @@ public static class Containers
             if (bundle != null) return bundle;
             if (NativeAotImageOf(data) is { } aot) return new ContainerContents("NativeAOT executable", [], [NativeAotNote(aot.Describe)]);
         }
+        if (ReaderFor(data, name) is { } reader) return reader.Open(data, name, allFiles, limits, ct);
         return Carve(data, name, pe != null ? "native PE" : kind, limits, ct);
+    }
+
+    /// <summary>The first <see cref="IContainerReader"/> that takes data no built-in reader took, or null.</summary>
+    public static IContainerReader? ReaderFor(ReadOnlySpan<byte> data, string name)
+    {
+        foreach (var reader in Providers.Of<IContainerReader>())
+            if (reader.Accepts(data, name)) return reader;
+        return null;
     }
 
     /// <summary>The NativeAOT view of an ELF or Mach-O image that carries NativeAOT markers, or null.</summary>

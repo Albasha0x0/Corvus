@@ -1,0 +1,106 @@
+using System.Text;
+using dnlib.DotNet;
+using Corvus.Core;
+using Corvus.Services.Analysis;
+
+namespace Corvus.Tests;
+
+/// <summary>The containers family's provider interfaces: type-scan discovery and their use by the readers, the survey and search_container.</summary>
+public sealed class ContainerProviderTests : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly AssemblyWorkspace _workspace = new();
+
+    public void Dispose()
+    {
+        _workspace.Dispose();
+        _dir.Dispose();
+    }
+
+    /// <summary>"FAKEPACK" + name length + name + payload: one file per container.</summary>
+    internal sealed class FakePackReader : IContainerReader
+    {
+        public static readonly byte[] Magic = "FAKEPACK"u8.ToArray();
+        public string Kind => "fakepack";
+        public bool Accepts(ReadOnlySpan<byte> data, string name) => data.StartsWith(Magic);
+
+        public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+        {
+            int n = data[Magic.Length];
+            var inner = Encoding.ASCII.GetString(data, Magic.Length + 1, n);
+            return new ContainerContents(Kind, [new ExtractedItem(inner, data[(Magic.Length + 1 + n)..], "fakepack entry")], []);
+        }
+
+        public static byte[] Pack(string inner, byte[] payload) => [.. Magic, (byte)inner.Length, .. Encoding.ASCII.GetBytes(inner), .. payload];
+    }
+
+    internal sealed class MarkerRules : ISurveyRuleProvider
+    {
+        public IEnumerable<Features.Rule> Rules => [new("carry the test marker", "test", null, null, [["marker:Account"]])];
+        public IReadOnlyCollection<string> Kinds => ["marker"];
+
+        public Evidence? Evaluate(SurveySubject subject, string feature, CancellationToken ct)
+        {
+            var type = feature["marker:".Length..];
+            return subject.Managed?.Module.GetTypes().Any(t => t.Name == type) == true ? new Evidence(feature, 1, [type]) : null;
+        }
+    }
+
+    internal abstract class AbstractReader : IContainerReader
+    {
+        public string Kind => "abstract";
+        public bool Accepts(ReadOnlySpan<byte> data, string name) => true;
+        public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) => throw new InvalidOperationException();
+    }
+
+    internal sealed class NoDefaultConstructorReader(string kind) : IContainerReader
+    {
+        public string Kind => kind;
+        public bool Accepts(ReadOnlySpan<byte> data, string name) => true;
+        public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) => throw new InvalidOperationException();
+    }
+
+    [Fact]
+    public void ScanFindsConcreteProvidersWithADefaultConstructorInNameOrder()
+    {
+        var readers = Providers.Scan<IContainerReader>(typeof(ContainerProviderTests).Assembly);
+        Assert.Contains(readers, r => r is FakePackReader);
+        Assert.DoesNotContain(readers, r => r is AbstractReader or NoDefaultConstructorReader);
+        Assert.Equal(readers.Select(r => r.GetType().FullName).Order(StringComparer.Ordinal), readers.Select(r => r.GetType().FullName));
+        // the server's own scan sees only its assembly; tests add theirs for one async flow
+        Assert.DoesNotContain(Providers.Of<IContainerReader>(), r => r is FakePackReader);
+        using (Providers.With(new FakePackReader())) Assert.Contains(Providers.Of<IContainerReader>(), r => r is FakePackReader);
+        Assert.DoesNotContain(Providers.Of<IContainerReader>(), r => r is FakePackReader);
+    }
+
+    [Fact]
+    public void AReaderOpensDataNoBuiltInReaderTakes()
+    {
+        var file = _dir.File("app.fake");
+        File.WriteAllBytes(file, FakePackReader.Pack("Fixture.dll", File.ReadAllBytes(Env.FixturePath)));
+        Assert.Equal("data with embedded .NET images", Containers.Open(File.ReadAllBytes(file), "app.fake", AnalysisLimits.Default, default).Kind);
+
+        using var _ = Providers.With(new FakePackReader());
+        var report = new UnpackService(_workspace).Unpack(file, _dir.File("out"), load: false, AnalysisLimits.Default, default);
+        Assert.Equal("fakepack", report.Container);
+        var dll = Assert.Single(report.Files);
+        Assert.Equal(".NET assembly", dll.Kind);
+        Assert.EndsWith("Fixture.dll", dll.Path);
+        // nested: an item in the reader's format (plain data to the built-in kinds) is opened too
+        var outer = _dir.File("outer.fake");
+        File.WriteAllBytes(outer, FakePackReader.Pack("inner.fake", File.ReadAllBytes(file)));
+        var listing = new UnpackService(_workspace).List(outer, AnalysisLimits.Default, default);
+        Assert.Equal("inner.fake_unpacked/Fixture.dll", Assert.Single(listing.Assemblies).Path);
+    }
+
+    [Fact]
+    public void SurveyRuleProvidersAddRulesAndFeatureKinds()
+    {
+        using var module = ModuleDefMD.Load(Env.FixturePath);
+        var scan = ModuleScan.Of(module, AnalysisLimits.Default, default);
+        Assert.DoesNotContain(Features.Detect(scan, default), f => f.Category == "test");
+        using var _ = Providers.With(new MarkerRules());
+        var found = Assert.Single(Features.Detect(scan, default), f => f.Category == "test");
+        Assert.Equal("marker:Account", Assert.Single(found.Evidence).Feature);
+    }
+}

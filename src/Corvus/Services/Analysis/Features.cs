@@ -212,24 +212,30 @@ public static class Features
     /// <summary>Feature kinds; managed modules evaluate api / native / str, native images native / str / arg / section / rtti.</summary>
     private static readonly HashSet<string> Kinds = ["api", "native", "str", "arg", "section", "rtti"];
 
-    public static List<Feature> Detect(ModuleScan scan, CancellationToken ct) => Detect(feature => Evaluate(scan, feature), ct);
+    public static List<Feature> Detect(ModuleScan scan, CancellationToken ct) => Detect(feature => Evaluate(scan, feature), new SurveySubject(scan, null), ct);
 
     /// <summary>Rules over a native image (<see cref="NativeFeatureScan"/>).</summary>
-    internal static List<Feature> Detect(NativeFeatureScan scan, CancellationToken ct) => Detect(scan.Evaluate, ct);
+    internal static List<Feature> Detect(NativeFeatureScan scan, CancellationToken ct) => Detect(scan.Evaluate, new SurveySubject(null, scan.Index), ct);
 
-    private static List<Feature> Detect(Func<string, Evidence?> evaluate, CancellationToken ct)
+    /// <summary>The built-in rules, then each <see cref="ISurveyRuleProvider"/>'s.</summary>
+    public static IEnumerable<Rule> AllRules => Rules.Concat(Providers.Of<ISurveyRuleProvider>().SelectMany(p => p.Rules));
+
+    private static List<Feature> Detect(Func<string, Evidence?> evaluate, SurveySubject subject, CancellationToken ct)
     {
         var cache = new Dictionary<string, Evidence?>(StringComparer.Ordinal);
+        var extra = Providers.Of<ISurveyRuleProvider>();
         Evidence? Match(string feature)
         {
             if (cache.TryGetValue(feature, out var e)) return e;
             int colon = feature.IndexOf(':');
-            if (colon < 0 || !Kinds.Contains(feature[..colon])) throw new InvalidOperationException($"Unknown feature kind in rule: {feature}");
-            return cache[feature] = evaluate(feature);
+            var kind = colon < 0 ? feature : feature[..colon];
+            if (Kinds.Contains(kind)) return cache[feature] = evaluate(feature);
+            var provider = extra.FirstOrDefault(p => p.Kinds.Contains(kind)) ?? throw new InvalidOperationException($"Unknown feature kind in rule: {feature}");
+            return cache[feature] = provider.Evaluate(subject, feature, ct);
         }
 
         var found = new List<Feature>();
-        foreach (var rule in Rules)
+        foreach (var rule in AllRules)
         {
             ct.ThrowIfCancellationRequested();
             var evidence = new List<Evidence>();

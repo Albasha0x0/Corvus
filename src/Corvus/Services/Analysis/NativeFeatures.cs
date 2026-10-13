@@ -26,6 +26,8 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
 
     public IReadOnlyList<string> Notes => _notes;
 
+    public NativeCodeIndex Index => index;
+
     private DynamicImportSet Dynamic => _dynamic ??= _calls?.DynamicImports(ct) ?? new DynamicImportSet();
 
     private string Va(uint rva) => NativeAddress.Va(index.Image, rva);

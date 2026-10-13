@@ -395,7 +395,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 relative += ".dll"; // so carved assemblies resolve by name
             found.Add(new Found(relative, item.Bytes, kind, itemSha, item.Origin));
 
-            if (depth >= limits.MaxDepth || !MayContainMore(kind) || (archived && kind == "data")) continue;
+            bool opens = MayContainMore(kind) && !(archived && kind == "data") || Containers.ReaderFor(item.Bytes, item.Name) != null;
+            if (depth >= limits.MaxDepth || !opens) continue;
             try
             {
                 var inner = Containers.Open(item.Bytes, item.Name, limits, ct, allFiles: allFiles);
