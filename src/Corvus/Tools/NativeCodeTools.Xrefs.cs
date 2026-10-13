@@ -36,7 +36,7 @@ public sealed partial class NativeCodeTools
         [Description(EngineDescription + " Adds the RTTI virtual calls an engine lacks.")]
         string? engine = null,
         [Description("to (default), from or both.")] string? direction = null,
-        [Description("any (default); code: calls, jumps; data: reads, writes, pointers, address-taken.")] string? kind = null,
+        [Description("any (default); code: calls, jumps; data: reads, writes, pointers; metadata: .pdata, CFG and export tables.")] string? kind = null,
         [Description("Struct member: typed (default) or all (every function; call again to continue).")] string? scope = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -49,12 +49,13 @@ public sealed partial class NativeCodeTools
             "both" => "both",
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'.", "use to, from or both"),
         };
+        bool metadata = kind?.Trim().ToLowerInvariant() == "metadata";
         bool? code = kind?.Trim().ToLowerInvariant() switch
         {
-            null or "" or "any" => null,
+            null or "" or "any" or "metadata" => null,
             "code" => true,
             "data" => false,
-            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", "use any, code or data"),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", "use any, code, data or metadata"),
         };
         var mode = Mode(engine);
         if ((addresses is { Length: > 0 }) == !string.IsNullOrWhiteSpace(address))
@@ -73,6 +74,14 @@ public sealed partial class NativeCodeTools
             return await FieldXrefs(native, field, mode.Mode, offset, limit, progress, cancellationToken, FieldScope(scope));
         }
         var choice = Choose(mode, native, index);
+        if (metadata)
+        {
+            if (dir != "to") throw new ToolError(ErrorCode.InvalidArgument, "Metadata tables are references to an address.", "use direction=to with kind=metadata");
+            var at = Address(index, address!);
+            var meta = MetadataRows(index.Image, at);
+            return ToolOutput.With($"Metadata references to {NativeAddress.Va(index.Image, at)}:\n" + pager.PageRows(meta, offset, limit, "reference"),
+                Xrefs(native.Id, NativeAddress.Va(index.Image, at), meta, offset, limit, null, choice));
+        }
         var parts = new List<XrefPart>();
         // call arguments only for the page: a kind filter moves rows, so it analyzes every row
         if (dir != "from") parts.Add(await XrefsTo(native, index, address!, choice, progress, cancellationToken, code == null ? (offset, limit) : (0, int.MaxValue)));
@@ -82,12 +91,21 @@ public sealed partial class NativeCodeTools
         var titles = string.Concat(filtered.Select(p => p.Title + (filtered.Count > 1 || code != null ? $"  {Plural(p.Rows.Count, "row")}" +
                                                                                                       (code is { } c ? $", {(c ? "code" : "data")} only" : "") + "\n" : "")));
         var external = choice.External ? "" : Coverage(index);
+        // format tables naming the address are not listed with the code and data references; the engines count them
+        if (!choice.External && dir != "from" && code == null && TryAddress(index, address!) is { } target && MetadataRows(index.Image, target) is { Count: > 0 } extra)
+            titles += $"+{extra.Count} metadata reference{(extra.Count == 1 ? "" : "s")} (.pdata, CFG or export tables; kind=metadata lists them)\n";
         var boundTo = filtered.Select(p => p.BoundTo).FirstOrDefault(b => b != null);
         return ToolOutput.With(titles + choice.Line + "\n" + external + pager.PageRows(rows, offset, limit, "reference"),
             Xrefs(native.Id, filtered[0].Target, rows, offset, limit, boundTo, choice));
     });
 
     private const int MaxXrefTargets = 100;
+
+    private static uint? TryAddress(NativeCodeIndex index, string address)
+    {
+        try { return Address(index, address); }
+        catch (ToolError) { return null; }
+    }
 
     private static List<XrefPart> Filter(List<XrefPart> parts, bool? code) =>
         parts.Select(p => p with { Rows = code is { } c ? p.Rows.Where(r => KindOf(r) is { } k && CodeKinds.Contains(k) == c).ToList() : p.Rows }).ToList();

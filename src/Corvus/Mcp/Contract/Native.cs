@@ -52,6 +52,7 @@ public static partial class ParameterDomains
     {
         ["verify_native_imports"] = new Dictionary<string, Domain> { ["platform"] = Of(["auto", "windows", "linux", "osx", "android", "ios"], "macos") },
         ["get_nativeaot_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "sections", "types", "type", "methods", "strings", "statics"]) },
+        ["get_pe_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "code"]) },
         ["list_functions"] = new Dictionary<string, Domain> { ["sort"] = Of(["address", "name", "size", "callers"]), ["engine"] = Engine,
             ["view"] = Of(["functions", "candidates"]) },
         ["disassemble"] = new Dictionary<string, Domain> { ["engine"] = Engine },
@@ -61,7 +62,7 @@ public static partial class ParameterDomains
         ["search_native_strings"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["list_cpp_classes"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ours", "ida", "ghidra"], "built-in", "builtin") },
         ["get_cfg"] = new Dictionary<string, Domain> { ["engine"] = Engine },
-        ["find_xrefs"] = new Dictionary<string, Domain> { ["engine"] = Engine, ["direction"] = Of(["to", "from", "both"]), ["kind"] = Of(["any", "code", "data"]), ["scope"] = Of(["typed", "all"]) },
+        ["find_xrefs"] = new Dictionary<string, Domain> { ["engine"] = Engine, ["direction"] = Of(["to", "from", "both"]), ["kind"] = Of(["any", "code", "data", "metadata"]), ["scope"] = Of(["typed", "all"]) },
         ["native_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Of(["callers", "callees", "both"]), ["calls"] = Of(["all", "direct", "virtual"]), ["engine"] = Engine },
         ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["search_decompiled"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },

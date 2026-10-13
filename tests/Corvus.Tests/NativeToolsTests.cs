@@ -71,6 +71,10 @@ public class NativeToolsTests
         Assert.Contains("References to", xrefs);
         Assert.Contains("ImportCall", xrefs);
 
+        // .pdata names every x64 function start: counted beside the references, listed with kind=metadata
+        Assert.Contains("metadata reference", await tools.FindXrefs("kernel32.dll", "BaseThreadInitThunk"));
+        Assert.Contains(".pdata RUNTIME_FUNCTION begin", await tools.FindXrefs("kernel32.dll", "BaseThreadInitThunk", kind: "metadata"));
+
         var tree = await tools.NativeCallTree("kernel32.dll", "BaseThreadInitThunk", depth: 2);
         Assert.StartsWith("Engine: ours (", tree);
         Assert.StartsWith("  BaseThreadInitThunk", tree.Split('\n')[2]);
