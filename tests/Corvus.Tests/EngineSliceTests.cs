@@ -102,6 +102,14 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(("argument", 1), (session.Requests[0].Seed, session.Requests[0].Index));
         Assert.Contains(g.Values, v => v.Text.StartsWith("0x2A = FILE_WRITE_DATA", StringComparison.Ordinal)); // decoded through dwDesiredAccess
         Assert.Equal((1, 0), (provider.EngineSlices, provider.Fallbacks));
+        // the same trace again reuses the graph and a fresh provider counts nothing: the note still says what built it (E2)
+        var note = NativeTraceTools.SliceNote(g, provider);
+        var again = new EngineSliceProvider(a, session);
+        var g1 = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 1), again);
+        Assert.Same(g, g1);
+        Assert.Equal((0, 0), (again.EngineSlices, again.Fallbacks));
+        Assert.Equal("ida answered 1 slice; 0 slices fell back to the built-in analysis", note);
+        Assert.Equal(note, NativeTraceTools.SliceNote(g1, again));
 
         // a stack-slot location is not one the engine names: the built-in slice answers it, and says so
         var stack = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, site), "[rsp+20h]", null, default);

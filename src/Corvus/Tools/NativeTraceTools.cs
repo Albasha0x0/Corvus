@@ -144,15 +144,24 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
             var provider = session != null ? new EngineSliceProvider(host, session) : null;
             var graph = ValueTrace.Build(host, seed, options, provider, cancellationToken, links is { Any: true } ? links : null, new NativeTraceTypes(workspace, code));
             var report = Report(index, graph, offset, limit);
-            if (provider != null && provider.EngineSlices + provider.Fallbacks > 0)
-                report = report with
-                {
-                    Notes = [.. report.Notes, $"{provider.Engine} answered {ToolSupport.Plural(provider.EngineSlices, "slice")}; " +
-                                              $"{ToolSupport.Plural(provider.Fallbacks, "slice")} fell back to the built-in analysis"],
-                };
+            if (provider != null && SliceNote(graph, provider) is { } note) report = report with { Notes = [.. report.Notes, note] };
             return ToolOutput.With(choice.Line + "\n" + Text(index, graph, report), report);
         }, cancellationToken);
     });
+
+    /// <summary>Engine and fallback slice counts of a built graph, recorded by the call that built it.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ValueTraceGraph, Tuple<int, int>> SliceCounts = new();
+
+    /// <summary>
+    /// "ida answered N slices; M fell back": a graph is built once per key and reused (pages, repeats), so its counts are kept
+    /// with it and every call on it says the same.
+    /// </summary>
+    internal static string? SliceNote(ValueTraceGraph graph, EngineSliceProvider provider)
+    {
+        var counts = SliceCounts.GetValue(graph, _ => new Tuple<int, int>(provider.EngineSlices, provider.Fallbacks));
+        return counts.Item1 + counts.Item2 == 0 ? null
+            : $"{provider.Engine} answered {ToolSupport.Plural(counts.Item1, "slice")}; {ToolSupport.Plural(counts.Item2, "slice")} fell back to the built-in analysis";
+    }
 
     /// <summary>Loads the image if given by path and waits for its code index (x86 / x64 / ARM64).</summary>
     internal static async Task<(LoadedNative Native, NativeCodeIndex Index)> OpenIndex(AssemblyWorkspace workspace, NativeCodeService code, string image, IProgress<ProgressNotificationValue> progress,
