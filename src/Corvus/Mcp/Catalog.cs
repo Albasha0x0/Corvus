@@ -52,6 +52,7 @@ public static partial class Catalog
             ParameterDomains.Apply(tools);
             DropNullDefaults(tools);
             DropNullableInputs(tools);
+            DropImpliedDefaults(tools);
             ToolOutput.ApplyEnvelope(tools);
             foreach (var tool in tools)
                 if (tool.ProtocolTool.OutputSchema is { } output)
@@ -174,6 +175,23 @@ public static partial class Catalog
             else if (node is JsonArray a)
                 foreach (var child in a) changed |= Drop(child);
             return changed;
+        }
+    }
+
+    /// <summary>Removes the defaults the conventions imply: a boolean without one is false (S7.2), an offset 0 (S2.1).</summary>
+    private static void DropImpliedDefaults(IEnumerable<McpServerTool> tools)
+    {
+        foreach (var tool in tools)
+        {
+            var t = tool.ProtocolTool;
+            if (JsonNode.Parse(t.InputSchema.GetRawText()) is not JsonObject schema || schema["properties"] is not JsonObject properties) continue;
+            bool changed = false;
+            foreach (var (name, property) in properties)
+                if (property is JsonObject p && p["default"] is JsonValue d
+                    && ((string?)p["type"] == "boolean" && d.GetValueKind() == JsonValueKind.False
+                        || name == "offset" && d.GetValueKind() == JsonValueKind.Number && d.GetValue<long>() == 0))
+                    changed |= p.Remove("default");
+            if (changed) t.InputSchema = JsonSerializer.SerializeToElement(schema);
         }
     }
 
