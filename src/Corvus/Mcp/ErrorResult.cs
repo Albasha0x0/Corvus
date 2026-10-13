@@ -18,8 +18,34 @@ internal static class ErrorResult
     public const string JsonMarker = "\n\nerror (json): ";
 
     /// <param name="store">Keeps a partial result over <see cref="ToolError.MaxPartialTokens"/>; without one it is dropped.</param>
-    public static CallToolResult From(ToolError error, string? tool, ResultStore? store = null) =>
-        Create(Format.EscapeInvisible(error.Render(tool)), error.ToJson(tool, store == null ? null : partial => Keep(store, tool, partial)));
+    public static CallToolResult From(ToolError error, string? tool, ResultStore? store = null)
+    {
+        if (store != null && Shorten(error, tool, store) is { } head) error = head;
+        return Create(Format.EscapeInvisible(error.Render(tool)), error.ToJson(tool, store == null ? null : partial => Keep(store, tool, partial)));
+    }
+
+    /// <summary>Estimated tokens of the first block: the error budget (S1.3) less a tenth, for text the estimate counts low.</summary>
+    public static int MaxTokens => OutputClasses.Budget(OutputClass.Error) * 9 / 10;
+
+    /// <summary>
+    /// An error longer than <see cref="MaxTokens"/> (160 compiler diagnostics): the head of its message, whole lines, and the
+    /// full error kept for read_result (details.resultId); null when it fits.
+    /// </summary>
+    private static ToolError? Shorten(ToolError error, string? tool, ResultStore store)
+    {
+        var text = error.Render(tool);
+        int tokens = TokenEstimate.Of(text);
+        if (tokens <= MaxTokens) return null;
+        var id = store.Keep(text, CallLog.Origin(tool, null));
+        var note = $"\n[the full error ({text.Length:N0} chars) is kept as {id}; read_result id={id} shows it]";
+        int room = MaxTokens - (tokens - TokenEstimate.Of(error.Message)) - TokenEstimate.Of(note) - 16;
+        int end = OutputPager.FitEnd(error.Message, 0, Math.Max(100, room), null);
+        var details = error.Details == null ? new JsonObject()
+            : System.Text.Json.JsonSerializer.SerializeToNode(error.Details, error.Details.GetType()) as JsonObject ?? new JsonObject { ["value"] = System.Text.Json.JsonSerializer.SerializeToNode(error.Details, error.Details.GetType()) };
+        details["resultId"] = id;
+        return new ToolError(error.Code, error.Message[..end].TrimEnd('\n') + note, error.Remediation)
+            { Details = details, Partial = error.Partial, RetryAfter = error.RetryAfter, Retryable = error.Retryable };
+    }
 
     private static string Keep(ResultStore store, string? tool, string text) => store.Keep(text, CallLog.Origin(tool, null));
 

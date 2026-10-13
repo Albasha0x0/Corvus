@@ -176,6 +176,27 @@ public class ToolOutputTests
         Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 2_100);
     }
 
+    /// <summary>An error over the error budget (160 compiler diagnostics) sends its head and keeps the full error (S1.3, G1).</summary>
+    [Fact]
+    public async Task LongErrorKeepsItsHeadWithinTheErrorBudget()
+    {
+        using var services = Services();
+        var message = "C# compilation failed (160 error(s)). Nothing was changed.\n" +
+                      string.Concat(Enumerable.Range(0, 160).Select(i => $"  CS1705 at decompiled context line {i}: Assembly 'PresentationFramework' uses 'WindowsBase, Version=6.0.2.0'\n"));
+        var r = await Call(services, "add_members_csharp", _ => throw new ToolError(ErrorCode.InvalidArgument, message, "fix the body") { Details = new { parameter = "code" } });
+        var first = ((TextContentBlock)r.Content[0]).Text;
+        Assert.StartsWith("Error (invalid_argument) in add_members_csharp: C# compilation failed (160 error(s)).", first);
+        Assert.EndsWith("\nNext: fix the body", first);
+        Assert.InRange(Tokens(first), 1, 1_000);
+        var json = McpProtocolTests.ErrorJson(r);
+        var id = json.GetProperty("details").GetProperty("resultId").GetString()!;
+        Assert.Equal("code", json.GetProperty("details").GetProperty("parameter").GetString());
+        Assert.Contains($"read_result id={id}", first);
+        Assert.Contains("line 159:", services.GetRequiredService<ResultStore>().Read(id).Text);
+        var small = await Call(services, "add_members_csharp", _ => throw new ToolError(ErrorCode.InvalidArgument, "short", "fix it"));
+        Assert.DoesNotContain("read_result", ((TextContentBlock)small.Content[0]).Text);
+    }
+
     /// <summary>maxTokens raises the page up to the client ceiling; below 500 it is an argument error.</summary>
     [Fact]
     public async Task MaxTokensSetsTheBudget()
