@@ -405,7 +405,8 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         return sb.ToString();
     }
 
-    public async Task<string> CallTree(LoadedNative native, NativeCodeIndex index, uint rva, bool callers, int depth, int maxNodes, int offset, int? maxTokens,
+    /// <summary>The engine's call tree as indented text, unpaged (native_call_tree pages it by nodes).</summary>
+    public async Task<string> CallTree(LoadedNative native, NativeCodeIndex index, uint rva, bool callers, int depth, int maxNodes,
         CallEdgeFilter edges, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await Session(native, choice, progress, ct);
@@ -471,6 +472,6 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             : $"[virtual?: one of {index.VirtualCalls.SiteAt(v.From)?.TargetCount ?? 0}, ours]";
 
         await Walk(root.StartRva, 0, null);
-        return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxTokens);
+        return sb.ToString();
     }
 }

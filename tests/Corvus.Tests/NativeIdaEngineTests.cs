@@ -387,13 +387,13 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var through = await tools.NativeCallTree(native.Id, address, direction: "both", engine: engine);
         output.WriteLine(ours + "\n" + through);
         Assert.Contains(NativeEngineCode.Via(engine), through);
-        static HashSet<string> Sites(string text, string section) => System.Text.RegularExpressions.Regex.Match(text, section + @" \(\d+\):\r?\n((?:  .*\r?\n?)*)")
-            .Groups[1].Value.Split('\n').Where(l => l.Length > 2).Select(l => l.Trim().Split(' ')[0]).ToHashSet();
-        var ourCallers = Sites(ours, "callers");
+        static HashSet<string> Sites(string text, string role) => text.Split('\n').Select(l => l.Trim())
+            .Where(l => l.StartsWith(role + "  ", StringComparison.Ordinal)).Select(l => l[(role.Length + 2)..].Split(' ')[0]).ToHashSet();
+        var ourCallers = Sites(ours, "caller");
         Assert.NotEmpty(ourCallers);
-        Assert.Subset(Sites(through, "callers"), ourCallers);
-        Assert.NotEmpty(Sites(through, "callees"));
-        Assert.Subset(Sites(through, "callees"), Sites(ours, "callees"));
+        Assert.Subset(Sites(through, "caller"), ourCallers);
+        Assert.NotEmpty(Sites(through, "callee"));
+        Assert.Subset(Sites(through, "callee"), Sites(ours, "callee"));
     }
 
     [Trait("Speed", "Slow")]

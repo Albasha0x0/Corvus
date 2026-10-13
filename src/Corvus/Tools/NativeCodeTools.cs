@@ -290,22 +290,23 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     [GeneratedRegex(@"^(?:\[(?<image>[^\]]+)\] )?(?<va>0x[0-9A-F]+)\s+(?<kind>\S+)\s+(?<where>\(no function\)|\S+)\s*(?<rest>.*)$")]
     private static partial Regex XrefRow();
 
-    [McpServerTool(Name = "native_call_tree", Title = "Native call tree")]
-    [Description("Callers or callees of a native function, several levels deep, through thunks and import slots; callers of module!import: the " +
-                 "functions calling through it. Across loaded images: an import continues into the provider's export (forwarders and thunks " +
-                 "followed), and callers include importing call sites in other images. Callees include GetProcAddress pointers ([dynamic]) and " +
-                 "RTTI-resolved virtual targets ([virtual]: the only one; [virtual?: one of n]). Repeats and recursion are marked, not expanded. " +
-                 "direction=both: one level each way with call sites and edge flags. " + IndexNote)]
+    [McpServerTool(Name = "native_call_tree", Title = "Native call tree", UseStructuredContent = true, OutputSchemaType = typeof(NativeCallTreeResult))]
+    [Description("Callers or callees of a native function, several levels deep, through thunks and import slots, as nodes paged in tree order. " +
+                 "Callers of module!import: the functions calling through it. Imports continue into loaded providers' exports; callers span " +
+                 "loaded images. Callees include GetProcAddress pointers ([dynamic]) and RTTI virtual targets " +
+                 "([virtual], [virtual?: one of n]). Repeats are not expanded; frontier lists nodes cut by depth or maxNodes. " +
+                 "direction=both: one level each way by call site. " + IndexNote)]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
-        [Description("both: depth 1, with call sites.")] string direction = "callees",
+        [Description("callees (default), callers, or both (depth 1, by call site).")] string direction = "callees",
         [Description("Levels (1-8).")] int depth = 3,
-        [Description("Max nodes.")] int maxNodes = 500,
-        [Description(CharOffsetDescription)] int offset = 0,
+        [Description("Max nodes in the tree (default 250).")] int maxNodes = 250,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description("Max nodes per page.")] int limit = 200,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        [Description("Call edges to follow: all (default), direct (no virtual edges) or virtual (only virtual edges).")] string? calls = null,
-        [Description(EngineDescription + " An engine's edges get the RTTI virtual calls it lacks; other images use the built-in index.")] string? engine = null,
+        [Description("Call edges: all (default), direct or virtual.")] string? calls = null,
+        [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -323,81 +324,83 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             "virtual" => CallEdgeFilter.Virtual,
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown calls filter '{calls}'.", "use all, direct or virtual"),
         };
+        string dir = both ? "both" : callers ? "callers" : "callees";
+        depth = Math.Clamp(depth, 1, 8);
+        maxNodes = ClampLimit(maxNodes, 20_000);
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var choice = Choose(mode, native, index);
+        uint at = Address(index, function);
         if (both)
         {
-            var sites = choice.External ? await _engine!.CallSites(native, index, Address(index, function), edges, choice, progress, cancellationToken)
-                : OurCallSites(index, FunctionAt(index, Address(index, function)), edges, cancellationToken);
-            return choice.Line + "\n" + pager.Page(sites, offset, maxTokens);
+            var fn = choice.External ? null : FunctionAt(index, at);
+            var sites = choice.External ? await _engine!.CallSites(native, index, at, edges, choice, progress, cancellationToken)
+                : OurCallSites(index, fn!, edges, cancellationToken);
+            var head = sites.Split('\n')[0];
+            var rootFn = fn ?? index.FunctionAt(at);
+            var rows = ParseSites(sites, index, rootFn != null ? index.NameAt(rootFn.Start) ?? rootFn.Name : NativeAddress.Va(index.Image, at), rootFn?.Start ?? at);
+            int up = rows.Count(r => r.Node.Flags?[0] == "caller"), down = rows.Count - 1 - up;
+            return TreePage(limit, native, rows[0].Line, dir, rows, offset, $"{head}: {Plural(up, "caller")}, {Plural(down, "callee")}\n", choice);
         }
         if (choice.External)
-            return await _engine!.CallTree(native, index, Address(index, function), callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), offset, maxTokens,
-                edges, choice, progress, cancellationToken);
-        uint at = Address(index, function);
+        {
+            var text = await _engine!.CallTree(native, index, at, callers, depth, maxNodes, edges, choice, progress, cancellationToken);
+            var rows = ParseTree(text);
+            return TreePage(limit, native, rows.Count > 0 ? rows[0].Node.Name : function, dir, rows, offset, text.Split('\n')[0] + "\n", choice);
+        }
         if (callers && index.FunctionAt(at) == null && index.Image.Imports.FirstOrDefault(i => i.SlotRva == at) is { } import)
         {
             if (link != null) await link.WarmUp(null, cancellationToken);
-            return choice.Line + "\n" + pager.Page(workspace.Read(() => ImportCallerTree(native, index, import, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), edges, cancellationToken)), offset, maxTokens);
+            var rows = workspace.Read(() => ImportCallerTree(native, index, import, depth, maxNodes, edges, cancellationToken));
+            return TreePage(limit, native, rows[0].Node.Name, dir, rows, offset, "", choice);
         }
-        var fn = FunctionAt(index, at);
+        var root = FunctionAt(index, at);
         if (link != null)
         {
             await link.WarmUp(null, cancellationToken);
+            var nodes = new List<NativeTreeNode>();
             var text = new StringBuilder();
-            workspace.Read(() => link.AppendTree(text, native, fn, callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), 0, true, cancellationToken, edges));
-            return choice.Line + "\n" + pager.Page(text.ToString());
+            workspace.Read(() => link.AppendTree(text, native, root, callers, depth, maxNodes, 0, true, cancellationToken, edges, nodes, null, native));
+            return TreePage(limit, native, root.Name, dir, Zip(text.ToString(), nodes), offset, "", choice);
         }
-        var root = index.CallTree(fn, Math.Clamp(depth, 1, 8), callers, ClampLimit(maxNodes, 20_000), edges);
-        var dynamic = callers || edges == CallEdgeFilter.Virtual ? new HashSet<CallTreeNode>() : NativeCallTools.AddDynamicCallees(index, root, cancellationToken);
-        var sb = new StringBuilder();
-        void Walk(CallTreeNode node, int level)
-        {
-            var name = node.Function?.Name ?? (node.Import != null ? NativeCodeIndex.ImportName(node.Import) : NativeAddress.Va(index.Image, node.Address));
-            sb.Append(new string(' ', level * 2)).Append(name)
-              .Append(dynamic.Contains(node) ? "  [dynamic]" : "")
-              .Append(node.Via switch
-              {
-                  XrefKind.VirtualExact => "  [virtual]",
-                  XrefKind.VirtualPossible => $"  [virtual?: one of {index.VirtualCalls.SiteAt(node.Site)?.TargetCount ?? 0}]",
-                  _ => "",
-              })
-              .Append(node.Function != null ? $"  {NativeAddress.Va(index.Image, node.Function.Start)}" : "")
-              .Append(node.Repeated ? "  (repeated)" : "").Append(node.Truncated ? "  (more not shown)" : "").AppendLine();
-            foreach (var child in node.Children) Walk(child, level + 1);
-        }
-        Walk(root, 0);
-        return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxTokens);
+        var tree = index.CallTree(root, depth, callers, maxNodes, edges);
+        var dynamic = callers || edges == CallEdgeFilter.Virtual ? new HashSet<CallTreeNode>() : NativeCallTools.AddDynamicCallees(index, tree, cancellationToken);
+        return TreePage(limit, native, root.Name, dir, IndexTree(index, tree, dynamic), offset, "", choice);
     });
 
     /// <summary>Callers of an import: the functions calling through its slot (or a thunk jumping through it), each with its own callers.</summary>
-    private string ImportCallerTree(LoadedNative native, NativeCodeIndex index, NativeImport import, int depth, int maxNodes, CallEdgeFilter edges, CancellationToken ct)
+    private List<TreeRow> ImportCallerTree(LoadedNative native, NativeCodeIndex index, NativeImport import, int depth, int maxNodes, CallEdgeFilter edges, CancellationToken ct)
     {
-        var sb = new StringBuilder($"{NativeCodeIndex.ImportName(import)}  (import slot at {NativeAddress.Va(index.Image, import.SlotRva)})\n");
+        var name = NativeCodeIndex.ImportName(import);
+        var slot = NativeAddress.Va(index.Image, import.SlotRva);
+        var nodes = new List<NativeTreeNode> { new(0, null, 0, name, slot, null, null, null) { Note = "import slot" } };
+        var text = new StringBuilder($"{name}  (import slot at {slot})\n");
         var callers = index.Callers(import).Where(c => c.Caller != null).Select(c => c.Caller!).DistinctBy(f => f.Start).ToList();
-        if (callers.Count == 0) sb.AppendLine("  nothing calls through it");
-        int nodes = 0;
+        int count = 0;
+        bool more = false;
         foreach (var caller in callers)
         {
-            if (nodes >= maxNodes) { sb.AppendLine("  (more not shown)"); break; }
+            if (count >= maxNodes) { more = true; break; }
             if (link != null)
             {
-                nodes += link.AppendTree(sb, native, caller, callers: true, depth - 1, maxNodes - nodes, 1, withRoot: true, ct, edges);
+                count += link.AppendTree(text, native, caller, callers: true, depth - 1, maxNodes - count, 1, withRoot: true, ct, edges, nodes, 0, native);
                 continue;
             }
-            var root = index.CallTree(caller, depth - 1, callers: true, maxNodes - nodes, edges);
-            void Walk(CallTreeNode node, int level)
+            var tree = index.CallTree(caller, depth - 1, callers: true, maxNodes - count, edges);
+            int start = nodes.Count;
+            foreach (var r in IndexTree(index, tree, []))
             {
-                nodes++;
-                sb.Append(new string(' ', level * 2)).Append(node.Function?.Name ?? NativeAddress.Va(index.Image, node.Address))
-                  .Append(node.Function != null ? $"  {NativeAddress.Va(index.Image, node.Function.Start)}" : "")
-                  .Append(node.Repeated ? "  (repeated)" : "").Append(node.Truncated ? "  (more not shown)" : "").AppendLine();
-                foreach (var child in node.Children) Walk(child, level + 1);
+                count++;
+                nodes.Add(r.Node with { Id = r.Node.Id + start, Parent = r.Node.Parent is { } p ? p + start : 0, Depth = r.Node.Depth + 1 });
+                text.Append("  ").AppendLine(r.Line);
             }
-            Walk(root, 1);
         }
-        return sb.ToString();
+        var rows = Zip(text.ToString(), nodes);
+        for (int i = 1; i < rows.Count; i++)
+            if (rows[i].Node.Parent == 0 && rows[i].Node.Edge == null) rows[i] = rows[i] with { Node = rows[i].Node with { Edge = "import" } };
+        if (callers.Count == 0) rows[0] = rows[0] with { Line = rows[0].Line + "  (nothing calls through it)" };
+        if (more) rows[0] = rows[0] with { Node = rows[0].Node with { Flags = ["more"] }, Line = rows[0].Line + "  (more not shown)" };
+        return rows;
     }
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]

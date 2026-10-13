@@ -79,9 +79,9 @@ public sealed class NativeImportCallerTests : IDisposable
         var tree = await code.NativeCallTree("app.exe", "provider_2c9d.dll!OpenThing", direction: "callers");
         Assert.Contains("provider_2c9d!OpenThing  (import slot at 0x", tree);
         var lines = tree.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
-        int helper = lines.FindIndex(l => l.StartsWith("  sub_", StringComparison.Ordinal));
+        int helper = lines.FindIndex(l => l.StartsWith("    sub_", StringComparison.Ordinal));
         Assert.True(helper > 0, tree);
-        Assert.StartsWith("    Main", lines[helper + 1]);
+        Assert.StartsWith("      Main", lines[helper + 1]);
     }
 
     [Fact]

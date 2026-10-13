@@ -73,7 +73,7 @@ public class NativeToolsTests
 
         var tree = await tools.NativeCallTree("kernel32.dll", "BaseThreadInitThunk", depth: 2);
         Assert.StartsWith("Engine: ours (", tree);
-        Assert.StartsWith("BaseThreadInitThunk", tree.Split('\n')[1]);
+        Assert.StartsWith("  BaseThreadInitThunk", tree.Split('\n')[2]);
 
         var strings = await tools.SearchNativeStrings("kernel32.dll", ".dll", limit: 5);
         Assert.Contains("refs", strings);

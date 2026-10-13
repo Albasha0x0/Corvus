@@ -81,7 +81,7 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
 
         // a user name reaches Ghidra's listing and pseudocode
         var index = await rig.Code.Index(native, null, default);
-        var callee = Regex.Match(tree, @"\n  (\S+)  0x([0-9A-F]+)").Groups[2].Value;
+        var callee = Regex.Match(tree, @"\n    (\S+)  0x([0-9A-F]+)").Groups[2].Value;
         var calleeRva = (uint)(Convert.ToUInt64(callee, 16) - native.Image.ImageBase);
         new NativeEditService(rig.Workspace, rig.Code).Rename(native, index, calleeRva, "SampleRenamedHelper", false);
         var decompiled = await rig.Analysis.DecompileNative(native.Id, Export, engine: "ghidra");

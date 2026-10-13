@@ -1,0 +1,132 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "root": {
+      "description": "Root function (or import) and its VA.",
+      "type": "string"
+    },
+    "direction": {
+      "description": "callers, callees or both (one level: each node's site is its call instruction).",
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Node id, 0 for the root.",
+            "type": "integer"
+          },
+          "parent": {
+            "description": "Parent node id; absent on the root.",
+            "type": "integer"
+          },
+          "depth": {
+            "description": "Levels below the root.",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Function, import (module!name) or managed method.",
+            "type": "string"
+          },
+          "address": {
+            "description": "VA of the function or import slot; absent when unresolved.",
+            "type": "string"
+          },
+          "image": {
+            "description": "Image id when it differs from the root's.",
+            "type": "string"
+          },
+          "edge": {
+            "description": "How the parent reaches it: call, jump (tail call), import, virtual, virtual?, dynamic, pinvoke, native (a managed method's native body), managed.",
+            "type": "string"
+          },
+          "flags": {
+            "description": "repeated (expanded elsewhere), more (children not expanded), unresolved, not-loaded; caller or callee by call site.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "description": "Binding or edge detail: the provider of an import, the candidate count of a virtual call.",
+            "type": "string"
+          },
+          "site": {
+            "description": "VA of the call instruction of the edge, when the tree is by call site.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "depth",
+          "name"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "frontier": {
+      "description": "VAs of nodes not expanded (depth or maxNodes reached): pass one as function to continue there.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "engine": {
+      "description": "Which analysis produced the result: ours (the built-in index), ida (IDA's analysis through idalib) or ghidra (Ghidra's analysis).",
+      "type": "string"
+    },
+    "engineNote": {
+      "description": "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).",
+      "type": "string"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "root",
+    "direction",
+    "items",
+    "offset",
+    "total",
+    "engine"
+  ]
+}

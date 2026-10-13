@@ -187,8 +187,7 @@ public sealed class EngineViewTests : IDisposable
         var native = await Loaded(rig);
         var ours = await rig.Tools.NativeCallTree(rig.Image, "First", direction: "both");
         Assert.Contains("one level, by call site", ours);
-        Assert.Matches(@"callers \(\d+\):", ours);
-        Assert.Matches(@"callees \(\d+\):", ours);
+        Assert.Matches(@"\d+ callers, \d+ callees", ours);
         Assert.Equal(0, rig.Provider.Opens);
 
         var first = (await rig.Code.Index(native, null, default)).AddressOfName("First")!.Value;
@@ -196,8 +195,9 @@ public sealed class EngineViewTests : IDisposable
             new NativeFunctionInfo(first + 0x100, first + 0x110, "helper", NativeFunctionFlags.None)];
         var engine = await rig.Tools.NativeCallTree(rig.Image, "First", direction: "both", engine: "ghidra");
         Assert.Contains("(via Ghidra)", engine);
-        Assert.Matches(@"callers \(1\):\r?\n  0x[0-9A-F]+  \S+\+0x4  \[call, direct\]", engine);
-        Assert.Matches(@"callees \(1\):\r?\n  0x[0-9A-F]+  -> \S+  0x[0-9A-F]+  \[call, direct\]", engine);
+        Assert.Contains("1 caller, 1 callee", engine);
+        Assert.Matches(@"\n  caller  0x[0-9A-F]+  \S+\+0x4  \[call, direct\]", engine);
+        Assert.Matches(@"\n  callee  0x[0-9A-F]+  -> \S+  0x[0-9A-F]+  \[call, direct\]", engine);
     }
 
     [Fact]
