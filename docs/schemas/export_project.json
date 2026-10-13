@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "properties": {
+    "applied": {
+      "description": "The export completed and is in outputDirectory.",
+      "type": "boolean"
+    },
+    "outputDirectory": {
+      "type": "string"
+    },
+    "files": {
+      "description": "Files written.",
+      "type": "integer"
+    },
+    "projectFile": {
+      "description": ".csproj, or the Gradle build file of a package.",
+      "type": "string"
+    },
+    "failedTypes": {
+      "description": "Types the decompiler failed on; their files hold the error.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "replaced": {
+      "description": "A previous export in the directory was replaced (overwrite=true).",
+      "type": "boolean"
+    },
+    "notes": {
+      "description": "Packages: what the sources are and other notes.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "applied",
+    "outputDirectory",
+    "files",
+    "failedTypes"
+  ]
+}

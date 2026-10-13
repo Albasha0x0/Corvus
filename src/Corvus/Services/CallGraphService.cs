@@ -59,13 +59,13 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
 
     private void BuildInSections(CancellationToken ct)
     {
-        var (key, assemblies, work) = workspace.Read(() => (StateKey(), workspace.Assemblies, Types(workspace.Assemblies)), ct);
+        var (key, assemblies, work, loadedModules) = workspace.Read(() =>
+            (StateKey(), workspace.Assemblies, Types(workspace.Assemblies), workspace.Assemblies.Select(a => (ModuleDef)a.Module).ToHashSet()), ct);
         lock (_sync)
         {
             if (_graph?.Key == key) return;
         }
         var resolved = new ConcurrentDictionary<IMethod, MethodDef?>();
-        var loadedModules = assemblies.Select(a => (ModuleDef)a.Module).ToHashSet();
         var edges = new List<Call>();
         bool Section(Action read) => workspace.Read(() =>
         {

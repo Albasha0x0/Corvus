@@ -31,13 +31,26 @@ public sealed class LoadedAssembly : IDisposable
         Id = id;
         FilePath = filePath;
         _originalBytes = bytes;
-        Module = module;
+        _module = module;
     }
 
     /// <summary>Unique handle used in tool calls; the simple name, suffixed #n on collision.</summary>
     public string Id { get; }
     public string FilePath { get; }
-    public ModuleDefMD Module { get; private set; }
+    public ModuleDefMD Module
+    {
+        get
+        {
+            if (Shared) AssemblyWorkspace.RequireLock(this, "the module");
+            return _module;
+        }
+        private set => _module = value;
+    }
+
+    private ModuleDefMD _module;
+
+    /// <summary>In a workspace: its module and reader are read under the workspace lock (<see cref="AssemblyWorkspace.CheckLockScope"/>).</summary>
+    internal bool Shared { get; init; }
     public string AssemblyName => Module.Assembly?.Name ?? Path.GetFileNameWithoutExtension(FilePath);
     public string FullAssemblyName => Module.Assembly?.FullName ?? Module.Name;
 
@@ -260,6 +273,7 @@ public sealed class LoadedAssembly : IDisposable
     /// </summary>
     public PEFile GetPEFile()
     {
+        if (Shared) AssemblyWorkspace.RequireLock(this, "the decompiler reader");
         using (AssemblyWorkspace.Lock(_sync))
         {
             if (_peFile == null || _peFileVersion != Version)

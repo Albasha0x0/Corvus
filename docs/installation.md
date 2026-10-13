@@ -246,6 +246,7 @@ Server options and their environment variables are in the README ("Server option
 | `CORVUS_ANALYSIS_CACHE` | Folder of saved engine databases (IDA, Ghidra), keyed by file hash. |
 | `CORVUS_ANALYSIS_CACHE_MB`, `CORVUS_ANALYSIS_CACHE_DAYS` | Bounds of that folder (default 32768 MB and 60 days unused): after an engine opens an image, entries unused that long, then the least recently used beyond the size, are deleted; an entry open in any server is kept. |
 | `CORVUS_RESULT_CACHE`, `CORVUS_RESULT_CACHE_MB`, `CORVUS_RESULT_CACHE_DAYS` | Folder of kept results (`read_result` ids; default `results` in the data folder, `off` keeps them in memory only) and its bounds (default 512 MB and 7 days unused). |
+| `CORVUS_LOCK_CHECK` | `1`: a tool call that reads a loaded assembly's module or decompiler reader without holding the workspace lock fails (a development check; the test suite turns it on). |
 | `CORVUS_MAX_LEFTOVER_CALLS` | Calls cancelled by the client or past their deadline that may still run in the background (default 2); at that many, a new call waits for one to finish until its own deadline, then is refused with a retryable `provider_unavailable` and `details.retryAfterMs`. |
 | `CORVUS_MAX_OUTPUT_TOKENS` | Ceiling of a result's text and structured content, each, in estimated tokens; a call's `maxTokens` and the per-class default page stay below it. |
 | `CORVUS_RESULT_MODE` | `json`: the text block of a structured result is its compact JSON (the MCP spec's suggestion) instead of readable text. |

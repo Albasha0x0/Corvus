@@ -484,14 +484,17 @@ Read a resource: text as text, binary as hex preview, .resources as an entry lis
 
 ### export_project
 
-**Export C# project** (edit, idempotent, long-running)
+**Export C# project** (destructive, idempotent, long-running)
 
-Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources), to grep or browse a large codebase with file tools. An .apk / .aab path gives a Gradle project (decoded manifest and resources, Java through JADX when configured, else smali).
+Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources), to grep or browse a large codebase with file tools. An .apk / .aab path gives a Gradle project (decoded manifest and resources, Java through JADX when configured, else smali). Written whole or not at all.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 | `outputDirectory` | string | yes |  | Empty or new output directory. |
+| `overwrite` | boolean |  | `false` | Replace a previous export in outputDirectory. |
+
+Structured output: `applied`, `outputDirectory`, `files`, `projectFile`, `failedTypes`, `replaced`, `notes`.
 
 ### get_r2r_code
 

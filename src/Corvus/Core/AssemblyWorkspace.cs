@@ -149,13 +149,37 @@ public sealed class AssemblyWorkspace : IDisposable
         if (_holders.TryGetValue(id, out var user) && --user.Depth == 0) _holders.TryRemove(id, out _);
     }
 
+    /// <summary>Workspace locks held by this flow (tasks started under a lock inherit it).</summary>
+    private static readonly AsyncLocal<int> LockDepth = new();
+
+    /// <summary>
+    /// Tests: a tool call that reads a loaded assembly's module or decompiler reader without holding the workspace lock throws
+    /// (an edit, reload or unload meanwhile disposes them). Also on with CORVUS_LOCK_CHECK=1.
+    /// </summary>
+    public static bool CheckLockScope { get; set; } = Environment.GetEnvironmentVariable("CORVUS_LOCK_CHECK") == "1";
+
+    /// <summary>Throws when <see cref="CheckLockScope"/> is on, a tool call is running and it holds no workspace lock.</summary>
+    internal static void RequireLock(LoadedAssembly asm, string what)
+    {
+        if (CheckLockScope && Call.Value != null && LockDepth.Value == 0)
+            throw new InvalidOperationException($"{asm.Id}: {what} used outside the workspace lock; an edit, reload or unload can replace or dispose it meanwhile.");
+    }
+
+    private static T Locked<T>(Func<T> action)
+    {
+        int depth = LockDepth.Value;
+        LockDepth.Value = depth + 1;
+        try { return action(); }
+        finally { LockDepth.Value = depth; }
+    }
+
     public T Read<T>(Func<T> action) => Read(action, CallToken);
 
     /// <summary>Runs <paramref name="action"/> under the shared lock; a cancelled wait throws <see cref="OperationCanceledException"/>.</summary>
     public T Read<T>(Func<T> action, CancellationToken cancellationToken)
     {
         Enter(write: false, cancellationToken);
-        try { return action(); }
+        try { return Locked(action); }
         finally
         {
             Released();
@@ -169,7 +193,7 @@ public sealed class AssemblyWorkspace : IDisposable
     public T Write<T>(Func<T> action, CancellationToken cancellationToken)
     {
         Enter(write: true, cancellationToken);
-        try { return action(); }
+        try { return Locked(action); }
         finally
         {
             Generation++;
@@ -485,7 +509,7 @@ public sealed class AssemblyWorkspace : IDisposable
         }
         module.Location = full;
 
-        var asm = new LoadedAssembly(MakeUniqueId(module, full), full, bytes, module);
+        var asm = new LoadedAssembly(MakeUniqueId(module, full), full, bytes, module) { Shared = true };
         _assemblies.Add(asm);
         ModuleSetChanged();
         AttachNativeView(asm, bytes);

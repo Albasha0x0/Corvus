@@ -85,7 +85,7 @@ public sealed class IndexingService : IDisposable
                         return 0;
                     });
                 }
-                _indexed.AddOrUpdate(asm.Module, true);
+                _workspace.Read(() => { _indexed.AddOrUpdate(asm.Module, true); return 0; });
             }
             ct.ThrowIfCancellationRequested();
             _status = "building call graph";

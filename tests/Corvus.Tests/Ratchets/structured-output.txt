@@ -17,7 +17,6 @@ disassemble_dex
 emulate_native
 export_edits
 export_il2cpp_symbols
-export_project
 find_counterpart
 find_method_by_address
 find_r2r_method
