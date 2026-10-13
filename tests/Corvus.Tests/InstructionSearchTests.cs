@@ -70,7 +70,7 @@ public sealed class InstructionSearchTests : IDisposable
     }
 
     /// <summary>G2-B5: pages a scan budget stops continue at the record's nextOffset, as the text footer says, to every match once.</summary>
-    [Theory]
+    [Theory, Trait("Speed", "Slow")]
     [InlineData(null)]
     [InlineData("rva:0x1000")]
     public async Task Budget_stopped_pages_walk_to_every_match_once(string? from)
