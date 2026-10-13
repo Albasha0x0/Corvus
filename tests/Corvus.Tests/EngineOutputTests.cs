@@ -58,8 +58,11 @@ public sealed class EngineOutputTests(ITestOutputHelper output) : IDisposable
         var a = await Decompile(first, Image);
         output.WriteLine(a.Text);
         Assert.False((bool)first.Engines.ImageSessions(first.Workspace.Read(() => first.Workspace.Natives[0]))[0].Session!.ReusedDatabase);
+        var stored = first.Engines.OutputCache!.Root;
         foreach (var d in _owned) d.Dispose();
         _owned.Clear();
+        // the engine itself must answer from the saved database: without this the stored output answers when the setup matches (EL-1)
+        Directory.Delete(stored, true);
 
         var second = Server();
         var b = await Decompile(second, Image);
