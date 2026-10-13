@@ -4,15 +4,15 @@ using System.Text.Json.Nodes;
 namespace Corvus.Mcp;
 
 /// <summary>
-/// The output-schema policy (SC-11): what tools/list sends is <see cref="Compact"/> (no descriptions or titles, objects
-/// below <see cref="MaxDepth"/> left open, the shared optional envelope fields left to their one declaration in
-/// docs/schemas); docs/schemas carries the <see cref="Described"/> form. Both make a nullable property optional, since
+/// The output-schema policy (SC-11): what tools/list sends is <see cref="Compact"/> (no descriptions or titles, required
+/// lists only at the root, objects below <see cref="MaxDepth"/> left open, the shared optional envelope fields left to their
+/// one declaration in docs/schemas); docs/schemas carries the <see cref="Described"/> form, which tests validate results against too. Both make a nullable property optional, since
 /// results are written without nulls (<see cref="Catalog.ToolSerializerOptions"/>).
 /// </summary>
 public static class OutputSchemas
 {
-    /// <summary>Object nesting kept in tools/list: the root, its rows and one level inside them.</summary>
-    public const int MaxDepth = 3;
+    /// <summary>Object nesting kept in tools/list: the root and its rows.</summary>
+    public const int MaxDepth = 2;
 
     /// <summary>
     /// Optional fields every record may carry (ToolOutput.Envelope), declared once in docs/schemas/envelope.json instead of
@@ -59,7 +59,7 @@ public static class OutputSchemas
                     if (required != null) Remove(required, name);
                 }
             }
-            if (required is { Count: 0 }) o.Remove("required");
+            if (required is { Count: 0 } || (strip && level > 1)) o.Remove("required");
         }
         foreach (var (key, child) in o.ToList())
         {

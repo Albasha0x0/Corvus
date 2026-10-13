@@ -162,7 +162,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         if (schemas.GetValueOrDefault(tool) is not { } schema) return;
         Assert.True(result.StructuredContent != null, $"{tool} has an output schema but returned no structured content");
         var value = JsonDocument.Parse(result.StructuredContent!.ToString()!).RootElement;
-        var errors = OutputSchema.Validate(schema, value);
+        var errors = OutputSchema.ValidateTool(tool, schema, value);
         Assert.True(errors.Count == 0, $"{tool}: structured content does not match its output schema:\n  {string.Join("\n  ", errors.Take(20))}");
     }
 

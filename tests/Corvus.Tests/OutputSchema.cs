@@ -8,6 +8,20 @@ public static class OutputSchema
     /// <summary>The schema violations of <paramref name="value"/>, as "path: problem" lines (empty when it conforms).</summary>
     public static List<string> Validate(JsonElement schema, JsonElement value) => Validate(schema, schema, value);
 
+    private static readonly Lazy<SortedDictionary<string, JsonElement>> Described = new(Corvus.Mcp.Catalog.DescribedOutputSchemas);
+
+    /// <summary>
+    /// Violations of <paramref name="tool"/>'s advertised (compact) schema, then of its described form: the compact form keeps
+    /// required lists only at the root and opens deep objects, so the described form holds the rest of the promise.
+    /// </summary>
+    public static List<string> ValidateTool(string tool, JsonElement advertised, JsonElement value)
+    {
+        var errors = Validate(advertised, value);
+        if (errors.Count == 0 && Described.Value.TryGetValue(tool, out var described))
+            errors.AddRange(Validate(described, value).Select(e => "described: " + e));
+        return errors;
+    }
+
     /// <summary>Validates against <paramref name="schema"/>, a part of <paramref name="root"/> (which its references resolve in).</summary>
     public static List<string> Validate(JsonElement root, JsonElement schema, JsonElement value)
     {

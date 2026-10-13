@@ -10,8 +10,8 @@ public class OutputSchemaTransformTests
 {
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
-    /// <summary>Output schemas in tools/list: 194.6 KB for 87 tools before the compact form (SC-11), 111.4 KB after (with the list and page envelope).</summary>
-    private const int MaxOutputSchemaTotalBytes = 136_400; // Interim per D18 (Phase 2 records, 135,904 measured); S-TRIM returns it to ≤ 120 KB before G2.
+    /// <summary>Output schemas in tools/list: 194.6 KB for 87 tools before the compact form (SC-11); 113,208 B for 152 tools with required lists at the root only and depth 2.</summary>
+    private const int MaxOutputSchemaTotalBytes = 113_700;
 
     [Fact]
     public void CatalogOutputSchemasAreCompact()
@@ -38,7 +38,7 @@ public class OutputSchemaTransformTests
     }
 
     [Fact]
-    public void Compact_StripsAnnotationsMakesNullablesOptionalAndOpensDeepObjects()
+    public void Compact_StripsAnnotationsAndNestedRequiredMakesNullablesOptionalAndOpensDeepObjects()
     {
         var schema = Parse("""
             {"type":"object","description":"d","properties":{
@@ -60,8 +60,9 @@ public class OutputSchemaTransformTests
         Assert.Equal("""{"type":"integer"}""", compact["properties"]!["offset"]!.ToJsonString());
         // nullable is optional; the rest stays required
         Assert.Equal("""["description","offset","rows","again"]""", compact["required"]!.ToJsonString());
-        // objects below the third level are open: any object
-        Assert.Equal("""{"type":"object"}""", compact["properties"]!["rows"]!["items"]!["properties"]!["inner"]!["properties"]!["deep"]!.ToJsonString());
+        // required lists stay at the root only; objects below the rows are open: any object
+        Assert.Null(compact["properties"]!["rows"]!["items"]!["required"]);
+        Assert.Equal("""{"type":"object"}""", compact["properties"]!["rows"]!["items"]!["properties"]!["inner"]!.ToJsonString());
         // a reference into an opened object accepts any value
         Assert.Equal("{}", compact["properties"]!["again"]!.ToJsonString());
         Assert.Empty(ContractSweep.SchemaProblems(OutputSchemas.Compact(schema)));
@@ -69,6 +70,7 @@ public class OutputSchemaTransformTests
         var described = JsonNode.Parse(OutputSchemas.Described(schema).GetRawText())!;
         Assert.Equal("x", (string?)described["properties"]!["note"]!["description"]);
         Assert.NotNull(described["properties"]!["rows"]!["items"]!["properties"]!["inner"]!["properties"]!["deep"]!["properties"]);
+        Assert.NotNull(described["properties"]!["rows"]!["items"]!["required"]);
     }
 
     [Fact]

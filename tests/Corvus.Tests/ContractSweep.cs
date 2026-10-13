@@ -386,7 +386,7 @@ public static partial class ContractSweep
         if (outputSchema is { } schema)
         {
             if (result.StructuredContent == null) return Fail("bad output", "success without the structured content its output schema promises");
-            var errors = OutputSchema.Validate(schema, JsonDocument.Parse(result.StructuredContent.ToString()!).RootElement);
+            var errors = OutputSchema.ValidateTool(c.Tool, schema, JsonDocument.Parse(result.StructuredContent.ToString()!).RootElement);
             if (errors.Count > 0) return Fail("bad output", $"structured content does not match the output schema: {string.Join("; ", errors.Take(5))}");
             if (Incomplete(c.Tool, string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text)), result.StructuredContent.Value) is { } missing)
                 return Fail("incomplete record", missing);
