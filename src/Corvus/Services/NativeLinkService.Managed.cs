@@ -190,19 +190,30 @@ public sealed partial class NativeLinkService
     /// <summary>
     /// Lines for a managed method with a native implementation in a callee tree: "native: binding" at
     /// <paramref name="indent"/>, then the native function's callees for the remaining levels. Empty for other methods.
+    /// <paramref name="rows"/>, when given, receives the same lines as <see cref="NativeTreeNode"/> rows under <paramref name="parent"/>.
     /// </summary>
-    public string NativeCallees(MethodDef method, int levels, int indent, int maxNodes, CancellationToken ct)
+    public string NativeCallees(MethodDef method, int levels, int indent, int maxNodes, CancellationToken ct, List<NativeTreeNode>? rows = null, int? parent = null)
     {
         if (levels < 1 || NativeOf(method) is not { } link) return "";
         var sb = new StringBuilder();
         var pad = new string(' ', indent * 2);
         sb.Append(pad).Append("native: ").Append(Describe(link.Binding));
         var fn = FunctionOf(link.Binding);
+        string? state = link.Binding.Status switch { Bound => fn == null ? "unresolved" : null, NotLoaded => "not-loaded", _ => "unresolved" };
         if (link.Binding.Status == Bound && fn == null)
             sb.Append(code.Ready(link.Binding.Target!) == null ? "  (its code index is still being built: repeat for its callees)" : "  (no function there)");
         sb.AppendLine();
+        int? id = null;
+        if (rows != null)
+        {
+            id = rows.Count;
+            var b = link.Binding;
+            rows.Add(new NativeTreeNode(rows.Count, parent, indent, fn?.Function.Name ?? b.Link.Module,
+                b is { Status: Bound, Target: { } t, Rva: { } rva } ? NativeAddress.Va(t.Image, rva) : null, fn?.Image.Id ?? b.Target?.Id,
+                link.Kind == "P/Invoke" ? "pinvoke" : "native", state != null ? [state] : null) { Note = Describe(b) });
+        }
         if (fn is { } f && levels > 1)
-            AppendTree(sb, f.Image, f.Function, callers: false, levels - 1, maxNodes, indent + 1, withRoot: false, ct);
+            AppendTree(sb, f.Image, f.Function, callers: false, levels - 1, maxNodes, indent + 1, withRoot: false, ct, rows: rows, parent: id, home: null);
         return sb.ToString();
     }
 }

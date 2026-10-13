@@ -274,12 +274,42 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     private static string FunctionLabel(LoadedNative native, NativeFunction f, LoadedNative? home) =>
         $"{f.Name}  {NativeAddress.Va(native.Image, f.Start)}" + (native != home ? $"  [{native.Id}]" : "");
 
+    /// <summary>A tree node: <see cref="Label"/> is its text line; the other fields are its <see cref="NativeTreeNode"/> row.</summary>
     private sealed record TreeNode(LoadedNative Image, NativeFunction? Function, string Label)
     {
         public List<TreeNode> Children { get; } = [];
         public bool Repeated { get; set; }
         public bool Truncated { get; set; }
+        public string? Name { get; init; }
+        public uint? Rva { get; init; }
+        public string? Edge { get; init; }
+        public string? Note { get; init; }
+        /// <summary>unresolved or not-loaded.</summary>
+        public string? State { get; init; }
+
+        public NativeTreeNode Row(int id, int? parent, int depth, LoadedNative? home)
+        {
+            var flags = new List<string>();
+            if (Repeated) flags.Add("repeated");
+            if (Truncated) flags.Add("more");
+            if (State != null) flags.Add(State);
+            uint? rva = Rva ?? Function?.Start;
+            return new NativeTreeNode(id, parent, depth, Name ?? Function?.Name ?? Label, rva is { } r ? NativeAddress.Va(Image.Image, r) : null,
+                Image != home ? Image.Id : null, Edge, flags.Count > 0 ? flags : null) { Note = Note };
+        }
     }
+
+    /// <summary>The edge name of a call site: call, import, virtual or virtual?.</summary>
+    private static string EdgeOf(Native.Code.CallSite site) => site.Kind switch
+    {
+        XrefKind.VirtualExact => "virtual",
+        XrefKind.VirtualPossible => "virtual?",
+        XrefKind.ImportCall or XrefKind.ImportJump => "import",
+        _ => "call",
+    };
+
+    private static string? VirtualNote(NativeCodeIndex index, Native.Code.CallSite site) =>
+        site.Kind == XrefKind.VirtualPossible ? $"one of {index.VirtualCalls.SiteAt(site.From)?.TargetCount ?? 0}" : null;
 
     /// <summary>
     /// Callers or callees of <paramref name="root"/> in <paramref name="native"/>, several levels deep and across
@@ -287,8 +317,10 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     /// in other loaded images that import it. Written to <paramref name="sb"/> from indent <paramref name="indent"/>
     /// (the root line included when <paramref name="withRoot"/>); returns the number of nodes written.
     /// </summary>
+    /// <param name="rows">Receives the nodes written, in the same order: ids continue from its count, the top nodes hang under
+    /// <paramref name="parent"/> at depth <paramref name="indent"/>; images other than <paramref name="home"/> (every one when null) are named.</param>
     public int AppendTree(StringBuilder sb, LoadedNative native, NativeFunction root, bool callers, int depth, int maxNodes, int indent, bool withRoot,
-        CancellationToken ct, CallEdgeFilter edges = CallEdgeFilter.All)
+        CancellationToken ct, CallEdgeFilter edges = CallEdgeFilter.All, List<NativeTreeNode>? rows = null, int? parent = null, LoadedNative? home = null)
     {
         var top = new TreeNode(native, root, FunctionLabel(native, root, native));
         var expanded = new HashSet<(LoadedNative, uint)> { (native, root.Start) };
@@ -312,14 +344,20 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
                 queue.Enqueue((child, d + 1));
             }
         }
-        void Write(TreeNode node, int level)
+        void Write(TreeNode node, int level, int? up)
         {
             sb.Append(new string(' ', level * 2)).Append(node.Label)
               .Append(node.Repeated ? "  (repeated)" : "").Append(node.Truncated ? "  (more not shown)" : "").AppendLine();
-            foreach (var child in node.Children) Write(child, level + 1);
+            int? id = null;
+            if (rows != null)
+            {
+                id = rows.Count;
+                rows.Add(node.Row(rows.Count, up, level, home));
+            }
+            foreach (var child in node.Children) Write(child, level + 1, id);
         }
-        if (withRoot) Write(top, indent);
-        else foreach (var child in top.Children) Write(child, indent);
+        if (withRoot) Write(top, indent, parent);
+        else foreach (var child in top.Children) Write(child, indent, parent);
         return count;
     }
 
@@ -333,12 +371,15 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         {
             if (site.Function is { } fn)
             {
-                if (seen.Add((node.Image, fn.Start))) result.Add(new TreeNode(node.Image, fn, FunctionLabel(node.Image, fn, home) + VirtualMark(index, site)));
+                if (seen.Add((node.Image, fn.Start)))
+                    result.Add(new TreeNode(node.Image, fn, FunctionLabel(node.Image, fn, home) + VirtualMark(index, site)) { Edge = EdgeOf(site), Note = VirtualNote(index, site) });
                 continue;
             }
             if (site.Import is not { } import || site.Kind is XrefKind.VirtualExact or XrefKind.VirtualPossible)
             {
-                if (seen.Add((null, site.Target))) result.Add(new TreeNode(node.Image, null, NativeAddress.Va(node.Image.Image, site.Target) + VirtualMark(index, site)));
+                if (seen.Add((null, site.Target)))
+                    result.Add(new TreeNode(node.Image, null, NativeAddress.Va(node.Image.Image, site.Target) + VirtualMark(index, site))
+                        { Name = NativeAddress.Va(node.Image.Image, site.Target), Rva = site.Target, Edge = EdgeOf(site), Note = VirtualNote(index, site), State = "unresolved" });
                 continue;
             }
             var b = BindImport(node.Image, import);
@@ -350,10 +391,13 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
                 var fn2 = targetIndex?.FunctionByStart(rva) ?? targetIndex?.FunctionAt(rva);
                 result.Add(fn2 != null
                     ? new TreeNode(t, fn2, $"{name} -> {Describe(b)}" + (fn2.Start != rva ? $" (inside {fn2.Name})" : ""))
-                    : new TreeNode(t, null, $"{name} -> {Describe(b)}" + (targetIndex == null ? " (its code index is not built yet)" : " (no function there: data or code not discovered)")));
+                        { Name = name, Rva = rva, Edge = "import", Note = Describe(b) + (fn2.Start != rva ? $" (inside {fn2.Name})" : "") }
+                    : new TreeNode(t, null, $"{name} -> {Describe(b)}" + (targetIndex == null ? " (its code index is not built yet)" : " (no function there: data or code not discovered)"))
+                        { Name = name, Rva = rva, Edge = "import", Note = Describe(b), State = "unresolved" });
             }
             else if (seen.Add((null, import.SlotRva)))
-                result.Add(new TreeNode(node.Image, null, b.Status == NotLoaded ? $"{name} -> {Describe(b)}" : $"{name}  ({Describe(b)})"));
+                result.Add(new TreeNode(node.Image, null, b.Status == NotLoaded ? $"{name} -> {Describe(b)}" : $"{name}  ({Describe(b)})")
+                    { Name = name, Rva = import.SlotRva, Edge = "import", Note = Describe(b), State = b.Status == NotLoaded ? "not-loaded" : "unresolved" });
         }
         if (edges == CallEdgeFilter.Virtual) return result;
         AddManagedCallees(result, node, index);
@@ -361,7 +405,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         if (Native.Calls.CallAnalysis.Supports(index)
             && Native.Calls.CallAnalysis.For(index).DynamicImports().CallsByFunction.TryGetValue(node.Function!.Start, out var late))
             foreach (var (_, d) in late.DistinctBy(c => c.Import.FullName))
-                result.Add(new TreeNode(node.Image, null, $"{d.FullName}  [dynamic]"));
+                result.Add(new TreeNode(node.Image, null, $"{d.FullName}  [dynamic]") { Name = d.FullName, Edge = "dynamic" });
         return result;
     }
 
@@ -373,18 +417,20 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         if (code.Ready(node.Image) is { } index)
             foreach (var site in index.Callers(node.Function!, edges))
                 if (site.Caller is { } caller && seen.Add((node.Image, caller.Start)))
-                    result.Add(new TreeNode(node.Image, caller, FunctionLabel(node.Image, caller, home) + VirtualMark(index, site)));
+                    result.Add(new TreeNode(node.Image, caller, FunctionLabel(node.Image, caller, home) + VirtualMark(index, site)) { Edge = EdgeOf(site), Note = VirtualNote(index, site) });
         if (edges == CallEdgeFilter.Virtual) return result;
         foreach (var (importer, import) in ImportersOf(node.Image, node.Function!.Start, ct))
         {
             if (code.Ready(importer) is not { } other)
             {
-                result.Add(new TreeNode(importer, null, $"[{importer.Id}] imports it as {NativeCodeIndex.ImportName(import)} (its code index is not built yet)"));
+                result.Add(new TreeNode(importer, null, $"[{importer.Id}] imports it as {NativeCodeIndex.ImportName(import)} (its code index is not built yet)")
+                    { Name = NativeCodeIndex.ImportName(import), Rva = import.SlotRva, Edge = "import", Note = "its code index is not built yet", State = "unresolved" });
                 continue;
             }
             foreach (var (_, caller, _) in SlotUses(other, import))
                 if (caller != null && seen.Add((importer, caller.Start)))
-                    result.Add(new TreeNode(importer, caller, $"{FunctionLabel(importer, caller, home)}  (calls {NativeCodeIndex.ImportName(import)})"));
+                    result.Add(new TreeNode(importer, caller, $"{FunctionLabel(importer, caller, home)}  (calls {NativeCodeIndex.ImportName(import)})")
+                        { Edge = "import", Note = "calls " + NativeCodeIndex.ImportName(import) });
         }
         AddManagedCallers(result, node, ct);
         return result;

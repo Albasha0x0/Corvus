@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using Corvus.Core;
+using Corvus.Native;
 using Corvus.Native.Annotations;
 using Corvus.Native.Linking;
 using Corvus.Native.Pe;
@@ -202,6 +203,19 @@ public sealed class NativeLinkTests : IDisposable
         var tree = await calls.NativeCallTree("app.dll", "Main", depth: 3);
         Has(tree, "provlib!Plain -> provlib.dll!Plain at 0x180001010 [provlib.dll]");
         Has(tree, "    deeplib!Deep -> deeplib.dll!Deep at 0x180001000 [deeplib.dll]");   // two images deep
+
+        // The same tree as rows: one per line, parents and images set.
+        var appImage = _ws.GetNative("app.dll");
+        var appIndex = _code.Ready(appImage)!;
+        var main = appIndex.FunctionAt(appIndex.AddressOfName("Main")!.Value)!;
+        var rows = new List<NativeTreeNode>();
+        var text = new System.Text.StringBuilder();
+        _ws.Read(() => _link.AppendTree(text, appImage, main, false, 3, 100, 0, true, default, rows: rows, home: appImage));
+        Assert.Equal(text.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Length, rows.Count);
+        Assert.Equal(("Main", null, 0), (rows[0].Name, rows[0].Parent, rows[0].Depth));
+        var deepRow = rows.Single(r => r.Name == "deeplib!Deep");
+        Assert.Equal(("import", "deeplib.dll", "0x180001000", 2), (deepRow.Edge, deepRow.Image, deepRow.Address, deepRow.Depth));
+        Assert.Equal(1, rows[deepRow.Parent!.Value].Depth);
 
         var callers = await calls.NativeCallTree("deeplib.dll", "Deep", direction: "callers", depth: 4);
         Has(callers, "Plain  0x180001010  [provlib.dll]");

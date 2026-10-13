@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Corvus.Mcp;
+using Corvus.Native;
 using Corvus.Tools;
 
 namespace Corvus.Tests;

@@ -88,7 +88,8 @@ public sealed partial class NativeLinkService
         foreach (var (slot, method) in ManagedCallees(node.Image, index, node.Function!))
             if (seen.Add(method))
                 result.Add(new TreeNode(node.Image, null,
-                    $"managed: {Format.MemberLabel(method)}  [{node.Image.ManagedView!.Id}]  (through vtfixup slot {NativeAddress.Va(node.Image.Image, slot)})"));
+                    $"managed: {Format.MemberLabel(method)}  [{node.Image.ManagedView!.Id}]  (through vtfixup slot {NativeAddress.Va(node.Image.Image, slot)})")
+                    { Name = Format.MemberLabel(method), Rva = slot, Edge = "managed", Note = $"[{node.Image.ManagedView!.Id}] through the vtfixup slot" });
     }
 
     /// <summary>Leaves for a native caller tree: managed methods bound to the function (P/Invoke declarations, C++/CLI native bodies).</summary>
@@ -96,7 +97,8 @@ public sealed partial class NativeLinkService
     {
         foreach (var link in ManagedLinksAt(node.Image, node.Function!.Start, ct))
             result.Add(new TreeNode(node.Image, null,
-                $"managed: {Format.MemberLabel(link.Method)}  [{link.Assembly.Id}]  ({link.Kind}; get_call_tree lists its managed callers)"));
+                $"managed: {Format.MemberLabel(link.Method)}  [{link.Assembly.Id}]  ({link.Kind}; get_call_tree lists its managed callers)")
+                { Name = Format.MemberLabel(link.Method), Edge = link.Kind == "P/Invoke" ? "pinvoke" : "managed", Note = $"[{link.Assembly.Id}] {link.Kind}" });
     }
 
     /// <summary>Functions of a mixed-mode view that reference the VTableFixups slots of <paramref name="method"/>, with the slot.</summary>
@@ -115,8 +117,9 @@ public sealed partial class NativeLinkService
     /// <summary>
     /// Lines for a callers tree of a managed method that native code calls (through its VTableFixups slots): each
     /// native function using a slot at <paramref name="indent"/>, then its native callers for the remaining levels.
+    /// <paramref name="rows"/>, when given, receives the same lines as <see cref="NativeTreeNode"/> rows under <paramref name="parent"/>.
     /// </summary>
-    public string NativeCallers(MethodDef method, int levels, int indent, int maxNodes, CancellationToken ct)
+    public string NativeCallers(MethodDef method, int levels, int indent, int maxNodes, CancellationToken ct, List<NativeTreeNode>? rows = null, int? parent = null)
     {
         if (levels < 1) return "";
         var users = SlotUsers(method);
@@ -130,7 +133,14 @@ public sealed partial class NativeLinkService
         foreach (var (view, _, f, slot, _) in users.DistinctBy(u => u.Function))
         {
             sb.Append(new string(' ', indent * 2)).AppendLine($"native: {FunctionLabel(view, f, null)}  (through vtfixup slot {NativeAddress.Va(view.Image, slot)})");
-            if (levels > 1) AppendTree(sb, view, f, callers: true, levels - 1, maxNodes, indent + 1, withRoot: false, ct);
+            int? id = null;
+            if (rows != null)
+            {
+                id = rows.Count;
+                rows.Add(new NativeTreeNode(rows.Count, parent, indent, f.Name, NativeAddress.Va(view.Image, f.Start), view.Id, "managed", null)
+                    { Note = "through vtfixup slot " + NativeAddress.Va(view.Image, slot) });
+            }
+            if (levels > 1) AppendTree(sb, view, f, callers: true, levels - 1, maxNodes, indent + 1, withRoot: false, ct, rows: rows, parent: id);
         }
         return sb.ToString();
     }
