@@ -16,8 +16,11 @@ namespace Corvus.Services;
 /// analysis is discarded, so every read path (disassembly, strings, search_bytes, read_bytes, the code index) sees the
 /// patched bytes. All mutating calls run under the workspace write lock.
 /// </summary>
-public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeService code)
+public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeService code, NativeEditJournal? journal = null)
 {
+    /// <summary>The native edit journal every edit here is recorded in.</summary>
+    public NativeEditJournal Journal { get; } = journal ?? new NativeEditJournal(workspace, code);
+
     public NativeAnnotations Annotations(LoadedNative native) => code.Annotations(native);
 
     public string Rename(LoadedNative native, NativeCodeIndex index, uint rva, string name, bool allowDuplicate)
@@ -319,7 +322,9 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     }
 
     /// <summary>Rebuilds the patched image and swaps it in; analysis (code index, sessions) is discarded and rebuilt, the old index kept for previews.</summary>
-    private void Rebuild(LoadedNative native)
+    private void Rebuild(LoadedNative native) => Rebuild(code, native);
+
+    internal static void Rebuild(NativeCodeService code, LoadedNative native)
     {
         var previous = code.Provisional(native);
         native.ReplaceImage(native.Patches.ApplyTo(native.Image, native.FilePath));

@@ -60,6 +60,7 @@ public static class ServerHost
             .AddSingleton<Corvus.Native.Annotations.AnnotationStore>()
             .AddSingleton<NativeCodeService>()
             .AddSingleton<NativeLinkService>()
+            .AddSingleton<NativeEditJournal>()
             .AddSingleton<NativeEditService>()
             .AddSingleton<Il2CppNativeNames>()
             .AddSingleton<NativeNamePush>()
