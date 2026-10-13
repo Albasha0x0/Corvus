@@ -137,8 +137,9 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     public ContainerListing List(string path, AnalysisLimits limits, CancellationToken ct, string? filter = null, int offset = 0, int limit = MaxListed)
     {
         var managed = Managed(path, limits, ct);
-        var assemblies = filter == null ? managed.Assemblies
-            : managed.Assemblies.Where(a => a.Path.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+        // One order for every page: the budget may cut the first page, and the next one starts from its count.
+        var assemblies = managed.Assemblies.Where(a => filter == null || a.Path.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(a => ListOrder(a.Origin, a.Path, true)).ToList();
         int total = assemblies.Count, take = Math.Clamp(limit, 1, MaxListed);
         offset = Math.Max(0, offset);
         List<ContainerEntry>? files = null;
@@ -153,7 +154,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         }
         if (offset > 0 || total > take)
         {
-            assemblies = assemblies.OrderBy(a => ListOrder(a.Origin, a.Path, true)).Skip(offset).Take(take).ToList();
+            assemblies = assemblies.Skip(offset).Take(take).ToList();
             managed.Notes.Add($"{total} assemblies; {assemblies.Count} listed{(offset > 0 ? $" from {offset}" : "")} (the app's first, translations last; " +
                               "offset and limit page through them). search_container finds types and members in all of them; unpack_container extracts them.");
         }

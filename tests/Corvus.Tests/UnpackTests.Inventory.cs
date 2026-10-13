@@ -57,6 +57,23 @@ public partial class UnpackTests
         Assert.Empty(first.Items.Select(f => f.Path).Intersect(rest.Items.Select(f => f.Path)));
     }
 
+    [Fact]
+    public void ListPages_UnionToTheTotalWithoutDuplicates()
+    {
+        // Satellites first in the zip: the listing order (app first, translations last) differs from the entry order.
+        var fixture = File.ReadAllBytes(Env.FixturePath);
+        var entries = Enumerable.Range(0, 6).Select(i => ($"fr/a{i}.resources.dll", fixture.Append((byte)i).ToArray()))
+            .Concat(Enumerable.Range(0, 9).Select(i => ($"lib/b{i}.dll", fixture.Append((byte)(i + 10)).ToArray()))).ToArray();
+        var zip = Save("pages.zip", ContainerFixtures.Zip(entries));
+        var whole = Unpacker.List(zip, AnalysisLimits.Default, default).Assemblies.Select(a => a.Path).ToList();
+        var walked = new List<string>();
+        for (int offset = 0; offset < whole.Count; offset += 4)
+            walked.AddRange(Unpacker.List(zip, AnalysisLimits.Default, default, offset: offset, limit: 4).Assemblies.Select(a => a.Path));
+        Assert.Equal(15, whole.Count);
+        Assert.Equal(whole, walked); // the first (whole) page and later pages share one order
+        Assert.StartsWith("lib/", whole[0]);
+    }
+
     /// <summary>unpack_container loads what it extracts unless extractOnly (the default of the former load=true).</summary>
     [Fact]
     public async Task LoadsByDefault_ExtractOnlyDoesNot()
