@@ -662,22 +662,23 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 updates.Enqueue(n.Params.Deserialize<ProgressNotificationParams>(McpJsonUtilities.DefaultOptions)!);
                 return ValueTask.CompletedTask;
             });
-            async Task<List<string?>> Messages(string tool, Dictionary<string, object?> args)
+            // Notifications can arrive after the response: wait (bounded) for the phase expected.
+            async Task<List<string>> Messages(string tool, Dictionary<string, object?> args, Func<string, bool> phase)
             {
                 updates.Clear();
                 var result = await _client.CallToolAsync(tool, args, new SyncProgress(_ => { }));
                 Assert.NotEqual(true, result.IsError);
-                for (int i = 0; i < 250 && !updates.Any(u => u.Progress.Message == "started"); i++) await Task.Delay(20);
-                await Task.Delay(100);
-                return updates.Select(u => u.Progress.Message).ToList();
+                for (int i = 0; i < 500 && !updates.Any(u => phase(u.Progress.Message ?? "")); i++) await Task.Delay(20);
+                return updates.Select(u => u.Progress.Message ?? "").ToList();
             }
-            var patch = await Messages("patch_method_csharp", new() { ["method"] = "Account::Score", ["code"] = "return 3;", ["dryRun"] = false });
             // Updates closer than OrderedProgress.MinInterval are coalesced: the first and the latest are sent.
-            Assert.Equal("started", patch[0]);
-            Assert.Contains(patch, m => m!.StartsWith("compiling against", StringComparison.Ordinal) || m.StartsWith("applying to", StringComparison.Ordinal));
+            static bool Compile(string m) => m.StartsWith("compiling against", StringComparison.Ordinal) || m.StartsWith("applying to", StringComparison.Ordinal);
+            var patch = await Messages("patch_method_csharp", new() { ["method"] = "Account::Score", ["code"] = "return 3;", ["dryRun"] = false }, Compile);
+            Assert.True(patch.FirstOrDefault() == "started" && patch.Any(Compile), string.Join(" | ", patch));
             await _client.CallToolAsync("stub_method", new Dictionary<string, object?> { ["method"] = "Secret::Validate", ["value"] = "true", ["dryRun"] = false });
-            var undo = await Messages("undo_edit", new() { ["assembly"] = "TestFixture", ["number"] = 2 });
-            Assert.Contains(undo, m => m!.StartsWith("replaying edit 1 of 1", StringComparison.Ordinal));
+            static bool Replay(string m) => m.StartsWith("replaying edit 1 of 1", StringComparison.Ordinal);
+            var undo = await Messages("undo_edit", new() { ["assembly"] = "TestFixture", ["number"] = 2 }, Replay);
+            Assert.True(undo.Any(Replay), string.Join(" | ", undo));
         }
 
         [Fact]
