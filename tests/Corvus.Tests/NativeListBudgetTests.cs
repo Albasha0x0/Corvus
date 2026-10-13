@@ -83,4 +83,13 @@ public class NativeListBudgetTests
             Assert.True(record.GetProperty("items").GetArrayLength() <= limit);
         }
     }
+
+    [WindowsFact]
+    public async Task Read_bytes_without_a_budget_pages_at_the_server_page_size()
+    {
+        using var env = new Env();
+        var text = await new Corvus.Tools.NativeTools(env.Workspace, env.Pager).ReadBytes(Kernel32, "rva:0x1000", 65536);
+        Assert.True(text.Length <= env.Options.MaxOutputChars, $"{text.Length} chars");
+        Assert.Contains("[More: offset=", text);
+    }
 }

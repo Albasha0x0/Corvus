@@ -697,7 +697,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
         [Description("Bytes to dump (default 256, max 65536); with type, values to read (default 1, max 4096).")] int? length = null,
-        [Description("Dump: bytes from address to start at (a page's nextOffset); type: a character offset.")] int offset = 0,
+        [Description("Bytes from address (a page's nextOffset).")] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Value type to read instead of dumping bytes.")] string? type = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
@@ -752,14 +752,17 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 more ? $"0x{pe.ImageBase + rva + (uint)end:X}" : null, read));
         }
         int fit = rows;
-        // the page holds as many whole lines as fit the budget in both parts
-        if (OutputCall.Budgeted is { } call && !Fits(call, Render(rows)))
+        // the page holds as many whole lines as fit the budget in both parts (without a budget: the server's page size)
+        var call = OutputCall.Budgeted;
+        int chars = pager.MaxChars(maxTokens);
+        bool Ok(int k) => call != null ? Fits(call, Render(k)) : Render(k).Text.Length <= chars;
+        if (!Ok(rows))
         {
             int lo = 1, hi = rows;
             while (lo < hi)
             {
                 int mid = (lo + hi + 1) / 2;
-                if (Fits(call, Render(mid))) lo = mid; else hi = mid - 1;
+                if (Ok(mid)) lo = mid; else hi = mid - 1;
             }
             fit = lo;
         }
