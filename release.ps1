@@ -2,7 +2,7 @@
 # full suite, commits and tags. With -Push it pushes main and the tag, waits for release.yml, verifies every asset
 # (archives, MCP bundles, the NuGet tool package) against SHA256SUMS, sets the GitHub release body from the notes and
 # prints the manual channel checklist.
-# Usage:  ./release.ps1 -Version 1.2.0              # bump, check, test, commit, tag (local only)
+# Usage:  ./release.ps1 -Version 1.2.0              # bump, check, test (full suite unless test.ps1 -Full passed on this tree), commit, tag
 #         ./release.ps1 -Version 1.2.0 -Push        # ... then push, wait for the workflow and verify the release
 #         ./release.ps1 -Version 1.2.0 -VerifyOnly  # verify an existing release and print the checklist
 #         ./release.ps1 -Version 1.2.0 -Bundle DIR  # MCP bundles (.mcpb) from the archives in DIR (release.yml runs this)
@@ -114,6 +114,12 @@ if (-not $VerifyOnly) {
         if (git tag --list $tag) { Fail "tag $tag exists" }
         $null = Get-Notes
 
+        # test.ps1 -Full stamps the clean tree it passed on; the bump below changes only version strings and generated docs,
+        # whose quick run follows, so a passed tree needs no second full run.
+        $stamp = Join-Path (git rev-parse --absolute-git-dir).Trim() 'corvus-full-suite.stamp'
+        $passed = (Test-Path $stamp) -and (Get-Content $stamp -Raw).Trim() -eq (git rev-parse 'HEAD^{tree}').Trim()
+        if ($passed) { Write-Host 'The full suite passed on this tree (test.ps1 -Full); not run again.' }
+
         $csproj = Get-Content $project -Raw
         $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
         if ($bumped -eq $csproj -and $csproj -notmatch "<Version>$([regex]::Escape($Version))</Version>") { Fail "no <Version> in $project" }
@@ -128,7 +134,7 @@ if (-not $VerifyOnly) {
         $env:CORVUS_UPDATE_DOCS = '1'
         try { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo') }
         finally { Remove-Item Env:CORVUS_UPDATE_DOCS }
-        if (-not $SkipTests) { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo', '-p:CORVUS_ALL_TESTS=1') }
+        if (-not $SkipTests -and -not $passed) { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo', '-p:CORVUS_ALL_TESTS=1') }
 
         Run 'git' @('add', '-A')
         Run 'git' @('commit', '-m', "release: $Version")

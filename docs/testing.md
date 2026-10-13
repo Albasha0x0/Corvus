@@ -6,7 +6,9 @@
   near 30 seconds, so a quick test uses the small fixtures in `tests/TestFixture` and builds nothing external. The
   quick set is green at every commit.
 - **Full set** (`CORVUS_ALL_TESTS=1 dotnet test`, or `dotnet test -p:CORVUS_ALL_TESTS=1`): adds real-library builds, whole-server
-  runs over stdio, sweeps, fuzzing and the large runtime packs. It runs before pushing.
+  runs over stdio, sweeps, fuzzing and the large runtime packs. It runs before a release or a gate run;
+  a push runs the quick set plus the slow tests of the families it touches. `./test.ps1 -Full` records the clean tree it
+  passed on (in `.git`), and `-IfChanged` and `release.ps1` skip a second full run on that tree.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
 The full set and the real-application runs are done locally.
