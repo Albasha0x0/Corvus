@@ -36,6 +36,17 @@ public sealed record AndroidPackageDetails(string Serial, string Package, string
 
 public sealed record PulledFile(string Remote, string Local, long Size, string Sha256);
 
+/// <summary>A logcat line in threadtime form; a line in another form has only its message.</summary>
+public sealed record AndroidLogLine(string? Time, int? Pid, int? Tid, [property: Description("V, D, I, W, E, F.")] string? Priority, string? Tag, string Message);
+
+/// <summary>The log read in one call, oldest line first.</summary>
+public sealed record AndroidLog(string Serial, IReadOnlyList<AndroidLogLine> Lines,
+    [property: Description("The log was larger than the read cap: older lines are not included.")] bool Capped);
+
+/// <summary>read_android_log's record: one page of lines, offset counting back from the newest.</summary>
+public sealed record AndroidLogPage(string Serial, IReadOnlyList<AndroidLogLine> Items,
+    [property: Description("Lines skipped from the newest end (a page's nextOffset reaches older lines).")] int Offset, int Total);
+
 public sealed record PulledPackage(string Serial, string Package, IReadOnlyList<PulledFile> Files,
     [property: Description("The base APK read with the package reader: manifest facts, runtimes, signature.")] AndroidPackageFacts? Summary);
 
@@ -333,11 +344,22 @@ public sealed partial class DeviceService(ServerOptions options)
         return new PulledFile(remotePath, full, bytes.Length, Blob.Sha256(bytes));
     }
 
-    /// <summary>The device log so far (logcat -d), cut at <paramref name="maxBytes"/> instead of failing.</summary>
-    public string Log(string? serial, int? pid, string? tag, string? priority, string? since, int maxBytes, CancellationToken ct)
+    /// <summary>Most log bytes read in one call: the newest are kept when a buffer holds more.</summary>
+    public const int MaxLogBytes = 8 << 20;
+
+    private static readonly string[] Buffers = ["main", "system", "crash", "events", "radio", "all", "default"];
+
+    /// <summary>The device log so far (logcat -d) as parsed lines, oldest first; past <see cref="MaxLogBytes"/> the oldest are dropped.</summary>
+    public AndroidLog Log(string? serial, int? pid, string? tag, string? priority, string? since, string? buffer, CancellationToken ct)
     {
         var s = Serial(serial, ct);
         var args = ExternalTools.Arguments(Adb, "logcat", ("serial", s));
+        if (buffer?.Trim().ToLowerInvariant() is { Length: > 0 } b)
+        {
+            if (!Buffers.Contains(b)) throw new ToolError(ErrorCode.InvalidArgument, $"unknown buffer '{buffer}'; use {string.Join(", ", Buffers)}.");
+            args.Add("-b");
+            args.Add(b);
+        }
         if (pid is { } p) args.Add($"--pid={p.ToString(CultureInfo.InvariantCulture)}");
         if (since is { Length: > 0 } t) { args.Add("-t"); args.Add(t.Trim()); }
         var level = priority?.Trim().ToUpperInvariant() switch
@@ -353,12 +375,25 @@ public sealed partial class DeviceService(ServerOptions options)
             args.Add("*:S");
         }
         else if (level != null) args.Add($"*:{level}");
-        int budget = Math.Clamp(maxBytes, 1_024, 8 << 20);
-        var r = Run(args, Short, budget, ct);
+        var r = Run(args, Short, MaxLogBytes, ct);
         var text = r.Truncated ? r.Text : Check(r, "reading the log");
-        int lines = text.Count(c => c == '\n');
-        return $"{lines} line(s) from {s}{(r.Truncated ? $"; truncated=true at {budget:N0} bytes (raise maxBytes or narrow with pid, tag, priority, since)" : "")}\n{text}";
+        var lines = new List<AndroidLogLine>();
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length == 0) continue;
+            lines.Add(LogLine().Match(line) is { Success: true } m
+                ? new AndroidLogLine(m.Groups[1].Value, int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture), int.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture),
+                    m.Groups[4].Value, m.Groups[5].Value.TrimEnd(), m.Groups[6].Value)
+                : new AndroidLogLine(null, null, null, null, null, line));
+        }
+        // A read cut at the byte cap ends mid-line: the last line is partial.
+        if (r.Truncated && lines.Count > 0) lines.RemoveAt(lines.Count - 1);
+        return new AndroidLog(s, lines, r.Truncated);
     }
+
+    [GeneratedRegex(@"^(\d\d-\d\d \d\d:\d\d:\d\d\.\d+)\s+(\d+)\s+(\d+)\s+([VDIWEFS])\s+(.*?): ?(.*)$")]
+    private static partial Regex LogLine();
 
     private void RequireChanges(string what)
     {

@@ -91,15 +91,35 @@ public sealed class DeviceTests : IDisposable
     }
 
     [Fact]
-    public void Log_FiltersAndCutsAtTheBudget()
+    public void Log_FiltersAndParsesLines()
     {
-        Assert.Contains("E App: boom", Service().Log(null, null, null, "error", null, 100_000, default));
+        var error = Service().Log(null, null, null, "error", null, null, default).Lines;
+        Assert.Equal(("01-02 03:04:05.679", 123, 456, "E", "App", "boom"), (error[1].Time, error[1].Pid, error[1].Tid, error[1].Priority, error[1].Tag, error[1].Message));
         Assert.Equal(["-s", FakeDevice.Serial, "logcat", "-d", "-v", "threadtime", "*:E"], _fake.ArgumentLists.Last());
-        Assert.Contains("only pid", Service().Log(null, 999, null, null, null, 100_000, default));
-        var flood = Service().Log(null, null, "Flood", null, "100", 10_000, default);
-        Assert.Contains("truncated=true at 10,000 bytes", flood);
-        Assert.Equal(["-s", FakeDevice.Serial, "logcat", "-d", "-v", "threadtime", "-t", "100", "Flood:V", "*:S"], _fake.ArgumentLists.Last());
-        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => Service().Log(null, null, "a b", null, null, 1000, default)).Code);
+        Assert.Equal("only pid", Service().Log(null, 999, null, null, null, null, default).Lines.Single().Message);
+        var flood = Service().Log(null, null, "Flood", null, "100", "crash", default);
+        Assert.Equal(5_000, flood.Lines.Count);
+        Assert.Equal(["-s", FakeDevice.Serial, "logcat", "-d", "-v", "threadtime", "-b", "crash", "-t", "100", "Flood:V", "*:S"], _fake.ArgumentLists.Last());
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => Service().Log(null, null, "a b", null, null, null, default)).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => Service().Log(null, null, null, null, null, "kernel", default)).Code);
+    }
+
+    /// <summary>A 1 MB log reads newest first in pages within the report budget; nextOffset walks to older lines.</summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public async Task Log_PagesNewestFirstWithinTheBudget()
+    {
+        using var script = new EnvironmentScope().Set(FakeTool.ScriptVariable, _fake.ScriptPath);
+        await using var server = await InProcessServer.StartAsync();
+        var page = await server.Client.CallToolAsync("read_android_log", new Dictionary<string, object?> { ["tag"] = "Flood" });
+        var text = string.Concat(page.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
+        var record = page.StructuredContent!.Value;
+        Assert.Equal(5_000, record.GetProperty("total").GetInt32());
+        Assert.True(TokenEstimate.Of(text) <= 4_200 && TokenEstimate.Of(record.GetRawText()) <= 4_200, $"{TokenEstimate.Of(text)} / {TokenEstimate.Of(record.GetRawText())}");
+        int next = record.GetProperty("nextOffset").GetInt32();
+        Assert.Equal(next, record.GetProperty("items").GetArrayLength());
+        Assert.Contains($"[More: offset={next}]", text);
+        Assert.Equal("Flood", record.GetProperty("items")[0].GetProperty("tag").GetString());
     }
 
     [Fact]

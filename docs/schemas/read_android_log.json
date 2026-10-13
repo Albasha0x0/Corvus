@@ -1,0 +1,81 @@
+{
+  "type": "object",
+  "properties": {
+    "serial": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "time": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer"
+          },
+          "tid": {
+            "type": "integer"
+          },
+          "priority": {
+            "description": "V, D, I, W, E, F.",
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      }
+    },
+    "offset": {
+      "description": "Lines skipped from the newest end (a page's nextOffset reaches older lines).",
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "serial",
+    "items",
+    "offset",
+    "total"
+  ]
+}

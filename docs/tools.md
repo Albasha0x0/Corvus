@@ -2220,7 +2220,7 @@ Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET
 
 **Android manifest** (read-only, idempotent)
 
-AndroidManifest.xml of an Android package, decoded. view=summary (default): package, versions, SDKs, permissions, application flags (debuggable, allowBackup, cleartext, network security config), component counts, exported components and why, queries, features, libraries, highlights. view=components: each component with intent filters, deep links, meta-data. Raw XML: get_android_resource.
+AndroidManifest.xml of an Android package, decoded. view=summary (default): package, versions, SDKs, permissions, application flags, component counts, exported components and why, queries, features, libraries, highlights. view=components: each component with intent filters, deep links, meta-data. Raw XML: get_android_resource.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2269,7 +2269,7 @@ Structured output: `entry`, `outputPath`, `bytes`, `sha256`, `code`, `offset`, `
 
 **List DEX classes** (read-only, idempotent)
 
-Classes defined in the DEX code of an Android package (every classes*.dex): descriptor, DEX file, access, superclass, interfaces, member counts, source file; unfiltered, the packages with most classes. No Java tools needed.
+Classes defined in an Android package's DEX code (every classes*.dex): descriptor, DEX file, access, superclass, interfaces, member counts, source file; unfiltered, the largest packages.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2410,7 +2410,7 @@ Structured output: `items`, `unparsed`.
 
 **Android device info** (read-only, idempotent, open-world)
 
-A device's properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, security patch, build type, ro.debuggable, ro.secure, and whether it is an emulator.
+A device's properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator or not.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2468,7 +2468,7 @@ Structured output: `serial`, `package`, `files`, `summary`.
 
 **Pull device file** (destructive, idempotent, open-world, long-running)
 
-Copies one file from a device (directories are refused) to outputPath, with its size and SHA-256; a failed pull leaves nothing behind.
+Copies one device file (not a directory) to outputPath with its size and SHA-256; a failed pull leaves nothing.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2483,7 +2483,7 @@ Structured output: `remote`, `local`, `size`, `sha256`.
 
 **Read device log** (read-only, idempotent, open-world)
 
-The device log so far (logcat -d), narrowed by process, tag, priority and start time; beyond maxBytes it is cut (truncated=true).
+The device log (logcat -d), newest lines first, by buffer, process, tag, priority and start time.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2491,8 +2491,12 @@ The device log so far (logcat -d), narrowed by process, tag, priority and start 
 | `pid` | integer |  |  | Only this process id. |
 | `tag` | string |  |  | Only this log tag. |
 | `priority` | string |  |  | Lowest priority. Values: V, D, I, W, E, F. |
-| `since` | string |  |  | Only lines since this time (logcat -t form, '01-31 12:00:00.000') or the last N lines. |
-| `maxBytes` | integer |  | `262144` | Most bytes of log to return. |
+| `since` | string |  |  | Only lines since this time ('01-31 12:00:00.000') or the last N lines. |
+| `buffer` | string |  |  | Log buffer (default: main, system, crash). Values: main, system, crash, events, radio, all, default. |
+| `offset` | integer |  | `0` | Lines to skip from the newest. |
+| `limit` | integer |  | `500` | Most lines. |
+
+Structured output: `serial`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### install_android_package
 
@@ -2502,17 +2506,17 @@ Installs an APK, a split set or a directory of APKs on a device in one session; 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, a split set (.apks, .xapk, .apkm) or a directory of APKs. |
+| `path` | string | yes |  | An .apk, split set or folder of APKs. |
 | `replace` | boolean |  | `true` | Replace an installed app. |
 | `downgrade` | boolean |  | `false` | Allow a lower version code. |
-| `grantPermissions` | boolean |  | `false` | Grant every runtime permission the manifest requests. |
+| `grantPermissions` | boolean |  | `false` | Grant all requested runtime permissions. |
 | `serial` | string |  |  | Device serial; optional with one device ready. |
 
 ### uninstall_android_package
 
 **Uninstall package from device** (destructive, idempotent, open-world)
 
-Removes an app from a device, with its data unless keepData. Changes the device: off unless the server runs with --allow-device-changes.
+Removes an app from a device, with its data unless keepData. Changes the device: needs the server option --allow-device-changes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

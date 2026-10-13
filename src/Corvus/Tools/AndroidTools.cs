@@ -25,7 +25,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
 
     [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true, OutputSchemaType = typeof(AndroidManifestView))]
     [Description("AndroidManifest.xml of an Android package, decoded. view=summary (default): package, versions, SDKs, permissions, application " +
-                 "flags (debuggable, allowBackup, cleartext, network security config), component counts, exported components and why, " +
+                 "flags, component counts, exported components and why, " +
                  "queries, features, libraries, highlights. view=components: each component with intent filters, deep links, meta-data. " +
                  "Raw XML: get_android_resource.")]
     public Task<string> GetAndroidManifest(
@@ -138,8 +138,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "list_dex_classes", Title = "List DEX classes", UseStructuredContent = true, OutputSchemaType = typeof(DexClassList))]
-    [Description("Classes defined in the DEX code of an Android package (every classes*.dex): descriptor, DEX file, access, " +
-                 "superclass, interfaces, member counts, source file; unfiltered, the packages with most classes. No Java tools needed.")]
+    [Description("Classes defined in an Android package's DEX code (every classes*.dex): descriptor, DEX file, access, superclass, " +
+                 "interfaces, member counts, source file; unfiltered, the largest packages.")]
     public Task<string> ListDexClasses(
         [Description(CodeDescription)] string path,
         [Description("Only classes whose name contains or matches (* ?) this.")] string? query = null,

@@ -41,7 +41,11 @@ public static partial class ParameterDomains
     {
         ["disassemble_dex"] = new Dictionary<string, Domain> { ["format"] = Of(["smali", "annotated"]) },
         ["decompile_java"] = new Dictionary<string, Domain> { ["engine"] = Of(["jadx"]) },
-        ["read_android_log"] = new Dictionary<string, Domain> { ["priority"] = Of(["V", "D", "I", "W", "E", "F"], "verbose", "debug", "info", "warn", "warning", "error", "fatal") },
+        ["read_android_log"] = new Dictionary<string, Domain>
+        {
+            ["priority"] = Of(["V", "D", "I", "W", "E", "F"], "verbose", "debug", "info", "warn", "warning", "error", "fatal"),
+            ["buffer"] = Of(["main", "system", "crash", "events", "radio", "all", "default"]),
+        },
         ["search_dex"] = new Dictionary<string, Domain> { ["kind"] = Of(["string", "type", "method", "field", "const", "opcode"], "class") },
         ["list_jni_bindings"] = new Dictionary<string, Domain> { ["kind"] = Of(["static_export", "registered", "unresolved", "export_only"]) },
         ["find_dex_references"] = new Dictionary<string, Domain> { ["direction"] = Of(["to", "from"]), ["kind"] = Of(["auto", "class", "method", "field", "string"]) },
