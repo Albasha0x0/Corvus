@@ -176,6 +176,28 @@ public class ToolOutputTests
         Assert.StartsWith("{", kept);
         Assert.DoesNotContain("[More: offset=", kept);
         Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 2_100);
+        Assert.Matches($@"^Cut to fit: blocks \d+ of 3000 kept; read_result id={id} has the whole record$", Record(r).GetProperty("warnings")[0].GetString());
+    }
+
+    /// <summary>S2: a report record cut to its budget names every array that lost entries; the tool's own warnings stay first.</summary>
+    [Fact]
+    public async Task CutReportRecordNamesWhatItDropped()
+    {
+        using var services = Services();
+        var sections = Enumerable.Range(0, 6).Select(i => new { name = $"s{i}", fields = Enumerable.Range(0, 40).Select(j => $"field {j} of section {i} with some words").ToArray() }).ToArray();
+        var r = await Call(services, "server_status", _ =>
+        {
+            ToolOutput.Warn("stated by the tool");
+            return new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.Report("status", new { server = "x", sections }) }] };
+        }, new() { ["maxTokens"] = 1_000 });
+        var record = Record(r);
+        var warnings = record.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()!).ToList();
+        Assert.Equal("stated by the tool", warnings[0]);
+        int kept = record.GetProperty("sections").GetArrayLength();
+        Assert.InRange(kept, 1, 5);
+        Assert.Contains($"sections {kept} of 6", warnings[1]);
+        Assert.DoesNotContain($"sections[{kept}]", warnings[1]);
+        Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 1_050);
     }
 
     /// <summary>An error over the error budget (160 compiler diagnostics) sends its head and keeps the full error (S1.3, G1).</summary>

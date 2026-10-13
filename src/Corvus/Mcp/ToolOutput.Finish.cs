@@ -265,19 +265,32 @@ public static partial class ToolOutput
         }
         if (record == null) return;
         if (id != null) record["resultId"] = id;
-        while (!call.Fits(record.ToJsonString(Wire)) && TrimLargest(record)) { }
+        // Every array that loses rows is named in a warning, so a cut record never reads as complete.
+        var cut = new Dictionary<string, (int Kept, int Total)>(StringComparer.Ordinal);
+        var warnings = record["warnings"] as JsonArray;
+        int stated = warnings?.Count ?? 0;
+        while (!call.Fits(record.ToJsonString(Wire)) && TrimLargest(record, cut))
+        {
+            warnings ??= (JsonArray)(record["warnings"] = new JsonArray());
+            while (warnings.Count > stated) warnings.RemoveAt(warnings.Count - 1);
+            warnings.Add("Cut to fit: " + string.Join(", ", cut.Select(c => $"{c.Key} {c.Value.Kept} of {c.Value.Total}")) +
+                (id != null ? $" kept; read_result id={id} has the whole record" : " kept"));
+        }
     }
 
-    /// <summary>Removes the last element of the record's largest array, else shortens its longest string; false when nothing is left to trim.</summary>
-    private static bool TrimLargest(JsonObject record)
+    /// <summary>
+    /// Removes the last element of the record's largest array (counted in <paramref name="cut"/> by path), else shortens its
+    /// longest string; false when nothing is left to trim.
+    /// </summary>
+    private static bool TrimLargest(JsonObject record, Dictionary<string, (int Kept, int Total)> cut)
     {
-        JsonNode? best = null;
+        JsonNode? best = null, own = record["warnings"];
         int size = 0;
         void Visit(JsonNode? node)
         {
             switch (node)
             {
-                case JsonArray a when a.Count > 0:
+                case JsonArray a when a.Count > 0 && a != own:
                     int s = a.ToJsonString(Json).Length;
                     if (s > size) { size = s; best = a; }
                     foreach (var child in a) Visit(child);
@@ -295,7 +308,10 @@ public static partial class ToolOutput
         switch (best)
         {
             case JsonArray a:
+                var path = a.GetPath().TrimStart('$', '.');
                 a.RemoveAt(a.Count - 1);
+                cut[path] = (a.Count, cut.TryGetValue(path, out var c) ? c.Total : a.Count + 1);
+                foreach (var gone in cut.Keys.Where(k => k.StartsWith($"{path}[{a.Count}]", StringComparison.Ordinal)).ToList()) cut.Remove(gone);
                 return true;
             case JsonValue v:
                 var str = v.GetValue<string>();
