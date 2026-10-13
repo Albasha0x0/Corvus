@@ -16,7 +16,8 @@
       "description": "ours, ida or ghidra.",
       "type": "string"
     },
-    "blocks": {
+    "items": {
+      "description": "Blocks of this page.",
       "type": "array",
       "items": {
         "type": "object",
@@ -66,7 +67,14 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
     "switches": {
+      "description": "Switches ending a block of this page.",
       "type": "array",
       "items": {
         "type": "object",
@@ -171,26 +179,54 @@
       }
     },
     "tailCalls": {
-      "description": "Targets of tail calls (VA).",
+      "description": "Targets of tail calls (VA); first page.",
       "type": "array",
       "items": {
         "type": "string"
       }
     },
-    "truncated": {
+    "cut": {
       "description": "The function was cut at the instruction limit.",
       "type": "boolean"
     },
-    "code": {
-      "type": "string"
+    "summary": {
+      "description": "Edges, switches, unresolved jumps and cyclomatic complexity of the whole function.",
+      "type": "object",
+      "properties": {
+        "blocks": {
+          "type": "integer"
+        },
+        "edges": {
+          "type": "integer"
+        },
+        "switches": {
+          "type": "integer"
+        },
+        "unresolvedJumps": {
+          "type": "integer"
+        },
+        "cyclomatic": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "blocks",
+        "edges",
+        "switches",
+        "unresolvedJumps",
+        "cyclomatic"
+      ]
     },
-    "offset": {
+    "limit": {
       "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
     },
     "nextOffset": {
-      "type": "integer"
-    },
-    "totalChars": {
       "type": "integer"
     },
     "notices": {
@@ -217,10 +253,13 @@
     "function",
     "address",
     "engine",
-    "blocks",
+    "items",
+    "offset",
+    "total",
     "switches",
     "unresolvedJumps",
     "tailCalls",
-    "truncated"
+    "cut",
+    "summary"
   ]
 }

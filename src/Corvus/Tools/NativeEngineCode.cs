@@ -224,7 +224,8 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         return $"; {choice.Line}\n" + pager.Page(sb.ToString(), offset, maxTokens);
     }
 
-    public async Task<string> Cfg(LoadedNative native, NativeCodeIndex index, uint rva, int offset, int? maxTokens,
+    /// <summary>get_cfg through the engine: one page of blocks (<see cref="NativeCodeTools.CfgPage"/>).</summary>
+    public async Task<string> Cfg(LoadedNative native, NativeCodeIndex index, uint rva, int offset, int limit,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await Session(native, choice, progress, ct);
@@ -236,43 +237,47 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         }
         string V(uint rva) => Va(index, rva);
         var name = Name(index, graph.StartRva, graph.Name);
-        var sb = new StringBuilder($"{name} at {V(graph.StartRva)}: {Plural(graph.Blocks.Count, "block")} {Via(choice.Engine)}\n");
-        var blocks = new List<CfgBlock>();
+        var rows = new List<NativeCodeTools.CfgRow>();
+        var switches = new List<(uint, CfgSwitch)>();
+        var unresolved = new List<(uint, CfgUnresolvedJump)>();
         foreach (var b in graph.Blocks)
         {
             var end = EndKind(b);
             var succ = b.Successors.Select(s => (To: s, Kind: s == b.EndRva && b.Successors.Count > 1 ? "ConditionalFallThrough"
                 : b.Successors.Count > 1 && !b.Switch ? "ConditionalTaken" : b.Switch ? "Switch" : s == b.EndRva ? "FallThrough" : "Jump")).ToList();
-            sb.AppendLine($"  {V(b.StartRva)}-{V(b.EndRva)}  {b.Instructions,4} insn  {end}" +
-                          (succ.Count > 0 ? "  -> " + string.Join(", ", succ.Select(s => s.Kind is "Jump" or "FallThrough" or "Switch" ? V(s.To) : $"{V(s.To)} {s.Kind}")) : ""));
-            blocks.Add(new CfgBlock(V(b.StartRva), V(b.EndRva), b.Instructions, end, [.. succ.Select(s => new CfgSuccessor(V(s.To), s.Kind))]));
-        }
-        var switches = new List<CfgSwitch>();
-        foreach (var b in graph.Blocks.Where(b => b.Switch))
-        {
-            if (b.SwitchInfo is { } si)
+            var line = new StringBuilder($"{V(b.StartRva)}-{V(b.EndRva)}  {b.Instructions,4} insn  {end}" +
+                (succ.Count > 0 && !b.Switch ? "  -> " + string.Join(", ", succ.Select(s => s.Kind is "Jump" or "FallThrough" ? V(s.To) : $"{V(s.To)} {s.Kind}"))
+                : succ.Count > 0 ? $"  -> {Plural(succ.Count, "target")}" : ""));
+            if (b.Switch)
             {
-                var view = new SwitchView(si.Jump ?? b.StartRva, si.Table, null, si.EntrySize > 0 ? si.EntrySize : null,
-                    si.Entries > 0 ? si.Entries : null, si.IndexTable, si.IndexEntries, si.Bias, si.Default,
-                    [.. si.Cases.Where(c => c.Target == si.Default).SelectMany(c => c.Values)], true, [.. si.Cases.Where(c => c.Target != si.Default)]);
-                NativeCodeTools.RenderSwitch(sb, view, V, t => index.NameAt(t), null);
-                switches.Add(NativeCodeTools.SwitchEntry(view, V, t => index.NameAt(t)));
-                continue;
+                var sb = new StringBuilder();
+                if (b.SwitchInfo is { } si)
+                {
+                    var view = new SwitchView(si.Jump ?? b.StartRva, si.Table, null, si.EntrySize > 0 ? si.EntrySize : null,
+                        si.Entries > 0 ? si.Entries : null, si.IndexTable, si.IndexEntries, si.Bias, si.Default,
+                        [.. si.Cases.Where(c => c.Target == si.Default).SelectMany(c => c.Values)], true, [.. si.Cases.Where(c => c.Target != si.Default)]);
+                    NativeCodeTools.RenderSwitch(sb, view, V, t => index.NameAt(t), null);
+                    switches.Add((view.Jump, NativeCodeTools.SwitchEntry(view, V, t => index.NameAt(t))));
+                }
+                else
+                {
+                    sb.AppendLine($"  switch at block {V(b.StartRva)}: {Plural(b.Successors.Count, "distinct target")}: " +
+                                  string.Join(", ", b.Successors.Take(64).Select(V)) + (b.Successors.Count > 64 ? ", ..." : ""));
+                    switches.Add((b.StartRva, new CfgSwitch(V(b.StartRva), null, null, null, null, null, null, 0, null, [], false,
+                        [.. b.Successors.Select(s => new CfgCase(V(s), index.NameAt(s), []))])));
+                }
+                line.Append('\n').Append(sb.ToString().TrimEnd('\n'));
             }
-            sb.AppendLine($"  switch at block {V(b.StartRva)}: {Plural(b.Successors.Count, "distinct target")}: " +
-                          string.Join(", ", b.Successors.Take(64).Select(V)) + (b.Successors.Count > 64 ? ", ..." : ""));
-            switches.Add(new CfgSwitch(V(b.StartRva), null, null, null, null, null, null, 0, null, [], false,
-                [.. b.Successors.Select(s => new CfgCase(V(s), index.NameAt(s), []))]));
+            if (b.Kind == "indjump" && !b.Switch && b.Successors.Count == 0)
+            {
+                line.Append($"\n  unresolved indirect jump in block {V(b.StartRva)}");
+                unresolved.Add((b.StartRva, new CfgUnresolvedJump(V(b.StartRva), "no switch recognized by the engine")));
+            }
+            rows.Add(new NativeCodeTools.CfgRow(new CfgBlock(V(b.StartRva), V(b.EndRva), b.Instructions, end, [.. succ.Select(s => new CfgSuccessor(V(s.To), s.Kind))]),
+                b.StartRva, b.EndRva, line.ToString()));
         }
-        var unresolved = new List<CfgUnresolvedJump>();
-        foreach (var b in graph.Blocks.Where(b => b.Kind == "indjump" && !b.Switch && b.Successors.Count == 0))
-        {
-            sb.AppendLine($"  unresolved indirect jump in block {V(b.StartRva)}");
-            unresolved.Add(new CfgUnresolvedJump(V(b.StartRva), "no switch recognized by the engine"));
-        }
-        foreach (var t in graph.TailCalls) sb.AppendLine($"  tail call to {index.NameAt(t) ?? V(t)}");
-        return ToolOutput.With(choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxTokens),
-            new CfgReport(native.Id, name, V(graph.StartRva), choice.Engine, blocks, switches, unresolved, [.. graph.TailCalls.Select(V)], false));
+        return NativeCodeTools.CfgPage(native.Id, name, V(graph.StartRva), choice, $"{name} at {V(graph.StartRva)} {Via(choice.Engine)}", rows, switches, unresolved,
+            [.. graph.TailCalls.Select(t => index.NameAt(t) ?? V(t))], false, offset, limit);
 
         string EndKind(NativeBlockInfo b) => b.Kind switch
         {

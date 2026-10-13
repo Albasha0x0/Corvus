@@ -269,12 +269,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph", UseStructuredContent = true, OutputSchemaType = typeof(CfgReport))]
-    [Description("Basic blocks of the native function containing an address: range, instruction count, how each ends and its successors; switch " +
+    [Description("Basic blocks of the native function containing an address, paged: range, instruction count, how each ends and its successors; switch " +
                  "tables with values per target; unresolved indirect jumps with the reason.")]
     public Task<string> GetCfg(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description("Blocks per page (default 150).")] int limit = 150,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -283,13 +284,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var choice = Choose(mode, native, index);
+        limit = ClampLimit(limit);
         if (choice.External)
-            return await _engine!.Cfg(native, index, Address(index, address), offset, maxTokens, choice, progress, cancellationToken);
+            return await _engine!.Cfg(native, index, Address(index, address), offset, limit, choice, progress, cancellationToken);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var fn = FunctionAt(index, Address(index, address));
         var graph = index.GetGraph(fn, cancellationToken);
-        var (text, report) = OurCfg(native, index, fn, graph);
-        return ToolOutput.With(choice.Line + "\n" + pager.Page(text, offset, maxTokens), report);
+        return OurCfg(native, index, fn, graph, choice, offset, limit);
     });
 
     /// <summary>"case 3, 4" (or "default ...") for a switch case reference from the jump at <paramref name="jump"/> to <paramref name="target"/>.</summary>

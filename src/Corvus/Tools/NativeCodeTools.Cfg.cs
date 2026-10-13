@@ -2,22 +2,27 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Code;
 
 namespace Corvus.Tools;
 
-/// <summary>get_cfg's structured result.</summary>
+/// <summary>get_cfg's structured result: the function's blocks paged in address order, with the switches and unresolved jumps of the page's blocks.</summary>
 public sealed record CfgReport(
     string Image,
     [property: Description("Function name.")] string Function,
     [property: Description("Function start (VA).")] string Address,
     [property: Description("ours, ida or ghidra.")] string Engine,
-    IReadOnlyList<CfgBlock> Blocks,
-    IReadOnlyList<CfgSwitch> Switches,
+    [property: Description("Blocks of this page.")] IReadOnlyList<CfgBlock> Items,
+    int Offset, int Total,
+    [property: Description("Switches ending a block of this page.")] IReadOnlyList<CfgSwitch> Switches,
     IReadOnlyList<CfgUnresolvedJump> UnresolvedJumps,
-    [property: Description("Targets of tail calls (VA).")] IReadOnlyList<string> TailCalls,
-    [property: Description("The function was cut at the instruction limit.")] bool Truncated);
+    [property: Description("Targets of tail calls (VA); first page.")] IReadOnlyList<string> TailCalls,
+    [property: Description("The function was cut at the instruction limit.")] bool Cut,
+    [property: Description("Edges, switches, unresolved jumps and cyclomatic complexity of the whole function.")] CfgSummary Summary);
+
+public sealed record CfgSummary(int Blocks, int Edges, int Switches, int UnresolvedJumps, int Cyclomatic);
 
 public sealed record CfgBlock(
     [property: Description("VA.")] string Start,
@@ -87,6 +92,34 @@ public sealed partial class NativeCodeTools
         return result;
     }
 
+    /// <summary>A block of get_cfg: its row (with its switch and unresolved jump lines) and its record.</summary>
+    internal sealed record CfgRow(CfgBlock Block, uint Start, uint End, string Line);
+
+    /// <summary>
+    /// get_cfg's page (shared by both engines): block rows from offset, the switches and unresolved jumps of the page's blocks,
+    /// and a summary of the whole function.
+    /// </summary>
+    internal static string CfgPage(string image, string function, string address, EngineChoice choice, string title, List<CfgRow> rows,
+        List<(uint Jump, CfgSwitch Switch)> switches, List<(uint At, CfgUnresolvedJump Jump)> unresolved, IReadOnlyList<string> tailCalls, bool cut,
+        int offset, int limit)
+    {
+        int edges = rows.Sum(r => r.Block.Successors.Count);
+        var summary = new CfgSummary(rows.Count, edges, switches.Count, unresolved.Count, Math.Max(1, edges - rows.Count + 2));
+        var head = $"{choice.Line}\n{title}: {ToolSupport.Plural(rows.Count, "block")}, {ToolSupport.Plural(edges, "edge")}, " +
+                   $"{ToolSupport.Plural(switches.Count, "switch")}, {ToolSupport.Plural(unresolved.Count, "unresolved indirect jump")}, cyclomatic {summary.Cyclomatic}" +
+                   (cut ? " (cut at the instruction limit)" : "") + "\n" +
+                   (offset == 0 && tailCalls.Count > 0 ? $"tail calls to {string.Join(", ", tailCalls.Take(20))}{(tailCalls.Count > 20 ? ", ..." : "")}\n" : "");
+        offset = Math.Max(0, offset);
+        var page = rows.Skip(offset).Take(Math.Max(1, limit)).ToList();
+        return ToolOutput.List(page, offset, limit, rows.Count, r => r.Line, shown =>
+            {
+                bool In(uint at) => shown.Any(r => at >= r.Start && at < r.End);
+                return new CfgReport(image, function, address, choice.Engine, shown.Select(r => r.Block).ToList(), offset, rows.Count,
+                    switches.Where(s => In(s.Jump)).Select(s => s.Switch).ToList(), unresolved.Where(u => In(u.At)).Select(u => u.Jump).ToList(),
+                    offset == 0 ? tailCalls : [], cut, summary);
+            }, "block", head);
+    }
+
     /// <summary>The switch lines of get_cfg (shared by both engines).</summary>
     internal static void RenderSwitch(StringBuilder sb, SwitchView s, Func<uint, string> va, Func<uint, string?> name, string? instruction)
     {
@@ -111,29 +144,34 @@ public sealed partial class NativeCodeTools
             s.Default is { } d ? va(d) : null, ValueRanges(s.DefaultValues), s.ValuesExact,
             [.. s.Cases.Select(c => new CfgCase(va(c.Target), name(c.Target), ValueRanges(c.Values)))]);
 
-    /// <summary>get_cfg on the built-in index: text and the structured report.</summary>
-    private static (string Text, CfgReport Report) OurCfg(LoadedNative native, NativeCodeIndex index, NativeFunction fn, FunctionGraph graph)
+    /// <summary>get_cfg on the built-in index: one page of blocks with their switches.</summary>
+    private static string OurCfg(LoadedNative native, NativeCodeIndex index, NativeFunction fn, FunctionGraph graph, EngineChoice choice, int offset, int limit)
     {
         string Va(uint rva) => NativeAddress.Va(index.Image, rva);
         string? Label(uint rva) => index.NameAt(rva);
-        var sb = new StringBuilder($"{fn.Name} at {Va(fn.Start)}: {ToolSupport.Plural(graph.Blocks.Count, "block")}{(graph.Truncated ? " (truncated)" : "")}\n");
-        foreach (var b in graph.Blocks)
-            sb.AppendLine($"  {Va(b.Start)}-{Va(b.End)}  {b.InstructionCount,4} insn  {b.EndKind}" +
-                          (b.Successors.Count > 0 ? "  -> " + string.Join(", ", b.Successors.Select(e => $"{Va(e.To)}{(e.Kind is EdgeKind.FallThrough or EdgeKind.Jump ? "" : " " + e.Kind)}")) : ""));
         var dis = graph.Switches.Count > 0 ? index.CreateDisassembler() : null;
-        var switches = new List<CfgSwitch>();
+        var switchText = new Dictionary<uint, string>();
+        var switches = new List<(uint, CfgSwitch)>();
         foreach (var sw in graph.Switches)
         {
             var view = SwitchView.Of(sw);
+            var sb = new StringBuilder();
             RenderSwitch(sb, view, Va, Label, dis?.DecodeOne(sw.JumpRva) is { } line ? string.Join(' ', line.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries)) : null);
-            switches.Add(SwitchEntry(view, Va, Label));
+            switchText[sw.JumpRva] = sb.ToString();
+            switches.Add((sw.JumpRva, SwitchEntry(view, Va, Label)));
         }
-        foreach (var j in graph.UnresolvedJumps) sb.AppendLine($"  unresolved indirect jump at {Va(j.Rva)}: {j.Reason}");
-        foreach (var t in graph.TailCalls) sb.AppendLine($"  tail call to {index.NameAt(t) ?? Va(t)}");
-        var report = new CfgReport(native.Id, fn.Name, Va(fn.Start), "ours",
-            [.. graph.Blocks.Select(b => new CfgBlock(Va(b.Start), Va(b.End), b.InstructionCount, b.EndKind.ToString(),
-                [.. b.Successors.Select(e => new CfgSuccessor(Va(e.To), e.Kind.ToString()))]))],
-            switches, [.. graph.UnresolvedJumps.Select(j => new CfgUnresolvedJump(Va(j.Rva), j.Reason))], [.. graph.TailCalls.Select(Va)], graph.Truncated);
-        return (sb.ToString(), report);
+        var unresolved = graph.UnresolvedJumps.Select(j => (j.Rva, new CfgUnresolvedJump(Va(j.Rva), j.Reason))).ToList();
+        var rows = graph.Blocks.Select(b =>
+        {
+            var line = new StringBuilder($"{Va(b.Start)}-{Va(b.End)}  {b.InstructionCount,4} insn  {b.EndKind}" +
+                (b.Successors.Count > 0 && b.EndKind != BlockEnd.Switch ? "  -> " + string.Join(", ", b.Successors.Select(e => $"{Va(e.To)}{(e.Kind is EdgeKind.FallThrough or EdgeKind.Jump ? "" : " " + e.Kind)}"))
+                : b.Successors.Count > 0 ? $"  -> {ToolSupport.Plural(b.Successors.Count, "target")}" : ""));
+            if (switchText.TryGetValue(b.LastInstruction, out var sw)) line.Append('\n').Append(sw.TrimEnd('\n'));
+            foreach (var u in graph.UnresolvedJumps.Where(u => u.Rva >= b.Start && u.Rva < b.End)) line.Append($"\n  unresolved indirect jump at {Va(u.Rva)}: {u.Reason}");
+            return new CfgRow(new CfgBlock(Va(b.Start), Va(b.End), b.InstructionCount, b.EndKind.ToString(),
+                [.. b.Successors.Select(e => new CfgSuccessor(Va(e.To), e.Kind.ToString()))]), b.Start, b.End, line.ToString());
+        }).ToList();
+        return CfgPage(native.Id, fn.Name, Va(fn.Start), choice, $"{fn.Name} at {Va(fn.Start)}", rows, switches, unresolved,
+            [.. graph.TailCalls.Select(t => Label(t) ?? Va(t))], graph.Truncated, offset, limit);
     }
 }

@@ -120,7 +120,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
             var head = $"Functions like {Name(index, fn)} at {Va(index, fn.Start)} [{native.Id}], {Plural(compared, "function")} compared\n" + Notes(notes);
             return ToolOutput.List(page, offset, limit, hits.Count, MatchRow,
                 rows => new SimilarityReport(native.Id, v, Name(index, fn), Va(index, fn.Start), compared, offset, hits.Count, offset + rows.Count < hits.Count,
-                    rows, [], notes), "match", head);
+                    rows, [], notes), "similar function", head);
         }
 
         int pairs = 0;
