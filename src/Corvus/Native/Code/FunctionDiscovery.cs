@@ -457,6 +457,8 @@ internal sealed partial class FunctionDiscovery
         private readonly ICodeDecoder _thunks;
         private readonly Dictionary<uint, uint?> _thunkCache = [];
         private readonly ScratchSet _seen = new();
+        // ARM32: halfwords of the literals the candidate being verified loads
+        private readonly HashSet<uint> _ownLiterals = [];
         private readonly Stack<uint> _work = new();
         public List<uint>? Consulted;
 
@@ -520,6 +522,7 @@ internal sealed partial class FunctionDiscovery
             work.Push(root);
             int count = 0;
             _peek.BeginFunction(root);
+            _ownLiterals.Clear();
             while (work.Count > 0)
             {
                 uint a = work.Pop();
@@ -535,11 +538,20 @@ internal sealed partial class FunctionDiscovery
                     if (d._starts[bit]) { if (!Known(a) && !d.InHeadOf(FellInto, a)) return false; break; }
                     if (d._covered[bit]) return false;
                     if (++count > VerifyLimit) return false;
+                    // ARM32: a literal the candidate itself loads ends the path, as in exploring
+                    if (_arm != null && _ownLiterals.Contains(a & ~1u)) break;
                     if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible() || _peek.LastHasImplausibleDisplacement(a)
-                        || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last, d._ctx.Image.Format == ImageFormat.Pe)) || d.IsLiteral(a, insn.Length)) return false;
+                        || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last, d._ctx.Image.Format == ImageFormat.Pe)) || d.IsLiteral(a, insn.Length))
+                    {
+                        // ARM32: a literal pool or zero fill right after a direct call (and its nop): the call does not return (error(1, ...))
+                        if (_arm != null && previous == FlowKind.Call) goto endRun;
+                        return false;
+                    }
                     // int3 ends code only as padding after a call that does not return
                     if (insn.Flow == FlowKind.Trap && _x86Peek?.Last.Mnemonic == Iced.Intel.Mnemonic.Int3 && previous is not (FlowKind.Call or FlowKind.IndirectCall)) return false;
-                    previous = insn.Flow;
+                    if (!(_arm != null && previous == FlowKind.Call && _arm.Last.Mnemonic == "nop")) previous = insn.Flow;
+                    if (_arm != null && insn.HasMem && _arm.LastLiteralSize is > 0 and var size)
+                        for (uint l = insn.MemTarget & ~1u; l < insn.MemTarget + (uint)size; l += 2) _ownLiterals.Add(l);
                     // x86: [ebp+x] before the code sets up ebp is the frame of another function (SEH filter or handler)
                     if (_x86Peek is { Is64: false } && !frame)
                     {

@@ -199,4 +199,26 @@ public class NativeArm32DiscoveryTests
         Assert.True(index.FunctionByStart(next) is { } f && (f.Sources & FunctionSource.TailJump) != 0);
         Assert.Equal([(Text, Text + 6)], index.Ranges(index.FunctionByStart(Text)!));
     }
+
+    /// <summary>
+    /// A function reached only through a pointer ends in error(1, ...): bl error; nop; then its literal pool, which reads as
+    /// code for one instruction. The call does not return, so the pool ends the path and the function verifies.
+    /// </summary>
+    [Fact]
+    public void A_literal_pool_after_a_call_ends_a_candidate()
+    {
+        var a = new A32Code(Text);
+        uint err = 0, lit = 0;
+        a.H(A32Code.BxLr);
+        uint f = a.Here;
+        a.H(A32Code.PushLr(0x10)).Later(2, at => A32Code.LdrLit(1, at, lit)).H(A32Code.MovImm(0, 1)).Later(-4, at => A32Code.Bl(at, err)).H(A32Code.Nop);
+        a.Align4();
+        lit = a.Here;
+        a.W(0x000047B8).W(0);                                    // blx r7, then zero fill
+        err = a.Here;
+        a.H(A32Code.MovImm(0, 0)).H(A32Code.BxLr);
+        var index = Build(a, w => w.Relocations.Add(new ElfWriter.Reloc(Data + 0x40, 23, Addend: f | 1)));
+
+        Assert.True(index.FunctionByStart(f) is { } fn && (fn.Sources & FunctionSource.DataPointer) != 0);
+    }
 }
