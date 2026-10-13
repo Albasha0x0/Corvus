@@ -289,7 +289,7 @@ public sealed class NativeLinkTests : IDisposable
 
         var callers = await graph.GetCallTree("provlib.dll!Plain", "callers", depth: 3);
         Has(callers, "  Main at 0x180001000 [app.dll]  (calls provlib!Plain)");
-        Has(callers, "  Interop::Plain()  [Managed]  (P/Invoke: provlib.dll!Plain");
+        Has(callers, "  Interop::Plain()  0x06000001  [Managed]  (P/Invoke: provlib.dll!Plain");
         Has(callers, "    App::Run()");
         Has(callers, "      App::Main()");
 

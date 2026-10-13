@@ -292,13 +292,14 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                 }
                 var owner = workspace.FindByModule(child.Module)?.Id;
                 sb.AppendLine($"{new string(' ', (l + baseIndent) * 2)}{Format.MemberLabel(child)}{(owner != null && owner != asm.Id ? $"  [{owner}]" : "")}{(tags.Count > 0 ? $"  ({string.Join(", ", tags)})" : "")}");
-                var id = Add(new TreeNode(0, up, l + baseIndent, Format.MemberLabel(child), edge is "virtual" && callers || edge == "delegate" ? "derived" : "observed")
+                var id = Add(new TreeNode(0, up, l + baseIndent, Format.MemberLabel(child), edge is "virtual" && callers || edge == "delegate" ? "derived" : null)
                 {
                     Token = Format.Token(child),
                     Assembly = owner != null && owner != asm.Id ? owner : null,
-                    Edge = edge,
+                    Edge = edge == "call" ? null : edge,
                     Flags = flag != null ? [flag] : null,
-                    Note = tags.Count > 0 ? string.Join(", ", tags) : null,
+                    // The edge already says virtual.
+                    Note = tags.Where(t => t != "virtual").ToList() is { Count: > 0 } kept ? string.Join(", ", kept) : null,
                 });
                 if (expandHere) Print(child, l + 1, id);
             }
@@ -306,7 +307,7 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                 foreach (var e in ext)
                 {
                     sb.AppendLine($"{new string(' ', (l + baseIndent) * 2)}{e}  (external)");
-                    Add(new TreeNode(0, up, l + baseIndent, e, "observed") { Edge = "external" });
+                    Add(new TreeNode(0, up, l + baseIndent, e, null) { Edge = "external" });
                 }
             if (native != null && depth - l + 1 > 0)
             {
@@ -317,8 +318,8 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                 sb.Append(native(m, depth - l + 1, l + baseIndent, rows, up));
                 if (sink != null)
                     foreach (var n in rows.Skip(first))
-                        sink.Add(new TreeNode(n.Id, n.Parent, n.Depth, n.Name, n.Edge is "virtual?" or "dynamic" ? "derived" : "observed")
-                            { Assembly = n.Image, Address = n.Address, Edge = n.Edge, Flags = n.Flags, Note = n.Note });
+                        sink.Add(new TreeNode(n.Id, n.Parent, n.Depth, n.Name, n.Edge is "virtual?" or "dynamic" ? "derived" : null)
+                            { Assembly = n.Image, Address = n.Address, Edge = n.Edge == "call" ? null : n.Edge, Flags = n.Flags, Note = n.Note });
             }
         }
 
@@ -328,16 +329,16 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
 
     /// <summary>A node of a call tree: a method, an external call, or native code below a method, in text order.</summary>
     public sealed record TreeNode(
-        [property: System.ComponentModel.Description("Node id, from 0 in tree order.")] int Id,
+        [property: System.ComponentModel.Description("Node id: its position in tree order.")] int Id,
         [property: System.ComponentModel.Description("Parent node id; absent at the top level.")] int? Parent,
         [property: System.ComponentModel.Description("Levels below the root (1: direct callers or callees).")] int Depth,
         [property: System.ComponentModel.Description("Method label, external call, or native function or import.")] string Name,
-        [property: System.ComponentModel.Description("observed, or derived (through a base or interface method, a delegate field, a possible virtual target).")] string Basis)
+        [property: System.ComponentModel.Description("derived: through a base or interface method, a delegate field or a possible virtual target; absent: observed.")] string? Basis)
     {
         [System.ComponentModel.Description("Managed: metadata token.")] public string? Token { get; init; }
         [System.ComponentModel.Description("Assembly or image id when it differs from the root's.")] public string? Assembly { get; init; }
         [System.ComponentModel.Description("Native: VA.")] public string? Address { get; init; }
-        [System.ComponentModel.Description("call, virtual, delegate, external, pinvoke, native, import, ...")] public string? Edge { get; init; }
+        [System.ComponentModel.Description("virtual, delegate, external, pinvoke, native, import, ...; absent: a direct call.")] public string? Edge { get; init; }
         [System.ComponentModel.Description("repeated, recursive, more, unresolved, not-loaded.")] public IReadOnlyList<string>? Flags { get; init; }
         [System.ComponentModel.Description("xN, via Base::Method, expanded under ..., binding details.")] public string? Note { get; init; }
     }

@@ -64,7 +64,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
         var (_, all) = await Call("get_type_info", new() { ["type"] = "Fixture.Model.Account", ["section"] = "methods", ["limit"] = 500 });
         Assert.Equal(Strings(all.GetProperty("items"), "token"), walked.Select(w => w.GetProperty("token").GetString()!).ToList());
         Assert.Equal(methods, walked.Count);
-        Assert.All(walked, w => Assert.Equal("method", w.GetProperty("kind").GetString()));
+        Assert.All(walked, w => Assert.False(w.TryGetProperty("kind", out _))); // one kind: the section says it
     }
 
     [Fact]
@@ -74,7 +74,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
         var first = rows.GetProperty("items")[0];
         Assert.Equal("method", first.GetProperty("target").GetString());
         Assert.Contains("RVA = \"0x1000\"", first.GetProperty("attribute").GetString());
-        Assert.StartsWith("Fixture.Native.NativeThing::First", first.GetProperty("owner").GetProperty("label").GetString());
+        Assert.StartsWith("Fixture.Native.NativeThing::First", first.GetProperty("owner").GetString());
 
         var (text, code) = await Call("get_attributes", new() { ["assembly"] = "TestFixture", ["format"] = "csharp" });
         Assert.Contains("TargetFramework", text);
@@ -96,7 +96,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     public async Task ReferencesThroughABaseMethodAreDerivedAndOverridesAreAKind()
     {
         var (_, record) = await Call("find_references", new() { ["symbol"] = "Fixture.Model.Account::Score" });
-        var viaBase = Assert.Single(record.GetProperty("items").EnumerateArray(), i => i.GetProperty("where").GetProperty("label").GetString()!.StartsWith("Consumer.Branch::Total"));
+        var viaBase = Assert.Single(record.GetProperty("items").EnumerateArray(), i => i.TryGetProperty("where", out var w) && w.GetString()!.StartsWith("Consumer.Branch::Total"));
         Assert.Equal("derived", viaBase.GetProperty("basis").GetString());
         Assert.All(record.GetProperty("items").EnumerateArray(), i => Assert.Contains(i.GetProperty("basis").GetString(), new[] { "observed", "derived" }));
         var (_, direct) = await Call("find_references", new() { ["symbol"] = "Fixture.Model.Account::Score", ["directOnly"] = true });
@@ -112,11 +112,16 @@ public sealed class DotnetToolTests : IAsyncLifetime
     {
         var walked = await Walk("get_call_tree", new() { ["method"] = "Fixture.Model.Account::Charge(int)", ["direction"] = "callers", ["depth"] = 3 }, 1);
         Assert.NotEmpty(walked);
-        var depth = walked.ToDictionary(n => n.GetProperty("id").GetInt32(), n => n.GetProperty("depth").GetInt32());
-        foreach (var n in walked)
-            if (n.TryGetProperty("parent", out var parent)) Assert.Equal(depth[parent.GetInt32()] + 1, n.GetProperty("depth").GetInt32());
-            else Assert.Equal(1, n.GetProperty("depth").GetInt32());
-        Assert.Equal(Enumerable.Range(0, walked.Count), walked.Select(n => n.GetProperty("id").GetInt32()));
+        // Tree order: the first row is at the top level, a row goes at most one level deeper than the row above it, and a
+        // row without depth is at the row above's; every page states its first row's depth.
+        Assert.Equal(1, walked[0].GetProperty("depth").GetInt32());
+        int last = 1;
+        for (int i = 1; i < walked.Count; i++)
+        {
+            int depth = walked[i].TryGetProperty("depth", out var d) ? d.GetInt32() : last;
+            Assert.InRange(depth, 1, last + 1);
+            last = depth;
+        }
     }
 
     [Fact]
@@ -130,7 +135,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
         Assert.False(first.GetProperty("totalExact").GetBoolean());
         Assert.Contains("[More: offset=1]", text);
         var step = first.GetProperty("items")[0].GetProperty("steps")[0];
-        Assert.Equal("observed", step.GetProperty("basis").GetString());
+        Assert.False(step.TryGetProperty("basis", out _)); // observed
         Assert.StartsWith("0x06", step.GetProperty("token").GetString());
     }
 

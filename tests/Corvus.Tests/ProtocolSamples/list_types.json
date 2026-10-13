@@ -12,18 +12,15 @@
     "items": [
       {
         "token": "0x02000002",
-        "kind": "class",
-        "fullName": "Il2CppDummyDll.AddressAttribute"
+        "name": "Il2CppDummyDll.AddressAttribute"
       },
       {
         "token": "0x02000003",
-        "kind": "class",
-        "fullName": "Il2CppDummyDll.FieldOffsetAttribute"
+        "name": "Il2CppDummyDll.FieldOffsetAttribute"
       },
       {
         "token": "0x02000004",
-        "kind": "class",
-        "fullName": "Il2CppDummyDll.TokenAttribute"
+        "name": "Il2CppDummyDll.TokenAttribute"
       }
     ],
     "offset": 0,

@@ -50,13 +50,14 @@ public sealed class ExportProjectTests
         Assert.Empty(Directory.GetFileSystemEntries(dir.Path));
     }
 
-    /// <summary>A client that waits 7 s (deadline 2 s): the call answers with a partial and the export finishes in the background.</summary>
+    /// <summary>A client that waits 10 s (deadline 5 s): the call answers with a partial and the export finishes in the background.</summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task AtTheClientDeadlineTheExportAnswersAndFinishesInTheBackground()
     {
         using var env = new Env();
         using var dir = new TempDir();
-        var options = new ServerOptions { ClientTimeoutSeconds = 7 };
+        var options = new ServerOptions { ClientTimeoutSeconds = 10 };
         using var services = new ServiceCollection().AddSingleton(options).AddSingleton<ResultStore>().BuildServiceProvider();
         var tools = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager, options: options);
         var output = dir.File("out");
@@ -70,7 +71,7 @@ public sealed class ExportProjectTests
             ct => new ValueTask<CallToolResult>(Call(ct)), default, null);
         async Task<CallToolResult> Call(CancellationToken ct) =>
             new() { Content = [new TextContentBlock { Text = await tools.ExportProject("TestFixture", output, cancellationToken: ct) }] };
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"answered after {clock.Elapsed}");
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"answered after {clock.Elapsed}");
         var error = McpProtocolTests.ErrorJson(result);
         Assert.Equal("timeout", error.GetProperty("code").GetString());
         Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());

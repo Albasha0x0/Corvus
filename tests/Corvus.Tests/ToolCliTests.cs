@@ -152,7 +152,7 @@ public class ToolCliTests
         // Structured output only; the whole record with --json.
         (code, output, _) = await Run(["call", "list_types", .. server, "--structured"]);
         Assert.Equal(0, code);
-        Assert.Contains(JsonNode.Parse(output)!["items"]!.AsArray(), i => (string?)i!["fullName"] == "Fixture.Model.Account");
+        Assert.Contains(JsonNode.Parse(output)!["items"]!.AsArray(), i => (string?)i!["name"] == "Fixture.Model.Account");
         (code, output, _) = await Run(["list_types", .. server, "--json", "namespace=Fixture.Model"]);
         Assert.Equal(0, code);
         Assert.False((bool)JsonNode.Parse(output)!["isError"]!);

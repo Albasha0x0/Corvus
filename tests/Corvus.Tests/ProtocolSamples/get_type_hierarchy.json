@@ -20,10 +20,9 @@
     "interfaces": [],
     "items": [
       {
-        "kind": "type",
         "label": "Fixture.Model.Account",
-        "assembly": "TestFixture",
-        "token": "0x0200000A"
+        "token": "0x0200000A",
+        "assembly": "TestFixture"
       }
     ],
     "offset": 0,

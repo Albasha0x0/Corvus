@@ -13,12 +13,9 @@
       {
         "kind": "call",
         "basis": "observed",
-        "where": {
-          "kind": "method",
-          "label": "Fixture.Model.Account::Charge(int, string)",
-          "assembly": "TestFixture",
-          "token": "0x06000019"
-        },
+        "where": "Fixture.Model.Account::Charge(int, string)",
+        "token": "0x06000019",
+        "assembly": "TestFixture",
         "ilOffset": 20
       }
     ],

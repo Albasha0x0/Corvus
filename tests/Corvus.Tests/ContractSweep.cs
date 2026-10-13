@@ -660,7 +660,7 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.Contains("[More: offset=3]", text);
 
         (_, json) = await Call("get_call_tree", new() { ["method"] = "Account::Charge(int)", ["direction"] = "callers" });
-        Assert.Contains(json.GetProperty("items").EnumerateArray(), n => n.TryGetProperty("token", out _) && n.GetProperty("depth").GetInt32() == 1 && n.GetProperty("basis").GetString() == "observed");
+        Assert.Contains(json.GetProperty("items").EnumerateArray(), n => n.TryGetProperty("token", out _) && !n.TryGetProperty("basis", out _) && !n.TryGetProperty("id", out _));
         // Pages by node rows: the text and the record hold the same nodes and continue at the same offset (G1).
         (text, json) = await Call("get_call_tree", new() { ["method"] = "Account::Charge(int)", ["direction"] = "callers", ["limit"] = 1 });
         var node = Assert.Single(json.GetProperty("items").EnumerateArray());

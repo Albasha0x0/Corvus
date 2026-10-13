@@ -48,10 +48,6 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": {
-            "description": "nested, field, property, event or method.",
-            "type": "string"
-          },
           "token": {
             "type": "string"
           },
@@ -59,17 +55,20 @@
             "description": "Declaration as C#.",
             "type": "string"
           },
+          "kind": {
+            "description": "nested, field, property, event or method (section summary and all).",
+            "type": "string"
+          },
           "il2Cpp": {
             "description": "Il2Cpp RVA / offset from the dummy DLL's attributes.",
             "type": "string"
           },
-          "ilInstructions": {
+          "il": {
             "description": "Methods: IL instruction count; absent without a body.",
             "type": "integer"
           }
         },
         "required": [
-          "kind",
           "token",
           "signature"
         ]

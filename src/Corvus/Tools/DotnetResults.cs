@@ -19,8 +19,9 @@ public sealed record NamespaceEntry([property: Description("'' for the global na
 
 public sealed record NamespaceList(IReadOnlyList<NamespaceEntry> Items, int Offset, int Total);
 
-public sealed record TypeEntry(string Token, [property: Description("class, struct, interface, enum, delegate (with modifiers).")] string Kind, string FullName)
+public sealed record TypeEntry(string Token, [property: Description("Full name.")] string Name)
 {
+    [Description("struct, interface, enum, delegate, static class ... (with modifiers); absent for a plain class.")] public string? Kind { get; init; }
     [Description(DotnetDoc.Assembly)] public string? Assembly { get; init; }
 }
 
@@ -31,12 +32,18 @@ public sealed record TypeList(IReadOnlyList<TypeEntry> Items, int Offset, int To
 }
 
 public sealed record MemberEntry(
-    [property: Description("nested, field, property, event or method.")] string Kind,
     string Token,
     [property: Description("Declaration as C#.")] string Signature)
 {
+    [Description("nested, field, property, event or method (section summary and all).")] public string? Kind { get; init; }
     [Description("Il2Cpp RVA / offset from the dummy DLL's attributes.")] public string? Il2Cpp { get; init; }
-    [Description("Methods: IL instruction count; absent without a body.")] public int? IlInstructions { get; init; }
+    [Description("Methods: IL instruction count; absent without a body.")] public int? Il { get; init; }
+}
+
+/// <summary>A member in a list row: what other tools take as symbol (label or token, with assembly).</summary>
+public sealed record MemberRow(string Label, string Token)
+{
+    [Description(DotnetDoc.Assembly)] public string? Assembly { get; init; }
 }
 
 public sealed record TypeOutline(
@@ -57,7 +64,7 @@ public sealed record TypeHierarchy(
     SymbolRef Type,
     [property: Description("Base types, nearest first.")] IReadOnlyList<string> BaseChain,
     IReadOnlyList<string> Interfaces,
-    [property: Description("Types deriving from it directly (implementing it, for an interface).")] IReadOnlyList<SymbolRef> Items,
+    [property: Description("Types deriving from it directly (implementing it, for an interface).")] IReadOnlyList<MemberRow> Items,
     int Offset,
     int Total);
 
@@ -65,7 +72,9 @@ public sealed record AttributeEntry(
     [property: Description("type, method, field, property, event, param:<name>, return, assembly or module.")] string Target,
     [property: Description("The attribute with its arguments, as C#.")] string Attribute)
 {
-    [Description("The member carrying it; absent for assembly and module.")] public SymbolRef? Owner { get; init; }
+    [Description("The member carrying it, on the first row of each member; absent for assembly and module.")] public string? Owner { get; init; }
+    public string? Token { get; init; }
+    public string? Assembly { get; init; }
 }
 
 /// <summary>get_attributes: rows, or with format=csharp the assembly attributes as a code page (code, offset, nextOffset, totalChars).</summary>
@@ -119,7 +128,8 @@ public sealed record StringList(IReadOnlyList<StringEntry> Items, int Offset, in
     public bool? TotalExact { get; init; }
 }
 
-public sealed record ConstantEntry(SymbolRef Owner, [property: Description("Where it appears: ldc.i4, const field, enum member, attribute, array initializer.")] string Kind, string Value)
+public sealed record ConstantEntry([property: Description("The member using it.")] string Owner, string Token, string Assembly,
+    [property: Description("Where it appears: ldc.i4, const field, enum member, attribute, array initializer.")] string Kind, string Value)
 {
     public int? IlOffset { get; init; }
 }
@@ -134,7 +144,9 @@ public sealed record ReferenceEntry(
     [property: Description("call, read, write, base type, attribute, override, native call, ...")] string Kind,
     [property: Description(DotnetDoc.Basis)] string Basis)
 {
-    [Description("Method, type or member containing the reference (the overriding method for kind=overrides).")] public SymbolRef? Where { get; init; }
+    [Description("Method, type or member containing the reference (the overriding method for kind=overrides), with its token and assembly; absent: the previous row's.")] public string? Where { get; init; }
+    public string? Token { get; init; }
+    public string? Assembly { get; init; }
     public int? IlOffset { get; init; }
     public string? Detail { get; init; }
     [Description("Native targets: the P/Invoke declaration the call goes through.")] public string? Via { get; init; }
@@ -158,11 +170,24 @@ public sealed record CalleeEntry(
 
 public sealed record CalleeList(string Method, IReadOnlyList<CalleeEntry> Items, int Offset, int Total);
 
+/// <summary>A get_call_tree row: rows are in tree order, so a row's parent is the nearest row above it one level up.</summary>
+public sealed record CallTreeRow([property: Description("Method label, external call, or native function or import.")] string Name)
+{
+    [Description("Levels below the root (1: direct callers or callees); absent: the row above's.")] public int? Depth { get; init; }
+    [Description("Managed: metadata token.")] public string? Token { get; init; }
+    [Description("Assembly or image id when it differs from the root's.")] public string? Assembly { get; init; }
+    [Description("Native: VA.")] public string? Address { get; init; }
+    [Description("virtual, delegate, external, pinvoke, native, import, ...; absent: a direct call.")] public string? Edge { get; init; }
+    [Description("repeated, recursive, more, unresolved, not-loaded.")] public IReadOnlyList<string>? Flags { get; init; }
+    [Description("xN, via Base::Method, expanded under ..., binding details.")] public string? Note { get; init; }
+    [Description("derived: through a base or interface method, a delegate field or a possible virtual target; absent: observed.")] public string? Basis { get; init; }
+}
+
 public sealed record CallTree(
     string Root,
     [property: Description("callers or callees.")] string Direction,
     int Depth,
-    IReadOnlyList<Services.CallGraphService.TreeNode> Items,
+    IReadOnlyList<CallTreeRow> Items,
     int Offset,
     int Total)
 {
@@ -176,7 +201,7 @@ public sealed record PathStepEntry([property: Description("Method label or nativ
     [Description("Reached by virtual dispatch through this base/interface method.")] public string? Via { get; init; }
     [Description("Native steps: the call site (VA) in the previous step.")] public string? Site { get; init; }
     [Description("Native steps: call, tail, import, virtual_exact, virtual_possible, pointer or pinvoke.")] public string? Edge { get; init; }
-    [Description(DotnetDoc.Basis + " Native: derived for engine-only, virtual_possible and pointer edges.")] public string? Basis { get; init; }
+    [Description("derived: reached through virtual dispatch, an engine reference, a possible virtual target or a pointer; absent: observed.")] public string? Basis { get; init; }
 }
 
 public sealed record CallPathEntry(IReadOnlyList<PathStepEntry> Steps, int VirtualHops)

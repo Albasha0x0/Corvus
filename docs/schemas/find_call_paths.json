@@ -39,7 +39,7 @@
                   "type": "string"
                 },
                 "basis": {
-                  "description": "observed (the code names it) or derived (through a base or interface declaration, or a delegate field). Native: derived for engine-only, virtual_possible and pointer edges.",
+                  "description": "derived: reached through virtual dispatch, an engine reference, a possible virtual target or a pointer; absent: observed.",
                   "type": "string"
                 }
               },

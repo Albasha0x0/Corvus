@@ -19,32 +19,14 @@
             "type": "string"
           },
           "where": {
-            "description": "Method, type or member containing the reference (the overriding method for kind=overrides).",
-            "type": "object",
-            "properties": {
-              "kind": {
-                "description": "type, method, field, property or event.",
-                "type": "string"
-              },
-              "label": {
-                "description": "Ns.Type or Ns.Type::Member(params).",
-                "type": "string"
-              },
-              "assembly": {
-                "description": "Assembly id.",
-                "type": "string"
-              },
-              "token": {
-                "description": "Metadata token, 0x06000001.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "label",
-              "assembly",
-              "token"
-            ]
+            "description": "Method, type or member containing the reference (the overriding method for kind=overrides), with its token and assembly; absent: the previous row's.",
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "assembly": {
+            "type": "string"
           },
           "ilOffset": {
             "type": "integer"

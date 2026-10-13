@@ -33,7 +33,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     {
         string Page(string header, List<CallGraphService.TreeNode> nodes, string root, string direction, int levels, bool truncated) =>
             ToolOutput.List(nodes.Skip(offset).Take(limit).ToList(), offset, limit, nodes.Count, TreeRow,
-                rows => new CallTree(root, direction, levels, rows, offset, nodes.Count) { TotalExact = truncated ? false : null }, "node", header, totalExact: !truncated);
+                rows => new CallTree(root, direction, levels, Rows(rows), offset, nodes.Count) { TotalExact = truncated ? false : null }, "node", header, totalExact: !truncated);
         bool callers = (direction ?? "").Trim().ToLowerInvariant() switch
         {
             "callers" or "caller" or "up" or "in" => true,
@@ -65,15 +65,39 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         }, cancellationToken);
     }
 
+    /// <summary>The record's rows: depth only where it changes from the row above.</summary>
+    private static List<CallTreeRow> Rows(IReadOnlyList<CallGraphService.TreeNode> nodes)
+    {
+        var rows = new List<CallTreeRow>();
+        int previous = -1;
+        foreach (var n in nodes)
+        {
+            rows.Add(new CallTreeRow(n.Name)
+            {
+                Depth = n.Depth != previous ? n.Depth : null,
+                Token = n.Token, Assembly = n.Assembly, Address = n.Address, Edge = n.Edge, Flags = n.Flags, Note = n.Note, Basis = n.Basis,
+            });
+            previous = n.Depth;
+        }
+        return rows;
+    }
+
     /// <summary>A tree node as its text line: two spaces per level below the first.</summary>
     private static string TreeRow(CallGraphService.TreeNode n)
     {
         var indent = new string(' ', Math.Max(0, n.Depth - 1) * 2);
         if (n.Token == null && n.Edge != "external") return indent + NativeLabel(n.Name, n.Address, n.Assembly, n.Edge, n.Flags, n.Note);
         var sb = new StringBuilder(indent).Append(n.Name);
+        if (n.Token != null) sb.Append("  ").Append(n.Token);
         if (n.Assembly != null) sb.Append("  [").Append(n.Assembly).Append(']');
         if (n.Edge == "external") sb.Append("  (external)");
-        else if (n.Note != null) sb.Append("  (").Append(n.Note).Append(')');
+        else
+        {
+            var tags = new List<string>();
+            if (n.Edge == "virtual" && n.Basis == null) tags.Add("virtual");
+            if (n.Note != null) tags.Add(n.Note);
+            if (tags.Count > 0) sb.Append("  (").Append(string.Join(", ", tags)).Append(')');
+        }
         return sb.ToString();
     }
 
@@ -97,8 +121,8 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     }
 
     private static CallGraphService.TreeNode Node(NativeTreeNode n) =>
-        new(n.Id, n.Parent, n.Depth, n.Name, n.Edge is "virtual?" or "dynamic" ? "derived" : "observed")
-            { Assembly = n.Image, Address = n.Address, Edge = n.Edge, Flags = n.Flags, Note = n.Note };
+        new(n.Id, n.Parent, n.Depth, n.Name, n.Edge is "virtual?" or "dynamic" ? "derived" : null)
+            { Assembly = n.Image, Address = n.Address, Edge = n.Edge == "call" ? null : n.Edge, Flags = n.Flags, Note = n.Note };
 
     /// <summary>Call tree rooted at a native export: native code below or above it, and the managed methods bound to it; returns the header.</summary>
     private string NativeTree(NativeLinkService link, NativeSymbol symbol, bool callers, int depth, List<CallGraphService.TreeNode> nodes, CancellationToken ct)
@@ -121,7 +145,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         var managed = link.ManagedLinksTo(target, ct);
         foreach (var m in managed)
         {
-            nodes.Add(new CallGraphService.TreeNode(nodes.Count, null, 1, Format.MemberLabel(m.Method), "observed")
+            nodes.Add(new CallGraphService.TreeNode(nodes.Count, null, 1, Format.MemberLabel(m.Method), null)
                 { Token = Format.Token(m.Method), Assembly = m.Assembly.Id, Edge = "pinvoke", Note = $"{m.Kind}: {NativeLinkService.Describe(m.Binding)}" });
             if (depth > 1) graph.WriteTree(new StringBuilder(), m.Assembly, m.Method, true, depth - 1, MaxNodes, false, 1, null, ct, nodes, nodes.Count - 1);
         }
@@ -242,7 +266,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     private static void AppendManaged(StringBuilder sb, List<CallGraphService.PathStep> path)
     {
         for (int i = 0; i < path.Count; i++)
-            sb.AppendLine($"  {new string(' ', i * 2)}{(i == 0 ? "" : "-> ")}{Format.MemberLabel(path[i].Method)}" +
+            sb.AppendLine($"  {new string(' ', i * 2)}{(i == 0 ? "" : "-> ")}{Format.MemberLabel(path[i].Method)}  {Format.Token(path[i].Method)}" +
                           (path[i].Via is { } via ? $"  (virtual dispatch: calls {Format.MemberLabel(via)})" : ""));
     }
 
@@ -259,7 +283,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 Token = Format.Token(s.Method),
                 Assembly = asm != previous ? asm : null,
                 Via = s.Via is { } via ? Format.MemberLabel(via) : null,
-                Basis = s.Via != null ? "derived" : "observed",
+                Basis = s.Via != null ? "derived" : null,
             });
             previous = asm;
         }
@@ -379,7 +403,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             Assembly = image != previous ? image : null,
             Site = site,
             Edge = edge,
-            Basis = edge is "engine" or "virtual_possible" or "pointer" ? "derived" : "observed",
+            Basis = edge is "engine" or "virtual_possible" or "pointer" ? "derived" : null,
         };
         previous = image;
         return step;

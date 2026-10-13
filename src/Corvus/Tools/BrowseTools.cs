@@ -64,10 +64,10 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                 var k = Format.Kind(t);
                 if (kind != null && !k.EndsWith(kind.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
                 if (matcher != null && !matcher(Format.StripArity(t.Name)) && !matcher(t.FullName)) continue;
-                items.Add(new TypeEntry(Format.Token(t), k, t.FullName) { Assembly = several ? asm.Id : null });
+                items.Add(new TypeEntry(Format.Token(t), t.FullName) { Kind = k == "class" ? null : k, Assembly = several ? asm.Id : null });
             }
         return ToolOutput.List(items.Skip(offset).Take(limit).ToList(), offset, limit, items.Count,
-            e => $"{e.Token}  {e.Kind,-12} {e.FullName}{(e.Assembly != null ? $"  [{e.Assembly}]" : "")}",
+            e => $"{e.Token}  {e.Kind ?? "class",-12} {e.Name}{(e.Assembly != null ? $"  [{e.Assembly}]" : "")}",
             rows => new TypeList(rows, offset, items.Count) { NotEvaluated = timeouts.Count, TotalExact = timeouts.Count > 0 ? false : null },
             "type", Header(timeouts.Note("name")), totalExact: timeouts.Count == 0);
     }, cancellationToken);
@@ -98,14 +98,14 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
             includeCompilerGenerated || (!name.StartsWith('<') && !m.CustomAttributes.IsDefined(CompilerGenerated));
         static string? Il2Cpp(IHasCustomAttribute m) => Il2CppService.CompactSummary(m);
 
-        var nested = t.NestedTypes.Where(n => Show(n, n.Name)).Select(n => new MemberEntry("nested", Format.Token(n), $"{Format.Kind(n)} {Format.TypeName(n)}")).ToList();
-        var fields = t.Fields.Where(f => Show(f, f.Name)).Select(f => new MemberEntry("field", Format.Token(f),
-            t.IsEnum && f.IsLiteral ? $"{f.Name} = {Format.LiteralWithHex(f.Constant?.Value)}" : Format.Field(f)) { Il2Cpp = Il2Cpp(f) }).ToList();
-        var properties = t.Properties.Select(p => new MemberEntry("property", Format.Token(p), Format.Property(p))).ToList();
-        var events = t.Events.Select(e => new MemberEntry("event", Format.Token(e), Format.Event(e))).ToList();
-        var methods = t.Methods.Where(m => Show(m, m.Name)).Select(m => new MemberEntry("method", Format.Token(m),
+        var nested = t.NestedTypes.Where(n => Show(n, n.Name)).Select(n => new MemberEntry(Format.Token(n), $"{Format.Kind(n)} {Format.TypeName(n)}") { Kind = "nested" }).ToList();
+        var fields = t.Fields.Where(f => Show(f, f.Name)).Select(f => new MemberEntry(Format.Token(f),
+            t.IsEnum && f.IsLiteral ? $"{f.Name} = {Format.LiteralWithHex(f.Constant?.Value)}" : Format.Field(f)) { Kind = "field", Il2Cpp = Il2Cpp(f) }).ToList();
+        var properties = t.Properties.Select(p => new MemberEntry(Format.Token(p), Format.Property(p)) { Kind = "property" }).ToList();
+        var events = t.Events.Select(e => new MemberEntry(Format.Token(e), Format.Event(e)) { Kind = "event" }).ToList();
+        var methods = t.Methods.Where(m => Show(m, m.Name)).Select(m => new MemberEntry(Format.Token(m),
             Format.Method(m) + (MetadataUtil.IsAccessor(m) ? "  (accessor)" : "") + (m.HasBody || MetadataUtil.SafeBody(m) != null ? "" : "  no body"))
-            { Il2Cpp = Il2Cpp(m), IlInstructions = MetadataUtil.SafeBody(m)?.Instructions.Count }).ToList();
+            { Kind = "method", Il2Cpp = Il2Cpp(m), Il = MetadataUtil.SafeBody(m)?.Instructions.Count }).ToList();
         var kinds = new (string Name, List<MemberEntry> Rows)[] { ("nested", nested), ("fields", fields), ("properties", properties), ("events", events), ("methods", methods) };
         bool hidden = fields.Count != t.Fields.Count || methods.Count != t.Methods.Count || nested.Count != t.NestedTypes.Count;
 
@@ -130,9 +130,10 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
             offset = 0;
             limit = Math.Max(1, rows.Count);
         }
-        else rows = section == "all" ? kinds.SelectMany(k => k.Rows).ToList() : kinds.First(k => k.Name == section).Rows;
+        // One kind: the rows need not say it.
+        else rows = section == "all" ? kinds.SelectMany(k => k.Rows).ToList() : kinds.First(k => k.Name == section).Rows.Select(r => r with { Kind = null }).ToList();
         var counts = kinds.ToDictionary(k => k.Name, k => k.Rows.Count);
-        return ToolOutput.List(rows.Skip(offset).Take(limit).ToList(), offset, limit, rows.Count, MemberRow,
+        return ToolOutput.List(rows.Skip(offset).Take(limit).ToList(), offset, limit, rows.Count, MemberText,
             page => new TypeOutline(SymbolRef.Of(sym), Format.TypeHeader(t), counts, section, page, offset, rows.Count)
             {
                 DeclaringType = t.DeclaringType?.FullName,
@@ -141,8 +142,8 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
             }, section == "summary" ? "member" : section is "all" ? "member" : section.TrimEnd('s'), header.ToString());
     }, cancellationToken);
 
-    private static string MemberRow(MemberEntry m) =>
-        $"{m.Kind,-8} {m.Token}  {m.Signature}{(m.IlInstructions is { } n ? $"  IL {n} instr" : "")}{(m.Il2Cpp is { } s ? $"  [{s}]" : "")}";
+    private static string MemberText(MemberEntry m) =>
+        $"{(m.Kind != null ? $"{m.Kind,-8} " : "")}{m.Token}  {m.Signature}{(m.Il is { } n ? $"  IL {n} instr" : "")}{(m.Il2Cpp is { } s ? $"  [{s}]" : "")}";
 
     [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy", UseStructuredContent = true, OutputSchemaType = typeof(TypeHierarchy))]
     [Description("Returns a type's base chain, all implemented interfaces, and the types deriving from (or implementing) it directly across loaded assemblies.")]
@@ -163,7 +164,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         header.Append($"Interfaces ({h.Interfaces.Count}):\n");
         foreach (var i in h.Interfaces) header.Append("  ").Append(i).Append('\n');
         header.Append(t.IsInterface ? "Implemented by: " : "Directly derived types: ");
-        var derived = h.Derived.Skip(offset).Select(SymbolRef.Of).ToList();
+        var derived = h.Derived.Skip(offset).Select(d => new MemberRow(d.Label, Format.Token(d.Member)) { Assembly = d.Assembly.Id }).ToList();
         return ToolOutput.List(derived, offset, limit, h.DerivedTotal, d => $"{d.Label}  [{d.Assembly}] {d.Token}",
             page => new TypeHierarchy(SymbolRef.Of(sym), h.BaseChain, h.Interfaces, page, offset, h.DerivedTotal), "type", header.ToString());
     }, cancellationToken);
@@ -199,12 +200,12 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
             var code = decompiler.DecompileAssemblyAttributes(asm, cancellationToken);
             return ToolOutput.Text(pager, code, offset, new AttributeList(null, offset, null), maxTokens);
         }
-        var rows = new List<AttributeEntry>();
+        var rows = new List<(AttributeEntry Entry, SymbolRef? Who)>();
         void Add(IHasCustomAttribute owner, string target, SymbolRef? who)
         {
             foreach (var ca in owner.CustomAttributes)
                 if (filter == null || (ca.AttributeType?.FullName ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase))
-                    rows.Add(new AttributeEntry(target, Format.Attribute(ca)) { Owner = who });
+                    rows.Add((new AttributeEntry(target, Format.Attribute(ca)), who));
         }
         if (string.IsNullOrWhiteSpace(symbol))
         {
@@ -222,9 +223,22 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                         Add(p, p.Sequence == 0 ? "return" : $"param:{p.Name}", who);
             }
         return ToolOutput.List(rows.Skip(offset).Take(limit).ToList(), offset, limit, rows.Count,
-            r => $"{(r.Owner is { } o ? $"{o.Label}  [{o.Assembly}]  " : "")}{(r.Target is "type" or "method" or "field" or "property" or "event" ? "" : r.Target + ": ")}{r.Attribute}",
-            page => new AttributeList(page, offset, rows.Count), "attribute", rows.Count == 0 && filter != null ? $"No custom attributes match '{filter}'.\n" : null);
+            r => $"{(r.Who is { } o ? $"{o.Label}  [{o.Assembly}]  " : "")}{(r.Entry.Target is "type" or "method" or "field" or "property" or "event" ? "" : r.Entry.Target + ": ")}{r.Entry.Attribute}",
+            page => new AttributeList(Owners(page), offset, rows.Count), "attribute", rows.Count == 0 && filter != null ? $"No custom attributes match '{filter}'.\n" : null);
     }, cancellationToken);
+
+    /// <summary>The page's rows with the owner on the first row of each member only.</summary>
+    private static List<AttributeEntry> Owners(IReadOnlyList<(AttributeEntry Entry, SymbolRef? Who)> page)
+    {
+        SymbolRef? last = null;
+        var rows = new List<AttributeEntry>();
+        foreach (var (entry, who) in page)
+        {
+            rows.Add(who != null && who != last ? entry with { Owner = who.Label, Token = who.Token, Assembly = who.Assembly } : entry);
+            last = who;
+        }
+        return rows;
+    }
 
     [McpServerTool(Name = "resolve_symbol", Title = "Resolve symbol", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
     [Description("What a symbol string or token resolves to: every match with kind, assembly, token and signature, to disambiguate before other calls.")]

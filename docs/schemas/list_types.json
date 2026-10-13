@@ -9,11 +9,12 @@
           "token": {
             "type": "string"
           },
-          "kind": {
-            "description": "class, struct, interface, enum, delegate (with modifiers).",
+          "name": {
+            "description": "Full name.",
             "type": "string"
           },
-          "fullName": {
+          "kind": {
+            "description": "struct, interface, enum, delegate, static class ... (with modifiers); absent for a plain class.",
             "type": "string"
           },
           "assembly": {
@@ -23,8 +24,7 @@
         },
         "required": [
           "token",
-          "kind",
-          "fullName"
+          "name"
         ]
       }
     },

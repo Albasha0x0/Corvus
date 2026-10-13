@@ -25,87 +25,87 @@
     "section": "summary",
     "items": [
       {
-        "kind": "nested",
         "token": "0x02000015",
-        "signature": "class Inventory"
+        "signature": "class Inventory",
+        "kind": "nested"
       },
       {
-        "kind": "field",
         "token": "0x0400000A",
-        "signature": "public const int MaxBalance = 100"
+        "signature": "public const int MaxBalance = 100",
+        "kind": "field"
       },
       {
-        "kind": "field",
         "token": "0x0400000B",
-        "signature": "private int _balance"
+        "signature": "private int _balance",
+        "kind": "field"
       },
       {
-        "kind": "field",
         "token": "0x0400000C",
-        "signature": "public static int AccountCount"
+        "signature": "public static int AccountCount",
+        "kind": "field"
       },
       {
-        "kind": "property",
         "token": "0x17000003",
-        "signature": "public int Balance { get; set; }"
+        "signature": "public int Balance { get; set; }",
+        "kind": "property"
       },
       {
-        "kind": "property",
         "token": "0x17000004",
-        "signature": "public bool IsActive { get; }"
+        "signature": "public bool IsActive { get; }",
+        "kind": "property"
       },
       {
-        "kind": "event",
         "token": "0x14000001",
-        "signature": "public event EventHandler Closed"
+        "signature": "public event EventHandler Closed",
+        "kind": "event"
       },
       {
-        "kind": "method",
         "token": "0x06000014",
         "signature": "public Account(string name)",
-        "ilInstructions": 15
+        "kind": "method",
+        "il": 15
       },
       {
-        "kind": "method",
         "token": "0x06000015",
         "signature": "public int get_Balance()  (accessor)",
-        "ilInstructions": 3
+        "kind": "method",
+        "il": 3
       },
       {
-        "kind": "method",
         "token": "0x06000016",
         "signature": "public void set_Balance(int value)  (accessor)",
-        "ilInstructions": 4
+        "kind": "method",
+        "il": 4
       },
       {
-        "kind": "method",
         "token": "0x06000017",
         "signature": "public bool get_IsActive()  (accessor)",
-        "ilInstructions": 5
+        "kind": "method",
+        "il": 5
       },
       {
-        "kind": "method",
         "token": "0x06000018",
         "signature": "public void Charge(int amount)",
-        "ilInstructions": 27
+        "kind": "method",
+        "il": 27
       },
       {
-        "kind": "method",
         "token": "0x06000019",
         "signature": "public void Charge(int amount, string source)",
-        "ilInstructions": 11
+        "kind": "method",
+        "il": 11
       },
       {
-        "kind": "method",
         "token": "0x0600001A",
         "signature": "public override void Tick(float dt)",
-        "ilInstructions": 2
+        "kind": "method",
+        "il": 2
       },
       {
-        "kind": "method",
         "token": "0x0600001B",
         "signature": "public override int Score()",
-        "ilInstructions": 5
+        "kind": "method",
+        "il": 5
       }
     ],
     "offset": 0,

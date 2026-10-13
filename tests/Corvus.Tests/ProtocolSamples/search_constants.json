@@ -11,12 +11,9 @@
     "value": "0x3E8",
     "items": [
       {
-        "owner": {
-          "kind": "method",
-          "label": "Fixture.Model.PremiumAccount::Score()",
-          "assembly": "TestFixture",
-          "token": "0x06000022"
-        },
+        "owner": "Fixture.Model.PremiumAccount::Score()",
+        "token": "0x06000022",
+        "assembly": "TestFixture",
         "kind": "ldc.i4",
         "value": "1000",
         "ilOffset": 0

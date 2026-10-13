@@ -15,32 +15,14 @@
             "type": "string"
           },
           "owner": {
-            "description": "The member carrying it; absent for assembly and module.",
-            "type": "object",
-            "properties": {
-              "kind": {
-                "description": "type, method, field, property or event.",
-                "type": "string"
-              },
-              "label": {
-                "description": "Ns.Type or Ns.Type::Member(params).",
-                "type": "string"
-              },
-              "assembly": {
-                "description": "Assembly id.",
-                "type": "string"
-              },
-              "token": {
-                "description": "Metadata token, 0x06000001.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "label",
-              "assembly",
-              "token"
-            ]
+            "description": "The member carrying it, on the first row of each member; absent for assembly and module.",
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "assembly": {
+            "type": "string"
           }
         },
         "required": [

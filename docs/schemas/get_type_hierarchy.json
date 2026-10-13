@@ -47,27 +47,19 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": {
-            "description": "type, method, field, property or event.",
-            "type": "string"
-          },
           "label": {
-            "description": "Ns.Type or Ns.Type::Member(params).",
-            "type": "string"
-          },
-          "assembly": {
-            "description": "Assembly id.",
             "type": "string"
           },
           "token": {
-            "description": "Metadata token, 0x06000001.",
+            "type": "string"
+          },
+          "assembly": {
+            "description": "Assembly id; only when several assemblies are listed.",
             "type": "string"
           }
         },
         "required": [
-          "kind",
           "label",
-          "assembly",
           "token"
         ]
       }

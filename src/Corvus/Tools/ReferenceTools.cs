@@ -45,7 +45,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
                 header += workspace.Assemblies.Count == 1
                     ? "none found. Only loaded assemblies are searched: load the assemblies that might use it (e.g. the whole Managed folder).\n"
                     : "none found in loaded assemblies.\n";
-            return ToolOutput.List(page, offset, limit, total, Row, rows => new ReferenceList($"{target.Label} [{target.Assembly.Id}]", rows, offset, total), "reference",
+            return ToolOutput.List(page, offset, limit, total, Row, rows => new ReferenceList($"{target.Label} [{target.Assembly.Id}]", Runs(rows), offset, total), "reference",
                 SkippedBodiesNote(workspace.Assemblies) + header);
         }, cancellationToken);
     }
@@ -56,7 +56,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         var method = (MethodDef)sym.Member;
         var list = references.FindOverrides(method, ct);
         string kind = method.DeclaringType.IsInterface ? "implementation" : "override";
-        var page = list.Skip(offset).Take(limit).Select(o => new ReferenceEntry(kind, "observed") { Where = SymbolRef.Of(o) }).ToList();
+        var page = list.Skip(offset).Take(limit).Select(o => new ReferenceEntry(kind, "observed") { Where = o.Label, Token = Format.Token(o.Member), Assembly = o.Assembly.Id }).ToList();
         return ToolOutput.List(page, offset, limit, list.Count, Row, rows => new ReferenceList($"{sym.Label} [{sym.Assembly.Id}]", rows, offset, list.Count),
             kind, $"Overrides / implementations of {sym.Label}  [{sym.Assembly.Id}]: ");
     }
@@ -65,17 +65,33 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
     private static ReferenceEntry Entry(ReferenceService.Reference i, string? via) =>
         new(i.Kind, i.Detail.StartsWith("via ", StringComparison.Ordinal) ? "derived" : "observed")
         {
-            Where = SymbolRef.Of(i.Assembly, i.Where),
+            Where = Format.MemberLabel(i.Where),
+            Token = Format.Token(i.Where),
+            Assembly = i.Assembly.Id,
             IlOffset = (int?)i.ILOffset,
             Detail = i.Detail.Length > 0 ? i.Detail : null,
             Via = via,
         };
 
+    /// <summary>The record's rows: the containing member only where it changes from the row before.</summary>
+    private static List<ReferenceEntry> Runs(IReadOnlyList<ReferenceEntry> rows)
+    {
+        var result = new List<ReferenceEntry>();
+        ReferenceEntry? previous = null;
+        foreach (var r in rows)
+        {
+            result.Add(previous != null && r.Where != null && r.Where == previous.Where && r.Token == previous.Token && r.Assembly == previous.Assembly
+                ? r with { Where = null, Token = null, Assembly = null } : r);
+            previous = r;
+        }
+        return result;
+    }
+
     private static ReferenceEntry NativeSite(string row) => new("native call", "observed") { Detail = row };
 
     private static string Row(ReferenceEntry e) =>
         e.Where is { } w
-            ? $"{w.Label}  [{w.Assembly}] {w.Token}{(e.IlOffset is { } o ? $"  IL_{o:X4}" : "")}  {e.Kind}{(e.Detail != null ? " " + e.Detail : "")}{(e.Via != null ? $"  (through {e.Via})" : "")}"
+            ? $"{w}  [{e.Assembly}] {e.Token}{(e.IlOffset is { } o ? $"  IL_{o:X4}" : "")}  {e.Kind}{(e.Detail != null ? " " + e.Detail : "")}{(e.Via != null ? $"  (through {e.Via})" : "")}"
             : $"{e.Kind}: {e.Detail}";
 
     /// <summary>P/Invoke declarations bound to a native export with their callers, then native call sites in loaded images, paged as one list.</summary>
@@ -106,7 +122,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             total++;
         }
         var page = rows.Skip(offset).Take(limit).ToList();
-        return ToolOutput.List(page, offset, limit, total, Row, p => new ReferenceList($"native {symbol}: {target.Label}", p, offset, total), "reference", header.ToString());
+        return ToolOutput.List(page, offset, limit, total, Row, p => new ReferenceList($"native {symbol}: {target.Label}", Runs(p), offset, total), "reference", header.ToString());
     }
 
     [McpServerTool(Name = "find_callees", Title = "What a method uses (xrefs from)", UseStructuredContent = true, OutputSchemaType = typeof(CalleeList))]

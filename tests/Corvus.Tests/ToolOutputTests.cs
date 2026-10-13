@@ -36,7 +36,7 @@ public class ToolOutputTests
     private static int Tokens(string s) => TokenEstimate.Of(s);
 
     private static TypeList Types(int offset, int count, int total) =>
-        new(Enumerable.Range(offset, count).Select(i => new TypeEntry($"0x{i:X8}", "class", $"Some.Namespace.Of.Types.Type{i}") { Assembly = "A" }).ToList(), offset, total);
+        new(Enumerable.Range(offset, count).Select(i => new TypeEntry($"0x{i:X8}", $"Some.Namespace.Of.Types.Type{i}") { Assembly = "A" }).ToList(), offset, total);
 
     /// <summary>A bare record (the SDK puts its JSON in the text block): readable text from the same rows, the list envelope, no truncated.</summary>
     [Fact]
@@ -101,7 +101,7 @@ public class ToolOutputTests
             int limit = request.Arguments!["limit"].GetInt32();
             limits.Add(limit);
             var record = Types(0, limit, 10_000);
-            var text = string.Join("\n", record.Items.Select(t => $"  {t.FullName}  {t.Token} with some more words on the line")) + "\n";
+            var text = string.Join("\n", record.Items.Select(t => $"  {t.Name}  {t.Token} with some more words on the line")) + "\n";
             return new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.With(text, record) }] };
         }, new() { ["limit"] = 5_000 }, Schema("limit", "offset"));
         Assert.True(limits.Count is 2 or 3, string.Join(",", limits));

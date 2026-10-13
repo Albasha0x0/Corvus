@@ -137,9 +137,9 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     {
         var scope = workspace.Scope(assembly);
         var r = search.SearchConstants(value, scope, End(offset, limit), cancellationToken);
-        var page = r.Items.Skip(offset).Select(h => new ConstantEntry(SymbolRef.Of(h.Assembly, h.Owner), h.Kind, h.Value) { IlOffset = (int?)h.ILOffset }).ToList();
+        var page = r.Items.Skip(offset).Select(h => new ConstantEntry(Format.MemberLabel(h.Owner), Format.Token(h.Owner), h.Assembly.Id, h.Kind, h.Value) { IlOffset = (int?)h.ILOffset }).ToList();
         return ToolOutput.List(page, offset, limit, r.Total,
-            h => $"{h.Owner.Label}{(h.IlOffset is { } o ? $" @IL_{o:X4}" : "")}  {h.Kind} {h.Value}  [{h.Owner.Assembly}] {h.Owner.Token}",
+            h => $"{h.Owner}{(h.IlOffset is { } o ? $" @IL_{o:X4}" : "")}  {h.Kind} {h.Value}  [{h.Assembly}] {h.Token}",
             rows => new ConstantList(value, rows, offset, r.Total), "occurrence",
             SkippedBodiesNote(scope) + (r.Total == 0 ? $"Constant {value} not found.\n" : $"Occurrences of {value}: "));
     }, cancellationToken);

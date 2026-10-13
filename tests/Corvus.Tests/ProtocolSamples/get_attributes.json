@@ -12,12 +12,9 @@
       {
         "target": "method",
         "attribute": "[Address(RVA = \"0x1000\", Offset = \"0x400\", VA = \"0x180001000\")]",
-        "owner": {
-          "kind": "method",
-          "label": "Fixture.Native.NativeThing::First()",
-          "assembly": "TestFixture",
-          "token": "0x06000004"
-        }
+        "owner": "Fixture.Native.NativeThing::First()",
+        "token": "0x06000004",
+        "assembly": "TestFixture"
       }
     ],
     "offset": 0,

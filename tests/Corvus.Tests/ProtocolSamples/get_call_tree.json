@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "Callers of Fixture.Model.Account::Charge(int)  [TestFixture]  (depth 2)\n1 node (showing 1-1):\n  Fixture.Model.Account::Charge(int, string)\n[End: 1 node]\n"
+    "Callers of Fixture.Model.Account::Charge(int)  [TestFixture]  (depth 2)\n1 node (showing 1-1):\n  Fixture.Model.Account::Charge(int, string)  0x06000019\n[End: 1 node]\n"
   ],
   "structuredContent": {
     "root": "Fixture.Model.Account::Charge(int) [TestFixture]",
@@ -14,12 +14,9 @@
     "depth": 2,
     "items": [
       {
-        "id": 0,
-        "depth": 1,
         "name": "Fixture.Model.Account::Charge(int, string)",
-        "basis": "observed",
-        "token": "0x06000019",
-        "edge": "call"
+        "depth": 1,
+        "token": "0x06000019"
       }
     ],
     "offset": 0,

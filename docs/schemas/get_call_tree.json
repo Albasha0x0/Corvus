@@ -16,25 +16,13 @@
       "items": {
         "type": "object",
         "properties": {
-          "id": {
-            "description": "Node id, from 0 in tree order.",
-            "type": "integer"
-          },
-          "parent": {
-            "description": "Parent node id; absent at the top level.",
-            "type": "integer"
-          },
-          "depth": {
-            "description": "Levels below the root (1: direct callers or callees).",
-            "type": "integer"
-          },
           "name": {
             "description": "Method label, external call, or native function or import.",
             "type": "string"
           },
-          "basis": {
-            "description": "observed, or derived (through a base or interface method, a delegate field, a possible virtual target).",
-            "type": "string"
+          "depth": {
+            "description": "Levels below the root (1: direct callers or callees); absent: the row above's.",
+            "type": "integer"
           },
           "token": {
             "description": "Managed: metadata token.",
@@ -49,7 +37,7 @@
             "type": "string"
           },
           "edge": {
-            "description": "call, virtual, delegate, external, pinvoke, native, import, ...",
+            "description": "virtual, delegate, external, pinvoke, native, import, ...; absent: a direct call.",
             "type": "string"
           },
           "flags": {
@@ -62,13 +50,14 @@
           "note": {
             "description": "xN, via Base::Method, expanded under ..., binding details.",
             "type": "string"
+          },
+          "basis": {
+            "description": "derived: through a base or interface method, a delegate field or a possible virtual target; absent: observed.",
+            "type": "string"
           }
         },
         "required": [
-          "id",
-          "depth",
-          "name",
-          "basis"
+          "name"
         ]
       }
     },
