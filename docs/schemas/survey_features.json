@@ -18,10 +18,16 @@
           "category": {
             "type": "string"
           },
+          "matches": {
+            "type": "integer"
+          },
           "attack": {
             "type": "string"
           },
           "attackName": {
+            "type": "string"
+          },
+          "basis": {
             "type": "string"
           },
           "evidence": {
@@ -40,6 +46,9 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "basis": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -53,9 +62,12 @@
         "required": [
           "name",
           "category",
-          "evidence"
+          "matches"
         ]
       }
+    },
+    "category": {
+      "type": "string"
     },
     "notes": {
       "type": "array",
@@ -85,7 +97,6 @@
   "required": [
     "assembly",
     "methodsScanned",
-    "features",
-    "notes"
+    "features"
   ]
 }

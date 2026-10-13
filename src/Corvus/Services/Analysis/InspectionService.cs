@@ -167,7 +167,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     }
 
     private static FeatureReport Filter(FeatureReport report, string? category) =>
-        category == null ? report : report with
+        category == null || category.Equals("all", StringComparison.OrdinalIgnoreCase) ? report : report with
         {
             Features = [.. report.Features.Where(c => c.Category.Equals(category, StringComparison.OrdinalIgnoreCase)
                                                      || (c.Attack?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false))],

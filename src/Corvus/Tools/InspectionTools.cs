@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Services;
 using Corvus.Services.Analysis;
 
@@ -47,20 +48,23 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         });
     }
 
-    [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true)]
+    [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true, OutputSchemaType = typeof(SurveyRecord))]
     [Description("Rule-based (capa-style) survey of the APIs an assembly calls, its P/Invokes and strings: network, execution, registry, persistence, collection, " +
-                 "anti-analysis, evasion, code loading, injection, discovery, crypto; each feature with its ATT&CK technique and evidence (up to 5 locations). " +
-                 "Native images get the same rules over static and GetProcAddress imports, call arguments, strings, sections and RTTI names, by address and function.")]
-    public Task<InspectionService.FeatureReport> SurveyFeatures(
+                 "anti-analysis, evasion, code loading, injection, crypto; each feature with its ATT&CK technique and match count, evidence (up to 5 locations) " +
+                 "with category=. Native images: the same rules over imports, call arguments, strings, sections and RTTI names.")]
+    public async Task<string> SurveyFeatures(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A .NET or native file to analyze without loading it; pass this, assembly or image.")] string? path = null,
-        [Description("Only this category (network, injection, ...) or ATT&CK technique prefix (T1055).")] string? category = null,
-        [Description("A loaded native image (instead of assembly).")] string? image = null,
+        [Description("Only this category (network, ...) or ATT&CK prefix (T1055), with evidence; all: every feature with evidence.")] string? category = null,
+        [Description("A native image, loaded or a path (instead of assembly).")] string? image = null,
         CancellationToken cancellationToken = default)
     {
         if (image != null && assembly != null)
             throw new ToolError(ErrorCode.InvalidArgument, "Pass assembly or image, not both: they name the same thing.");
-        return Task.Run(() => inspection.SurveyFeatures(assembly ?? image, path, category, cancellationToken), cancellationToken);
+        if (image != null && path == null && workspace?.Read(() => workspace.FindNative(image)) == null && File.Exists(image)) (path, image) = (image, null);
+        var report = await Task.Run(() => inspection.SurveyFeatures(assembly ?? image, path, category, cancellationToken), cancellationToken);
+        var record = ContainerText.Survey(report, category);
+        return ToolOutput.Report(ContainerText.Survey(record), record);
     }
 
     [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true)]

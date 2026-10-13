@@ -544,16 +544,16 @@ Structured output: `file`, `container`, `assemblies`, `highlights`, `notes`, `na
 
 **Survey features** (read-only, idempotent)
 
-Rule-based (capa-style) survey of the APIs an assembly calls, its P/Invokes and strings: network, execution, registry, persistence, collection, anti-analysis, evasion, code loading, injection, discovery, crypto; each feature with its ATT&CK technique and evidence (up to 5 locations). Native images get the same rules over static and GetProcAddress imports, call arguments, strings, sections and RTTI names, by address and function.
+Rule-based (capa-style) survey of the APIs an assembly calls, its P/Invokes and strings: network, execution, registry, persistence, collection, anti-analysis, evasion, code loading, injection, crypto; each feature with its ATT&CK technique and match count, evidence (up to 5 locations) with category=. Native images: the same rules over imports, call arguments, strings, sections and RTTI names.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
 | `path` | string |  |  | A .NET or native file to analyze without loading it; pass this, assembly or image. |
-| `category` | string |  |  | Only this category (network, injection, ...) or ATT&CK technique prefix (T1055). |
-| `image` | string |  |  | A loaded native image (instead of assembly). |
+| `category` | string |  |  | Only this category (network, ...) or ATT&CK prefix (T1055), with evidence; all: every feature with evidence. |
+| `image` | string |  |  | A native image, loaded or a path (instead of assembly). |
 
-Structured output: `assembly`, `methodsScanned`, `features`, `notes`.
+Structured output: `assembly`, `methodsScanned`, `features`, `category`, `notes`.
 
 ### extract_strings
 

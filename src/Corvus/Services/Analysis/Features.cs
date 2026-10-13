@@ -7,7 +7,11 @@ namespace Corvus.Services.Analysis;
 public sealed record Feature(string Name, string Category, string? Attack, string? AttackName, IReadOnlyList<Evidence> Evidence);
 
 /// <summary>A matched feature pattern, its match count and up to 5 locations.</summary>
-public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> Locations);
+public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> Locations)
+{
+    /// <summary>"derived" when a string or argument constant suggests the operation; null when an import or call site shows it.</summary>
+    public string? Basis { get; init; }
+}
 
 /// <summary>
 /// Capability rules over a module's code, shared by managed assemblies and native images. Feature kinds:
@@ -229,7 +233,12 @@ public static class Features
             if (cache.TryGetValue(feature, out var e)) return e;
             int colon = feature.IndexOf(':');
             var kind = colon < 0 ? feature : feature[..colon];
-            if (Kinds.Contains(kind)) return cache[feature] = evaluate(feature);
+            // A string or an argument constant suggests the operation; an import, call site, section or class shows it.
+            if (Kinds.Contains(kind))
+            {
+                var found = evaluate(feature);
+                return cache[feature] = found != null && kind is "str" or "arg" ? found with { Basis = "derived" } : found;
+            }
             var provider = extra.FirstOrDefault(p => p.Kinds.Contains(kind)) ?? throw new InvalidOperationException($"Unknown feature kind in rule: {feature}");
             return cache[feature] = provider.Evaluate(subject, feature, ct);
         }

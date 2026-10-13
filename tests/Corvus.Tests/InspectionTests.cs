@@ -248,6 +248,34 @@ public class InspectionTests : IDisposable
         Assert.Equal(["download files"], Inspection.SurveyFeatures(null, _dir.File("EverydayApis.dll"), "T1105", default).Features.Select(c => c.Name));
     }
 
+    /// <summary>The default page counts matches per feature; category= (or all) adds the evidence, a string's marked derived.</summary>
+    [Fact]
+    public async Task Features_DefaultPageCountsAndCategoryAddsEvidenceWithBasis()
+    {
+        var path = Save("Bot.dll", Compile("Bot", "public static class Bot { public static string Url = \"https://api.telegram.org/bot1/send\"; " +
+                                                  "public static void Run() { System.Diagnostics.Process.Start(\"x\"); System.Diagnostics.Process.Start(\"y\"); } }"));
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_workspace), _workspace);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await tools.SurveyFeatures(path: path);
+        var page = Assert.IsType<Corvus.Tools.SurveyRecord>(collector.Value);
+        var start = page.Features.Single(f => f.Name == "create processes");
+        Assert.Equal((2, null, null), (start.Matches, start.Basis, start.Evidence));
+        Assert.Equal("derived", page.Features.Single(f => f.Category == "network" && f.Attack == "T1102").Basis);
+        Assert.Contains("create processes, 2 matches", text);
+        Assert.Contains("Evidence: category=", text);
+        Assert.DoesNotContain("Bot::Run", text);
+
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        text = await tools.SurveyFeatures(path: path, category: "all");
+        var all = Assert.IsType<Corvus.Tools.SurveyRecord>(collector.Value);
+        Assert.Equal(page.Features.Select(f => f.Name), all.Features.Select(f => f.Name));
+        var url = Assert.Single(all.Features.Single(f => f.Attack == "T1102").Evidence!);
+        Assert.Equal("derived", url.Basis);
+        Assert.Null(Assert.Single(all.Features.Single(f => f.Name == "create processes").Evidence!).Basis);
+        Assert.Contains("api:System.Diagnostics.Process::Start x2", text);
+        Assert.Contains("Bot::Run()", text);
+    }
+
     [Fact]
     public async Task Features_TakeANativeImageAsImage()
     {
@@ -258,8 +286,13 @@ public class InspectionTests : IDisposable
         var tools = new Corvus.Tools.InspectionTools(new InspectionService(_workspace, code), _workspace, code);
         var byImage = await tools.SurveyFeatures(image: native.Id);
         var byAssembly = await tools.SurveyFeatures(assembly: native.Id);
-        Assert.Equal(byAssembly.Features.Select(f => f.Name), byImage.Features.Select(f => f.Name));
-        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => { _ = tools.SurveyFeatures(assembly: native.Id, image: native.Id); }).Code);
+        Assert.Equal(byAssembly, byImage);
+        // an image path that is not loaded is read as a file
+        var copy = _dir.File("unloaded-copy.bin");
+        File.Copy(path, copy);
+        static string Rows(string text) => text[text.IndexOf('\n')..];
+        Assert.Equal(Rows(byImage), Rows(await tools.SurveyFeatures(image: copy)));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.SurveyFeatures(assembly: native.Id, image: native.Id))).Code);
     }
 
     [Fact]
