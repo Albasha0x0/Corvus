@@ -356,12 +356,12 @@ public sealed class JavaDotNetMapTests : IDisposable
     [Fact]
     public void Manifest_NamesTheDotNetTypeOfEachComponent()
     {
-        var service = new AndroidPackageService(new OutputPager(new ServerOptions()), new JavaDotNetMap(_workspace));
+        var service = new AndroidPackageService(new JavaDotNetMap(_workspace));
         var m = service.Manifest(Apk());
         Assert.Equal("MyApp.LinkActivity (assemblies/MyApp.dll, crc64_package)", m.Components.Single(c => c.Name.EndsWith(".LinkActivity", StringComparison.Ordinal)).DotNetType);
         Assert.Equal("MyApp.MainActivity (assemblies/MyApp.dll, component_name)", m.Components.Single(c => c.Name == "com.example.app.Main").DotNetType);
         Assert.Null(m.Components.Single(c => c.Name == "com.example.app.Sync").DotNetType);
-        Assert.Null(new AndroidPackageService(new OutputPager(new ServerOptions()), new JavaDotNetMap(_workspace))
+        Assert.Null(new AndroidPackageService(new JavaDotNetMap(_workspace))
             .Manifest(AndroidSamples.Save(_dir, "java.apk", AndroidSamples.Apk())).Components[0].DotNetType); // not a .NET app
     }
 }

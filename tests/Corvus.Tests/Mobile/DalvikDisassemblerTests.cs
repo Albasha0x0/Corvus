@@ -72,7 +72,8 @@ public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper
     public void Class_FieldsAnnotationsAndEveryMethod()
     {
         var text = _dex.Disassemble(Apk(), "com.example.app.Main", false, default);
-        Assert.StartsWith("# Lcom/example/app/Main; in classes.dex\n.class public Lcom/example/app/Main;\n.super Landroid/app/Activity;\n.source \"Main.java\"\n", text);
+        Assert.StartsWith("# Lcom/example/app/Main; in classes.dex: 8 methods (symbol=<id> disassembles one)\n#   Lcom/example/app/Main;-><init>()V  4 units\n", text);
+        Assert.Contains("\n.class public Lcom/example/app/Main;\n.super Landroid/app/Activity;\n.source \"Main.java\"\n", text);
         Assert.Contains(".annotation system Ldalvik/annotation/MemberClasses;\n    value = {\n        \"Lcom/example/app/Main$Inner;\"\n    }\n.end annotation\n", text);
         Assert.Contains("# static fields\n.field public static final COUNT:I = 0x7\n", text);
         Assert.Contains("# instance fields\n.field private name:Ljava/lang/String;\n", text);

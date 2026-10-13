@@ -2220,7 +2220,7 @@ Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET
 
 **Android manifest** (read-only, idempotent)
 
-AndroidManifest.xml of an Android package, decoded: package, versions, SDKs; used and declared permissions; application flags (debuggable, allowBackup, cleartext traffic, network security config); each component with its effective exported state and why, permissions, intent filters, deep links, meta-data; queries, features, libraries; highlights. The raw XML: get_android_resource.
+AndroidManifest.xml of an Android package, decoded: package, versions, SDKs; permissions; application flags (debuggable, allowBackup, cleartext traffic, network security config); each component's effective exported state and why, permissions, intent filters, deep links, meta-data; queries, features, libraries; highlights. Raw XML: get_android_resource.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2239,7 +2239,7 @@ Compiled resources of an Android package (resources.arsc or a bundle's resources
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
 | `type` | string |  |  | Only this type (string, layout, xml, ...). |
 | `name` | string |  |  | Only names matching this (* and ? wildcards). |
-| `config` | string |  |  | Only this configuration: qualifiers as in a directory name (pt-rBR), or default. |
+| `config` | string |  |  | Only this configuration (pt-rBR, or default). |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Most rows. |
 
@@ -2249,16 +2249,18 @@ Structured output: `items`, `offset`, `total`, `types`, `limit`, `totalExact`, `
 
 **Get Android resource** (destructive, idempotent)
 
-One file or resource of an Android package: an entry path is read with binary XML decoded and references named, text as text, other data as a hex preview; @type/name or 0x7f... gives the resource's value in every configuration. savePath writes the raw bytes.
+One file or resource of an Android package: an entry path is read with binary XML decoded and references named, text as text, other data as a hex preview; @type/name or 0x7f... gives the resource's value in every configuration. outputPath writes the raw bytes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
 | `name` | string | yes |  | An entry path (res/xml/x.xml, assets/...), @type/name or a resource id 0x7f... |
-| `savePath` | string |  |  | Write the entry's bytes to this file. |
-| `overwrite` | boolean |  | `false` | Replace savePath if it exists. |
+| `outputPath` | string |  |  | Write the entry's bytes to this file. |
+| `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+
+Structured output: `entry`, `outputPath`, `bytes`, `sha256`, `code`, `offset`, `nextOffset`, `totalChars`.
 
 ### list_dex_classes
 
@@ -2269,7 +2271,7 @@ Classes defined in the DEX code of an Android package (every classes*.dex): desc
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
-| `query` | string |  |  | Only classes whose Java name or descriptor contains this, or matches it (* and ? wildcards). |
+| `query` | string |  |  | Only classes whose name contains or matches (* ?) this. |
 | `package` | string |  |  | Only this package and its subpackages. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Most classes. |
@@ -2280,20 +2282,24 @@ Structured output: `items`, `offset`, `total`, `notes`, `packages`, `limit`, `to
 
 **DEX class** (read-only, idempotent)
 
-One DEX class in full: superclass, interfaces, generic signature, enclosing and inner classes, Kotlin @Metadata, annotations; fields with type and static initial value; methods with their exact id (Lpkg/C;->name(params)ret, unique per overload), Java signature, code size, registers and parameter names.
+One DEX class: superclass, interfaces, generic signature, enclosing and inner classes, Kotlin @Metadata, annotations; then its members, paged: fields (type, static value) and methods (exact id Lpkg/C;->name(params)ret, Java signature, code size, registers, parameter names).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
 | `class` | string | yes |  | Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner. |
+| `members` | string |  |  | all (default), fields or methods. |
+| `query` | string |  |  | Only members whose name contains this. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `150` | Most members. |
 
-Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`, `code`, `offset`, `nextOffset`, `totalChars`.
+Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### disassemble_dex
 
 **Disassemble DEX** (read-only, idempotent)
 
-Smali of a method or class of an Android package's DEX code, in baksmali's layout. format=annotated adds code offsets and units.
+Smali (baksmali layout) of a DEX method or class; a class starts with its method ids and sizes. format=annotated adds code offsets and units.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2302,6 +2308,8 @@ Smali of a method or class of an Android package's DEX code, in baksmali's layou
 | `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+
+Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 ### decompile_java
 
@@ -2318,11 +2326,13 @@ Java source of a class or method of an Android package or a jar through JADX (CO
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
+Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
+
 ### search_dex
 
 **Search DEX code** (read-only, idempotent, long-running)
 
-Search the DEX code of an Android package. kind=string: string literals with the method and offset of each use; type: defined classes and type uses; method / field: defined and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic (invoke-static).
+Search DEX code. kind=string: literals with the method and offset of each use; type: defined classes and type uses; method / field: defined and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2338,13 +2348,13 @@ Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `
 
 **Find DEX references** (read-only, idempotent, long-running)
 
-Cross-references in DEX code with the method and code offset of each instruction. direction=to: callers of a method, readers and writers of a field, uses of a class or a string literal. direction=from: what a method (or every method of a class) calls, reads, writes and loads. Methods match by exact id, never another overload.
+Cross-references in DEX code, with the method and code offset of each instruction. direction=to: callers of a method, readers and writers of a field, uses of a class or string. direction=from: what a method (or each method of a class) calls, reads, writes and loads. Methods match by exact id.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
-| `target` | string | yes |  | A class, a method (Lpkg/C;->m(I)V, or pkg.C::m with optional parameters (int, String)), a field (Lpkg/C;->f:I or pkg.C::f), or a string in double quotes. |
-| `direction` | string |  |  | to (default: who refers to the target) or from (what it refers to). Values: to, from. |
+| `target` | string | yes |  | A class, method (Lpkg/C;->m(I)V or pkg.C::m(int)), field (Lpkg/C;->f:I or pkg.C::f) or a "quoted" string. |
+| `direction` | string |  |  | to (default; who refers to target) or from. Values: to, from. |
 | `kind` | string |  |  | How to read target (default auto; string: taken literally). Values: auto, class, method, field, string. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Most references. |
@@ -2360,7 +2370,7 @@ The other side of a Java / .NET bridge, for decompile_member or get_dex_class. .
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->m(I)V), a .NET type or member, or a pattern (crc64*). |
-| `path` | string |  |  | The .apk / .aab whose assemblies to read without loading; optional when they are loaded. |
+| `path` | string |  |  | The package whose assemblies to read; optional when they are loaded. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Most pairs. |
 
@@ -2397,7 +2407,7 @@ Structured output: `items`, `unparsed`.
 
 **Android device info** (read-only, idempotent, open-world)
 
-A device's properties (getprop), paged and filterable, with a summary: SDK, release, model, ABIs, fingerprint, security patch, build type, ro.debuggable, ro.secure, and whether it is an emulator.
+A device's properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, security patch, build type, ro.debuggable, ro.secure, and whether it is an emulator.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2441,7 +2451,7 @@ Structured output: `serial`, `package`, `versionName`, `versionCode`, `minSdk`, 
 
 **Pull installed package** (edit, idempotent, open-world, long-running)
 
-Copies every APK of an installed package (base and splits) into a new or empty directory, with size and SHA-256 each, then summarizes the base APK as summarize_file does. A failed pull leaves no files.
+Copies every APK of an installed package (base and splits) into a new or empty directory, with size and SHA-256 each, and summarizes the base APK. A failed pull leaves no files.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

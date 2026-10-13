@@ -106,7 +106,7 @@ public sealed class AabTests : IDisposable
     [Fact]
     public void ManifestAndResources_FromProtobuf()
     {
-        var service = new AndroidPackageService(new OutputPager(new ServerOptions()));
+        var service = new AndroidPackageService();
         var aab = Bundle();
         var m = service.Manifest(aab);
         Assert.Equal(("com.example.bundle", "7", 26, 34), (m.Package, m.VersionCode, m.MinSdk, m.TargetSdk));
@@ -121,8 +121,8 @@ public sealed class AabTests : IDisposable
         Assert.Equal(("night-xxhdpi-v31", "file", "res/xml/config.xml"), rows.Items.Where(r => r.Type == "xml").Select(r => (r.Config, r.ValueType, r.Value)).Single());
         Assert.Equal("[0]=1; [1]=two", rows.Items.Single(r => r.Type == "array").Value);
 
-        Assert.Contains("<base-config cleartextTrafficPermitted=\"false\" />", service.Resource(aab, "@xml/config", null, false, 0, null));
-        Assert.Contains("android:label=\"@string/app_name\"", service.Resource(aab, "AndroidManifest.xml", null, false, 0, null));
+        Assert.Contains("<base-config cleartextTrafficPermitted=\"false\" />", service.Resource(aab, "@xml/config", null, false).Text);
+        Assert.Contains("android:label=\"@string/app_name\"", service.Resource(aab, "AndroidManifest.xml", null, false).Text);
         Assert.Equal(4, new DexService().ListClasses(aab, null, null, 0, 10, default).Total);
         using var p = AndroidPackage.Open(aab);
         Assert.Equal("aab", p.Kind);

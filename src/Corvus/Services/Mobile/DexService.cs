@@ -31,6 +31,21 @@ public sealed record DexClassDetail(string Descriptor, string JavaName, string D
     [property: Description("Kotlin @Metadata: the kind and the names it records.")] string? Kotlin,
     IReadOnlyList<string> Annotations, IReadOnlyList<DexFieldInfo> Fields, IReadOnlyList<DexMethodInfo> Methods);
 
+public sealed record DexMember(
+    [property: Description("field or method.")] string Kind,
+    [property: Description("Exact id: Lpkg/C;->name:type, or Lpkg/C;->name(params)ret (what disassemble_dex, decompile_java and find_dex_references take).")] string Id,
+    string Access,
+    [property: Description("Java form: the field's type and name, or the method's modifiers, return type, name and parameter types.")] string Declaration,
+    [property: Description("Static initial value from the DEX, when it has one.")] string? Value,
+    [property: Description("16-bit code units; absent for abstract and native methods.")] int? CodeUnits, int? Registers, string? GenericSignature,
+    IReadOnlyList<string>? Annotations, IReadOnlyList<string?>? ParameterNames);
+
+/// <summary>A DEX class with one page of its members (fields first, then methods).</summary>
+public sealed record DexClassPage(string Descriptor, string JavaName, string DexFile, string Access, string? Super, IReadOnlyList<string> Interfaces,
+    string? SourceFile, string? GenericSignature, string? EnclosingClass, string? EnclosingMethod, IReadOnlyList<string> InnerClasses,
+    [property: Description("Kotlin @Metadata: the kind and the names it records.")] string? Kotlin,
+    IReadOnlyList<string> Annotations, int Fields, int Methods, IReadOnlyList<DexMember> Items, int Offset, int Total);
+
 public sealed record DexHit(
     [property: Description("string, type, method, field, const or opcode; class for a defined class.")] string Kind,
     [property: Description("The string, descriptor or value found.")] string Value,
@@ -279,7 +294,15 @@ public sealed class DexService
         symbol = symbol.Trim();
         bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
         if (!member && index.FindClass(symbol) is { } cls)
-            return $"# {cls.Class.Descriptor} in {cls.File.Name}\n" + new DalvikDisassembler(cls.File) { Annotated = annotated }.Class(cls.Class);
+        {
+            // The method ids first, so a large class can be read one method at a time.
+            var (_, methods) = cls.File.ClassData(cls.Class);
+            var head = new System.Text.StringBuilder($"# {cls.Class.Descriptor} in {cls.File.Name}: {methods.Count} methods (symbol=<id> disassembles one)\n");
+            foreach (var x in methods)
+                head.Append("#   ").Append(cls.File.Method(x.MethodIndex).Descriptor)
+                    .Append(x.CodeOffset != 0 && cls.File.Code(x.CodeOffset) is { } code ? $"  {code.Instructions.Length} units" : "").Append('\n');
+            return head + new DalvikDisassembler(cls.File) { Annotated = annotated }.Class(cls.Class);
+        }
         var id = index.ResolveMethod(symbol, ct);
         if (!index.Methods.TryGetValue(id, out var m))
             throw new ToolError(ErrorCode.NotFound, $"{id} is called by the package but not defined in it (a framework or library method).",

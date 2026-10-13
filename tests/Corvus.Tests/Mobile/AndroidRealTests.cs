@@ -13,7 +13,7 @@ public class AndroidRealTests(Xunit.Abstractions.ITestOutputHelper output)
     [RequiresRealDataFact(RealData.AndroidPackage)]
     public void ManifestAndResources()
     {
-        var service = new AndroidPackageService(new OutputPager(new ServerOptions()));
+        var service = new AndroidPackageService();
         var m = service.Manifest(Package);
         output.WriteLine($"{m.Package} {m.VersionName}: {m.Components.Count} components, {m.Permissions.Count} permissions; issues: {string.Join("; ", m.Issues)}");
         output.WriteLine(string.Join("\n", m.Highlights));
@@ -23,7 +23,7 @@ public class AndroidRealTests(Xunit.Abstractions.ITestOutputHelper output)
         var resources = service.Resources(Package, null, null, null, 0, 10);
         output.WriteLine($"{resources.Total} resource values in {resources.Types.Count} types");
         Assert.True(resources.Total > 0);
-        Assert.Contains("<manifest", service.Resource(Package, "AndroidManifest.xml", null, false, 0, null));
+        Assert.Contains("<manifest", service.Resource(Package, "AndroidManifest.xml", null, false).Text);
         using var p = AndroidPackage.Open(Package);
         output.WriteLine(string.Join("\n", AndroidRuntime.Detect(p).Select(r => $"{r.Family}: {r.Note} [{string.Join(", ", r.Evidence)}]")));
     }
@@ -46,7 +46,7 @@ public class AndroidRealTests(Xunit.Abstractions.ITestOutputHelper output)
             if (m.Encoded.CodeOffset != 0 && m.File.Code(m.Encoded.CodeOffset) is { } code && Dalvik.Decode(code.Instructions).Sum(i => i.Length) != code.Instructions.Length) truncated++;
         Assert.Equal(0, truncated);
 
-        var manifest = new AndroidPackageService(new OutputPager(new ServerOptions())).Manifest(Package);
+        var manifest = new AndroidPackageService().Manifest(Package);
         var launcher = manifest.Components.First(c => c.Launcher).Name;
         var detail = dex.GetClass(Package, launcher, default);
         output.WriteLine($"{detail.Descriptor}: {detail.Methods.Count} methods, super {detail.Super}; kotlin {detail.Kotlin}");

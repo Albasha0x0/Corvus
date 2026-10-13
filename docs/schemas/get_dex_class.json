@@ -51,67 +51,37 @@
       }
     },
     "fields": {
+      "type": "integer"
+    },
+    "methods": {
+      "type": "integer"
+    },
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
+          "kind": {
+            "description": "field or method.",
+            "type": "string"
+          },
           "id": {
-            "description": "Exact field id: Lpkg/C;->name:type.",
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "type": {
+            "description": "Exact id: Lpkg/C;->name:type, or Lpkg/C;->name(params)ret (what disassemble_dex, decompile_java and find_dex_references take).",
             "type": "string"
           },
           "access": {
+            "type": "string"
+          },
+          "declaration": {
+            "description": "Java form: the field's type and name, or the method's modifiers, return type, name and parameter types.",
             "type": "string"
           },
           "value": {
             "description": "Static initial value from the DEX, when it has one.",
             "type": "string"
           },
-          "genericSignature": {
-            "type": "string"
-          },
-          "annotations": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "type",
-          "access",
-          "annotations"
-        ]
-      }
-    },
-    "methods": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "description": "Exact method id: Lpkg/C;->name(params)ret, what disassemble_dex, decompile_java and find_dex_references take.",
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "signature": {
-            "description": "Java form: modifiers, return type, name and parameter types.",
-            "type": "string"
-          },
-          "access": {
-            "type": "string"
-          },
           "codeUnits": {
-            "description": "16-bit code units; null for abstract and native methods.",
+            "description": "16-bit code units; absent for abstract and native methods.",
             "type": "integer"
           },
           "registers": {
@@ -134,25 +104,29 @@
           }
         },
         "required": [
+          "kind",
           "id",
-          "name",
-          "signature",
           "access",
-          "annotations",
-          "parameterNames"
+          "declaration"
         ]
       }
-    },
-    "code": {
-      "type": "string"
     },
     "offset": {
       "type": "integer"
     },
-    "nextOffset": {
+    "total": {
       "type": "integer"
     },
-    "totalChars": {
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
       "type": "integer"
     },
     "notices": {
@@ -183,6 +157,9 @@
     "innerClasses",
     "annotations",
     "fields",
-    "methods"
+    "methods",
+    "items",
+    "offset",
+    "total"
   ]
 }

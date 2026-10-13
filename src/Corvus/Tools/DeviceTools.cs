@@ -16,7 +16,7 @@ public sealed class DeviceTools(DeviceService devices)
         Task.Run(() => devices.Devices(cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true, OutputSchemaType = typeof(AndroidDeviceInfo))]
-    [Description("A device's properties (getprop), paged and filterable, with a summary: SDK, release, model, ABIs, fingerprint, security " +
+    [Description("A device's properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, security " +
                  "patch, build type, ro.debuggable, ro.secure, and whether it is an emulator.")]
     public Task<string> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
@@ -59,8 +59,8 @@ public sealed class DeviceTools(DeviceService devices)
         Task.Run(() => devices.PackageInfo(package, serial, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "pull_android_package", Title = "Pull installed package", UseStructuredContent = true)]
-    [Description("Copies every APK of an installed package (base and splits) into a new or empty directory, with size and SHA-256 each, then " +
-                 "summarizes the base APK as summarize_file does. A failed pull leaves no files.")]
+    [Description("Copies every APK of an installed package (base and splits) into a new or empty directory, with size and SHA-256 each, and " +
+                 "summarizes the base APK. A failed pull leaves no files.")]
     public Task<PulledPackage> PullAndroidPackage(
         [Description("Package name, e.g. com.example.app.")] string package,
         [Description("A new or empty directory to write the APKs to.")] string outputDirectory,

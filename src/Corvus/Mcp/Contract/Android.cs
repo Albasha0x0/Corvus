@@ -12,7 +12,7 @@ public static partial class ToolEffects
         // Android packages (read natively; nothing executed)
         ["get_android_manifest"] = Reads(),
         ["list_android_resources"] = Reads(),
-        ["get_android_resource"] = Changes(destructive: true, idempotent: true), // savePath; overwrite=true replaces a file
+        ["get_android_resource"] = Changes(destructive: true, idempotent: true), // outputPath; overwrite=true replaces a file
         ["list_dex_classes"] = Reads(),
         ["get_dex_class"] = Reads(),
         ["disassemble_dex"] = Reads(),
@@ -54,7 +54,7 @@ public sealed partial record ToolContract
     {
         ["get_android_manifest"] = Row(O.Report, L.Instant),
         ["list_android_resources"] = Row(O.List, L.Instant, sort: "resource id, configuration"),
-        ["get_android_resource"] = Row(O.Bytes, L.Instant, noDryRun: "writes only with savePath; overwrite=false refuses an existing file"),
+        ["get_android_resource"] = Row(O.Bytes, L.Instant, noDryRun: "writes only with outputPath; overwrite=false refuses an existing file"),
         ["list_dex_classes"] = Row(O.List, L.Instant, sort: "class descriptor"),
         ["get_dex_class"] = Row(O.Code, L.Instant),
         ["disassemble_dex"] = Row(O.Code, L.Instant),

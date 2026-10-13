@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 public sealed class AndroidPackageTests : IDisposable
 {
     private readonly TempDir _dir = new();
-    private readonly AndroidPackageService _service = new(new OutputPager(new ServerOptions()));
+    private readonly AndroidPackageService _service = new();
 
     public void Dispose() => _dir.Dispose();
 
@@ -85,24 +85,24 @@ public sealed class AndroidPackageTests : IDisposable
     public void Resource_ByPathOrName_DecodesBinaryXml_AndSaves()
     {
         var path = Apk();
-        var manifest = _service.Resource(path, "AndroidManifest.xml", null, false, 0, null);
+        var manifest = _service.Resource(path, "AndroidManifest.xml", null, false).Text;
         Assert.Contains("android:label=\"@string/app_name\"", manifest);
         Assert.Contains("android:debuggable=\"true\"", manifest);
-        var nsc = _service.Resource(path, "@xml/network_security_config", null, false, 0, null);
+        var nsc = _service.Resource(path, "@xml/network_security_config", null, false).Text;
         Assert.Contains("<domain includeSubdomains=\"true\">example.com</domain>", nsc);
-        Assert.Contains("Example", _service.Resource(path, "@string/app_name", null, false, 0, null));
-        Assert.Contains("[pt-rBR] string: Exemplo", _service.Resource(path, $"0x{AndroidSamples.AppName:x8}", null, false, 0, null));
-        Assert.Contains("api.example.com", _service.Resource(path, "assets/config.json", null, false, 0, null));
+        Assert.Contains("Example", _service.Resource(path, "@string/app_name", null, false).Text);
+        Assert.Contains("[pt-rBR] string: Exemplo", _service.Resource(path, $"0x{AndroidSamples.AppName:x8}", null, false).Text);
+        Assert.Contains("api.example.com", _service.Resource(path, "assets/config.json", null, false).Text);
 
         var saved = _dir.File("layout.bin");
-        Assert.StartsWith("Wrote res/layout/main.xml", _service.Resource(path, "@layout/main", saved, false, 0, null));
+        Assert.StartsWith("Wrote res/layout/main.xml", _service.Resource(path, "@layout/main", saved, false).Text);
         Assert.True(AxmlDocument.IsAxml(File.ReadAllBytes(saved)));
-        Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => _service.Resource(path, "@layout/main", saved, false, 0, null)).Code);
+        Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => _service.Resource(path, "@layout/main", saved, false)).Code);
 
-        var missing = Assert.Throws<ToolError>(() => _service.Resource(path, "res/xml/network_security.xml", null, false, 0, null));
+        var missing = Assert.Throws<ToolError>(() => _service.Resource(path, "res/xml/network_security.xml", null, false));
         Assert.Equal(ErrorCode.NotFound, missing.Code);
-        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => _service.Resource(path, "@string/nope", null, false, 0, null)).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => _service.Resource(path, "@nope", null, false, 0, null)).Code);
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => _service.Resource(path, "@string/nope", null, false)).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => _service.Resource(path, "@nope", null, false)).Code);
     }
 
     [Fact]

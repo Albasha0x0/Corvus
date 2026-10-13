@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "entry": {
+      "description": "The package entry read; resources.arsc for a resource's values.",
+      "type": "string"
+    },
+    "outputPath": {
+      "description": "Where the bytes were written (outputPath).",
+      "type": "string"
+    },
+    "bytes": {
+      "description": "The entry's size in bytes.",
+      "type": "integer"
+    },
+    "sha256": {
+      "description": "SHA-256 of the bytes written.",
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "entry"
+  ]
+}

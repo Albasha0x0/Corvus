@@ -36,6 +36,18 @@ public sealed class AndroidListTests : IDisposable
         Assert.Contains("2 references (showing 1-2):", Text(refs));
         var hits = await server.Client.CallToolAsync("search_dex", new Dictionary<string, object?> { ["path"] = apk, ["kind"] = "string", ["query"] = "api.example" });
         Assert.Contains("string https://api.example.com/v1  in", Text(hits));
+
+        // a class's members page; the header stays
+        var methods = await server.Client.CallToolAsync("get_dex_class", new Dictionary<string, object?> { ["path"] = apk, ["class"] = Main, ["members"] = "methods", ["limit"] = 3 });
+        Assert.Contains("2 fields, 8 methods\n8 members (showing 1-3):", Text(methods));
+        Assert.Equal(3, methods.StructuredContent!.Value.GetProperty("nextOffset").GetInt32());
+        var compute = await server.Client.CallToolAsync("get_dex_class", new Dictionary<string, object?> { ["path"] = apk, ["class"] = Main, ["query"] = "compute" });
+        Assert.Equal([ComputeInt, ComputeString], compute.StructuredContent!.Value.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetString()));
+
+        // a resource written to outputPath names it, its size and hash
+        var written = await server.Client.CallToolAsync("get_android_resource", new Dictionary<string, object?> { ["path"] = apk, ["name"] = "@layout/main", ["outputPath"] = _dir.File("main.xml") });
+        var file = written.StructuredContent!.Value;
+        Assert.Equal(("res/layout/main.xml", _dir.File("main.xml"), 64), (file.GetProperty("entry").GetString(), file.GetProperty("outputPath").GetString(), file.GetProperty("sha256").GetString()!.Length));
     }
 
     [Fact]
@@ -45,7 +57,7 @@ public sealed class AndroidListTests : IDisposable
         res.String("string", "short", "Example");
         res.String("string", "long", new string('x', 500));
         var apk = Save(_dir, "long.apk", ContainerFixtures.Zip([("AndroidManifest.xml", Manifest()), ("resources.arsc", res.Build())]));
-        var rows = new Corvus.Services.Mobile.AndroidPackageService(new Corvus.Core.OutputPager(new Corvus.Core.ServerOptions())).Resources(apk, null, null, null, 0, 10).Items;
+        var rows = new Corvus.Services.Mobile.AndroidPackageService().Resources(apk, null, null, null, 0, 10).Items;
         var cut = rows.Single(r => r.Name == "long");
         Assert.Equal((Corvus.Services.Mobile.AndroidPackageService.MaxValueChars, true), (cut.Value.Length, cut.ValueTruncated));
         Assert.Null(rows.Single(r => r.Name == "short").ValueTruncated);

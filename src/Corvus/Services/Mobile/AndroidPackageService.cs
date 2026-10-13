@@ -25,7 +25,12 @@ public sealed record AndroidPackageFacts(string Kind, string Package, string? Ve
     IReadOnlyList<string> SplitApks, IReadOnlyList<string> Highlights);
 
 /// <summary>Android packages: manifest, resources and package facts, read natively from .apk / .aab / split sets.</summary>
-public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotnet = null)
+/// <summary>One entry or resource read by get_android_resource: its text, or where its bytes were written.</summary>
+public sealed record AndroidResourceRead(string Text,
+    [property: Description("The package entry read (res/..., assets/..., AndroidManifest.xml).")] string Entry,
+    [property: Description("Where the bytes were written (outputPath).")] string? OutputPath, long? Bytes, string? Sha256);
+
+public sealed class AndroidPackageService(JavaDotNetMap? dotnet = null)
 {
     /// <summary>The manifest summary; in a .NET for Android package each component names the .NET type that implements it.</summary>
     public AndroidManifestSummary Manifest(string path, CancellationToken ct = default)
@@ -69,8 +74,8 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
         new("^" + Regex.Escape(pattern.Trim()).Replace(@"\*", ".*", StringComparison.Ordinal).Replace(@"\?", ".", StringComparison.Ordinal) + "$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
 
-    /// <summary>A file entry (binary XML decoded) or a resource's values; savePath writes the entry's bytes.</summary>
-    public string Resource(string path, string name, string? savePath, bool overwrite, int offset, int? maxTokens)
+    /// <summary>A file entry (binary XML decoded) or a resource's values; outputPath writes the entry's bytes.</summary>
+    public AndroidResourceRead Resource(string path, string name, string? outputPath, bool overwrite)
     {
         using var p = AndroidPackage.Open(path);
         name = name.Trim();
@@ -81,12 +86,12 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
             var table = p.Resources ?? throw new ToolError(ErrorCode.NotFound, $"{p.Path} has no resource table.");
             var (id, rows) = Lookup(table, name);
             var files = rows.Where(r => r.ValueType == "file").Select(r => r.Value).Distinct().ToList();
-            if (files.Count == 0 || savePath == null && rows.Any(r => r.ValueType != "file"))
+            if (files.Count == 0 || outputPath == null && rows.Any(r => r.ValueType != "file"))
             {
                 var text = new StringBuilder($"{table.Name(id) ?? name} (0x{id:x8}): {rows.Count} value(s)\n");
                 foreach (var r in rows) text.AppendLine($"  [{(r.Config.Length == 0 ? "default" : r.Config)}] {r.ValueType}: {r.Value}");
                 if (files.Count > 0) text.AppendLine($"Files: {string.Join(", ", files)} (pass one as name to read it).");
-                return pager.Page(text.ToString(), offset, maxTokens);
+                return new AndroidResourceRead(text.ToString(), "resources.arsc", null, null, null);
             }
             entry = files[0];
             if (files.Count > 1) header = $"{table.Name(id)}: {files.Count} files by configuration ({string.Join(", ", files)}); showing {entry}.\n";
@@ -98,10 +103,11 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
         {
             Details = new { similar = p.Entries.Where(e => e.Contains(Path.GetFileNameWithoutExtension(entry), StringComparison.OrdinalIgnoreCase)).Take(10).ToList() },
         };
-        if (savePath != null)
+        if (outputPath != null)
         {
-            var written = SafeFile.WriteAllBytes(savePath, bytes, overwrite);
-            return $"Wrote {entry} ({bytes.Length:N0} bytes, SHA-256 {Blob.Sha256(bytes)}) to {written}.";
+            var written = SafeFile.WriteAllBytes(outputPath, bytes, overwrite);
+            var sha = Blob.Sha256(bytes);
+            return new AndroidResourceRead($"Wrote {entry} ({bytes.Length:N0} bytes, SHA-256 {sha}) to {written}.", entry, written, bytes.Length, sha);
         }
         var res = p.Resources;
         string body;
@@ -115,9 +121,9 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
         else
         {
             var kind = Blob.Identify(bytes);
-            body = $"{entry}: {bytes.Length:N0} bytes, {kind}, SHA-256 {Blob.Sha256(bytes)}; pass savePath to write it.\n" + Hex(bytes.AsSpan(0, Math.Min(256, bytes.Length)));
+            body = $"{entry}: {bytes.Length:N0} bytes, {kind}, SHA-256 {Blob.Sha256(bytes)}; pass outputPath to write it.\n" + Hex(bytes.AsSpan(0, Math.Min(256, bytes.Length)));
         }
-        return pager.Page((header ?? "") + body, offset, maxTokens);
+        return new AndroidResourceRead((header ?? "") + body, entry, null, bytes.Length, null);
     }
 
     private static (uint Id, List<ResourceRow> Rows) Lookup(IResourceTable table, string name)
