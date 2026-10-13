@@ -42,11 +42,11 @@ public sealed class FolderCompareTests : IDisposable
         Assert.Single(c.Entries, e => e.NewPath == path || e.OldPath == path);
 
     [Fact]
-    public void AddedRemovedModifiedMovedUnchanged()
+    public async Task AddedRemovedModifiedMovedUnchanged()
     {
         var a = Folder("a", ("same.txt", "same"), ("edit.json", "{\"v\": 1}\n"), ("gone.txt", "gone"), ("old/moved.bin", "moved content"), ("Logs/x.log", "1"));
         var b = Folder("b", ("same.txt", "same"), ("edit.json", "{\"v\": 2}\n"), ("new.txt", "new"), ("new/moved.bin", "moved content"), ("Logs/x.log", "2"));
-        var c = Run(a, b, exclude: "Logs/*");
+        var c = await new Corvus.Tools.FolderTools(_service).CompareFolders(a, b, "all", exclude: ["Logs/*"], limit: 2000); // through the tool: exclude is a list of globs
         Assert.Equal("sha256", c.HashBasis);
         Assert.Equal((1, 1, 1, 1, 1), (c.Counts.Unchanged, c.Counts.Modified, c.Counts.Added, c.Counts.Removed, c.Counts.Moved));
         Assert.True(c.Old.Complete && c.New.Complete && !c.Counts.UnchangedAtLeast);

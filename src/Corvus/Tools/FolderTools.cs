@@ -17,14 +17,14 @@ public sealed class FolderTools(FolderCompare folders)
         [Description("Old folder, archive or file.")] string oldPath,
         [Description("New folder, archive or file.")] string newPath,
         [Description("Entries listed.")] string change = "changed",
-        [Description("Globs to skip, ;-separated.")] string? exclude = null,
-        [Description("Default false on Windows, macOS.")] bool? caseSensitive = null,
+        [Description("Globs of paths to skip.")] string[]? exclude = null,
+        [Description("Default: false on Windows and macOS, true elsewhere.")] bool? caseSensitive = null,
         [Description("Per side; past it, incomplete.")] int maxEntries = FolderCompare.DefaultMaxEntries,
-        int offset = 0,
-        int limit = FolderCompare.DefaultLimit,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
+        [Description("Max entries per page.")] int limit = FolderCompare.DefaultLimit,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress =>
-        Task.Run(() => folders.Compare(oldPath, newPath, change, caseSensitive, exclude, maxEntries, offset, limit,
+        Task.Run(() => folders.Compare(oldPath, newPath, change, caseSensitive, exclude is { Length: > 0 } ? string.Join(";", exclude) : null, maxEntries, offset, limit,
             (done, total) => progress.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = $"{done} of {total} files hashed" }),
             cancellationToken), cancellationToken));
 }

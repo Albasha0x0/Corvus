@@ -1717,11 +1717,11 @@ Two folders, zip-family archives (by central-directory CRC) or files, per entry:
 | `oldPath` | string | yes |  | Old folder, archive or file. |
 | `newPath` | string | yes |  | New folder, archive or file. |
 | `change` | string |  | `changed` | Entries listed. Values: changed, modified, added, removed, moved, renamed, unreadable, unchanged, all. |
-| `exclude` | string |  |  | Globs to skip, ;-separated. |
-| `caseSensitive` | boolean |  |  | Default false on Windows, macOS. |
+| `exclude` | string[] |  |  | Globs of paths to skip. |
+| `caseSensitive` | boolean |  |  | Default: false on Windows and macOS, true elsewhere. |
 | `maxEntries` | integer |  | `200000` | Per side; past it, incomplete. |
-| `offset` | integer |  | `0` |  |
-| `limit` | integer |  | `100` |  |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Max entries per page. |
 
 Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `entries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
