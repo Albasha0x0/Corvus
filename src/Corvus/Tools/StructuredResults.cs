@@ -143,9 +143,11 @@ public sealed record ResourceEntry(
     [property: Description("Embedded, .resources, linked, or a Win32 resource type.")] string Kind,
     long? Size,
     [property: Description(".resources: entry count.")] int? Entries,
-    bool? Public);
+    bool? Public,
+    [property: Description("Win32: where the data is.")] string? Rva = null,
+    [property: Description("Win32: the code page, when not 0.")] int? CodePage = null);
 
-public sealed record ResourceList(string Assembly, IReadOnlyList<ResourceEntry> Items, int Total, bool Truncated);
+public sealed record ResourceList(string Assembly, IReadOnlyList<ResourceEntry> Items, int Offset, int Total);
 
 public sealed record ImportEntry(
     [property: Description("VA of the IAT slot code calls through (dynamic: the pointer global or the GetProcAddress call).")] string Address,

@@ -90,6 +90,13 @@ public class NativeToolsTests
         var resources = new ResourceTools(env.Workspace, env.Resources, env.Decompiler, env.Pager);
         var list = await resources.ListResources("kernel32.dll");
         Assert.Contains("VERSION/#1/", list);
+        // Rows page by offset and limit, the record holding the rows the text shows (G1).
+        var collected = Corvus.Mcp.ToolOutput.Collect();
+        var page = await resources.ListResources("kernel32.dll", offset: 1, limit: 1);
+        var record = (ResourceList)collected.Record!;
+        var row = Assert.Single(record.Items);
+        Assert.Contains("(showing 2-2)", page);
+        Assert.Contains($"  {row.Name}  {row.Size:N0} bytes at rva {row.Rva}", page);
         var version = await resources.GetResource("kernel32.dll", "VERSION/1");
         Assert.Contains("OriginalFilename: kernel32", version, StringComparison.OrdinalIgnoreCase);
         Assert.StartsWith("Error (not_found)", (await Assert.ThrowsAsync<ToolError>(() => resources.GetResource("kernel32.dll", "NOPE/1"))).Render(null));

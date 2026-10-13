@@ -9,16 +9,6 @@ public static class NativeResourceService
 {
     public static string Key(PeResource r) => $"{r.TypeName}/{r.Name?.ToString() ?? "?"}/{r.Language}";
 
-    public static string List(LoadedNative native)
-    {
-        if (native.Pe is not { } pe) return $"{native.Id} has no Win32 resources ({native.Image.Format} image).";
-        if (pe.Resources.Count == 0) return $"{native.Id} has no Win32 resources.";
-        var sb = new StringBuilder($"{native.Id}: {pe.Resources.Count} Win32 resource(s) (TYPE/NAME/LANGUAGE)\n");
-        foreach (var r in pe.Resources)
-            sb.AppendLine($"  {Key(r)}  {r.Size:N0} bytes at rva 0x{r.Rva:X}{(r.CodePage != 0 ? $", code page {r.CodePage}" : "")}");
-        return sb.ToString();
-    }
-
     /// <summary>
     /// Reads one resource: version info and string tables decoded, manifests and other text as text, binary as a hex
     /// preview; <paramref name="savePath"/> writes the raw bytes. The language may be omitted when only one matches.

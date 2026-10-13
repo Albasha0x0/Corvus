@@ -460,8 +460,10 @@ List manifest resources: embedded files, .resources containers (with entry count
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `200` | Max rows (default 200). |
 
-Structured output: `assembly`, `items`, `total`, `limit`, `totalExact`, `hasMore`.
+Structured output: `assembly`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### get_resource
 

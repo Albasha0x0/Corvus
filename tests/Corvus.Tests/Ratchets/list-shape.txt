@@ -7,6 +7,5 @@ find_call_paths
 get_call_tree
 inspect_instruction
 list_android_devices
-list_resources
 map_java_dotnet
 resolve_symbol

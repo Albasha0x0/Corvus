@@ -25,6 +25,14 @@
           },
           "public": {
             "type": "boolean"
+          },
+          "rva": {
+            "description": "Win32: where the data is.",
+            "type": "string"
+          },
+          "codePage": {
+            "description": "Win32: the code page, when not 0.",
+            "type": "integer"
           }
         },
         "required": [
@@ -32,6 +40,9 @@
           "kind"
         ]
       }
+    },
+    "offset": {
+      "type": "integer"
     },
     "total": {
       "type": "integer"
@@ -44,6 +55,9 @@
     },
     "hasMore": {
       "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -67,6 +81,7 @@
   "required": [
     "assembly",
     "items",
+    "offset",
     "total"
   ]
 }

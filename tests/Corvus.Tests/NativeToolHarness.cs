@@ -151,7 +151,7 @@ internal sealed class NativeToolHarness : IDisposable
         await Run(path, "search_bytes", "text", ct => Native.SearchBytes(id, "dll", text: true, limit: 50, cancellationToken: ct), mustSucceed: true);
         await Run(path, "search_bytes", "wildcards", ct => Native.SearchBytes(id, "00 ?? ?? 00", limit: 10_000, cancellationToken: ct), mustSucceed: true);
 
-        await Run(path, "list_resources", "", ct => Resources.ListResources(id, ct), mustSucceed: true);
+        await Run(path, "list_resources", "", ct => Resources.ListResources(id, cancellationToken: ct), mustSucceed: true);
         foreach (var r in (native.Pe?.Resources ?? []).GroupBy(r => r.TypeName).Select(g => g.First()).Take(12))
         {
             var key = NativeResourceService.Key(r);
