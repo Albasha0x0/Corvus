@@ -5,6 +5,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Services;
 using Corvus.Services.Simplify;
 using static Corvus.Tools.ToolSupport;
@@ -13,7 +14,7 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerService decompiler, OutputPager pager, NotesService? notes = null,
-    Services.Mobile.AndroidProjectExport? android = null)
+    Services.Mobile.AndroidProjectExport? android = null, ServerOptions? options = null)
 {
     private const int MaxMembersPerCall = 25;
 
@@ -151,37 +152,70 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         CancellationToken cancellationToken = default) => Read(workspace, () =>
             pager.Page(decompiler.DecompileAssemblyAttributes(workspace.Get(assembly), cancellationToken)), cancellationToken);
 
-    [McpServerTool(Name = "export_project", Title = "Export C# project")]
+    [McpServerTool(Name = "export_project", Title = "Export C# project", UseStructuredContent = true, OutputSchemaType = typeof(ExportOutcome))]
     [Description("Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources), to grep or browse a large codebase with file tools. " +
-                 "An .apk / .aab path gives a Gradle project (decoded manifest and resources, Java through JADX when configured, else smali).")]
+                 "An .apk / .aab path gives a Gradle project (decoded manifest and resources, Java through JADX when configured, else smali). " +
+                 "Written whole or not at all.")]
     public Task<string> ExportProject(
         [Description(AssemblyDescription)] string assembly,
         [Description("Empty or new output directory.")] string outputDirectory,
+        [Description("Replace a previous export in outputDirectory.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        if (android != null && Services.Mobile.AndroidProjectExport.IsPackagePath(assembly) && File.Exists(assembly.Trim()))
-            return OrderedProgress.Run(context, async progress =>
-            {
-                var r = await android.Export(assembly.Trim(), outputDirectory, (done, total, status) => Report(progress, done, total, status), cancellationToken).ConfigureAwait(false);
-                var summary = $"Exported {Path.GetFileName(assembly.Trim())} to {r.Directory} as a Gradle project: {r.Files} files, {r.Classes} classes as {r.Sources}" +
-                              (r.SourceFailures > 0 ? $" ({r.SourceFailures} failed; their files hold the error)" : "") + ".";
-                return r.Notes.Count == 0 ? summary : summary + "\n" + string.Join("\n", r.Notes.Take(20));
-            });
-        return ExportAssembly(assembly, outputDirectory, context, cancellationToken);
+        // The call's token also ends at its deadline; the export stops only when the client cancels, else it finishes in the background.
+        var stop = OutputCall.Current is { } call ? call.ClientCancel : cancellationToken;
+        int answered = 0, done = 0, total = 0;
+        void Progress(int d, int t, string status)
+        {
+            (done, total) = (d, t);
+            if (Volatile.Read(ref answered) == 0) Report(progress, d, t, status);
+        }
+        bool package = android != null && Services.Mobile.AndroidProjectExport.IsPackagePath(assembly) && File.Exists(assembly.Trim());
+        var job = Task.Run(() => package ? ExportPackage(assembly.Trim(), outputDirectory, overwrite, Progress, stop)
+            : Task.FromResult(ExportAssembly(assembly, outputDirectory, overwrite, Progress, stop)), CancellationToken.None);
+        var deadline = new TaskCompletionSource();
+        using (cancellationToken.Register(() => deadline.TrySetResult()))
+            if (await Task.WhenAny(job, deadline.Task) == job || stop.IsCancellationRequested) return Render(await job);
+        Volatile.Write(ref answered, 1);
+        if (options != null) LeftoverWork.For(options).Track(job);
+        _ = job.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+        throw new ToolError(ErrorCode.Timeout, $"The export of {assembly} is still running at the call's deadline ({done} of {total} units done); it goes on in the background " +
+            $"and {SafeFile.FullPath(outputDirectory)} appears once it is complete (nothing is written there before).",
+            "list the output directory later; if it does not appear, export again (overwrite=true replaces a finished export)")
+        {
+            Partial = new { done, total, outputDirectory = SafeFile.FullPath(outputDirectory) },
+            Details = new { stillRunning = true, partial = true },
+            RetryAfter = LeftoverWork.RetryAfter,
+        };
+    });
+
+    private ExportOutcome ExportAssembly(string assembly, string outputDirectory, bool overwrite, Action<int, int, string> progress, CancellationToken ct)
+    {
+        var asm = workspace.Read(() => workspace.Get(assembly), ct);
+        var r = decompiler.ExportProject(asm, outputDirectory, progress, ct, overwrite);
+        return new ExportOutcome(true, r.Directory, r.FileCount, r.ProjectFile, r.FailedTypes) { Replaced = r.Replaced };
     }
 
-    private Task<string> ExportAssembly(string assembly, string outputDirectory, RequestContext<CallToolRequestParams> context, CancellationToken cancellationToken) =>
-        OrderedProgress.Run(context, progress => Read(workspace, () =>
+    private async Task<ExportOutcome> ExportPackage(string path, string outputDirectory, bool overwrite, Action<int, int, string> progress, CancellationToken ct)
     {
-        var asm = workspace.Get(assembly);
-        var result = decompiler.ExportProject(asm, outputDirectory, (done, total, status) => Report(progress, done, total, status), cancellationToken);
-        var summary = $"Exported {asm.Id} to {result.Directory}: {result.FileCount} files.{(result.ProjectFile != null ? $" Project: {result.ProjectFile}" : "")}";
-        if (result.FailedTypes.Count > 0)
-            summary += $"\n{Plural(result.FailedTypes.Count, "type")} failed to decompile (their files contain the error):\n  " +
-                       string.Join("\n  ", result.FailedTypes.Take(20));
-        return summary;
-    }, cancellationToken));
+        using var output = ExportDirectory.Begin(outputDirectory, overwrite);
+        var r = await android!.Export(path, output.Staging, progress, ct).ConfigureAwait(false);
+        var files = output.Commit();
+        var notes = new List<string> { $"{r.Classes} classes as {r.Sources}" + (r.SourceFailures > 0 ? $" ({r.SourceFailures} failed; their files hold the error)" : "") };
+        notes.AddRange(r.Notes.Take(20));
+        return new ExportOutcome(true, output.Final, files.Count, files.FirstOrDefault(f => f.StartsWith("build.gradle", StringComparison.Ordinal)) is { } gradle
+            ? Path.Combine(output.Final, gradle) : null, []) { Replaced = output.Replace, Notes = notes };
+    }
+
+    private static string Render(ExportOutcome r)
+    {
+        var text = $"Exported to {r.OutputDirectory}: {r.Files} files.{(r.ProjectFile != null ? $" Project: {r.ProjectFile}" : "")}{(r.Replaced ? " (replaced the previous export)" : "")}";
+        if (r.Notes is { Count: > 0 } notes) text += "\n" + string.Join("\n", notes);
+        if (r.FailedTypes.Count > 0)
+            text += $"\n{Plural(r.FailedTypes.Count, "type")} failed to decompile (their files contain the error):\n  " + string.Join("\n  ", r.FailedTypes.Take(20));
+        return ToolOutput.With(text, r);
+    }
 
     private const string SimplifiedDescription =
         "Show the code as simplify_methods would leave it, without changing the assembly.";

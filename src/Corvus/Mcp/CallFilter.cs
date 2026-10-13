@@ -168,7 +168,7 @@ internal static partial class CallFilter
             {
                 async Task<(CallToolResult Result, OutputCall Output)> Work(CancellationToken token)
                 {
-                    var o = OutputCall.Begin(new OutputCall(tool, FitTokens(tokens), client?.MaxChars, json) { Limit = applied });
+                    var o = OutputCall.Begin(new OutputCall(tool, FitTokens(tokens), client?.MaxChars, json) { Limit = applied, ClientCancel = cancellationToken });
                     o.Warnings.AddRange(warnings);
                     return (await next(token), o);
                 }

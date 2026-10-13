@@ -32,7 +32,7 @@ public static partial class ToolEffects
         ["find_call_paths"] = Reads(),
         ["list_resources"] = Reads(),
         ["get_resource"] = Changes(destructive: true, idempotent: true), // savePath; overwrite=true replaces a file
-        ["export_project"] = Changes(destructive: false, idempotent: true, longRunning: true), // refuses a non-empty directory
+        ["export_project"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces a previous export
         ["get_r2r_code"] = Reads(),
         ["find_r2r_method"] = Reads(),
     };
@@ -77,7 +77,7 @@ public sealed partial record ToolContract
         ["find_call_paths"] = Row(O.List, L.Interactive, core: true, sort: "path length, virtual hops"),
         ["list_resources"] = Row(O.List, L.Instant, core: true, sort: "manifest resource order"),
         ["get_resource"] = Row(O.Bytes, L.Instant, core: true, noDryRun: "N14: writes only with savePath; overwrite=false refuses an existing file"),
-        ["export_project"] = Row(O.Edit, L.Long, core: true, noDryRun: "writes only into an empty directory"),
+        ["export_project"] = Row(O.Edit, L.Long, core: true, noDryRun: "writes only into an empty directory, or over a previous export with overwrite=true"),
         ["get_r2r_code"] = Row(O.Code, L.Interactive, core: true),
         ["find_r2r_method"] = Row(O.Report, L.Instant, core: true),
     };

@@ -66,6 +66,9 @@ public sealed class OutputCall
 
     public (string Engine, string? Note)? Engine { get; set; }
 
+    /// <summary>Cancelled by the client only; the tool's own token also ends at the call's deadline (long work can go on past it).</summary>
+    public CancellationToken ClientCancel { get; init; }
+
     public bool Fits(string text) => Tokens <= 0 || (Chars is not { } c || text.Length <= c) && TokenEstimate.Of(text) <= Tokens;
 }
 

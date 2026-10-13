@@ -268,7 +268,11 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }
 
-    public sealed record ExportResult(string Directory, int FileCount, string? ProjectFile, IReadOnlyList<string> FailedTypes);
+    public sealed record ExportResult(string Directory, int FileCount, string? ProjectFile, IReadOnlyList<string> FailedTypes)
+    {
+        /// <summary>A previous export in the directory was replaced.</summary>
+        public bool Replaced { get; init; }
+    }
 
     /// <summary>
     /// Classifies references for the project writer: .NET shared-framework assemblies map to a runtime pack, .NET
@@ -296,57 +300,218 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }
 
-    /// <summary>Writes a buildable C# project (one file per type, .csproj, resources) to an empty directory.</summary>
-    public ExportResult ExportProject(LoadedAssembly asm, string outputDirectory, Action<int, int, string>? onProgress, CancellationToken ct)
+    /// <summary>
+    /// Writes a buildable C# project (one file per type, .csproj, resources) to an empty directory, or over a previous export
+    /// with <paramref name="overwrite"/>. Whole or nothing: a failed or cancelled export leaves no output. Call it without the
+    /// workspace lock: what it reads is copied under the shared lock first (<see cref="ExportSnapshot"/>), and the
+    /// decompilation runs on those copies, so edits, reloads and unloads meanwhile neither wait for it nor change it.
+    /// </summary>
+    public ExportResult ExportProject(LoadedAssembly asm, string outputDirectory, Action<int, int, string>? onProgress, CancellationToken ct,
+        bool overwrite = false)
     {
-        var dir = SafeFile.FullPath(outputDirectory);
-        Directory.CreateDirectory(dir);
-        if (Directory.EnumerateFileSystemEntries(dir).Any())
-            throw new ToolError(ErrorCode.Conflict, $"Output directory is not empty: {dir}. Choose an empty or new directory.");
+        using var output = ExportDirectory.Begin(outputDirectory, overwrite);
+        using var snapshot = workspace.Read(() => ExportSnapshot.Take(workspace, asm), ct);
+        var (project, failed) = Export(snapshot, output.Staging, onProgress, ct);
+        var files = output.Commit();
+        return new ExportResult(output.Final, files.Count, project == null ? null : output.ToFinal(project), failed) { Replaced = output.Replace };
+    }
 
+    /// <summary>Exports <paramref name="snapshot"/> into <paramref name="dir"/>: the project file (or null) and the types that failed.</summary>
+    private (string? Project, List<string> Failed) Export(ExportSnapshot snapshot, string dir, Action<int, int, string>? onProgress, CancellationToken ct)
+    {
         // Project export gets 10x the normal timeout.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds * 10L));
         // Method-call LINQ: query syntax reconstruction can leak compiler names (<>h__TransparentIdentifier0).
         var exportSettings = CreateSettings();
         exportSettings.QueryExpressions = false;
-        var inferred = Frameworks.InferTargetFramework(asm.Module);
-        var framework = Frameworks.TargetFrameworkOf(asm.Module) ?? inferred;
-        bool netFramework = framework != null ? framework.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase) : Frameworks.TargetsNetFramework(asm.Module);
-        var exporter = new ProjectExporter(framework, exportSettings, workspace.CreateDecompilerResolver(asm), null,
+        var framework = snapshot.Framework;
+        bool netFramework = snapshot.NetFramework;
+        var exporter = new ProjectExporter(framework, exportSettings, snapshot.Resolver(cts.Token), null,
             new FrameworkClassifier(netFramework, Frameworks.NetCoreMajor(framework), Frameworks.NetFrameworkReferenceDirs(framework)), null);
         if (onProgress != null)
             exporter.ProgressIndicator = new InlineProgress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
         try
         {
-            exporter.DecompileProject(asm.GetPEFile(), dir, cts.Token);
+            exporter.DecompileProject(snapshot.Main, dir, cts.Token);
         }
         catch (NotSupportedException ex)
         {
-            throw new ToolError(ErrorCode.Unsupported, $"{asm.Id} targets {Frameworks.TargetFrameworkOf(asm.Module) ?? "a framework"} that an SDK-style project cannot express " +
-                $"(portable profiles such as Profile328): {ex.Message}", "decompile_type writes the types as source; a build of the same library for .NET Standard or .NET Framework exports");
+            throw new ToolError(ErrorCode.Unsupported, $"{snapshot.Id} targets {framework ?? "a framework"} that an SDK-style project cannot express " +
+                $"(portable profiles such as Profile328): {ex.Message}", "decompile_member writes a type as source; a build of the same library for .NET Standard or .NET Framework exports");
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            var written = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(dir, f)).ToList();
-            throw new ToolError(ErrorCode.Timeout, $"Project export timed out after {options.TimeoutSeconds * 10}s. Partial output is in {dir}.",
-                "export into a new empty directory with a larger --timeout, or decompile the types needed with decompile_type")
+            int written = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count();
+            throw new ToolError(ErrorCode.Timeout, $"Project export timed out after {options.TimeoutSeconds * 10}s with {written} files written; nothing was kept.",
+                "decompile the types needed with decompile_member, or restart the server with a larger --timeout")
             {
-                Partial = new { outputDirectory = dir, filesWritten = written.Count, files = written.Take(100).ToList() },
+                Partial = new { filesWritten = written },
             };
         }
-        if (inferred != null) UseInferredFramework(dir, inferred);
-        FixFrameworkFileReferences(dir, framework, netFramework, asm.Module.GetAssemblyRefs().GroupBy(r => r.Name.String, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Max(r => r.Version), StringComparer.OrdinalIgnoreCase));
-        IncludeEmbeddedReferences(asm, dir);
-        AddTransitiveReferences(asm, dir, framework, netFramework);
+        if (snapshot.Inferred != null) UseInferredFramework(dir, snapshot.Inferred);
+        FixFrameworkFileReferences(dir, framework, netFramework, snapshot.References.GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => (Version?)g.Max(r => r.Version), StringComparer.OrdinalIgnoreCase));
+        IncludeEmbeddedReferences(snapshot, dir, ct);
+        AddTransitiveReferences(snapshot, dir, framework, netFramework, ct);
         ThrowInFailedBodies(dir);
         UseUnionWindowsMetadata(dir);
-        KeepIdentity(asm, dir);
+        KeepIdentity(snapshot, dir);
         UsePreserializedResources(dir);
-        var files = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).ToList();
-        var failed = exporter.Errors.Select(e => FirstLine(e.Message)).ToList();
-        return new ExportResult(dir, files.Count, files.FirstOrDefault(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)), failed);
+        var project = Directory.EnumerateFiles(dir, "*.csproj").FirstOrDefault();
+        return (project, exporter.Errors.Select(e => FirstLine(e.Message)).ToList());
+    }
+
+    /// <summary>
+    /// What an export reads from the workspace, copied under the shared lock: the decompiler's image of the assembly and the
+    /// module facts the project needs. Afterwards the export touches no live module or reader; references resolve to private
+    /// copies (each lookup takes the shared lock briefly) that are disposed with the snapshot.
+    /// </summary>
+    private sealed class ExportSnapshot : IDisposable
+    {
+        private readonly AssemblyWorkspace _workspace;
+        private readonly List<ICSharpCode.Decompiler.Metadata.MetadataFile> _owned = [];
+
+        private ExportSnapshot(AssemblyWorkspace workspace, LoadedAssembly asm)
+        {
+            _workspace = workspace;
+            var module = asm.Module;
+            Id = asm.Id;
+            FilePath = asm.FilePath;
+            AssemblyName = asm.AssemblyName;
+            OriginalBytes = asm.OriginalBytes;
+            Main = Own(Copy(asm.GetPEFile()));
+            Inferred = Frameworks.InferTargetFramework(module);
+            Framework = Frameworks.TargetFrameworkOf(module) ?? Inferred;
+            NetFramework = Framework != null ? Framework.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase) : Frameworks.TargetsNetFramework(module);
+            TargetsNetFramework = Frameworks.TargetsNetFramework(module);
+            ResolvesAsNetFramework = Frameworks.ResolvesAsNetFramework(module);
+            RequesterFramework = Frameworks.RequesterFramework(module);
+            References = module.GetAssemblyRefs().Select(r => (r.Name.String, r.Version, r.PublicKeyOrToken?.Token?.Data)).ToList();
+            EntryType = module.EntryPoint?.DeclaringType?.ReflectionFullName;
+            PublicKey = module.Assembly?.PublicKey is { IsNullOrEmpty: false } key ? key.Data : null;
+            SearchDirectories = [.. workspace.SearchDirectories];
+        }
+
+        public static ExportSnapshot Take(AssemblyWorkspace workspace, LoadedAssembly asm)
+        {
+            if (!workspace.Assemblies.Contains(asm))
+                throw new ToolError(ErrorCode.NotLoaded, $"{asm.Id} is no longer loaded.", "list_assemblies shows what is loaded; load it again");
+            return new ExportSnapshot(workspace, asm);
+        }
+
+        public string Id { get; }
+        public string FilePath { get; }
+        public string AssemblyName { get; }
+        public byte[] OriginalBytes { get; }
+        public ICSharpCode.Decompiler.Metadata.PEFile Main { get; }
+        public string? Inferred { get; }
+        public string? Framework { get; }
+        public bool NetFramework { get; }
+        public bool TargetsNetFramework { get; }
+        public bool ResolvesAsNetFramework { get; }
+        public string? RequesterFramework { get; }
+        public List<(string Name, Version Version, byte[]? Token)> References { get; }
+        public string? EntryType { get; }
+        public byte[]? PublicKey { get; }
+        public string[] SearchDirectories { get; }
+
+        /// <summary><see cref="AssemblyWorkspace.LocateReference"/> under the shared lock, reduced to what it yields without the lock.</summary>
+        public T Locate<T>(string name, Version? version, byte[]? token, string? requester, bool netFramework, string? framework,
+            Func<AssemblyWorkspace.ReferenceTarget?, T> take, CancellationToken ct) =>
+            _workspace.Read(() => take(_workspace.LocateReference(name, version, token, requester, netFramework, framework)), ct);
+
+        /// <summary>A private copy of a reader's image (a loaded assembly's reader is replaced or disposed by edits and unloads).</summary>
+        public static ICSharpCode.Decompiler.Metadata.PEFile Copy(ICSharpCode.Decompiler.Metadata.PEFile pe) =>
+            Open(pe.FileName, pe.Reader.GetEntireImage().GetContent().ToArray());
+
+        public static ICSharpCode.Decompiler.Metadata.PEFile Open(string name, byte[] image) =>
+            new(name, new MemoryStream(image, writable: false), System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage,
+                System.Reflection.Metadata.MetadataReaderOptions.None);
+
+        public T Own<T>(T file) where T : ICSharpCode.Decompiler.Metadata.MetadataFile
+        {
+            lock (_owned) _owned.Add(file);
+            return file;
+        }
+
+        public ICSharpCode.Decompiler.Metadata.IAssemblyResolver Resolver(CancellationToken ct) => new SnapshotResolver(this, ct);
+
+        public void Dispose()
+        {
+            lock (_owned)
+            {
+                foreach (var f in _owned) (f as IDisposable)?.Dispose();
+                _owned.Clear();
+            }
+        }
+    }
+
+    /// <summary>Resolves the export's references to private readers, located as the workspace's decompiler resolver does.</summary>
+    private sealed class SnapshotResolver(ExportSnapshot snapshot, CancellationToken ct) : ICSharpCode.Decompiler.Metadata.IAssemblyResolver
+    {
+        private readonly Dictionary<string, ICSharpCode.Decompiler.Metadata.MetadataFile?> _cache = new(StringComparer.Ordinal);
+        private ICSharpCode.Decompiler.Metadata.UniversalAssemblyResolver? _fallback;
+
+        private ICSharpCode.Decompiler.Metadata.UniversalAssemblyResolver Fallback
+        {
+            get
+            {
+                lock (_cache)
+                {
+                    if (_fallback != null) return _fallback;
+                    string? tfm = null;
+                    try { tfm = ICSharpCode.Decompiler.Metadata.DotNetCorePathFinderExtensions.DetectTargetFrameworkId(snapshot.Main); }
+                    catch { }
+                    var r = new ICSharpCode.Decompiler.Metadata.UniversalAssemblyResolver(snapshot.FilePath, false, tfm, null,
+                        System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage, System.Reflection.Metadata.MetadataReaderOptions.None);
+                    foreach (var d in snapshot.SearchDirectories) r.AddSearchDirectory(d);
+                    return _fallback = r;
+                }
+            }
+        }
+
+        public ICSharpCode.Decompiler.Metadata.MetadataFile? Resolve(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference)
+        {
+            lock (_cache)
+                if (_cache.TryGetValue(reference.FullName, out var known)) return known;
+            var (name, image) = snapshot.Locate(reference.Name, reference.Version, reference.PublicKeyToken, snapshot.FilePath,
+                snapshot.ResolvesAsNetFramework, snapshot.RequesterFramework, t => t?.Loaded is { } loaded
+                    ? (loaded.FilePath, loaded.GetPEFile().Reader.GetEntireImage().GetContent().ToArray())
+                    : (t?.File ?? $"{t?.EmbeddedIn ?? "stub"}!{reference.Name}.dll", t?.Bytes), ct);
+            ICSharpCode.Decompiler.Metadata.MetadataFile? file = null;
+            try
+            {
+                if (image != null) file = snapshot.Own(ExportSnapshot.Open(name, image));
+                else if (File.Exists(name)) file = snapshot.Own(ExportSnapshot.Open(name, File.ReadAllBytes(name)));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { file = null; }
+            if (file == null)
+            {
+                try { file = Fallback.Resolve(reference) is { } found ? snapshot.Own(found) : null; }
+                catch (Exception ex) when (ex is not OperationCanceledException) { file = null; }
+            }
+            lock (_cache)
+            {
+                if (_cache.TryGetValue(reference.FullName, out var raced)) return raced;
+                _cache[reference.FullName] = file;
+            }
+            return file;
+        }
+
+        public ICSharpCode.Decompiler.Metadata.MetadataFile? ResolveModule(ICSharpCode.Decompiler.Metadata.MetadataFile mainModule, string moduleName)
+        {
+            try { return Fallback.ResolveModule(mainModule, moduleName) is { } found ? snapshot.Own(found) : null; }
+            catch { return null; }
+        }
+
+        public Task<ICSharpCode.Decompiler.Metadata.MetadataFile?> ResolveAsync(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference) =>
+            Task.FromResult(Resolve(reference));
+
+        public Task<ICSharpCode.Decompiler.Metadata.MetadataFile?> ResolveModuleAsync(ICSharpCode.Decompiler.Metadata.MetadataFile mainModule, string moduleName) =>
+            Task.FromResult(ResolveModule(mainModule, moduleName));
+
+        public IDisposable? BeginSnapshot() => null;
     }
 
     /// <summary>
@@ -354,7 +519,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// the engine's <c>Host!Name.dll</c> hint paths there, and references the remaining wrapped assemblies, which
     /// the compiler needs as transitive dependencies.
     /// </summary>
-    private void IncludeEmbeddedReferences(LoadedAssembly asm, string dir)
+    private static void IncludeEmbeddedReferences(ExportSnapshot asm, string dir, CancellationToken ct)
     {
         var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
         if (project == null) return;
@@ -369,10 +534,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         catch (Exception) { /* not a container */ }
         // Unresolved references: use generated stubs so the project still builds.
         var stubs = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        bool netFramework = Frameworks.TargetsNetFramework(asm.Module);
-        foreach (var r in asm.Module.GetAssemblyRefs())
-            if (!embedded.ContainsKey(r.Name) && workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, netFramework,
-                    Frameworks.RequesterFramework(asm.Module)) is { Stub: not null, Bytes: { } stubBytes })
+        foreach (var r in asm.References)
+            if (!embedded.ContainsKey(r.Name) && asm.Locate(r.Name, r.Version, r.Token, asm.FilePath, asm.TargetsNetFramework, asm.RequesterFramework,
+                    t => t is { Stub: not null, Bytes: { } b } ? b : null, ct) is { } stubBytes)
                 stubs[r.Name] = stubBytes;
         if (embedded.Count == 0 && stubs.Count == 0) return;
 
@@ -485,7 +649,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// through System.Memory). Each is taken from the original application's folder when it ships a copy, else as it
     /// resolves; framework assemblies are left to the framework (by name for .NET Framework).
     /// </summary>
-    private void AddTransitiveReferences(LoadedAssembly asm, string dir, string? framework, bool netFramework)
+    private static void AddTransitiveReferences(ExportSnapshot asm, string dir, string? framework, bool netFramework, CancellationToken ct)
     {
         var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
         if (project == null) return;
@@ -494,14 +658,13 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             .Select(m => m.Groups[1].Value.Split(',')[0]).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var appDir = Path.GetDirectoryName(asm.FilePath);
         var queue = new Queue<(string Name, Version? Version, byte[]? Token, string From)>(
-            asm.Module.GetAssemblyRefs().Select(r => (r.Name.String, (Version?)r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath)));
-        var seen = new HashSet<string>(asm.Module.GetAssemblyRefs().Select(r => r.Name.String), StringComparer.OrdinalIgnoreCase) { asm.AssemblyName };
+            asm.References.Select(r => (r.Name, (Version?)r.Version, r.Token, asm.FilePath)));
+        var seen = new HashSet<string>(asm.References.Select(r => r.Name), StringComparer.OrdinalIgnoreCase) { asm.AssemblyName };
         var added = new List<string>();
         while (queue.Count > 0)
         {
             var (name, version, token, from) = queue.Dequeue();
-            var target = workspace.LocateReference(name, version, token, from, netFramework, framework);
-            var file = target?.Loaded?.FilePath ?? target?.File;
+            var file = asm.Locate(name, version, token, from, netFramework, framework, t => t?.Loaded?.FilePath ?? t?.File, ct);
             if (file == null || IsFrameworkFile(file) || name.Equals("netstandard", StringComparison.OrdinalIgnoreCase)) continue;
             foreach (var (refName, refVersion, refToken) in ReferencesOf(file))
             {
@@ -523,7 +686,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                         continue;
                     }
                 }
-                else found = workspace.LocateReference(refName, refVersion, refToken, file, netFramework, framework) is { Stub: null } t ? t.Loaded?.FilePath ?? t.File : null;
+                else found = asm.Locate(refName, refVersion, refToken, file, netFramework, framework, t => t is { Stub: null } ? t.Loaded?.FilePath ?? t.File : null, ct);
                 if (found == null || IsFrameworkFile(found)) continue;
                 added.Add($"    <Reference Include=\"{refName}\">\n      <HintPath>{System.Security.SecurityElement.Escape(Path.GetRelativePath(dir, found))}</HintPath>\n    </Reference>");
             }
@@ -583,17 +746,17 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// Preserves the original entry point class (StartupObject; WPF apps can have several Mains) and public key
     /// (public signing), so InternalsVisibleTo grants by key still apply (CS0281) and the identity is kept.
     /// </summary>
-    private static void KeepIdentity(LoadedAssembly asm, string dir)
+    private static void KeepIdentity(ExportSnapshot asm, string dir)
     {
         var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
         if (project == null) return;
         var text = File.ReadAllText(project);
         var settings = new List<string>();
-        if (asm.Module.EntryPoint?.DeclaringType is { } entryType && !text.Contains("<StartupObject>", StringComparison.Ordinal))
-            settings.Add($"<StartupObject>{System.Security.SecurityElement.Escape(entryType.ReflectionFullName.Replace('+', '.'))}</StartupObject>");
-        if (asm.Module.Assembly?.PublicKey is { IsNullOrEmpty: false } key && !text.Contains("<AssemblyOriginatorKeyFile>", StringComparison.Ordinal))
+        if (asm.EntryType is { } entryType && !text.Contains("<StartupObject>", StringComparison.Ordinal))
+            settings.Add($"<StartupObject>{System.Security.SecurityElement.Escape(entryType.Replace('+', '.'))}</StartupObject>");
+        if (asm.PublicKey is { } key && !text.Contains("<AssemblyOriginatorKeyFile>", StringComparison.Ordinal))
         {
-            File.WriteAllBytes(Path.Combine(dir, "PublicKey.snk"), key.Data);
+            File.WriteAllBytes(Path.Combine(dir, "PublicKey.snk"), key);
             settings.Add("<SignAssembly>True</SignAssembly>");
             settings.Add("<PublicSign>True</PublicSign>");
             settings.Add("<AssemblyOriginatorKeyFile>PublicKey.snk</AssemblyOriginatorKeyFile>");
