@@ -38,10 +38,10 @@ public sealed record NoteEvidence(
     public static implicit operator NoteEvidence(string text) => new(Text: text);
 
     /// <summary>Equal entries name the same call (tool and canonical args) or the same text.</summary>
-    [JsonIgnore] internal string Key => Tool != null ? Tool + " " + Corvus.Mcp.ToolOutput.Canonical(Args ?? new JsonObject()) : "text " + Text;
+    [JsonIgnore] internal string Key => Tool != null ? Tool + " " + ResultHashes.Canonical(Args ?? new JsonObject()) : "text " + Text;
 
     public override string ToString() =>
-        Tool == null ? Text ?? "" : $"{Tool} {Corvus.Mcp.ToolOutput.Canonical(Args ?? new JsonObject())}" + (ResultSha256 != null ? $" sha256 {ResultSha256[..12]}" : "") + (Text != null ? $" ({Text})" : "");
+        Tool == null ? Text ?? "" : $"{Tool} {ResultHashes.Canonical(Args ?? new JsonObject())}" + (ResultSha256 != null ? $" sha256 {ResultSha256[..12]}" : "") + (Text != null ? $" ({Text})" : "");
 }
 
 internal sealed class NoteEvidenceConverter : JsonConverter<NoteEvidence>
@@ -156,7 +156,7 @@ public sealed class NotesService(AnnotationStore store)
                 throw new ToolError(ErrorCode.InvalidArgument, $"resultSha256 '{sha}' is not a SHA-256 (64 hex digits).", "copy it from _meta corvus/provenance, or leave it out");
             if (e.Tool != null && e.ResultSha256 == null)
             {
-                e = e with { ResultSha256 = Corvus.Mcp.ToolOutput.RecentResult(e.Tool, e.Args) };
+                e = e with { ResultSha256 = ResultHashes.Latest(e.Tool, e.Args) };
                 if (e.ResultSha256 == null) unmatched?.Add(e.Tool);
             }
             list.Add(e);

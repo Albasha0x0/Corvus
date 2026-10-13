@@ -37,10 +37,13 @@ public sealed class SessionProgressTests : IDisposable
         Assert.InRange(first.Ms, 0, 5_000);
 
         var text = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text));
-        Assert.StartsWith($"Session {session}, targetBuild=same: already_loaded 1\nNote: items on files", text);
-        Assert.Contains("Nothing changed (dry run); pass dryRun=false to apply.\n1 item (showing 1-1):\n  file     TestFixture  already_loaded (same_build), 1: TestFixture", text);
+        // The per-user note store is shared by the test run, so a notes row may follow the file's.
+        Assert.StartsWith($"Session {session}, targetBuild=same: already_loaded 1", text);
+        Assert.Contains("\nNote: items on files that are not loaded yet report would_apply without checking them\nNothing changed (dry run); pass dryRun=false to apply.\n", text);
+        Assert.Contains("\n  file     TestFixture  already_loaded (same_build), 1: TestFixture\n", text);
         var record = JsonDocument.Parse(result.StructuredContent!.Value.GetRawText()).RootElement;
-        Assert.Equal((1, false), (record.GetProperty("total").GetInt32(), record.GetProperty("hasMore").GetBoolean()));
+        Assert.False(record.GetProperty("hasMore").GetBoolean());
+        Assert.Equal(record.GetProperty("total").GetInt32(), record.GetProperty("items").GetArrayLength());
     }
 
     private sealed class Progress : IProgress<ProgressNotificationValue>
