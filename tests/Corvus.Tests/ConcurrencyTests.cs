@@ -5,6 +5,8 @@ using Corvus.Services;
 namespace Corvus.Tests;
 
 /// <summary>Readers and writers hammer one workspace at the same time; nothing may throw or observe a half-applied edit.</summary>
+// Cancellation latency is measured, so the class runs alone: on small CI runners parallel classes starve the thread pool.
+[Collection(nameof(SerialTimingTests))]
 public class ConcurrencyTests
 {
     [Trait("Speed", "Slow")]
