@@ -189,6 +189,8 @@ public sealed record CallPathList(string Target, IReadOnlyList<CallPathEntry> It
 {
     public string? From { get; init; }
     public bool? TotalExact { get; init; }
+    /// <summary>The search stopped at the page end: more paths may follow (the call filter turns it into hasMore).</summary>
+    public bool Truncated { get; init; }
     [Description(EngineDoc.Engine)] public string? Engine { get; init; }
 }
 

@@ -1,0 +1,201 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+using ModelContextProtocol.Protocol;
+using Corvus.Core;
+
+namespace Corvus.Tests;
+
+/// <summary>The dotnet read tools over the protocol: row pages and their records, sections and views, basis, folded tools.</summary>
+[Collection(InProcessCatalogCollection.Name)]
+public sealed class DotnetToolTests : IAsyncLifetime
+{
+    private InProcessServer _server = null!;
+    private readonly TempDir _dir = new();
+
+    public async Task InitializeAsync()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
+        options.Preload.Add(Env.FixturePath);
+        options.Preload.Add(Env.ConsumerPath);
+        _server = await InProcessServer.StartAsync(options: options);
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _server.DisposeAsync();
+        _dir.Dispose();
+    }
+
+    private async Task<(string Text, JsonElement Record)> Call(string tool, Dictionary<string, object?> args)
+    {
+        var r = await _server.Client.CallToolAsync(tool, args);
+        var text = string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
+        Assert.True(r.IsError != true, text);
+        return (text, JsonDocument.Parse(r.StructuredContent!.Value.GetRawText()).RootElement.Clone());
+    }
+
+    private static List<string> Strings(JsonElement items, string property) => items.EnumerateArray().Select(i => i.GetProperty(property).ToString()).ToList();
+
+    /// <summary>Pages of limit rows from offset 0 until nextOffset ends: the items, in order.</summary>
+    private async Task<List<JsonElement>> Walk(string tool, Dictionary<string, object?> args, int limit)
+    {
+        var rows = new List<JsonElement>();
+        int offset = 0;
+        for (int page = 0; page < 1_000; page++)
+        {
+            var (text, record) = await Call(tool, new(args) { ["offset"] = offset, ["limit"] = limit });
+            rows.AddRange(record.GetProperty("items").EnumerateArray());
+            if (!record.TryGetProperty("nextOffset", out var next)) return rows;
+            Assert.Contains($"offset={next.GetInt32()}", text);
+            offset = next.GetInt32();
+        }
+        throw new InvalidOperationException("no last page");
+    }
+
+    [Fact]
+    public async Task TypeInfoSectionsPageOneKind()
+    {
+        var (text, summary) = await Call("get_type_info", new() { ["type"] = "Fixture.Model.Account" });
+        Assert.Equal("summary", summary.GetProperty("section").GetString());
+        int methods = summary.GetProperty("counts").GetProperty("methods").GetInt32();
+        Assert.True(methods > 2);
+        Assert.Contains("members: ", text);
+        var walked = await Walk("get_type_info", new() { ["type"] = "Fixture.Model.Account", ["section"] = "methods" }, 2);
+        var (_, all) = await Call("get_type_info", new() { ["type"] = "Fixture.Model.Account", ["section"] = "methods", ["limit"] = 500 });
+        Assert.Equal(Strings(all.GetProperty("items"), "token"), walked.Select(w => w.GetProperty("token").GetString()!).ToList());
+        Assert.Equal(methods, walked.Count);
+        Assert.All(walked, w => Assert.Equal("method", w.GetProperty("kind").GetString()));
+    }
+
+    [Fact]
+    public async Task AttributesAreRowsOrAssemblyCSharp()
+    {
+        var (_, rows) = await Call("get_attributes", new() { ["symbol"] = "NativeThing::First" });
+        var first = rows.GetProperty("items")[0];
+        Assert.Equal("method", first.GetProperty("target").GetString());
+        Assert.Contains("RVA = \"0x1000\"", first.GetProperty("attribute").GetString());
+        Assert.StartsWith("Fixture.Native.NativeThing::First", first.GetProperty("owner").GetProperty("label").GetString());
+
+        var (text, code) = await Call("get_attributes", new() { ["assembly"] = "TestFixture", ["format"] = "csharp" });
+        Assert.Contains("TargetFramework", text);
+        Assert.Contains("TargetFramework", code.GetProperty("code").GetString());
+        Assert.Equal(0, code.GetProperty("offset").GetInt32());
+    }
+
+    [Fact]
+    public async Task ResolveSymbolPagesItsMatches()
+    {
+        var (text, record) = await Call("resolve_symbol", new() { ["symbol"] = "Account::Charge", ["limit"] = 1 });
+        Assert.Equal(2, record.GetProperty("total").GetInt32());
+        Assert.Equal(1, record.GetProperty("nextOffset").GetInt32());
+        Assert.Contains("[More: offset=1]", text);
+        Assert.Contains("public void Charge(", record.GetProperty("items")[0].GetProperty("signature").GetString());
+    }
+
+    [Fact]
+    public async Task ReferencesThroughABaseMethodAreDerivedAndOverridesAreAKind()
+    {
+        var (_, record) = await Call("find_references", new() { ["symbol"] = "Fixture.Model.Account::Score" });
+        var viaBase = Assert.Single(record.GetProperty("items").EnumerateArray(), i => i.GetProperty("where").GetProperty("label").GetString()!.StartsWith("Consumer.Branch::Total"));
+        Assert.Equal("derived", viaBase.GetProperty("basis").GetString());
+        Assert.All(record.GetProperty("items").EnumerateArray(), i => Assert.Contains(i.GetProperty("basis").GetString(), new[] { "observed", "derived" }));
+        var (_, direct) = await Call("find_references", new() { ["symbol"] = "Fixture.Model.Account::Score", ["directOnly"] = true });
+        Assert.DoesNotContain(direct.GetProperty("items").EnumerateArray(), i => i.GetProperty("basis").GetString() == "derived");
+
+        var (text, overrides) = await Call("find_references", new() { ["symbol"] = "Fixture.Model.Entity::Score", ["kind"] = "overrides" });
+        Assert.Contains("PremiumAccount::Score()", text);
+        Assert.All(overrides.GetProperty("items").EnumerateArray(), i => Assert.Equal("override", i.GetProperty("kind").GetString()));
+    }
+
+    [Fact]
+    public async Task CallTreeRowsNameTheirParents()
+    {
+        var walked = await Walk("get_call_tree", new() { ["method"] = "Fixture.Model.Account::Charge(int)", ["direction"] = "callers", ["depth"] = 3 }, 1);
+        Assert.NotEmpty(walked);
+        var depth = walked.ToDictionary(n => n.GetProperty("id").GetInt32(), n => n.GetProperty("depth").GetInt32());
+        foreach (var n in walked)
+            if (n.TryGetProperty("parent", out var parent)) Assert.Equal(depth[parent.GetInt32()] + 1, n.GetProperty("depth").GetInt32());
+            else Assert.Equal(1, n.GetProperty("depth").GetInt32());
+        Assert.Equal(Enumerable.Range(0, walked.Count), walked.Select(n => n.GetProperty("id").GetInt32()));
+    }
+
+    [Fact]
+    public async Task CallPathsPageByLimit()
+    {
+        var (_, all) = await Call("find_call_paths", new() { ["to"] = "Fixture.Model.Account::Charge(int)", ["limit"] = 50 });
+        int total = all.GetProperty("total").GetInt32();
+        Assert.True(total >= 2, $"{total} paths");
+        var (text, first) = await Call("find_call_paths", new() { ["to"] = "Fixture.Model.Account::Charge(int)", ["limit"] = 1 });
+        Assert.True(first.GetProperty("hasMore").GetBoolean());
+        Assert.False(first.GetProperty("totalExact").GetBoolean());
+        Assert.Contains("[More: offset=1]", text);
+        var step = first.GetProperty("items")[0].GetProperty("steps")[0];
+        Assert.Equal("observed", step.GetProperty("basis").GetString());
+        Assert.StartsWith("0x06", step.GetProperty("token").GetString());
+    }
+
+    [Fact]
+    public async Task ResourcesCarryTheirHashAndExtractToOutputPath()
+    {
+        var (_, list) = await Call("list_resources", new() { ["assembly"] = "TestFixture" });
+        var hello = Assert.Single(list.GetProperty("items").EnumerateArray(), i => i.GetProperty("name").GetString() == "Fixture.hello.txt");
+        var target = _dir.File("hello.bin");
+        var (text, saved) = await Call("get_resource", new() { ["assembly"] = "TestFixture", ["name"] = "Fixture.hello.txt", ["outputPath"] = target });
+        Assert.Equal("saved", saved.GetProperty("kind").GetString());
+        Assert.Equal(Path.GetFullPath(target), saved.GetProperty("savedTo").GetString());
+        var bytes = File.ReadAllBytes(target);
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(bytes)), hello.GetProperty("sha256").GetString());
+        // The file offset points at the data in the file as loaded.
+        long at = Convert.ToInt64(hello.GetProperty("fileOffset").GetString(), 16);
+        Assert.Equal(bytes, File.ReadAllBytes(Env.FixturePath).AsSpan((int)at, bytes.Length).ToArray());
+        var (_, read) = await Call("get_resource", new() { ["assembly"] = "TestFixture", ["name"] = "Fixture.hello.txt" });
+        Assert.Equal("text", read.GetProperty("kind").GetString());
+        Assert.Contains("Hello from", read.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public void IconGroupsNameTheirIcons()
+    {
+        // GRPICONDIR: reserved, type 1, two entries of 14 bytes ending in the RT_ICON id.
+        var group = new byte[6 + 2 * 14];
+        group[2] = 1;
+        group[4] = 2;
+        BitConverter.GetBytes((ushort)3).CopyTo(group, 6 + 12);
+        BitConverter.GetBytes((ushort)7).CopyTo(group, 6 + 14 + 12);
+        Assert.Equal([3, 7], Corvus.Tools.ResourceTools.IconIds(group));
+    }
+
+    [Fact]
+    public async Task SearchIlShowsContextInstructions()
+    {
+        var (_, record) = await Call("search_il", new() { ["pattern"] = "ldstr *LICENSE*", ["context"] = 1 });
+        Assert.All(record.GetProperty("items").EnumerateArray(), i => Assert.Single(i.GetProperty("instructions").EnumerateArray()));
+    }
+
+    [Fact]
+    public async Task AssemblyInfoViews()
+    {
+        var (text, summary) = await Call("get_assembly_info", new() { ["assembly"] = "TestFixture" });
+        Assert.False(summary.TryGetProperty("references", out _));
+        Assert.Contains("(view=references lists them)", text);
+        Assert.True(summary.GetProperty("referenceCount").GetInt32() > 0);
+        var (_, references) = await Call("get_assembly_info", new() { ["assembly"] = "TestFixture", ["view"] = "references" });
+        Assert.Equal(summary.GetProperty("referenceCount").GetInt32(), references.GetProperty("references").GetArrayLength());
+        Assert.False(references.TryGetProperty("tables", out _));
+        var (metaText, metadata) = await Call("get_assembly_info", new() { ["assembly"] = "TestFixture", ["view"] = "metadata" });
+        Assert.Contains("Sections:", metaText);
+        Assert.True(metadata.GetProperty("tables").GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task CodeRecordsCarryThePageAndItsSymbols()
+    {
+        var (text, record) = await Call("decompile_member", new() { ["member"] = "Fixture.Model.Account" });
+        Assert.Equal("csharp", record.GetProperty("language").GetString());
+        Assert.Contains("class Account", record.GetProperty("code").GetString());
+        Assert.Equal("type", record.GetProperty("symbols")[0].GetProperty("kind").GetString());
+        var (ilText, il) = await Call("get_il", new() { ["symbol"] = "Account::CheckLicense" });
+        var hash = il.GetProperty("methods")[0].GetProperty("ilHash").GetString()!;
+        Assert.Contains(hash[..16], ilText);
+    }
+}

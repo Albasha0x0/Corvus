@@ -125,6 +125,7 @@ public sealed class ExportFrameworkTests : IDisposable
 
     /// <summary>App uses Mid only; Mid exposes a type of Base, which the project then needs too (CS0012).</summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void DependenciesOfReferencedLibrariesAreReferenced()
     {
         var app = Directory.CreateDirectory(_dir.File("app")).FullName;

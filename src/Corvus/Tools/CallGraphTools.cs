@@ -235,7 +235,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     {
         if (engine != null) ToolOutput.Engine(engine, "references from the engine session open on the image join the built-in index (basis=derived on those steps)");
         return ToolOutput.List(all.Skip(offset).Take(limit).ToList(), offset, limit, all.Count, p => p.Text,
-            rows => new CallPathList(label, rows.Select(r => r.Entry).ToList(), offset, all.Count) { From = from, TotalExact = cut ? false : null, Engine = engine },
+            rows => new CallPathList(label, rows.Select(r => r.Entry).ToList(), offset, all.Count) { From = from, TotalExact = cut ? false : null, Truncated = cut, Engine = engine },
             "path", header, totalExact: !cut);
     }
 

@@ -36,7 +36,8 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
             TypeDef type => (asm, t, found) => VisitTypeForTypeReferences(asm, t, type, found),
             _ => throw new ToolError(ErrorCode.Unsupported, $"Cannot find references to a {target.Kind}."),
         };
-        return SearchResult<Reference>.From(ParallelCollect(workspace.Assemblies, visit, ct), limit);
+        // A row repeated at the same place says nothing more (a page walk saw one twice): each is listed once.
+        return SearchResult<Reference>.From(ParallelCollect(workspace.Assemblies, visit, ct).Distinct().ToList(), limit);
     }
 
     private static Action<LoadedAssembly, TypeDef, List<Reference>> MethodVisitor(MethodDef method, bool includeVirtualCalls, CancellationToken ct)

@@ -200,6 +200,7 @@ public class ExportBuildTests
     /// icons): such projects now compile resources preserialized, on 4.6.2 or later.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void NetFrameworkExportWithBinaryResources_UsesPreserializedResources()
     {
         using var dir = new TempDir();
