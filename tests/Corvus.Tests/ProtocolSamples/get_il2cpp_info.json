@@ -1,0 +1,64 @@
+{
+  "tool": "get_il2cpp_info",
+  "arguments": {
+    "symbol": "NativeThing"
+  },
+  "isError": false,
+  "content": [
+    "type Fixture.Native.NativeThing  [TestFixture] 0x02000005\n  [Token(Token=0x2000010)]\n  field  public int Counter  [FieldOffset(Offset=0x10)]\n  method void First()  [Address(RVA=0x1000, Offset=0x400, VA=0x180001000)]\n  method void Second()  [Address(RVA=0x1100, Offset=0x500, VA=0x180001100, Slot=4)]\n  method T Shared<T>(T value)  [Address(RVA=0xA5399800A5350, Offset=0x0, VA=0xA539B000A5350)] (not a real address: no native code of its own, e.g. a generic method only used through shared instantiations)\n\n"
+  ],
+  "structuredContent": {
+    "symbol": "NativeThing",
+    "members": [
+      {
+        "kind": "type",
+        "name": "Fixture.Native.NativeThing",
+        "token": "0x02000005",
+        "assembly": "TestFixture"
+      },
+      {
+        "kind": "field",
+        "name": "public int Counter",
+        "token": "0x04000007",
+        "assembly": "TestFixture",
+        "fieldOffset": "0x10"
+      },
+      {
+        "kind": "method",
+        "name": "Fixture.Native.NativeThing::First()",
+        "token": "0x06000004",
+        "assembly": "TestFixture",
+        "rva": "0x1000",
+        "va": "0x180001000",
+        "fileOffset": "0x400"
+      },
+      {
+        "kind": "method",
+        "name": "Fixture.Native.NativeThing::Second()",
+        "token": "0x06000005",
+        "assembly": "TestFixture",
+        "rva": "0x1100",
+        "va": "0x180001100",
+        "fileOffset": "0x500",
+        "slot": "4"
+      },
+      {
+        "kind": "method",
+        "name": "Fixture.Native.NativeThing::Shared<T>(T)",
+        "token": "0x06000006",
+        "assembly": "TestFixture",
+        "rva": "0xA5399800A5350",
+        "va": "0xA539B000A5350",
+        "fileOffset": "0x0",
+        "real": false,
+        "detail": "not a real address: no native code of its own (a generic method used only through shared instantiations)"
+      }
+    ],
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "limit": 20,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

@@ -65,7 +65,7 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
 
     private static readonly string[] Reference = ["Microsoft.NETFramework.ReferenceAssemblies.net48", "1.0.3", "build", ".NETFramework", "v4.8"];
 
-    private static string Build(TempDir dir, Platform platform)
+    internal static string Build(TempDir dir, Platform platform)
     {
         var refs = new[] { "mscorlib.dll", "System.dll", "System.Core.dll" }.Select(f => (MetadataReference)MetadataReference.CreateFromFile(RealPackages.File(Reference[0], Reference[1], [.. Reference[2..], f])));
         var compilation = CSharpCompilation.Create("FxProbe", [CSharpSyntaxTree.ParseText(Source)], refs,
@@ -79,7 +79,7 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
         return exe;
     }
 
-    private static string Dump(string exe, string dump)
+    internal static string Dump(string exe, string dump)
     {
         var psi = new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true };
         psi.ArgumentList.Add(dump);

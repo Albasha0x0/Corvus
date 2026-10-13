@@ -46,6 +46,11 @@ public partial class ProtocolSampleTests
         ["survey_features"] = new() { ["assembly"] = "TestFixture", ["category"] = "all" },
         ["extract_strings"] = new() { ["assembly"] = "TestFixture", ["limit"] = 5 },
         ["extract_embedded"] = new() { ["assembly"] = "TestFixture" },
+        ["get_il2cpp_info"] = new() { ["symbol"] = "NativeThing" },
+        ["find_method_by_address"] = new() { ["address"] = "0x1000", ["kind"] = "rva" },
+        ["export_il2cpp_symbols"] = new() { ["outputDirectory"] = "sample-il2cpp", ["assembly"] = "TestFixture", ["formats"] = "header" },
+        ["generate_cpp_binding"] = new() { ["type"] = "Account", ["style"] = "mono" },
+        ["symbolize_stack_text"] = new() { ["text"] = "System.Exception: boom\n   at Fixture.Model.Account.Charge(Int32 amount)" },
         // Edits preview by default; stub_method applies, so undo_edit (recorded after it) has an edit to undo.
         ["add_members_csharp"] = new() { ["type"] = "Account", ["code"] = "public int Twice(int x) { return x * 2; }" },
         ["add_types_csharp"] = new() { ["assembly"] = "TestFixture", ["code"] = "namespace Mods { public static class M { public static int One() { return 1; } } }" },

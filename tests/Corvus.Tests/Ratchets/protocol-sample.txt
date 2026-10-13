@@ -21,18 +21,15 @@ dump_stack
 emulate_native
 export_edits
 export_engine_database
-export_il2cpp_symbols
 export_native_annotations
 export_native_patches
 extract_embedded
 extract_strings
 find_counterpart
 find_dex_references
-find_method_by_address
 find_similar_functions
 find_virtual_calls
 find_xrefs
-generate_cpp_binding
 get_android_device_info
 get_android_manifest
 get_android_package_info
@@ -42,7 +39,6 @@ get_cfg
 get_dex_class
 get_engine_status
 get_exception_info
-get_il2cpp_info
 get_native_frame
 get_native_type
 get_nativeaot_info
@@ -101,6 +97,8 @@ set_native_local
 set_native_operand
 set_native_stack_var
 set_native_type
+summarize_file
+survey_features
 symbolize_stack_text
 trace_native_feature
 trace_native_values
