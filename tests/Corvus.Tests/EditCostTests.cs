@@ -57,6 +57,25 @@ public sealed class EditCostTests : IDisposable
         Assert.Contains("return 7;", _env.Decompile("Account::Score"));
     }
 
+    /// <summary>
+    /// A compile error in a generic span method of the core library names the method, not the helper it compiles as, and its
+    /// Next says how to return from a void method (measured: CS0127 named __PatchHelpers__.FormatCustomized__patch0).
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void CompileErrorsInAGenericSpanMethodNameThePatchedMethod()
+    {
+        using var core = new Env(typeof(object).Assembly.Location);
+        var target = core.One("System.DateTimeFormat::FormatCustomized");
+        var error = Assert.Throws<ToolError>(() => core.Workspace.Read(() => core.Edits.PatchMethodCSharp(target, "return null;", dryRun: true, default)));
+        Assert.Contains("CS0127", error.Message);
+        Assert.Contains("DateTimeFormat.FormatCustomized<TChar>(", error.Message);
+        Assert.DoesNotContain("__Patch", error.Message);
+        Assert.DoesNotContain("__patch", error.Message);
+        Assert.Contains("returns void: use 'return;'", error.Remediation);
+        Assert.Contains("compiled OK", core.Workspace.Read(() => core.Edits.PatchMethodCSharp(target, "return;", dryRun: true, default)));
+    }
+
     [Fact]
     public async Task AWaitForAnotherThreadsImageStopsWhenCancelled()
     {
