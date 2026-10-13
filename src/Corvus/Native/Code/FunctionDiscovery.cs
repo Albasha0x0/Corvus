@@ -602,7 +602,7 @@ internal sealed partial class FunctionDiscovery
     /// Code nothing references (dead code, functions reached only through metadata such as C++ unwind funclets):
     /// in each gap between known code, skips alignment padding and accepts a function that verifies where
     /// x86 PE: a standard prologue starts (right after known code or padding, or 16-byte aligned);
-    /// x64 PE: anything starts right after known code and its int3 padding; ELF, Mach-O and x64 PE without .pdata: right after
+    /// x86 / x64 PE: anything starts right after known code and its int3 padding; ELF, Mach-O and x64 PE without .pdata: right after
     /// known code and its nop padding.
     /// </summary>
     private void ScanGaps(bool prologues)
@@ -642,13 +642,21 @@ internal sealed partial class FunctionDiscovery
                     continue;
                 }
                 int pad = PaddingLength(bytes, p, bytes.Length);
-                if (pad > 0) { p += pad; boundary = true; continue; }
-                if ((boundary || (p & 15) == 0) && IsPrologue(bytes, p, bytes.Length) && TryCandidate(region.Rva + (uint)p, FunctionSource.CodeGap))
+                if (pad > 0)
+                {
+                    afterCode |= sawCode && bytes[p] == 0xCC;
+                    sawCode = false;
+                    p += pad;
+                    boundary = true;
+                    continue;
+                }
+                // a standard prologue, or (as on x64) anything right after known code and its int3 padding
+                if ((boundary || (p & 15) == 0) && (IsPrologue(bytes, p, bytes.Length) || afterCode) && TryCandidate(region.Rva + (uint)p, FunctionSource.CodeGap))
                 {
                     Drain();
                     continue;
                 }
-                boundary = false;
+                boundary = afterCode = sawCode = false;
                 p++;
             }
         }

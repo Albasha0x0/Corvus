@@ -499,8 +499,8 @@ internal sealed class X86Decoder : ICodeDecoder
         if (_is64 && disp >= 0 && disp < _sizeOfImage) return false;
         // i386 position-independent code addresses the image from the GOT pointer
         if (_hltEnds && !_is64 && i.MemoryBase != Register.None && Math.Abs(disp) < _sizeOfImage) return false;
-        // an array inside a large structure: [base + index*s + field]
-        if (i.MemoryBase != Register.None && i.MemoryIndex != Register.None && disp is > -0x100000 and < 0x100000) return false;
+        // an array inside a large structure: [base + index*s + field], or its offset formed by lea
+        if (i.MemoryIndex != Register.None && (i.MemoryBase != Register.None || i.Mnemonic == Mnemonic.Lea) && disp is > -0x100000 and < 0x100000) return false;
         var offsets = _decoder.GetConstantOffsets(in i);
         return !(offsets.HasDisplacement && IsRelocated(rva + offsets.DisplacementOffset));
     }

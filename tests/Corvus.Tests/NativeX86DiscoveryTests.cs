@@ -379,7 +379,8 @@ public class NativeX86DiscoveryTests
 
     /// <summary>
     /// A PE function reached only through "mov [ecx], offset handler" reads an array inside a large structure
-    /// ([eax + ecx*4 + 0x41000], an unrelocated displacement past 64 KB): plausible code, so the handler is a function.
+    /// ([eax + ecx*4 + 0x41000], an unrelocated displacement past 64 KB, and lea of such an offset): plausible code, so the
+    /// handler is a function.
     /// </summary>
     [Fact]
     public void An_address_taken_function_indexing_a_large_structure_verifies()
@@ -397,6 +398,7 @@ public class NativeX86DiscoveryTests
             a.mov(eax, __dword_ptr[esp + 8]);
             a.mov(ecx, __dword_ptr[esp + 12]);
             a.mov(eax, __dword_ptr[eax + ecx * 4 + 0x41000]);
+            a.lea(edx, __[ecx * 4 + 0x41000]);
             a.pop(ebx);
             a.ret();
         });
@@ -404,5 +406,26 @@ public class NativeX86DiscoveryTests
         BinaryPrimitives.WriteUInt32LittleEndian(code.AsSpan(imm), 0x10000000 + rva(handler));
         var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, code, entry: Code));
         Assert.True(index.FunctionByStart(rva(handler)) is { } f && (f.Sources & FunctionSource.CodeAddress) != 0);
+    }
+
+    /// <summary>x86 PE: a function nothing references and without a frame prologue, right after known code and its int3 padding.</summary>
+    [Fact]
+    public void X86_pe_gap_scan_takes_code_after_int3_padding()
+    {
+        Label dead = default;
+        var (code, rva) = Assemble(32, a =>
+        {
+            dead = a.CreateLabel();
+            a.xor(eax, eax);
+            a.ret();
+            for (int k = 0; k < 13; k++) a.int3();
+            a.Label(ref dead);
+            a.mov(eax, __dword_ptr[ecx + 0x18]);
+            a.test(eax, eax);
+            a.ret();
+        });
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, code, entry: Code));
+        Assert.Equal(16u, rva(dead) - Code);
+        Assert.True(index.FunctionByStart(rva(dead)) is { } f && (f.Sources & FunctionSource.CodeGap) != 0);
     }
 }
