@@ -170,8 +170,8 @@
     "total": {
       "type": "integer"
     },
-    "tokenMapFile": {
-      "description": "The file tokenMapPath wrote.",
+    "tokenMapResultId": {
+      "description": "tokenMap=true: the kept token map; read_result id=<it> outputPath=<file>.json writes it.",
       "type": "string"
     },
     "tokenMapEntries": {

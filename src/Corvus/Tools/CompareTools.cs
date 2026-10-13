@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using dnlib.DotNet;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Mcp;
@@ -13,9 +14,9 @@ using TypeChange = Corvus.Services.AssemblyComparer.TypeChange;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, DecompilerService decompiler)
+public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, DecompilerService decompiler, ResultStore? results = null)
 {
-    private static readonly string[] AllKinds = ["renamed", "moved", "signature", "body", "metadata", "type", "offset", "address", "added", "removed", "ambiguous", "unknown"];
+    private static readonly string[] AllKinds = AssemblyComparer.ChangeKinds;
 
     private static readonly string[] Confidences = ["exact", "strong", "structural"];
 
@@ -43,7 +44,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [property: Description("Compiler-generated type and member changes left out.")] int HiddenCompilerGenerated,
         [property: Description("The changes of this page, in the text's order.")] IReadOnlyList<ChangeItem> Items,
         int Offset, int Total,
-        [property: Description("The file tokenMapPath wrote.")] string? TokenMapFile,
+        [property: Description("tokenMap=true: the kept token map; read_result id=<it> outputPath=<file>.json writes it.")] string? TokenMapResultId,
         int TokenMapEntries);
 
     /// <summary>The token map file: both builds and every old type and member with its counterpart.</summary>
@@ -64,21 +65,19 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
-        [Description("Change kinds to list, comma-separated: renamed, moved, signature, body, metadata, type, offset, address, added, removed, ambiguous, " +
-                     "unknown (unpaired for lack of evidence) or all; default all except address.")] string? changes = null,
+        [Description("Change kinds to list (unknown: unpaired for lack of evidence); default all except address.")] string[]? changes = null,
         [Description("List added and removed type names (else counts).")] bool listAddedRemovedTypes = true,
         [Description("Also show compiler-generated types and members (closures, state machines, backing fields), which change with every recompile.")] bool includeCompilerGenerated = false,
-        [Description("Write the whole assembly's token map (old -> new token, status, tier, confidence, body hash equality) to this JSON file.")] string? tokenMapPath = null,
-        [Description("Replace an existing token map file.")] bool overwrite = false,
+        [Description("Keep the whole token map (old -> new token, status, tier, confidence, body hash equality) as a result: tokenMapResultId.")] bool tokenMap = false,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Changes per page (default 200).")] int limit = 200,
+        [Description("Changes per page (default 100).")] int limit = 100,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        CancellationToken cancellationToken = default) => Read(workspace, () =>
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => EditTools.WithProgress(context, () => Read(workspace, () =>
     {
         var oldAsm = workspace.Get(oldAssembly);
         var newAsm = workspace.Get(newAssembly);
-        var kinds = (changes?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? AllKinds.Where(k => k != "address").ToArray())
-            .Select(k => k.ToLowerInvariant()).ToHashSet();
+        var kinds = (changes is { Length: > 0 } ? changes.Select(k => k.Trim()) : AllKinds.Where(k => k != "address")).Select(k => k.ToLowerInvariant()).ToHashSet();
         if (kinds.Remove("all")) kinds.UnionWith(AllKinds);
         foreach (var k in kinds.Where(k => !AllKinds.Contains(k)))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown change kind '{k}'. Use: {string.Join(", ", AllKinds)}.");
@@ -112,15 +111,17 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
                 sb.AppendLine($"Skipped: {skipped} method bodies of the {side} build ({asm.Id}) are not valid IL (encrypted?) and were not compared; " +
                               "their body changes are marked \"not comparable\", and members they leave without a counterpart \"unknown\".");
 
-        string? mapFile = null;
+        string? mapId = null;
         int mapEntries = 0;
-        if (tokenMapPath != null)
+        if (tokenMap)
         {
             var map = AssemblyComparer.TokenMap(cmp);
-            mapFile = SafeFile.WriteAllText(tokenMapPath, System.Text.Json.JsonSerializer.Serialize(
-                new TokenMapFile("token-map", 1, IlHash.Version, BuildRef.Of(oldAsm), BuildRef.Of(newAsm), map), MapJson), overwrite);
+            var json = System.Text.Json.JsonSerializer.Serialize(new TokenMapFile("token-map", 1, IlHash.Version, BuildRef.Of(oldAsm), BuildRef.Of(newAsm), map), MapJson);
+            mapId = results?.Keep(json, new KeptOrigin("compare_assemblies", $"{oldAsm.Id} -> {newAsm.Id} token map", null,
+                [new KeptInput(oldAsm.Id, oldAsm.OriginalSha256), new KeptInput(newAsm.Id, newAsm.OriginalSha256)]))
+                ?? throw new ToolError(ErrorCode.Unsupported, "This server keeps no results, so the token map has nowhere to go.", "call compare_assemblies on the MCP server");
             mapEntries = map.Count;
-            sb.AppendLine($"Token map: {map.Count} old types and members written to {mapFile}.");
+            sb.AppendLine($"Token map: {map.Count} old types and members kept: read_result id={mapId} outputPath=<file>.json writes it.");
         }
 
         // One row per change; a row starting a new group (its type, or a section) prints the group's heading first.
@@ -155,7 +156,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             [.. Confidences.Select(c => new KindCount(c, matches.GetValueOrDefault(c)))],
             cmp.Ambiguous.Keys.Count(m => m is not TypeDef && (@namespace == null || (m.DeclaringType?.FullName.StartsWith(@namespace, StringComparison.Ordinal) ?? false))),
             cmp.OldSkippedBodies, cmp.NewSkippedBodies, hiddenTypes + hiddenMembers,
-            [], Math.Max(0, offset), rows.Count, mapFile, mapEntries);
+            [], Math.Max(0, offset), rows.Count, mapId, mapEntries);
         string? group = null;
         string Row((ChangeItem Item, string Group, string? Line) r)
         {
@@ -166,7 +167,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         }
         return ToolOutput.List(rows, offset, ClampLimit(limit), Row, page => result with { Items = page.Select(r => r.Item).ToList() }, "change",
             sb.Append('\n').ToString());
-    }, cancellationToken);
+    }, cancellationToken));
 
     private static ChangeItem TypeItem(TypeChange t)
     {
@@ -183,47 +184,79 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             m.Candidates?.Select(c => $"{Format.MemberLabel(c)} {Format.Token(c)}").ToList());
     }
 
-    [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build")]
+    /// <summary>One looked-up symbol: its counterpart in the new build (or the tied candidates), how it matched, and what changed.</summary>
+    public sealed record CounterpartItem(
+        string Kind, string Old, string OldToken, string? New, string? NewToken,
+        [property: Description("How it matched, or why nothing did.")] string How,
+        string? Tier, string? Confidence,
+        [property: Description("Ambiguous: the tied candidates in the new build.")] IReadOnlyList<string>? Candidates,
+        [property: Description("Change kinds of a matched member.")] IReadOnlyList<string>? Changes,
+        [property: Description("Methods: whether the normalized IL hash differs; absent when not comparable.")] bool? BodyChanged);
+
+    public sealed record CounterpartList(BuildRef Old, BuildRef New, IReadOnlyList<CounterpartItem> Items, int Offset, int Total);
+
+    [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build", UseStructuredContent = true, OutputSchemaType = typeof(CounterpartList))]
     [Description("Where a type or member of the old build went in the new build: matched by name, then by content (only when unique on both sides; else candidates). " +
                  "Shows the new name and token, tier and confidence, whether the body changed (normalized IL hash) and Il2Cpp offset / address changes. " +
                  "diff=true adds a unified diff of the pair's C# (a type: of each changed, added or removed member), il=true of their normalized IL; " +
                  "renames are rewritten first, so a pure rename is no change.")]
     public Task<string> FindCounterpart(
-        [Description("In the old build. " + SymbolDescription)] string symbol,
+        [Description("In the old build. " + SymbolDescription)] string? symbol,
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Add a unified diff of the old and new decompiled C# of each matched pair (cut at " + DiffLinesText + " lines).")] bool diff = false,
         [Description("Add a unified diff of the matched methods' normalized IL (docs/il-hash.md).")] bool il = false,
-        CancellationToken cancellationToken = default) => Read(workspace, () =>
+        [Description("Instead of symbol: up to 100 symbols.")] string[]? symbols = null,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description("Symbols per page (default 25).")] int limit = 25,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => EditTools.WithProgress(context, () => Read(workspace, () =>
     {
         var oldAsm = workspace.Get(oldAssembly);
         var newAsm = workspace.Get(newAssembly);
+        if (symbols is { Length: > 100 })
+            throw new ToolError(ErrorCode.LimitExceeded, $"{symbols.Length} symbols; at most 100 per call.", "split the list into calls of 100");
+        var targets = symbols is { Length: > 0 } ? symbols : !string.IsNullOrWhiteSpace(symbol) ? [symbol]
+            : throw new ToolError(ErrorCode.InvalidArgument, "Pass symbol, or symbols for several.", "pass symbol=<Ns.Type::Member> from the old build");
         var cmp = comparer.Compare(oldAsm, newAsm, cancellationToken);
-        var sb = new StringBuilder($"Old: {oldAsm.Id} ({oldAsm.BuildIdentity})\nNew: {newAsm.Id} ({newAsm.BuildIdentity})\n");
+        var head = new StringBuilder($"Old: {oldAsm.Id} ({oldAsm.BuildIdentity})\nNew: {newAsm.Id} ({newAsm.BuildIdentity})\n");
         if (cmp.OldSkippedBodies + cmp.NewSkippedBodies > 0)
-            sb.AppendLine($"Skipped: {cmp.OldSkippedBodies} old and {cmp.NewSkippedBodies} new method bodies are not valid IL and were not compared; " +
-                          "matches by content involving them are less reliable.");
+            head.AppendLine($"Skipped: {cmp.OldSkippedBodies} old and {cmp.NewSkippedBodies} new method bodies are not valid IL and were not compared; " +
+                            "matches by content involving them are less reliable.");
+        var all = targets.SelectMany(t => SymbolResolver.Resolve(workspace, oldAsm.Id, t)).DistinctBy(s => s.Member).ToList();
+        var page = all.Skip(Math.Max(0, offset)).Take(ClampLimit(limit, 100)).ToList();
         Renames? renames = null;
-        foreach (var sym in SymbolResolver.Resolve(workspace, oldAsm.Id, symbol).Take(25))
+        var rows = page.Select(sym => Counterpart(sym)).ToList();
+        return ToolOutput.List(rows, offset, ClampLimit(limit, 100), all.Count, r => r.Text,
+            items => new CounterpartList(BuildRef.Of(oldAsm), BuildRef.Of(newAsm), items.Select(r => r.Item).ToList(), Math.Max(0, offset), all.Count),
+            "symbol", head.ToString());
+
+        (CounterpartItem Item, string Text) Counterpart(ResolvedSymbol sym)
         {
+            var sb = new StringBuilder();
             var found = comparer.FindCounterpart(cmp, sym.Member);
+            var kind = SymbolRef.MemberKind(sym.Member);
+            var item = new CounterpartItem(kind, sym.Label, Format.Token(sym.Member), null, null, found.How, found.Tier, found.Confidence, null, null, null);
             sb.AppendLine($"{sym.Kind} {sym.Label}  [{oldAsm.Id}] {Format.Token(sym.Member)}");
             if (found.Candidates is { } candidates)
             {
                 sb.AppendLine($"  -> ambiguous: {candidates.Count} candidates share the {found.Tier} key (no tier tells them apart):");
                 foreach (var c in candidates)
                     sb.AppendLine($"     {Format.MemberLabel(c)}  [{newAsm.Id}] {Format.Token(c)}");
-                continue;
+                return (item with { How = $"ambiguous: {candidates.Count} candidates share the {found.Tier} key", Candidates = candidates.Select(c => $"{Format.MemberLabel(c)} {Format.Token(c)}").ToList() },
+                    sb.ToString().TrimEnd('\n'));
             }
             if (found.Match is not { } match)
             {
                 sb.AppendLine($"  -> not found: {found.How}");
-                continue;
+                return (item, sb.ToString().TrimEnd('\n'));
             }
+            item = item with { New = Format.MemberLabel(match), NewToken = Format.Token(match) };
             sb.AppendLine($"  -> {Format.MemberLabel(match)}  [{newAsm.Id}] {Format.Token(match)}  ({found.How}; {Tier((found.Tier!, found.Confidence!))})");
             if (sym.Member is not TypeDef)
             {
                 var change = cmp.Types.SelectMany(t => t.Members).FirstOrDefault(c => c.Old == sym.Member && c.New == match);
+                item = item with { Changes = change?.Dimensions.Select(d => d.Kind).ToList() ?? [] };
                 sb.AppendLine($"     changes: {(change == null ? "none" : string.Join(", ", change.Dimensions.Select(d => d.Kind)))}");
                 if (change?.Dimensions.FirstOrDefault(d => d.Kind == "metadata") is { } metadata)
                     sb.AppendLine($"     metadata: {metadata.Detail}");
@@ -235,6 +268,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
                 if (Format.ParameterTypes(om.MethodSig) != Format.ParameterTypes(nm.MethodSig))
                     sb.AppendLine($"     signature: ({Format.ParameterTypes(om.MethodSig)}) -> ({Format.ParameterTypes(nm.MethodSig)})");
                 var (oldHash, newHash) = (IlHash.Of(oldAsm, om), IlHash.Of(newAsm, nm));
+                if (oldHash != null && newHash != null) item = item with { BodyChanged = oldHash != newHash };
                 sb.AppendLine(oldHash == null || newHash == null
                     ? $"     body: {(oldHash == null && newHash == null ? "none on either side" : "not comparable (no body or not valid IL on one side)")}"
                     : oldHash == newHash ? $"     body: unchanged (IL hash {IlHash.Short(oldHash)})"
@@ -244,7 +278,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             var newIl2Cpp = Il2CppService.CompactSummary(match);
             if (oldIl2Cpp != null || newIl2Cpp != null)
                 sb.AppendLine($"     il2cpp: {oldIl2Cpp ?? "-"} -> {newIl2Cpp ?? "-"}");
-            if (!diff && !il) continue;
+            if (!diff && !il) return (item, sb.ToString().TrimEnd('\n'));
             renames ??= Renames.Of(cmp);
             int budget = DiffLines;
             if (diff && sym.Member is TypeDef oldType)
@@ -257,8 +291,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             if (il && sym.Member is MethodDef im && match is MethodDef jm)
                 AppendDiff(sb, "normalized IL", () => renames.Apply(NormalizedIl(oldAsm, im)), () => renames.Apply(NormalizedIl(newAsm, jm)),
                     $"{oldAsm.Id} {sym.Label}", $"{newAsm.Id} {Format.MemberLabel(match)}", ref budget, renames);
+            return (item, sb.ToString().TrimEnd('\n'));
         }
-        return sb.ToString();
 
         string Source(LoadedAssembly asm, IMemberDef member) => member is TypeDef t
             ? decompiler.DecompileType(asm, t, cancellationToken)
@@ -289,7 +323,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
                     m.New != null ? $"{newAsm.Id} {Format.MemberLabel(m.New)}" : "(removed)", ref budget, renames);
             }
         }
-    }, cancellationToken);
+    }, cancellationToken));
 
     private static bool SameBody(LoadedAssembly oldAsm, MethodDef old, LoadedAssembly newAsm, MethodDef @new) =>
         IlHash.Of(oldAsm, old) is { } a && a == IlHash.Of(newAsm, @new) && Format.ParameterTypes(old.MethodSig) == Format.ParameterTypes(@new.MethodSig);

@@ -1,6 +1,5 @@
 # Exemptions from: a parameter description is at most 160 bytes (S8.1)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-compare_assemblies.changes
 diff_function.engine
 dump_stack.imageDirectories
 find_xrefs.engine

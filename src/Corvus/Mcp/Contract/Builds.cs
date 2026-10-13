@@ -10,7 +10,7 @@ public static partial class ToolEffects
     private static Dictionary<string, Effects> BuildsTools() => new(StringComparer.Ordinal)
     {
         // Builds
-        ["compare_assemblies"] = Changes(destructive: true, idempotent: true, longRunning: true), // tokenMapPath; overwrite=true replaces a file
+        ["compare_assemblies"] = Reads(longRunning: true),
         ["compare_folders"] = Reads(longRunning: true),
         ["find_counterpart"] = Reads(longRunning: true),
 
@@ -32,6 +32,7 @@ public static partial class ParameterDomains
     {
         ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference", "xrefs", "range"]), ["engine"] = Engine, ["format"] = Of(["ida", "x64dbg", "mask", "bitmask"]) },
         ["compare_native_images"] = new Dictionary<string, Domain> { ["view"] = Of(["pairs", "changed", "unmatched", "ambiguous"]) },
+        ["compare_assemblies"] = new Dictionary<string, Domain> { ["changes"] = Of(Services.AssemblyComparer.ChangeKinds, "all") },
         ["compare_folders"] = new Dictionary<string, Domain> { ["change"] = Of(Services.Analysis.FolderCompare.Views) },
         ["diff_function"] = new Dictionary<string, Domain> { ["side"] = Of(["old", "new"]), ["view"] = Of(["asm", "pseudocode"]), ["engine"] = DecompilerEngine },
         ["update_to_new_build"] = new Dictionary<string, Domain>
@@ -47,7 +48,7 @@ public sealed partial record ToolContract
 {
     private static Dictionary<string, ToolContract> BuildsTools() => new(StringComparer.Ordinal)
     {
-        ["compare_assemblies"] = Row(O.Report, L.Long, noDryRun: "writes only with tokenMapPath; overwrite=false refuses an existing file"),
+        ["compare_assemblies"] = Row(O.Report, L.Long),
         ["find_counterpart"] = Row(O.Report, L.Instant),
         ["compare_folders"] = Row(O.Report, L.Interactive),
         ["compare_native_images"] = Row(O.Report, L.Long),

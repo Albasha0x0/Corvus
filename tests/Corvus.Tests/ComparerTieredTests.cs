@@ -136,6 +136,20 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("tier: IL hash, other type, strong", helper);
         Assert.Contains("changes: moved", helper);
         Assert.Contains("-> ambiguous: 2 candidates share the IL hash, other type key", await tools.FindCounterpart("Source::Dup", env.Fixture.Id, newer.Id));
+
+        // C16: a tie is a record with its candidates, never a pick; several symbols page by rows.
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.FindCounterpart(null, env.Fixture.Id, newer.Id, symbols: ["Source::Dup", "Source::Helper"]);
+        var list = Assert.IsType<CompareTools.CounterpartList>(collector.Value);
+        Assert.Equal(2, list.Total);
+        var dup = list.Items.Single(i => i.Old.StartsWith("Source::Dup", StringComparison.Ordinal));
+        Assert.Null(dup.New);
+        Assert.Equal(["Target::Dup(int)", "Util::Dup(int)"], dup.Candidates!.Select(c => c[..c.IndexOf(' ')]).Order(StringComparer.Ordinal));
+        var moved = list.Items.Single(i => i != dup);
+        Assert.Equal(("Target::Helper(string)", "strong", "moved"), (moved.New, moved.Confidence, string.Join(",", moved.Changes!)));
+        var second = await tools.FindCounterpart(null, env.Fixture.Id, newer.Id, symbols: ["Source::Dup", "Source::Helper"], offset: 1, limit: 1);
+        Assert.Single(Assert.IsType<CompareTools.CounterpartList>(collector.Value).Items);
+        Assert.Contains("[End:", second);
     }
 
     [Trait("Speed", "Slow")]
@@ -212,11 +226,11 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     {
         using var env = new Env(Write("v1", V1));
         var newer = env.Workspace.Load(Write("v2", V2));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Decompiler);
-        var mapPath = _dir.File("map.json");
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Decompiler, store);
 
         var collector = Corvus.Mcp.ToolOutput.Collect();
-        var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id, tokenMapPath: mapPath);
+        var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id, tokenMap: true);
         var result = Assert.IsType<CompareTools.AssemblyComparison>(collector.Value);
         Assert.Equal((env.Fixture.OriginalSha256, newer.OriginalSha256), (result.Old.Sha256, result.New.Sha256));
         Assert.Equal(env.Fixture.Module.Mvid.ToString(), result.Old.Mvid);
@@ -233,9 +247,9 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(result.Items[1], Assert.Single(second.Items));
         Assert.Contains("(showing 2-2)", page);
         Assert.Contains(result.Total > 2 ? "[More: offset=2]" : "[End:", page);
-        Assert.Contains($"Token map: {result.TokenMapEntries} old types and members written to {mapPath}.", text);
+        Assert.Contains($"Token map: {result.TokenMapEntries} old types and members kept: read_result id={result.TokenMapResultId} outputPath=<file>.json writes it.", text);
 
-        using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(mapPath));
+        using var json = System.Text.Json.JsonDocument.Parse(store.Read(result.TokenMapResultId!).Text);
         var root = json.RootElement;
         Assert.Equal("token-map", root.GetProperty("format").GetString());
         Assert.Equal(env.Fixture.OriginalSha256, root.GetProperty("old").GetProperty("sha256").GetString());
@@ -250,9 +264,9 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(2, entries["Calc::Scale(int)"].GetProperty("candidates").GetArrayLength());
         Assert.Equal(("matched", "full name"), (entries["Calc"].GetProperty("status").GetString(), entries["Calc"].GetProperty("tier").GetString()));
 
-        // An existing file is replaced only when asked.
-        Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => tools.CompareAssemblies(env.Fixture.Id, newer.Id, tokenMapPath: mapPath))).Code);
-        Assert.Contains("Token map:", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, tokenMapPath: mapPath, overwrite: true));
+        // The same map is the same kept result.
+        await tools.CompareAssemblies(env.Fixture.Id, newer.Id, tokenMap: true);
+        Assert.Equal(result.TokenMapResultId, Assert.IsType<CompareTools.AssemblyComparison>(collector.Value).TokenMapResultId);
     }
 
     [Fact]
@@ -287,7 +301,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.DoesNotContain("event Kept", text);
         Assert.Matches(@"Members \(each change of a member counted\): \d+ renamed, 0 moved, 1 signature, 1 body, 1 metadata", text);
         // Filtering by a secondary change still lists the member with all of its changes.
-        Assert.Contains("signature method Both(int)", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, changes: "metadata"));
+        Assert.Contains("signature method Both(int)", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, changes: ["metadata"]));
 
         Assert.Contains($"({env.Fixture.FilePath}; SHA-256 {env.Fixture.OriginalSha256}, MVID {env.Fixture.Module.Mvid})", text);
         Assert.Contains($"-> {newer.Id} ({newer.FilePath}; SHA-256 {newer.OriginalSha256}, MVID {newer.Module.Mvid})", text);

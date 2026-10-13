@@ -1,0 +1,151 @@
+{
+  "type": "object",
+  "properties": {
+    "old": {
+      "type": "object",
+      "properties": {
+        "assembly": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "mvid": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assembly",
+        "file",
+        "sha256",
+        "mvid"
+      ]
+    },
+    "new": {
+      "type": "object",
+      "properties": {
+        "assembly": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "mvid": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assembly",
+        "file",
+        "sha256",
+        "mvid"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "old": {
+            "type": "string"
+          },
+          "oldToken": {
+            "type": "string"
+          },
+          "new": {
+            "type": "string"
+          },
+          "newToken": {
+            "type": "string"
+          },
+          "how": {
+            "description": "How it matched, or why nothing did.",
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string"
+          },
+          "candidates": {
+            "description": "Ambiguous: the tied candidates in the new build.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "changes": {
+            "description": "Change kinds of a matched member.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bodyChanged": {
+            "description": "Methods: whether the normalized IL hash differs; absent when not comparable.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "old",
+          "oldToken",
+          "how"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "old",
+    "new",
+    "items",
+    "offset",
+    "total"
+  ]
+}

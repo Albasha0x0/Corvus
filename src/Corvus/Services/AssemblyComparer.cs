@@ -63,6 +63,9 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
 
     private sealed record CacheEntry(long Key, Comparison Value);
 
+    /// <summary>The kinds of change compare_assemblies lists.</summary>
+    public static readonly string[] ChangeKinds = ["renamed", "moved", "signature", "body", "metadata", "type", "offset", "address", "added", "removed", "ambiguous", "unknown"];
+
     private const double TypeThreshold = 0.6;
     private const double MethodThreshold = 0.6;
     private const int MinStructureSize = 8;

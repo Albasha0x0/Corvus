@@ -113,7 +113,7 @@ public static class Toolsets
             "inspect_instruction", "get_cfg", "find_xrefs", "native_call_tree", "find_virtual_calls", "search_native_strings", "get_call_arguments",
             "trace_native_values", "resolve_call_targets", "analyze_native_function", "trace_native_feature", "find_similar_functions", "get_exception_info", "list_cpp_classes",
             "get_native_type", "decompile_native", "search_decompiled", "emulate_native", "verify_native_imports", "search_pdb_symbols", "list_native_edits", "get_native_frame", "list_native_types",
-            "compare_native_images", "find_counterpart", "compare_folders", "map_address_between_builds", "diff_function", "make_code_pattern", "search_code_pattern",
+            "compare_assemblies", "compare_native_images", "find_counterpart", "compare_folders", "map_address_between_builds", "diff_function", "make_code_pattern", "search_code_pattern",
             "get_android_manifest", "list_android_resources", "list_dex_classes", "get_dex_class", "disassemble_dex", "map_java_dotnet", "decompile_java",
             "search_dex", "find_dex_references", "list_jni_bindings",
             "open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps", "list_notes",
