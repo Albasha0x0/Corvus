@@ -239,6 +239,10 @@ public partial class ProtocolSampleTests
     /// <summary>Tools whose written file holds the machine's image path, so its size differs per checkout.</summary>
     private static readonly HashSet<string> PathSized = ["export_native_patches", "export_native_annotations", "export_il2cpp_symbols"];
 
+    /// <summary>A note only a non-Windows host adds (it has no Windows system DLLs to check against), in text or as a record entry.</summary>
+    [GeneratedRegex(@"\nNote: This host has no Windows system DLLs[^\n]*|""This host has no Windows system DLLs[^""]*"",?")]
+    private static partial Regex HostNote();
+
     /// <summary>How many symbol folders a PDB lookup searched depends on the machine's symbol paths.</summary>
     [GeneratedRegex(@"\(\d+ places searched\)")]
     private static partial Regex PlacesSearched();
@@ -282,6 +286,7 @@ public partial class ProtocolSampleTests
         text = (json ? FixturePathJson() : FixturePath()).Replace(text, m => Backslashes().Replace(m.Value, "/"));
         text = Entropy().Replace(text, m => m.Groups[1].Value[0] == '"' ? m.Groups[1].Value + "\"<entropy>\"" : m.Groups[1].Value + "<entropy>");
         text = PlacesSearched().Replace(text, "(<n> places searched)");
+        text = HostNote().Replace(text, "");
         if (tool is "record_note" or "update_note" or "list_notes" or "read_result")
             text = Timestamp().Replace(NoteId().Replace(text, "<note>"), "<time>");
         if (PathSized.Contains(tool))

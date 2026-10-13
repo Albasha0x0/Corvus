@@ -379,7 +379,7 @@ public sealed class RealScenarioRegressionTests
     /// A .NET Standard 2.0 library's System.Runtime.InteropServices bound to the runtime facade, which put System.Private.CoreLib
     /// beside netstandard: the engine looked ExceptionDispatchInfo up there, so await in catch showed as catch (object) (System.Text.Json).
     /// </summary>
-    [Fact]
+    [Fact, Trait("Speed", "Slow")] // decompiles System.Text.Json: past the call deadline on small CI runners
     public void AwaitInCatchOfANetStandardLibraryDecompilesAsCatchException()
     {
         using var env = new Env(RealPackages.Lib("system.text.json", "10.0.1", "netstandard2.0", "System.Text.Json.dll"));
