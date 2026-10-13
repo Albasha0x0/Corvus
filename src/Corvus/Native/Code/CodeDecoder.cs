@@ -51,6 +51,8 @@ internal sealed record SwitchMatch(uint TableRva, int EntrySize, bool Absolute, 
     public bool Signed { get; init; }
     /// <summary>ARM32: no table is read; the index selects a branch in a run of them (target = <see cref="Base"/> + (index &lt;&lt; <see cref="Shift"/>)).</summary>
     public bool Direct { get; init; }
+    /// <summary>When set, every target lies within this many bytes of the dispatch (a table found through tracked register values).</summary>
+    public uint Window { get; init; }
 
     /// <summary>The reason when the instructions before an indirect jump are no table dispatch at all.</summary>
     public const string NoDispatch = "no recognized table dispatch";

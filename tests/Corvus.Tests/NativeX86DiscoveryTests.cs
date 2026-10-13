@@ -72,4 +72,77 @@ public class NativeX86DiscoveryTests
         var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, code, entry: Code, format: ImageFormat.Elf));
         Assert.Equal([Code, Code + 0x15], index.Functions.Select(f => f.Start));
     }
+
+    [Theory]
+    [InlineData(0)] // get_pc_thunk.bx; mov eax, [ebx + eax*4 + k]; add eax, ebx; jmp eax
+    [InlineData(1)] // get_pc_thunk.dx; add edx, [edx + eax*4 + k]; jmp edx
+    [InlineData(2)] // call $+5; pop ebp; mov eax, [ebp + eax*4 + k]; lea eax, [eax + ebp]; jmp eax, bound before the GOT setup
+    [InlineData(3)] // get_pc_thunk.bx; the index scaled by lea before the load; the GOT pointer copied to esi
+    [InlineData(4)] // bound on the memory the index is reloaded from; the target exchanged into the jump register
+    [InlineData(5)] // the index scaled and masked before the load: and ecx, 8 bounds it to 3 entries
+    [InlineData(6)] // a byte compared in memory, then loaded: cmp byte [esi], 2; ja; movzx ecx, byte [esi]
+    [InlineData(7)] // the GOT pointer spilled to the stack and reloaded (past a push) into another register for the dispatch
+    [InlineData(8)] // a byte element compared in memory, then loaded: cmp byte [eax + esi], 2; ja; movzx ecx, byte [eax + esi]
+    public void I386_position_independent_switch_tables_resolve(int form)
+    {
+        const uint Got = Data, Table = Data + 0x40;
+        Label thunk = default, dflt = default, next = default;
+        var cases = new Label[3];
+        var (code, rva) = Assemble(32, a =>
+        {
+            thunk = a.CreateLabel(); dflt = a.CreateLabel(); next = a.CreateLabel();
+            for (int i = 0; i < 3; i++) cases[i] = a.CreateLabel();
+            a.mov(eax, __dword_ptr[esp + 4]);
+            var got = form switch { 1 => edx, 2 => ebp, 3 => esi, _ => ebx };
+            if (form == 2)
+            {
+                a.cmp(eax, 2);
+                a.ja(dflt);
+                a.call(next);
+                a.Label(ref next);
+                a.pop(ebp);
+            }
+            else
+            {
+                a.call(thunk);
+                a.Label(ref next);
+            }
+            a.add(form == 3 ? ebx : got, 0x7777); // patched below: GOT - next
+            if (form == 3) a.mov(esi, ebx);
+            if (form == 4) { a.cmp(__dword_ptr[esp + 4], 2); a.ja(dflt); a.mov(ecx, __dword_ptr[esp + 4]); }
+            else if (form == 5) { a.lea(ecx, __[eax * 4]); a.and(ecx, 8); }
+            else if (form == 7) { a.mov(__dword_ptr[esp + 8], ebx); a.xor(ebx, ebx); a.push(ecx); a.cmp(eax, 2); a.ja(dflt); a.mov(edx, __dword_ptr[esp + 12]); a.pop(ecx); }
+            else if (form == 6) { a.mov(esi, eax); a.cmp(__byte_ptr[esi], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[esi]); }
+            else if (form == 8) { a.xor(esi, esi); a.cmp(__byte_ptr[eax + esi], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[eax + esi]); }
+            else if (form != 2) { a.cmp(eax, 2); a.ja(dflt); }
+            switch (form)
+            {
+                case 7: a.mov(eax, __dword_ptr[edx + eax * 4 + (int)(Table - Got)]); a.add(eax, edx); a.jmp(eax); break;
+                case 8:
+                case 6: a.mov(eax, __dword_ptr[ebx + ecx * 4 + (int)(Table - Got)]); a.add(eax, ebx); a.jmp(eax); break;
+                case 4: a.mov(eax, __dword_ptr[ebx + ecx * 4 + (int)(Table - Got)]); a.add(eax, ebx); a.xchg(eax, edx); a.jmp(edx); break;
+                case 5: a.mov(eax, __dword_ptr[ebx + ecx + (int)(Table - Got)]); a.add(eax, ebx); a.jmp(eax); break;
+                case 1: a.add(edx, __dword_ptr[edx + eax * 4 + (int)(Table - Got)]); a.jmp(edx); break;
+                case 2: a.mov(eax, __dword_ptr[ebp + eax * 4 + (int)(Table - Got)]); a.lea(eax, __[eax + ebp]); a.jmp(eax); break;
+                case 3: a.lea(ecx, __[eax * 4]); a.mov(eax, __dword_ptr[esi + ecx + (int)(Table - Got)]); a.add(eax, esi); a.jmp(eax); break;
+                default: a.mov(eax, __dword_ptr[ebx + eax * 4 + (int)(Table - Got)]); a.add(eax, ebx); a.jmp(eax); break;
+            }
+            for (int i = 0; i < 3; i++) { a.Label(ref cases[i]); a.mov(eax, i + 1); a.ret(); }
+            a.Label(ref dflt);
+            a.xor(eax, eax);
+            a.ret();
+            a.Label(ref thunk);
+            a.mov(form == 1 ? edx : ebx, __dword_ptr[esp]);
+            a.ret();
+        });
+        int add = code.AsSpan().IndexOf([(byte)0x77, (byte)0x77, (byte)0, (byte)0]);
+        BinaryPrimitives.WriteUInt32LittleEndian(code.AsSpan(add), Got - rva(next));
+        var data = new byte[0x100];
+        for (int i = 0; i < 3; i++) BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x40 + i * 4), (int)(rva(cases[i]) - Got));
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, code, data, entry: Code, format: ImageFormat.Elf));
+        var sw = Assert.Single(index.GetGraph(index.FunctionByStart(Code)!).Switches);
+        Assert.Equal(Table, sw.TableRva);
+        Assert.Equal(cases.Select(rva), sw.Targets);
+        Assert.Equal(form == 5 ? null : rva(dflt), sw.Default);
+    }
 }

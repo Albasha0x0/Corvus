@@ -47,7 +47,7 @@ internal sealed class X86Decoder : ICodeDecoder
         _relocs = sortedRelocations;
         _is64 = is64 ?? image.Arch == NativeArch.X64;
         _hltEnds = image.Format != ImageFormat.Pe;
-        if (_hltEnds && !_is64) _pic = new uint[8];
+        if (_hltEnds && !_is64) _known = new uint[16];
         _decoder = Decoder.Create(_is64 ? 64 : 32, _reader, _imageBase, DecoderOptions.None);
     }
 
@@ -91,6 +91,7 @@ internal sealed class X86Decoder : ICodeDecoder
     {
         _ringCount = 0;
         _runBound = incoming;
+        _runStart = true;
     }
 
     /// <summary>Decodes the instruction at <paramref name="rva"/>; false when the address is not in executable code.</summary>
@@ -184,9 +185,10 @@ internal sealed class X86Decoder : ICodeDecoder
             if (kind == OpKind.Memory) hasMemory = true;
             else if (kind is OpKind.Immediate32 or OpKind.Immediate64 or OpKind.Immediate32to64) hasImmediate = true;
         }
+        if (_runStart && _known != null) RestoreState(rva);
         if (hasMemory) ResolveMemory(in i, ref insn);
         if (hasImmediate) ResolveImmediate(in i, ref insn);
-        if (_pic != null) TrackPic(in i, in insn);
+        if (_known != null) TrackKnown(in i, in insn);
     }
 
     /// <summary>
@@ -216,30 +218,155 @@ internal sealed class X86Decoder : ICodeDecoder
         return null;
     }
 
-    // i386 position-independent code outside PE: register -> the RVA it holds after "call __x86.get_pc_thunk.reg; add reg, imm" (0 = unknown)
-    private readonly uint[]? _pic;
+    // Register (rax..r15) -> the RVA it holds, 0 = unknown, in the function being walked; a block starts from the state of the
+    // branch that first reached it.
+    // i386 position-independent code outside PE: the GOT pointer from "call __x86.get_pc_thunk.reg" or "call $+5; pop reg", then "add reg, imm".
+    private readonly uint[]? _known;
     private readonly Dictionary<uint, int> _pcThunks = [];
+    // after "call $+5": the address a "pop reg" there loads
+    private uint _popPc;
+    // per ring slot: what the registers of operand 0, operand 1, the memory base and the memory index held before the instruction ran
+    private readonly uint[] _ringOp0 = new uint[RingSize], _ringOp1 = new uint[RingSize], _ringBase = new uint[RingSize], _ringIndex = new uint[RingSize];
 
-    /// <summary>Starts a function: register values known from its own get_pc_thunk calls only.</summary>
+    /// <summary>Starts a function: register values known from its own code only.</summary>
     public void BeginFunction()
     {
-        if (_pic != null) Array.Clear(_pic);
+        if (_known != null) Array.Clear(_known);
+        _popPc = 0;
+        _spills = 0;
+        _esp = 0;
+        _espKnown = true;
+        _stateAt.Clear();
+        _states = 0;
+        _dispatchState = -1;
     }
 
-    private static int Gpr32(Register r) => r >= Register.EAX && r <= Register.EDI ? r - Register.EAX : -1;
-
-    private void TrackPic(in Instruction i, in Insn insn)
+    private static int Gpr(Register r)
     {
-        var pic = _pic!;
+        var full = r.GetFullRegister();
+        return full >= Register.RAX && full <= Register.R15 ? full - Register.RAX : -1;
+    }
+
+    private bool IsFull(Register r) => r == (_is64 ? r.GetFullRegister() : r.GetFullRegister32());
+
+    private uint Known(Register r) => _known != null && Gpr(r) is var g and >= 0 ? _known[g] : 0;
+
+    private void TrackKnown(in Instruction i, in Insn insn)
+    {
+        var known = _known!;
+        int slot = (_ringHead - 1 + RingSize) % RingSize;
+        _ringOp0[slot] = i.Op0Kind == OpKind.Register ? Known(i.Op0Register) : 0;
+        _ringOp1[slot] = i.OpCount > 1 && i.Op1Kind == OpKind.Register ? Known(i.Op1Register) : 0;
+        _ringBase[slot] = Known(i.MemoryBase);
+        _ringIndex[slot] = Known(i.MemoryIndex);
+        uint popPc = _popPc;
+        _popPc = 0;
+        int frame = _espKnown ? _esp : int.MinValue;
+        TrackEsp(in i, in insn);
+        if (insn.Flow is FlowKind.Jump or FlowKind.ConditionalJump && insn.HasTarget && !_stateAt.ContainsKey(insn.Target)) _stateAt[insn.Target] = SaveState();
+        else if (insn.Flow == FlowKind.IndirectJump) _dispatchState = SaveState();
         if (insn.Flow is FlowKind.Call or FlowKind.IndirectCall)
         {
-            pic[0] = pic[1] = pic[2] = 0; // eax, ecx, edx do not survive a call
-            if (insn.Flow == FlowKind.Call && insn.HasTarget && PcThunkRegister(insn.Target) is var r and >= 0) pic[r] = insn.Next;
+            known[0] = known[1] = known[2] = 0; // eax, ecx, edx do not survive a call
+            if (insn.Flow == FlowKind.Call && insn.HasTarget && PcThunkRegister(insn.Target) is var r and >= 0) known[r] = insn.Next;
+            else if (i.Code == Iced.Intel.Code.Call_rel32_32 && i.NearBranchTarget == i.NextIP) _popPc = insn.Next;
             return;
         }
-        if (i.Op0Kind != OpKind.Register || Gpr32(i.Op0Register) is not (var reg and >= 0)) return;
-        if (i.Mnemonic == Mnemonic.Add && i.Op1Kind is OpKind.Immediate32 or OpKind.Immediate8to32 && pic[reg] != 0) pic[reg] += (uint)i.GetImmediate(1);
-        else if (WritesRegister(in i, i.Op0Register)) pic[reg] = 0;
+        if (i.Op0Kind == OpKind.Memory && IsStackSlot(in i) && i.Mnemonic is not (Mnemonic.Cmp or Mnemonic.Test or Mnemonic.Push or Mnemonic.Bt))
+        {
+            if (frame != int.MinValue) SetSpill(frame + (int)i.MemoryDisplacement64, i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Register && IsFull(i.Op1Register) ? Known(i.Op1Register) : 0);
+            return;
+        }
+        if (i.Op0Kind != OpKind.Register || Gpr(i.Op0Register) is not (var reg and >= 0)) return;
+        switch (i.Mnemonic)
+        {
+            case Mnemonic.Mov when i.Op1Kind == OpKind.Memory && IsStackSlot(in i) && IsFull(i.Op0Register):
+                known[reg] = frame != int.MinValue ? Spill(frame + (int)i.MemoryDisplacement64) : 0;
+                return;
+            case Mnemonic.Pop:
+                // an epilogue restores the caller's value on one path; the function's other paths keep the known one
+                if (insn.Rva == popPc) known[reg] = popPc;
+                return;
+            case Mnemonic.Add when i.Op1Kind is OpKind.Immediate32 or OpKind.Immediate8to32:
+                if (known[reg] != 0) known[reg] += (uint)i.GetImmediate(1);
+                return;
+            case Mnemonic.Mov when i.Op1Kind == OpKind.Register && IsFull(i.Op0Register) && IsFull(i.Op1Register):
+                known[reg] = Known(i.Op1Register);
+                return;
+            case Mnemonic.Xchg when i.Op1Kind == OpKind.Register && IsFull(i.Op0Register) && IsFull(i.Op1Register) && Gpr(i.Op1Register) is var other and >= 0:
+                (known[reg], known[other]) = (known[other], known[reg]);
+                return;
+        }
+        if (WritesRegister(in i, i.Op0Register)) known[reg] = 0;
+    }
+
+    // known values spilled to the stack (i386 code that runs out of registers keeps the GOT pointer there), by offset from
+    // esp at the function's entry; esp tracked through push / pop / add / sub, per block from the branch that reaches it
+    private int _esp;
+    private bool _espKnown, _runStart;
+    // the register values and esp at a block start, from the branch that first reached it (case labels: the last dispatch)
+    private readonly Dictionary<uint, int> _stateAt = [];
+    private uint[] _statePool = new uint[StateSize * 64];
+    private int _states, _dispatchState = -1;
+    private const int StateSize = 18;
+
+    private int SaveState()
+    {
+        if ((_states + 1) * StateSize > _statePool.Length) Array.Resize(ref _statePool, _statePool.Length * 2);
+        int at = _states * StateSize;
+        _known!.CopyTo(_statePool, at);
+        _statePool[at + 16] = (uint)_esp;
+        _statePool[at + 17] = _espKnown ? 1u : 0;
+        return _states++;
+    }
+
+    /// <summary>At the first instruction of a run: the state the branch to it saw.</summary>
+    private void RestoreState(uint rva)
+    {
+        _runStart = false;
+        int state = _stateAt.TryGetValue(rva, out int s) ? s : _dispatchState;
+        if (state < 0) return;
+        int at = state * StateSize;
+        Array.Copy(_statePool, at, _known!, 0, 16);
+        _esp = (int)_statePool[at + 16];
+        _espKnown = _statePool[at + 17] != 0;
+    }
+
+    private readonly int[] _spillDisp = new int[8];
+    private readonly uint[] _spillValue = new uint[8];
+    private int _spills;
+
+    private void TrackEsp(in Instruction i, in Insn insn)
+    {
+        if (insn.Flow is FlowKind.Call or FlowKind.IndirectCall or FlowKind.Return) return;
+        if (i.Op0Kind == OpKind.Register && i.Op0Register == Register.ESP)
+        {
+            if (i.Mnemonic is Mnemonic.Add or Mnemonic.Sub && i.Op1Kind is OpKind.Immediate32 or OpKind.Immediate8to32)
+                _esp += i.Mnemonic == Mnemonic.Add ? (int)i.GetImmediate(1) : -(int)i.GetImmediate(1);
+            else if (i.Mnemonic == Mnemonic.Lea && i.MemoryBase == Register.ESP && i.MemoryIndex == Register.None) _esp += (int)i.MemoryDisplacement64;
+            else _espKnown = false;
+            return;
+        }
+        if (i.Mnemonic is Mnemonic.Leave or Mnemonic.Enter) _espKnown = false;
+        else _esp += i.StackPointerIncrement;
+    }
+
+    private bool IsStackSlot(in Instruction i) => !_is64 && i.MemoryBase == Register.ESP && i.MemoryIndex == Register.None;
+
+    private uint Spill(int disp)
+    {
+        for (int n = 0; n < _spills; n++) if (_spillDisp[n] == disp) return _spillValue[n];
+        return 0;
+    }
+
+    private void SetSpill(int disp, uint value)
+    {
+        for (int n = 0; n < _spills; n++)
+            if (_spillDisp[n] == disp) { _spillValue[n] = value; return; }
+        if (value == 0) return;
+        int at = _spills < _spillDisp.Length ? _spills++ : disp & (_spillDisp.Length - 1);
+        _spillDisp[at] = disp;
+        _spillValue[at] = value;
     }
 
     /// <summary>The register a get_pc_thunk at <paramref name="rva"/> loads ("mov reg, [esp]; ret"), or -1.</summary>
@@ -352,9 +479,9 @@ internal sealed class X86Decoder : ICodeDecoder
             if (!TryRva(i.IPRelativeMemoryAddress, out target)) return;
             insn.MemRip = true;
         }
-        else if (_pic != null && i.MemoryIndex == Register.None && Gpr32(i.MemoryBase) is var b and >= 0 && _pic[b] != 0)
+        else if (!_is64 && i.MemoryIndex == Register.None && Known(i.MemoryBase) is var b and not 0)
         {
-            target = _pic[b] + (uint)i.MemoryDisplacement64;
+            target = b + (uint)i.MemoryDisplacement64;
             if (target >= _sizeOfImage) return;
         }
         else
@@ -441,7 +568,7 @@ internal sealed class X86Decoder : ICodeDecoder
         }
         if (TryCompare(1, 0, out _, out imm)) { }
         else if (Back(1) is { Mnemonic: Mnemonic.Cmp, Op0Kind: OpKind.Memory, MemoryIndex: Register.None } c
-                 && c.MemoryBase is Register.EBP or Register.RBP && CompareImmediate(in c, out imm)) { }
+                 && c.MemoryBase != Register.None && CompareImmediate(in c, out imm)) { }
         else return;
         if (imm >= uint.MaxValue) return;
         switch (cc)
@@ -502,7 +629,7 @@ internal sealed class X86Decoder : ICodeDecoder
         for (int n = 0; k < _ringCount && n < 8; k++, n++)
         {
             ref var x = ref Back(k);
-            if (x.FlowControl is FlowControl.Call or FlowControl.IndirectCall) return 0;
+            if (IsCall(in x)) return 0;
             if (!WritesRegister(in x, reg)) continue;
             bool wide = x.Op0Register.GetSize() == 8;
             switch (x.Mnemonic)
@@ -524,9 +651,21 @@ internal sealed class X86Decoder : ICodeDecoder
         return 0;
     }
 
-    /// <summary>Operand 0 is the frame slot [base + disp] (no index).</summary>
-    private static bool IsSlot(in Instruction x, Register slotBase, ulong slotDisp) =>
-        x.Op0Kind == OpKind.Memory && x.MemoryBase.GetFullRegister() == slotBase && x.MemoryIndex == Register.None && x.MemoryDisplacement64 == slotDisp;
+    /// <summary>
+    /// A load of a switch index from memory: the bound may compare the memory itself ("cmp dword [esp+0x84], 10; ja;
+    /// mov ebx, [esp+0x84]"). Not an x86 byte index table "movzx eI, byte [rJ + table]".
+    /// </summary>
+    private bool IsSlotLoad(in Instruction x) =>
+        x.Mnemonic is Mnemonic.Mov or Mnemonic.Movsxd or Mnemonic.Movzx && x.Op1Kind == OpKind.Memory && x.MemoryBase != Register.None
+        // with an index register: an element [base + index + small disp], not a byte index table at [base + index + table]
+        && (x.MemoryIndex == Register.None || (long)x.MemoryDisplacement64 is > -0x1000 and < 0x1000)
+        && x.MemorySize is MemorySize.UInt8 or MemorySize.UInt16 or MemorySize.UInt32 or MemorySize.Int32 or MemorySize.UInt64 or MemorySize.Int64
+        && !(x.Mnemonic == Mnemonic.Movzx && !_is64 && TryRva(x.MemoryDisplacement64, out uint table) && _image.SectionAt(table) != null);
+
+    /// <summary>Operand 0 is the memory slot [base + index*scale + disp].</summary>
+    private static bool IsSlot(in Instruction x, Register slotBase, ulong slotDisp, Register slotIndex = Register.None, int slotScale = 1) =>
+        x.Op0Kind == OpKind.Memory && x.MemoryBase.GetFullRegister() == slotBase && x.MemoryIndex.GetFullRegister() == slotIndex
+        && (slotIndex == Register.None || x.MemoryIndexScale == slotScale) && x.MemoryDisplacement64 == slotDisp;
 
     /// <summary>Operand 1 of a compare is a non-negative immediate.</summary>
     private static bool CompareImmediate(in Instruction x, out ulong imm)
@@ -553,9 +692,13 @@ internal sealed class X86Decoder : ICodeDecoder
         return null;
     }
 
+    /// <summary>A call that may change registers: not "call $+5", which only pushes its own address.</summary>
+    private static bool IsCall(in Instruction x) =>
+        x.FlowControl is FlowControl.Call or FlowControl.IndirectCall && !(x.Code == Iced.Intel.Code.Call_rel32_32 && x.NearBranchTarget == x.NextIP);
+
     private static bool WritesRegister(in Instruction x, Register full) =>
-        x.Op0Kind == OpKind.Register && x.Op0Register.GetFullRegister() == full
-        && x.Mnemonic is not (Mnemonic.Cmp or Mnemonic.Test or Mnemonic.Push or Mnemonic.Bt);
+        (x.Op0Kind == OpKind.Register && x.Op0Register.GetFullRegister() == full && x.Mnemonic is not (Mnemonic.Cmp or Mnemonic.Test or Mnemonic.Push or Mnemonic.Bt))
+        || (x.Mnemonic == Mnemonic.Xchg && x.Op1Kind == OpKind.Register && x.Op1Register.GetFullRegister() == full);
 
     /// <summary>
     /// Matches the instructions before the last one (an indirect jump) against the switch dispatch sequences:
@@ -595,10 +738,10 @@ internal sealed class X86Decoder : ICodeDecoder
             {
                 var b = w.Op1Register.GetFullRegister();
                 int l = FindWriter(k + 1, t);
-                if (l < 0) return null;
+                if (l < 0) return MatchKnownBase(k, t, out reason);
                 ref var load = ref Back(l);
-                if (load.Mnemonic is not (Mnemonic.Mov or Mnemonic.Movsxd) || load.Op1Kind != OpKind.Memory) return null;
-                if (load.MemoryIndex == Register.None || load.MemoryIndexScale != 4 || load.MemoryBase == Register.None) return null;
+                if (load.Mnemonic is not (Mnemonic.Mov or Mnemonic.Movsxd) || load.Op1Kind != OpKind.Memory) return MatchKnownBase(k, t, out reason);
+                if (load.MemoryIndex == Register.None || load.MemoryIndexScale != 4 || load.MemoryBase == Register.None) return MatchKnownBase(k, t, out reason);
                 var loadBase = load.MemoryBase.GetFullRegister();
                 var addBase = BaseOf(k + 1, b, out uint addRva);
                 if (addBase == BaseKind.Table && load.MemoryDisplacement64 == 0 && load.Mnemonic == Mnemonic.Movsxd
@@ -612,11 +755,11 @@ internal sealed class X86Decoder : ICodeDecoder
                 {
                     // entries are RVAs: [__ImageBase + index*4 + table RVA]
                     var lb = BaseOf(l + 1, loadBase, out _);
-                    if (lb is not (BaseKind.ImageBase or BaseKind.Unknown)) return null;
+                    if (lb is not (BaseKind.ImageBase or BaseKind.Unknown)) return MatchKnownBase(k, t, out reason);
                     table = (uint)load.MemoryDisplacement64;
                     baseAssumed = addBase == BaseKind.Unknown || lb == BaseKind.Unknown;
                 }
-                else return null;
+                else return MatchKnownBase(k, t, out reason);
                 index = load.MemoryIndex.GetFullRegister();
                 k = l + 1;
             }
@@ -635,7 +778,7 @@ internal sealed class X86Decoder : ICodeDecoder
                 absolute = true;
                 k++;
             }
-            else return null;
+            else return MatchKnownBase(k, t, out reason);
         }
         else return null;
 
@@ -644,6 +787,102 @@ internal sealed class X86Decoder : ICodeDecoder
             ? new SwitchMatch(table, absolute ? entrySize : 4, absolute, relative, 0, it, count, baseAssumed)
             : new SwitchMatch(table, absolute ? entrySize : 4, absolute, relative, count, null, 0, baseAssumed);
         return match with { Default = bound.Default, Bias = bound.Bias, BoundByMask = bound.Mask };
+    }
+
+    /// <summary>Targets of a table matched through tracked register values lie this close to the dispatch.</summary>
+    private const uint KnownBaseWindow = 0x100000;
+
+    /// <summary>
+    /// A dispatch whose table and entry base are registers with values the walk knows (<see cref="_known"/>): i386 PIC
+    /// "mov eT, [eG + eI*4 - k]; add eT, eG" (or lea eT, [eT + eG], or "add eG, [eG + eI*4 - k]" into the jump register),
+    /// entries signed offsets from the GOT pointer eG. <paramref name="k"/> is the step writing the jump register <paramref name="t"/>.
+    /// </summary>
+    private SwitchMatch? MatchKnownBase(int k, Register t, out string reason)
+    {
+        reason = SwitchMatch.NoDispatch;
+        if (_known == null) return null;
+        // "xchg rT, rX; jmp rT": the target was computed in rX
+        for (int n = 0; n < 2 && Back(k) is { Mnemonic: Mnemonic.Xchg, Op0Kind: OpKind.Register, Op1Kind: OpKind.Register } xchg; n++)
+        {
+            t = xchg.Op0Register.GetFullRegister() == t ? xchg.Op1Register.GetFullRegister() : xchg.Op0Register.GetFullRegister();
+            k = FindWriter(k + 1, t);
+            if (k < 0) return null;
+        }
+        ref var w = ref Back(k);
+        int load;
+        uint entryBase;
+        if (w.Mnemonic == Mnemonic.Add && w.Op1Kind == OpKind.Memory)
+        {
+            load = k;
+            entryBase = RingValue(_ringOp0, k);
+        }
+        else
+        {
+            // the two summands and what they held before the combining instruction
+            Register x, y;
+            uint xv, yv;
+            if (w.Mnemonic == Mnemonic.Add && w.Op1Kind == OpKind.Register)
+                (x, xv, y, yv) = (t, RingValue(_ringOp0, k), w.Op1Register.GetFullRegister(), RingValue(_ringOp1, k));
+            else if (w.Mnemonic == Mnemonic.Lea && w.MemoryBase != Register.None && w.MemoryIndex != Register.None && w.MemoryIndexScale == 1 && w.MemoryDisplacement64 == 0)
+                (x, xv, y, yv) = (w.MemoryBase.GetFullRegister(), RingValue(_ringBase, k), w.MemoryIndex.GetFullRegister(), RingValue(_ringIndex, k));
+            else return null;
+            int lx = EntryLoad(k + 1, x), ly = EntryLoad(k + 1, y);
+            if (lx >= 0 && yv != 0) (load, entryBase) = (lx, yv);
+            else if (ly >= 0 && xv != 0) (load, entryBase) = (ly, xv);
+            else return null;
+        }
+        if (entryBase == 0) return null;
+        ref var l = ref Back(load);
+        if (l.MemorySize is not (MemorySize.Int32 or MemorySize.UInt32) || l.MemoryBase == Register.None || l.MemoryIndex == Register.None) return null;
+        uint tableBase = RingValue(_ringBase, load);
+        if (tableBase == 0) return null;
+        uint table = tableBase + (uint)l.MemoryDisplacement64;
+        var index = l.MemoryIndex.GetFullRegister();
+        int next = load + 1;
+        uint count;
+        uint? indexTable = null;
+        (uint? Default, long Bias, bool Mask) bound;
+        int s = l.MemoryIndexScale == 1 ? FindWriter(next, index) : -1;
+        if (s >= 0 && Back(s) is { Mnemonic: Mnemonic.And } masked && CompareImmediate(in masked, out ulong mask) && (mask & 3) == 0 && mask < uint.MaxValue)
+        {
+            // an index scaled before the load and masked: "and rI, 0xfc" bounds it to 64 entries
+            count = (uint)(mask >> 2) + 1;
+            bound = (null, 0, true);
+        }
+        else
+        {
+            if (l.MemoryIndexScale == 1)
+            {
+                // the index scaled before the load: lea rI, [rJ*4] or shl rI, 2
+                if (s < 0) return null;
+                ref var x = ref Back(s);
+                if (x.Mnemonic == Mnemonic.Lea && x.MemoryBase == Register.None && x.MemoryIndexScale == 4 && x.MemoryDisplacement64 == 0) index = x.MemoryIndex.GetFullRegister();
+                else if (!(x.Mnemonic == Mnemonic.Shl && x.Op1Kind == OpKind.Immediate8 && x.Immediate8 == 2)) return null;
+                next = s + 1;
+            }
+            else if (l.MemoryIndexScale != 4) return null;
+            bool assumed = false;
+            if (!TryFindBound(next, index, ref assumed, out count, out indexTable, out reason, out bound)) return null;
+        }
+        var match = indexTable is { } it
+            ? new SwitchMatch(table, 4, false, entryBase == table, 0, it, count, false)
+            : new SwitchMatch(table, 4, false, entryBase == table, count, null, 0, false);
+        return match with
+        {
+            Base = entryBase == table ? null : entryBase, Signed = true, Window = KnownBaseWindow,
+            Default = bound.Default, Bias = bound.Bias, BoundByMask = bound.Mask,
+        };
+    }
+
+    private uint RingValue(uint[] values, int k) => values[(_ringHead - 1 - k + RingSize * 2) % RingSize];
+
+    /// <summary>Step of the load of a 32-bit table entry into <paramref name="reg"/> ("mov / movsxd reg, [base + index*s + disp]") at or before step <paramref name="k"/>, or -1.</summary>
+    private int EntryLoad(int k, Register reg)
+    {
+        int s = FindWriter(k, reg);
+        if (s < 0) return -1;
+        ref var x = ref Back(s);
+        return x.Mnemonic is Mnemonic.Mov or Mnemonic.Movsxd && x.Op1Kind == OpKind.Memory && x.MemoryIndex != Register.None ? s : -1;
     }
 
     private enum BaseKind { ImageBase, Table, Unknown, Other }
@@ -673,7 +912,7 @@ internal sealed class X86Decoder : ICodeDecoder
         for (; k < _ringCount; k++)
         {
             ref var x = ref Back(k);
-            if (x.FlowControl is FlowControl.Call or FlowControl.IndirectCall) return -1;
+            if (IsCall(in x)) return -1;
             if (WritesRegister(in x, reg)) return k;
         }
         return -1;
@@ -693,14 +932,15 @@ internal sealed class X86Decoder : ICodeDecoder
         var current = index;
         var pending = ConditionCode.None;
         int pendingStep = 0;
-        // the index was loaded from a frame slot [ebp/rbp + disp]: follow the slot instead of a register
+        // the index was loaded from memory [base + disp] (a frame slot, a field): follow the slot instead of a register
         bool inSlot = false;
-        var slotBase = Register.None;
+        Register slotBase = Register.None, slotIndex = Register.None;
+        int slotScale = 1;
         ulong slotDisp = 0;
         for (; k < _ringCount; k++)
         {
             ref var x = ref Back(k);
-            if (x.FlowControl is FlowControl.Call or FlowControl.IndirectCall) return false;
+            if (IsCall(in x)) return false;
             if (x.FlowControl == FlowControl.ConditionalBranch)
             {
                 pending = x.ConditionCode;
@@ -712,7 +952,7 @@ internal sealed class X86Decoder : ICodeDecoder
                 // the run continues on the fall-through side of the pending jump: ja / jae bound the index
                 ulong imm = 0;
                 bool bounded = x.Mnemonic == Mnemonic.Cmp && (inSlot
-                    ? IsSlot(in x, slotBase, slotDisp) && CompareImmediate(in x, out imm)
+                    ? IsSlot(in x, slotBase, slotDisp, slotIndex, slotScale) && CompareImmediate(in x, out imm)
                     : TryCompare(k, pendingStep, out var reg, out imm) && reg == current);
                 if (bounded && imm < uint.MaxValue && pending is ConditionCode.a or ConditionCode.ae)
                 {
@@ -724,8 +964,9 @@ internal sealed class X86Decoder : ICodeDecoder
             }
             if (inSlot)
             {
-                if (WritesRegister(in x, slotBase)) return false;
-                if (!IsSlot(in x, slotBase, slotDisp) || x.Mnemonic is Mnemonic.Cmp or Mnemonic.Test) continue;
+                if (WritesRegister(in x, slotBase) || (slotIndex != Register.None && WritesRegister(in x, slotIndex))
+                    || (slotBase == Register.RSP && x.StackPointerIncrement != 0)) return false;
+                if (!IsSlot(in x, slotBase, slotDisp, slotIndex, slotScale) || x.Mnemonic is Mnemonic.Cmp or Mnemonic.Test) continue;
                 if (x.Mnemonic != Mnemonic.Mov || x.Op1Kind != OpKind.Register) return false;
                 current = x.Op1Register.GetFullRegister();
                 inSlot = false;
@@ -739,11 +980,12 @@ internal sealed class X86Decoder : ICodeDecoder
                 bound = (null, 0, true);
                 return true;
             }
-            if (x.Mnemonic is Mnemonic.Mov or Mnemonic.Movsxd && x.Op1Kind == OpKind.Memory && x.MemoryIndex == Register.None
-                && x.MemoryBase is Register.EBP or Register.RBP && x.MemorySize is MemorySize.UInt32 or MemorySize.Int32 or MemorySize.UInt64 or MemorySize.Int64)
+            if (IsSlotLoad(in x))
             {
                 inSlot = true;
                 slotBase = x.MemoryBase.GetFullRegister();
+                slotIndex = x.MemoryIndex.GetFullRegister();
+                slotScale = x.MemoryIndexScale;
                 slotDisp = x.MemoryDisplacement64;
                 pending = ConditionCode.None;
                 continue;
@@ -786,7 +1028,7 @@ internal sealed class X86Decoder : ICodeDecoder
             return false;
         }
         if (k >= _ringCount && _runBound.IsKnown && (inSlot
-                ? _runBound.SlotBase == (int)slotBase && _runBound.SlotDisp == slotDisp
+                ? slotIndex == Register.None && _runBound.SlotBase == (int)slotBase && _runBound.SlotDisp == slotDisp
                 : _runBound.Reg == (int)current))
         {
             count = _runBound.Count;

@@ -464,6 +464,7 @@ internal sealed class CodeContext
             if (Image.Arch == NativeArch.Arm) target &= ~1u;
             if (!Code.IsCode(target)) { reason = $"entry {i} ({target:X}) is not in executable code"; return null; }
             if (aligned && (target & 3) != 0) { reason = $"entry {i} ({target:X}) is not an instruction address"; return null; }
+            if (m.Window != 0 && (target > jumpRva ? target - jumpRva : jumpRva - target) > m.Window) { reason = $"entry {i} ({target:X}) is far from the dispatch"; return null; }
             if (m.BaseAssumed && !ownRanges!.Any(r => target >= r.Begin && target < r.End)) { reason = $"entry {i} ({target:X}) is outside the function"; return null; }
             entries[i] = target;
             if (seen.Add(target)) targets.Add(target);
