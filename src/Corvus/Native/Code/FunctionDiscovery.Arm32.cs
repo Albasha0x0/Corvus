@@ -9,10 +9,12 @@ namespace Corvus.Native.Code;
 /// </summary>
 internal sealed partial class FunctionDiscovery
 {
-    // halfword addresses of literal pool entries explored code loads
-    private readonly HashSet<uint> _literals = [];
+    // literal pool entries explored code loads, by code bit index (bit per byte; set on each entry's halfwords)
+    private CodeBitmap? _literals;
     // A32 instruction starts explored code decoded
     private CodeBitmap? _armInsns;
+    // covered run ends (code bit index) the code after them was tried at
+    private readonly HashSet<long> _afterCodeTried = [];
 
     /// <summary>Records what the instruction <paramref name="dec"/> just decoded tells about the code: its state, the literal it loads.</summary>
     private void NoteArm32(ICodeDecoder dec, in Insn insn, long bit)
@@ -20,7 +22,8 @@ internal sealed partial class FunctionDiscovery
         if (HybridDecoder.PrimaryOf(dec) is not Arm32Decoder arm) return;
         if (!arm.Thumb) (_armInsns ??= new CodeBitmap(_ctx.Code.TotalBytes))[bit] = true;
         if (insn.HasMem && arm.LastLiteralSize is > 0 and var size)
-            for (uint a = insn.MemTarget & ~1u; a < insn.MemTarget + (uint)size; a += 2) _literals.Add(a);
+            for (uint a = insn.MemTarget & ~1u; a < insn.MemTarget + (uint)size; a += 2)
+                if (_ctx.Code.BitIndex(a) is var b and >= 0) (_literals ??= new CodeBitmap(_ctx.Code.TotalBytes))[b] = true;
     }
 
     /// <summary>A word-aligned start right after decoded code (and its literal pool) whose bytes read in both states takes that code's state.</summary>
@@ -38,9 +41,19 @@ internal sealed partial class FunctionDiscovery
     /// <summary>Bytes [<paramref name="rva"/>, + <paramref name="length"/>) overlap a known literal pool entry.</summary>
     private bool IsLiteral(uint rva, int length)
     {
-        if (_literals.Count == 0) return false;
+        if (_literals == null) return false;
         for (uint a = rva & ~1u; a < rva + (uint)length; a += 2)
-            if (_literals.Contains(a)) return true;
+            if (_ctx.Code.BitIndex(a) is var b and >= 0 && _literals[b]) return true;
+        return false;
+    }
+
+    /// <summary><see cref="IsLiteral(uint, int)"/> for an instruction at code bit <paramref name="bit"/> (even, inside one region).</summary>
+    private bool IsLiteralAt(long bit, uint rva, int length)
+    {
+        if (_literals == null) return false;
+        if ((rva & 1) != 0) return IsLiteral(rva, length);
+        for (int k = 0; k < length; k += 2)
+            if (_literals[bit + k]) return true;
         return false;
     }
 
@@ -90,6 +103,8 @@ internal sealed partial class FunctionDiscovery
     /// </summary>
     private void TryAfterCode(ImageCode.Region region, int end)
     {
+        // each gap scan round meets the same run ends again; what follows one was tried once
+        if (!_afterCodeTried.Add(region.BitBase + end)) return;
         long word = region.BitBase + end - 4, half = region.BitBase + end - 2;
         long last = _starts[word] && _armInsns?[word] == true ? word : _starts[half] ? half : _starts[word] ? word : -1;
         if (last < 0) return;

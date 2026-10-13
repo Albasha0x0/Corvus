@@ -254,7 +254,7 @@ internal sealed partial class FunctionDiscovery
                     if (IsStart(bit)) break;
                     _dec.Decode(region, a, out var insn);
                     // ARM32: a literal pool known code loads ends the run (after a call that does not return)
-                    if (insn.Flow == FlowKind.Invalid || d.IsLiteral(a, insn.Length))
+                    if (insn.Flow == FlowKind.Invalid || d.IsLiteralAt(bit, a, (int)Math.Min(insn.Length, region.End - a)))
                     {
                         if (_speculative) Log.Add(new Op(OpKind.Invalid, bit, 0));
                         break;
