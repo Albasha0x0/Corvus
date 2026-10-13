@@ -125,21 +125,9 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         if (comparer != null && await Task.Run(() => ManagedPair(oldImage, newImage), ct) is { } managed)
             return await Task.Run(() => DotNetUpdate(managed.Old, managed.New, dryRun, included, categoryFilter, outcomeFilter, offset, limit, ct), ct);
 
-        Phase(0, "indexing both builds");
-        var oldNative = await Resolve(oldImage, ct);
-        var newNative = await Resolve(newImage, ct);
-        if (ReferenceEquals(oldNative, newNative))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Both arguments name {oldNative.Id}.", "load the other build too and pass its id (e.g. name#2)");
-        var oldIndex = await code.Index(oldNative, null, ct);
-        var newIndex = await code.Index(newNative, null, ct);
-        if (oldIndex.Support != CodeSupport.Full || newIndex.Support != CodeSupport.Full)
-            throw new ToolError(ErrorCode.Unsupported, $"{(oldIndex.Support != CodeSupport.Full ? oldNative.Id : newNative.Id)}: x86, x64 or ARM64 code is needed on both builds.");
-        if (oldIndex.Image.Arch != newIndex.Image.Arch)
-            throw new ToolError(ErrorCode.Unsupported, $"{oldNative.Id} is {oldIndex.Image.Arch} and {newNative.Id} is {newIndex.Image.Arch}; builds for different architectures are not matched.");
-        var matchOld = await Task.Run(() => Original(oldNative, oldIndex, ct), ct);
-        var matchNew = await Task.Run(() => Original(newNative, newIndex, ct), ct);
-        Phase(1, "matching functions");
-        var match = await Task.Run(() => MatchCache.Get(matchOld, matchNew, new MatchOptions { UseNames = useNames }, ct), ct);
+        var pair = await new BuildPairs(workspace, code).Match(oldImage, newImage, new MatchOptions { UseNames = useNames },
+            new ProgressSpan(progress, 0, 2, phases), ct);
+        var (oldNative, newNative, newIndex, match) = (pair.Old, pair.New, pair.NewIndex, pair.Match);
         var mapper = new AddressMapper(match);
         var notes = match.Notes.Distinct().ToList();
         if (match.Old.Failed + match.New.Failed > 0)
@@ -158,9 +146,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         if (included.Contains(Names))
         {
             var oldAnn = code.Annotations(oldNative);
-            var sources = oldAnn.Names().Select(x => new MigrationSource("name", NativeNameSource.User, x.Rva, x.Name))
-                .Concat(oldAnn.Comments().Select(x => new MigrationSource("comment", NativeNameSource.User, x.Rva, x.Comment)))
-                .Concat(oldAnn.PseudoComments().Select(x => new MigrationSource(NameMigration.PseudoComment, NativeNameSource.User, x.Rva, x.Comment))).ToList();
+            var sources = NameMigration.UserItems(oldAnn);
             var newAnn = code.Annotations(newNative);
             var steps = await Task.Run(() => NameMigration.Plan(mapper, sources, match.New.Index, newAnn, new MigrationOptions(), ct), ct);
             foreach (var s in steps)
@@ -169,13 +155,10 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                 items.Add(new Item(Names, s.Item.Kind, s.Item.OldRva, s.NewRva, s.Value, result, s.Reason, s.Confidence, s.Tier, s.Detail));
                 if (s.Item.Kind == "name") patternTargets.Add(("name", s.Item.OldRva, s.NewRva, s.Value));
             }
-            var setNames = steps.Where(s => s.Set && s.Item.Kind == "name").Select(s => (s.NewRva!.Value, s.Value)).ToList();
-            var setComments = steps.Where(s => s.Set && s.Item.Kind == "comment").Select(s => (s.NewRva!.Value, s.Value)).ToList();
-            var setPseudo = steps.Where(s => s.Set && s.Item.Kind == NameMigration.PseudoComment).Select(s => (s.NewRva!.Value, s.Value)).ToList();
-            if (!dryRun && (setNames.Count > 0 || setComments.Count > 0 || setPseudo.Count > 0))
+            if (!dryRun && steps.Any(s => s.Set))
                 workspace.Write(() =>
                 {
-                    newAnn.SetMany(setNames, setComments, setPseudo);
+                    var (setNames, setComments) = NameMigration.Apply(newAnn, steps);
                     foreach (var index in new[] { match.New.Index, code.Ready(newNative) }.OfType<NativeCodeIndex>().Distinct())
                     {
                         foreach (var (rva, name) in setNames) index.SetUserName(rva, name);
@@ -302,7 +285,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             }
             if (existing.Any(e => e.Text == n.Text && e.Anchor.Kind == n.Anchor.Kind && e.Anchor.Rva == newRva))
             {
-                items.Add(new Item(NoteCategory, "note", n.Anchor.Rva, newRva, text, "already_present", "same_note", confidence, tier, detail));
+                items.Add(new Item(NoteCategory, "note", n.Anchor.Rva, newRva, text, "already_present", MigrationReasons.SameNote, confidence, tier, detail));
                 continue;
             }
             var from = n.Anchor.Rva is { } r ? $"{oldNative.Id}@{NativeAddress.Va(mapper.Match.Old.Index.Image, r)}" : oldNative.Id;
@@ -419,14 +402,14 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                     continue;
                 }
                 newToken = match.MDToken.Raw;
-                (reason, detail) = (found.Tier ?? "matched", $"{Format.MemberLabel(member)} -> {Format.MemberLabel(match)} ({found.How})");
+                (reason, detail) = (MigrationReasons.Counterpart, $"{Format.MemberLabel(member)} -> {Format.MemberLabel(match)} ({found.How}{(found.Tier != null ? ", " + found.Tier : "")})");
                 confidence = found.Confidence switch { "exact" => 1, "strong" => 0.9, _ => 0.7 };
                 anchor = n.Anchor with { Sha256 = newAsm.OriginalSha256, Mvid = newMvid, Token = newToken, Label = $"{newAsm.Id}:{Format.MemberLabel(match)}" };
             }
             else anchor = n.Anchor with { Sha256 = newAsm.OriginalSha256, Label = newAsm.Id };
             if (existing.Any(e => e.Text == n.Text && e.Anchor.Kind == n.Anchor.Kind && e.Anchor.Token == newToken))
             {
-                items.Add(new Item(NoteCategory, "note", n.Anchor.Token, newToken, text, "already_present", "same_note", confidence, null, detail));
+                items.Add(new Item(NoteCategory, "note", n.Anchor.Token, newToken, text, "already_present", MigrationReasons.SameNote, confidence, null, detail));
                 continue;
             }
             carried.Add(n with
@@ -740,7 +723,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             var m = mapper.Map(p.Rva, ct);
             if (m.NewRva is { } at && existing.FirstOrDefault(q => q.Rva == at && Same(q, p)) is { } done)
             {
-                items.Add(new Item(Patches, "patch", p.Rva, at, p.Description, "already_present", "same_patch", m.Confidence, m.Pair?.Tier,
+                items.Add(new Item(Patches, "patch", p.Rva, at, p.Description, "already_present", MigrationReasons.SamePatch, m.Confidence, m.Pair?.Tier,
                     $"the new build already has this patch (#{existing.IndexOf(done) + 1})"));
                 targets.Add(("patch", p.Rva, at, p.Description));
                 continue;
@@ -790,9 +773,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                 }
                 catch (ToolError ex)
                 {
-                    var reason = System.Text.RegularExpressions.Regex.Match(ex.Message, "^([a-z0-9_]+): ") is { Success: true } m ? m.Groups[1].Value
-                        : ex.Code == ErrorCode.Conflict ? "conflicts_with_existing_patch" : "cannot_prepare";
-                    updated.Add(step with { Apply = false, Status = "refused", Reason = reason, Detail = ex.Message, NewReplacement = null });
+                    updated.Add(step with { Apply = false, Status = "refused", Reason = MigrationReasons.PatchRefusal(ex), Detail = ex.Message, NewReplacement = null });
                 }
             }
             steps = updated;
@@ -904,24 +885,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             "absolute" => (uint)((ulong)(size == 4 ? (uint)value : (ulong)value) - image.ImageBase),
             _ => null,
         };
-    }
-
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, Tuple<string, NativeCodeIndex>> Originals = new();
-
-    /// <summary>
-    /// The index the builds are matched on: the live one, or for a patched image one over its original bytes (patches
-    /// would hide a patched function's identity), kept per image while its names stay the same so a dry run and the
-    /// apply that follows match once.
-    /// </summary>
-    private NativeCodeIndex Original(LoadedNative native, NativeCodeIndex live, CancellationToken ct)
-    {
-        if (!native.HasPatches) return live;
-        var ann = code.Annotations(native);
-        var stamp = $"{ann.NameCount}|{ann.CommentCount}|" + string.Join(",", NativeNameLayers.Of(native).Layers.Select(l => $"{l.Source}:{l.Names.Count}:{l.Origin}"));
-        if (Originals.TryGetValue(native, out var kept) && kept.Item1 == stamp) return kept.Item2;
-        var index = code.IndexOfOriginal(native, ct);
-        Originals.AddOrUpdate(native, Tuple.Create(stamp, index));
-        return index;
     }
 
     private Task<LoadedNative> Resolve(string image, CancellationToken ct) => Task.Run(() =>

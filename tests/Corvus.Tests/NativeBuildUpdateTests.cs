@@ -75,11 +75,11 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
     //   f5 Removed:    xor eax,eax ; L: inc eax ; cmp eax,10 ; jl L ; ret                gone
     //   f6 Duplicated: mov eax,6666h ; xor eax,77h ; ret                               two copies
     // The rest of .text is int3 (a code cave).
-    private const uint F1 = 0x1000, F2 = 0x1020, F3 = 0x1040, F4 = 0x1060, F5 = 0x1090, F6 = 0x10A0, F6b = 0x10C0;
-    private static readonly uint[] OldStarts = [F1, F2, F3, F4, F5, F6];
-    private static uint[] NewStarts(uint s) => [F1 + s, F2 + s, F3 + s, F4 + s, F6 + s, F6b + s];
+    internal const uint F1 = 0x1000, F2 = 0x1020, F3 = 0x1040, F4 = 0x1060, F5 = 0x1090, F6 = 0x10A0, F6b = 0x10C0;
+    internal static readonly uint[] OldStarts = [F1, F2, F3, F4, F5, F6];
+    internal static uint[] NewStarts(uint s) => [F1 + s, F2 + s, F3 + s, F4 + s, F6 + s, F6b + s];
 
-    private static byte[] Image(bool newer, uint s)
+    internal static byte[] Image(bool newer, uint s)
     {
         var b = new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x180000000, DllCharacteristics = 0x0160 };
         var code = Enumerable.Repeat((byte)0xCC, 0x200).ToArray();
@@ -101,8 +101,8 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         return b.Build();
     }
 
-    private const uint Shift = 0x10;
-    private static string Va(uint rva) => $"0x{0x180000000UL + rva:X}";
+    internal const uint Shift = 0x10;
+    internal static string Va(uint rva) => $"0x{0x180000000UL + rva:X}";
 
     /// <summary>The old build with user names, a comment, a PDB and an Il2Cpp layer, and five patches (two of which cannot carry).</summary>
     private static async Task<(LoadedNative Old, LoadedNative New)> Prepare(Harness h)

@@ -167,7 +167,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
                 }
                 catch (ToolError ex)
                 {
-                    updated.Add(step with { Apply = false, Status = "refused", Reason = ReasonFor(ex), Detail = ex.Message, NewReplacement = null });
+                    updated.Add(step with { Apply = false, Status = "refused", Reason = MigrationReasons.PatchRefusal(ex), Detail = ex.Message, NewReplacement = null });
                 }
             }
             steps = updated;
@@ -196,13 +196,6 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         return new MigrationPatchReport(oldNative.Id, newNative.Id, source, dryRun, patches.Count, applied, wouldApply, refused, refusedBy,
             offset, steps.Count, offset + limit < steps.Count, entries, notes);
     }
-
-    private static string ReasonFor(ToolError ex) =>
-        ex.Message.Contains("relocation slot", StringComparison.OrdinalIgnoreCase) ? "relocation_slot_unavailable"
-        : ex.Message.Contains("middle of an instruction", StringComparison.OrdinalIgnoreCase) ? "mid_instruction"
-        : ex.Message.Contains("past the end", StringComparison.OrdinalIgnoreCase) ? "past_function_end"
-        : ex.Code == ErrorCode.Conflict ? "conflicts_with_existing_patch"
-        : "cannot_prepare";
 
     private static async Task<string> ReadPatchSet(string patchSet, CancellationToken ct)
     {

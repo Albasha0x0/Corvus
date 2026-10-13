@@ -4,7 +4,11 @@ using Corvus.Native.Code;
 namespace Corvus.Native.Diff;
 
 /// <summary>A name or comment of the old build to carry over.</summary>
-public sealed record MigrationSource(string Kind, NativeNameSource Source, uint OldRva, string Value);
+public sealed record MigrationSource(string Kind, NativeNameSource Source, uint OldRva, string Value)
+{
+    /// <summary>A comment's engine kind (eol, pre, plate); null: repeatable.</summary>
+    public string? CommentKind { get; init; }
+}
 
 /// <summary>What happens to one name or comment: set at the new address, or skipped with a reason code.</summary>
 public sealed record MigrationStep(MigrationSource Item, uint? NewRva, string Value, bool Set, string Reason, int? Tier, double Confidence, string Detail);
@@ -27,6 +31,31 @@ public static class NameMigration
 {
     /// <summary>The kind of a user's decompiler comment (the others: name, comment).</summary>
     public const string PseudoComment = "pseudo_comment";
+
+    /// <summary>The user's names and, with <paramref name="comments"/>, disassembly comments (with their kinds) and decompiler comments.</summary>
+    public static List<MigrationSource> UserItems(NativeAnnotations annotations, bool comments = true)
+    {
+        var items = annotations.Names().Select(x => new MigrationSource("name", NativeNameSource.User, x.Rva, x.Name)).ToList();
+        if (!comments) return items;
+        items.AddRange(annotations.Comments().Select(x => new MigrationSource("comment", NativeNameSource.User, x.Rva, x.Comment) { CommentKind = annotations.CommentKindAt(x.Rva) }));
+        items.AddRange(annotations.PseudoComments().Select(x => new MigrationSource(PseudoComment, NativeNameSource.User, x.Rva, x.Comment)));
+        return items;
+    }
+
+    /// <summary>
+    /// Records the set steps in <paramref name="annotations"/> in one change (comments keep their kinds); the names were
+    /// checked by <see cref="Plan"/>. Returns the names and comments set, for the code indexes.
+    /// </summary>
+    public static (List<(uint Rva, string? Name)> Names, List<(uint Rva, string? Text)> Comments) Apply(NativeAnnotations annotations, IEnumerable<MigrationStep> steps)
+    {
+        var set = steps.Where(s => s.Set && s.NewRva != null).ToList();
+        var names = set.Where(s => s.Item.Kind == "name").Select(s => (s.NewRva!.Value, (string?)s.Value)).ToList();
+        var comments = set.Where(s => s.Item.Kind == "comment").ToList();
+        var lines = comments.Select(s => (s.NewRva!.Value, (string?)s.Value)).ToList();
+        annotations.Apply(names, lines, [.. set.Where(s => s.Item.Kind == PseudoComment).Select(s => (s.NewRva!.Value, (string?)s.Value))],
+            allowDuplicate: true, kinds: [.. comments.Select(s => (s.NewRva!.Value, s.Item.CommentKind))]);
+        return (names, lines);
+    }
 
     public static List<MigrationStep> Plan(AddressMapper mapper, IReadOnlyList<MigrationSource> items, NativeCodeIndex newIndex,
         NativeAnnotations newAnnotations, MigrationOptions options, CancellationToken ct)

@@ -335,10 +335,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var items = new List<MigrationSource>();
         if (layers.Contains(NativeNameSource.User))
         {
-            var ann = code.Annotations(oldNative);
-            items.AddRange(ann.Names().Select(x => new MigrationSource("name", NativeNameSource.User, x.Rva, x.Name)));
-            if (comments) items.AddRange(ann.Comments().Select(x => new MigrationSource("comment", NativeNameSource.User, x.Rva, x.Comment))
-                .Concat(ann.PseudoComments().Select(x => new MigrationSource(NameMigration.PseudoComment, NativeNameSource.User, x.Rva, x.Comment))));
+            items.AddRange(NameMigration.UserItems(code.Annotations(oldNative), comments));
         }
         foreach (var source in new[] { NativeNameSource.Pdb, NativeNameSource.Il2Cpp })
         {
@@ -358,20 +355,17 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             : [];
         if (!dryRun && typeSteps.Any(s => s.Set)) newAnn.ChangeUserTypes(l => UserTypeMigration.Apply(l, typeSteps));
 
-        var setNames = steps.Where(s => s.Set && s.Item.Kind == "name").Select(s => (s.NewRva!.Value, s.Value)).ToList();
-        var setComments = steps.Where(s => s.Set && s.Item.Kind == "comment").Select(s => (s.NewRva!.Value, s.Value)).ToList();
-        var setPseudo = steps.Where(s => s.Set && s.Item.Kind == NameMigration.PseudoComment).Select(s => (s.NewRva!.Value, s.Value)).ToList();
-        if (!dryRun && (setNames.Count > 0 || setComments.Count > 0 || setPseudo.Count > 0))
-        {
-            var index = match.New.Index;
+        if (!dryRun && steps.Any(s => s.Set))
             workspace.Write(() =>
             {
-                newAnn.SetMany(setNames, setComments, setPseudo);
-                foreach (var (rva, name) in setNames) { index.SetUserName(rva, name); if (code.Ready(newNative) is { } ready && ready != index) ready.SetUserName(rva, name); }
-                foreach (var (rva, text) in setComments) { index.SetUserComment(rva, text); if (code.Ready(newNative) is { } ready && ready != index) ready.SetUserComment(rva, text); }
+                var (names, lines) = NameMigration.Apply(newAnn, steps);
+                foreach (var index in new[] { match.New.Index, code.Ready(newNative) }.OfType<NativeCodeIndex>().Distinct())
+                {
+                    foreach (var (rva, name) in names) index.SetUserName(rva, name);
+                    foreach (var (rva, text) in lines) index.SetUserComment(rva, text);
+                }
                 return 0;
             });
-        }
 
         var o = match.Old.Index;
         var n = match.New.Index;
@@ -567,42 +561,23 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         return new PatternSearch(p.ToString(), p.Length, targets.Count, total, total > hits.Count, hits, notes);
     }
 
-    private async Task<LoadedNative> Resolve(string image, CancellationToken ct) => await Task.Run(() =>
-    {
-        return Targets.Native(workspace, image);
-    }, ct);
+    private readonly BuildPairs pairs = new(workspace, code);
 
-    private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, RequestContext<CallToolRequestParams>? context, CancellationToken ct)
-    {
-        var native = await Resolve(image, ct);
-        IProgress<CodeIndexProgress>? progress = null;
-        if (context?.Params?.ProgressToken != null)
-        {
-            var sink = new OrderedProgress(context);
-            progress = new Progress<CodeIndexProgress>(p => sink.Report(new ProgressNotificationValue
-                { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" }));
-        }
-        var index = await code.Index(native, progress, ct);
-        if (index.Support != CodeSupport.Full)
-            throw new ToolError(ErrorCode.Unsupported, $"{native.Id}: {index.SupportNote ?? "instructions are not decoded for this architecture"}.",
-                "x86, x64 and ARM64 images are supported");
-        return (native, index);
-    }
+    private Task<LoadedNative> Resolve(string image, CancellationToken ct) => pairs.Resolve(image, ct);
+
+    private Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, RequestContext<CallToolRequestParams>? context, CancellationToken ct) =>
+        pairs.Open(image, Progress(context), ct);
 
     private async Task<(LoadedNative Old, LoadedNative New, MatchResult Match)> Match(string oldImage, string newImage, bool useNames, double minScore,
         RequestContext<CallToolRequestParams>? context, CancellationToken ct)
     {
         if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.");
-        var (oldNative, oldIndex) = await Open(oldImage, context, ct);
-        var (newNative, newIndex) = await Open(newImage, context, ct);
-        if (ReferenceEquals(oldNative, newNative))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Both arguments name {oldNative.Id}.", "load the other build too and pass its id (e.g. name#2)");
-        if (oldIndex.Image.Arch != newIndex.Image.Arch)
-            throw new ToolError(ErrorCode.Unsupported, $"{oldNative.Id} is {oldIndex.Image.Arch} and {newNative.Id} is {newIndex.Image.Arch}; builds for different architectures are not matched.");
-        var options = new MatchOptions { UseNames = useNames, MinScore = minScore };
-        var match = await Task.Run(() => MatchCache.Get(oldIndex, newIndex, options, ct), ct);
-        return (oldNative, newNative, match);
+        var pair = await pairs.Match(oldImage, newImage, new MatchOptions { UseNames = useNames, MinScore = minScore }, Progress(context), ct);
+        return (pair.Old, pair.New, pair.Match);
     }
+
+    private static ProgressSpan Progress(RequestContext<CallToolRequestParams>? context) =>
+        new(context?.Params?.ProgressToken != null ? new OrderedProgress(context) : null, 0, 1, 1);
 
     private static List<string> Notes(MatchResult match)
     {
@@ -658,4 +633,68 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private static string Va(NativeCodeIndex index, uint rva) => NativeAddress.Va(index.Image, rva);
 
     private static string Name(NativeCodeIndex index, NativeFunction f) => index.NameAt(f.Start) ?? f.Name;
+}
+
+/// <summary>A share of a call's progress: reports land in [From, To) of Total, so the steps of one call never go backwards.</summary>
+internal readonly record struct ProgressSpan(IProgress<ProgressNotificationValue>? Sink, float From, float To, float Total)
+{
+    public void Report(double fraction, string message) =>
+        Sink?.Report(new ProgressNotificationValue { Progress = From + (To - From) * (float)Math.Clamp(fraction, 0, 0.999), Total = Total, Message = message });
+
+    /// <summary>The share [a, b) of this span.</summary>
+    public ProgressSpan Part(double a, double b) => this with { From = From + (To - From) * (float)a, To = From + (To - From) * (float)b };
+}
+
+/// <summary>Two builds of one image, their live code indexes and their function match.</summary>
+internal sealed record BuildPair(LoadedNative Old, LoadedNative New, NativeCodeIndex OldIndex, NativeCodeIndex NewIndex, MatchResult Match);
+
+/// <summary>
+/// Opens and matches two builds for every build tool: on each build's original bytes (patches would hide a patched
+/// function's identity), through one cache, so the tools map an address the same way and report the same reason.
+/// </summary>
+internal sealed class BuildPairs(AssemblyWorkspace workspace, NativeCodeService code)
+{
+    public Task<LoadedNative> Resolve(string image, CancellationToken ct) => Task.Run(() => Targets.Native(workspace, image), ct);
+
+    public async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, ProgressSpan progress, CancellationToken ct)
+    {
+        var native = await Resolve(image, ct);
+        var index = await code.Index(native, progress.Sink == null ? null : new Progress<CodeIndexProgress>(p =>
+            progress.Report(p.Total > 0 ? (double)p.Done / p.Total : 0, $"indexing {native.Id}: {p.Phase}")), ct);
+        if (index.Support != CodeSupport.Full)
+            throw new ToolError(ErrorCode.Unsupported, $"{native.Id}: {index.SupportNote ?? "instructions are not decoded for this architecture"}.",
+                "x86, x64 and ARM64 images are supported");
+        return (native, index);
+    }
+
+    /// <summary>Both builds indexed and matched; <paramref name="sameAllowed"/>: one image as both (a patch set replayed on its build).</summary>
+    public async Task<BuildPair> Match(string oldImage, string newImage, MatchOptions options, ProgressSpan progress, CancellationToken ct, bool sameAllowed = false)
+    {
+        var (oldNative, oldIndex) = await Open(oldImage, progress.Part(0, 0.4), ct);
+        var (newNative, newIndex) = await Open(newImage, progress.Part(0.4, 0.8), ct);
+        if (ReferenceEquals(oldNative, newNative) && !sameAllowed)
+            throw new ToolError(ErrorCode.InvalidArgument, $"Both arguments name {oldNative.Id}.", "load the other build too and pass its id (e.g. name#2)");
+        if (oldIndex.Image.Arch != newIndex.Image.Arch)
+            throw new ToolError(ErrorCode.Unsupported, $"{oldNative.Id} is {oldIndex.Image.Arch} and {newNative.Id} is {newIndex.Image.Arch}; builds for different architectures are not matched.");
+        progress.Part(0.8, 1).Report(0, "matching functions");
+        var matchOld = await Task.Run(() => Original(oldNative, oldIndex, ct), ct);
+        var matchNew = await Task.Run(() => Original(newNative, newIndex, ct), ct);
+        var match = await Task.Run(() => MatchCache.Get(matchOld, matchNew, options, ct), ct);
+        return new BuildPair(oldNative, newNative, oldIndex, newIndex, match);
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, Tuple<string, NativeCodeIndex>> Originals = new();
+
+    /// <summary>The live index, or for a patched image one over its original bytes, kept while its names stay the same so a dry run and the apply that follows match once.</summary>
+    private NativeCodeIndex Original(LoadedNative native, NativeCodeIndex live, CancellationToken ct)
+    {
+        if (!native.HasPatches) return live;
+        var ann = code.Annotations(native);
+        var stamp = $"{ann.NameCount}|{ann.CommentCount}|" + string.Join(",", NativeNameLayers.Of(native).Layers.Select(l => $"{l.Source}:{l.Names.Count}:{l.Origin}"))
+                    + "|" + native.Patches.Patches.Count;
+        if (Originals.TryGetValue(native, out var kept) && kept.Item1 == stamp) return kept.Item2;
+        var index = code.IndexOfOriginal(native, ct);
+        Originals.AddOrUpdate(native, Tuple.Create(stamp, index));
+        return index;
+    }
 }
