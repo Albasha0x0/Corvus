@@ -73,6 +73,17 @@ public class NativeEditJournalTests
     }
 
     [Fact]
+    public async Task Annotations_ACommentAfterARename_DoesNotBlockUndoingTheRename()
+    {
+        using var h = new Harness();
+        var ann = h.Code.Annotations(h.Native);
+        var rename = h.Journal.RecordAnnotations(h.Native, "rename_native", [0x1000], () => ann.SetName(0x1000, "named"))!.Value;
+        h.Journal.RecordAnnotations(h.Native, "comment_native", [0x1000], () => ann.SetComment(0x1000, "kept"));
+        await h.Journal.UndoAsync(h.Native, rename, default);
+        Assert.Equal((null, "kept"), (ann.NameAt(0x1000), ann.CommentAt(0x1000)));
+    }
+
+    [Fact]
     public async Task UserTypes_UndoRevertsOnlyThatEdit()
     {
         using var h = new Harness();

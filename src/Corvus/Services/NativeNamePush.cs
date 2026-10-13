@@ -73,6 +73,9 @@ public sealed class NativeNamePush(NativeCodeService code)
         return result;
     }
 
+    /// <summary>The name a removed name goes back to: the export's (an empty name would leave the engine's sub_ name), else "".</summary>
+    private static string ExportName(LoadedNative native, uint rva) => native.Image.Exports.FirstOrDefault(e => e.Rva == rva && !string.IsNullOrEmpty(e.Name))?.Name ?? "";
+
     /// <summary>SHA-256 of a set of entries in RVA order.</summary>
     public static string StampOf(Dictionary<uint, Entry> entries)
     {
@@ -188,7 +191,7 @@ public sealed class NativeNamePush(NativeCodeService code)
                     bool kindChanged = e.CommentKind != before.CommentKind && before.Comment != null;
                     if (kindChanged) items.Add(new NativeNameItem(rva, null, "") { CommentKind = before.CommentKind }); // the old kind goes first
                     if (e.Name != before.Name || e.Comment != before.Comment || e.Function != before.Function || kindChanged)
-                        items.Add(new NativeNameItem(rva, e.Name != before.Name ? e.Name ?? "" : null, e.Comment != before.Comment || kindChanged ? e.Comment ?? "" : null,
+                        items.Add(new NativeNameItem(rva, e.Name != before.Name ? e.Name ?? ExportName(native, rva) : null, e.Comment != before.Comment || kindChanged ? e.Comment ?? "" : null,
                             e.Function && !before.Function) { CommentKind = e.Comment != null ? e.CommentKind : before.CommentKind });
                     if (e.Pseudo != before.Pseudo) pseudo.Add((rva, e.Pseudo ?? ""));
                 }
@@ -196,7 +199,7 @@ public sealed class NativeNamePush(NativeCodeService code)
                     if (!effective.ContainsKey(rva))
                     {
                         if (before.Name != null || before.Comment != null)
-                            items.Add(new NativeNameItem(rva, before.Name != null ? "" : null, before.Comment != null ? "" : null) { CommentKind = before.CommentKind });
+                            items.Add(new NativeNameItem(rva, before.Name != null ? ExportName(native, rva) : null, before.Comment != null ? "" : null) { CommentKind = before.CommentKind });
                         if (before.Pseudo != null) pseudo.Add((rva, ""));
                         removed++;
                     }

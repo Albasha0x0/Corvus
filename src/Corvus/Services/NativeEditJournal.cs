@@ -33,6 +33,8 @@ public sealed record NativeJournalEntry(EditId Id, string Tool, string Kind, str
     public string? Engine { get; init; }
     /// <summary>The engine batch that takes the edit back, when the recording tool knows a better one than the generic inverse.</summary>
     public NativeUserTypeBatch? Inverse { get; init; }
+    /// <summary>The engine's own prototypes the edit replaced, set again on undo.</summary>
+    public IReadOnlyDictionary<uint, string>? EnginePrototypes { get; init; }
     public DateTime Time { get; init; } = DateTime.UtcNow;
 }
 
@@ -128,6 +130,7 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
         NativeUserTypeBatch? inverse = null)
     {
         var push = userTypes ?? throw new ToolError(ErrorCode.Unsupported, "Engine edits need the user type push.");
+        var previous = await EnginePrototypes(native, session, edit, ct).ConfigureAwait(false);
         UserTypeLayer? before = null, after = null;
         var result = await push.ApplyAsync(native, session, edit, (r, layer) =>
         {
@@ -136,7 +139,33 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
             return next;
         }, ct).ConfigureAwait(false);
         var id = before != null && after != null ? RecordUserTypes(native, tool, session.ProviderId, before, after, description, inverse) : null;
+        if (id is { } recorded && previous.Count > 0)
+        {
+            var j = Of(native);
+            lock (j)
+                if (j.Entries.FindIndex(e => e.Id == recorded) is var i and >= 0) j.Entries[i] = j.Entries[i] with { EnginePrototypes = previous };
+        }
         return (result, id);
+    }
+
+    /// <summary>
+    /// The engine's own prototypes of the functions the batch types that have no user type yet: clearing a user type does
+    /// not bring them back in every engine (Ghidra keeps the signature), so undo sets them again.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<uint, string>> EnginePrototypes(LoadedNative native, INativeDecompilerSession session, NativeUserTypeBatch edit, CancellationToken ct)
+    {
+        var result = new Dictionary<uint, string>();
+        var layer = code.Annotations(native).UserTypes;
+        foreach (var t in edit.Types.Where(t => !layer.Types.ContainsKey(t.Rva)))
+        {
+            try
+            {
+                if (await session.GetFunctionRecordAsync(t.Rva, ct).ConfigureAwait(false) is { Start: var start, Prototype: { Length: > 0 } proto } && start == t.Rva)
+                    result[t.Rva] = proto;
+            }
+            catch (ToolError) { } // no function there, or the engine cannot say: undo clears the type
+        }
+        return result;
     }
 
     private static string Describe(string tool, IReadOnlyList<NativeAnnotationChange> changes) =>
@@ -189,10 +218,11 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
 
     private async Task<NativeUndoResult> UndoAnnotations(LoadedNative native, NativeJournalEntry entry, IReadOnlyList<NativeJournalEntry> entries, CancellationToken ct)
     {
-        var changed = entry.Annotations.Where(c => StateAt(native, c.Rva) != c.After).ToList();
+        // only the parts the edit changed must still hold its values: a later comment does not block undoing a rename there
+        var changed = entry.Annotations.Where(c => !Holds(StateAt(native, c.Rva), c)).ToList();
         if (changed.Count > 0)
         {
-            var by = entries.SkipWhile(e => e != entry).Skip(1).FirstOrDefault(e => e.Annotations.Any(a => changed.Any(c => c.Rva == a.Rva)));
+            var by = entries.SkipWhile(e => e != entry).Skip(1).FirstOrDefault(e => e.Annotations.Any(a => changed.Any(c => c.Rva == a.Rva && Overlaps(a, c))));
             throw new ToolError(ErrorCode.Conflict,
                 $"The annotations at {NativeAddress.Va(native.Image, changed[0].Rva)} changed since {entry.Id}{(by != null ? $" (by {by.Id})" : "")}.",
                 by != null ? $"undo_native_edit editId={by.Id} first" : "rename_native or comment_native sets the value wanted");
@@ -201,13 +231,15 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
         workspace.Write(() =>
         {
             var restore = entry.Annotations;
-            ann.Apply([.. restore.Select(c => (c.Rva, c.Before.Name))], [.. restore.Select(c => (c.Rva, c.Before.Comment))],
-                [.. restore.Select(c => (c.Rva, c.Before.Pseudo))], allowDuplicate: true, kinds: [.. restore.Select(c => (c.Rva, c.Before.CommentKind))]);
+            ann.Apply([.. restore.Where(c => c.Before.Name != c.After.Name).Select(c => (c.Rva, c.Before.Name))],
+                [.. restore.Where(CommentChanged).Select(c => (c.Rva, c.Before.Comment))],
+                [.. restore.Where(c => c.Before.Pseudo != c.After.Pseudo).Select(c => (c.Rva, c.Before.Pseudo))], allowDuplicate: true,
+                kinds: [.. restore.Where(CommentChanged).Select(c => (c.Rva, c.Before.CommentKind))]);
             foreach (var index in new[] { code.Ready(native), code.Provisional(native) }.OfType<Native.Code.NativeCodeIndex>().Distinct())
                 foreach (var c in restore)
                 {
-                    index.SetUserName(c.Rva, c.Before.Name);
-                    index.SetUserComment(c.Rva, c.Before.Comment);
+                    if (c.Before.Name != c.After.Name) index.SetUserName(c.Rva, c.Before.Name);
+                    if (CommentChanged(c)) index.SetUserComment(c.Rva, c.Before.Comment);
                 }
             return 0;
         });
@@ -254,6 +286,8 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
         {
             if (userTypes == null) break;
             var inverse = entry.Inverse ?? delta.Inverse(delta.Revert(ann.UserTypes, out _), out _);
+            if (entry.Inverse == null && entry.EnginePrototypes is { Count: > 0 } own)
+                inverse = inverse with { Types = [.. inverse.Types.Select(t => t.Declaration.Length == 0 && own.TryGetValue(t.Rva, out var p) ? t with { Declaration = p } : t)] };
             var result = await userTypes.ApplyAsync(native, session, inverse, (r, layer) => delta.Revert(layer, out var ignored), ct).ConfigureAwait(false);
             pushed.Add(session.ProviderId);
             foreach (var failed in result.Items.Where(i => !i.Applied).Take(5))
@@ -268,6 +302,19 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
         var changes = delta.Describe().Select(d => new EditChange(d.Kind, d.Target, d.After, d.Before)).ToList();
         return new NativeUndoResult(entry, changes, pushed, notes);
     }
+
+    private static bool CommentChanged(NativeAnnotationChange c) => c.Before.Comment != c.After.Comment || c.Before.CommentKind != c.After.CommentKind;
+
+    /// <summary>The parts <paramref name="c"/> changed hold its after values in <paramref name="now"/>.</summary>
+    private static bool Holds(NativeAnnotationState now, NativeAnnotationChange c) =>
+        (c.Before.Name == c.After.Name || now.Name == c.After.Name)
+        && (!CommentChanged(c) || (now.Comment == c.After.Comment && now.CommentKind == c.After.CommentKind))
+        && (c.Before.Pseudo == c.After.Pseudo || now.Pseudo == c.After.Pseudo);
+
+    /// <summary>Two changes of one address touch a common part.</summary>
+    private static bool Overlaps(NativeAnnotationChange a, NativeAnnotationChange b) =>
+        (a.Before.Name != a.After.Name && b.Before.Name != b.After.Name) || (CommentChanged(a) && CommentChanged(b))
+        || (a.Before.Pseudo != a.After.Pseudo && b.Before.Pseudo != b.After.Pseudo);
 
     private static string Hex(byte[] bytes) => bytes.Length <= 16 ? Convert.ToHexString(bytes) : Convert.ToHexString(bytes, 0, 16) + "...";
 
