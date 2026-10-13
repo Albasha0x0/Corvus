@@ -228,6 +228,7 @@ public class NativeX86DiscoveryTests
     [InlineData(0)] // lea r15, [rip+table] hoisted before a loop; movsxd rax, [r15 + rcx*4]; add rax, r15; jmp rax
     [InlineData(1)] // lea rax, [rip+table]; movsxd rdx, [rax + rdi*4]; add rax, rdx; jmp rax (the base is the jump register)
     [InlineData(2)] // the bound compares the memory the index is reloaded from: cmp dword [rdi], 2; ja; mov edx, [rdi]
+    [InlineData(3)] // a byte compared through one register holding its table, loaded through another: cmp byte [r15 + rdi], 2; ja; lea rsi, same; movzx edx, byte [rsi + rdi]
     public void X64_relative_switch_tables_with_a_hoisted_base_or_an_indirect_bound(int form)
     {
         const uint Table = Data + 0x40;
@@ -260,6 +261,20 @@ public class NativeX86DiscoveryTests
                     a.add(rax, rdx);
                     a.jmp(rax);
                     break;
+                case 3:
+                {
+                    var bytes = (Register reg) => Instruction.Create(Iced.Intel.Code.Lea_r64_m, reg, new MemoryOperand(Register.RIP, (long)(0x140000000UL + Data + 0x80), 8));
+                    a.AddInstruction(bytes(Register.R15));
+                    a.cmp(__byte_ptr[r15 + rdi], 2);
+                    a.ja(dflt);
+                    a.AddInstruction(bytes(Register.RSI));
+                    a.movzx(edx, __byte_ptr[rsi + rdi]);
+                    a.AddInstruction(lea(Register.RAX));
+                    a.movsxd(rdx, __dword_ptr[rax + rdx * 4]);
+                    a.add(rax, rdx);
+                    a.jmp(rax);
+                    break;
+                }
                 default:
                     a.cmp(__dword_ptr[rdi], 2);
                     a.mov(eax, -1);

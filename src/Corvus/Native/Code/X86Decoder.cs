@@ -765,20 +765,33 @@ internal sealed class X86Decoder : ICodeDecoder
 
     /// <summary>
     /// The load at step <paramref name="k"/> reads memory a "cmp [same], imm; ja / jae" just before it bounds (an element of a
-    /// table of bytes at a large GOT offset), with neither address register written between: the loaded value is the index.
+    /// table of bytes at a large GOT offset; x64, the same table through another register holding its address), with the
+    /// index register not written between: the loaded value is the index, and the compare gives its count.
     /// </summary>
-    private bool LoadOfCompared(int k, in Instruction x)
+    private bool ComparedBefore(int k, in Instruction x, out uint count, out uint? dflt)
     {
+        count = 0;
+        dflt = null;
         if (x.Mnemonic is not (Mnemonic.Mov or Mnemonic.Movzx) || x.Op1Kind != OpKind.Memory || x.MemoryBase == Register.None) return false;
         Register b = x.MemoryBase.GetFullRegister(), i = x.MemoryIndex.GetFullRegister();
-        bool branch = false;
+        uint baseValue = RingValue(_ringBase, k);
+        bool baseWritten = false;
+        int branch = -1;
         for (int j = k + 1, n = 0; j < _ringCount && n < 6; j++, n++)
         {
             ref var c = ref Back(j);
-            if (c.FlowControl == FlowControl.ConditionalBranch) { branch = c.ConditionCode is ConditionCode.a or ConditionCode.ae; continue; }
-            if (WritesRegister(in c, b) || (i != Register.None && WritesRegister(in c, i))) return false;
+            if (c.FlowControl == FlowControl.ConditionalBranch) { branch = c.ConditionCode is ConditionCode.a or ConditionCode.ae ? j : -1; continue; }
+            if (i != Register.None && WritesRegister(in c, i)) return false;
+            baseWritten |= WritesRegister(in c, b);
             if (c.RflagsModified == RflagsBits.None) continue;
-            return branch && c.Mnemonic == Mnemonic.Cmp && c.MemorySize == x.MemorySize && IsSlot(in c, b, x.MemoryDisplacement64, i, x.MemoryIndexScale);
+            bool same = !baseWritten && IsSlot(in c, b, x.MemoryDisplacement64, i, x.MemoryIndexScale)
+                || baseValue != 0 && c.Op0Kind == OpKind.Memory && RingValue(_ringBase, j) == baseValue && c.MemoryIndex.GetFullRegister() == i
+                   && (i == Register.None || c.MemoryIndexScale == x.MemoryIndexScale) && c.MemoryDisplacement64 == x.MemoryDisplacement64;
+            if (branch < 0 || c.Mnemonic != Mnemonic.Cmp || c.MemorySize != x.MemorySize || !same || !CompareImmediate(in c, out ulong imm) || imm >= uint.MaxValue) return false;
+            ref var jcc = ref Back(branch);
+            count = jcc.ConditionCode == ConditionCode.a ? (uint)imm + 1 : (uint)imm;
+            dflt = TryRva(jcc.NearBranchTarget, out uint d) ? d : null;
+            return true;
         }
         return false;
     }
@@ -1111,7 +1124,12 @@ internal sealed class X86Decoder : ICodeDecoder
                 bound = (null, 0, true);
                 return true;
             }
-            if (IsSlotLoad(in x) || LoadOfCompared(k, in x))
+            if (ComparedBefore(k, in x, out count, out var compareDefault))
+            {
+                bound = (compareDefault, 0, false);
+                return true;
+            }
+            if (IsSlotLoad(in x))
             {
                 inSlot = true;
                 slotBase = x.MemoryBase.GetFullRegister();
