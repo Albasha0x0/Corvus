@@ -350,6 +350,24 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal("reapply_from_metadata", One(r, "il2cpp_names", _ => true).Reason);
     }
 
+    /// <summary>compare_native_images returns the rows of its view only: an empty array of another view read as the page (G1 rows match).</summary>
+    [Fact]
+    public async Task Comparison_record_holds_only_the_views_rows()
+    {
+        using var h = new Harness();
+        var (oldN, _) = await h.Load(Image(false, 0), "old.dll", OldStarts);
+        var (newN, _) = await h.Load(Image(true, Shift), "new.dll", NewStarts(Shift));
+        var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
+        var pairs = await tools.CompareNativeImages(oldN.Id, newN.Id);
+        Assert.NotNull(pairs.Pairs);
+        Assert.Null(pairs.Unmatched);
+        Assert.Null(pairs.AmbiguousFunctions);
+        var unmatched = await tools.CompareNativeImages(oldN.Id, newN.Id, view: "unmatched");
+        Assert.Equal((true, false, false), (unmatched.Unmatched != null, unmatched.Pairs != null, unmatched.AmbiguousFunctions != null));
+        var ambiguous = await tools.CompareNativeImages(oldN.Id, newN.Id, view: "ambiguous");
+        Assert.Equal((true, false, false), (ambiguous.AmbiguousFunctions != null, ambiguous.Pairs != null, ambiguous.Unmatched != null));
+    }
+
     [Fact]
     public async Task User_types_carry_by_function_match_and_never_replace_the_new_builds()
     {

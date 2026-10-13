@@ -51,7 +51,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         IReadOnlyList<TierCount> Tiers,
         [property: Description("The list returned: pairs, changed, unmatched or ambiguous.")] string View,
         int Offset, int Total, bool Truncated,
-        IReadOnlyList<FunctionPair> Pairs, IReadOnlyList<UnmatchedFunction> Unmatched, IReadOnlyList<AmbiguousEntry> AmbiguousFunctions,
+        [property: Description("The rows of view pairs or changed (only that view's array is present).")] IReadOnlyList<FunctionPair>? Pairs,
+        IReadOnlyList<UnmatchedFunction>? Unmatched, IReadOnlyList<AmbiguousEntry>? AmbiguousFunctions,
         [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes);
 
     public sealed record AddressMapping(
@@ -194,7 +195,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var notes = Notes(match);
         return new NativeComparison(oldNative.Id, newNative.Id, match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, identical,
             match.Pairs.Count - identical, match.ByOld.Count(m => m == null), match.ByNew.Count(m => m == null), match.Ambiguous.Count, tiers, v,
-            offset, total, offset + limit < total, pairs, unmatched, ambiguous, notes);
+            offset, total, offset + limit < total, v is "pairs" or "changed" ? pairs : null, v == "unmatched" ? unmatched : null, v == "ambiguous" ? ambiguous : null, notes);
     }
 
     [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true)]

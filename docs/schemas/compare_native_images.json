@@ -66,6 +66,7 @@
       "type": "integer"
     },
     "pairs": {
+      "description": "The rows of view pairs or changed (only that view's array is present).",
       "type": "array",
       "items": {
         "type": "object",
@@ -282,9 +283,6 @@
     "view",
     "offset",
     "total",
-    "pairs",
-    "unmatched",
-    "ambiguousFunctions",
     "notes"
   ]
 }
