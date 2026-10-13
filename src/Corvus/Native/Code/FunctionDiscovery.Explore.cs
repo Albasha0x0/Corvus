@@ -384,7 +384,7 @@ internal sealed partial class FunctionDiscovery
                         Write(OpKind.FarJump, insn.Target);
                         return false;
                     }
-                    if (insn.Rva == root && insn.Target != root && !_chunk || ThunkSlot(insn.Target) != null || (_x86Dec is { Is64: false } && d.StartsWithPrologue(insn.Target))
+                    if (insn.Rva == root && insn.Target != root && !_chunk || ThunkSlot(insn.Target) != null && !FallsInto(insn.Target) || (_x86Dec is { Is64: false } && d.StartsWithPrologue(insn.Target))
                         || _dec is Arm32Decoder arm && (arm.LastSwitchesState || arm.LastIsComputed || arm.IsStateSwitchStub(insn.Target)))
                         AddFunction(insn.Target, FunctionSource.TailJump);
                     else Branch(insn.Target, root, own, IndexBound.None);
@@ -394,7 +394,7 @@ internal sealed partial class FunctionDiscovery
                     {
                         // a conditional tail call to an import stub or a linker veneer (ARM32 bne.w): exploring it here would make the stub a
                         // block of this function; other far conditional targets stay blocks (functions larger than any distance rule)
-                        if (own == null && (ThunkSlot(insn.Target) != null ? !IsFunction(insn.Target) : !IsFunction(insn.Target) && d.IsVeneer(insn.Target)))
+                        if (own == null && (ThunkSlot(insn.Target) != null ? !IsFunction(insn.Target) && !FallsInto(insn.Target) : !IsFunction(insn.Target) && d.IsVeneer(insn.Target)))
                         {
                             AddFunction(insn.Target, FunctionSource.TailJump);
                             return true;
@@ -417,6 +417,11 @@ internal sealed partial class FunctionDiscovery
                     return false;
             }
         }
+
+        /// <summary>ARM64: the instruction before <paramref name=target/> runs on into it, so an import stub there is the function's own tail, not a thunk.</summary>
+        private bool FallsInto(uint target) =>
+            _ctx.Image.Arch == NativeArch.Arm64 && target >= 4 && _ctx.Code.RegionAt(target - 4) is { } region && !_peek.IsPadding(region, target - 4)
+            && _peek.Decode(target - 4, out var prev) && prev.Flow is FlowKind.Next or FlowKind.ConditionalJump or FlowKind.Call or FlowKind.IndirectCall;
 
         private void Branch(uint target, uint root, List<(uint Begin, uint End)>? own, IndexBound bound)
         {

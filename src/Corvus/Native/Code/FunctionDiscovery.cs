@@ -129,6 +129,7 @@ internal sealed partial class FunctionDiscovery
             Drain();
             changed = _functions.Count != before;
         }
+        DropHeadedPdataStarts();
         return _functions;
     }
 
@@ -340,8 +341,10 @@ internal sealed partial class FunctionDiscovery
         Heartbeat();
         // ARM32: an IT before the address may turn out to be a literal later, so this rejection is not final
         if (_ctx.ArmModes != null && InsideItBlock(rva)) return false;
-        // a relocated pointer with the Thumb bit points to code even where the bytes read as text (ldr; str; bx lr is "IjAbpG")
-        if (_dataInCode.Contains(rva) || (!_thumbPointerTargets.Contains(rva) && StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null)
+        // a relocated pointer with the Thumb bit points to code even where the bytes read as text (ldr; str; bx lr is "IjAbpG"), as does
+        // an aligned ARM64 one (cbz x0; str x1 reads as UTF-16)
+        bool codePointer = _thumbPointerTargets.Contains(rva) || source == FunctionSource.DataPointer && _ctx.Image.Arch == NativeArch.Arm64 && (rva & 3) == 0;
+        if (_dataInCode.Contains(rva) || (!codePointer && StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null)
             || IsLiteral(rva, 2) || !Verify(rva, out bool funclet))
         {
             _rejected.Add(rva);
@@ -355,6 +358,7 @@ internal sealed partial class FunctionDiscovery
             return false;
         }
         if (funclet) _ctx.Funclets.Add(rva);
+        if (_verifier.FellInto is { } body) _heads[body] = rva;
         return true;
     }
 
@@ -464,6 +468,9 @@ internal sealed partial class FunctionDiscovery
             _thunks = owner._ctx.NewDecoder(computeAccess: false);
         }
 
+        /// <summary>ARM64: the .pdata function the last verified candidate's first run falls into (its code before the prologue), or null.</summary>
+        public uint? FellInto { get; private set; }
+
         /// <summary>Speculation: the candidates of the batch, taken as functions already.</summary>
         public HashSet<uint>? Batch;
 
@@ -502,6 +509,8 @@ internal sealed partial class FunctionDiscovery
             public bool Run(uint root, out bool funclet)
         {
             funclet = false;
+            FellInto = null;
+            bool first = true;
             bool frame = false;
             var seen = _seen;
             seen.Clear();
@@ -522,7 +531,7 @@ internal sealed partial class FunctionDiscovery
                     long bit = d._ctx.Code.BitIndex(a);
                     if (bit < 0) return false;
                     // a function never flows into the middle of another one (case labels of an unresolved switch do)
-                    if (d._starts[bit]) { if (!Known(a)) return false; break; }
+                    if (d._starts[bit]) { if (!Known(a) && !d.InHeadOf(FellInto, a)) return false; break; }
                     if (d._covered[bit]) return false;
                     if (++count > VerifyLimit) return false;
                     if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible() || _peek.LastHasImplausibleDisplacement(a)
@@ -574,9 +583,14 @@ internal sealed partial class FunctionDiscovery
                             goto endRun;
                     }
                     a = insn.Next;
-                    if (Known(a)) break;
+                    if (Known(a))
+                    {
+                        if (first) FellInto = d.HeadOf(a);
+                        break;
+                    }
                 }
                 endRun:;
+                first = false;
             }
             return true;
         }
