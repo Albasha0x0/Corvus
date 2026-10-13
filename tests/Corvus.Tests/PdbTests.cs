@@ -43,6 +43,9 @@ public class PdbTests
         });
         b.Directories[6] = (rdata.Rva, 28);
         b.Add(".data", new byte[0x200], 0xC0000040);
+        // .pdata for the entry function only, as an MSVC image has: the code at 0x1040 stays unreached until a PDB names it
+        var pdata = b.Add(".pdata", rva => [.. BitConverter.GetBytes(text.Rva), .. BitConverter.GetBytes(text.Rva + 6), .. BitConverter.GetBytes(rva + 12), 1, 0, 0, 0]);
+        b.Directories[3] = (pdata.Rva, 12);
         return b.Build();
     }
 

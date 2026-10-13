@@ -602,11 +602,13 @@ internal sealed partial class FunctionDiscovery
     /// Code nothing references (dead code, functions reached only through metadata such as C++ unwind funclets):
     /// in each gap between known code, skips alignment padding and accepts a function that verifies where
     /// x86 PE: a standard prologue starts (right after known code or padding, or 16-byte aligned);
-    /// x64 PE: anything starts right after known code and its int3 padding; ELF and Mach-O: right after known code and its nop padding.
+    /// x64 PE: anything starts right after known code and its int3 padding; ELF, Mach-O and x64 PE without .pdata: right after
+    /// known code and its nop padding.
     /// </summary>
     private void ScanGaps(bool prologues)
     {
-        bool nopPadding = _ctx.Image.Format != ImageFormat.Pe;
+        // GCC-built PE images (EFI applications, MinGW) have no .pdata and pad with nops, as ELF does
+        bool nopPadding = _ctx.Image.Format != ImageFormat.Pe || (_ctx.Image.Arch == NativeArch.X64 && _ctx.PdataSorted.Length == 0);
         foreach (var region in _ctx.Code.Regions)
         {
             var bytes = region.Bytes;

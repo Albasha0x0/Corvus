@@ -125,6 +125,15 @@ public class NativeX86DiscoveryTests
     }
 
     [Fact]
+    public void X64_pe_without_pdata_finds_unreferenced_functions_after_nop_padding()
+    {
+        // entry: ret; nop fill; then a function nothing references (an EFI application built with GCC has no .pdata)
+        byte[] code = [0x31, 0xC0, 0xC3, 0x0F, 0x1F, 0x00, 0x66, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x53, 0x8D, 0x47, 0x01, 0x5B, 0xC3];
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code));
+        Assert.NotNull(index.FunctionByStart(Code + 0x10));
+    }
+
+    [Fact]
     public void A_short_jump_over_nops_is_alignment_fill_not_a_function()
     {
         // f: call g; ret; then GNU as fill "jmp +13; 13 x nop" up to g
