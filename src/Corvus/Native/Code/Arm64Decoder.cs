@@ -777,7 +777,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
             if (!Writes(in x, current)) continue;
             if (x.Mnemonic == Arm64Mnemonic.AND && x.OperandCount > 2 && x.GetOperand(2).Kind == Arm64OperandKind.Immediate
                 && ((Arm64ImmediateOperand)x.GetOperand(2)).Value is var mask and >= 0 and < 1 << 20 && (mask & (mask + 1)) == 0)
-                return Match(load, (uint)mask + 1) with { BoundByMask = true };
+                return MaskedCompare(k, Index(in x, 1), mask, load) ?? Match(load, (uint)mask + 1) with { BoundByMask = true };
             if (x.Mnemonic is Arm64Mnemonic.MOV or Arm64Mnemonic.SXTW && x.OperandCount >= 2 && x.GetOperand(1).Kind == Arm64OperandKind.Register)
             {
                 current = Index(in x, 1);
@@ -791,6 +791,34 @@ internal sealed class Arm64Decoder : ICodeDecoder
         {
             uint? dflt = LabelOffset(in Back(pendingStep)) is { } off && TryRva(_imageBase + BackRva(pendingStep) + (ulong)off, out uint d) ? d : null;
             return Match(load, pending == Hi ? (uint)_runBound.FlagsImm + 1 : (uint)_runBound.FlagsImm) with { Default = dflt, Bias = _runBound.Bias };
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The index is "and xI, xS, #mask" (step <paramref name="k"/>): an earlier "and wR, wS, #mask; cmp wR, #n; b.hi" of the
+    /// same source bounds it tighter than the mask (clang computes the masked value twice).
+    /// </summary>
+    private SwitchMatch? MaskedCompare(int k, int source, long mask, TableLoad load)
+    {
+        uint? pending = null;
+        int pendingStep = 0;
+        for (int j = k + 1; j < _ringCount && source >= 0; j++)
+        {
+            ref var x = ref Back(j);
+            if (x.Mnemonic is Arm64Mnemonic.BL or Arm64Mnemonic.BLR || Writes(in x, source)) return null;
+            if (Condition(in x) is { } cc)
+            {
+                if (pending == null) { pending = cc; pendingStep = j; }
+                continue;
+            }
+            if (!SetsFlags(in x)) continue;
+            if (pending is not (Hi or Hs) || !Compare(j, out int reg, out ulong imm) || imm >= uint.MaxValue) return null;
+            int w = Writer(j + 1, reg);
+            if (w < 0 || Back(w) is not { Mnemonic: Arm64Mnemonic.AND } and || and.OperandCount < 3 || and.GetOperand(2).Kind != Arm64OperandKind.Immediate
+                || Index(in and, 1) != source || ((Arm64ImmediateOperand)and.GetOperand(2)).Value != mask) return null;
+            uint? dflt = LabelOffset(in Back(pendingStep)) is { } off && TryRva(_imageBase + BackRva(pendingStep) + (ulong)off, out uint d) ? d : null;
+            return Match(load, pending == Hi ? (uint)imm + 1 : (uint)imm) with { Default = dflt };
         }
         return null;
     }

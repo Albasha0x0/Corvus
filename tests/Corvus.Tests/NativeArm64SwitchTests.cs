@@ -235,4 +235,29 @@ public class NativeArm64SwitchTests
         var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), new byte[0x100], entry: Code));
         Assert.Contains(index.RefsTo(Data), x => x.From == mov);
     }
+
+    /// <summary>
+    /// clang masks the index twice: and w8, w0, #0xffff; cmp w8, #2; b.hi; and x8, x0, #0xffff; ldrb w11, [x9, x8]: the
+    /// compare bounds the table, not the 65536-entry mask.
+    /// </summary>
+    [Fact]
+    public void A_compare_of_the_same_masked_value_bounds_a_masked_index()
+    {
+        var a = new A64(Code);
+        uint anchor = 0, dflt = 0;
+        var caseAt = new uint[3];
+        a.Word(0x12003C08).Word(CmpImm(8, 2)).Later(at => A64.BCond(at, dflt, Hi));
+        a.Word(A64.Adrp(a.Here, Table, 9, Base)).Word(0x92403C08).Word(A64.AddImm(9, 9, Table & 0xFFF));
+        a.Later(at => A64.Adr(at, anchor, 10)).Word(Ldrb(11, 9, 8)).Word(AddShift(10, 10, 11, 2)).Word(A64.Br(10));
+        anchor = a.Here;
+        for (int i = 0; i < 3; i++) { caseAt[i] = a.Here; a.Word(A64.MovW(0, (uint)i + 1)).Word(A64.Ret); }
+        dflt = a.Here;
+        a.Word(A64.MovW(0, 0)).Word(A64.Ret);
+        var data = new byte[0x200];
+        caseAt.Select(t => (byte)((t - anchor) / 4)).ToArray().CopyTo(data, Table - Data);
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), data, entry: Code));
+        var sw = Assert.Single(index.GetGraph(index.FunctionByStart(Code)!).Switches);
+        Assert.Equal((3, dflt), (sw.EntryCount, sw.Default));
+        Assert.Equal(caseAt, sw.Cases.Select(c => c.Target));
+    }
 }
