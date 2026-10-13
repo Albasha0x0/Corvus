@@ -78,9 +78,13 @@ public class ParameterDomainTests
         ArgumentCheck.Apply(Schema(tool), Args((parameter, value)), tool);
 
     [Fact]
-    public void NullPassesWhereTheParameterTakesNull()
+    public void NullForAnOptionalParameterPassesAsOmitted()
     {
-        ArgumentCheck.Apply(Schema("find_xrefs"), Args(("engine", null)), "find_xrefs");
-        Assert.Contains(null, Schemas["find_xrefs"]["properties"]!["engine"]!["enum"]!.AsArray());
+        var args = Args(("engine", null));
+        ArgumentCheck.Apply(Schema("find_xrefs"), args, "find_xrefs");
+        Assert.False(args.ContainsKey("engine"));
+        // the catalog advertises no null: an optional parameter is left out
+        Assert.DoesNotContain(null, Schemas["find_xrefs"]["properties"]!["engine"]!["enum"]!.AsArray());
+        Assert.Equal("string", (string?)Schemas["find_xrefs"]["properties"]!["engine"]!["type"]);
     }
 }

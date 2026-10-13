@@ -51,6 +51,7 @@ public static partial class Catalog
             ToolEffects.Apply(tools);
             ParameterDomains.Apply(tools);
             DropNullDefaults(tools);
+            DropNullableInputs(tools);
             ToolOutput.ApplyEnvelope(tools);
             foreach (var tool in tools)
                 if (tool.ProtocolTool.OutputSchema is { } output)
@@ -133,6 +134,41 @@ public static partial class Catalog
             if (node is JsonObject o)
             {
                 if (o.TryGetPropertyValue("default", out var d) && d is null) changed = o.Remove("default");
+                foreach (var (_, child) in o) changed |= Drop(child);
+            }
+            else if (node is JsonArray a)
+                foreach (var child in a) changed |= Drop(child);
+            return changed;
+        }
+    }
+
+    /// <summary>
+    /// Removes "null" from input parameter types and enums (C# nullables): an optional parameter is left out, not sent as
+    /// null, and the union cost about 6 KB of the model-facing catalog. A null sent anyway still binds as omitted.
+    /// </summary>
+    private static void DropNullableInputs(IEnumerable<McpServerTool> tools)
+    {
+        foreach (var tool in tools)
+        {
+            var t = tool.ProtocolTool;
+            var schema = JsonNode.Parse(t.InputSchema.GetRawText());
+            if (Drop(schema)) t.InputSchema = JsonSerializer.SerializeToElement(schema);
+        }
+
+        static bool Drop(JsonNode? node)
+        {
+            bool changed = false;
+            if (node is JsonObject o)
+            {
+                if (o["type"] is JsonArray types && types.Any(x => (string?)x == "null"))
+                {
+                    var kept = types.Select(x => (string)x!).Where(x => x != "null").ToList();
+                    o["type"] = kept.Count == 1 ? JsonValue.Create(kept[0]) : new JsonArray([.. kept.Select(k => (JsonNode)JsonValue.Create(k)!)]);
+                    changed = true;
+                }
+                if (o["enum"] is JsonArray values)
+                    for (int i = values.Count - 1; i >= 0; i--)
+                        if (values[i] is null) { values.RemoveAt(i); changed = true; }
                 foreach (var (_, child) in o) changed |= Drop(child);
             }
             else if (node is JsonArray a)
