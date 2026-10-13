@@ -76,6 +76,12 @@ internal static partial class CallFilter
         return result;
     }
 
+    /// <summary>
+    /// The estimate parts are fitted to: 5% under the budget, as the estimate runs up to 10% low on rare names and packed
+    /// string tables (against o200k) and the budget allows 5% over.
+    /// </summary>
+    public static int FitTokens(int budget) => budget - budget / 20;
+
     /// <summary>The call's token budget per part: maxTokens, else the class default; within the client's ceiling.</summary>
     public static int Budget(string? tool, IDictionary<string, JsonElement>? arguments, ClientLimits? client)
     {
@@ -162,7 +168,7 @@ internal static partial class CallFilter
             {
                 async Task<(CallToolResult Result, OutputCall Output)> Work(CancellationToken token)
                 {
-                    var o = OutputCall.Begin(new OutputCall(tool, tokens, client?.MaxChars, json) { Limit = applied });
+                    var o = OutputCall.Begin(new OutputCall(tool, FitTokens(tokens), client?.MaxChars, json) { Limit = applied });
                     o.Warnings.AddRange(warnings);
                     return (await next(token), o);
                 }

@@ -61,8 +61,9 @@ public class ToolOutputTests
         Assert.EndsWith($"[More: offset={rows}]\n", text);
         Assert.Equal(rows + 1, text.Split('\n').Count(l => l.StartsWith("  ", StringComparison.Ordinal))); // header row + rows
         Assert.NotEqual(r.StructuredContent!.Value.GetRawText(), text);
-        Assert.InRange(Tokens(text), 1, 6_300);
-        Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 6_300);
+        // Fitted 5% under the 6,000 budget (CallFilter.FitTokens).
+        Assert.InRange(Tokens(text), 1, 5_700);
+        Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 5_700);
         Assert.DoesNotContain(":null", r.StructuredContent!.Value.GetRawText());
     }
 
@@ -203,6 +204,7 @@ public class ToolOutputTests
     {
         Assert.Equal(6_000, CallFilter.Budget("list_types", null, null));
         Assert.Equal(8_000, CallFilter.Budget("decompile_type", null, null));
+        Assert.Equal(5_700, CallFilter.FitTokens(6_000));
         var limits = ClientProfiles.Resolve(new ServerOptions(), null);
         var args = new Dictionary<string, JsonElement> { ["maxTokens"] = JsonSerializer.SerializeToElement(24_000) };
         Assert.Equal(limits.MaxTokens, CallFilter.Budget("list_types", args, limits));
