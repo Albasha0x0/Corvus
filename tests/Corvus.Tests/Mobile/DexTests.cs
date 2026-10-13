@@ -161,6 +161,23 @@ public sealed class DexTests : IDisposable
         Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => _dex.ListClasses(Env.FixturePath, null, null, 0, 10, default)).Code);
     }
 
+    /// <summary>A caller waiting for the code index stops at its cancellation; the build goes on for the next caller.</summary>
+    [Fact]
+    public void CodeIndexWait_IsCancellable()
+    {
+        var b = new DexBuilder();
+        for (int c = 0; c < 400; c++)
+        {
+            var cls = b.Class($"Lp/C{c};", 1);
+            for (int m = 0; m < 10; m++)
+                cls.Method($"m{m}", "V", [], 9, [.. Enumerable.Range(0, 40).Select(i => Asm.ConstString(0, $"s{c}.{m}.{i}")), Asm.ReturnVoid()]).Registers = 1;
+        }
+        var index = DexIndex.Load(Save(_dir, "big.dex", b.Build()), AnalysisLimits.Default, default);
+        Assert.ThrowsAny<OperationCanceledException>(() => index.EnsureCode(new CancellationToken(true)));
+        index.EnsureCode(default);
+        Assert.Equal(400 * 10 * 40, index.Refs.Count);
+    }
+
     [Fact]
     public void DamagedDex_NeverThrows()
     {

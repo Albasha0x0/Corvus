@@ -37,7 +37,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         DexMethodEntry? method = null;
         if (cls == null)
         {
-            var id = index.ResolveMethod(symbol);
+            var id = index.ResolveMethod(symbol, ct);
             method = index.Methods.GetValueOrDefault(id) ?? throw new ToolError(ErrorCode.NotFound,
                 $"{id} is called by the package but not defined in it (a framework or library method): nothing to decompile.");
         }
@@ -63,7 +63,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     private async Task<string> ClassSource(JadxServer server, DexIndex index, DexClassEntry cls, bool smaliFallback, int depth, CancellationToken ct)
     {
         var descriptor = cls.Class.Descriptor;
-        var nesting = Nesting(index, cls);
+        var nesting = Nesting(index, cls, ct);
         string? source = null;
         try { source = await Call(server, "get_class_source", new JsonObject { ["class_name"] = DexFile.JavaName(descriptor), ["smali_fallback"] = smaliFallback }, ct).ConfigureAwait(false); }
         catch (ToolError e) when (e.Code == ErrorCode.NotFound && nesting.Kind != null && depth < MaxHostDepth) { }
@@ -71,7 +71,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         if (nesting.HostMethod is { } host && index.Methods.TryGetValue(host, out var hostMethod))
             return $"// {descriptor} is {nesting.Kind} inside {host}; JADX writes it there:\n"
                    + await MethodSource(server, index, hostMethod, smaliFallback, depth + 1, ct).ConfigureAwait(false);
-        var (top, path) = TopLevel(index, cls);
+        var (top, path) = TopLevel(index, cls, ct);
         var outer = top == cls ? source ?? "" : await ClassSource(server, index, top, smaliFallback, depth + 1, ct).ConfigureAwait(false);
         if (top != cls && path is { Count: > 0 } && MemberBlock(outer, path) is { } block)
             return $"// {descriptor} (JADX, from the source of {top.Class.Descriptor})\n{block}";
@@ -91,7 +91,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
                 ["class_name"] = className, ["method_name"] = method.Ref.Name, ["overload_index"] = overload.Index, ["smali_fallback"] = smaliFallback,
             }, ct).ConfigureAwait(false);
         }
-        catch (ToolError e) when (e.Code == ErrorCode.NotFound && depth < MaxHostDepth && Nesting(index, new DexClassEntry(method.File, method.Class)).Kind != null)
+        catch (ToolError e) when (e.Code == ErrorCode.NotFound && depth < MaxHostDepth && Nesting(index, new DexClassEntry(method.File, method.Class), ct).Kind != null)
         {
             // JADX does not resolve an anonymous or lambda class by name: its methods are read where it is written.
             return $"// {method.Descriptor}: in a class JADX writes elsewhere\n"
@@ -118,7 +118,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     /// How JADX places a class: Kind null for a class it writes on its own; else "an anonymous class", "a local class" or "a
     /// lambda class" with the method that holds it, or "a member class" (inside its outer class).
     /// </summary>
-    internal static (string? Kind, string? HostMethod, string? OuterClass, string? InnerName) Nesting(DexIndex index, DexClassEntry cls)
+    internal static (string? Kind, string? HostMethod, string? OuterClass, string? InnerName) Nesting(DexIndex index, DexClassEntry cls, CancellationToken ct)
     {
         var system = cls.File.Annotations(cls.Class).Class;
         DexAnnotation? Find(string type) => system.FirstOrDefault(a => a.Type == type);
@@ -129,14 +129,14 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
             return (inner != null && innerName == null ? "an anonymous class" : "a local class", method, null, innerName);
         if (Value(Find("Ldalvik/annotation/EnclosingClass;"), "value") is { } outer)
             return inner != null && innerName == null ? ("an anonymous class", null, outer, null) : ("a member class", null, outer, innerName);
-        if ((cls.Class.Access & 0x1000) != 0 && Creator(index, cls.Class.Descriptor) is { } creator) return ("a lambda class", creator, null, null);
+        if ((cls.Class.Access & 0x1000) != 0 && Creator(index, cls.Class.Descriptor, ct) is { } creator) return ("a lambda class", creator, null, null);
         return (null, null, null, null);
     }
 
     /// <summary>The first method that instantiates <paramref name="descriptor"/> (new-instance), the home of a synthetic lambda class.</summary>
-    private static string? Creator(DexIndex index, string descriptor)
+    private static string? Creator(DexIndex index, string descriptor, CancellationToken ct)
     {
-        _ = index.Refs;
+        index.EnsureCode(ct);
         if (index.FindKey(descriptor) is not { } key) return null;
         foreach (var r in index.Refs)
             if (r.Target == key && r.Kind == DexRefKind.Type && r.Opcode == 0x22) return index.KeyText(r.From);
@@ -147,14 +147,14 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     /// The top-level class a nested class is written in, with the member names from it down to the class; the path is null
     /// when an anonymous or local class is on the way (its block has no name to find).
     /// </summary>
-    private static (DexClassEntry Top, List<string>? Path) TopLevel(DexIndex index, DexClassEntry cls)
+    private static (DexClassEntry Top, List<string>? Path) TopLevel(DexIndex index, DexClassEntry cls, CancellationToken ct)
     {
         var path = new List<string>();
         bool named = true;
         var current = cls;
         for (int i = 0; i < 16; i++)
         {
-            var n = Nesting(index, current);
+            var n = Nesting(index, current, ct);
             var outerName = n.OuterClass ?? (n.HostMethod?.IndexOf("->", StringComparison.Ordinal) is > 0 and var arrow ? n.HostMethod[..arrow] : null);
             if (n.Kind == null || outerName == null || !index.Classes.TryGetValue(outerName, out var outer) || outer == current) break;
             var desc = current.Class.Descriptor;
@@ -342,36 +342,43 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     {
         var info = new FileInfo(path);
         var key = $"{path}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
-        JadxServer? server = null;
-        lock (_lock)
+        JadxServer? Find()
         {
             for (var n = _sessions.First; n != null; n = n.Next)
                 if (n.Value.Key == key)
                 {
-                    if (n.Value.Server.HasExited || n.Value.Server.Loaded.IsFaulted) { n.Value.Server.Dispose(); _sessions.Remove(n); break; }
+                    if (n.Value.Server.HasExited || n.Value.Server.Loaded.IsFaulted) { n.Value.Server.Dispose(); _sessions.Remove(n); return null; }
                     _sessions.Remove(n);
                     _sessions.AddFirst(n);
-                    server = n.Value.Server;
-                    break;
+                    return n.Value.Server;
                 }
-            if (server == null)
-            {
-                var java = ExternalTools.Probe(ExternalTools.Java);
-                var jadx = ExternalTools.Probe(ExternalTools.JavaDecompiler);
-                if (!jadx.Usable) throw NotConfigured($"the JADX server is not available: {jadx.Problem}", jadx.Remediation);
-                if (!java.Usable) throw NotConfigured($"Java is not available: {java.Problem}", java.Remediation);
-                try { server = JadxServer.Start(java.Path!, jadx.Path!, path, LoadTimeout, Environment); }
-                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
+            return null;
+        }
+        JadxServer? server;
+        lock (_lock) server = Find();
+        if (server == null)
+        {
+            // Probing runs java -version: outside the lock, so other calls wait for it only through their own probe.
+            var java = ExternalTools.Probe(ExternalTools.Java);
+            var jadx = ExternalTools.Probe(ExternalTools.JavaDecompiler);
+            ct.ThrowIfCancellationRequested();
+            if (!jadx.Usable) throw NotConfigured($"the JADX server is not available: {jadx.Problem}", jadx.Remediation);
+            if (!java.Usable) throw NotConfigured($"Java is not available: {java.Problem}", java.Remediation);
+            lock (_lock)
+                if ((server = Find()) == null)
                 {
-                    throw Unavailable($"the JADX server could not be started: {ex.Message}", jadx.Remediation);
+                    try { server = JadxServer.Start(java.Path!, jadx.Path!, path, LoadTimeout, Environment); }
+                    catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
+                    {
+                        throw Unavailable($"the JADX server could not be started: {ex.Message}", jadx.Remediation);
+                    }
+                    _sessions.AddFirst((key, server));
+                    while (_sessions.Count > MaxSessions)
+                    {
+                        _sessions.Last!.Value.Server.Dispose();
+                        _sessions.RemoveLast();
+                    }
                 }
-                _sessions.AddFirst((key, server));
-                while (_sessions.Count > MaxSessions)
-                {
-                    _sessions.Last!.Value.Server.Dispose();
-                    _sessions.RemoveLast();
-                }
-            }
         }
         try { await server.Loaded.WaitAsync(ct).ConfigureAwait(false); }
         catch (Exception ex) when (ex is JadxExitedException or InvalidOperationException or TimeoutException)

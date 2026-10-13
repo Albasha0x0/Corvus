@@ -168,6 +168,7 @@ public sealed class DexService
     {
         var index = Index(path, ct);
         var pattern = Pattern(query) ?? throw new ToolError(ErrorCode.InvalidArgument, "query is empty.");
+        index.EnsureCode(ct);
         var hits = new List<DexHit>();
         var notes = new List<string>();
         const int MaxHits = 200_000;
@@ -263,7 +264,7 @@ public sealed class DexService
         bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
         if (!member && index.FindClass(symbol) is { } cls)
             return $"# {cls.Class.Descriptor} in {cls.File.Name}\n" + new DalvikDisassembler(cls.File) { Annotated = annotated }.Class(cls.Class);
-        var id = index.ResolveMethod(symbol);
+        var id = index.ResolveMethod(symbol, ct);
         if (!index.Methods.TryGetValue(id, out var m))
             throw new ToolError(ErrorCode.NotFound, $"{id} is called by the package but not defined in it (a framework or library method).",
                 "find_dex_references with direction=to lists its callers");
@@ -280,6 +281,7 @@ public sealed class DexService
             "from" => true,
             var d => throw new ToolError(ErrorCode.InvalidArgument, $"unknown direction '{d}'; use to (who refers to the target) or from (what the target refers to)."),
         };
+        index.EnsureCode(ct);
         var (targetKind, keys, label) = ResolveTarget(index, target.Trim(), (kind ?? "auto").Trim().ToLowerInvariant(), from);
         var notes = new List<string>();
         IEnumerable<DexRef> refs;

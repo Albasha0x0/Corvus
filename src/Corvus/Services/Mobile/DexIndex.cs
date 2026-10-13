@@ -37,7 +37,8 @@ public sealed class DexIndex
     private readonly Dictionary<string, DexClassEntry> _classes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DexMethodEntry> _methods = new(StringComparer.Ordinal);
     private readonly List<string> _notes = [];
-    private readonly Lazy<(List<DexRef> Refs, List<DexConst> Consts)> _code;
+    private Task<(List<DexRef> Refs, List<DexConst> Consts)>? _code;
+    private readonly object _codeLock = new();
     private readonly List<string> _keys = [];
     private readonly Dictionary<string, int> _keyIds = new(StringComparer.Ordinal);
     private readonly object _keyLock = new();
@@ -59,7 +60,6 @@ public sealed class DexIndex
                 var r = e.File.Method(m.MethodIndex);
                 _methods.TryAdd(r.Descriptor, new DexMethodEntry(e.File, e.Class, m, r));
             }
-        _code = new(BuildCode, LazyThreadSafetyMode.ExecutionAndPublication);
         if (_notes.Count > 50) _notes.RemoveRange(50, _notes.Count - 50);
     }
 
@@ -81,8 +81,18 @@ public sealed class DexIndex
 
     public string KeyText(int id) { lock (_keyLock) return _keys[id]; }
 
-    public IReadOnlyList<DexRef> Refs => _code.Value.Refs;
-    public IReadOnlyList<DexConst> Consts => _code.Value.Consts;
+    public IReadOnlyList<DexRef> Refs => Code(default).Refs;
+    public IReadOnlyList<DexConst> Consts => Code(default).Consts;
+
+    /// <summary>Builds the code index once (in the background) and waits for it; a cancelled wait leaves the build to the next caller.</summary>
+    public void EnsureCode(CancellationToken ct) => Code(ct);
+
+    private (List<DexRef> Refs, List<DexConst> Consts) Code(CancellationToken ct)
+    {
+        Task<(List<DexRef>, List<DexConst>)> task;
+        lock (_codeLock) task = _code ??= Task.Run(BuildCode, CancellationToken.None);
+        return task.IsCompletedSuccessfully ? task.Result : task.WaitAsync(ct).GetAwaiter().GetResult();
+    }
 
     /// <summary>Opens the DEX files of an Android package, a .dex file, or a jar / zip holding classes*.dex.</summary>
     public static DexIndex Load(string path, AnalysisLimits limits, CancellationToken ct)
@@ -197,7 +207,7 @@ public sealed class DexIndex
     /// The method descriptors a spec names: an exact descriptor (Lpkg/C;->m(I)V), or Class::m / Class.m / Class->m, optionally with
     /// Java or descriptor parameters ("(int, String)" or "(ILjava/lang/String;)"). Methods only referenced (framework calls) count too.
     /// </summary>
-    public List<string> FindMethods(string spec)
+    public List<string> FindMethods(string spec, CancellationToken ct = default)
     {
         spec = spec.Trim();
         var arrow = spec.IndexOf("->", StringComparison.Ordinal);
@@ -214,7 +224,7 @@ public sealed class DexIndex
         var candidates = _methods.Keys.Where(d => owners.Any(o => d.StartsWith(o + "->" + name + "(", StringComparison.Ordinal))).ToList();
         if (candidates.Count == 0)
         {
-            _ = _code.Value; // referenced-only methods are keys of the code index
+            EnsureCode(ct); // referenced-only methods are keys of the code index
             foreach (var o in owners)
             {
                 var prefix = o + "->" + name + "(";
@@ -255,9 +265,9 @@ public sealed class DexIndex
     }
 
     /// <summary>One method: exact, or a single overload; several overloads are an ambiguous error listing their descriptors.</summary>
-    public string ResolveMethod(string spec)
+    public string ResolveMethod(string spec, CancellationToken ct = default)
     {
-        var found = FindMethods(spec);
+        var found = FindMethods(spec, ct);
         return found.Count switch
         {
             1 => found[0],
@@ -268,7 +278,7 @@ public sealed class DexIndex
     }
 
     /// <summary>Field descriptors a spec names: Lpkg/C;->f:I exactly, or Class::f / Class.f / Class->f.</summary>
-    public List<string> FindFields(string spec)
+    public List<string> FindFields(string spec, CancellationToken ct = default)
     {
         spec = spec.Trim();
         if (spec.StartsWith('L') && spec.Contains("->", StringComparison.Ordinal) && spec.Contains(':', StringComparison.Ordinal)) return [spec];
@@ -277,7 +287,7 @@ public sealed class DexIndex
         if (sep <= 0) return [];
         var name = spec[(sep + (spec[sep] == '.' ? 1 : 2))..];
         var result = new List<string>();
-        _ = _code.Value;
+        EnsureCode(ct);
         foreach (var owner in ToDescriptor(spec[..sep]))
         {
             if (_classes.TryGetValue(owner, out var e))
