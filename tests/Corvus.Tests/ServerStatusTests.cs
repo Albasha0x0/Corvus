@@ -65,4 +65,19 @@ public class ServerStatusTests
         Assert.StartsWith("115 s per call: codex waits 120 s", Field("deadline"));
         Assert.Equal("--client-timeout", Field("deadline", "source"));
     }
+
+    /// <summary>Without IDA or Ghidra the default status still fits: an engine value missing on many tools is one entry.</summary>
+    [Fact]
+    public void AMissingEngineValueOnManyToolsIsOneEntry()
+    {
+        var rows = new[] { "disassemble", "find_xrefs", "get_cfg", "list_functions" }
+            .Select(t => new ToolAvailability.Unavailable(t, "engine=ghidra", "Ghidra was not found", "set CORVUS_GHIDRA_DIR"))
+            .Append(new ToolAvailability.Unavailable("emulate_native", null, "Ghidra was not found", "set CORVUS_GHIDRA_DIR"))
+            .Append(new ToolAvailability.Unavailable("find_virtual_calls", "crossCheck=true", "Ghidra was not found", "set CORVUS_GHIDRA_DIR"));
+        var group = Assert.Single(Corvus.Tools.SessionTools.Group(rows));
+        Assert.Equal(["emulate_native", "find_virtual_calls crossCheck=true", "engine=ghidra on the 4 tools that take engine"], group.Tools);
+        // three or fewer stay listed
+        var few = Assert.Single(Corvus.Tools.SessionTools.Group(rows.Take(3)));
+        Assert.Equal(["disassemble engine=ghidra", "find_xrefs engine=ghidra", "get_cfg engine=ghidra"], few.Tools);
+    }
 }

@@ -161,7 +161,17 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     /// <summary>One row per (reason, fix), in first-seen order: 24 engine tools share the one engine-not-found text.</summary>
     internal static List<UnavailableGroup> Group(IEnumerable<ToolAvailability.Unavailable> rows) =>
-        [.. rows.GroupBy(r => (r.Reason, r.Remediation)).Select(g => new UnavailableGroup([.. g.Select(r => r.Mode == null ? r.Tool : $"{r.Tool} {r.Mode}")], g.Key.Reason, g.Key.Remediation))];
+        [.. rows.GroupBy(r => (r.Reason, r.Remediation)).Select(g => new UnavailableGroup(Entries(g), g.Key.Reason, g.Key.Remediation))];
+
+    // An engine value missing on every tool that takes engine is one entry, not one per tool (a server without IDA or Ghidra).
+    private static List<string> Entries(IEnumerable<ToolAvailability.Unavailable> rows)
+    {
+        var list = rows.ToList();
+        var byEngine = list.Where(r => r.Mode?.StartsWith("engine=", StringComparison.Ordinal) == true).GroupBy(r => r.Mode!).Where(m => m.Count() > 3).ToList();
+        var folded = byEngine.SelectMany(m => m).ToHashSet();
+        return [.. list.Where(r => !folded.Contains(r)).Select(r => r.Mode == null ? r.Tool : $"{r.Tool} {r.Mode}"),
+            .. byEngine.Select(m => $"{m.Key} on the {m.Count()} tools that take engine")];
+    }
 
     /// <summary>Page size of read_result when maxTokens is not given.</summary>
     public const int ReadResultTokens = 6_000;
