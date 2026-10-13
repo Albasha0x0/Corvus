@@ -4,6 +4,9 @@
     "applied": {
       "type": "boolean"
     },
+    "dryRun": {
+      "type": "boolean"
+    },
     "changes": {
       "type": "array",
       "items": {
@@ -14,12 +17,6 @@
           },
           "target": {
             "type": "string"
-          },
-          "before": {
-            "type": "string"
-          },
-          "after": {
-            "type": "string"
           }
         },
         "required": [
@@ -28,32 +25,14 @@
         ]
       }
     },
-    "pdb": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "type": "string"
-        },
-        "guid": {
-          "type": "string"
-        },
-        "age": {
-          "type": "integer"
-        },
-        "match": {
-          "description": "The image's GUID and age match; absent when it has no RSDS record.",
-          "type": "boolean"
-        },
-        "downloaded": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "path",
-        "guid",
-        "age",
-        "downloaded"
-      ]
+    "editIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "failed": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -76,6 +55,8 @@
   },
   "required": [
     "applied",
-    "changes"
+    "dryRun",
+    "changes",
+    "editIds"
   ]
 }

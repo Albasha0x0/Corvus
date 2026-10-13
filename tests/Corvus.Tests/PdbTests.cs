@@ -403,13 +403,12 @@ public class PdbTests
         var tools = new Corvus.Tools.PdbTools(h.Env.Workspace, h.Pdbs);
         var collector = Corvus.Mcp.ToolOutput.Collect();
         await tools.LoadPdb(native.Id, path: syms);
-        var loaded = Assert.IsType<Corvus.Tools.PdbTools.PdbLoadOutcome>(collector.Value);
-        Assert.True(loaded.Pdb!.Match);
+        var loaded = Assert.IsType<Corvus.Tools.EditResult>(collector.Value);
         Assert.True(loaded.Applied);
-        Assert.Contains(loaded.Changes, c => c.Kind == "names" && c.After!.Contains("pdb names"));
+        Assert.Contains(loaded.Changes, c => c.Kind == "names" && c.Target.Contains("pdb names"));
         await tools.LoadPdb(native.Id, clear: true);
-        var cleared = Assert.IsType<Corvus.Tools.PdbTools.PdbLoadOutcome>(collector.Value);
-        Assert.Contains(cleared.Changes, c => c.Kind == "names" && c.Before != null);
+        var cleared = Assert.IsType<Corvus.Tools.EditResult>(collector.Value);
+        Assert.Contains(cleared.Changes, c => c.Kind == "names" && c.Target.Contains("removed"));
     }
 
     [Fact]
