@@ -1,0 +1,42 @@
+{
+  "tool": "map_address_between_builds",
+  "arguments": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "addresses": [
+      "First",
+      "no_such_name"
+    ]
+  },
+  "isError": false,
+  "content": [
+    "2 addresses, 1 failed.\nFirst (0x140001000) -> 0x140001000: function_start, confidence 1 (First, tier 1)\nno_such_name: error not_found: 'no_such_name' is neither an address nor a known name in sample-build-a.dll.\n"
+  ],
+  "structuredContent": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "results": [
+      {
+        "target": "First",
+        "oldAddress": "0x140001000",
+        "newAddress": "0x140001000",
+        "confidence": 1,
+        "reason": "function_start",
+        "detail": "First -> First (name_or_bytes)",
+        "oldFunction": "First",
+        "newFunction": "First",
+        "tier": 1
+      },
+      {
+        "target": "no_such_name",
+        "confidence": 0,
+        "error": {
+          "code": "not_found",
+          "message": "'no_such_name' is neither an address nor a known name in sample-build-a.dll.",
+          "next": "pass a hex address, an export name, module!import, or a function name from list_functions"
+        }
+      }
+    ],
+    "failed": 1
+  }
+}

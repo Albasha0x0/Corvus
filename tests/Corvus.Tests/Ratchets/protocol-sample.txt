@@ -8,13 +8,11 @@ bucket_minidumps
 comment_native
 compare_assemblies
 compare_folders
-compare_native_images
 convert_number
 declare_native_types
 decompile_java
 decompile_native
 define_native
-diff_function
 disassemble
 disassemble_dex
 dump_heap
@@ -25,7 +23,6 @@ export_edits
 export_engine_database
 export_il2cpp_symbols
 export_native_annotations
-export_native_patches
 extract_embedded
 extract_strings
 find_counterpart
@@ -70,11 +67,7 @@ list_notes
 load_assembly
 load_pdb
 load_session
-make_code_pattern
-map_address_between_builds
 map_java_dotnet
-migrate_native_names
-migrate_native_patches
 native_call_tree
 open_minidump
 patch_asm
@@ -96,7 +89,6 @@ save_assembly
 save_native
 save_session
 search_bytes
-search_code_pattern
 search_container
 search_decompiled
 search_dex
@@ -119,5 +111,4 @@ unity_overview
 unload_assembly
 unpack_container
 update_note
-update_to_new_build
 verify_native_imports

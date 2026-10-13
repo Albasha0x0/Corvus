@@ -1,0 +1,89 @@
+{
+  "tool": "compare_native_images",
+  "arguments": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "limit": 3
+  },
+  "isError": false,
+  "content": [
+    "sample-build-a.dll -> sample-build-b.dll: 2 of 2 old functions matched (2 identical, 0 changed); 0 old and 0 new unmatched, 0 ambiguous. Tiers: 1 name_or_bytes 2, 2 structure 0, 3 signature 0, 4 call_graph 0, 5 fuzzy 0.\nView pairs:\n2 pairs (showing 1-2):\n  0x140001000 -> 0x140001000 First  tier 1 name 1 identical\n  0x140001001 -> 0x140001001 Second  tier 1 name 1 identical\n[End: 2 pairs]\n",
+    "[workspace] loaded sample-build-a.dll from <fixtures>/sample-build-a.dll\n[workspace] loaded sample-build-b.dll from <fixtures>/sample-build-b.dll"
+  ],
+  "structuredContent": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "oldFunctions": 2,
+    "newFunctions": 2,
+    "matched": 2,
+    "identical": 2,
+    "changed": 0,
+    "unmatchedOld": 0,
+    "unmatchedNew": 0,
+    "ambiguous": 0,
+    "tiers": [
+      {
+        "tier": 1,
+        "name": "name_or_bytes",
+        "pairs": 2
+      },
+      {
+        "tier": 2,
+        "name": "structure",
+        "pairs": 0
+      },
+      {
+        "tier": 3,
+        "name": "signature",
+        "pairs": 0
+      },
+      {
+        "tier": 4,
+        "name": "call_graph",
+        "pairs": 0
+      },
+      {
+        "tier": 5,
+        "name": "fuzzy",
+        "pairs": 0
+      }
+    ],
+    "view": "pairs",
+    "items": [
+      {
+        "old": "0x140001000",
+        "new": "0x140001000",
+        "oldName": "First",
+        "tier": 1,
+        "basis": "name",
+        "score": 1,
+        "oldSize": 1,
+        "oldBlocks": 1,
+        "oldCalls": 0,
+        "identical": true
+      },
+      {
+        "old": "0x140001001",
+        "new": "0x140001001",
+        "oldName": "Second",
+        "tier": 1,
+        "basis": "name",
+        "score": 1,
+        "oldSize": 1,
+        "oldBlocks": 1,
+        "oldCalls": 0,
+        "identical": true
+      }
+    ],
+    "offset": 0,
+    "total": 2,
+    "notes": [],
+    "limit": 3,
+    "totalExact": true,
+    "hasMore": false,
+    "notices": [
+      "loaded sample-build-a.dll from <fixtures>/sample-build-a.dll",
+      "loaded sample-build-b.dll from <fixtures>/sample-build-b.dll"
+    ]
+  }
+}

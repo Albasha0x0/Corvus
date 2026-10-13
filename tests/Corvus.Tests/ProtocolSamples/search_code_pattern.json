@@ -1,0 +1,33 @@
+{
+  "tool": "search_code_pattern",
+  "arguments": {
+    "pattern": "C3",
+    "images": [
+      "sample-build-a.dll"
+    ],
+    "limit": 3
+  },
+  "isError": false,
+  "content": [
+    "C3 in 1 image:\n1 hit (showing 1-1):\n  sample-build-a.dll 0x140001000 .text  First+0x0\n[End: 1 hit]\n"
+  ],
+  "structuredContent": {
+    "pattern": "C3",
+    "items": [
+      {
+        "image": "sample-build-a.dll",
+        "address": "0x140001000",
+        "section": ".text",
+        "function": "First",
+        "functionAddress": "0x140001000",
+        "functionOffset": 0
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "notes": [],
+    "limit": 3,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

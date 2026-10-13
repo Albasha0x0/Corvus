@@ -1,0 +1,27 @@
+{
+  "tool": "export_native_patches",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "outputPath": "sample-patches.json",
+    "overwrite": true
+  },
+  "isError": false,
+  "content": [
+    "Wrote 0 patches of sample-build-a.dll as json to <fixtures>/sample-patches.json (0 records, 642 bytes; 0 changed byte(s)).\nNote: the image has no patches: the export is empty\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "outputPath": "<fixtures>/sample-patches.json",
+    "format": "json",
+    "patches": 0,
+    "relocationEdits": 0,
+    "changedBytes": 0,
+    "records": 0,
+    "checksumUpdated": false,
+    "bytes": 642,
+    "originalSha256": "<id>",
+    "notes": [
+      "the image has no patches: the export is empty"
+    ]
+  }
+}

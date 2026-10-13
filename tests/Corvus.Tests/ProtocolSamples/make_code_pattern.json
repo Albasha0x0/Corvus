@@ -1,0 +1,29 @@
+{
+  "tool": "make_code_pattern",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First"
+  },
+  "isError": false,
+  "content": [
+    "0x140001000: C3 CC CC CC 00 00\n  6 bytes, 6 fixed, 0 hits, address at 0x140001000; not unique within 64 bytes (0 hits)\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "format": "ida",
+    "results": [
+      {
+        "address": "0x140001000",
+        "pattern": "C3 CC CC CC 00 00",
+        "length": 6,
+        "fixedBytes": 6,
+        "unique": false,
+        "hits": 0,
+        "anchor": "address",
+        "patternAddress": "0x140001000",
+        "note": "not unique within 64 bytes (0 hits)"
+      }
+    ],
+    "failed": 0
+  }
+}

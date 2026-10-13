@@ -54,7 +54,26 @@ public partial class ProtocolSampleTests
         ["simplify_methods"] = new() { ["symbol"] = "Account" },
         ["stub_method"] = new() { ["method"] = "Secret::Validate", ["value"] = "true", ["dryRun"] = false },
         ["undo_edit"] = new() { ["assembly"] = "TestFixture" },
+        ["compare_native_images"] = new() { ["oldImage"] = BuildA, ["newImage"] = BuildB, ["limit"] = 3 },
+        ["map_address_between_builds"] = new() { ["oldImage"] = BuildA, ["newImage"] = BuildB, ["addresses"] = new[] { "First", "no_such_name" } },
+        ["diff_function"] = new() { ["oldImage"] = BuildA, ["newImage"] = BuildB, ["address"] = "First" },
+        ["make_code_pattern"] = new() { ["image"] = BuildA, ["address"] = "First" },
+        ["search_code_pattern"] = new() { ["pattern"] = "C3", ["images"] = new[] { BuildA }, ["limit"] = 3 },
+        ["migrate_native_names"] = new() { ["oldImage"] = BuildA, ["newImage"] = BuildB },
+        ["migrate_native_patches"] = new() { ["oldImage"] = BuildA, ["newImage"] = BuildB },
+        ["update_to_new_build"] = new() { ["oldImage"] = BuildA, ["newImage"] = BuildB, ["include"] = new[] { "names", "patches" } },
+        ["export_native_patches"] = new() { ["image"] = BuildA, ["outputPath"] = "sample-patches.json", ["overwrite"] = true },
     };
+
+    /// <summary>Two builds of a synthetic native image beside the fixtures (trailing bytes give each its own hash, so no other test's annotations apply).</summary>
+    private const string BuildA = "sample-build-a.dll", BuildB = "sample-build-b.dll";
+
+    private static void WriteBuilds()
+    {
+        var folder = Path.GetDirectoryName(Env.FixturePath)!;
+        File.WriteAllBytes(Path.Combine(folder, BuildA), [.. NativePeTests.KitchenSink(is64: true), 0xA1, 0xA2]);
+        File.WriteAllBytes(Path.Combine(folder, BuildB), [.. NativePeTests.KitchenSink(is64: true), 0xB1, 0xB2, 0xB3]);
+    }
 
     [Fact]
     public async Task SamplesMatch()
@@ -67,6 +86,7 @@ public partial class ProtocolSampleTests
         if (update)
             foreach (var (tool, args) in Seed) calls.TryAdd(tool, args);
 
+        WriteBuilds();
         await using var server = await InProcessServer.StartAsync();
         var stale = new List<string>();
         foreach (var (tool, args) in calls.OrderBy(c => c.Key, StringComparer.Ordinal))

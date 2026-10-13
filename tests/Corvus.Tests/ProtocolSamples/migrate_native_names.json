@@ -1,0 +1,30 @@
+{
+  "tool": "migrate_native_names",
+  "arguments": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll"
+  },
+  "isError": false,
+  "content": [
+    "Dry run: 0 of 0 item(s) would carry from sample-build-a.dll to sample-build-b.dll. Nothing recorded; dryRun=false applies it.\nNote: sample-build-a.dll has no user names or comments to carry over\n0 items:\n[End: 0 items]\n"
+  ],
+  "structuredContent": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "dryRun": true,
+    "applied": false,
+    "editIds": [],
+    "set": 0,
+    "skipped": 0,
+    "skippedBy": [],
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "notes": [
+      "sample-build-a.dll has no user names or comments to carry over"
+    ],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

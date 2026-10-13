@@ -1,0 +1,134 @@
+{
+  "tool": "update_to_new_build",
+  "arguments": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "include": [
+      "names",
+      "patches"
+    ]
+  },
+  "isError": false,
+  "content": [
+    "Dry run (nothing changed): sample-build-a.dll -> sample-build-b.dll, 2 of 2 old functions matched. names: not applicable (sample-build-a.dll has no user names, comments or types). patches: not applicable (sample-build-a.dll has no in-memory patches). Run again with dryRun=false to apply.\n0 items:\n[End: 0 items]\n"
+  ],
+  "structuredContent": {
+    "summary": "Dry run (nothing changed): sample-build-a.dll -> sample-build-b.dll, 2 of 2 old functions matched. names: not applicable (sample-build-a.dll has no user names, comments or types). patches: not applicable (sample-build-a.dll has no in-memory patches). Run again with dryRun=false to apply.",
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "dryRun": true,
+    "editIds": [],
+    "included": [
+      "names",
+      "patches"
+    ],
+    "oldFunctions": 2,
+    "newFunctions": 2,
+    "functionsMatched": 2,
+    "categories": [
+      {
+        "category": "names",
+        "status": "not_applicable",
+        "considered": 0,
+        "carried": 0,
+        "alreadyPresent": 0,
+        "refused": 0,
+        "notApplicable": 0,
+        "ambiguous": 0,
+        "reasons": [],
+        "detail": "sample-build-a.dll has no user names, comments or types"
+      },
+      {
+        "category": "pdb",
+        "status": "not_included",
+        "considered": 0,
+        "carried": 0,
+        "alreadyPresent": 0,
+        "refused": 0,
+        "notApplicable": 0,
+        "ambiguous": 0,
+        "reasons": [],
+        "detail": "not in include"
+      },
+      {
+        "category": "il2cpp_names",
+        "status": "not_included",
+        "considered": 0,
+        "carried": 0,
+        "alreadyPresent": 0,
+        "refused": 0,
+        "notApplicable": 0,
+        "ambiguous": 0,
+        "reasons": [],
+        "detail": "not in include"
+      },
+      {
+        "category": "patches",
+        "status": "not_applicable",
+        "considered": 0,
+        "carried": 0,
+        "alreadyPresent": 0,
+        "refused": 0,
+        "notApplicable": 0,
+        "ambiguous": 0,
+        "reasons": [],
+        "detail": "sample-build-a.dll has no in-memory patches"
+      },
+      {
+        "category": "patterns",
+        "status": "not_included",
+        "considered": 0,
+        "carried": 0,
+        "alreadyPresent": 0,
+        "refused": 0,
+        "notApplicable": 0,
+        "ambiguous": 0,
+        "reasons": [],
+        "detail": "not in include"
+      },
+      {
+        "category": "il2cpp_mapping",
+        "status": "not_included",
+        "considered": 0,
+        "carried": 0,
+        "alreadyPresent": 0,
+        "refused": 0,
+        "notApplicable": 0,
+        "ambiguous": 0,
+        "reasons": [],
+        "detail": "not in include"
+      },
+      {
+        "category": "notes",
+        "status": "not_included",
+        "considered": 0,
+        "carried": 0,
+        "alreadyPresent": 0,
+        "refused": 0,
+        "notApplicable": 0,
+        "ambiguous": 0,
+        "reasons": [],
+        "detail": "not in include"
+      },
+      {
+        "category": "dotnet",
+        "status": "out_of_scope",
+        "considered": 0,
+        "carried": 0,
+        "alreadyPresent": 0,
+        "refused": 0,
+        "notApplicable": 0,
+        "ambiguous": 0,
+        "reasons": [],
+        "detail": "native images only: for .NET builds use compare_assemblies, find_counterpart, export_edits + apply_edits"
+      }
+    ],
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "notes": [],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

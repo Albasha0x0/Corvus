@@ -1,0 +1,32 @@
+{
+  "tool": "migrate_native_patches",
+  "arguments": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll"
+  },
+  "isError": false,
+  "content": [
+    "Dry run: 0 of 0 patches (in_memory) would apply to sample-build-b.dll. Nothing recorded; dryRun=false applies them.\nNote: sample-build-a.dll has no in-memory patches to migrate\n0 patches:\n[End: 0 patches]\n"
+  ],
+  "structuredContent": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "source": "in_memory",
+    "dryRun": true,
+    "applied": false,
+    "editIds": [],
+    "patches": 0,
+    "carried": 0,
+    "refused": 0,
+    "refusedBy": [],
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "notes": [
+      "sample-build-a.dll has no in-memory patches to migrate"
+    ],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

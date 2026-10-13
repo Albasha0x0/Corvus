@@ -1,0 +1,43 @@
+{
+  "tool": "diff_function",
+  "arguments": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "address": "First"
+  },
+  "isError": false,
+  "content": [
+    "First (0x140001000) -> First (0x140001000), tier 1 name 1: identical after masking addresses\n1 row (showing 1-1):\n  … 1 unchanged instruction(s)\n[End: 1 row]\n"
+  ],
+  "structuredContent": {
+    "oldImage": "sample-build-a.dll",
+    "newImage": "sample-build-b.dll",
+    "oldFunction": "First",
+    "newFunction": "First",
+    "oldAddress": "0x140001000",
+    "newAddress": "0x140001000",
+    "tier": 1,
+    "basis": "name",
+    "score": 1,
+    "view": "asm",
+    "summary": "identical after masking addresses",
+    "same": 1,
+    "changed": 0,
+    "removed": 0,
+    "added": 0,
+    "items": [
+      {
+        "op": "…",
+        "oldAddress": "0x140001000",
+        "newAddress": "0x140001000",
+        "oldText": "1 unchanged instruction(s)"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "notes": [],
+    "limit": 500,
+    "totalExact": true,
+    "hasMore": false
+  }
+}
