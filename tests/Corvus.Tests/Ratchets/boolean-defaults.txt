@@ -3,7 +3,6 @@
 apply_edits.stopOnError
 compare_assemblies.listAddedRemovedTypes
 decompile_java.smaliFallback
-diff_function.useNames
 disassemble.function
 dump_stack.exceptionContext
 install_android_package.replace

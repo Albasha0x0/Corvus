@@ -20,7 +20,7 @@
       "type": "string"
     },
     "tier": {
-      "description": "Function-match tier (1 best .. 5 fuzzy); null when not matched.",
+      "description": "Function-match tier (1 best .. 5 fuzzy); absent when not matched.",
       "type": "integer"
     },
     "basis": {
@@ -49,14 +49,14 @@
     "added": {
       "type": "integer"
     },
-    "rows": {
-      "description": "asm: the aligned rows of the changed regions with context.",
+    "items": {
+      "description": "The aligned rows of the changed regions with context (pseudocode: the unified diff's lines).",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "op": {
-            "description": "= same, ~ same instruction shape with other operands, - only in the old build, + only in the new, … unchanged rows skipped.",
+            "description": "= same, ~ same instruction shape with other operands, - only in the old build, + only in the new, … unchanged rows skipped (pseudocode: a hunk header).",
             "type": "string"
           },
           "oldAddress": {
@@ -77,9 +77,11 @@
         ]
       }
     },
-    "unified": {
-      "description": "pseudocode: a unified diff of the normalized pseudocode.",
-      "type": "string"
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
     },
     "candidates": {
       "description": "Candidate counterparts when ambiguous.",
@@ -104,8 +106,73 @@
         ]
       }
     },
-    "truncated": {
-      "type": "boolean"
+    "functions": {
+      "description": "addresses[]: one summary per function; rows with address.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "oldFunction": {
+            "type": "string"
+          },
+          "newFunction": {
+            "type": "string"
+          },
+          "oldAddress": {
+            "type": "string"
+          },
+          "newAddress": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "integer"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "same": {
+            "type": "integer"
+          },
+          "changed": {
+            "type": "integer"
+          },
+          "removed": {
+            "type": "integer"
+          },
+          "added": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "next"
+            ]
+          }
+        },
+        "required": [
+          "target",
+          "same",
+          "changed",
+          "removed",
+          "added"
+        ]
+      }
     },
     "notes": {
       "type": "array",
@@ -113,16 +180,16 @@
         "type": "string"
       }
     },
-    "code": {
-      "type": "string"
-    },
-    "offset": {
+    "limit": {
       "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
     },
     "nextOffset": {
-      "type": "integer"
-    },
-    "totalChars": {
       "type": "integer"
     },
     "notices": {
@@ -147,17 +214,14 @@
   "required": [
     "oldImage",
     "newImage",
-    "oldFunction",
-    "newFunction",
     "view",
-    "summary",
     "same",
     "changed",
     "removed",
     "added",
-    "rows",
-    "candidates",
-    "truncated",
+    "items",
+    "offset",
+    "total",
     "notes"
   ]
 }

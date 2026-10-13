@@ -547,13 +547,13 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         File.WriteAllBytes(oldPath, NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 1));
         File.WriteAllBytes(newPath, NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 7));
         var tools = new NativeDiffTools(workspace, code, engines);
-        var report = await tools.DiffFunction(oldPath, newPath, "rva:0x1040", view: "pseudocode", context: 1);
-        output.WriteLine(report.Unified);
+        var (report, text) = await BuildToolCalls.Collected<NativeDiffTools.FunctionDiffReport>(() => tools.DiffFunction(oldPath, newPath, "rva:0x1040", view: "pseudocode", context: 1));
+        output.WriteLine(text);
         Assert.Equal("pseudocode", report.View);
         Assert.True(report.Removed >= 1 && report.Added >= 1, report.Summary);
-        Assert.Matches(@"(?m)^-.*(35|0x23)", report.Unified!);
-        Assert.Matches(@"(?m)^\+.*(41|0x29)", report.Unified!);
-        var asm = await tools.DiffFunction(oldPath, newPath, "rva:0x1040");
+        Assert.Matches(@"(?m)^\s*- .*(35|0x23)", text);
+        Assert.Matches(@"(?m)^\s*\+ .*(41|0x29)", text);
+        var (asm, _) = await BuildToolCalls.Collected<NativeDiffTools.FunctionDiffReport>(() => tools.DiffFunction(oldPath, newPath, "rva:0x1040"));
         Assert.Equal(1, asm.Changed);
     }
 

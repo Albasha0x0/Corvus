@@ -408,6 +408,32 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
             tools.MapAddressBetweenBuilds(oldN.Id, newN.Id, addresses: [.. Enumerable.Repeat(Va(F1), 101)]))).Code);
     }
 
+    /// <summary>diff_function: rows paged as items in both parts; addresses[] gives one summary per function with a per-item error.</summary>
+    [Fact]
+    public async Task Function_diff_pages_rows_and_batches_summaries()
+    {
+        using var h = new Harness();
+        var (oldN, _) = await h.Load(Image(false, 0), "old.dll", OldStarts);
+        var (newN, _) = await h.Load(Image(true, Shift), "new.dll", NewStarts(Shift));
+        var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
+        var (all, text) = await BuildToolCalls.Collected<NativeDiffTools.FunctionDiffReport>(() => tools.DiffFunction(oldN.Id, newN.Id, Va(F4)));
+        Assert.Equal(("asm", 3), (all.View, all.Changed));
+        Assert.Equal(all.Total, all.Items.Count);
+        Assert.Contains($"~ {Va(F4)} {Va(F4 + Shift)}", text);
+        var (page, pageText) = await BuildToolCalls.Collected<NativeDiffTools.FunctionDiffReport>(() => tools.DiffFunction(oldN.Id, newN.Id, Va(F4), offset: 1, limit: 2));
+        Assert.Equal(all.Items.Skip(1).Take(2), page.Items);
+        Assert.Contains("[More: offset=3]", pageText);
+
+        var (batch, batchText) = await BuildToolCalls.Collected<NativeDiffTools.FunctionDiffReport>(() =>
+            tools.DiffFunction(oldN.Id, newN.Id, addresses: [Va(F4), "nope", Va(F5)]));
+        Assert.Empty(batch.Items);
+        Assert.Equal(3, batch.Functions!.Count);
+        Assert.Equal(all.Summary, batch.Functions[0].Summary);
+        Assert.Equal("not_found", batch.Functions[1].Error!.Code);
+        Assert.StartsWith("function_not_matched", batch.Functions[2].Summary);
+        Assert.StartsWith("3 functions, 1 failed (asm):", batchText);
+    }
+
     [Fact]
     public async Task User_types_carry_by_function_match_and_never_replace_the_new_builds()
     {

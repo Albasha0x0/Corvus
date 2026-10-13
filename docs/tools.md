@@ -1822,21 +1822,24 @@ Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matc
 
 **Diff a function between builds** (read-only, idempotent, open-world, long-running)
 
-What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists aligned, rows = (same), ~ (other operands), - or +, with build-independent operands (branch labels, matched callee names, string text, mapped data) so moved code and relocations do not show; only changed regions with context. view=pseudocode: a unified diff of both functions' pseudocode, addresses replaced the same way. An unmatched function returns the reason and candidates.
+What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists aligned, rows = (same), ~ (other operands), - or +, with build-independent operands (branch labels, matched callee names, string text, mapped data) so moved code and relocations do not show; changed regions with context. view=pseudocode: a unified diff of both functions' pseudocode. addresses: a summary per function.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
 | `newImage` | string | yes |  | The newer build: native image id or path. |
-| `address` | string | yes |  | An address in the function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `side` | string |  |  | Which build the address is in (default old). Values: old, new. |
-| `view` | string |  |  | asm (default) or pseudocode (needs an engine). Values: asm, pseudocode. |
+| `address` | string |  |  | An address in the function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
+| `addresses` | string[] |  |  | Instead of address: up to 20 functions, one summary each. |
+| `side` | string |  | `old` | Which build the address is in. Values: old, new. |
+| `view` | string |  | `asm` | asm, or pseudocode (needs an engine). Values: asm, pseudocode. |
 | `context` | integer |  | `4` | Unchanged rows or lines around each change (0-50). |
-| `maxLines` | integer |  | `300` | Most rows or lines returned (max 5000). |
-| `useNames` | boolean |  | `true` | Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only. |
-| `engine` | string |  |  | view=pseudocode: auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ida, ghidra. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
+| `engine` | string |  |  | view=pseudocode: auto, ida or ghidra. Values: auto, ida, ghidra. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `500` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `rows`, `unified`, `candidates`, `truncated`, `notes`, `code`, `offset`, `nextOffset`, `totalChars`.
+Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `items`, `offset`, `total`, `candidates`, `functions`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### map_address_between_builds
 

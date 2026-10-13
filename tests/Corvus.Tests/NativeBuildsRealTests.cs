@@ -56,5 +56,28 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
             Assert.True(page.TextTokens <= 6_300 && page.RecordTokens <= 6_300, $"{view}: {page.TextTokens} / {page.RecordTokens}");
             Assert.Equal(page.Record.GetProperty("items").GetArrayLength(), page.Record.GetProperty("nextOffset").GetInt32());
         }
+
+        // the largest changed function, found by walking the changed view
+        var (largest, size) = ("", 0L);
+        for (int offset = 0; ;)
+        {
+            var page = await Call(server, "compare_native_images", new() { ["oldImage"] = o, ["newImage"] = n, ["view"] = "changed", ["offset"] = offset, ["limit"] = 500 });
+            foreach (var row in page.Record.GetProperty("items").EnumerateArray())
+                if (row.GetProperty("oldSize").GetInt64() > size) (largest, size) = (row.GetProperty("old").GetString()!, row.GetProperty("oldSize").GetInt64());
+            if (!page.Record.TryGetProperty("nextOffset", out var next)) break;
+            offset = next.GetInt32();
+        }
+        var diff = await Call(server, "diff_function", new() { ["oldImage"] = o, ["newImage"] = n, ["address"] = largest });
+        Assert.True(diff.TextTokens <= 8_400 && diff.RecordTokens <= 8_400, $"diff_function {largest} ({size} bytes): {diff.TextTokens} / {diff.RecordTokens}");
+        int rows = diff.Record.GetProperty("items").GetArrayLength();
+        Assert.Equal(rows, diff.Record.GetProperty("nextOffset").GetInt32());
+        var second = await Call(server, "diff_function", new() { ["oldImage"] = o, ["newImage"] = n, ["address"] = largest, ["offset"] = rows });
+        Assert.Equal(rows, second.Record.GetProperty("offset").GetInt32());
+
+        // a batch with one bad address succeeds and counts it
+        var mapped = await Call(server, "map_address_between_builds", new() { ["oldImage"] = o, ["newImage"] = n, ["addresses"] = new[] { "sqlite3_open", "no_such_function", largest } });
+        Assert.False(mapped.IsError, mapped.Text);
+        Assert.Equal(1, mapped.Record.GetProperty("failed").GetInt32());
+        Assert.Equal("function_start", mapped.Record.GetProperty("results")[0].GetProperty("reason").GetString());
     }
 }
