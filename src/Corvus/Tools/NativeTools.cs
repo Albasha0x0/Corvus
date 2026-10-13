@@ -464,7 +464,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         return null;
     }
 
-    [McpServerTool(Name = "search_bytes", Title = "Search native bytes")]
+    [McpServerTool(Name = "search_bytes", Title = "Search native bytes", UseStructuredContent = true, OutputSchemaType = typeof(ByteSearch))]
     [Description("Find a byte pattern in a native image's mapped sections (hex with ?? wildcards, or text as ASCII and UTF-16): each hit's VA, " +
                  "section and file offset.")]
     public Task<string> SearchBytes(
@@ -479,20 +479,67 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     {
         if ((patterns is { Length: > 0 }) == !string.IsNullOrEmpty(pattern))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass pattern or patterns (one of them).", "pattern='48 8B 05 ?? ?? ?? ??', or patterns=[...] for several");
-        if (patterns == null) return SearchOne(native, pattern!, text, section, limit, offset, cancellationToken);
+        offset = Math.Max(0, offset);
+        if (patterns == null)
+        {
+            var (hits, total) = SearchOne(native, pattern!, text, section, limit, offset, cancellationToken);
+            // Cut by the budget, not by count: the text and the record show the same hits.
+            var rows = hits.Select(HitRow).ToList();
+            int fit = hits.Count == 0 ? 0 : pager.FitRows(rows.Select(r => "  " + r).ToList(), 200);
+            string Render(int shown)
+            {
+                var sb = new StringBuilder(HitHeader(total, offset, shown)).Append(":\n");
+                foreach (var r in rows.Take(shown)) sb.Append("  ").Append(r).Append('\n');
+                return sb.Append(offset + shown < total ? OutputPager.More(offset + shown) : $"[End: {total} hit{(total == 1 ? "" : "s")}]").Append('\n').ToString();
+            }
+            var page = Render(fit);
+            if (OutputCall.Current is { } call)
+                call.RowPage = new RowPageState(offset, ClampLimit(limit), fit, (int)Math.Min(int.MaxValue, total), page, Render);
+            return ToolOutput.With(page, new ByteSearch(native.Id, hits.Take(fit).ToList(), offset, total, null));
+        }
         if (patterns.Length > 50) throw new ToolError(ErrorCode.InvalidArgument, $"{patterns.Length} patterns; at most 50 per call.", "split the patterns");
-        var sb = new StringBuilder();
+        var report = new StringBuilder();
+        var each = new List<ByteSearchPattern>();
         for (int i = 0; i < patterns.Length; i++)
         {
-            sb.Append($"[{i + 1}/{patterns.Length}] {patterns[i]}: ");
-            try { sb.AppendLine(SearchOne(native, patterns[i], text, section, limit, offset, cancellationToken)); }
-            catch (ToolError e) when (e.Code is ErrorCode.InvalidArgument) { sb.AppendLine($"error {ToolError.CodeName(e.Code)}: {e.Message}"); }
+            report.Append($"[{i + 1}/{patterns.Length}] {patterns[i]}: ");
+            try
+            {
+                var (hits, total) = SearchOne(native, patterns[i], text, section, limit, offset, cancellationToken);
+                report.Append(HitHeader(total, offset, hits.Count)).Append('\n');
+                foreach (var h in hits) report.Append("  ").Append(HitRow(h)).Append('\n');
+                if (offset + hits.Count < total) report.Append($"  (more: offset={offset + hits.Count} with this pattern alone)\n");
+                each.Add(new ByteSearchPattern(patterns[i], total, hits, null));
+            }
+            catch (ToolError e) when (e.Code is ErrorCode.InvalidArgument)
+            {
+                report.Append($"error {ToolError.CodeName(e.Code)}: {e.Message}\n");
+                each.Add(new ByteSearchPattern(patterns[i], null, null, $"{ToolError.CodeName(e.Code)}: {e.Message}"));
+            }
         }
-        return pager.Page(sb.ToString());
+        // Past the budget the head is sent and the whole result kept (no single row order to continue).
+        return ToolOutput.With(report.ToString(), new ByteSearch(native.Id, null, null, null, each));
     }, cancellationToken);
 
-    /// <summary>search_bytes for one pattern.</summary>
-    private static string SearchOne(LoadedNative native, string pattern, bool text, string? section, int limit, int offset, CancellationToken cancellationToken)
+    /// <summary>One hit of search_bytes.</summary>
+    public sealed record ByteHit(string Address, string Section,
+        [property: Description("ASCII or UTF-16, for a text pattern.")] string? Encoding,
+        [property: Description("Absent for zero fill, which is not in the file.")] string? FileOffset);
+
+    /// <summary>One pattern of a patterns= call.</summary>
+    public sealed record ByteSearchPattern(string Pattern, long? Total, IReadOnlyList<ByteHit>? Items, string? Error);
+
+    /// <summary>search_bytes: the hits of pattern (items), or of each of patterns (patterns, their first hits).</summary>
+    public sealed record ByteSearch(string Image, IReadOnlyList<ByteHit>? Items, int? Offset, long? Total, IReadOnlyList<ByteSearchPattern>? Patterns);
+
+    private static string HitRow(ByteHit h) =>
+        $"{h.Address}  {h.Section}{(h.Encoding != null ? "  " + h.Encoding : "")}{(h.FileOffset != null ? $"  file {h.FileOffset}" : "  (zero fill, not in the file)")}";
+
+    private static string HitHeader(long total, int offset, int shown) =>
+        $"{total} hit{(total == 1 ? "" : "s")}{(shown > 0 ? $" (showing {offset + 1}-{offset + shown})" : offset > 0 ? $" (none from offset {offset})" : "")}";
+
+    /// <summary>search_bytes for one pattern: the hits from offset (at most limit) and the total.</summary>
+    private static (List<ByteHit> Hits, long Total) SearchOne(LoadedNative native, string pattern, bool text, string? section, int limit, int offset, CancellationToken cancellationToken)
     {
         var pe = native.Image;
         var patterns = text
@@ -500,19 +547,16 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             : [ParseHexPattern(pattern)];
         if (patterns.Any(p => p.Bytes.Length == 0))
             throw new ToolError(ErrorCode.InvalidArgument, "The pattern is empty.", "pass hex bytes such as '48 8B 05 ?? ?? ?? ??' or text with text=true");
-        int max = ClampLimit(limit, 10_000);
+        int max = ClampLimit(limit);
         offset = Math.Max(0, offset);
-        var hits = new List<string>();
+        var hits = new List<ByteHit>();
         long total = 0;
-        int chars = 0;
         void Hit(NativeSection s, uint rva, string label)
         {
             // Rows stop at the page size; the rest is reached with offset.
-            if (total++ < offset || hits.Count >= max || chars >= 50_000) return;
-            var row = $"{NativeAddress.Va(pe, rva)}  {s.Name}{(patterns.Count > 1 ? "  " + label : "")}" +
-                      (pe.TryRvaToFileOffset(rva, out var fo) ? $"  file 0x{fo:X}" : "  (zero fill, not in the file)");
-            hits.Add(row);
-            chars += row.Length + 1;
+            if (total++ < offset || hits.Count >= max) return;
+            hits.Add(new ByteHit(NativeAddress.Va(pe, rva), s.Name, patterns.Count > 1 ? label : null,
+                pe.TryRvaToFileOffset(rva, out var fo) ? $"0x{fo:X}" : null));
         }
         // The file-backed part of each section is read in 1 MB chunks overlapping by the pattern length; matches in the
         // zero fill after it (which can be gigabytes) are counted, not scanned.
@@ -552,15 +596,13 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 long skip = Math.Clamp(offset - total, 0, zeroStarts);
                 total += skip;
                 long i = skip;
-                for (; i < zeroStarts && hits.Count < max && chars < 50_000; i++) Hit(s, s.Rva + backed + (uint)i, label);
+                for (; i < zeroStarts && hits.Count < max; i++) Hit(s, s.Rva + backed + (uint)i, label);
                 total += zeroStarts - i;
             }
         }
         if (section != null && !pe.Sections.Any(s => s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)))
             throw new ToolError(ErrorCode.NotFound, $"No section '{section}'. Sections: {string.Join(", ", pe.Sections.Select(s => s.Name))}.");
-        var more = offset + hits.Count < total ? $"\n[More: offset={offset + hits.Count}]" : "";
-        return $"{total} hit{(total == 1 ? "" : "s")}{(offset > 0 || hits.Count < total ? $" (showing {(hits.Count == 0 ? 0 : offset + 1)}-{offset + hits.Count})" : "")}\n" +
-               string.Join("\n", hits) + more;
+        return (hits, total);
     }
 
     private static (byte[], bool[], string) Exact(byte[] bytes, string label) => (bytes, bytes.Select(_ => true).ToArray(), label);

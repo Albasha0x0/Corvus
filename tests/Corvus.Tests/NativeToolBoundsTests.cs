@@ -33,6 +33,17 @@ public class NativeToolBoundsTests
         Assert.Contains("[More: offset=3]", hits);
         var next = await h.Native.SearchBytes(path, "00 00 00 00", limit: 2, offset: 1_000_000_000);
         Assert.Contains("(showing 1000000001-1000000002)", next);
+
+        // Inside a call the page is cut by the token budget, not by limit, and the record holds the same hits (G1).
+        var call = OutputCall.Begin(new OutputCall("search_bytes", 1_000, null));
+        var page = await h.Native.SearchBytes(path, "00 00 00 00", limit: 5_000);
+        var record = (Corvus.Tools.NativeTools.ByteSearch)call.Record!;
+        Assert.InRange(TokenEstimate.Of(page), 1, 1_000);
+        Assert.InRange(record.Items!.Count, 10, 4_999);
+        Assert.Equal(record.Items.Count, page.Split('\n').Count(l => l.StartsWith("  0x", StringComparison.Ordinal)));
+        Assert.Contains($"[More: offset={record.Items.Count}]", page);
+        Assert.True(record.Total > 1_000_000_000);
+        OutputCall.Begin(null!);
         Assert.Contains("1 function", await h.CodeTools.ListFunctions(path));
         Assert.Contains("0 classes", await h.Analysis.ListCppClasses(path));
 
@@ -109,7 +120,7 @@ public class NativeToolBoundsTests
         b.EntryPoint = text.Rva;
         File.WriteAllBytes(path, b.Build());
         using var h = new NativeToolHarness();
-        Assert.StartsWith("1 hit\n", await h.Native.SearchBytes(path, "?? 48 89 E5 ?? C3"));
+        Assert.StartsWith("1 hit (showing 1-1):\n", await h.Native.SearchBytes(path, "?? 48 89 E5 ?? C3"));
         Assert.StartsWith("0 hits", await h.Native.SearchBytes(path, "?? 48 89 E6"));
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => h.Native.SearchBytes(path, "?? ??"))).Code);
         var diff = new Corvus.Tools.NativeDiffTools(h.Workspace, h.Code);

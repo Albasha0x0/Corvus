@@ -17,7 +17,6 @@ list_native_edits
 list_native_types
 native_call_tree
 read_result
-search_bytes
 search_code_pattern
 search_container
 search_decompiled

@@ -55,7 +55,6 @@ rename_symbol
 revert_edits
 save_assembly
 save_native
-search_bytes
 search_instructions
 set_native_local
 set_native_operand

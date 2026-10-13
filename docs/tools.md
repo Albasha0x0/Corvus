@@ -982,6 +982,8 @@ Find a byte pattern in a native image's mapped sections (hex with ?? wildcards, 
 | `offset` | integer |  | `0` | Rows to skip. |
 | `patterns` | string[] |  |  | Instead of pattern: up to 50 patterns. |
 
+Structured output: `image`, `items`, `offset`, `total`, `patterns`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+
 ### read_bytes
 
 **Read native bytes or values** (read-only, idempotent)
