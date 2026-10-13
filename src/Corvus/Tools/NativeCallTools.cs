@@ -225,6 +225,26 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     private static string Where(NativeCodeIndex index, uint rva) =>
         index.FunctionAt(rva) is { } f ? $"{f.Name}+0x{rva - f.Start:X}" : NativeAddress.Va(index.Image, rva);
 
+    /// <summary>get_pe_info view=code: late-bound imports and modules loaded by name at run time.</summary>
+    internal static string DynamicSection(NativeCodeIndex index, CancellationToken ct)
+    {
+        if (!CallAnalysis.Supports(index)) return "";
+        var set = CallAnalysis.For(index).DynamicImports(ct);
+        if (set.GetProcAddressSites == 0 && set.Modules.Count == 0) return "Dynamic imports: none (no GetProcAddress / LoadLibrary / GetModuleHandle calls with constant names)\n";
+        var sb = new System.Text.StringBuilder();
+        int moduleCount = set.Imports.Select(i => i.Module?.ToLowerInvariant()).Distinct().Count(m => m != null);
+        sb.AppendLine($"Dynamic imports (GetProcAddress): {set.Imports.Count} resolved from {moduleCount} modules, {set.UnresolvedSites} of {set.GetProcAddressSites} " +
+                      "calls with a name not recovered (list_imports includeDynamic=true lists them)");
+        foreach (var d in set.Imports.Take(40))
+            sb.AppendLine($"  {d.FullName}  [{d.Confidence}] at {Where(index, d.CallSite)}" +
+                          (d.PointerGlobal is { } g ? $", pointer {NativeAddress.Va(index.Image, g)} ({d.PointerCalls.Count} calls)" : "") + $"; {d.How}");
+        if (set.Imports.Count > 40) sb.AppendLine($"  ... {set.Imports.Count - 40} more");
+        if (set.Modules.Count > 0)
+            sb.AppendLine("Modules loaded or looked up by name: " + string.Join(", ", set.Modules.Select(m => m.Module).Distinct(StringComparer.OrdinalIgnoreCase).Take(40)));
+        foreach (var n in set.Notes.Take(10)) sb.AppendLine("  note: " + n);
+        return sb.ToString();
+    }
+
     /// <summary>list_imports rows for late-bound imports, marked [dynamic].</summary>
     internal static List<string> DynamicImportRows(NativeCodeIndex index, string? module, string? filter, CancellationToken ct)
     {

@@ -2,6 +2,11 @@ namespace Corvus.Native;
 
 public static class NativeImageExtensions
 {
+    /// <summary>The instruction set as the file names it: "Mips (EM_MIPS)", "EM_S390", "X64".</summary>
+    public static string ArchName(this INativeImage image) =>
+        image.Arch is NativeArch.Other or NativeArch.Unknown ? image.MachineName
+        : image.MachineName.Equals(image.Arch.ToString(), StringComparison.OrdinalIgnoreCase) ? image.MachineName : $"{image.Arch} ({image.MachineName})";
+
     /// <summary>What the image is, in one line: "EM_AARCH64 ELF64 shared object", "arm64 Mach-O MH_DYLIB (slice ...)", or the PE kind.</summary>
     public static string KindText(this INativeImage image) => image switch
     {

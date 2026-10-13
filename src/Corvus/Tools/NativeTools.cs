@@ -57,13 +57,43 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     [Description("Overview of a native image. PE: machine, kind, subsystem, base, entry point, timestamps, linker, sections (flags, entropy), packers, " +
                  "mitigations (ASLR, DEP, CFG, CET...), import / export counts, TLS callbacks, PDB identity, load config, version, manifest, rich " +
                  "header, checksum, overlay, signature, anything malformed. ELF: program headers, soname, build id, relocations, hardening. Mach-O: " +
-                 "slice, segments, libraries, fixups, code signature, entitlements, encryption. Go build info. Capabilities the static imports imply " +
-                 "(never the code index: list_functions has its statistics).")]
-    public Task<string> GetPeInfo(
+                 "slice, segments, libraries, fixups, code signature, entitlements, encryption. Go build info. Capabilities the imports imply. " +
+                 "view=code: code index statistics and late-bound imports.")]
+    public async Task<string> GetPeInfo(
         [Description(ImageDescription)] string image,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        CancellationToken cancellationToken = default) => OnImage(image, native =>
+        [Description("summary (default; never waits for the code index) or code (waits for it; adds modules loaded by name).")]
+        string? view = null,
+        CancellationToken cancellationToken = default)
+    {
+        bool codeView = view?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "summary" => false,
+            "code" => true,
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use summary or code"),
+        };
+        if (codeView)
+        {
+            if (code == null) throw new ToolError(ErrorCode.Unsupported, "view=code needs the code index, which this server does not run.", "use view=summary");
+            var loaded = await Task.Run(() => Targets.Native(workspace, image), cancellationToken);
+            var index = await code.Index(loaded, null, cancellationToken);
+            return await OnImage(image, native =>
+            {
+                var all = index.Support == CodeSupport.DeclaredFunctionsOnly ? Capabilities(native.Image) : Capabilities(native.Image, index, cancellationToken);
+                if (index.Support == CodeSupport.DeclaredFunctionsOnly)
+                    ToolOutput.Coverage("partial", $"instructions are not decoded for {native.Image.ArchName()}", "architecture-undecoded");
+                return ToolOutput.With(pager.Page(CodeView(native.Id, index, all, cancellationToken), offset, maxTokens), Summary(native) with
+                {
+                    Capabilities = all.Select(c => new CapabilityEntry(c.Group, c.Count, c.Apis)).ToList(),
+                    Code = index.Support == CodeSupport.DeclaredFunctionsOnly ? null : Overview(index),
+                });
+            }, cancellationToken);
+        }
+        return await OnImage(image, native => PeInfoSummary(native, offset, maxTokens), cancellationToken);
+    }
+
+    private string PeInfoSummary(LoadedNative native, int offset, int? maxTokens)
     {
         var capabilities = Capabilities(native.Image);
         var text = pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}",
@@ -72,7 +102,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         {
             Capabilities = capabilities.Select(c => new CapabilityEntry(c.Group, c.Count, c.Apis)).ToList(),
         });
-    }, cancellationToken);
+    }
 
     private static string PeInfo(LoadedNative native)
     {

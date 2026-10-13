@@ -542,6 +542,9 @@ public class CallArgumentTests(ITestOutputHelper output)
         var index = await service.Index(native, null, default);
         var set = CallAnalysis.For(index).DynamicImports();
         Assert.Contains("[dynamic: GetProcAddress at", await peTools.ListImports(kernel32, filter: set.Imports[0].Name, includeDynamic: true));
+        var codeView = await peTools.GetPeInfo(kernel32, view: "code");
+        Assert.Contains("Dynamic imports (GetProcAddress):", codeView);
+        if (set.Modules.Count > 0) Assert.Contains("Modules loaded or looked up by name: ", codeView);
         var called = set.Imports.FirstOrDefault(i => i.PointerCalls.Count > 0);
         if (called != null)
         {

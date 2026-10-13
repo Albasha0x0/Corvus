@@ -165,7 +165,7 @@
       }
     },
     "code": {
-      "description": "The code as the built-in index sees it; get_pe_info leaves it empty (list_functions has these statistics).",
+      "description": "The code as the built-in index sees it (view=code).",
       "type": "object",
       "properties": {
         "functions": {

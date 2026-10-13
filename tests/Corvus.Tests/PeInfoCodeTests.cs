@@ -26,13 +26,31 @@ public sealed class PeInfoCodeTests : IDisposable
         var beforeRecord = System.Text.Json.JsonSerializer.Serialize(collector.Value);
         Assert.Contains("Capabilities (from static imports):", before);
         Assert.Matches(@"  ui +1  MessageBox", before); // delay-loaded USER32!MessageBoxW
-        Assert.Contains("Code: list_functions gives the function statistics", before);
+        Assert.Contains("Code: view=code gives the function statistics", before);
 
         var native = workspace.Read(() => workspace.Natives[0]);
         await code.Index(native, null, default);
         collector = ToolOutput.Collect();
         Assert.Equal(before, await tools.GetPeInfo(native.Id));
         Assert.Equal(beforeRecord, System.Text.Json.JsonSerializer.Serialize(collector.Value));
+    }
+
+    [Fact]
+    public async Task View_code_waits_for_the_index_and_gives_its_statistics()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        using var workspace = new AssemblyWorkspace(options);
+        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
+        var tools = new NativeTools(workspace, new OutputPager(options), code);
+        var path = McpProtocolTests.NativeSample(_dir);
+        var collector = ToolOutput.Collect();
+        var text = await tools.GetPeInfo(path, view: "code");
+        Assert.Matches(@"Code: \d+ functions \(\d+ thunks, \d+ noreturn\), [\d,]+ instructions", text);
+        Assert.Contains("entry points: entry, 2 exports, 1 TLS callback", text);
+        Assert.Contains("Capabilities (from static and late-bound imports):", text);
+        var record = Assert.IsType<PeSummary>(collector.Value);
+        Assert.Equal(2, record.Code!.Exports);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.GetPeInfo(path, view: "all"))).Code);
     }
 
     [Fact]
