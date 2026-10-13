@@ -531,14 +531,15 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at any file or loaded assembly, without executing it: hashes, type, entropy; per managed assembly identity, signature (strong name, Authenticode), toolchain markers, features with ATT&CK techniques, extracted values and entry points. Containers (single-file bundles, packages, APKs, zips, Costura) are opened: the app's assembly in full, 7 more in brief. Also: NativeAOT recovery counts, ELF / Mach-O format, signature, Go build info, packers, protectors, Android package, SDKs, ABIs, components, Electron (versions, fuses, .asar integrity, webPreferences with file:line), and for a loaded native image triage (entry points, top functions, strings, import groups).
+First look at any file or loaded assembly, without executing it: type, hashes, signature, container wrapping (bundles, packages, APKs, zips, Costura are opened), its assemblies, highlights (toolchain markers, ATT&CK features, packers), entry points and typed value counts. view= gives the details: managed (identity, markers, features, values per assembly), native (ELF / Mach-O, packers, NativeAOT; a loaded image's triage), android, electron, go, all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | Any file (assembly, bundle, .nupkg, .apk, zip, .asar, native executable); pass this or assembly. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
+| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, electron, go, native, all. |
 
-Structured output: `file`, `container`, `assemblies`, `highlights`, `notes`, `nativeAot`, `nativeImage`, `packers`, `android`, `triage`, `electron`, `go`.
+Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`.
 
 ### survey_features
 

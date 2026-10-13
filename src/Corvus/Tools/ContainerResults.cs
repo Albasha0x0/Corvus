@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Services.Analysis;
@@ -45,8 +46,128 @@ public sealed record UnpackPage(string Source, string Container, string OutputDi
     public IReadOnlyList<string>? Notes { get; init; }
 }
 
+/// <summary>
+/// summarize_file: the overview (identity, hashes, signature, assemblies, highlights, entry points, value counts) and, for
+/// another view, its facts as detail (described in the guide topic containers).
+/// </summary>
+public sealed record FileSummaryRecord(string Path, long Size, string Type, string Sha256, string Container, string View, IReadOnlyList<string> Views)
+{
+    public string? Md5 { get; init; }
+    public string? Sha1 { get; init; }
+    public double Entropy { get; init; }
+    public string? Signature { get; init; }
+    public IReadOnlyList<AssemblyRow>? Assemblies { get; init; }
+    public IReadOnlyList<string>? Highlights { get; init; }
+    public int? HighlightTotal { get; init; }
+    public IReadOnlyList<string>? EntryPoints { get; init; }
+    public IReadOnlyDictionary<string, int>? Values { get; init; }
+    public JsonObject? Detail { get; init; }
+    public IReadOnlyList<string>? Notes { get; init; }
+}
+
+/// <summary>An assembly of the file in the overview; features counts its survey_features matches.</summary>
+public sealed record AssemblyRow(string Path, string Name, string Kind, string Architecture, int Features)
+{
+    public string? Version { get; init; }
+    public string? Framework { get; init; }
+    public bool? ReadyToRun { get; init; }
+    public string? Merged { get; init; }
+}
+
 internal static class ContainerText
 {
+    private const int MaxHighlights = 25, MaxEntryPoints = 10, MaxNotes = 12;
+
+    /// <summary>The views of a summary: overview, managed (with assemblies), each provider view that applies, all.</summary>
+    public static IReadOnlyList<string> ViewsOf(InspectionService.FileSummary s, bool triage) =>
+        ["overview", .. s.Assemblies.Count > 0 ? ["managed"] : Array.Empty<string>(), .. s.Views.Keys.Union(triage ? ["native"] : []).Order(StringComparer.Ordinal), "all"];
+
+    public static FileSummaryRecord Summary(InspectionService.FileSummary s, string view)
+    {
+        var views = ViewsOf(s, s.Triage != null);
+        var name = view.Trim().ToLowerInvariant();
+        if (!views.Contains(name))
+            throw new ToolError(ErrorCode.InvalidArgument, $"view '{view}' does not apply to this file.", $"pass view as one of {string.Join(", ", views)}");
+        var record = new FileSummaryRecord(s.File.Path, s.File.Size, s.File.Type, s.File.Sha256, s.Container, name, views);
+        if (name != "overview") return record with { Detail = Detail(s, name), Notes = s.Notes.Count > 0 ? s.Notes : null };
+        var main = s.Assemblies.FirstOrDefault();
+        var highlights = s.Highlights.Take(MaxHighlights).ToList();
+        return record with
+        {
+            Md5 = s.File.Md5, Sha1 = s.File.Sha1, Entropy = s.File.Entropy,
+            Signature = SignatureLine(s.File.Certificate),
+            Assemblies = s.Assemblies.Count > 0 ? s.Assemblies.Select(a => new AssemblyRow(a.Path, a.Identity.Name, a.Identity.Kind, a.Identity.Architecture, a.Features.Count)
+            {
+                Version = a.Identity.Version, Framework = a.Identity.TargetFramework, ReadyToRun = a.Identity.ReadyToRun ? true : null, Merged = a.Identity.Merged,
+            }).ToList() : null,
+            Highlights = highlights.Count > 0 ? highlights : null,
+            HighlightTotal = s.Highlights.Count > highlights.Count ? s.Highlights.Count : null,
+            EntryPoints = main?.EntryPoints.Count > 0 ? main.EntryPoints.Take(MaxEntryPoints).Select(e => $"{e.Kind}: {e.Member}").ToList() : null,
+            Values = main?.Values.ByType.Count > 0 ? main.Values.ByType : null,
+            Notes = s.Notes.Count > 0 ? [.. s.Notes.Take(MaxNotes), .. s.Notes.Count > MaxNotes ? [$"{s.Notes.Count - MaxNotes} more notes: view=all."] : Array.Empty<string>()] : null,
+        };
+    }
+
+    private static JsonObject Detail(InspectionService.FileSummary s, string view)
+    {
+        JsonNode? Of(object? value) => value == null ? null : ToolOutput.Serialize(value);
+        JsonNode? Native()
+        {
+            var facts = Of(s.Views.GetValueOrDefault("native")?.Detail) as JsonObject ?? [];
+            if (s.Triage != null) facts["triage"] = Of(s.Triage); // a loaded image's code index
+            return facts;
+        }
+        JsonNode? One(string name) => name switch
+        {
+            "managed" => new JsonObject { ["file"] = Of(s.File), ["assemblies"] = Of(s.Assemblies) },
+            "native" => Native(),
+            _ => Of(s.Views.GetValueOrDefault(name)?.Detail),
+        };
+        if (view != "all") return One(view) as JsonObject ?? [];
+        var all = new JsonObject();
+        foreach (var v in ViewsOf(s, s.Triage != null).Where(v => v is not ("overview" or "all"))) all[v] = One(v);
+        all["highlights"] = Of(s.Highlights);
+        return all;
+    }
+
+    private static string? SignatureLine(CertificateInfo c) =>
+        !c.Present ? null
+        : c.Problem != null ? $"unreadable: {c.Problem}"
+        : $"{c.Signer}; digest {(c.DigestMatches == false ? "does not match (modified after signing)" : "matches")}; " +
+          $"signature {(c.SignatureValid == false ? "does not verify" : "verifies")}{(c.Chain != null ? "; " + c.Chain : "")}";
+
+    public static string Summary(FileSummaryRecord r)
+    {
+        var sb = new StringBuilder($"{Escape(Path.GetFileName(r.Path))}: {r.Type}, {r.Size:N0} bytes, {r.Container}");
+        if (r.View == "overview")
+        {
+            sb.Append($", entropy {r.Entropy:0.00}\n{r.Path}\nsha256 {r.Sha256}\nsha1 {r.Sha1}  md5 {r.Md5}\n");
+            sb.Append("Signature: ").Append(r.Signature != null ? Escape(r.Signature) : "none").Append('\n');
+            if (r.Assemblies is { } assemblies)
+            {
+                sb.Append($"Assemblies ({assemblies.Count}, the first in full in view=managed):\n");
+                foreach (var a in assemblies)
+                    sb.Append($"  {Escape(a.Name)} {a.Version} {a.Kind}, {a.Framework ?? "no target framework"}, {a.Architecture}" +
+                              $"{(a.ReadyToRun == true ? ", ReadyToRun" : "")}{(a.Merged != null ? ", " + Escape(a.Merged) : "")}, {a.Features} feature(s) [{Escape(a.Path)}]\n");
+            }
+            if (r.Highlights is { } highlights)
+            {
+                sb.Append(r.HighlightTotal is { } total ? $"Highlights ({highlights.Count} of {total}; view=all lists all):\n" : "Highlights:\n");
+                foreach (var h in highlights) sb.Append("  - ").Append(Escape(h)).Append('\n');
+            }
+            if (r.EntryPoints is { } entries) sb.Append("Entry points: ").Append(Escape(string.Join("; ", entries))).Append('\n');
+            if (r.Values is { } values) sb.Append("Typed values: ").Append(string.Join(", ", values.Select(v => $"{v.Value} {v.Key}"))).Append(" (extract_strings lists them)\n");
+        }
+        else
+        {
+            sb.Append($"; view {r.View}\n");
+            if (r.Detail is { } detail) sb.Append(RecordText.Render(detail, null));
+        }
+        sb.Append("Views: ").Append(string.Join(", ", r.Views)).Append('\n');
+        foreach (var n in r.Notes ?? []) sb.Append("Note: ").Append(Escape(n)).Append('\n');
+        return sb.ToString();
+    }
+
     public static string Unpack(UnpackService.UnpackReport r, int offset, int limit)
     {
         int written = r.Files.Count(f => f.Extracted != false);

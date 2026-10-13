@@ -103,7 +103,7 @@ public class NativeSurveyTests(ITestOutputHelper output)
         var image = native.Image;
         string Va(uint rva) => $"0x{image.ImageBase + rva:X}";
 
-        var t = (await tools.SummarizeFile(assembly: native.Id)).Triage!;
+        var t = (await Triage(tools, assembly: native.Id))!;
         Assert.Equal(t.Named + t.Unnamed, t.Functions);
         Assert.True(t.Named >= 2);
         // every entry point at its own address; ordinals only as a separate field
@@ -119,9 +119,18 @@ public class NativeSurveyTests(ITestOutputHelper output)
         Assert.Contains(t.TopStrings, s => s.Text == "L\"config.ini\"");
 
         // by path too, when that file is loaded; an unloaded native path stays a plain summary
-        Assert.NotNull((await tools.SummarizeFile(path: path)).Triage);
-        Assert.Null((await tools.SummarizeFile(path: McpProtocolTests.NativeSample(dir))).Triage);
+        Assert.NotNull(await Triage(tools, path: path));
+        Assert.Null(await Triage(tools, path: McpProtocolTests.NativeSample(dir)));
         Assert.Equal("thunk", NativeTriageBuilder.Role(new Corvus.Native.Code.NativeFunction { Size = 6 }, 1));
+    }
+
+    /// <summary>The triage in summarize_file view=native, or null when the view has none.</summary>
+    private static async Task<NativeTriage?> Triage(Corvus.Tools.InspectionTools tools, string? path = null, string? assembly = null)
+    {
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.SummarizeFile(path: path, assembly: assembly, view: "all");
+        var record = Assert.IsType<Corvus.Tools.FileSummaryRecord>(collector.Value);
+        return record.Detail?["native"]?["triage"] is { } t ? System.Text.Json.JsonSerializer.Deserialize<NativeTriage>(t, Corvus.Mcp.ToolOutput.Json) : null;
     }
 
     /// <summary>Native PE files: every System32 / SysWOW64 file in a fixed sample and the first Program Files binaries.</summary>

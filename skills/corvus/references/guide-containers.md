@@ -5,6 +5,12 @@
 Files, containers and wrapped apps (nothing is executed).
 summarize_file reports signature, markers, container wrapping, features, typed strings and entry points of a file in one call;
 survey_features, extract_strings and extract_embedded give the details.
+summarize_file views: overview (default: identity, hashes, signature, assemblies, highlights, entry points, typed value counts);
+managed (detail.file and detail.assemblies: identity, signature, markers, wrapping, features, values, entry points; the first
+assembly in full, the others in brief); native (detail.image for ELF / Mach-O, detail.packers, detail.nativeAot, detail.triage
+for a loaded image: entry points, top functions and strings, import groups); android (manifest, runtimes, ABIs, DEX, signature);
+electron (versions, fuses, archive integrity, webPreferences); go (toolchain, modules, build settings); all (every view).
+The record's views lists the views that apply to the file.
 An app wrapped in a container (single-file .exe, Costura, .nupkg, Xamarin/MAUI .apk): list_assemblies with path shows the
 assemblies inside, search_container finds types/members in them by name (kind=file: inner file names and paths), and
 unpack_container extracts and loads them.

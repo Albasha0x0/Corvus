@@ -26,6 +26,10 @@ public static partial class ParameterDomains
     {
         ["search_container"] = new Dictionary<string, Domain> { ["kind"] = Of([.. Services.Analysis.UnpackService.SearchKinds], "any") },
         ["extract_strings"] = new Dictionary<string, Domain> { ["types"] = Of([.. Services.Analysis.Values.Types]) },
+        ["summarize_file"] = new Dictionary<string, Domain>
+        {
+            ["view"] = Of(["overview", "managed", .. Core.Providers.Of<Services.Analysis.IFileSummaryView>().Select(v => v.Name).Order(StringComparer.Ordinal), "all"]),
+        },
     };
 }
 

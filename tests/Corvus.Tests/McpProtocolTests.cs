@@ -476,7 +476,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         public async Task RecordTextIsNotEscaped()
         {
             // Record-only tools: the text block is the record's JSON, written with the tool serializer options.
-            var text = await Call("summarize_file", new() { ["assembly"] = "TestFixture" });
+            var text = await Call("summarize_file", new() { ["assembly"] = "TestFixture", ["view"] = "managed" });
             Assert.Contains("Singleton`1", text);
             foreach (var escape in new[] { "\\u0060", "\\u003C", "\\u003E", "\\u0026", "\\u0027" })
                 Assert.DoesNotContain(escape, text, StringComparison.OrdinalIgnoreCase);

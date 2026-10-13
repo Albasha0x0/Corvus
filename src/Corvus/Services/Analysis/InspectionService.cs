@@ -68,6 +68,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         /// <summary>Set for a Go program: toolchain, main package and module, dependencies (first 64) and build settings.</summary>
         public GoBuildFacts? Go { get; init; }
+
+        /// <summary>The views that apply to the file (<see cref="IFileSummaryView"/>), by name; the typed properties above are the built-in ones.</summary>
+        [JsonIgnore] public IReadOnlyDictionary<string, FileView> Views { get; init; } = new Dictionary<string, FileView>();
     }
 
     public sealed record GoBuildFacts(string GoVersion, string? Path, Native.Go.GoModule? Main, int DependencyTotal, IReadOnlyList<Native.Go.GoModule> Dependencies,
@@ -350,22 +353,26 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var fileHighlights = new List<string>();
         if (facts.Certificate is { Present: true } fileSig) fileHighlights.AddRange(SignatureHighlights(fileSig, "the file"));
         if (UnityLayout.FileHint(full, bytes) is { } layout) fileHighlights.Add(layout);
-        var native = NativeImageFacts.Of(full, bytes);
-        if (native != null) fileHighlights.AddRange(native.Value.Highlights);
-        var packers = Native.PackerDetection.OfFile(full, bytes);
-        foreach (var p in packers)
-            fileHighlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
-        var android = Blob.Identify(bytes) == "zip" ? Mobile.AndroidPackageService.Facts(full, bytes, ct) : null;
-        if (android != null) fileHighlights.AddRange(android.Highlights);
-        var electron = ElectronInspector.Of(full, bytes, ct);
-        if (electron != null) fileHighlights.AddRange(electron.Highlights());
-        var go = GoBuildFacts.Of(full, bytes);
-        if (go != null) fileHighlights.Add(go.Highlight());
+        var viewNotes = new List<string>();
+        var views = Views(new FileInput(full, bytes, facts.Type), viewNotes, ct);
+        foreach (var v in views.Values) fileHighlights.AddRange(v.Highlights);
+        FileSummary WithViews(FileSummary s)
+        {
+            var native = views.GetValueOrDefault("native")?.Detail as NativeFileView.Facts;
+            return s with
+            {
+                NativeImage = native?.Image, Packers = native?.Packers, NativeAot = native?.NativeAot,
+                Android = views.GetValueOrDefault("android")?.Detail as Mobile.AndroidPackageFacts,
+                Electron = views.GetValueOrDefault("electron")?.Detail as ElectronFacts,
+                Go = views.GetValueOrDefault("go")?.Detail as GoBuildFacts,
+                Views = views,
+            };
+        }
         (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) managed;
         try { managed = UnpackService.Managed(full, Limits, ct); }
         catch (ToolError ex)
         {
-            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]) { NativeImage = native?.Facts, Android = android, Packers = packers.Count > 0 ? packers : null, Electron = electron, Go = go };
+            return WithViews(new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message, .. viewNotes]));
         }
         var reportNotes = new List<string>(managed.Notes);
         reportNotes.AddRange(MappingNotes(bytes));
@@ -415,23 +422,27 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var highlights = new List<string>(fileHighlights);
         foreach (var (assemblyPath, list) in found)
             highlights.AddRange(found.Count == 1 ? list : list.Select(h => $"[{assemblyPath}] {h}"));
-        return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes)
-        {
-            NativeAot = NativeAotFacts(bytes, ct), NativeImage = native?.Facts, Android = android, Packers = packers.Count > 0 ? packers : null,
-            Electron = electron, Go = go,
-        };
+        reportNotes.AddRange(viewNotes);
+        return WithViews(new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes));
     }
 
-    private static NativeAotSummary? NativeAotFacts(byte[] bytes, CancellationToken ct)
+    /// <summary>Every <see cref="IFileSummaryView"/> that applies to the file, by name; a view that fails is a note.</summary>
+    private static Dictionary<string, FileView> Views(FileInput file, List<string> notes, CancellationToken ct)
     {
-        var kind = Blob.Identify(bytes);
-        if (kind is not ("NativeAOT executable" or "elf" or "mach-o")) return null;
-        try
+        var views = new Dictionary<string, FileView>(StringComparer.Ordinal);
+        foreach (var provider in Providers.Of<IFileSummaryView>())
         {
-            var image = Native.NativeImageLoader.FromBytes(bytes);
-            return kind == "NativeAOT executable" || NativeAotLocator.HasMarkers(image) ? NativeAotImage.Open(image, ct)?.Summary() : null;
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                if (provider.Inspect(file, ct) is { } view) views[provider.Name] = view;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                notes.Add($"The {provider.Name} view could not read the file: {ex.Message}");
+            }
         }
-        catch (ToolError) { return null; }
+        return views;
     }
 
     private static IEnumerable<string> MappingNotes(byte[] bytes) =>

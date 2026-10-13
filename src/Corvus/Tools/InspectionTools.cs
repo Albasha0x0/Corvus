@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Mcp;
@@ -13,24 +15,31 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     private const string AssemblyParam = "A loaded assembly; pass this or path.";
     private const string PathParam = "A .NET assembly file to analyze without loading it; pass this or assembly.";
 
-    [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true)]
-    [Description("First look at any file or loaded assembly, without executing it: hashes, type, entropy; per managed assembly identity, signature " +
-                 "(strong name, Authenticode), toolchain markers, features with ATT&CK techniques, extracted values and entry points. Containers " +
-                 "(single-file bundles, packages, APKs, zips, Costura) are opened: the app's assembly in full, 7 more in brief. Also: NativeAOT " +
-                 "recovery counts, ELF / Mach-O format, signature, Go build info, packers, protectors, Android package, SDKs, ABIs, components, " +
-                 "Electron (versions, fuses, .asar integrity, webPreferences with file:line), and for a loaded native image triage (entry points, " +
-                 "top functions, strings, import groups).")]
-    public async Task<InspectionService.FileSummary> SummarizeFile(
+    [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
+    [Description("First look at any file or loaded assembly, without executing it: type, hashes, signature, container wrapping (bundles, packages, APKs, " +
+                 "zips, Costura are opened), its assemblies, highlights (toolchain markers, ATT&CK features, packers), entry points and typed value counts. " +
+                 "view= gives the details: managed (identity, markers, features, values per assembly), native (ELF / Mach-O, packers, NativeAOT; " +
+                 "a loaded image's triage), android, electron, go, all; views lists those that apply.")]
+    public Task<string> SummarizeFile(
         [Description("Any file (assembly, bundle, .nupkg, .apk, zip, .asar, native executable); pass this or assembly.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
-        CancellationToken cancellationToken = default)
-    {
-        var native = NativeNamed(assembly, path);
-        if (native == null || code == null) return await Task.Run(() => inspection.Summarize(assembly, path, cancellationToken), cancellationToken);
-        var index = await code.Index(native, null, cancellationToken);
-        var summary = await Task.Run(() => inspection.Summarize(null, native.FilePath, cancellationToken), cancellationToken);
-        return summary with { Triage = await Task.Run(() => NativeTriageBuilder.Build(index, cancellationToken), cancellationToken) };
-    }
+        [Description("overview (default) or a view the overview lists.")] string view = "overview",
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+        {
+            var native = NativeNamed(assembly, path);
+            InspectionService.FileSummary summary;
+            if (native == null || code == null) summary = await Task.Run(() => inspection.Summarize(assembly, path, cancellationToken), cancellationToken);
+            else
+            {
+                var index = await code.Index(native, new Progress<Corvus.Native.Code.CodeIndexProgress>(p => progress.Report(new ProgressNotificationValue
+                    { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), cancellationToken);
+                summary = await Task.Run(() => inspection.Summarize(null, native.FilePath, cancellationToken), cancellationToken);
+                summary = summary with { Triage = await Task.Run(() => NativeTriageBuilder.Build(index, cancellationToken), cancellationToken) };
+            }
+            var record = ContainerText.Summary(summary, string.IsNullOrWhiteSpace(view) ? "overview" : view);
+            return ToolOutput.Report(ContainerText.Summary(record), record);
+        });
 
     /// <summary>The loaded native image an argument names (a managed assembly of that name wins), or null.</summary>
     private LoadedNative? NativeNamed(string? assembly, string? path)

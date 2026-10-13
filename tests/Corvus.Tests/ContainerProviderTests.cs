@@ -122,6 +122,49 @@ public sealed class ContainerProviderTests : IDisposable
         Assert.Equal("lib/net8.0/Fixture.dll", Assert.Single(byKind.Items).Path);
     }
 
+    /// <summary>A view for files that start with "FAKEPACK".</summary>
+    internal sealed class FakePackView : IFileSummaryView
+    {
+        public string Name => "fakepack";
+
+        public FileView? Inspect(FileInput file, CancellationToken ct) =>
+            file.Bytes.AsSpan().StartsWith(FakePackReader.Magic) ? new FileView(new { entries = 1, magic = "FAKEPACK" }, ["A fakepack archive."]) : null;
+    }
+
+    [Fact]
+    public async Task SummaryViewsFromProvidersAndTheOverview()
+    {
+        var file = _dir.File("app.fake");
+        File.WriteAllBytes(file, FakePackReader.Pack("Fixture.dll", File.ReadAllBytes(Env.FixturePath)));
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_workspace), _workspace);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await tools.SummarizeFile(path: Env.FixturePath);
+        var overview = Assert.IsType<Corvus.Tools.FileSummaryRecord>(collector.Value);
+        Assert.Equal(["overview", "managed", "all"], overview.Views);
+        Assert.Equal("TestFixture", Assert.Single(overview.Assemblies!).Name);
+        Assert.Null(overview.Detail);
+        Assert.DoesNotContain("{\"", text);
+        Assert.Contains("Views: overview, managed, all", text);
+
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.SummarizeFile(path: Env.FixturePath, view: "managed");
+        var managed = Assert.IsType<Corvus.Tools.FileSummaryRecord>(collector.Value);
+        Assert.Equal("TestFixture", (string?)managed.Detail!["assemblies"]![0]!["identity"]!["name"]);
+        var bad = await Assert.ThrowsAsync<ToolError>(() => tools.SummarizeFile(path: Env.FixturePath, view: "android"));
+        Assert.Equal("pass view as one of overview, managed, all", bad.Remediation);
+
+        using var _ = Providers.With(new FakePackView());
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.SummarizeFile(path: file);
+        var fake = Assert.IsType<Corvus.Tools.FileSummaryRecord>(collector.Value);
+        Assert.Contains("fakepack", fake.Views);
+        Assert.Contains("A fakepack archive.", fake.Highlights!);
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        text = await tools.SummarizeFile(path: file, view: "fakepack");
+        Assert.Equal("FAKEPACK", (string?)Assert.IsType<Corvus.Tools.FileSummaryRecord>(collector.Value).Detail!["magic"]);
+        Assert.Contains("magic: FAKEPACK", text);
+    }
+
     [Fact]
     public void SurveyRuleProvidersAddRulesAndFeatureKinds()
     {
