@@ -126,11 +126,12 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         sb.AppendLine($"Mitigations: on: {(on.Count > 0 ? string.Join(", ", on) : "none")}; off: {(off.Count > 0 ? string.Join(", ", off) : "none")}" + (pe.Mitigations.NoSeh ? "; no SEH" : ""));
 
         sb.AppendLine($"Sections ({pe.Sections.Count}):");
-        foreach (var layout in pe.SectionLayouts)
+        var entropy = Summary(native).Sections.Select(x => x.Entropy).ToList(); // computed once per image
+        foreach (var (layout, e) in pe.SectionLayouts.Zip(entropy))
         {
             var s = layout.Section;
             sb.AppendLine($"  {s.Name,-8} rva 0x{s.Rva:X8} vsize 0x{s.VirtualSize:X8} raw 0x{s.RawOffset:X8}+0x{s.RawSize:X} " +
-                          $"{Access(s.Access)} entropy {Entropy(pe, layout):0.00}" + (layout.CharacteristicNames.Count > 0 ? $"  [{string.Join(", ", layout.CharacteristicNames)}]" : ""));
+                          $"{Access(s.Access)} entropy {e:0.00}" + (layout.CharacteristicNames.Count > 0 ? $"  [{string.Join(", ", layout.CharacteristicNames)}]" : ""));
         }
 
         PackerLines(sb, pe, pe.FileBytes.Span);
@@ -218,7 +219,12 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     /// <summary>get_pe_info's facts as fields.</summary>
-    private static PeSummary Summary(LoadedNative native)
+    /// <summary>get_pe_info's record, computed once per loaded image (section entropy reads every byte of the file).</summary>
+    private static PeSummary Summary(LoadedNative native) => native.GetAnalysis(n => new SummaryCache(ComputeSummary(n))).Value;
+
+    private sealed record SummaryCache(PeSummary Value);
+
+    private static PeSummary ComputeSummary(LoadedNative native)
     {
         if (native.Pe == null) return FormatSummary(native);
         var pe = native.RequirePe("get_pe_info");

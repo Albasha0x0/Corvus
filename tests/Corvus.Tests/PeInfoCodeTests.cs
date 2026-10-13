@@ -33,6 +33,8 @@ public sealed class PeInfoCodeTests : IDisposable
         collector = ToolOutput.Collect();
         Assert.Equal(before, await tools.GetPeInfo(native.Id));
         Assert.Equal(beforeRecord, System.Text.Json.JsonSerializer.Serialize(collector.Value));
+        // the record (section entropy reads the whole file) is computed once per image
+        Assert.Contains(native.Analysis.Keys, t => t.Name == "SummaryCache");
     }
 
     [Fact]
