@@ -147,9 +147,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var v = (variable ?? "").Trim();
         int offset = frame.Members.FirstOrDefault(m => m.Name == v) is { } byName ? byName.Offset
             : NativeAddress.Number(v.TrimStart('+')) is { } n && n <= int.MaxValue ? (int)n
-            : throw new ToolError(ErrorCode.InvalidArgument, $"The frame of {frame.Name} has no member '{v}'.",
-                frame.Members.Count == 0 ? $"the frame has no members; pass a frame offset such as 0x{Math.Max(0, frame.ReturnAddressOffset - 8):X} (get_native_frame shows the frame)"
-                    : $"members: {string.Join(", ", frame.Members.Select(m => m.Name).Take(40))}; or pass a frame offset such as 0x{frame.Members[0].Offset:X}");
+            : throw MissingMember(frame, v);
         var edit = new NativeStackVarEdit(frame.StartRva, offset, name, decl) { Delete = delete, Clear = clear };
         var (result, id) = await Apply(native, session, "set_native_stack_var", new NativeUserTypeBatch([], [], [edit], []),
             (r, layer) => r.Items is not [{ Applied: true } item] ? null
@@ -162,6 +160,13 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             : $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}{(done.Resolved != null ? $" (was {done.Resolved})" : "")} is now: {done.Text}", id, change);
         }, cancellationToken);
     });
+
+    /// <summary>A stack member the frame does not have, with a Next naming members or a valid offset (never an empty list).</summary>
+    internal static ToolError MissingMember(NativeFrame frame, string member) =>
+        new(ErrorCode.InvalidArgument, $"The frame of {frame.Name} has no member '{member}'.",
+            frame.Members.Count == 0
+                ? $"the frame has no members; pass a frame offset such as 0x{Math.Max(0, frame.ReturnAddressOffset - 8):X} (get_native_frame shows the frame)"
+                : $"members: {string.Join(", ", frame.Members.Select(m => m.Name).Take(40))}; or pass a frame offset such as 0x{frame.Members[0].Offset:X}");
 
     /// <summary>Runs <paramref name="edit"/>, with the function's pseudocode after it (or before and after) when <paramref name="show"/> asks.</summary>
     private static async Task<string> WithDecompile(string? show, INativeDecompilerSession session, uint rva, Func<Task<string>> edit, CancellationToken ct)
