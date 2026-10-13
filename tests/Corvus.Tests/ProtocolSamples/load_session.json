@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "Session <fixtures>/samples/setup.session.json, targetBuild=same: already_loaded 2, would_apply 1\nNote: items on files that are not loaded yet report would_apply without checking them\nNothing changed (dry run); pass dryRun=false to apply.\n3 items (showing 1-3):\n  file     TestFixture  already_loaded (same_build), 1: TestFixture\n  file     edit.dll  already_loaded (same_build), 1: edit.dll\n  notes    *  would_apply (import), 2: 2 note(s)\n[End: 3 items]\n"
+    "Session <fixtures>/samples/setup.session.json, targetBuild=same: already_loaded 2\nNote: items on files that are not loaded yet report would_apply without checking them\nNothing changed (dry run); pass dryRun=false to apply.\n2 items (showing 1-2):\n  file     TestFixture  already_loaded (same_build), 1: TestFixture\n  file     edit.dll  already_loaded (same_build), 1: edit.dll\n[End: 2 items]\n"
   ],
   "structuredContent": {
     "path": "<fixtures>/samples/setup.session.json",
@@ -15,14 +15,10 @@
       {
         "outcome": "already_loaded",
         "count": 2
-      },
-      {
-        "outcome": "would_apply",
-        "count": 1
       }
     ],
     "offset": 0,
-    "total": 3,
+    "total": 2,
     "items": [
       {
         "kind": "file",
@@ -39,14 +35,6 @@
         "reason": "same_build",
         "count": 1,
         "detail": "edit.dll"
-      },
-      {
-        "kind": "notes",
-        "id": "*",
-        "outcome": "would_apply",
-        "reason": "import",
-        "count": 2,
-        "detail": "2 note(s)"
       }
     ],
     "notes": [

@@ -79,7 +79,7 @@ public partial class ProtocolSampleTests
         ["unload_assembly"] = new() { ["assembly"] = "loaded.dll" },
         ["read_result"] = new() { ["id"] = "$kept" },
         ["save_assembly"] = new() { ["assembly"] = "TestFixture", ["outputPath"] = In + "saved.dll" },
-        ["save_session"] = new() { ["outputPath"] = In + "work.session.json" },
+        ["save_session"] = new() { ["outputPath"] = In + "work.session.json", ["include"] = SessionParts },
         ["load_session"] = new() { ["path"] = In + "setup.session.json" },
         ["record_note"] = new() { ["text"] = "the first export returns at once", ["anchor"] = "edit.dll@First", ["tags"] = new[] { "flow" } },
         ["update_note"] = new() { ["id"] = "$note", ["expectedRevision"] = 1, ["status"] = "answered", ["appendText"] = "It does." },
@@ -223,7 +223,7 @@ public partial class ProtocolSampleTests
     private static partial Regex Volatile();
 
     /// <summary>Tools whose written file holds the machine's image path, so its size differs per checkout.</summary>
-    private static readonly HashSet<string> PathSized = ["export_native_patches"];
+    private static readonly HashSet<string> PathSized = ["export_native_patches", "export_native_annotations"];
 
     /// <summary>The written file's size in the text (", 642 bytes;") and the record ("bytes":642).</summary>
     [GeneratedRegex(@"(, )\d+(?= bytes;)|(""bytes"":\s*)\d+")]
@@ -233,7 +233,10 @@ public partial class ProtocolSampleTests
     [GeneratedRegex(@"(entropy |""entropy"":\s*)\d+(\.\d+)?")]
     private static partial Regex Entropy();
 
-    /// <summary>A note's random id (NotesService.NewId) and its creation and update times.</summary>
+    [GeneratedRegex(@"(\d[\d,]*) chars\b|(""totalChars"":\s*)\d+")]
+    private static partial Regex KeptChars();
+
+    /// <summary>A note's random id (NotesService.NewId); times of notes and kept edit scripts.</summary>
     [GeneratedRegex(@"\bn[a-z2-7]{8}\b")]
     private static partial Regex NoteId();
 
@@ -260,10 +263,14 @@ public partial class ProtocolSampleTests
         // Separators inside a fixture path are '/' on every OS (JSON text escapes a backslash as two).
         text = (json ? FixturePathJson() : FixturePath()).Replace(text, m => Backslashes().Replace(m.Value, "/"));
         text = Entropy().Replace(text, m => m.Groups[1].Value[0] == '"' ? m.Groups[1].Value + "\"<entropy>\"" : m.Groups[1].Value + "<entropy>");
-        if (tool is "record_note" or "update_note" or "list_notes")
+        if (tool is "record_note" or "update_note" or "list_notes" or "read_result")
             text = Timestamp().Replace(NoteId().Replace(text, "<note>"), "<time>");
         if (PathSized.Contains(tool))
             text = WrittenBytes().Replace(text, m => m.Groups[1].Success ? m.Groups[1].Value + "<bytes>" : m.Groups[2].Value + "\"<bytes>\"");
+        // A kept text has the OS's line ends, so its length differs per OS.
+        if (tool == "read_result")
+            text = KeptChars().Replace(text, m => m.Groups[1].Success ? "<chars> chars" : m.Groups[2].Value + "\"<chars>\"");
+        if (json) text = text.Replace(@"\r\n", @"\n");
         return Volatile().Replace(text, "<id>").ReplaceLineEndings("\n");
     }
 }

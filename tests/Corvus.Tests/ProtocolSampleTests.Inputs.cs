@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Corvus.Native.Annotations;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -62,14 +63,20 @@ public partial class ProtocolSampleTests
         await CallAsync(client, "load_assembly", new() { ["path"] = In + "edit.dll" });
         var note = await CallAsync(client, "record_note", new() { ["text"] = "checks the license", ["anchor"] = "edit.dll", ["kind"] = "question" });
         values["note"] = note.StructuredContent!.Value.GetProperty("id").GetString()!;
-        var compared = await CallAsync(client, "compare_assemblies", new() { ["oldAssembly"] = In + "v1.dll", ["newAssembly"] = In + "v2.dll", ["tokenMap"] = true });
-        values["kept"] = compared.StructuredContent!.Value.GetProperty("tokenMapResultId").GetString()!;
-        foreach (var (tool, args) in Unload) await CallAsync(client, tool, args);
-        foreach (var (tool, args) in (IEnumerable<(string, Dictionary<string, object?>)>)[.. Edited, ExportScript, .. Discard])
-            await CallAsync(client, tool, args);
-        await CallAsync(client, "save_session", new() { ["outputPath"] = In + "setup.session.json" });
+        foreach (var (tool, args) in (IEnumerable<(string, Dictionary<string, object?>)>)[.. Edited, ExportScript]) await CallAsync(client, tool, args);
+        // The discarded edits' script is kept (no machine path in it, unlike a token map).
+        var (revert, revertArgs) = Discard[0];
+        values["kept"] = KeptId().Match(Text(await CallAsync(client, revert, revertArgs))).Value;
+        await CallAsync(client, Discard[1].Item1, Discard[1].Item2);
+        await CallAsync(client, "save_session", new() { ["outputPath"] = In + "setup.session.json", ["include"] = SessionParts });
         return values;
     }
+
+    /// <summary>Not notes: other tests leave notes on TestFixture's MVID in the shared data folder.</summary>
+    internal const string SessionParts = "edits,patches,annotations";
+
+    [GeneratedRegex("r-[0-9a-f]{12}")]
+    private static partial Regex KeptId();
 
     /// <summary>v1 loaded with one applied edit; samples on edit scripts work on it, so TestFixture's edit history stays empty.</summary>
     private static readonly (string, Dictionary<string, object?>)[] Edited =

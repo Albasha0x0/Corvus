@@ -1,11 +1,12 @@
 {
   "tool": "save_session",
   "arguments": {
-    "outputPath": "samples/work.session.json"
+    "outputPath": "samples/work.session.json",
+    "include": "edits,patches,annotations"
   },
   "isError": false,
   "content": [
-    "Saved the session to <fixtures>/samples/work.session.json: 9 files, 0 edits in 0 assemblies, 1 patch in 1 image, 1 name, 1 comment, 3 notes. load_session path=<fixtures>/samples/work.session.json restores it."
+    "Saved the session to <fixtures>/samples/work.session.json: 9 files, 0 edits in 0 assemblies, 1 patch in 1 image, 1 name, 1 comment, 0 notes. load_session path=<fixtures>/samples/work.session.json restores it."
   ],
   "structuredContent": {
     "outputPath": "<fixtures>/samples/work.session.json",
@@ -16,6 +17,6 @@
     "patches": 1,
     "names": 1,
     "comments": 1,
-    "notes": 3
+    "notes": 0
   }
 }
