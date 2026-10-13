@@ -643,12 +643,12 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void ReportOfManyMethodsEndsWithTotals()
+    public void ReportOfManyMethodsStartsWithTotals()
     {
         using var env = new Env(FlatFixture());
         var report = Simplify(env, "Flat.Steps", Options("cfg"), dryRun: true);
-        Assert.EndsWith("Totals: 1 of 2 method(s) changed; 1 dispatcher(s) normalized (5 transition(s)), 3 unreachable block(s) removed. " +
-                        "Fallbacks: flattened-shape 1.", report);
+        Assert.Equal("Totals: 1 of 2 method(s) changed; 1 dispatcher(s) normalized (5 transition(s)), 3 unreachable block(s) removed. " +
+                     "Fallbacks: flattened-shape 1.", report.Split('\n')[1]); // after the header line
         Assert.DoesNotContain("Totals:", Simplify(env, "Flat.Steps::Run", Options("cfg"), dryRun: true));
     }
 

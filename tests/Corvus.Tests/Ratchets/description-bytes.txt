@@ -14,7 +14,6 @@ load_pdb
 make_code_pattern
 native_call_tree
 resolve_call_targets
-simplify_methods
 summarize_file
 trace_native_values
 update_to_new_build

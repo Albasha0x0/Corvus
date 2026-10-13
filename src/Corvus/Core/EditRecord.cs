@@ -13,4 +13,7 @@ public sealed record EditRecord(string Kind, IReadOnlyDictionary<string, string?
 
     /// <summary>Read from a script whose labels predate generic arity (Method<T>(...)); see <see cref="SymbolResolver.Resolve"/>.</summary>
     public bool LegacyLabels { get; init; }
+
+    /// <summary>The edit's number in its assembly (its <see cref="EditId"/>): given once, kept when other edits are undone; 0 until recorded.</summary>
+    public int Number { get; init; }
 }

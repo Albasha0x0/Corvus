@@ -66,8 +66,8 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         if (asm.Edits.Count == 0)
             return $"{asm.Id} has no unsaved edits.";
         var sb = new StringBuilder($"{asm.Id}: {asm.Edits.Count} edit(s), in order (undo_edit takes the number):\n");
-        for (int i = 0; i < asm.Edits.Count; i++)
-            sb.AppendLine($"  #{i + 1}  {asm.Edits[i].Kind,-20} {asm.Edits[i].Description}");
+        foreach (var e in asm.Edits)
+            sb.AppendLine($"  #{e.Number}  {e.Kind,-20} {e.Description}");
         return sb.ToString();
     }
 
@@ -85,12 +85,18 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
 
     public static Script? Deserialize(JsonElement json) => json.Deserialize<Script>(Json);
 
-    public string Export(LoadedAssembly asm, string path, bool overwrite = false)
+    public string Export(LoadedAssembly asm, string path, bool overwrite = false) => Export(asm, path, overwrite, out _);
+
+    /// <summary>What export_edits wrote: the file and the build it is bound to.</summary>
+    public sealed record ExportedEdits(string OutputPath, int Edits, string? Sha256, string? Mvid, string? Identity);
+
+    public string Export(LoadedAssembly asm, string path, bool overwrite, out ExportedEdits exported)
     {
         if (asm.Edits.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"{asm.Id} has no edits to export.");
         var script = BuildScript(asm);
         var full = SafeFile.WriteAllText(path, Serialize(script), overwrite);
+        exported = new ExportedEdits(full, script.Edits.Count, script.Sha256, script.Mvid, script.Identity);
         return $"Exported {script.Edits.Count} edit(s) of {asm.Id} to {full}.\n" +
                $"Bound to the build: sha256 {script.Sha256}, MVID {script.Mvid ?? "(none)"}, {script.Identity}. " +
                "apply_edits refuses other builds unless targetBuild=other.";
@@ -115,10 +121,30 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     /// A script bound to a build (SHA-256) is refused on any other file unless <paramref name="target"/> is Other.
     /// </summary>
     public string Apply(string path, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct, TargetBuild target = TargetBuild.Same) =>
-        Apply(ReadScript(path), Path.GetFileName(path), assembly, dryRun, stopOnError, ct, target).Report;
+        Run(path, assembly, dryRun, stopOnError, ct, target).Report;
+
+    /// <summary><see cref="Apply(string, string?, bool, bool, CancellationToken, TargetBuild)"/> with each edit's outcome.</summary>
+    public ApplyOutcome Run(string path, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct, TargetBuild target = TargetBuild.Same) =>
+        Run(ReadScript(path), Path.GetFileName(path), assembly, dryRun, stopOnError, ct, target);
 
     /// <summary><see cref="Apply(string, string?, bool, bool, CancellationToken, TargetBuild)"/> of a script read elsewhere (<paramref name="name"/> labels it).</summary>
     public (string Report, int Applied, int Failed) Apply(Script script, string name, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct,
+        TargetBuild target = TargetBuild.Same)
+    {
+        var outcome = Run(script, name, assembly, dryRun, stopOnError, ct, target);
+        return (outcome.Report, outcome.RolledBack ? 0 : outcome.Items.Count(i => i.Error == null), outcome.Failed);
+    }
+
+    /// <summary>One script edit's outcome. Basis: observed (recorded token, same build), derived (resolved by name), inferred (followed to a renamed counterpart).</summary>
+    public sealed record ApplyItem(int Index, string Description, string? EditId, string Basis, BatchError? Error, IReadOnlyList<string>? Remapped);
+
+    /// <summary>A script run: the report text, every edit's outcome, and whether a failure rolled everything back.</summary>
+    public sealed record ApplyOutcome(string Assembly, string Report, IReadOnlyList<ApplyItem> Items, bool RolledBack)
+    {
+        public int Failed => Items.Count(i => i.Error != null);
+    }
+
+    public ApplyOutcome Run(Script script, string name, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct,
         TargetBuild target = TargetBuild.Same)
     {
         var asm = workspace.Get(assembly ?? script.Assembly);
@@ -187,6 +213,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         var allRemapped = new List<string>();
         // A dry run applies every edit for real and then rolls back, so it reports exactly what a real run would.
         var before = asm.Edits.ToList();
+        var items = new List<ApplyItem>();
         int ok = 0, failed = 0;
         try
         {
@@ -196,10 +223,15 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                 try
                 {
                     remapped.Clear();
+                    int count = asm.Edits.Count;
                     edits.Apply(records[i], asm, sameImage, ct);
                     sb.AppendLine($"  #{i + 1} ok      {records[i].Description}");
                     foreach (var r in remapped) sb.AppendLine($"      target renamed in this build: {r}");
                     allRemapped.AddRange(remapped);
+                    // A dry run's numbers are rolled back with its edits.
+                    string? id = !dryRun && asm.Edits.Count > count ? new EditId(asm.Id, asm.Edits[^1].Number).ToString() : null;
+                    items.Add(new ApplyItem(i + 1, records[i].Description, id, sameImage ? "observed" : remapped.Count > 0 ? "inferred" : "derived", null,
+                        remapped.Count > 0 ? remapped.ToList() : null));
                     ok++;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -209,11 +241,13 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                     sb.AppendLine(Indent(FailureText(ex), "      "));
                     if (!sameImage && originalBuild == null && ex.Message.Contains("not found", StringComparison.Ordinal))
                         sb.AppendLine($"      (load the build the script was made from, MVID {script.Mvid}, to follow renamed targets)");
+                    items.Add(new ApplyItem(i + 1, records[i].Description, null, sameImage ? "observed" : "derived",
+                        ex is ToolError error ? BatchError.From(error, "apply_edits") : BatchError.Internal(ex), null));
                     if (stopOnError && !dryRun)
                     {
                         edits.Rebuild(asm, before, ct);
                         sb.AppendLine($"Stopped; {asm.Id} was rolled back to its state before the script. Fix the edit (or pass stopOnError=false to skip failures).");
-                        return (sb.ToString(), 0, failed);
+                        return new ApplyOutcome(asm.Id, sb.ToString(), items.Select(x => x with { EditId = null }).ToList(), RolledBack: true);
                     }
                 }
             }
@@ -230,7 +264,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         if (!sameImage)
             sb.AppendLine($"Cross-build: {ok} edit(s) resolved by name, {allRemapped.Count} target(s) followed to a renamed counterpart" +
                           (originalBuild == null ? " (the source build is not loaded, so renamed targets could not be followed)." : "."));
-        return (sb.ToString(), ok, failed);
+        return new ApplyOutcome(asm.Id, sb.ToString(), items, RolledBack: false);
     }
 
     private static string Short(string sha256) => sha256.Length > 16 ? sha256[..16] + "…" : sha256;
@@ -247,9 +281,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     {
         if (asm.Edits.Count == 0)
             return ($"{asm.Id} has no edits.", true);
-        var selected = number is { } n
-            ? (n >= 1 && n <= asm.Edits.Count ? [(n, asm.Edits[n - 1])] : throw new ToolError(ErrorCode.NotFound, $"Edit #{n} does not exist; {asm.Id} has {asm.Edits.Count} edit(s)."))
-            : asm.Edits.Select((e, i) => (i + 1, e)).ToList();
+        var selected = number != null ? [(number.Value, EditService.Find(asm, number))] : asm.Edits.Select(e => (e.Number, e)).ToList();
 
         var originalView = asm.GetOriginalView(workspace.DnlibContext);
         var sb = new StringBuilder();

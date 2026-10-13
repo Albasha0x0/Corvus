@@ -459,8 +459,9 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             extended.Select(e => $"{e.Type}: {e.Instructions:N0} instructions, " + (e.Completed ? "completed" : $"stopped: {e.Stop}")).ToList());
         if (changed.Count == 0 && bailouts.Count == 0 && skipped.Count == 0 && rejected.Count == 0)
             sb.Append($"\nNothing to simplify in {total} method(s){(dryRun ? "" : "; no edit recorded")}.");
+        // Totals first: a report past the budget keeps its head.
         else if (total > 1)
-            sb.Append("\n\n").Append(SimplifyTotals(changes, extended));
+            sb.Insert(0, "\n" + SimplifyTotals(changes, extended) + "\n");
         return sb.ToString();
     }
 
@@ -536,19 +537,27 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         _ => throw new ToolError(ErrorCode.MalformedInput, $"Unknown edit kind '{record.Kind}'."),
     };
 
-    /// <summary>Undoes one edit (1-based number; default the last) by rebuilding from the original image and replaying the others.</summary>
-    public string Undo(LoadedAssembly asm, int? number, CancellationToken ct)
+    /// <summary>The recorded edit with this number (its editId); the last when null.</summary>
+    public static EditRecord Find(LoadedAssembly asm, int? number)
     {
+        if (asm.Edits.Count == 0)
+            throw new ToolError(ErrorCode.NotFound, $"{asm.Id} has no unsaved edits.", $"list_edits assembly={asm.Id} lists them once there are some");
+        return number is not { } n ? asm.Edits[^1]
+            : asm.Edits.FirstOrDefault(e => e.Number == n)
+              ?? throw new ToolError(ErrorCode.NotFound, $"{asm.Id} has no edit #{n}; its edits are {string.Join(", ", asm.Edits.Select(e => "#" + e.Number))}.",
+                  $"list_edits assembly={asm.Id} shows each edit's number");
+    }
+
+    /// <summary>Undoes one edit (by number; default the last) by rebuilding from the original image and replaying the others, which keep their numbers.</summary>
+    public string Undo(LoadedAssembly asm, int? number, CancellationToken ct) => Undo(asm, number, ct, out _);
+
+    public string Undo(LoadedAssembly asm, int? number, CancellationToken ct, out EditRecord removed)
+    {
+        removed = Find(asm, number);
         var records = asm.Edits.ToList();
-        if (records.Count == 0)
-            throw new ToolError(ErrorCode.NotFound, $"{asm.Id} has no edits to undo.");
-        int index = (number ?? records.Count) - 1;
-        if (index < 0 || index >= records.Count)
-            throw new ToolError(ErrorCode.NotFound, $"Edit #{index + 1} does not exist; {asm.Id} has {records.Count} edit(s) (see list_edits).");
-        var removed = records[index];
-        records.RemoveAt(index);
+        records.Remove(removed);
         Rebuild(asm, records, ct);
-        return $"Undid #{index + 1} ({removed.Description}). {asm.Id} now has {records.Count} edit(s).";
+        return $"Undid #{removed.Number} ({removed.Description}). {asm.Id} now has {records.Count} edit(s).";
     }
 
     /// <summary>Discards all edits (back to the image the assembly was loaded from).</summary>
@@ -587,13 +596,14 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         {
             try
             {
+                int count = asm.Edits.Count;
                 Apply(records[i], asm, preferTokens: true, ct);
+                if (asm.Edits.Count > count) asm.Renumber(records[i].Number);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 asm.RestoreState(previousModule, previousEdits);
-                // Report the number list_edits showed before; undoing an earlier edit shifts later ones.
-                int number = previousEdits.IndexOf(records[i]) is >= 0 and var at ? at + 1 : i + 1;
+                int number = records[i].Number > 0 ? records[i].Number : i + 1;
                 var reason = ex.Message.TrimEnd().Replace("Nothing was changed.", "").TrimEnd();
                 throw new ToolError(ErrorCode.Conflict, $"Edit #{number} ({records[i].Description}) could not be re-applied: {reason}\nNothing was changed.");
             }
@@ -697,7 +707,12 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     /// could not be (and what is invalid in the original). <paramref name="strict"/>: refuse the save instead when
     /// anything would be written differently without an edit asking for it. Nothing is written when the save fails.
     /// </summary>
-    public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict = false)
+    public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict = false) => Save(asm, outputPath, overwrite, strict, out _);
+
+    /// <summary>What save_assembly wrote.</summary>
+    public sealed record SavedFile(string OutputPath, long Bytes, string Sha256, int Edits, string? Backup);
+
+    public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict, out SavedFile saved)
     {
         var (target, isOriginal) = SaveTarget.Resolve(string.IsNullOrWhiteSpace(outputPath)
             ? Path.Combine(Path.GetDirectoryName(asm.FilePath)!, Path.GetFileNameWithoutExtension(asm.FilePath) + ".patched" + Path.GetExtension(asm.FilePath))
@@ -723,6 +738,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         if (webcil) image = Webcil.FromPe(image);
         string? backup = isOriginal ? SaveTarget.Backup(target, asm.OriginalBytes) : null;
         SafeFile.WriteAllBytes(target, image, overwrite);
+        saved = new SavedFile(target, image.LongLength, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(image)), asm.Edits.Count, backup);
 
         var kept = asm.IsDirty ? "everything no edit touched is as in the original" : "no edits: the original bytes";
         return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s); {kept})." +

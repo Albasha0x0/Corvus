@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "properties": {
+    "outputPath": {
+      "type": "string"
+    },
+    "edits": {
+      "type": "integer"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "mvid": {
+      "type": "string"
+    },
+    "identity": {
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "outputPath",
+    "edits"
+  ]
+}

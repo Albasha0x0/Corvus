@@ -271,7 +271,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["add_types_csharp"] = (new() { ["assembly"] = "TestFixture", ["code"] = "namespace Mods { public static class M { public static int One() => 1; } }", ["dryRun"] = false }, "Mods.M"),
         ["list_edits"] = (new() { ["assembly"] = "TestFixture" }, "#5"),
         ["diff_edits"] = (new() { ["assembly"] = "TestFixture" }, "+public int Twice(int x)"),
-        ["export_edits"] = (new() { ["assembly"] = "TestFixture", ["path"] = dir.File("edits.json") }, "Exported 5 edit(s)"),
+        ["export_edits"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = dir.File("edits.json") }, "Exported 5 edit(s)"),
         ["undo_edit"] = (new() { ["assembly"] = "TestFixture" }, "Undid #5"),
         ["revert_edits"] = (new() { ["assembly"] = "TestFixture" }, "4 edit(s) discarded"),
         ["apply_edits"] = (new() { ["path"] = dir.File("edits.json"), ["dryRun"] = false }, "5 applied"),

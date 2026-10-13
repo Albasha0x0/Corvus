@@ -1,0 +1,70 @@
+{
+  "type": "object",
+  "properties": {
+    "applied": {
+      "type": "boolean"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "before": {
+            "type": "string"
+          },
+          "after": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "target"
+        ]
+      }
+    },
+    "editIds": {
+      "type": "array",
+      "items": {}
+    },
+    "failed": {
+      "type": "integer"
+    },
+    "items": {
+      "type": "array",
+      "items": {}
+    },
+    "resultId": {
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "applied",
+    "dryRun",
+    "changes",
+    "editIds"
+  ]
+}

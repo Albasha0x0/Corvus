@@ -23,7 +23,7 @@ it with the string it returns, then straightens the switch; the second `decompil
 {"tool": "rename_symbol", "args": {"symbol": "Notes.Strings::D", "newName": "Decode", "dryRun": false}}
 {"tool": "stub_method", "args": {"method": "Notes.LicenseCheck::Verify", "value": "true", "dryRun": false}}
 {"tool": "save_assembly", "args": {"assembly": "Notes", "outputPath": "samples/Notes/v1/bin/patched/Notes.dll", "overwrite": true}}
-{"tool": "export_edits", "args": {"assembly": "Notes", "path": "samples/Notes/v1/bin/patched/notes-v1.edits.json", "overwrite": true}}
+{"tool": "export_edits", "args": {"assembly": "Notes", "outputPath": "samples/Notes/v1/bin/patched/notes-v1.edits.json", "overwrite": true}}
 ```
 
 <!-- check: output -->
@@ -70,7 +70,7 @@ Notes.LicenseCheck::Verify(string)  [46 -> 24 instructions]
   folded Notes.Strings::D(string, int) -> "7F3A91C2" at IL_0051
   folded Notes.Strings::D(string, int) -> "license key rejected" at IL_006F
   collapsed 4 branch chain(s), normalized 1 switch dispatcher(s) (6 transition(s) go straight to their case), removed 5 unreachable block(s) (8 instructions)
-Unsaved edits in Notes: 1.
+Edit Notes#1. Unsaved edits in Notes: 1.
 === [4/8] decompile_member
 // [Notes]
 // Notes.LicenseCheck::Verify(string)  [token 0x06000022]
@@ -87,10 +87,10 @@ public static bool Verify(string key)
 }
 === [5/8] rename_symbol
 [Notes] rename method Notes.Strings::D(string, int) -> Decode
-Unsaved edits in Notes: 2.
+Edit Notes#2. Unsaved edits in Notes: 2.
 === [6/8] stub_method
 [Notes] stub Notes.LicenseCheck::Verify(string) => return true;
-Unsaved edits in Notes: 3.
+Edit Notes#3. Unsaved edits in Notes: 3.
 === [7/8] save_assembly
 Wrote samples/Notes/v1/bin/patched/Notes.dll (12,800 bytes, 3 edit(s); everything no edit touched is as in the original).
 === [8/8] export_edits

@@ -6,6 +6,9 @@ public static partial class Guide
         Editing and saving (in memory until saved; edit tools preview by default, dryRun=false applies).
         .NET: rename_symbol, rename_namespace, stub_method (always return X), patch_method_csharp (C# body; lambdas, async, LINQ),
         add_members_csharp, add_types_csharp, patch_method_il (prepend hooks, IL that C# cannot express).
+        patch_method_il lines: '[label:] opcode [operand]'; operands are numbers, "strings", labels, switch (L1, L2), arg / local
+        index or name, members ('Ns.Type::Method(int)') or tokens; '.local <type>' adds a local; get_il's header lines are ignored
+        and its /* token */ comments resolve operands exactly.
         simplify_methods cleans transformed code. fold: calls that compute a string from constant inputs (string decoders; char,
         array, StringBuilder, Encoding and Base64 helpers) run in a safe IL interpreter and become the literal; calls outside the
         safe subset (I/O, reflection, exceptions, instance objects, native code, mutable statics) are kept and reported. cfg: constant
@@ -14,7 +17,7 @@ public static partial class Guide
         dispatcher whose state differs between runs is kept (flattened-shape). inline: forwarders and static delegate fields (call
         proxies) call their real target when the field's initializer always sets the same one (else delegate-target). Every body is
         stack-verified or left unchanged, with a reason code (docs/simplify.md). decompile_member simplified=true previews it.
-        Review: list_edits, diff_edits; undo_edit, revert_edits. Carry edits: export_edits writes a script, apply_edits replays it
+        Review: list_edits, diff_edits; undo_edit (by the number of an editId <assembly>#<n>), revert_edits. Carry edits: export_edits writes a script, apply_edits replays it
         (tied to its build: another build needs targetBuild=other). Unsaved edits and patches are journaled; a
         file whose last session ended without saving gets a [workspace] notice naming the journal to replay.
         save_assembly writes a new file (never overwrites the original without overwrite=true; keeps a .bak; untouched parts are

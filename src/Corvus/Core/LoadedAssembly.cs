@@ -77,15 +77,32 @@ public sealed class LoadedAssembly : IDisposable
     /// <summary>Incremented on every module change; invalidates cached images and the decompiler view.</summary>
     public int Version { get; private set; }
 
-    internal void RecordEdit(EditRecord edit)
+    /// <summary>The number the last recorded edit got; numbers are never reused while the assembly is loaded.</summary>
+    private int _lastEditNumber;
+
+    /// <summary>Records an edit under the next number.</summary>
+    internal EditRecord RecordEdit(EditRecord edit)
     {
         using (AssemblyWorkspace.Lock(_sync))
         {
+            edit = edit with { Number = ++_lastEditNumber };
             Edits.Add(edit);
             Version++;
             // Renames and added types change the name lookup; toggling rebuilds dnlib's cache.
             Module.EnableTypeDefFindCache = false;
             Module.EnableTypeDefFindCache = true;
+            return edit;
+        }
+    }
+
+    /// <summary>Gives the last recorded edit <paramref name="number"/>: a replayed edit keeps the number it had.</summary>
+    internal void Renumber(int number)
+    {
+        using (AssemblyWorkspace.Lock(_sync))
+        {
+            if (number <= 0 || Edits.Count == 0) return;
+            Edits[^1] = Edits[^1] with { Number = number };
+            _lastEditNumber = Math.Max(_lastEditNumber, number);
         }
     }
 
