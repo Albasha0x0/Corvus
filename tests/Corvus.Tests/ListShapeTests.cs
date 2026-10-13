@@ -4,7 +4,7 @@ using Corvus.Mcp;
 
 namespace Corvus.Tests;
 
-/// <summary>S2.1 list shape over the catalog: a tool whose record has an items array pages by rows and says where to go on.</summary>
+/// <summary>S2.1 list shape over the catalog: a tool whose record has rows beside a total pages by rows and says where to go on.</summary>
 [Collection(InProcessCatalogCollection.Name)]
 public class ListShapeTests
 {
@@ -19,11 +19,11 @@ public class ListShapeTests
         var violations = new Dictionary<string, string>();
         foreach (var tool in Tools)
         {
-            if (tool["outputSchema"]?["properties"] is not JsonObject record || record["items"]?["type"] is not JsonValue t || (string?)t != "array") continue;
-            // an edit outcome's items are its failed batch items (S6.5), not a page of rows
-            if (ToolContract.Of((string)tool["name"]!).Output == OutputClass.Edit) continue;
+            // a list is a record the server pages as one: rows beside a total (an edit outcome's or a batch's items are not, S6.5)
+            if (tool["outputSchema"]?["properties"] is not JsonObject record || !ToolOutput.IsListSchema(record, (string)tool["name"]!)) continue;
             var input = tool["inputSchema"]!["properties"] as JsonObject ?? [];
-            var missing = RecordFields.Where(f => !record.ContainsKey(f)).Concat(InputFields.Where(f => !input.ContainsKey(f)).Select(f => "input " + f)).ToList();
+            // rows still under their family's name (ToolOutput.RowArrays) stand for items
+            var missing = RecordFields.Where(f => !record.ContainsKey(f) && !(f == "items" && ToolOutput.RowArrays.ContainsKey((string)tool["name"]!))).Concat(InputFields.Where(f => !input.ContainsKey(f)).Select(f => "input " + f)).ToList();
             if (missing.Count > 0) violations[(string)tool["name"]!] = "missing " + string.Join(", ", missing);
         }
         Ratchet.Check("list-shape", "a list tool takes offset and limit and returns items, offset, limit, total, totalExact, hasMore, nextOffset (S2.1)", violations);
