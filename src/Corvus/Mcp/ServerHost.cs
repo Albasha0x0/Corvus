@@ -138,6 +138,13 @@ public static class ServerHost
         return host;
     }
 
+    private static bool IsZip(string path)
+    {
+        Span<byte> head = stackalloc byte[4];
+        using var file = File.OpenRead(path);
+        return file.Read(head) == 4 && head.SequenceEqual("PK\x03\x04"u8);
+    }
+
     internal static void Preload(AssemblyWorkspace workspace, ILogger log, ServerOptions options)
     {
         foreach (var path in options.Preload)
@@ -151,7 +158,13 @@ public static class ServerHost
                 }
                 else
                 {
-                    workspace.LoadAny(path, null); // a native PE, ELF or Mach-O loads as a native image, as with load_assembly
+                    try { workspace.LoadAny(path, null); } // a native PE, ELF or Mach-O loads as a native image, as with load_assembly
+                    catch (ToolError) when (IsZip(path))
+                    {
+                        // A zip-family container (.vsix, .nupkg, .zip): its assemblies, as unpack_container loads them.
+                        var report = new UnpackService(workspace).Unpack(path, null, load: true, AnalysisLimits.Default, CancellationToken.None);
+                        log.LogInformation("Preloaded {Count} assemblies from {Container} ({Kind})", report.Files.Count(f => f.LoadedAs != null), path, report.Container);
+                    }
                 }
             }
             catch (Exception ex)

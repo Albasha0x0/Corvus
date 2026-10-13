@@ -25,6 +25,31 @@ public class ServerHostTests
         Assert.Single(workspace.Assemblies);
     }
 
+    /// <summary>--load of a container (.vsix here) loads the assemblies inside, as unpack_container does.</summary>
+    [Fact]
+    public void Preload_UnpacksAContainer()
+    {
+        using var dir = new TempDir();
+        var vsix = dir.File($"extension-{Guid.NewGuid():N}.vsix");
+        File.WriteAllBytes(vsix, ContainerFixtures.Zip(("extension.vsixmanifest", "<PackageManifest/>"u8.ToArray()), ("TestFixture.dll", File.ReadAllBytes(Env.FixturePath))));
+        var options = new ServerOptions();
+        options.Preload.Add(vsix);
+        using var workspace = new AssemblyWorkspace();
+        var output = Corvus.Services.Analysis.UnpackService.DefaultOutput(vsix, Blob.Sha256(File.ReadAllBytes(vsix)));
+        try
+        {
+            ServerHost.Preload(workspace, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, options);
+            Assert.Equal("TestFixture.dll", Path.GetFileName(Assert.Single(workspace.Assemblies).FilePath));
+        }
+        finally
+        {
+            workspace.Dispose();
+            if (Directory.Exists(output)) Directory.Delete(output, recursive: true);
+            try { Directory.Delete(Path.GetDirectoryName(output)!); }
+            catch (IOException) { /* another test's output is still there */ }
+        }
+    }
+
     [Fact]
     public async Task TheHandshakeName_SelectsTheClientProfile()
     {
