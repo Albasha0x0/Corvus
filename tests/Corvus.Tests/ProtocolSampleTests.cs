@@ -123,10 +123,10 @@ public partial class ProtocolSampleTests
         Assert.True(stale.Count == 0, "protocol samples changed (check the diff, then CORVUS_UPDATE_DOCS=1 records them): " + string.Join(", ", stale));
     }
 
-    [GeneratedRegex("[0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|r-[0-9a-f]{12}")]
+    [GeneratedRegex("[0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|r-[0-9a-f]{12}")]
     private static partial Regex Volatile();
 
-    /// <summary>Machine paths, hashes, GUIDs and result ids become labels.</summary>
+    /// <summary>Machine paths, hashes (a built fixture's MD5 differs per checkout), GUIDs and result ids become labels.</summary>
     private static string Normalize(string text)
     {
         foreach (var (path, label) in new[] { (Path.GetDirectoryName(Env.FixturePath)!, "<fixtures>"), (DocsTests.RepoRoot(), "<repo>") })
