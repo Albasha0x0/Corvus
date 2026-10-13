@@ -58,17 +58,16 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     };
 
     [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyComparison))]
-    [Description("Compare two builds of an assembly (load both; the second gets an id like Name#2): renamed / moved types and members (matched by content, " +
-                 "in tiers, only when unique on both sides; else ambiguous with candidates), added and removed ones, and how each matched member changed: " +
-                 "name, signature, body (normalized IL hash), metadata, field type, Il2Cpp field offset / address.")]
+    [Description("Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; " +
+                 "else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset).")]
     public Task<string> CompareAssemblies(
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
         [Description("Change kinds to list (unknown: unpaired for lack of evidence); default all except address.")] string[]? changes = null,
         [Description("List added and removed type names (else counts).")] bool listAddedRemovedTypes = true,
-        [Description("Also show compiler-generated types and members (closures, state machines, backing fields), which change with every recompile.")] bool includeCompilerGenerated = false,
-        [Description("Keep the whole token map (old -> new token, status, tier, confidence, body hash equality) as a result: tokenMapResultId.")] bool tokenMap = false,
+        [Description("Also list compiler-generated types and members (closures, state machines).")] bool includeCompilerGenerated = false,
+        [Description("Keep the whole old -> new token map as a result (tokenMapResultId).")] bool tokenMap = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Changes per page (default 100).")] int limit = 100,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -196,19 +195,18 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     public sealed record CounterpartList(BuildRef Old, BuildRef New, IReadOnlyList<CounterpartItem> Items, int Offset, int Total);
 
     [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build", UseStructuredContent = true, OutputSchemaType = typeof(CounterpartList))]
-    [Description("Where a type or member of the old build went in the new build: matched by name, then by content (only when unique on both sides; else candidates). " +
-                 "Shows the new name and token, tier and confidence, whether the body changed (normalized IL hash) and Il2Cpp offset / address changes. " +
-                 "diff=true adds a unified diff of the pair's C# (a type: of each changed, added or removed member), il=true of their normalized IL; " +
-                 "renames are rewritten first, so a pure rename is no change.")]
+    [Description("Where a type or member of the old build went in the new one (by name, then content, unique-only; else candidates): new name and token, " +
+                 "tier, confidence, body change. diff=true / il=true add unified diffs of the pair's C# / normalized IL with renames applied first.")]
     public Task<string> FindCounterpart(
         [Description("In the old build. " + SymbolDescription)] string? symbol,
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
-        [Description("Add a unified diff of the old and new decompiled C# of each matched pair (cut at " + DiffLinesText + " lines).")] bool diff = false,
-        [Description("Add a unified diff of the matched methods' normalized IL (docs/il-hash.md).")] bool il = false,
+        [Description("C# diff of each pair (cut at " + DiffLinesText + " lines).")] bool diff = false,
+        [Description("Normalized IL diff of each method pair.")] bool il = false,
         [Description("Instead of symbol: up to 100 symbols.")] string[]? symbols = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Symbols per page (default 25).")] int limit = 25,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => EditTools.WithProgress(context, () => Read(workspace, () =>
     {

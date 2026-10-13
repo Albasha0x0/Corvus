@@ -62,9 +62,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Replace a method's body with C# statements compiled against the assembly and its references (private / internal members accessible). " +
-                 "Methods, constructors and accessors; lambdas, LINQ, local functions, async and yield work. Compile errors give lines relative to your code. " +
-                 "Returns the decompiled result.")]
+    [Description("Replace a method's body (methods, constructors, accessors) with C# compiled against the assembly; private members accessible, " +
+                 "lambdas, LINQ, async and yield work. Errors name lines of your code.")]
     public Task<string> PatchMethodCSharp(
         [Description(SymbolDescription)] string method,
         [Description("The new body's statements only.")] string code,
@@ -82,8 +81,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "add_members_csharp", Title = "Add members to a type (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Add members written in C# to an existing class or struct: methods, fields, properties, events, constructors, nested types; " +
-                 "compiled against the assembly (private / internal members accessible). Field and property initializers are not supported (initialize from a method).")]
+    [Description("Add C# members (methods, fields, properties, events, constructors, nested types) to a class or struct; private members accessible. " +
+                 "No field or property initializers.")]
     public Task<string> AddMembersCSharp(
         [Description("The type to extend. " + SymbolDescription)] string type,
         [Description("C# member declarations.")] string code,
@@ -97,8 +96,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "add_types_csharp", Title = "Add new types (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Add classes, structs, interfaces, enums or delegates written in C# (with their namespace) to an assembly; they can use its private / internal types. " +
-                 "patch_method_csharp then calls into them from existing methods.")]
+    [Description("Add C# types (with their namespace) to an assembly; they can use its internal types, and patch_method_csharp can call them.")]
     public Task<string> AddTypesCSharp(
         [Description(AssemblyDescription)] string assembly,
         [Description("C# source declaring the new types.")] string code,
@@ -111,11 +109,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "list_edits", Title = "List unsaved edits", UseStructuredContent = true, OutputSchemaType = typeof(EditList))]
-    [Description("The unsaved edits of an assembly in order, each with its number (editId <assembly>#<number>, kept when other edits are undone) for undo_edit and diff_edits.")]
+    [Description("Unsaved edits of an assembly in order; each number (editId <assembly>#<n>) stays when other edits are undone.")]
     public Task<string> ListEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows (default 200).")] int limit = 200,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var asm = workspace.Get(assembly);
@@ -126,8 +125,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "undo_edit", Title = "Undo an edit", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Undo the last edit or any earlier one by number: the remaining edits are re-applied to the original image and keep their numbers; " +
-                 "if one depended on the undone edit, nothing changes and the conflict is reported.")]
+    [Description("Undo the last edit or one by number: the others are replayed on the original image; a conflict changes nothing.")]
     public Task<string> UndoEdit(
         [Description(AssemblyDescription)] string assembly,
         [Description("Edit number from list_edits (the #n of its editId); omit for the last.")] int? number = null,
@@ -141,7 +139,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "revert_edits", Title = "Discard all edits", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Discard every unsaved edit of an assembly. The discarded edits are kept as an edit script: read_result id=<resultId> outputPath=x.json, then apply_edits path=x.json restores them.")]
+    [Description("Discard every unsaved edit of an assembly; resultId keeps them as a script (read_result outputPath=x.json, apply_edits path=x.json).")]
     public Task<string> RevertEdits([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Write(workspace, () =>
         {
@@ -169,8 +167,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, cancellationToken);
 
     [McpServerTool(Name = "export_edits", Title = "Export edits as a script", UseStructuredContent = true, OutputSchemaType = typeof(EditHistoryService.ExportedEdits))]
-    [Description("Save an assembly's edits as a JSON edit script bound to its build (SHA-256, MVID, identity), for apply_edits on that build or, " +
-                 "with targetBuild=other, on another one.")]
+    [Description("Save an assembly's edits as a JSON script bound to its build (SHA-256, MVID) for apply_edits.")]
     public Task<string> ExportEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output .json path.")] string outputPath,
@@ -182,9 +179,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, cancellationToken);
 
     [McpServerTool(Name = "apply_edits", Title = "Apply an edit script", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Replay a JSON edit script (export_edits) onto an assembly, each edit with its outcome. On its own build recorded tokens are used; another build is " +
-                 "refused unless targetBuild=other, which re-resolves symbols by name (following renames when the source build is loaded) and lists what was remapped. " +
-                 "Scripts without a build binding apply with a warning.")]
+    [Description("Replay an export_edits script, each edit with its outcome. Another build needs targetBuild=other: symbols by name, renames followed when " +
+                 "the source build is loaded.")]
     public Task<string> ApplyEdits(
         [Description("The .json edit script.")] string path,
         [Description("Target assembly; omit for the one named in the script.")] string? assembly = null,
@@ -214,8 +210,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Rewrite a method body from IL text, in memory (stack-validated first). Easiest: edit get_il's lines and pass them back (operand syntax: guide edits topic). " +
-                 "mode=replace swaps the whole body (no try/catch); prepend inserts before the original code and can branch to its IL_xxxx labels.")]
+    [Description("Rewrite a method body from IL text (stack-validated): edit get_il's lines and pass them back (syntax: guide edits). " +
+                 "replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels.")]
     public Task<string> PatchMethodIL(
         [Description(SymbolDescription)] string method,
         [Description("IL instructions, one per line.")] string il,
@@ -229,11 +225,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Compiler-style cleanup of method bodies in memory, for transformed code. Passes: fold (string decoder calls with constant inputs run in a " +
-                 "safe IL interpreter and become literals), cfg (constant branches and switches, dead code, flattened control flow made sequential), " +
-                 "inline (forwarders and static delegate call proxies call their real target). Each body is stack-verified or left unchanged; " +
-                 "what is left alone has a reason code (docs/simplify.md). 5 s and 16 MB simulated memory per method. " +
-                 "decompile_member simplified=true previews one.")]
+    [Description("Clean transformed method bodies: fold (string decoders with constant inputs run in a safe IL interpreter), cfg (constant branches, " +
+                 "dead code, flattened control flow), inline (forwarders, delegate call proxies). Bodies are stack-verified; what is left has a reason " +
+                 "code (docs/simplify.md).")]
     public Task<string> SimplifyMethods(
         [Description("A method, or a type (nested types included). " + SymbolDescription + " Omit for the whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
@@ -241,7 +235,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Max evaluation call depth.")] int maxDepth = 8,
         [Description("Max IL instructions per evaluated call, nested calls included.")] int budget = 100_000,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
-        [Description("Evaluate machine reads (paths, environment, machine / user names) against fixed stand-ins (docs/simplify.md) so code using them folds.")]
+        [Description("Fold machine reads (paths, environment, names) against fixed stand-ins (docs/simplify.md).")]
         bool deterministicEnvironment = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
@@ -264,9 +258,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", UseStructuredContent = true, OutputSchemaType = typeof(EditService.SavedFile))]
-    [Description("Write an assembly with its edits to a new file, atomically. Overwriting needs overwrite=true; the original is first copied to '<file>.bak', " +
-                 "and one changed on disk since load is refused. Bodies and signatures no edit touched keep their original bytes; the result lists, with reason " +
-                 "codes (docs/saving.md), members 'Changed by the writer' without an edit asking for it and those 'Kept byte-for-byte although invalid in the original'.")]
+    [Description("Write an assembly with its edits to a new file, atomically (overwrite=true keeps a .bak; a file changed since load is refused). " +
+                 "Untouched bodies keep their bytes; members the writer changed are listed with reason codes (docs/saving.md).")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output file path; a .wasm path writes Webcil (Blazor). Omit for '<original>.patched.dll'.")] string? outputPath = null,

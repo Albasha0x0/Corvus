@@ -5,7 +5,6 @@ get_android_device_info
 get_native_frame
 get_native_type
 inspect_process
-list_edits
 list_exports
 list_native_types
 make_code_pattern
