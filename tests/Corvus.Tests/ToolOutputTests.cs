@@ -179,6 +179,25 @@ public class ToolOutputTests
         Assert.Matches($@"^Cut to fit: blocks \d+ of 3000 kept; read_result id={id} has the whole record$", Record(r).GetProperty("warnings")[0].GetString());
     }
 
+    /// <summary>N9: a 20,000-node record is cut to its budget in a few passes (one pass per dropped row took 87 s).</summary>
+    [Fact]
+    public async Task HugeRecordIsCutQuickly()
+    {
+        using var services = Services();
+        var nodes = Enumerable.Range(0, 20_000).Select(i => new { address = $"0x{i:X8}", name = $"sub_{i:X8}", depth = i % 7, callees = new[] { $"0x{i + 1:X8}", $"0x{i + 2:X8}" } }).ToList();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var r = await Call(services, "server_status", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.Report("tree", new { root = "f", frontier = nodes, other = nodes.Take(500).ToList() }) }],
+        }, new() { ["maxTokens"] = 2_000 });
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"cut took {watch.Elapsed.TotalSeconds:F1} s");
+        var record = Record(r);
+        Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1_000, 2_100);
+        int kept = record.GetProperty("frontier").GetArrayLength();
+        Assert.InRange(kept, 1, 19_999);
+        Assert.Contains($"frontier {kept} of 20000", record.GetProperty("warnings")[0].GetString());
+    }
+
     /// <summary>S2: a report record cut to its budget names every array that lost entries; the tool's own warnings stay first.</summary>
     [Fact]
     public async Task CutReportRecordNamesWhatItDropped()

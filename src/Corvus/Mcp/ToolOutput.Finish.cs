@@ -269,7 +269,7 @@ public static partial class ToolOutput
         var cut = new Dictionary<string, (int Kept, int Total)>(StringComparer.Ordinal);
         var warnings = record["warnings"] as JsonArray;
         int stated = warnings?.Count ?? 0;
-        while (!call.Fits(record.ToJsonString(Wire)) && TrimLargest(record, cut))
+        while (record.ToJsonString(Wire) is var json && !call.Fits(json) && TrimLargest(record, cut, Excess(call, json)))
         {
             warnings ??= (JsonArray)(record["warnings"] = new JsonArray());
             while (warnings.Count > stated) warnings.RemoveAt(warnings.Count - 1);
@@ -279,46 +279,105 @@ public static partial class ToolOutput
     }
 
     /// <summary>
-    /// Removes the last element of the record's largest array (counted in <paramref name="cut"/> by path), else shortens its
-    /// longest string; false when nothing is left to trim.
+    /// Characters to take off <paramref name="json"/> in one step: half the estimated excess (at least 1), so the cut nears the
+    /// budget in a few passes over the record instead of one pass per removed row (N9: 87 s for a 20,000-node frontier).
     /// </summary>
-    private static bool TrimLargest(JsonObject record, Dictionary<string, (int Kept, int Total)> cut)
+    private static int Excess(OutputCall call, string json)
     {
-        JsonNode? best = null, own = record["warnings"];
-        int size = 0;
-        void Visit(JsonNode? node)
+        double over = call.Tokens > 0 ? json.Length * (1 - call.Tokens / (double)Math.Max(1, TokenEstimate.Of(json))) : 0;
+        if (call.Chars is { } c) over = Math.Max(over, json.Length - c);
+        return (int)Math.Clamp(over / 2, 1, int.MaxValue);
+    }
+
+    /// <summary>
+    /// Takes about <paramref name="chars"/> characters off the record: the outermost arrays over a common level lose trailing
+    /// elements down to it (the largest at least one; each counted in <paramref name="cut"/> by path), or, when a string
+    /// over 200 characters is the largest part, that string is halved. False when nothing is left to trim.
+    /// </summary>
+    private static bool TrimLargest(JsonObject record, Dictionary<string, (int Kept, int Total)> cut, int chars)
+    {
+        var (best, arrays) = Parts(record, record["warnings"]);
+        if (best is JsonValue v)
+        {
+            var str = v.GetValue<string>();
+            v.ReplaceWith(str[..(str.Length / 2)] + "…");
+            return true;
+        }
+        if (arrays.Count == 0) return false;
+        // the level that leaves the arrays above it `chars` smaller in all
+        arrays.Sort((a, b) => b.Size.CompareTo(a.Size));
+        long sum = 0, level = 0;
+        for (int k = 0; k < arrays.Count; k++)
+        {
+            sum += arrays[k].Size;
+            level = Math.Max(0, (sum - chars) / (k + 1));
+            if (k + 1 == arrays.Count || level >= arrays[k + 1].Size) break;
+        }
+        bool first = true;
+        foreach (var (a, size) in arrays)
+        {
+            if (size <= level && !first) break;
+            var path = a.GetPath().TrimStart('$', '.');
+            int total = cut.TryGetValue(path, out var c) ? c.Total : a.Count;
+            int removed = 0, count = a.Count;
+            // an array's size is its elements plus a comma each
+            while (count > 0 && (first && removed == 0 || size - removed > level))
+            {
+                removed += (a[count - 1]?.ToJsonString(Json).Length ?? 4) + 1;
+                count--;
+            }
+            first = false;
+            if (count == a.Count) continue;
+            for (int i = a.Count - 1; i >= count; i--) a.RemoveAt(i);
+            cut[path] = (count, total);
+            foreach (var gone in cut.Keys.Where(k => Index(k, path) >= count).ToList()) cut.Remove(gone);
+        }
+        return true;
+
+        // the element index of a path below `prefix` ("prefix[3].x" -> 3), else -1
+        static int Index(string key, string prefix) =>
+            key.Length > prefix.Length + 1 && key.StartsWith(prefix, StringComparison.Ordinal) && key[prefix.Length] == '['
+            && key.IndexOf(']', prefix.Length) is var end and > 0 && int.TryParse(key.AsSpan(prefix.Length + 1, end - prefix.Length - 1), out var i) ? i : -1;
+    }
+
+    /// <summary>
+    /// In one bottom-up pass over serialized sizes: the largest part (a non-empty array or a string over 200 characters) and
+    /// the non-empty arrays not inside another array, leaving out <paramref name="own"/>.
+    /// </summary>
+    private static (JsonNode? Best, List<(JsonArray Array, long Size)> Arrays) Parts(JsonObject record, JsonNode? own)
+    {
+        JsonNode? best = null;
+        long largest = 0;
+        var arrays = new List<(JsonArray, long)>();
+        Measure(record, inArray: false);
+        return (best, arrays);
+
+        long Measure(JsonNode? node, bool inArray)
         {
             switch (node)
             {
-                case JsonArray a when a.Count > 0 && a != own:
-                    int s = a.ToJsonString(Json).Length;
-                    if (s > size) { size = s; best = a; }
-                    foreach (var child in a) Visit(child);
-                    break;
+                case null:
+                    return 4;
+                case JsonArray a:
+                    long s = 2 + Math.Max(0, a.Count - 1);
+                    foreach (var child in a) s += Measure(child, true);
+                    if (a.Count > 0 && a != own)
+                    {
+                        if (s > largest) { largest = s; best = a; }
+                        if (!inArray) arrays.Add((a, s));
+                    }
+                    return s;
                 case JsonObject o:
-                    foreach (var (_, child) in o) Visit(child);
-                    break;
-                case JsonValue v when v.GetValueKind() == JsonValueKind.String && v.GetValue<string>().Length > 200:
-                    int len = v.GetValue<string>().Length;
-                    if (len > size) { size = len; best = v; }
-                    break;
+                    long t = 2 + Math.Max(0, o.Count - 1);
+                    foreach (var (key, child) in o) t += key.Length + 3 + Measure(child, inArray);
+                    return t;
+                default:
+                    var v = (JsonValue)node;
+                    if (v.GetValueKind() != JsonValueKind.String) return v.ToJsonString(Json).Length;
+                    var str = v.GetValue<string>();
+                    if (str.Length > 200 && str.Length > largest) { largest = str.Length; best = v; }
+                    return str.Length + 2;
             }
-        }
-        Visit(record);
-        switch (best)
-        {
-            case JsonArray a:
-                var path = a.GetPath().TrimStart('$', '.');
-                a.RemoveAt(a.Count - 1);
-                cut[path] = (a.Count, cut.TryGetValue(path, out var c) ? c.Total : a.Count + 1);
-                foreach (var gone in cut.Keys.Where(k => k.StartsWith($"{path}[{a.Count}]", StringComparison.Ordinal)).ToList()) cut.Remove(gone);
-                return true;
-            case JsonValue v:
-                var str = v.GetValue<string>();
-                v.ReplaceWith(str[..(str.Length / 2)] + "…");
-                return true;
-            default:
-                return false;
         }
     }
 
