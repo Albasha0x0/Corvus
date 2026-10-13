@@ -18,7 +18,7 @@ namespace Corvus.Tools;
 public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, EditHistoryService history, DecompilerService decompiler, OutputPager pager,
     EditJournal? journal = null, ResultStore? results = null)
 {
-    [McpServerTool(Name = "rename_symbol", Title = "Rename symbol", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "rename_symbol", Title = "Rename symbol", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Rename a type, method, field, property (with its accessors) or event in memory. Other assemblies referencing the old name are not updated.")]
     public Task<string> RenameSymbol(
         [Description(SymbolDescription)] string symbol,
@@ -33,7 +33,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return Outcome(sym.Assembly, dryRun, () => edits.Rename(sym, newName, dryRun), _ => [new EditChange("rename", label, before, newName)]);
     }, cancellationToken);
 
-    [McpServerTool(Name = "rename_namespace", Title = "Rename namespace", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "rename_namespace", Title = "Rename namespace", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Move every type of a namespace (optionally its sub-namespaces) to a new namespace, in memory.")]
     public Task<string> RenameNamespace(
         [Description(AssemblyDescription)] string assembly,
@@ -48,7 +48,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             _ => [new EditChange("namespace", oldNamespace.Length == 0 ? "(global)" : oldNamespace, oldNamespace, newNamespace)]);
     }, cancellationToken);
 
-    [McpServerTool(Name = "stub_method", Title = "Stub method (return constant)", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "stub_method", Title = "Stub method (return constant)", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Replace a method's body with 'return <value>;' (or 'return;' for void) in memory: force a check to return true, disable a call.")]
     public Task<string> StubMethod(
         [Description(SymbolDescription)] string method,
@@ -61,7 +61,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return Outcome(sym.Assembly, dryRun, () => edits.StubMethod(sym, value, dryRun), _ => [new EditChange("body", sym.Label, After: $"return {value ?? "default"};")]);
     }, cancellationToken);
 
-    [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Replace a method's body (methods, constructors, accessors) with C# compiled against the assembly; private members accessible, " +
                  "lambdas, LINQ, async and yield work. Errors name lines of your code.")]
     public Task<string> PatchMethodCSharp(
@@ -80,7 +80,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, _ => [new EditChange("body", sym.Label)]);
     }, cancellationToken));
 
-    [McpServerTool(Name = "add_members_csharp", Title = "Add members to a type (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "add_members_csharp", Title = "Add members to a type (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Add C# members (methods, fields, properties, events, constructors, nested types) to a class or struct; private members accessible. " +
                  "No field or property initializers.")]
     public Task<string> AddMembersCSharp(
@@ -95,7 +95,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return Outcome(sym.Assembly, dryRun, () => edits.AddMembersCSharp(sym, code, dryRun, cancellationToken), Touched("member", sym.Label));
     }, cancellationToken));
 
-    [McpServerTool(Name = "add_types_csharp", Title = "Add new types (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "add_types_csharp", Title = "Add new types (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Add C# types (with their namespace) to an assembly; they can use its internal types, and patch_method_csharp can call them.")]
     public Task<string> AddTypesCSharp(
         [Description(AssemblyDescription)] string assembly,
@@ -118,13 +118,13 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var asm = workspace.Get(assembly);
-        var rows = asm.Edits.Select(e => new EditListItem(e.Number, new EditId(asm.Id, e.Number).ToString(), e.Kind, e.Description, e.Touched)).ToList();
+        var rows = asm.Edits.Select(e => new EditListItem(e.Number, new EditId(asm.Id, e.Number).ToString(), e.Kind, e.Description)).ToList();
         return ToolOutput.List(rows, offset, ClampLimit(limit), r => $"#{r.Number}  {r.Tool,-20} {r.Description}",
             page => new EditList(asm.Id, page, Math.Max(0, offset), rows.Count), "edit",
             rows.Count == 0 ? $"{asm.Id} has no unsaved edits.\n" : $"{asm.Id}, in order (undo_edit and diff_edits take the number):\n");
     }, cancellationToken);
 
-    [McpServerTool(Name = "undo_edit", Title = "Undo an edit", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "undo_edit", Title = "Undo an edit", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Undo the last edit or one by number: the others are replayed on the original image; a conflict changes nothing.")]
     public Task<string> UndoEdit(
         [Description(AssemblyDescription)] string assembly,
@@ -138,7 +138,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return ToolOutput.Edit(new EditOutcome(true, false, [new EditChange("undo", id.ToString(), removed.Description)], [id]), $"[{asm.Id}] {text}");
     }, cancellationToken));
 
-    [McpServerTool(Name = "revert_edits", Title = "Discard all edits", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "revert_edits", Title = "Discard all edits", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Discard every unsaved edit of an assembly; resultId keeps them as a script (read_result outputPath=x.json, apply_edits path=x.json).")]
     public Task<string> RevertEdits([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Write(workspace, () =>
@@ -209,7 +209,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, changes, ids) { Failed = run.Failed, Items = [.. run.Items] }, run.Report);
     }, cancellationToken));
 
-    [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Rewrite a method body from IL text (stack-validated): edit get_il's lines and pass them back (syntax: guide edits). " +
                  "replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels.")]
     public Task<string> PatchMethodIL(
@@ -224,7 +224,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return Outcome(sym.Assembly, dryRun, () => edits.PatchMethodIL(sym, il, mode, dryRun), _ => [new EditChange("body", sym.Label)]);
     }, cancellationToken);
 
-    [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Clean transformed method bodies: fold (string decoders with constant inputs run in a safe IL interpreter), cfg (constant branches, " +
                  "dead code, flattened control flow), inline (forwarders, delegate call proxies). Bodies are stack-verified; what is left has a reason " +
                  "code (docs/simplify.md).")]
@@ -303,7 +303,16 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         recorded.Count == 0 ? [new EditChange(kind, scope)] : recorded.SelectMany(e => e.Touched).Select(t => new EditChange(kind, t)).ToList();
 }
 
-/// <summary>One unsaved edit: its number, id, the tool that made it and the members it touched.</summary>
-public sealed record EditListItem(int Number, string EditId, string Tool, string Description, IReadOnlyList<string> Targets);
+/// <summary>One unsaved edit: its number, id and the tool that made it (diff_edits shows the members it touched).</summary>
+public sealed record EditListItem(int Number, string EditId, string Tool, string Description);
 
 public sealed record EditList(string Assembly, IReadOnlyList<EditListItem> Items, int Offset, int Total);
+
+/// <summary>
+/// The output schema of the single edits: the fields of <see cref="EditOutcome"/> a caller acts on (the record carries the
+/// rest); kept small because every tool's schema is sent in tools/list.
+/// </summary>
+public sealed record EditResult(bool Applied, bool DryRun, IReadOnlyList<EditResult.Change> Changes, IReadOnlyList<string> EditIds)
+{
+    public sealed record Change(string Kind, string Target);
+}

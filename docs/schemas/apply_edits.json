@@ -45,6 +45,12 @@
     "resultId": {
       "type": "string"
     },
+    "pushedTo": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "notices": {
       "type": "array",
       "items": {

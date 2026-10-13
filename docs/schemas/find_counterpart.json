@@ -2,50 +2,10 @@
   "type": "object",
   "properties": {
     "old": {
-      "type": "object",
-      "properties": {
-        "assembly": {
-          "type": "string"
-        },
-        "file": {
-          "type": "string"
-        },
-        "sha256": {
-          "type": "string"
-        },
-        "mvid": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "assembly",
-        "file",
-        "sha256",
-        "mvid"
-      ]
+      "type": "string"
     },
     "new": {
-      "type": "object",
-      "properties": {
-        "assembly": {
-          "type": "string"
-        },
-        "file": {
-          "type": "string"
-        },
-        "sha256": {
-          "type": "string"
-        },
-        "mvid": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "assembly",
-        "file",
-        "sha256",
-        "mvid"
-      ]
+      "type": "string"
     },
     "items": {
       "type": "array",

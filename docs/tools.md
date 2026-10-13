@@ -651,6 +651,8 @@ Rename a type, method, field, property (with its accessors) or event in memory. 
 | `kind` | string |  |  | Restrict symbol resolution to this kind. Values: type, method, field, property, event. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+
 ### rename_namespace
 
 **Rename namespace** (destructive)
@@ -665,6 +667,8 @@ Move every type of a namespace (optionally its sub-namespaces) to a new namespac
 | `includeSubNamespaces` | boolean |  | `false` | Also rewrite namespaces that start with oldNamespace + '.'. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+
 ### stub_method
 
 **Stub method (return constant)** (destructive)
@@ -678,11 +682,13 @@ Replace a method's body with 'return <value>;' (or 'return;' for void) in memory
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+
 ### patch_method_csharp
 
 **Replace method body with C#** (destructive, long-running)
 
-Replace a method's body with C# statements compiled against the assembly and its references (private / internal members accessible). Methods, constructors and accessors; lambdas, LINQ, local functions, async and yield work. Compile errors give lines relative to your code. Returns the decompiled result.
+Replace a method's body (methods, constructors, accessors) with C# compiled against the assembly; private members accessible, lambdas, LINQ, async and yield work. Errors name lines of your code.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -691,11 +697,13 @@ Replace a method's body with C# statements compiled against the assembly and its
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview the IL that would be written; pass dryRun=false to apply. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+
 ### patch_method_il
 
 **Rewrite method body in IL** (destructive)
 
-Rewrite a method body from IL text, in memory (stack-validated first). Easiest: edit get_il's lines and pass them back (header lines ignored; /* token */ comments resolve operands exactly). Lines: '[label:] opcode [operand]'; operands are numbers, "strings", labels, switch (L1, L2), arg / local index or name, members ('Ns.Type::Method(int)') or tokens; '.local <type>' adds a local. mode=replace swaps the whole body (no try/catch); prepend inserts before the original code and can branch to its IL_xxxx labels.
+Rewrite a method body from IL text (stack-validated): edit get_il's lines and pass them back (syntax: guide edits). replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -705,11 +713,13 @@ Rewrite a method body from IL text, in memory (stack-validated first). Easiest: 
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+
 ### add_members_csharp
 
 **Add members to a type (C#)** (edit, long-running)
 
-Add members written in C# to an existing class or struct: methods, fields, properties, events, constructors, nested types; compiled against the assembly (private / internal members accessible). Field and property initializers are not supported (initialize from a method).
+Add C# members (methods, fields, properties, events, constructors, nested types) to a class or struct; private members accessible. No field or property initializers.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -718,11 +728,13 @@ Add members written in C# to an existing class or struct: methods, fields, prope
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+
 ### add_types_csharp
 
 **Add new types (C#)** (edit, long-running)
 
-Add classes, structs, interfaces, enums or delegates written in C# (with their namespace) to an assembly; they can use its private / internal types. patch_method_csharp then calls into them from existing methods.
+Add C# types (with their namespace) to an assembly; they can use its internal types, and patch_method_csharp can call them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -730,11 +742,13 @@ Add classes, structs, interfaces, enums or delegates written in C# (with their n
 | `code` | string | yes |  | C# source declaring the new types. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+
 ### simplify_methods
 
 **Simplify method bodies** (destructive, long-running)
 
-Compiler-style cleanup of method bodies in memory, for transformed code. Passes: fold (string decoder calls with constant inputs run in a safe IL interpreter and become literals), cfg (constant branches and switches, dead code, flattened control flow made sequential), inline (forwarders and static delegate call proxies call their real target). Each body is stack-verified or left unchanged; everything left alone is reported with a reason code (guide edits topic, docs/simplify.md). 5 s and 16 MB simulated memory per method. Preview without editing: decompile_member simplified=true.
+Clean transformed method bodies: fold (string decoders with constant inputs run in a safe IL interpreter), cfg (constant branches, dead code, flattened control flow), inline (forwarders, delegate call proxies). Bodies are stack-verified; what is left has a reason code (docs/simplify.md).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -744,17 +758,24 @@ Compiler-style cleanup of method bodies in memory, for transformed code. Passes:
 | `maxDepth` | integer |  | `8` | Max evaluation call depth. |
 | `budget` | integer |  | `100000` | Max IL instructions per evaluated call, nested calls included. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
-| `deterministicEnvironment` | boolean |  | `false` | Evaluate machine reads (module path, directories, special folders, environment, machine / user names) against fixed stand-ins (docs/simplify.md), so code depending on them folds; results then hold for that environment. Without it they are reported (external-io). |
+| `deterministicEnvironment` | boolean |  | `false` | Fold machine reads (paths, environment, names) against fixed stand-ins (docs/simplify.md). |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
 
 ### list_edits
 
 **List unsaved edits** (read-only, idempotent)
 
-The unsaved edits of an assembly, numbered in order (for undo_edit and diff_edits).
+Unsaved edits of an assembly in order; each number (editId <assembly>#<n>) stays when other edits are undone.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `200` | Max rows (default 200). |
+| `maxTokens` | integer |  |  | Page size in tokens. |
+
+Structured output: `assembly`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### diff_edits
 
@@ -769,44 +790,52 @@ Unified diff of the decompiled C# of every member the edits touched (or one edit
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
+Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
+
 ### undo_edit
 
 **Undo an edit** (destructive, long-running)
 
-Undo the last edit or any earlier one by number: the remaining edits are re-applied to the original image; if one depended on the undone edit, nothing changes and the conflict is reported.
+Undo the last edit or one by number: the others are replayed on the original image; a conflict changes nothing.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
-| `number` | integer |  |  | Edit number from list_edits; omit for the last. |
+| `number` | integer |  |  | Edit number from list_edits (the #n of its editId); omit for the last. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
 
 ### revert_edits
 
 **Discard all edits** (destructive, idempotent)
 
-Discard every unsaved edit of an assembly (export_edits first keeps them as a script).
+Discard every unsaved edit of an assembly; resultId keeps them as a script (read_result outputPath=x.json, apply_edits path=x.json).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`.
 
 ### export_edits
 
 **Export edits as a script** (destructive, idempotent)
 
-Save an assembly's edits as a JSON edit script bound to its build (SHA-256, MVID, identity), for apply_edits on that build or, with targetBuild=other, on another one.
+Save an assembly's edits as a JSON script bound to its build (SHA-256, MVID) for apply_edits.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
-| `path` | string | yes |  | Output .json path. |
-| `overwrite` | boolean |  | `false` | Replace path if it exists. |
+| `outputPath` | string | yes |  | Output .json path. |
+| `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
+
+Structured output: `outputPath`, `edits`, `sha256`, `mvid`, `identity`.
 
 ### apply_edits
 
 **Apply an edit script** (destructive, long-running)
 
-Replay a JSON edit script (export_edits) onto an assembly; each edit reports ok/FAILED. On its own build recorded tokens are used; another build is refused unless targetBuild=other, which re-resolves symbols by name (following renames when the source build is loaded) and lists what was remapped. Scripts without a build binding apply with a warning.
+Replay an export_edits script, each edit with its outcome. Another build needs targetBuild=other: symbols by name, renames followed when the source build is loaded.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -816,11 +845,13 @@ Replay a JSON edit script (export_edits) onto an assembly; each edit reports ok/
 | `stopOnError` | boolean |  | `true` | Roll everything back on the first failure. |
 | `targetBuild` | string |  | `same` | same: only the script's build; other: another build, symbols re-resolved by name. Values: same, other. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+
 ### save_assembly
 
 **Save patched assembly** (destructive, idempotent)
 
-Write an assembly with its edits to a new file, atomically. Overwriting needs overwrite=true; the original is first copied to '<file>.bak', and one changed on disk since load is refused. Bodies and signatures no edit touched keep their original bytes; the result lists, with reason codes (docs/saving.md), members 'Changed by the writer' without an edit asking for it and those 'Kept byte-for-byte although invalid in the original'.
+Write an assembly with its edits to a new file, atomically (overwrite=true keeps a .bak; a file changed since load is refused). Untouched bodies keep their bytes; members the writer changed are listed with reason codes (docs/saving.md).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -828,6 +859,8 @@ Write an assembly with its edits to a new file, atomically. Overwriting needs ov
 | `outputPath` | string |  |  | Output file path; a .wasm path writes Webcil (Blazor). Omit for '<original>.patched.dll'. |
 | `overwrite` | boolean |  | `false` | Allow replacing an existing file. |
 | `strict` | boolean |  | `false` | Write nothing when any member would be changed by the writer (default: save and list them). |
+
+Structured output: `outputPath`, `bytes`, `sha256`, `edits`, `backup`.
 
 ## il2cpp
 
@@ -1672,45 +1705,50 @@ Build-to-build comparison and carrying work to a new build.
 
 ### compare_assemblies
 
-**Compare two builds** (destructive, idempotent, long-running)
+**Compare two builds** (read-only, idempotent, long-running)
 
-Compare two builds of an assembly (load both; the second gets an id like Name#2): renamed / moved types and members (matched by content, in tiers, only when unique on both sides; else ambiguous with candidates), added and removed ones, and how each matched member changed: name, signature, body (normalized IL hash), metadata, field type, Il2Cpp field offset / address.
+Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldAssembly` | string | yes |  | The old build (id, name or path). |
 | `newAssembly` | string | yes |  | The new build (id, name or path). |
 | `namespace` | string |  |  | Only types whose old or new full name starts with this. |
-| `changes` | string |  |  | Change kinds to list, comma-separated: renamed, moved, signature, body, metadata, type, offset, address, added, removed, ambiguous, unknown (unpaired for lack of evidence) or all; default all except address. |
+| `changes` | string[] |  |  | Change kinds to list (unknown: unpaired for lack of evidence); default all except address. |
 | `listAddedRemovedTypes` | boolean |  | `true` | List added and removed type names (else counts). |
-| `includeCompilerGenerated` | boolean |  | `false` | Also show compiler-generated types and members (closures, state machines, backing fields), which change with every recompile. |
-| `tokenMapPath` | string |  |  | Write the whole assembly's token map (old -> new token, status, tier, confidence, body hash equality) to this JSON file. |
-| `overwrite` | boolean |  | `false` | Replace an existing token map file. |
+| `includeCompilerGenerated` | boolean |  | `false` | Also list compiler-generated types and members (closures, state machines). |
+| `tokenMap` | boolean |  | `false` | Keep the whole old -> new token map as a result (tokenMapResultId). |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `200` | Changes per page (default 200). |
+| `limit` | integer |  | `100` | Changes per page (default 100). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `offset`, `total`, `tokenMapFile`, `tokenMapEntries`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `offset`, `total`, `tokenMapResultId`, `tokenMapEntries`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### find_counterpart
 
 **Find symbol in another build** (read-only, idempotent, long-running)
 
-Where a type or member of the old build went in the new build: matched by name, then by content (only when unique on both sides; else candidates). Shows the new name and token, tier and confidence, whether the body changed (normalized IL hash) and Il2Cpp offset / address changes. diff=true adds a unified diff of the pair's C# (a type: of each changed, added or removed member), il=true of their normalized IL; renames are rewritten first, so a pure rename is no change.
+Where a type or member of the old build went in the new one (by name, then content, unique-only; else candidates): new name and token, tier, confidence, body change. diff=true / il=true add unified diffs of the pair's C# / normalized IL with renames applied first.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | In the old build. Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `oldAssembly` | string | yes |  | The old build (id, name or path). |
 | `newAssembly` | string | yes |  | The new build (id, name or path). |
-| `diff` | boolean |  | `false` | Add a unified diff of the old and new decompiled C# of each matched pair (cut at 300 lines). |
-| `il` | boolean |  | `false` | Add a unified diff of the matched methods' normalized IL (docs/il-hash.md). |
+| `diff` | boolean |  | `false` | C# diff of each pair (cut at 300 lines). |
+| `il` | boolean |  | `false` | Normalized IL diff of each method pair. |
+| `symbols` | string[] |  |  | Instead of symbol: up to 100 symbols. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `25` | Symbols per page (default 25). |
+| `maxTokens` | integer |  |  | Page size in tokens. |
+
+Structured output: `old`, `new`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### compare_folders
 
 **Compare two folders or packages** (read-only, idempotent, long-running)
 
-Two folders, zip-family archives (by central-directory CRC) or files, per entry: modified, added, removed, moved, case-only renames, links (not followed), unreadable files; an incomplete side is never called unchanged. Changed binaries: MVID, version, machine, timestamp, next call; text: a diff.
+Compare two folders, zip-family archives or files per entry: modified, added, removed, moved, case-only renames, links, unreadable; changed binaries with MVID and version, text with a diff.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

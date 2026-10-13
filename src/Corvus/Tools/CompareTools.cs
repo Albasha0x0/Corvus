@@ -192,7 +192,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [property: Description("Change kinds of a matched member.")] IReadOnlyList<string>? Changes,
         [property: Description("Methods: whether the normalized IL hash differs; absent when not comparable.")] bool? BodyChanged);
 
-    public sealed record CounterpartList(BuildRef Old, BuildRef New, IReadOnlyList<CounterpartItem> Items, int Offset, int Total);
+    /// <summary>Old and New are the builds' ids (the text names their files and hashes).</summary>
+    public sealed record CounterpartList(string Old, string New, IReadOnlyList<CounterpartItem> Items, int Offset, int Total);
 
     [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build", UseStructuredContent = true, OutputSchemaType = typeof(CounterpartList))]
     [Description("Where a type or member of the old build went in the new one (by name, then content, unique-only; else candidates): new name and token, " +
@@ -226,7 +227,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         Renames? renames = null;
         var rows = page.Select(sym => Counterpart(sym)).ToList();
         return ToolOutput.List(rows, offset, ClampLimit(limit, 100), all.Count, r => r.Text,
-            items => new CounterpartList(BuildRef.Of(oldAsm), BuildRef.Of(newAsm), items.Select(r => r.Item).ToList(), Math.Max(0, offset), all.Count),
+            items => new CounterpartList(oldAsm.Id, newAsm.Id, items.Select(r => r.Item).ToList(), Math.Max(0, offset), all.Count),
             "symbol", head.ToString());
 
         (CounterpartItem Item, string Text) Counterpart(ResolvedSymbol sym)

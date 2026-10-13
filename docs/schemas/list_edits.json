@@ -20,20 +20,13 @@
           },
           "description": {
             "type": "string"
-          },
-          "targets": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         },
         "required": [
           "number",
           "editId",
           "tool",
-          "description",
-          "targets"
+          "description"
         ]
       }
     },

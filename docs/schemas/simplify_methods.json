@@ -17,12 +17,6 @@
           },
           "target": {
             "type": "string"
-          },
-          "before": {
-            "type": "string"
-          },
-          "after": {
-            "type": "string"
           }
         },
         "required": [
@@ -33,17 +27,9 @@
     },
     "editIds": {
       "type": "array",
-      "items": {}
-    },
-    "failed": {
-      "type": "integer"
-    },
-    "items": {
-      "type": "array",
-      "items": {}
-    },
-    "resultId": {
-      "type": "string"
+      "items": {
+        "type": "string"
+      }
     },
     "notices": {
       "type": "array",
@@ -59,6 +45,9 @@
     },
     "coverage": {
       "type": "object"
+    },
+    "resultId": {
+      "type": "string"
     }
   },
   "required": [
