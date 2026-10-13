@@ -52,9 +52,6 @@ list_notes
 load_assembly
 load_pdb
 load_session
-make_code_pattern
-migrate_native_names
-migrate_native_patches
 native_call_tree
 open_minidump
 pull_android_file
@@ -70,7 +67,6 @@ resolve_address
 resolve_call_targets
 save_session
 search_bytes
-search_code_pattern
 search_container
 search_decompiled
 search_instructions
@@ -91,5 +87,4 @@ unity_overview
 unload_assembly
 unpack_container
 update_note
-update_to_new_build
 verify_native_imports

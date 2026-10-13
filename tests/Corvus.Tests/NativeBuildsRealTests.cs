@@ -79,5 +79,30 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
         Assert.False(mapped.IsError, mapped.Text);
         Assert.Equal(1, mapped.Record.GetProperty("failed").GetInt32());
         Assert.Equal("function_start", mapped.Record.GetProperty("results")[0].GetProperty("reason").GetString());
+
+        // a pattern of the old build found again in the new one
+        var made = await Call(server, "make_code_pattern", new() { ["image"] = o, ["addresses"] = new[] { "sqlite3_open", "sqlite3_free" } });
+        Assert.Equal(0, made.Record.GetProperty("failed").GetInt32());
+        var pattern = made.Record.GetProperty("results")[0].GetProperty("pattern").GetString()!;
+        var found = await Call(server, "search_code_pattern", new() { ["pattern"] = pattern, ["images"] = new[] { n } });
+        Assert.Equal(1, found.Record.GetProperty("total").GetInt32());
+        var common = await Call(server, "search_code_pattern", new() { ["pattern"] = "48 89 5C 24 ??", ["images"] = new[] { o, n } });
+        Assert.True(common.TextTokens <= 6_300 && common.RecordTokens <= 6_300, $"search_code_pattern: {common.TextTokens} / {common.RecordTokens}");
+
+        // migrations preview by default (D7), then apply as undoable edits
+        var name = "corvus_" + Guid.NewGuid().ToString("N")[..8]; // names persist per file hash in the shared test data folder
+        await Call(server, "rename_native", new() { ["image"] = o, ["address"] = "sqlite3_libversion", ["name"] = name, ["dryRun"] = false });
+        var preview = await Call(server, "migrate_native_names", new() { ["oldImage"] = o, ["newImage"] = n });
+        Assert.True(preview.Record.GetProperty("dryRun").GetBoolean());
+        Assert.Contains(preview.Record.GetProperty("items").EnumerateArray(), i => i.GetProperty("value").GetString() == name && i.GetProperty("action").GetString() == "would_set");
+        var update = await Call(server, "update_to_new_build", new() { ["oldImage"] = o, ["newImage"] = n, ["include"] = new[] { "names", "patches" } });
+        Assert.True(update.TextTokens <= 4_200 && update.RecordTokens <= 4_200, $"update_to_new_build: {update.TextTokens} / {update.RecordTokens}");
+        var carried = await Call(server, "migrate_native_names", new() { ["oldImage"] = o, ["newImage"] = n, ["dryRun"] = false });
+        var editId = carried.Record.GetProperty("editIds")[0].GetString()!;
+        await Call(server, "undo_native_edit", new() { ["image"] = "e_sqlite3.dll#2", ["editId"] = editId });
+        await Call(server, "patch_bytes", new() { ["image"] = o, ["address"] = "sqlite3_libversion_number", ["hex"] = "CC", ["dryRun"] = false });
+        var patches = await Call(server, "migrate_native_patches", new() { ["oldImage"] = o, ["newImage"] = n });
+        Assert.Equal(1, patches.Record.GetProperty("total").GetInt32());
+        Assert.True(Corvus.Native.Diff.MigrationReasons.IsKnown(patches.Record.GetProperty("items")[0].GetProperty("reason").GetString()!));
     }
 }
