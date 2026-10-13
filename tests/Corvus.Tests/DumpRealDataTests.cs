@@ -65,10 +65,20 @@ public sealed class DumpRealDataTests(Xunit.Abstractions.ITestOutputHelper outpu
         }
         var (_, stack) = await Call("dump_stack", new() { ["dump"] = dump });
         Assert.Contains(stack.GetProperty("items").EnumerateArray(), f => f.GetProperty("kind").GetString() == "managed");
-        await Call("dump_heap", new() { ["dump"] = dump });
+        // G2-B7: array and generic rows have no TypeDef, so no token (never the nil row 0x02000000)
+        var (_, stats) = await Call("dump_heap", new() { ["dump"] = dump, ["mode"] = "stats", ["limit"] = 200 });
+        var rows = stats.GetProperty("items").EnumerateArray().ToList();
+        Assert.Contains(rows, r => r.GetProperty("type").GetString()!.EndsWith("[]", StringComparison.Ordinal));
+        Assert.All(rows.Where(r => r.GetProperty("type").GetString()!.EndsWith("[]", StringComparison.Ordinal)), r => Assert.False(r.TryGetProperty("token", out _)));
+        Assert.All(rows, r => Assert.NotEqual("0x02000000", r.TryGetProperty("token", out var t) ? t.GetString() : null));
+        Assert.Contains(rows, r => r.TryGetProperty("token", out _));
+        var (_, arrays) = await Call("dump_heap", new() { ["dump"] = dump, ["mode"] = "objects", ["type"] = "System.Object[]" });
+        var (_, array) = await Call("dump_object", new() { ["dump"] = dump, ["address"] = arrays.GetProperty("items")[0].GetProperty("address").GetString() });
+        Assert.False(array.TryGetProperty("token", out _));
         var (_, objects) = await Call("dump_heap", new() { ["dump"] = dump, ["mode"] = "objects", ["type"] = "System.String" });
         var address = objects.GetProperty("items")[0].GetProperty("address").GetString();
-        await Call("dump_object", new() { ["dump"] = dump, ["address"] = address });
+        var (_, str) = await Call("dump_object", new() { ["dump"] = dump, ["address"] = address });
+        Assert.StartsWith("0x02", str.GetProperty("token").GetString());
         await Call("bucket_minidumps", new() { ["folder"] = _dir.Path });
 
         // 64 KiB of a module walks in pages that rebuild the whole read
