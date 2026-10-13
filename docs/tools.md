@@ -1108,6 +1108,8 @@ MASM-syntax disassembly of the native function containing an address (with block
 | `maxTokens` | integer |  |  | Page size in tokens. |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
+Structured output: `code`, `offset`, `nextOffset`, `totalChars`, `image`, `function`, `address`, `engine`.
+
 ### inspect_instruction
 
 **Inspect native instructions** (read-only, idempotent, open-world, long-running)

@@ -166,7 +166,20 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     internal static string Matching(FunctionQuery query, int count, INativeImage image) =>
         (query.Narrows ? $"Matching ({query.Describe(r => NativeAddress.Va(image, r))}): {count:N0}\n" : "") + (query.Filter?.Note("function name") ?? "");
 
-    [McpServerTool(Name = "disassemble", Title = "Disassemble native code")]
+    /// <summary>disassemble's record: the page of the listing (D3) and what it disassembles.</summary>
+    public sealed record DisassemblyPage(
+        [property: Description("The page of the listing.")] string Code,
+        int Offset,
+        [property: Description("Character offset of the next page; absent on the last.")] int? NextOffset,
+        int TotalChars)
+    {
+        public string? Image { get; init; }
+        [Description("The function disassembled; absent for a linear range.")] public string? Function { get; init; }
+        [Description("VA the listing starts at.")] public string? Address { get; init; }
+        [Description(EngineDoc.Engine)] public string? Engine { get; init; }
+    }
+
+    [McpServerTool(Name = "disassemble", Title = "Disassemble native code", UseStructuredContent = true, OutputSchemaType = typeof(DisassemblyPage))]
     [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +
                  "when it is in no function or function=false. References and NativeAOT loads are named, strings shown as comments, calls commented " +
                  "with their recovered arguments. Data in the way (strings, pointers, IAT slots, switch tables, gaps) is rendered as data; warnings " +
@@ -187,7 +200,16 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         int max = Math.Clamp(maxInstructions, 1, 200_000);
         var choice = Choose(mode, native, index);
         if (choice.External)
-            return await _engine!.Disassemble(native, index, Address(index, address), function, max, offset, maxTokens, choice, progress, cancellationToken);
+        {
+            var at = Address(index, address);
+            var listing = await _engine!.Disassemble(native, index, at, function, max, offset, maxTokens, choice, progress, cancellationToken);
+            if (OutputCall.Current is { } call)
+            {
+                call.Record = new DisassemblyPage("", offset, null, 0) { Image = native.Id, Address = NativeAddress.Va(index.Image, at), Engine = choice.Engine };
+                call.RecordHasBody = true;
+            }
+            return listing;
+        }
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var rva = Address(index, address);
         var fn = function ? index.FunctionAt(rva) : null;
@@ -219,7 +241,11 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             if (warnings.Count > 0) sb.Append("; warnings:\n").AppendJoin("", warnings.Select(w => $";   {w}\n"));
             return sb.ToString();
         });
-        return $"; {choice.Line}\n" + Coverage(index) + pager.Page(text + await BoundImports(native, index, fn, cancellationToken), offset, maxTokens);
+        var record = new DisassemblyPage("", offset, null, 0)
+        {
+            Image = native.Id, Function = fn?.Name, Address = NativeAddress.Va(index.Image, fn?.Start ?? rva), Engine = choice.Engine,
+        };
+        return $"; {choice.Line}\n" + Coverage(index) + ToolOutput.Text(pager, text + await BoundImports(native, index, fn, cancellationToken), offset, record, maxTokens);
     });
 
     /// <summary>Where the imports a function calls are bound (one line each), for the disassembly footer.</summary>

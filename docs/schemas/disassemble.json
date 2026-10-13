@@ -1,0 +1,57 @@
+{
+  "type": "object",
+  "properties": {
+    "code": {
+      "description": "The page of the listing.",
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "description": "Character offset of the next page; absent on the last.",
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "image": {
+      "type": "string"
+    },
+    "function": {
+      "description": "The function disassembled; absent for a linear range.",
+      "type": "string"
+    },
+    "address": {
+      "description": "VA the listing starts at.",
+      "type": "string"
+    },
+    "engine": {
+      "description": "Which analysis produced the result: ours (the built-in index), ida (IDA's analysis through idalib) or ghidra (Ghidra's analysis).",
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "offset",
+    "totalChars"
+  ]
+}

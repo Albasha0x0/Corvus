@@ -49,4 +49,25 @@ public class NativeListBudgetTests
         Assert.Equal(65536, bytes);
         Assert.InRange(pages, 16, 64);
     }
+
+    [WindowsFact]
+    public async Task Disassemble_pages_are_contiguous_and_the_record_carries_the_code()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var codes = new List<string>();
+        int offset = 0;
+        for (int i = 0; i < 20; i++)
+        {
+            var result = await server.Client.CallToolAsync("disassemble", new Dictionary<string, object?>
+                { ["image"] = Kernel32, ["address"] = "BaseThreadInitThunk", ["function"] = false, ["maxInstructions"] = 3000, ["offset"] = offset, ["maxTokens"] = 2000 });
+            var record = JsonDocument.Parse(result.StructuredContent!.Value.GetRawText()).RootElement;
+            Assert.Equal(offset, record.GetProperty("offset").GetInt32());
+            Assert.NotNull(record.GetProperty("address").GetString());
+            codes.Add(record.GetProperty("code").GetString()!);
+            if (!record.TryGetProperty("nextOffset", out var next)) break;
+            offset = next.GetInt32();
+        }
+        Assert.True(codes.Count > 2, $"{codes.Count} pages");
+        Assert.Contains("3000 instructions from", string.Concat(codes));
+    }
 }
