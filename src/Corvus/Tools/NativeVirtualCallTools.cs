@@ -148,6 +148,9 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
 
         var notes = new List<string>(set.Notes);
         if (start + page.Count < list.Count) notes.Add($"{list.Count - start - page.Count} more: offset={start + page.Count}");
+        // sites in functions whose data flow did not settle are not reported: the counts are lower bounds
+        if (set.Stats.FunctionsNotConverged > 0)
+            ToolOutput.Coverage("partial", $"{set.Stats.FunctionsNotConverged} functions were not analyzed to the end (visit budget); their sites are missing", "indirect-calls");
         notes.AddRange(index.Truncations);
         long direct = 0;
         foreach (var f in index.Functions) direct += index.Callees(f, CallEdgeFilter.Direct).Count;

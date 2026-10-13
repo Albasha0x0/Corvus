@@ -75,4 +75,17 @@ public class NativeRealPagingTests
         Assert.DoesNotContain("0 blocks", dossier);
         Assert.Contains("not decoded", dossier);
     }
+
+    [Fact, Trait("Data", "Real"), Trait("Speed", "Slow")]
+    public async Task Find_virtual_calls_reports_partial_coverage_exactly_when_the_visit_budget_stops_a_function()
+    {
+        var path = Sqlite("win-x64", "e_sqlite3.dll");
+        var options = new ServerOptions { BackgroundIndexing = false };
+        using var workspace = new AssemblyWorkspace(options);
+        var code = new NativeCodeService(workspace, options);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await new NativeVirtualCallTools(workspace, code).FindVirtualCalls(path);
+        bool stopped = text.Contains("(visit budget)", StringComparison.Ordinal);
+        Assert.Equal(stopped, collector.Coverage?.Status == "partial");
+    }
 }
