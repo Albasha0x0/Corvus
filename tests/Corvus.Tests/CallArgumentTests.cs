@@ -531,10 +531,12 @@ public class CallArgumentTests(ITestOutputHelper output)
         var peTools = new Corvus.Tools.NativeTools(env.Workspace, env.Pager, service);
         var callTools = new Corvus.Tools.NativeCallTools(env.Workspace, service);
 
-        var report = await callTools.GetCallArguments(kernel32, callee: "CreateFileW", limit: 5);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await callTools.GetCallArguments(kernel32, callee: "CreateFileW", limit: 5);
+        var report = Assert.IsType<Corvus.Tools.NativeCallTools.CallArgumentsReport>(collector.Value);
         Assert.True(report.Total > 0);
-        var site = report.Calls.First(c => c.Arguments.Count == 7);
-        Assert.StartsWith("CreateFileW(", site.Display);
+        var site = report.Items.First(c => c.Arguments.Count == 7);
+        Assert.Matches($@"{site.Address}  \S+  CreateFileW\(", text);
         Assert.Contains("CreateFileW(", await codeTools.Disassemble(kernel32, site.Address));
         Assert.Contains("CreateFileW(", await codeTools.FindXrefs(kernel32, site.Callee));
 

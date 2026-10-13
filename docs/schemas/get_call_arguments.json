@@ -9,15 +9,7 @@
       "description": "What was searched: a call, the calls in a function, or the calls to a callee.",
       "type": "string"
     },
-    "total": {
-      "description": "Call sites found.",
-      "type": "integer"
-    },
-    "offset": {
-      "description": "Index of the first returned call site.",
-      "type": "integer"
-    },
-    "calls": {
+    "items": {
       "type": "array",
       "items": {
         "description": "One call site.",
@@ -46,10 +38,6 @@
           "signatureKnown": {
             "description": "The callee's signature is known (parameter names, count and constant decoding); otherwise the arguments are the registers / stack slots set just before the call.",
             "type": "boolean"
-          },
-          "display": {
-            "description": "The call with its arguments, e.g. CreateFileW(L\"config.ini\", GENERIC_READ, ...).",
-            "type": "string"
           },
           "arguments": {
             "type": "array",
@@ -111,10 +99,15 @@
           "calleeKind",
           "tailCall",
           "signatureKnown",
-          "display",
           "arguments"
         ]
       }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
     },
     "notes": {
       "description": "Coverage notes: limits reached, what is not analyzed.",
@@ -157,9 +150,9 @@
   "required": [
     "image",
     "scope",
-    "total",
+    "items",
     "offset",
-    "calls",
+    "total",
     "notes"
   ]
 }

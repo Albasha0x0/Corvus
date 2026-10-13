@@ -3,6 +3,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Calls;
 using Corvus.Native.Code;
@@ -35,15 +36,12 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
                                "virtual_possible (one of several implementations, listed in Callee) or indirect.")] string CalleeKind,
         [property: Description("A jump to the callee (tail call) rather than a call.")] bool TailCall,
         [property: Description("The callee's signature is known (parameter names, count and constant decoding); otherwise the arguments are the registers / stack slots set just before the call.")] bool SignatureKnown,
-        [property: Description("The call with its arguments, e.g. CreateFileW(L\"config.ini\", GENERIC_READ, ...).")] string Display,
         IReadOnlyList<CallArgumentRecord> Arguments);
 
     public sealed record CallArgumentsReport(
         [property: Description("Image id.")] string Image,
         [property: Description("What was searched: a call, the calls in a function, or the calls to a callee.")] string Scope,
-        [property: Description("Call sites found.")] int Total,
-        [property: Description("Index of the first returned call site.")] int Offset,
-        IReadOnlyList<CallSiteRecord> Calls,
+        IReadOnlyList<CallSiteRecord> Items, int Offset, int Total,
         [property: Description("Coverage notes: limits reached, what is not analyzed.")] IReadOnlyList<string> Notes);
 
     private async Task<NativeCodeIndex> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
@@ -60,16 +58,16 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         return index;
     }
 
-    [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true)]
+    [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true, OutputSchemaType = typeof(CallArgumentsReport))]
     [Description("Call sites of a native image (x86 / x64 / ARM) with their argument values, recovered by constant propagation in the caller under " +
                  "the platform calling convention: immediates, strings, named addresses, earlier call results, globals (differing merges are " +
                  "unknown). Known Win32 / CRT / libc APIs give parameter names and decoded constants. Pass address and/or callee.")]
-    public Task<CallArgumentsReport> GetCallArguments(
+    public Task<string> GetCallArguments(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call instruction, or an address in a function (all calls in it): " + NativeTools.AddressDescription)] string? address = null,
         [Description("Only calls to this API, module!name or function; without address, every call to it in the image.")] string? callee = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Max call sites (max 1000).")] int limit = 100,
+        [Description("Max call sites (default 50, max 1000).")] int limit = 50,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -92,7 +90,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         public IEnumerable<CallSiteInfo> CallsTo(NativeImport import, int max, CancellationToken ct = default) => analysis.CallsTo(import, max, ct);
     }
 
-    private CallArgumentsReport Report(NativeCodeIndex index, string? address, string? callee, int offset, int limit, CancellationToken ct)
+    private string Report(NativeCodeIndex index, string? address, string? callee, int offset, int limit, CancellationToken ct)
     {
         var analysis = Sites(index)!;
         var notes = new List<string>();
@@ -134,10 +132,13 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         int max = Math.Clamp(limit, 1, 1000);
         int start = Math.Clamp(offset, 0, sites.Count);
-        var page = sites.Skip(start).Take(max).Select(s => Record(index, s)).ToList();
-        if (start + page.Count < sites.Count) notes.Add($"{sites.Count - start - page.Count} more: offset={start + page.Count}");
+        var page = sites.Skip(start).Take(max).Select(s => (Record: Record(index, s), s.Display)).ToList();
         if (index.Truncations.Count > 0) notes.AddRange(index.Truncations);
-        return new CallArgumentsReport(Path.GetFileName(index.Image.Path), scope, sites.Count, start, page, notes);
+        var image = Path.GetFileName(index.Image.Path);
+        var header = $"{image}: {scope}\n" + string.Concat(notes.Select(n => $"Note: {n}\n"));
+        return ToolOutput.List(page, start, max, sites.Count, r => $"{r.Record.Address}  {r.Record.Function}  {Format.EscapeMarkers(r.Display)}  [{r.Record.CalleeKind}" +
+                                                                    (r.Record.TailCall ? ", tail" : "") + (r.Record.SignatureKnown ? "" : ", no signature") + "]",
+            rows => new CallArgumentsReport(image, scope, rows.Select(r => r.Record).ToList(), start, sites.Count, notes), "call site", header);
     }
 
     private static bool KnownCallee(NativeCodeIndex index, string callee) =>
@@ -178,7 +179,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         string Va(uint rva) => NativeAddress.Va(index.Image, rva);
         var kind = s.Kind switch { CalleeKind.VirtualExact => "virtual_exact", CalleeKind.VirtualPossible => "virtual_possible", _ => s.Kind.ToString().ToLowerInvariant() };
         return new CallSiteRecord(Va(s.Rva), $"{s.Caller.Name}+0x{s.Rva - s.Caller.Start:X}", s.Callee, kind, s.TailCall,
-            !s.Guessed, s.Display,
+            !s.Guessed,
             s.Arguments.Select(a => new CallArgumentRecord(a.Index, a.Name, a.Type, a.Location, a.Kind.ToString().ToLowerInvariant(), a.Text,
                 a.Value is { } v ? $"0x{v:X}" : null, a.Rva is { } r ? Va(r) : null, a.Derivation)).ToList());
     }

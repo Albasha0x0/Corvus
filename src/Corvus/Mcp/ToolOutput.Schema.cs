@@ -31,7 +31,6 @@ public static partial class ToolOutput
         ["dump_heap"] = ["types", "objects"],
         ["dump_stack"] = ["frames"],
         ["symbolize_stack_text"] = ["frames"],
-        ["get_call_arguments"] = ["calls"],
         ["bucket_minidumps"] = ["buckets"],
         ["get_android_device_info"] = ["properties"],
         ["migrate_native_patches"] = ["entries"],
