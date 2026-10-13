@@ -115,7 +115,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 EngineMode.Ours => "default ours: the built-in index; no engine is consulted unless a call passes engine=ida or engine=ghidra",
                 EngineMode.Ida => "default ida: IDA's analysis, started or waited for by the call; engine=ours, ghidra or auto per call",
                 EngineMode.Ghidra => "default ghidra: Ghidra's analysis, started or waited for by the call; engine=ours, ida or auto per call",
-                _ => "default auto: an engine's functions, references and blocks once its analysis of an image is complete in this session (IDA's before Ghidra's), else the built-in index",
+                _ => "default auto: the functions, references and blocks of the first engine (IDA, then Ghidra) that has analyzed an image's bytes, open or saved, else the built-in index",
             } + $"; --engine auto|ours|ida|ghidra (or {ServerOptions.EngineVariable}) sets the default, each of those tools takes engine", null));
         capabilities.AddRange(ExternalToolCapabilities());
         int loaded = workspace.LoadedCount; // without the lock: status answers while a long call holds it

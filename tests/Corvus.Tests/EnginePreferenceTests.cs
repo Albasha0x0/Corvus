@@ -11,9 +11,9 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>
-/// engine=auto|ours|ida|ghidra on the native code tools: ours never asks a provider, auto asks nothing until an analysis
-/// is complete in the session and then uses it without a new one (IDA's before Ghidra's), ida and ghidra open that
-/// engine's analysis or fail with provider_unavailable.
+/// engine=auto|ours|ida|ghidra on the native code tools: ours never asks a provider, auto asks nothing until an engine has
+/// analyzed the bytes (open or saved) and then uses it (IDA before Ghidra), ida and ghidra open that engine's analysis or
+/// fail with provider_unavailable.
 /// </summary>
 public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposable
 {
@@ -71,50 +71,89 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public async Task Auto_without_a_completed_analysis_asks_nothing_and_with_one_uses_it_without_a_new_analysis()
+    public async Task Auto_without_an_analysis_asks_nothing_and_with_a_saved_or_open_one_uses_it()
     {
         var provider = new FakeProvider(available: true);
         var rig = Setup(provider);
         var (native, first) = await Loaded(rig);
         foreach (var result in await CallAll(rig, null))
-            Assert.Contains("Engine: ours (server default auto: no completed engine analysis of this image in this session)", result);
-        // a saved database is reported, not opened
-        var saved = Path.Combine(_dir.File("cache"), IdaProvider.ProviderId, native.OriginalSha256);
-        Directory.CreateDirectory(saved);
-        File.WriteAllBytes(Path.Combine(saved, "ida-default.i64"), [0]);
-        rig.Engines.SavedCheckInterval = 0;
-        Assert.Contains("IDA's saved analysis of this image is not loaded in this session; engine=ida loads it without analyzing again",
-            await rig.Tools.ListFunctions(rig.Image, engine: "auto"));
+            Assert.Contains("Engine: ours (server default auto: no engine has analyzed these bytes)", result);
         Assert.Equal(0, provider.Calls);
 
         // the auto check costs two table lookups (the saved database is looked up again every 5 s), no request
-        rig.Engines.SavedCheckInterval = 5_000;
         var index = rig.Code.Ready(native)!;
         NativeEngineCode.Choose(EngineMode.Auto, false, rig.Engines, native, index);
         var clock = Stopwatch.StartNew();
         const int n = 5_000;
         for (int i = 0; i < n; i++) NativeEngineCode.Choose(EngineMode.Auto, false, rig.Engines, native, index);
-        output.WriteLine($"auto engine check without a completed analysis: {clock.Elapsed.TotalMicroseconds / n:0.000} us per call");
+        output.WriteLine($"auto engine check without an analysis: {clock.Elapsed.TotalMicroseconds / n:0.000} us per call");
         Assert.Equal(0, provider.Calls);
 
-        // an analysis completed in the session (prewarm, decompile_native, engine=ida): auto uses it
+        // a saved database (another process analyzed these bytes): auto opens it
         provider.Functions = [new(first, first + 0x20, "ida_First", NativeFunctionFlags.None, 3), new(first + 0x40, first + 0x60, "ida_only", NativeFunctionFlags.Library, 1)];
-        await rig.Engines.Session(native, null, null, default);
-        Assert.Equal(1, provider.Opens);
+        var saved = Path.Combine(_dir.File("cache"), IdaProvider.ProviderId, native.OriginalSha256);
+        Directory.CreateDirectory(saved);
+        File.WriteAllBytes(Path.Combine(saved, "ida-default.i64"), [0]);
+        rig.Engines.SavedCheckInterval = 0;
         var results = await CallAll(rig, null);
         foreach (var result in results)
-            Assert.Contains("Engine: ida (server default auto: IDA's analysis of this image is complete in this session)", result);
+            Assert.Contains("Engine: ida (server default auto: IDA has analyzed these bytes)", result);
         Assert.Contains("ida_only", results[0]);     // IDA's function list
         Assert.Contains("First", results[0]);        // our name wins at a function both know
         Assert.Contains("fake_insn", results[1]);    // IDA's disassembly
         Assert.Contains("1 block", results[2]);      // IDA's blocks
         Assert.Contains("Call", results[3]);         // IDA's reference
         Assert.Contains("ida_only", results[4]);     // IDA's call edge
-        Assert.Equal(1, provider.Opens);             // no new analysis
+        Assert.Equal(1, provider.Opens);
 
-        // a patch the database has not taken: back to ours until a call syncs it
+        // the open analysis keeps the choice without the saved file, also while a patch waits to be synced
+        Directory.Delete(saved, true);
         native.Patches.Add(new Native.Patching.NativePatch(first, 0, [0xCC], [0x90], "test"));
-        Assert.Contains("Engine: ours", await rig.Tools.GetCfg(rig.Image, "First"));
+        Assert.Contains("Engine: ida (server default auto: IDA has analyzed these bytes)", await rig.Tools.GetCfg(rig.Image, "First"));
+        Assert.Equal(1, provider.Opens);             // no new analysis
+    }
+
+    /// <summary>
+    /// Two servers sharing one analysis cache with different call histories (one opened Ghidra, the other nothing) pick
+    /// the same engine for the same call, and an engine another call opened never changes the choice.
+    /// </summary>
+    [Fact]
+    public async Task Auto_picks_the_same_engine_in_two_processes_with_different_histories()
+    {
+        var ida = new FakeProvider(available: true);
+        var ghidra = new FakeProvider(available: true, id: "ghidra");
+        var a = Setup([ida, ghidra]);
+        var b = Setup([new FakeProvider(available: true), new FakeProvider(available: true, id: "ghidra")]);
+        var (nativeA, first) = await Loaded(a);
+        var (nativeB, _) = await Loaded(b);
+        a.Engines.SavedCheckInterval = b.Engines.SavedCheckInterval = 0;
+        ghidra.Functions = [new(first, first + 0x20, "FUN_first", NativeFunctionFlags.None, 1)];
+
+        // nothing analyzed: both answer from ours
+        Assert.Equal("ours", Choice(a, nativeA).Engine);
+        Assert.Equal(Choice(a, nativeA), Choice(b, nativeB));
+
+        // A opens Ghidra with an analysis that is not complete yet: no engine has analyzed the bytes for either
+        ghidra.Complete = false;
+        await a.Engines.Session(nativeA, "ghidra", null, default);
+        Assert.Equal(Choice(a, nativeA), Choice(b, nativeB));
+        Assert.Equal("ours", Choice(a, nativeA).Engine);
+
+        // Ghidra's analysis completes and saves its project in the shared cache: both pick Ghidra
+        ghidra.Complete = true;
+        var project = Path.Combine(_dir.File("cache"), "ghidra", nativeA.OriginalSha256, "p-0123456789abcdef");
+        Directory.CreateDirectory(project);
+        File.WriteAllBytes(Path.Combine(project, "corvus.gpr"), [0]);
+        Assert.Equal("ghidra", Choice(a, nativeA).Engine);
+        Assert.Equal(Choice(a, nativeA), Choice(b, nativeB));
+        // and the engine-only rule agrees
+        Assert.Equal(EngineChoice.EngineOnly(null, a.Engines, nativeA), EngineChoice.EngineOnly(null, b.Engines, nativeB));
+        Assert.Equal("ghidra", a.Engines.Resolve(nativeA, null));
+        Assert.Equal("ghidra", b.Engines.Resolve(nativeB, null));
+        Assert.Equal(0, ida.Opens);
+
+        static EngineChoice Choice(Rig rig, LoadedNative native) =>
+            NativeEngineCode.Choose(EngineMode.Auto, false, rig.Engines, native, rig.Code.Ready(native)!);
     }
 
     [Fact]
@@ -231,16 +270,16 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
 
         // auto: Ghidra's analysis is the only complete one
         foreach (var result in await CallAll(rig, null))
-            Assert.Contains("Engine: ghidra (server default auto: Ghidra's analysis of this image is complete in this session)", result);
+            Assert.Contains("Engine: ghidra (server default auto: Ghidra has analyzed these bytes)", result);
         Assert.Equal(0, ida.Opens);
 
         // one image holds both sessions; once IDA's is complete, auto prefers it
         Assert.Equal("ida", (await rig.Engines.Session(native, "ida", null, default)).ProviderId);
         Assert.Equal((1, 1), (ida.Opens, ghidra.Opens));
-        Assert.Contains("Engine: ida (server default auto: IDA's analysis", await rig.Tools.GetCfg(rig.Image, "First"));
+        Assert.Contains("Engine: ida (server default auto: IDA has analyzed these bytes)", await rig.Tools.GetCfg(rig.Image, "First"));
         Assert.Equal("ghidra", (await rig.Engines.Session(native, "ghidra", null, default)).ProviderId);
         Assert.Equal((1, 1), (ida.Opens, ghidra.Opens));
-        // without a named engine, a session that exists is used, IDA's first
+        // without a named engine, the first engine that has analyzed the bytes
         Assert.Equal("ida", rig.Engines.Resolve(native, null));
     }
 
@@ -257,9 +296,9 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         await rig.Engines.Session(native, null, null, default);
         Assert.Equal(1, ghidra.Opens);
         // its analysis ran out of time: auto does not use it
-        Assert.Contains("Engine: ours (server default auto: no completed engine analysis", await rig.Tools.ListFunctions(rig.Image));
+        Assert.Contains("Engine: ours (server default auto: no engine has analyzed these bytes)", await rig.Tools.ListFunctions(rig.Image));
         ghidra.Complete = true;
-        Assert.Contains("Engine: ghidra (server default auto: Ghidra's analysis of this image is complete", await rig.Tools.ListFunctions(rig.Image));
+        Assert.Contains("Engine: ghidra (server default auto: Ghidra has analyzed these bytes)", await rig.Tools.ListFunctions(rig.Image));
 
         // engine=ida names IDA's remediation and offers the others
         var e = await Assert.ThrowsAsync<ToolError>(() => rig.Tools.GetCfg(rig.Image, "First", engine: "ida"));
@@ -295,7 +334,7 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public async Task A_saved_Ghidra_project_is_reported_not_opened()
+    public async Task A_saved_Ghidra_project_is_opened_by_auto()
     {
         var ida = new FakeProvider(available: true);
         var ghidra = new FakeProvider(available: true, id: "ghidra");
@@ -305,9 +344,8 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         Directory.CreateDirectory(project);
         File.WriteAllBytes(Path.Combine(project, "corvus.gpr"), [0]);
         rig.Engines.SavedCheckInterval = 0;
-        Assert.Contains("Ghidra's saved analysis of this image is not loaded in this session; engine=ghidra loads it without analyzing again",
-            await rig.Tools.ListFunctions(rig.Image));
-        Assert.Equal((0, 0), (ida.Opens, ghidra.Opens));
+        Assert.Contains("Engine: ghidra (server default auto: Ghidra has analyzed these bytes)", await rig.Tools.ListFunctions(rig.Image));
+        Assert.Equal((0, 1), (ida.Opens, ghidra.Opens));
     }
 
     /// <summary>Real IDA on a small System32 DLL: function and reference counts by engine, and auto switching once the analysis is done.</summary>
@@ -332,7 +370,7 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         clock.Restart();
         var auto = await tools.ListFunctions(path, sort: "callers", limit: 1);
         var autoTime = clock.Elapsed;
-        Assert.Contains("Engine: ours (server default auto: no completed engine analysis", auto);
+        Assert.Contains("Engine: ours (server default auto: no engine has analyzed these bytes)", auto);
         clock.Restart();
         var ida = await tools.ListFunctions(path, sort: "callers", limit: 1, engine: "ida");
         var idaTime = clock.Elapsed;
@@ -340,7 +378,7 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         clock.Restart();
         var autoAfter = await tools.ListFunctions(path, sort: "callers", limit: 1);
         var autoAfterTime = clock.Elapsed;
-        Assert.Contains("Engine: ida (server default auto: IDA's analysis of this image is complete", autoAfter);
+        Assert.Contains("Engine: ida (server default auto: IDA has analyzed these bytes)", autoAfter);
 
         int Count(string text) => int.Parse(Regex.Match(text, @": ([\d,]+) functions?").Groups[1].Value.Replace(",", ""));
         int oursCount = Count(ours), idaCount = Count(ida);

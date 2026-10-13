@@ -318,9 +318,8 @@ public sealed class ServerOptions
 }
 
 /// <summary>
-/// Where the native code tools take functions, cross-references and control-flow graphs from: Auto (an engine's
-/// analysis when one of the image is complete in this session, IDA's before Ghidra's, else the built-in index; never
-/// starts an engine), Ours (the built-in index only; no engine is asked), Ida or Ghidra (that engine's analysis,
+/// Where the native code tools take functions, cross-references and control-flow graphs from: Auto (the first engine,
+/// IDA then Ghidra, that has analyzed the image's bytes, open or saved in the analysis cache, else the built-in index), Ours (the built-in index only; no engine is asked), Ida or Ghidra (that engine's analysis,
 /// started and waited for when needed).
 /// </summary>
 public enum EngineMode { Auto, Ours, Ida, Ghidra }

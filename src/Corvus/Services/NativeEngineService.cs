@@ -133,8 +133,9 @@ public sealed class NativeEngineService : IDisposable
         string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? null : engine.Trim().ToLowerInvariant();
 
     /// <summary>
-    /// The engine a call on the image uses: the one it names; else the server default when that names an engine; else
-    /// the engine whose session of the image is open or opening (in order of preference); else the first one installed.
+    /// The engine a call on the image uses: the one it names; else the server default when that names an engine; else the
+    /// first that has analyzed these bytes (<see cref="AnalyzedBy"/>); else the first one installed. Never depends on
+    /// which sessions earlier calls opened.
     /// </summary>
     public string Resolve(LoadedNative native, string? engine)
     {
@@ -146,11 +147,23 @@ public sealed class NativeEngineService : IDisposable
                     "omit engine to use the available one");
             return wanted;
         }
-        foreach (var (id, _) in _providers)
-            if (Existing(native, id)?.Opening is { } opening && !(opening.IsCompleted && (opening.IsFaulted || opening.IsCanceled || !opening.Result.IsOpen)))
-                return id;
-        return FirstAvailable() ?? Provider(null).Id;
+        return AnalyzedBy(native) ?? FirstAvailable() ?? Provider(null).Id;
     }
+
+    /// <summary>
+    /// The first installed engine, in order of preference, that has analyzed the image's bytes: a complete analysis open
+    /// in this process, or a saved one in the analysis cache (shared by every process). Never opens or asks an engine.
+    /// </summary>
+    public string? AnalyzedBy(LoadedNative native)
+    {
+        foreach (var (id, provider) in _providers)
+            if ((LiveComplete(native, id) || HasSavedAnalysis(native, id)) && provider.Value.CheckAvailability().IsAvailable)
+                return id;
+        return null;
+    }
+
+    private bool LiveComplete(LoadedNative native, string id) =>
+        Existing(native, id)?.Opening is { IsCompletedSuccessfully: true } opened && opened.Result.IsOpen && opened.Result.AnalysisComplete;
 
     // ---- engine preference of the native code tools (ServerOptions.Engine, per-call engine) ----
 

@@ -72,7 +72,7 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
 
         // auto now takes Ghidra's complete analysis without a request
         var cfg = await rig.Tools.GetCfg(native.Id, Export);
-        Assert.Contains("Engine: ghidra (server default auto: Ghidra's analysis of this image is complete in this session)", cfg);
+        Assert.Contains("Engine: ghidra (server default auto: Ghidra has analyzed these bytes)", cfg);
         Assert.Contains(NativeEngineCode.Via("ghidra"), cfg);
         var xrefs = await rig.Tools.FindXrefs(native.Id, Export);
         Assert.Contains("Engine: ghidra", xrefs);

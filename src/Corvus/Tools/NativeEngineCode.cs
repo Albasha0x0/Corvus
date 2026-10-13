@@ -11,14 +11,6 @@ using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
-/// <summary>Which engine answers a native code call (ours, ida or ghidra) and why: the Engine line of the text and the Engine / EngineNote fields.</summary>
-internal sealed record EngineChoice(string Engine, string Note)
-{
-    /// <summary>Whether an external engine answers (not the built-in index).</summary>
-    public bool External => Engine != "ours";
-    public string Line => $"Engine: {Engine} ({Note})";
-}
-
 /// <summary>
 /// list_functions, disassemble, get_cfg, find_xrefs and native_call_tree answered through an engine session (IDA or
 /// Ghidra) in the same formats, marked "(via IDA)" or "(via Ghidra)": for images whose instruction set the built-in
@@ -36,43 +28,11 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     /// <summary>Whether the call goes to an engine: the built-in analysis does not decode the code, and an engine is installed.</summary>
     public bool Serves(NativeCodeIndex index) => index.Support == CodeSupport.DeclaredFunctionsOnly && engines.IsAvailable;
 
-    /// <summary>
-    /// Which engine answers a call. ours: the built-in index, no engine is asked anything. auto: the engine whose analysis
-    /// of the image is complete in this session (IDA's before Ghidra's; checked without a request to the engine), or, when
-    /// the built-in analysis does not decode the image's instructions, the first engine installed (IDA, then Ghidra); else
-    /// ours (the result says when a saved engine analysis of the image exists that engine=ida or engine=ghidra would
-    /// load). ida, ghidra: that engine (the analysis is started or waited for by the call), or provider_unavailable.
-    /// </summary>
+    /// <summary>The engine of a call on a native code tool (see <see cref="EngineChoice"/>): the built-in path cannot answer an undecoded instruction set.</summary>
     /// <param name="named">Whether the call named the engine (else it is the server default).</param>
-    public static EngineChoice Choose(EngineMode mode, bool named, NativeEngineService? engines, LoadedNative native, NativeCodeIndex index)
-    {
-        var origin = named ? $"engine={EngineModes.Name(mode)}" : $"server default {EngineModes.Name(mode)}";
-        bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;
-        switch (mode)
-        {
-            case EngineMode.Ours:
-                return new("ours", $"{origin}: the built-in index; no engine consulted");
-            case EngineMode.Ida or EngineMode.Ghidra:
-                var id = EngineModes.ProviderId(mode)!;
-                var display = NativeEngineService.DisplayName(id);
-                if (engines == null)
-                    throw new ToolError(ErrorCode.ProviderUnavailable, $"engine={id}: no analysis engine is set up in this server.", "use engine=auto or engine=ours");
-                if (engines.UnavailabilityOf(id) is { } u)
-                    throw new ToolError(ErrorCode.ProviderUnavailable, $"engine={id}: {display} is not available: {u.Reason}",
-                        (u.Remediation is { } r ? r + "; or " : "") + "use engine=auto or engine=ours for the built-in analysis");
-                return new(id, $"{origin}: {display}'s analysis");
-            default:
-                if (engines?.CompletedSession(native) is { } done)
-                    return new(done.ProviderId, $"{origin}: {NativeEngineService.DisplayName(done.ProviderId)}'s analysis of this image is complete in this session");
-                if (undecoded && engines?.FirstAvailable() is { } first)
-                    return new(first, $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions");
-                if (undecoded)
-                    return new("ours", $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions and no engine (IDA, Ghidra) is available");
-                return new("ours", engines?.SavedAnalysis(native) is { } saved
-                    ? $"{origin}: {NativeEngineService.DisplayName(saved)}'s saved analysis of this image is not loaded in this session; engine={saved} loads it without analyzing again"
-                    : $"{origin}: no completed engine analysis of this image in this session");
-        }
-    }
+    public static EngineChoice Choose(EngineMode mode, bool named, NativeEngineService? engines, LoadedNative native, NativeCodeIndex index) =>
+        EngineChoice.Of(mode, named, engines, native,
+            index.Support == CodeSupport.DeclaredFunctionsOnly ? $"the built-in analysis does not decode {index.Image.Arch} instructions" : null);
 
     /// <summary>The typed error for an undecoded architecture when no engine is installed.</summary>
     public static ToolError Unsupported(NativeCodeIndex index, NativeEngineService? engines) =>
