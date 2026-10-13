@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "properties": {
+    "outputPath": {
+      "type": "string"
+    },
+    "format": {
+      "type": "string"
+    },
+    "names": {
+      "type": "integer"
+    },
+    "comments": {
+      "type": "integer"
+    },
+    "pseudoComments": {
+      "type": "integer"
+    },
+    "types": {
+      "type": "integer"
+    },
+    "imported": {
+      "description": "Names and comments of the imported layers beneath the user's.",
+      "type": "integer"
+    },
+    "bytes": {
+      "type": "integer"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "outputPath",
+    "format",
+    "names",
+    "comments",
+    "pseudoComments",
+    "types",
+    "imported",
+    "bytes",
+    "sha256"
+  ]
+}

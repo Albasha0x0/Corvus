@@ -45,9 +45,9 @@ public sealed class NativeFormatPatchTests : IDisposable
     {
         var path = Write("lib.so", Elf());
         var dry = await _tools.PatchBytes(path, $"rva:0x{ElfWriter.TextRva:X}", hex: "B8 02 00 00 00", dryRun: true);
-        Assert.Contains("Dry run — would patch 5 byte(s)", dry);
-        var done = await _tools.PatchBytes("lib.so", $"rva:0x{ElfWriter.TextRva:X}", hex: "B8 02 00 00 00");
-        Assert.Contains("Recorded as native edit #1", done);
+        Assert.Contains("Dry run: would patch 5 byte(s)", dry);
+        var done = await _tools.PatchBytes("lib.so", $"rva:0x{ElfWriter.TextRva:X}", hex: "B8 02 00 00 00", dryRun: false);
+        Assert.Contains("Recorded as lib.so#1", done);
         var native = _env.Workspace.Read(() => _env.Workspace.GetNative("lib.so"));
         var read = new byte[2];
         native.Image.Read(ElfWriter.TextRva, read);
@@ -63,7 +63,7 @@ public sealed class NativeFormatPatchTests : IDisposable
         Assert.Equal(original.Length, written.Length);
         Assert.Equal(1, Enumerable.Range(0, original.Length).Count(i => original[i] != written[i]));
 
-        Assert.Contains("Undid the patch", await _tools.UndoNativeEdit("lib.so"));
+        Assert.Contains("Undid lib.so#", await _tools.UndoNativeEdit("lib.so"));
         native.Image.Read(ElfWriter.TextRva, read);
         Assert.Equal([0xB8, 0x01], read);
     }
@@ -77,26 +77,26 @@ public sealed class NativeFormatPatchTests : IDisposable
             Symbols = [new("helper", ElfWriter.TextRva + 4, 1)], Hash = ElfWriter.HashKind.Gnu,
         };
         var path = Write("ptr", elf.Build());
-        Assert.Contains("Recorded", await _tools.PatchBytes(path, $"rva:0x{ElfWriter.DataRva + 0x10:X}", value: "helper", type: "ptr"));
-        Assert.Contains("Recorded", await _tools.PatchBytes("ptr", $"rva:0x{ElfWriter.DataRva + 0x20:X}", value: "0x401000", type: "ptr"));
+        Assert.Contains("Recorded", await _tools.PatchBytes(path, $"rva:0x{ElfWriter.DataRva + 0x10:X}", value: "helper", type: "ptr", dryRun: false));
+        Assert.Contains("Recorded", await _tools.PatchBytes("ptr", $"rva:0x{ElfWriter.DataRva + 0x20:X}", value: "0x401000", type: "ptr", dryRun: false));
         var native = _env.Workspace.Read(() => _env.Workspace.GetNative("ptr"));
         var read = new byte[8];
         native.Image.Read(ElfWriter.DataRva + 0x10, read);
         Assert.Equal(0x400000UL + ElfWriter.TextRva + 4, BitConverter.ToUInt64(read));
         native.Image.Read(ElfWriter.DataRva + 0x20, read);
         Assert.Equal(0x401000UL, BitConverter.ToUInt64(read));
-        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAnyAsync<ToolError>(() => _tools.PatchBytes("ptr", $"rva:0x{ElfWriter.DataRva + 0x30:X}", value: "no_such_name", type: "ptr"))).Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAnyAsync<ToolError>(() => _tools.PatchBytes("ptr", $"rva:0x{ElfWriter.DataRva + 0x30:X}", value: "no_such_name", type: "ptr", dryRun: false))).Code);
     }
 
     [Fact]
     public async Task Elf_bytes_the_loader_rewrites_are_refused()
     {
         var path = Write("rel.so", Elf());
-        var error = await Assert.ThrowsAsync<ToolError>(() => _tools.PatchBytes(path, $"rva:0x{ElfWriter.DataRva + 4:X}", hex: "00 00"));
+        var error = await Assert.ThrowsAsync<ToolError>(() => _tools.PatchBytes(path, $"rva:0x{ElfWriter.DataRva + 4:X}", hex: "00 00", dryRun: false));
         Assert.Equal(ErrorCode.Conflict, error.Code);
         Assert.Contains("relocated_range: the loader writes the pointer at", error.Message);
         Assert.Contains("a dynamic relocation", error.Message);
-        Assert.Contains("Recorded", await _tools.PatchBytes("rel.so", $"rva:0x{ElfWriter.DataRva + 4:X}", hex: "00 00", force: true));
+        Assert.Contains("Recorded", await _tools.PatchBytes("rel.so", $"rva:0x{ElfWriter.DataRva + 4:X}", hex: "00 00", allowUnsafe: true, dryRun: false));
     }
 
     [Fact]
@@ -104,14 +104,14 @@ public sealed class NativeFormatPatchTests : IDisposable
     {
         var signed = new MachOWriter { CodeSignature = new("com.example.sample", "ABCDE12345") };
         var path = Write("signed.dylib", signed.Build());
-        var patched = await _tools.PatchBytes(path, $"rva:0x{MachOWriter.TextOffset:X}", hex: "1F 20 03 D5");
+        var patched = await _tools.PatchBytes(path, $"rva:0x{MachOWriter.TextOffset:X}", hex: "1F 20 03 D5", dryRun: false);
         Assert.Contains("The Mach-O code signature no longer matches the patched bytes", patched);
         var saved = await _tools.SaveNative("signed.dylib", _dir.File("signed.out.dylib"));
         Assert.Contains("The Mach-O code signature no longer matches", saved);
 
         var encrypted = new MachOWriter { Encryption = (MachOWriter.TextOffset, 0x100, 1) };
         var enc = Write("enc.dylib", encrypted.Build());
-        var error = await Assert.ThrowsAsync<ToolError>(() => _tools.PatchBytes(enc, $"rva:0x{MachOWriter.TextOffset:X}", hex: "1F 20 03 D5", force: true));
+        var error = await Assert.ThrowsAsync<ToolError>(() => _tools.PatchBytes(enc, $"rva:0x{MachOWriter.TextOffset:X}", hex: "1F 20 03 D5", allowUnsafe: true, dryRun: false));
         Assert.Contains("encrypted_range", error.Message);
     }
 
@@ -123,7 +123,7 @@ public sealed class NativeFormatPatchTests : IDisposable
         var path = Write("fat.dylib", MachOWriter.Fat([(MachOWriter.CpuX64, 3, x64), (MachOWriter.CpuArm64, 0, arm64)]));
         _env.Workspace.LoadAny(path, slice: "x86_64");
         var id = _env.Workspace.Read(() => _env.Workspace.Natives.Single().Id);
-        Assert.Contains("Recorded", await _tools.PatchBytes(id, $"rva:0x{MachOWriter.TextOffset:X}", hex: "CC"));
+        Assert.Contains("Recorded", await _tools.PatchBytes(id, $"rva:0x{MachOWriter.TextOffset:X}", hex: "CC", dryRun: false));
         Assert.Equal("x86_64", _env.Workspace.Read(() => _env.Workspace.GetNative(id).SliceName));
         var output = _dir.File("fat.out.dylib");
         Assert.Contains("Verified", await _tools.SaveNative(id, output));

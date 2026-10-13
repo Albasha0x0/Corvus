@@ -126,3 +126,101 @@ public class NativeEditJournalTests
         Assert.Equal("ghidra", entries[1].Engine);
     }
 }
+
+/// <summary>The native edit tools on the journal: D7 previews, edit ids in the outcome, undo by id, batch semantics (S6.5).</summary>
+public class NativeEditToolOutcomeTests
+{
+    private sealed class Rig : IDisposable
+    {
+        public readonly TempDir Dir = new();
+        public readonly Env Env = new();
+        public readonly NativeCodeService Code;
+        public readonly NativeEditService Edits;
+        public readonly Corvus.Tools.NativeEditTools Tools;
+        public readonly string Path;
+
+        public Rig()
+        {
+            Code = new NativeCodeService(Env.Workspace, Env.Options, null, new AnnotationStore(Dir.File("ann")));
+            Edits = new NativeEditService(Env.Workspace, Code);
+            Tools = new Corvus.Tools.NativeEditTools(Env.Workspace, Code, Edits);
+            Path = Dir.File("tiny.dll");
+            var b = new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x140000000 };
+            var code = new byte[64];
+            code[0] = 0xB8; code[1] = 0x01; code[5] = 0xC3;
+            for (int i = 6; i < code.Length; i++) code[i] = 0x90;
+            b.EntryPoint = b.Add(".text", code, 0x60000020).Rva;
+            File.WriteAllBytes(Path, b.Build());
+        }
+
+        public LoadedNative Native => Env.Workspace.Read(() => Env.Workspace.GetNative("tiny.dll"));
+
+        public void Dispose() { Env.Dispose(); Dir.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Rename_DefaultsToAPreview_ThenRecordsAnEditIdThatUndoRestores()
+    {
+        using var r = new Rig();
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var preview = await r.Tools.RenameNative(r.Path, "rva:0x1000", "First");
+        Assert.StartsWith("Dry run: would have named function 0x140001000 'First'", preview);
+        var dry = Assert.IsType<EditOutcome>(collector.Value);
+        Assert.Equal((false, true, 0), (dry.Applied, dry.DryRun, dry.EditIds.Count));
+        Assert.Null(r.Code.Annotations(r.Native).NameAt(0x1000));
+
+        await r.Tools.RenameNative(r.Path, "rva:0x1000", "First", dryRun: false);
+        var text = await r.Tools.RenameNative(r.Path, "rva:0x1000", "Second", dryRun: false);
+        var outcome = Assert.IsType<EditOutcome>(collector.Value);
+        Assert.Equal(new EditId("tiny.dll", 2), Assert.Single(outcome.EditIds));
+        Assert.Equal(new EditChange("name", "0x140001000", "First", "Second"), Assert.Single(outcome.Changes));
+        Assert.Contains("undo_native_edit editId=tiny.dll#2", text);
+
+        var undone = await r.Tools.UndoNativeEdit(r.Path, "tiny.dll#2");
+        Assert.StartsWith("Undid tiny.dll#2", undone);
+        Assert.Equal("First", r.Code.Annotations(r.Native).NameAt(0x1000));
+        Assert.Equal(new EditId("tiny.dll", 2), Assert.Single(Assert.IsType<EditOutcome>(collector.Value).EditIds));
+    }
+
+    [Fact]
+    public async Task Batch_AllFailed_IsAnError_SomeFailed_IsASuccessWithFailedItems()
+    {
+        using var r = new Rig();
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var all = await Assert.ThrowsAsync<ToolError>(() => r.Tools.RenameNative(r.Path, items: "nowhere = A\nalso_nowhere = B", dryRun: false));
+        Assert.Contains("all 2 targets failed", all.Message);
+        await Assert.ThrowsAsync<ToolError>(() => r.Tools.CommentNative(r.Path, "nowhere", "x", dryRun: false));
+
+        await r.Tools.RenameNative(r.Path, items: "rva:0x1000 = A\nnowhere = B", dryRun: false);
+        var some = Assert.IsType<EditOutcome>(collector.Value);
+        Assert.Equal((true, 1, 1), (some.Applied, some.Failed, some.Items!.Count));
+    }
+
+    [Fact]
+    public async Task Patch_And_Comment_ListedWithIds_UndoneOutOfOrder_ConflictNamesTheEdit()
+    {
+        using var r = new Rig();
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        Assert.Contains("Nothing recorded", await r.Tools.PatchBytes(r.Path, "rva:0x1006", hex: "CC"));
+        Assert.False(r.Native.HasPatches);
+        await r.Tools.PatchBytes(r.Path, "rva:0x1006", hex: "CC", dryRun: false);
+        Assert.Equal(new EditId("tiny.dll", 1), Assert.Single(Assert.IsType<EditOutcome>(collector.Value).EditIds));
+        await r.Tools.CommentNative(r.Path, "rva:0x1000", "entry", scope: "line", dryRun: false);
+
+        var clash = await Assert.ThrowsAsync<ToolError>(() => r.Tools.PatchBytes(r.Path, "rva:0x1006", hex: "90", dryRun: false));
+        Assert.Contains("undo_native_edit editId=tiny.dll#1", clash.Remediation);
+
+        var list = await r.Tools.ListNativeEdits(r.Path, limit: 1);
+        var page = Assert.IsType<Corvus.Tools.NativeEditTools.NativeEditList>(collector.Value);
+        Assert.Equal((2, "tiny.dll#1", "patch"), (page.Total, page.Items[0].EditId, page.Items[0].Kind));
+        Assert.Contains("[More: offset=1]", list);
+
+        await r.Tools.UndoNativeEdit(r.Path, "#1");
+        Assert.False(r.Native.HasPatches);
+        Assert.Equal("tiny.dll#2", Assert.Single(r.Edits.Journal.Entries(r.Native)).Id.ToString());
+        await r.Tools.UndoNativeEdit(r.Path);
+        Assert.Null(r.Code.Annotations(r.Native).CommentAt(0x1000));
+        var none = await Assert.ThrowsAsync<ToolError>(() => r.Tools.UndoNativeEdit(r.Path));
+        Assert.Contains("list_native_edits", none.Remediation);
+    }
+}

@@ -12,8 +12,6 @@ ida_python.file
 inspect_instruction.count
 list_imports.module
 load_pdb.force
-patch_asm.force
-patch_bytes.force
 reanalyze_native.seconds
 reanalyze_native.start
 search_decompiled.seconds

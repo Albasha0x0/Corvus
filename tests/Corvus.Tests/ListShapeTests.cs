@@ -20,6 +20,8 @@ public class ListShapeTests
         foreach (var tool in Tools)
         {
             if (tool["outputSchema"]?["properties"] is not JsonObject record || record["items"]?["type"] is not JsonValue t || (string?)t != "array") continue;
+            // an edit outcome's items are its failed batch items (S6.5), not a page of rows
+            if (ToolContract.Of((string)tool["name"]!).Output == OutputClass.Edit) continue;
             var input = tool["inputSchema"]!["properties"] as JsonObject ?? [];
             var missing = RecordFields.Where(f => !record.ContainsKey(f)).Concat(InputFields.Where(f => !input.ContainsKey(f)).Select(f => "input " + f)).ToList();
             if (missing.Count > 0) violations[(string)tool["name"]!] = "missing " + string.Join(", ", missing);

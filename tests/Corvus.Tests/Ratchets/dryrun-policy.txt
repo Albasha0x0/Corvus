@@ -3,14 +3,10 @@
 add_members_csharp
 add_types_csharp
 apply_edits
-comment_native
 migrate_native_names
-patch_asm
-patch_bytes
 patch_method_csharp
 patch_method_il
 rename_namespace
-rename_native
 rename_symbol
 simplify_methods
 stub_method

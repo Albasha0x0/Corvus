@@ -79,23 +79,23 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         var lines = (await session.DecompileAsync(rig.Start)).LineAddresses.Where(l => l.Rva > rig.Start).ToList();
         var at = lines[lines.Count / 2].Rva;
 
-        var set = await rig.Edits.CommentNative(path, Rva(at), "test pseudo note", scope: "pseudocode", engine: engine);
+        var set = await rig.Edits.CommentNative(path, Rva(at), "test pseudo note", scope: "pseudocode", engine: engine, dryRun: false);
         output.WriteLine(set);
         Assert.Contains("Pushed to the engine", set);
         var text = await rig.Analysis.DecompileNative(path, Function, engine: engine);
         output.WriteLine(text);
         Assert.Contains("test pseudo note", text);
         // appended and deduped in the sidecar, then shown as two lines
-        await rig.Edits.CommentNative(path, Rva(at), "test second line", scope: "pseudocode", append: true, engine: engine);
-        Assert.Contains("already has this line", await rig.Edits.CommentNative(path, Rva(at), "test second line", scope: "pseudocode", append: true, engine: engine));
+        await rig.Edits.CommentNative(path, Rva(at), "test second line", scope: "pseudocode", append: true, engine: engine, dryRun: false);
+        Assert.Contains("already has this line", await rig.Edits.CommentNative(path, Rva(at), "test second line", scope: "pseudocode", append: true, engine: engine, dryRun: false));
         Assert.Contains("test second line", await rig.Analysis.DecompileNative(path, Function, engine: engine));
 
         // cleared
-        await rig.Edits.CommentNative(path, Rva(at), "", scope: "pseudocode", engine: engine);
+        await rig.Edits.CommentNative(path, Rva(at), "", scope: "pseudocode", engine: engine, dryRun: false);
         Assert.DoesNotContain("test pseudo note", await rig.Analysis.DecompileNative(path, Function, engine: engine));
 
         // an address inside an instruction lands on the statement made from it; a new database gets it from the sidecar
-        await rig.Edits.CommentNative(path, Rva(at + 1), "test inside", scope: "pseudocode", engine: engine);
+        await rig.Edits.CommentNative(path, Rva(at + 1), "test inside", scope: "pseudocode", engine: engine, dryRun: false);
         Assert.Contains("test inside", await rig.Analysis.DecompileNative(path, Function, engine: engine));
         Restart();
         var fresh = Setup(engine + "-q");
@@ -111,10 +111,10 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         var session = await rig.Session("ghidra");
         var lines = (await session.DecompileAsync(rig.Start)).LineAddresses.Where(l => l.Rva > rig.Start).ToList();
         var at = lines[lines.Count / 2].Rva;
-        await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "pre", engine: "ghidra");
+        await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "pre", engine: "ghidra", dryRun: false);
         Assert.Contains("test kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
         // another kind: the pre comment is removed (the decompiler does not print end-of-line comments)
-        await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "eol", engine: "ghidra");
+        await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "eol", engine: "ghidra", dryRun: false);
         Assert.DoesNotContain("test kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
     }
 
@@ -126,9 +126,9 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         var session = await rig.Session("ida");
         var at = (await session.DisassembleAsync(rig.Start)).Instructions[3].Rva;
         async Task<string> Ida(string expr) => (await session.RunScriptAsync(expr)).Result ?? "";
-        await rig.Edits.CommentNative(path, Rva(at), "test pre", scope: "pre", engine: "ida");
+        await rig.Edits.CommentNative(path, Rva(at), "test pre", scope: "pre", engine: "ida", dryRun: false);
         Assert.Contains("test pre", await Ida($"__import__('ida_lines').get_extra_cmt(base + 0x{at:X}, __import__('ida_lines').E_PREV)"));
-        await rig.Edits.CommentNative(path, Rva(at), "test eol", scope: "eol", engine: "ida");
+        await rig.Edits.CommentNative(path, Rva(at), "test eol", scope: "eol", engine: "ida", dryRun: false);
         Assert.Contains("test eol", await Ida($"ida_bytes.get_cmt(base + 0x{at:X}, False)"));
         Assert.DoesNotContain("test pre", await Ida($"__import__('ida_lines').get_extra_cmt(base + 0x{at:X}, __import__('ida_lines').E_PREV)"));
     }
@@ -148,11 +148,11 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
             .Where(t => rig.Native.Image.SectionAt(t) is { IsExecutable: true }).Take(2).ToList();
         Assert.True(callees.Count >= 1, "no direct callee");
         var items = string.Join("\n", callees.Select((c, i) => $"{Rva(c)} = sample_callee_{i}"));
-        var renamed = await rig.Edits.RenameNative(path, items: items, engine: engine);
+        var renamed = await rig.Edits.RenameNative(path, items: items, engine: engine, dryRun: false);
         output.WriteLine(renamed);
         Assert.StartsWith($"{callees.Count} name item(s): {callees.Count} ok, 0 failed", renamed);
         var lines = (await session.DecompileAsync(rig.Start)).LineAddresses.Where(l => l.Rva > rig.Start).ToList();
-        var commented = await rig.Edits.CommentNative(path, items: $"{Rva(lines[lines.Count / 3].Rva)} = test batch one\n{Rva(lines[2 * lines.Count / 3].Rva)} = test batch two", scope: "pseudocode", engine: engine);
+        var commented = await rig.Edits.CommentNative(path, items: $"{Rva(lines[lines.Count / 3].Rva)} = test batch one\n{Rva(lines[2 * lines.Count / 3].Rva)} = test batch two", scope: "pseudocode", engine: engine, dryRun: false);
         output.WriteLine(commented);
         var text = await rig.Analysis.DecompileNative(path, Function, engine: engine);
         output.WriteLine(text);
@@ -193,7 +193,7 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         // a callee renamed: the caller's pseudocode is the one shown
         var callee = (await session.GetXrefsFromAsync(rig.Start, wholeFunction: true)).First(x => x.Kind == NativeXrefKind.Call
             && rig.Native.Image.SectionAt(x.ToRva) is { IsExecutable: true }).ToRva;
-        var renamed = await rig.Edits.RenameNative(path, Rva(callee), "sample_target", showDecompile: "diff", engine: engine);
+        var renamed = await rig.Edits.RenameNative(path, Rva(callee), "sample_target", showDecompile: "diff", engine: engine, dryRun: false);
         output.WriteLine(renamed);
         Assert.Matches(@"(?m)^\+.*sample_target", renamed);
 

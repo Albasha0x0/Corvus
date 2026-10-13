@@ -125,7 +125,7 @@ public class NativeRelocationPatchTests(ITestOutputHelper output)
         var four = "mov eax, dword ptr [0x10002000]\nmov ecx, dword ptr [0x10002004]\nmov edx, dword ptr [0x10002008]\nmov ebx, dword ptr [0x1000200C]";
         var ex = Assert.Throws<ToolError>(() => Asm(h.Edits, index2, 0x1010, four));
         Assert.Contains("no_relocation_slot", ex.Message);
-        Assert.Contains("force=true", ex.Remediation);
+        Assert.Contains("allowUnsafe=true", ex.Remediation);
         var forced = Asm(h.Edits, index2, 0x1010, four, force: true);
         Assert.Equal("added 0x1011, added 0x1017, added 0x101D, unrelocated 0x1023", Actions(forced.Patch.Relocations));
 

@@ -281,9 +281,9 @@ public static class PatchRelocations
                     throw new ToolError(ErrorCode.Conflict,
                         $"no_relocation_slot: the new address at {Va(image, at)} ({n.Why}) needs a base relocation, and the relocation block of page 0x{page:X} has no free (ABSOLUTE) slot to hold one; under ASLR or a rebase the loader would leave it pointing at the preferred base.",
                         (image.Is64Bit ? "write the reference RIP-relative (e.g. 'lea rax, [target]' / 'mov rax, [target]'); " : "") +
-                        "or load the address from data that is already relocated (an existing pointer or IAT slot); or pass force=true to accept a patch that is only correct at the preferred base. " +
+                        "or load the address from data that is already relocated (an existing pointer or IAT slot); or pass allowUnsafe=true to accept a patch that is only correct at the preferred base. " +
                         "Clearing DYNAMIC_BASE would also avoid it but weakens the binary's ASLR; it is not done automatically.");
-                changes.Add(new RelocationChange("unrelocated", at, n.Type, null, "force=true: no free slot in the page's block; only correct at the preferred base"));
+                changes.Add(new RelocationChange("unrelocated", at, n.Type, null, "allowUnsafe=true: no free slot in the page's block; only correct at the preferred base"));
                 continue;
             }
             used.Add(pick);

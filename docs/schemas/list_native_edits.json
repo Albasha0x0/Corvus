@@ -1,0 +1,94 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "editId": {
+            "description": "Edit id for undo_native_edit; absent on search rows.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "patch, annotation or engine; name or comment on search rows.",
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "text": {
+            "description": "What the edit did, or the matching text.",
+            "type": "string"
+          },
+          "source": {
+            "description": "The tool that made the edit, or the name source (user, pdb, ...).",
+            "type": "string"
+          },
+          "changes": {
+            "description": "Addresses or items the edit changed.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "source",
+          "changes"
+        ]
+      }
+    },
+    "total": {
+      "type": "integer"
+    },
+    "layers": {
+      "description": "The name layers: the user's and each imported one with counts and origin.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "items",
+    "total",
+    "layers"
+  ]
+}

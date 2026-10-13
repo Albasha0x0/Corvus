@@ -342,12 +342,12 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["ida_python"] = (new() { ["image"] = NativeSample(dir), ["code"] = "1 + 1" }, "Error (unsupported) in ida_python: ida_python is disabled"),
         ["export_engine_database"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("db.i64"), ["engine"] = "ghidra" }, "Error (invalid_argument) in export_engine_database"),
         ["ghidra_script"] = (new() { ["image"] = NativeSample(dir), ["code"] = "println(\"x\");" }, "Error (unsupported) in ghidra_script: ghidra_script is disabled"),
-        ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc" }, "Named"),
-        ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry" }, "comment set"),
+        ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc", ["dryRun"] = false }, "Named"),
+        ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry", ["dryRun"] = false }, "comment set"),
         ["export_native_annotations"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("ann.py"), ["format"] = "ida" }, "Exported"),
         ["patch_asm"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["assembly"] = "nop", ["dryRun"] = true }, "Dry run"),
-        ["patch_bytes"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["hex"] = "90" }, "Patched"),
-        ["list_native_edits"] = (new() { ["image"] = NativeSample(dir) }, "native edit"),
+        ["patch_bytes"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["hex"] = "90", ["dryRun"] = false }, "Patched"),
+        ["list_native_edits"] = (new() { ["image"] = NativeSample(dir) }, "native edits"),
         ["save_native"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patched.dll") }, "Wrote"),
         ["export_native_patches"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patches.dif"), ["format"] = "dif" }, "\"format\":\"dif\""),
         ["migrate_native_patches"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"source\":\"in_memory\""),
@@ -541,7 +541,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
 
             // Native images and their unsaved patches are listed too (the development relay reads them before a swap).
             await Call("load_assembly", new() { ["path"] = NativeSample(_dir) });
-            await Call("patch_bytes", new() { ["image"] = "native.dll", ["address"] = "First", ["hex"] = "90" });
+            await Call("patch_bytes", new() { ["dryRun"] = false, ["image"] = "native.dll", ["address"] = "First", ["hex"] = "90" });
             Assert.Contains("native.dll\tnative\t", await Read("corvus://assemblies"));
             Assert.Contains("[1 unsaved patches]", await Read("corvus://assemblies"));
             Assert.Matches(@"\.text\t0x[0-9A-F]+-0x[0-9A-F]+\t0x[0-9A-F]+\tr-x", await Read("corvus://native/native.dll/segments"));

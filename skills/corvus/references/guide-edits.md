@@ -20,7 +20,8 @@ save_assembly writes a new file (never overwrites the original without overwrite
 written byte-for-byte, anything that cannot be is listed; strict=true refuses such a save).
 Native: rename_native and comment_native (kept per file hash), patch_bytes / patch_asm (relocation-correct under ASLR; a
 patch larger than its site: extend=true moves it into a code cave or a new section; unsafe sites are refused with a reason),
-list_native_edits, undo_native_edit, save_native to a new file (checksum recomputed, an invalidated signature reported).
+They preview until dryRun=false; each applied edit gets an editId: list_native_edits lists them, undo_native_edit editId=... takes back a patch,
+name, comment or engine edit and pushes it to the engines; save_native writes a new file (checksum recomputed, an invalidated signature reported).
 export_native_annotations writes IDA / Ghidra scripts; export_native_patches writes IDAPython, IDA .dif, IPS or JSON.
 Engine edits (IDA or Ghidra): set_native_type (prototypes), set_native_local (decompiler locals), get_native_frame and
 set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image),

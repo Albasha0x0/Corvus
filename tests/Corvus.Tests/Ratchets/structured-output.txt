@@ -5,7 +5,6 @@ add_search_directory
 add_types_csharp
 apply_edits
 apply_il2cpp_names
-comment_native
 declare_native_types
 decompile_assembly_attributes
 decompile_java
@@ -18,7 +17,6 @@ disassemble_dex
 emulate_native
 export_edits
 export_il2cpp_symbols
-export_native_annotations
 export_project
 find_counterpart
 find_method_by_address
@@ -36,13 +34,10 @@ ghidra_script
 ida_python
 install_android_package
 list_edits
-list_native_edits
 list_native_types
 load_assembly
 load_pdb
 native_call_tree
-patch_asm
-patch_bytes
 patch_method_csharp
 patch_method_il
 read_android_log
@@ -50,11 +45,9 @@ read_bytes
 reanalyze_native
 reload_assembly
 rename_namespace
-rename_native
 rename_symbol
 revert_edits
 save_assembly
-save_native
 search_instructions
 set_native_local
 set_native_operand
@@ -63,6 +56,5 @@ set_native_type
 simplify_methods
 stub_method
 undo_edit
-undo_native_edit
 uninstall_android_package
 unload_assembly

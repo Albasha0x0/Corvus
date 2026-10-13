@@ -153,8 +153,8 @@ public static class WorkflowPrompts
         Goal: {goal} in {image}.
         1. Locate the deciding function and branch (trace it as in trace_native_feature; get_cfg shows the branches; decompile_native shows the condition).
         2. Choose the smallest patch: invert or remove a conditional jump, make a function return a constant (patch_asm 'mov eax, 1' + 'ret'), or NOP a call.
-           Run patch_asm (or patch_bytes) with dryRun=true and check the before/after disassembly; it refuses to split instructions unless force=true.
-        3. Apply, re-read with disassemble, list_native_edits to review, undo_native_edit if wrong.
+           Run patch_asm (or patch_bytes) with dryRun=true and check the before/after disassembly; it refuses to split instructions unless allowUnsafe=true.
+        3. Apply with dryRun=false, re-read with disassemble, list_native_edits to review, undo_native_edit editId=... if wrong.
         4. save_native to a NEW file (it recomputes the checksum and reports a now-invalid signature); never overwrite the original unless explicitly asked.
         Report exactly which bytes changed, at which addresses, and why.
         {Evidence}

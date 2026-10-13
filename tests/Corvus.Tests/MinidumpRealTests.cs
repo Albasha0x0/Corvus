@@ -389,7 +389,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
             return text;
         }
         await Call("load_assembly", new() { ["path"] = exe });
-        await Call("rename_native", new() { ["image"] = "crash.exe", ["address"] = "level1", ["name"] = "UserLevelOne" });
+        await Call("rename_native", new() { ["dryRun"] = false, ["image"] = "crash.exe", ["address"] = "level1", ["name"] = "UserLevelOne" });
         var stack = await client.CallToolAsync("dump_stack", new Dictionary<string, object?> { ["dump"] = dump });
         Assert.True(stack.IsError != true);
         var frames = stack.StructuredContent!.Value.GetProperty("frames").EnumerateArray()

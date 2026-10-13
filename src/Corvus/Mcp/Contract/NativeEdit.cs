@@ -44,7 +44,7 @@ public sealed partial record ToolContract
         ["export_native_annotations"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),
         ["patch_bytes"] = Row(O.Edit, L.Interactive, core: true, dryRun: true),
         ["patch_asm"] = Row(O.Edit, L.Interactive, core: true, dryRun: true),
-        ["list_native_edits"] = Row(O.List, L.Instant, core: true, sort: "patch order"),
+        ["list_native_edits"] = Row(O.List, L.Instant, core: true, sort: "edit order"),
         ["undo_native_edit"] = Row(O.Edit, L.Instant, lean: true, core: true, noDryRun: "is itself the revert of one recorded edit"),
         ["save_native"] = Row(O.Edit, L.Long, lean: true, core: true, noDryRun: "writes only the patched copy; the original's .bak is made once"),
         ["export_native_patches"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),

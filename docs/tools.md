@@ -1509,7 +1509,7 @@ Native names, comments, patches and saving.
 
 **Name a native address** (destructive, idempotent, open-world, long-running)
 
-Name a native address: used by every native tool, pushed to the engines and kept per file SHA-256. C-identifier-like (<=255 chars), unique unless allowDuplicate. Empty clears. items: many in one sidecar write and one engine push, each reported.
+Name a native address: used by every native tool, pushed to the engines, kept per file SHA-256, undoable by editId. C-identifier-like (<=255 chars), unique unless allowDuplicate. Empty clears. items: many in one sidecar write and one engine push, each reported.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1518,16 +1518,18 @@ Name a native address: used by every native tool, pushed to the engines and kept
 | `name` | string |  |  | The new name; empty to clear the name at this address. |
 | `allowDuplicate` | boolean |  | `false` | Allow a name already used at another address. |
 | `items` | string |  |  | Lines 'address = name', or JSON [{address, name}]. |
-| `dryRun` | boolean |  | `false` | Check only; record nothing. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 | `stopOnError` | boolean |  | `false` | Stop at the first failing item. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | Engine to push the change to now (default: one with this image open, else at its next use). Values: auto, ida, ghidra. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
 
 ### comment_native
 
 **Comment a native address** (destructive, idempotent, open-world, long-running)
 
-Comment a native address (kept, pushed to engines). scope: line (repeatable: also where the address is referenced), eol, pre or plate (engine kinds; Ghidra's decompiler shows pre), pseudocode (on the statement made from the address), function, or auto (function at a function start, else line and pseudocode). append adds a line (dedupe skips one it has). Empty clears. items: many in one sidecar write and one engine push, each reported.
+Comment a native address (kept, pushed to engines, undoable). scope: line (repeatable: also where the address is referenced), eol, pre or plate (engine kinds; Ghidra's decompiler shows pre), pseudocode (on the statement made from the address), function, or auto (function at a function start, else line and pseudocode). append adds a line. Empty clears. items: many in one sidecar write and one engine push, each reported.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1535,12 +1537,14 @@ Comment a native address (kept, pushed to engines). scope: line (repeatable: als
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `text` | string |  |  | The comment text; empty to clear it. |
 | `scope` | string |  |  | See the description; default auto. Values: auto, line, eol, pre, plate, pseudocode, function. |
-| `append` | boolean |  | `false` | Add text as a new line of the existing comment. |
-| `dedupe` | boolean |  | `true` | With append: skip a line already there. |
+| `append` | boolean |  | `false` | Add text as a new line of the existing comment; a line it has is skipped. |
+| `repeatLine` | boolean |  | `false` | With append: add the line even when the comment has it. |
 | `items` | string |  |  | Lines 'address = text', or JSON [{address, text, scope?, append?}]. |
-| `dryRun` | boolean |  | `false` | Check only; record nothing. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 | `stopOnError` | boolean |  | `false` | Stop at the first failing item. |
 | `engine` | string |  |  | Engine to push the change to now (default: one with this image open, else at its next use). Values: auto, ida, ghidra. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
 
 ### export_native_annotations
 
@@ -1555,11 +1559,13 @@ Write the image's names and comments (with the NativeAOT, Il2Cpp, ObjC and Swift
 | `format` | string |  |  | Default json. Values: ida, ghidra, json, header. |
 | `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
 
+Structured output: `outputPath`, `format`, `names`, `comments`, `pseudoComments`, `types`, `imported`, `bytes`, `sha256`.
+
 ### patch_bytes
 
 **Patch native bytes** (destructive, long-running)
 
-Replace bytes at a native address in memory, as an undoable edit that every read path then sees. A partly overwritten instruction is padded with NOPs; mid-instruction, past the function end or on header / zero-fill bytes needs force. ELF / Mach-O: loader-rewritten bytes need force, encrypted ones are refused, signatures become invalid.
+Replace bytes at a native address in memory, as an undoable edit every read path sees. A partly overwritten instruction is padded with NOPs; mid-instruction, past the function end, header bytes or ELF/Mach-O loader-rewritten bytes need allowUnsafe; encrypted bytes are refused; signatures become invalid.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1568,12 +1574,14 @@ Replace bytes at a native address in memory, as an undoable edit that every read
 | `hex` | string |  |  | Replacement bytes as hex ('90 90', '9090' or '0x90,0x90'). |
 | `value` | string |  |  | Instead of hex: a number of type (range-checked); ptr: or a name. |
 | `type` | string |  |  | With value: i8-i64, u8-u64, f32, f64 or ptr; a be suffix for big-endian. Values: i8, u8, i16, u16, i32, u32, i64, u64, f32, f64, ptr, i16be, u16be, i32be, u32be, i64be, u64be, f32be, f64be. |
-| `force` | boolean |  | `false` | Override the safety checks (mid-instruction, past function end, header bytes, no free relocation slot). |
-| `dryRun` | boolean |  | `false` | Preview only; do not record the patch. |
-| `relocations` | string |  |  | PE base relocations under the patch: auto (default) keeps entries whose new bytes still hold an address, neutralizes the rest and adds entries for new absolute addresses; keep leaves them; neutralize clears all. Undo restores them; ignored with extend. Values: auto, keep, neutralize. |
-| `extend` | boolean |  | `false` | Put the new code in a stub (see placement); the site becomes a jump to it and control returns after the site. For code larger than the site, or to keep it intact. x86/x64 PE, ELF and Mach-O. Refused with a reason code when unsafe. |
+| `allowUnsafe` | boolean |  | `false` | Allow what the safety checks refuse: mid-instruction, past the function end, header or loader-written bytes. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
+| `relocations` | string |  |  | PE base relocations under the patch: auto (default) keeps those still holding an address, clears the rest, adds new ones; keep; neutralize clears all. Values: auto, keep, neutralize. |
+| `extend` | boolean |  | `false` | Put the new code in a stub (see placement) the site jumps to; control returns after the site. For code larger than the site. Refused when unsafe. |
 | `stubMode` | string |  |  | With extend: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after. Values: replace, before, after. |
 | `placement` | string |  |  | With extend: auto (default; a code cave if one fits, else a new section), cave or section (a new PE section or ELF/Mach-O segment; undo restores it). Values: auto, cave, section. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
 
 ### patch_asm
 
@@ -1586,34 +1594,42 @@ Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch tar
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `assembly` | string | yes |  | Assembly, one instruction per line. |
-| `force` | boolean |  | `false` | Override the safety checks (mid-instruction, past function end, header bytes, no free relocation slot). |
-| `dryRun` | boolean |  | `false` | Preview only; do not record the patch. |
-| `relocations` | string |  |  | PE base relocations under the patch: auto (default) keeps entries whose new bytes still hold an address, neutralizes the rest and adds entries for new absolute addresses; keep leaves them; neutralize clears all. Undo restores them; ignored with extend. Values: auto, keep, neutralize. |
-| `extend` | boolean |  | `false` | Put the new code in a stub (see placement); the site becomes a jump to it and control returns after the site. For code larger than the site, or to keep it intact. x86/x64 PE, ELF and Mach-O. Refused with a reason code when unsafe. |
+| `allowUnsafe` | boolean |  | `false` | Allow what the safety checks refuse: mid-instruction, past the function end, header or loader-written bytes. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
+| `relocations` | string |  |  | PE base relocations under the patch: auto (default) keeps those still holding an address, clears the rest, adds new ones; keep; neutralize clears all. Values: auto, keep, neutralize. |
+| `extend` | boolean |  | `false` | Put the new code in a stub (see placement) the site jumps to; control returns after the site. For code larger than the site. Refused when unsafe. |
 | `stubMode` | string |  |  | With extend: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after. Values: replace, before, after. |
 | `placement` | string |  |  | With extend: auto (default; a code cave if one fits, else a new section), cave or section (a new PE section or ELF/Mach-O segment; undo restores it). Values: auto, cave, section. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+
 ### list_native_edits
 
-**List native byte patches** (read-only, idempotent, long-running)
+**List native edits** (read-only, idempotent, long-running)
 
-The in-memory byte patches of a native image, numbered (undo_native_edit, save_native). Then the names by source: the user's (rename_native / comment_native) and each imported layer (pdb, il2cpp, ida) with counts, origin, identity and whether it was saved or restored when the image loaded.
+Native edits of an image in the order made, each with the editId undo_native_edit takes: byte patches, names, comments, engine type edits. Then the name layers (user, pdb, il2cpp, ida, ...) with counts and origin. search: the names and comments that match instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `search` | string |  |  | Instead: the names and comments (user and layers) whose text matches: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Rows per page (default 100). |
+
+Structured output: `image`, `items`, `total`, `layers`, `offset`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### undo_native_edit
 
-**Undo a native byte patch** (destructive, long-running)
+**Undo a native edit** (destructive, long-running)
 
-Undo one in-memory byte patch of a native image — the last by default, or any earlier one by number (from list_native_edits).
+Undo native edits by editId (list_native_edits), the last by default: a patch, name, comment or engine type edit gets its previous value back, pushed to the engines. Refused while a later edit changed the same item.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
-| `number` | integer |  |  | Patch number (1-based, from list_native_edits); omit for the last. |
+| `editId` | string |  |  | Edit id (image#n, or #n); comma-separated for several, undone in that order; omit for the last. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
 
 ### save_native
 
@@ -1627,6 +1643,8 @@ Write the patched native image to a new file: unpatched bytes identical, PE chec
 | `outputPath` | string | yes |  | Output file path. |
 | `overwrite` | boolean |  | `false` | Allow replacing an existing file. |
 | `stripSignature` | boolean |  | `false` | Remove the Authenticode certificate table from the output. |
+
+Structured output: `outputPath`, `bytes`, `patches`, `sha256`, `checksum`, `backup`, `verified`, `notes`.
 
 ### export_native_patches
 

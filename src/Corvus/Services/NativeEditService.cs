@@ -27,13 +27,12 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     {
         var ann = Annotations(native);
         var valid = NativeName.Validate(name);
-        workspace.Write(() =>
+        workspace.Write(() => Journal.RecordAnnotations(native, "rename_native", [rva], () =>
         {
             ann.SetName(rva, valid, allowDuplicate);
             code.Ready(native)?.SetUserName(rva, valid);
             index.SetUserName(rva, valid);
-            return 0;
-        });
+        }));
         var where = index.FunctionAt(rva) is { } f && f.Start == rva ? "function" : index.FunctionAt(rva) != null ? "address in a function" : "address";
         return $"Named {where} {NativeAddress.Va(index.Image, rva)} '{valid}'.{StaleNote(ann)}";
     }
@@ -41,24 +40,34 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     public string ClearName(LoadedNative native, NativeCodeIndex index, uint rva)
     {
         var ann = Annotations(native);
-        workspace.Write(() => { ann.SetName(rva, null); code.Ready(native)?.SetUserName(rva, null); index.SetUserName(rva, null); return 0; });
+        workspace.Write(() => Journal.RecordAnnotations(native, "rename_native", [rva], () =>
+        {
+            ann.SetName(rva, null);
+            code.Ready(native)?.SetUserName(rva, null);
+            index.SetUserName(rva, null);
+        }));
         return $"Cleared the name at {NativeAddress.Va(index.Image, rva)}.";
     }
 
     public string Comment(LoadedNative native, NativeCodeIndex index, uint rva, string? text)
     {
         var ann = Annotations(native);
-        workspace.Write(() => { ann.SetComment(rva, text); code.Ready(native)?.SetUserComment(rva, text); index.SetUserComment(rva, text); return 0; });
+        workspace.Write(() => Journal.RecordAnnotations(native, "comment_native", [rva], () =>
+        {
+            ann.SetComment(rva, text);
+            code.Ready(native)?.SetUserComment(rva, text);
+            index.SetUserComment(rva, text);
+        }));
         return string.IsNullOrWhiteSpace(text)
             ? $"Cleared the comment at {NativeAddress.Va(index.Image, rva)}."
             : $"Commented {NativeAddress.Va(index.Image, rva)}.{StaleNote(ann)}";
     }
 
-    /// <summary>Records names (null or empty: cleared) with one sidecar write and shows them in the code index; refused as a whole on a duplicate.</summary>
-    public void ApplyNames(LoadedNative native, NativeCodeIndex index, IReadOnlyList<(uint Rva, string? Name)> names, bool allowDuplicate)
+    /// <summary>Records names (null or empty: cleared) with one sidecar write and shows them in the code index; refused as a whole on a duplicate. One journaled edit.</summary>
+    public EditId? ApplyNames(LoadedNative native, NativeCodeIndex index, IReadOnlyList<(uint Rva, string? Name)> names, bool allowDuplicate, string tool = "rename_native")
     {
         var ann = Annotations(native);
-        workspace.Write(() =>
+        return workspace.Write(() => Journal.RecordAnnotations(native, tool, names.Select(n => n.Rva), () =>
         {
             ann.Apply(names, [], [], allowDuplicate);
             foreach (var (rva, _) in names)
@@ -67,8 +76,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                 code.Ready(native)?.SetUserName(rva, now);
                 index.SetUserName(rva, now);
             }
-            return 0;
-        });
+        }));
     }
 
     /// <summary>A comment change at an address: <see cref="Line"/> the disassembly / function comment, <see cref="Pseudo"/> the decompiler comment; null leaves one, "" removes it.</summary>
@@ -78,13 +86,13 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         public string? Kind { get; init; }
     }
 
-    /// <summary>Records <paramref name="changes"/> with one sidecar write and shows the line comments in the code index.</summary>
-    public void ApplyComments(LoadedNative native, NativeCodeIndex index, IReadOnlyList<CommentChange> changes)
+    /// <summary>Records <paramref name="changes"/> with one sidecar write and shows the line comments in the code index. One journaled edit.</summary>
+    public EditId? ApplyComments(LoadedNative native, NativeCodeIndex index, IReadOnlyList<CommentChange> changes, string tool = "comment_native")
     {
         var ann = Annotations(native);
         var lines = changes.Where(c => c.Line != null).Select(c => (c.Rva, Text: (string?)c.Line!.Trim())).ToList();
         var pseudo = changes.Where(c => c.Pseudo != null).Select(c => (c.Rva, (string?)c.Pseudo)).ToList();
-        workspace.Write(() =>
+        return workspace.Write(() => Journal.RecordAnnotations(native, tool, changes.Select(c => c.Rva), () =>
         {
             ann.Apply([], lines, pseudo, kinds: changes.Where(c => c.Line != null).Select(c => (c.Rva, c.Kind)).ToList());
             foreach (var (rva, text) in lines)
@@ -93,8 +101,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                 code.Ready(native)?.SetUserComment(rva, shown);
                 index.SetUserComment(rva, shown);
             }
-            return 0;
-        });
+        }));
     }
 
     /// <summary>
@@ -119,7 +126,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         if (!image.TryRvaToFileOffset(rva, out var fileOffset))
             throw new ToolError(ErrorCode.InvalidArgument, $"{NativeAddress.Va(image, rva)} is not backed by file bytes (zero-fill or outside the image); there is nothing to patch there.");
         if (!force && rva < image.Sections.Where(s => s.Rva > 0).DefaultIfEmpty().Min(s => s?.Rva ?? uint.MaxValue))
-            throw new ToolError(ErrorCode.InvalidArgument, $"{NativeAddress.Va(image, rva)} is in the file headers.", "pass force=true to patch header bytes");
+            throw new ToolError(ErrorCode.InvalidArgument, $"{NativeAddress.Va(image, rva)} is in the file headers.", "pass allowUnsafe=true to patch header bytes");
 
         // Require [rva, rva+newLength) to be contiguous in the file.
         if (!image.TryRvaToFileOffset(rva + (uint)newLength - 1, out var lastOffset) || lastOffset != fileOffset + newLength - 1)
@@ -135,7 +142,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             uint scan = owner.Start;
             while (scan < rva && index.Decode(scan) is { Length: > 0 } s) scan += (uint)s.Length;
             if (scan != rva)
-                throw new ToolError(ErrorCode.InvalidArgument, $"{NativeAddress.Va(image, rva)} is in the middle of an instruction in {owner.Name}.", "pass force=true to patch mid-instruction");
+                throw new ToolError(ErrorCode.InvalidArgument, $"{NativeAddress.Va(image, rva)} is in the middle of an instruction in {owner.Name}.", "pass allowUnsafe=true to patch mid-instruction");
         }
 
         // Decode from rva to find the instruction boundary at/after rva+newLength.
@@ -145,12 +152,12 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             if (index.Decode(rva + (uint)covered) is not { } insn || insn.Length == 0)
             {
                 if (force) { covered = newLength; break; }
-                throw new ToolError(ErrorCode.InvalidArgument, $"The bytes at {NativeAddress.Va(image, rva + (uint)covered)} do not decode, so the overwrite boundary is unknown.", "pass force=true to patch anyway");
+                throw new ToolError(ErrorCode.InvalidArgument, $"The bytes at {NativeAddress.Va(image, rva + (uint)covered)} do not decode, so the overwrite boundary is unknown.", "pass allowUnsafe=true to patch anyway");
             }
             covered += insn.Length;
         }
         if (!force && index.FunctionAt(rva) is { } fn && rva + (uint)covered > fn.End)
-            throw new ToolError(ErrorCode.InvalidArgument, $"The patch would overwrite past the end of {fn.Name} ({NativeAddress.Va(image, fn.End)}).", "pass force=true to overwrite past the function end");
+            throw new ToolError(ErrorCode.InvalidArgument, $"The patch would overwrite past the end of {fn.Name} ({NativeAddress.Va(image, fn.End)}).", "pass allowUnsafe=true to overwrite past the function end");
 
         int pad = covered - newLength;
         var note = pad > 0 ? $"padded {pad} trailing byte(s) with NOPs to the next instruction boundary" : null;
@@ -274,10 +281,10 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         {
             if (image is Native.MachO.MachOFile { HasChainedFixups: true })
                 throw new ToolError(ErrorCode.Conflict, $"fixup_chain: the loader writes the chained-fixup pointer at {NativeAddress.Va(image, at)}, so a patch there is overwritten at load.",
-                    "patch elsewhere, or pass force=true to write the file bytes anyway");
+                    "patch elsewhere, or pass allowUnsafe=true to write the file bytes anyway");
             throw new ToolError(ErrorCode.Conflict, $"relocated_range: the loader writes the pointer at {NativeAddress.Va(image, at)} " +
                 $"({(image.Format == ImageFormat.Elf ? "a dynamic relocation" : "a rebase or bind")}), so a patch there is overwritten at load.",
-                "patch elsewhere, or pass force=true to write the file bytes anyway");
+                "patch elsewhere, or pass allowUnsafe=true to write the file bytes anyway");
         }
     }
 
@@ -293,14 +300,23 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         ? "The Mach-O code signature no longer matches the patched bytes (invalid until re-signed, e.g. codesign -f -s -)."
         : null;
 
-    public string ApplyPatch(LoadedNative native, NativeCodeIndex index, PatchResult prepared, bool dryRun)
+    public string ApplyPatch(LoadedNative native, NativeCodeIndex index, PatchResult prepared, bool dryRun) => Apply(native, index, prepared, dryRun).Text;
+
+    /// <summary>An applied or previewed patch: the report, the edit id (null in a dry run) and the patch.</summary>
+    public sealed record PatchApplied(string Text, EditId? EditId, NativePatch Patch);
+
+    public PatchApplied Apply(LoadedNative native, NativeCodeIndex index, PatchResult prepared, bool dryRun)
     {
         var image = index.Image;
         if (native.Patches.Conflicting(prepared.Patch) is { } clash && !dryRun)
-            throw new ToolError(ErrorCode.Conflict, $"An existing patch already covers {NativeAddress.Va(image, clash.Rva)} or its relocation entries (#{native.Patches.Patches.ToList().IndexOf(clash) + 1}). undo_native_edit it first.");
+        {
+            var by = Journal.Entries(native).FirstOrDefault(e => e.Patch == clash)?.Id;
+            throw new ToolError(ErrorCode.Conflict, $"An existing patch{(by is { } b ? $" ({b})" : "")} already covers {NativeAddress.Va(image, clash.Rva)} or its relocation entries.",
+                by is { } id ? $"undo_native_edit editId={id} first, or patch another address" : "list_native_edits shows the patches; undo_native_edit removes one");
+        }
 
         var sb = new StringBuilder();
-        sb.AppendLine($"{(dryRun ? "Dry run — would patch" : "Patched")} {prepared.Patch.Length} byte(s) at {NativeAddress.Va(image, prepared.Patch.Rva)}" +
+        sb.AppendLine($"{(dryRun ? "Dry run: would patch" : "Patched")} {prepared.Patch.Length} byte(s) at {NativeAddress.Va(image, prepared.Patch.Rva)}" +
                       (prepared.Note.Length > 0 ? $" ({prepared.Note})" : "") + ":");
         sb.AppendLine("Before:");
         sb.Append(prepared.BeforeDisasm);
@@ -309,16 +325,21 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         AppendRelocations(sb, image, prepared.Patch.Relocations, "  ");
         if (prepared.StubPreview.Length > 0) sb.Append(prepared.StubPreview);
         if (SignatureNote(image) is { } signature) sb.AppendLine(signature);
-        if (dryRun) return sb.ToString();
+        if (dryRun)
+        {
+            sb.AppendLine("Nothing recorded; dryRun=false applies it.");
+            return new PatchApplied(sb.ToString(), null, prepared.Patch);
+        }
 
-        workspace.Write(() =>
+        var tool = prepared.Patch.Description.Split(' ', 2)[0];
+        var editId = workspace.Write(() =>
         {
             native.Patches.Add(prepared.Patch);
             Rebuild(native);
-            return 0;
+            return Journal.RecordPatch(native, tool, prepared.Patch);
         });
-        sb.AppendLine($"Recorded as native edit #{native.Patches.Patches.Count}. list_native_edits shows them; undo_native_edit reverts; save_native writes the file.");
-        return sb.ToString();
+        sb.AppendLine($"Recorded as {editId}. undo_native_edit reverts it; save_native writes the file.");
+        return new PatchApplied(sb.ToString(), editId, prepared.Patch);
     }
 
     /// <summary>Rebuilds the patched image and swaps it in; analysis (code index, sessions) is discarded and rebuilt, the old index kept for previews.</summary>
@@ -331,34 +352,15 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         code.Patched(native, previous);
     }
 
-    public string List(LoadedNative native)
-    {
-        var patches = native.Patches.Patches;
-        var names = new StringBuilder();
-        AppendNames(names, native);
-        if (patches.Count == 0) return names.Length == 0 ? $"{native.Id}: no native edits." : $"{native.Id}: no native edits.\n{names}";
-        var sb = new StringBuilder($"{native.Id}: {patches.Count} native edit(s)\n");
-        int i = 1;
-        foreach (var p in patches)
-        {
-            sb.AppendLine($"  #{i++}  {NativeAddress.Va(native.Image, p.Rva)}  {p.Length} bytes  {Hex(p.Original)} -> {Hex(p.Replacement)}  {p.Description}");
-            if (p.Stub is { } s)
-                sb.AppendLine($"        stub ({s.Mode}) at {NativeAddress.Va(native.Image, s.Rva)}  {s.Length} bytes  returns to {NativeAddress.Va(native.Image, s.ReturnRva)}  ({s.Placement})");
-            AppendRelocations(sb, native.Image, p.Relocations, "      ");
-        }
-        return sb.Append(names).ToString();
-    }
-
     /// <summary>The user's name and comment counts and every imported name layer: source, counts, origin, saved or restored, and when.</summary>
-    private void AppendNames(StringBuilder sb, LoadedNative native)
+    public IReadOnlyList<string> NameLayers(LoadedNative native)
     {
         code.RestoreImported(native);
         var ann = native.AnnotationsOrNull ?? code.Annotations(native);
         var layers = NativeNameLayers.OfOrNull(native)?.Layers ?? [];
-        if (ann.NameCount == 0 && ann.CommentCount == 0 && layers.Count == 0) return;
-        sb.AppendLine("Names (priority user > pdb > nativeaot > il2cpp > objc > swift > ida > ghidra > discovered):");
+        var lines = new List<string>();
         if (ann.NameCount > 0 || ann.CommentCount > 0)
-            sb.AppendLine($"  user: {ann.NameCount} name(s), {ann.CommentCount} comment(s), saved per file hash in {code.AnnotationRoot}");
+            lines.Add($"user: {ann.NameCount} name(s), {ann.CommentCount} comment(s), saved per file hash");
         foreach (var l in layers)
         {
             var state = l.Info switch
@@ -368,8 +370,32 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                 null => l.Source == NativeNameSource.Pdb ? "found automatically, not saved (read again on load)" : "this session only",
             };
             var source = l.Info is { SourcePath: { } path } i2 ? $"; source {path}{(i2.SourceIdentity is { } id ? $" ({l.Source switch { NativeNameSource.Pdb => "GUID age ", NativeNameSource.NativeAot => "", _ => "sha256 " }}{id})" : "")}" : "";
-            sb.AppendLine($"  {l.Source.Id()}: {l.Names.Count} name(s), {l.Comments.Count} comment(s) from {l.Origin}; {state}{source}");
+            lines.Add($"{l.Source.Id()}: {l.Names.Count} name(s), {l.Comments.Count} comment(s) from {l.Origin}; {state}{source}");
         }
+        return lines;
+    }
+
+    /// <summary>The image's journaled edits as text, one per line with a patch's detail indented under it.</summary>
+    public string List(LoadedNative native)
+    {
+        var entries = Journal.Entries(native);
+        if (entries.Count == 0) return $"{native.Id}: no native edits.";
+        var sb = new StringBuilder($"{native.Id}: {entries.Count} native edit(s)\n");
+        foreach (var e in entries)
+            sb.AppendLine($"  {e.Id}  {e.Description}" + (e.Patch is { } p ? "\n      " + PatchDetail(native.Image, p).Replace("\n", "\n      ") : ""));
+        return sb.ToString();
+    }
+
+    /// <summary>One patch's detail: bytes, stub and relocations.</summary>
+    public static string PatchDetail(INativeImage image, NativePatch p)
+    {
+        var sb = new StringBuilder($"{p.Length} bytes {Hex(p.Original)} -> {Hex(p.Replacement)}");
+        if (p.Stub is { } s)
+            sb.Append($"\nstub ({s.Mode}) at {NativeAddress.Va(image, s.Rva)}, {s.Length} bytes, returns to {NativeAddress.Va(image, s.ReturnRva)} ({s.Placement})");
+        var relocations = new StringBuilder();
+        AppendRelocations(relocations, image, p.Relocations, "");
+        if (relocations.Length > 0) sb.Append('\n').Append(relocations.ToString().TrimEnd());
+        return sb.ToString();
     }
 
     /// <summary>The relocation side of a patch: one line per kept / neutralized / added / unrelocated entry, then notes.</summary>
@@ -401,7 +427,13 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         });
     }
 
-    public string Save(LoadedNative native, string outputPath, bool overwrite, bool stripSignature)
+    /// <summary>A written image: path, size, patch count, SHA-256, the recomputed PE checksum, the backup and the verification lines.</summary>
+    public sealed record SaveResult(string Text, string OutputPath, long Bytes, int Patches, string Sha256, string? Checksum, string? Backup, bool Verified,
+        IReadOnlyList<string> Notes);
+
+    public string Save(LoadedNative native, string outputPath, bool overwrite, bool stripSignature) => Write(native, outputPath, overwrite, stripSignature).Text;
+
+    public SaveResult Write(LoadedNative native, string outputPath, bool overwrite, bool stripSignature)
     {
         if (string.IsNullOrWhiteSpace(outputPath))
             throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.");
@@ -432,11 +464,16 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             if (verify.StartsWith(UnparsableNote, StringComparison.Ordinal))
                 throw new ToolError(ErrorCode.Conflict, $"Not saved: {verify} Nothing was replaced.");
         });
-        return $"Wrote {target} ({bytes.Length:N0} bytes, {native.Patches.Patches.Count} patch(es))." +
+        var text = $"Wrote {target} ({bytes.Length:N0} bytes, {native.Patches.Patches.Count} patch(es))." +
                (backup != null ? $" Original backed up to {backup}." : "") +
                (notes.Count > 0 ? "\n  " + string.Join("\n  ", notes) : "") +
                $"\n{verify}";
+        var checksum = notes.FirstOrDefault(n => n.StartsWith(ChecksumNote, StringComparison.Ordinal))?[ChecksumNote.Length..].TrimEnd('.');
+        return new SaveResult(text, target, bytes.Length, native.Patches.Patches.Count, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)),
+            checksum, backup, !verify.Contains("WARNING", StringComparison.Ordinal), [.. notes, .. verify.Split('\n', StringSplitOptions.RemoveEmptyEntries)]);
     }
+
+    private const string ChecksumNote = "PE checksum recomputed to ";
 
     /// <summary>
     /// A universal Mach-O slice: the whole file as loaded (read again from disk; its slice must still be the loaded one) and
@@ -506,7 +543,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             var recomputed = PeFile.FromBytes(bytes, native.FilePath);
             uint sum = recomputed.Checksum.Computed;
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan((int)(patchedImage.OptionalHeaderOffset + 64)), sum);
-            notes.Add($"PE checksum recomputed to 0x{sum:X8}.");
+            notes.Add($"{ChecksumNote}0x{sum:X8}.");
         }
 
         if (!stripSignature && patchedImage.CertificateTable is not null)
@@ -638,5 +675,5 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         return sb.ToString();
     }
 
-    private static string Hex(byte[] bytes) => bytes.Length <= 16 ? Convert.ToHexString(bytes) : Convert.ToHexString(bytes, 0, 16) + "...";
+    internal static string Hex(byte[] bytes) => bytes.Length <= 16 ? Convert.ToHexString(bytes) : Convert.ToHexString(bytes, 0, 16) + "...";
 }

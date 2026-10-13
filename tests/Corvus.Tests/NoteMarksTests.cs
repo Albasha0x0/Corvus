@@ -67,11 +67,12 @@ public sealed class NoteMarksTests : IDisposable
     public async Task Search_lists_matching_names_and_comments()
     {
         var rig = Setup();
-        await rig.Edits.RenameNative(rig.Native.Id, "rva:0x1000", "DecryptConfig");
-        await rig.Edits.CommentNative(rig.Native.Id, "rva:0x1004", "xor key loaded here");
-        await rig.Edits.CommentNative(rig.Native.Id, "rva:0x1008", "unrelated");
+        await rig.Edits.RenameNative(rig.Native.Id, "rva:0x1000", "DecryptConfig", dryRun: false);
+        await rig.Edits.CommentNative(rig.Native.Id, "rva:0x1004", "xor key loaded here", dryRun: false);
+        await rig.Edits.CommentNative(rig.Native.Id, "rva:0x1008", "unrelated", dryRun: false);
         var text = await rig.Edits.ListNativeEdits(rig.Native.Id, search: "/decrypt|xor/");
-        Assert.Contains("2 name(s) and comment(s) matching '/decrypt|xor/'", text);
+        Assert.Contains("names and comments matching '/decrypt|xor/'", text);
+        Assert.Contains("2 hits", text);
         Assert.Contains("0x140001000  user      name     DecryptConfig", text);
         Assert.Contains("0x140001004  user      comment  xor key loaded here", text);
         Assert.DoesNotContain("unrelated", text);

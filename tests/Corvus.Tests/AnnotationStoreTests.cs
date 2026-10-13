@@ -467,7 +467,7 @@ public class AnnotationStoreTests : IDisposable
             for (uint i = 0; i < PerSide; i++)
             {
                 var r = await server.CallToolAsync("rename_native", new Dictionary<string, object?>
-                {
+                { ["dryRun"] = false,
                     ["image"] = "native.dll", ["address"] = $"rva:0x{Start + i * 2:X}", ["name"] = $"Remote_{i}",
                 });
                 Assert.True(r.IsError != true, string.Join("\n", r.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text)));

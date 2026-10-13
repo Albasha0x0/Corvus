@@ -3,6 +3,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Annotations;
 using Corvus.Native.Code;
@@ -51,22 +52,20 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     private const string RelocationsDescription =
-        "PE base relocations under the patch: auto (default) keeps entries whose new bytes still hold an address, neutralizes the rest and adds entries " +
-        "for new absolute addresses; keep leaves them; neutralize clears all. Undo restores them; ignored with extend.";
+        "PE base relocations under the patch: auto (default) keeps those still holding an address, clears the rest, adds new ones; keep; neutralize clears all.";
 
     private const string ExtendDescription =
-        "Put the new code in a stub (see placement); the site becomes a jump to it and control returns after the site. For code larger than " +
-        "the site, or to keep it intact. x86/x64 PE, ELF and Mach-O. Refused with a reason code when unsafe.";
+        "Put the new code in a stub (see placement) the site jumps to; control returns after the site. For code larger than the site. Refused when unsafe.";
 
     private const string StubModeDescription = "With extend: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after.";
 
     private const string PlacementDescription =
         "With extend: auto (default; a code cave if one fits, else a new section), cave or section (a new PE section or ELF/Mach-O segment; undo restores it).";
 
-    private const string ForceDescription = "Override the safety checks (mid-instruction, past function end, header bytes, no free relocation slot).";
+    private const string AllowUnsafeDescription = "Allow what the safety checks refuse: mid-instruction, past the function end, header or loader-written bytes.";
 
-    [McpServerTool(Name = "rename_native", Title = "Name a native address")]
-    [Description("Name a native address: used by every native tool, pushed to the engines and kept per file SHA-256. C-identifier-like " +
+    [McpServerTool(Name = "rename_native", Title = "Name a native address", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [Description("Name a native address: used by every native tool, pushed to the engines, kept per file SHA-256, undoable by editId. C-identifier-like " +
                  "(<=255 chars), unique unless allowDuplicate. Empty clears. " + BatchNote)]
     public Task<string> RenameNative(
         [Description(NativeTools.ImageDescription)] string image,
@@ -74,7 +73,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("The new name; empty to clear the name at this address.")] string? name = null,
         [Description("Allow a name already used at another address.")] bool allowDuplicate = false,
         [Description("Lines 'address = name', or JSON [{address, name}].")] string? items = null,
-        [Description("Check only; record nothing.")] bool dryRun = false,
+        [Description(ToolSupport.DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description("Stop at the first failing item.")] bool stopOnError = false,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(PushEngineDescription)] string? engine = null,
@@ -83,60 +82,65 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         var show = DecompileDiff.Parse(showDecompile);
         if (show != null && items != null) throw new ToolError(ErrorCode.InvalidArgument, "showDecompile takes one address, not items.");
-        var (native, index) = await Open(image, progress, cancellationToken);
-        if (items == null && !dryRun)
-        {
-            if (string.IsNullOrWhiteSpace(address) || name == null)
-                throw new ToolError(ErrorCode.InvalidArgument, "Pass address and name, or items.", "items takes lines 'address = name'");
-            var rva = Address(index, address);
-            if (show == null)
-            {
-                var done = string.IsNullOrWhiteSpace(name) ? edits.ClearName(native, index, rva) : edits.Rename(native, index, rva, name, allowDuplicate);
-                await PushNames(native, engine, progress, cancellationToken);
-                return done;
-            }
-            // the session is opened first so the pseudocode before the rename is the engine's with every earlier name
-            if (engines == null) throw new ToolError(ErrorCode.Unsupported, "showDecompile needs a decompiler engine.");
-            var session = await engines.Session(native, string.IsNullOrWhiteSpace(engine) ? null : engine, new Progress<NativeProviderProgress>(p =>
-                progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
-            await EnsurePushed(native, session, cancellationToken);
-            var function = await DecompileDiff.FunctionFor(session, rva, cancellationToken);
-            var before = show == "diff" ? await DecompileDiff.Text(session, function, cancellationToken) : default;
-            var text = string.IsNullOrWhiteSpace(name) ? edits.ClearName(native, index, rva) : edits.Rename(native, index, rva, name, allowDuplicate);
-            await EnsurePushed(native, session, cancellationToken);
-            var after = await DecompileDiff.Text(session, function, cancellationToken);
-            return text + DecompileDiff.Render(show, before, after, function is { } f ? $"the function at rva 0x{f:X}" : "the function");
-        }
+        if (show != null && dryRun) throw new ToolError(ErrorCode.InvalidArgument, "showDecompile shows the pseudocode after the rename, so it needs dryRun=false.", "pass dryRun=false with showDecompile");
         var list = BatchItems(items, address, name, "name");
-        var results = new List<BatchResult>();
+        var (native, index) = await Open(image, progress, cancellationToken);
+        var results = new List<ItemResult>();
         var changes = new List<(uint Rva, string? Name)>();
         var used = edits.Annotations(native).Names().ToDictionary(n => n.Rva, n => n.Name);
         foreach (var item in list)
         {
-            string? error = null, shown = item.Value;
-            uint rva = 0;
             try
             {
-                rva = Address(index, item.Address);
+                var rva = Address(index, item.Address);
                 var next = string.IsNullOrWhiteSpace(item.Value) ? null : NativeName.Validate(item.Value);
-                shown = $"{index.NameAt(rva) ?? "(no name)"} -> {next ?? "(cleared)"}";
                 if (next != null && !allowDuplicate && used.FirstOrDefault(u => u.Key != rva && u.Value == next) is { Value: not null } other)
-                    throw new ToolError(ErrorCode.Conflict, $"'{next}' is already used at {NativeAddress.Va(index.Image, other.Key)}");
-                if (changes.Any(c => c.Rva == rva)) throw new ToolError(ErrorCode.Conflict, "the address is named twice in this batch");
+                    throw new ToolError(ErrorCode.Conflict, $"'{next}' is already used at {NativeAddress.Va(index.Image, other.Key)}.",
+                        "pass allowDuplicate=true to use it anyway, or pick another name");
+                if (changes.Any(c => c.Rva == rva)) throw new ToolError(ErrorCode.Conflict, "the address is named twice in this batch", "name each address once");
                 if (next == null) used.Remove(rva);
                 else used[rva] = next;
                 changes.Add((rva, next));
+                var where = index.FunctionAt(rva) is { } f && f.Start == rva ? "function " : "";
+                results.Add(new ItemResult(item.Address, new EditChange("name", NativeAddress.Va(index.Image, rva), index.NameAt(rva), next), where));
             }
-            catch (ToolError e) { error = e.Message; }
-            results.Add(new BatchResult(item.Address, shown, error));
-            if (error != null && stopOnError) break;
+            catch (ToolError e)
+            {
+                results.Add(new ItemResult(item.Address, null, null, e));
+                if (stopOnError) break;
+            }
         }
+        ThrowIfAllFailed(results, "rename_native");
+        EditId? id = null;
+        string? engineUsed = null;
+        string decompiled = "";
         if (!dryRun && changes.Count > 0)
         {
-            edits.ApplyNames(native, index, changes, allowDuplicate: true); // checked above, across the batch
-            await PushNames(native, engine, progress, cancellationToken);
+            if (show != null)
+            {
+                // the session is opened first so the pseudocode before the rename is the engine's with every earlier name
+                if (engines == null) throw new ToolError(ErrorCode.Unsupported, "showDecompile needs a decompiler engine.", "omit showDecompile; decompile_native shows the function");
+                var session = await engines.Session(native, string.IsNullOrWhiteSpace(engine) ? null : engine, new Progress<NativeProviderProgress>(p =>
+                    progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
+                await EnsurePushed(native, session, cancellationToken);
+                var function = await DecompileDiff.FunctionFor(session, changes[0].Rva, cancellationToken);
+                var before = show == "diff" ? await DecompileDiff.Text(session, function, cancellationToken) : default;
+                id = edits.ApplyNames(native, index, changes, allowDuplicate: true);
+                await EnsurePushed(native, session, cancellationToken);
+                engineUsed = session.ProviderId;
+                var after = await DecompileDiff.Text(session, function, cancellationToken);
+                decompiled = DecompileDiff.Render(show, before, after, function is { } f ? $"the function at rva 0x{f:X}" : "the function");
+            }
+            else
+            {
+                id = edits.ApplyNames(native, index, changes, allowDuplicate: true); // checked above, across the batch
+                engineUsed = (await PushNames(native, engine, progress, cancellationToken)).Engine;
+            }
         }
-        return Summary("name", results, list.Count, dryRun);
+        var text = Outcome("name", results, list.Count, dryRun, id, engineUsed, single: items == null,
+            r => items != null ? $"{r.Change!.Before ?? "(no name)"} -> {r.Change.After ?? "(cleared)"}" : r.Change!.After == null ? $"cleared the name at {r.Change.Target} (was {r.Change.Before ?? "unnamed"})"
+                : $"named {r.Where}{r.Change.Target} '{r.Change.After}'{(r.Change.Before is { } b && b != r.Change.After ? $" (was {b})" : "")}") + decompiled;
+        return ToolOutput.Edit(Record(results, dryRun, id, engineUsed), text);
     });
 
     private const string BatchNote = "items: many in one sidecar write and one engine push, each reported.";
@@ -146,7 +150,50 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     /// <summary>One item of a batch: the address and the value (a name or a comment's text), plus the optional per-item fields.</summary>
     internal sealed record BatchItem(string Address, string Value, string? Scope = null, bool? Append = null);
 
-    internal sealed record BatchResult(string Address, string Shown, string? Error);
+    /// <summary>A batch item planned (<see cref="Change"/>; null: nothing changes there) or refused (<see cref="Error"/>); <see cref="Where"/> a prefix for the text.</summary>
+    private sealed record ItemResult(string Address, EditChange? Change, string? Where, ToolError? Error = null, string? Text = null);
+
+    private static void ThrowIfAllFailed(List<ItemResult> results, string tool)
+    {
+        if (results.Count == 0 || results.Any(r => r.Error == null)) return;
+        if (results.Count == 1) throw results[0].Error!;
+        new BatchResult<int>([.. results.Select(r => new BatchItem<int>(r.Address, 0, BatchError.From(r.Error!, tool)))]).ThrowIfAllFailed();
+    }
+
+    /// <summary>The outcome record: the planned or made changes, the edit id, failed items with their errors.</summary>
+    private static EditOutcome Record(List<ItemResult> results, bool dryRun, EditId? id, string? engine)
+    {
+        var changes = results.Where(r => r.Change != null).Select(r => r.Change!).ToList();
+        int failed = results.Count(r => r.Error != null);
+        return new EditOutcome(!dryRun && id != null, dryRun, changes, id is { } e ? [e] : [])
+        {
+            Failed = failed > 0 ? failed : null,
+            Items = failed > 0 ? [.. results.Where(r => r.Error != null).Select(r => (object)new { target = r.Address, error = BatchError.From(r.Error!) })] : null,
+            PushedTo = engine != null ? [engine] : null,
+        };
+    }
+
+    /// <summary>The text: one line for a single item, else a summary line and one line per item; then the edit id and where it went.</summary>
+    private static string Outcome(string what, List<ItemResult> results, int total, bool dryRun, EditId? id, string? engine, bool single, Func<ItemResult, string> line)
+    {
+        string Line(ItemResult r) => r.Error != null ? $"failed: {r.Error.Message}" : r.Text ?? (r.Change == null ? "unchanged" : line(r));
+        var sb = new System.Text.StringBuilder();
+        if (single) sb.Append(dryRun ? results[0].Text != null || results[0].Error != null ? "Dry run: " : "Dry run: would have " : "").Append(Upper(Line(results[0]).TrimEnd('.'), !dryRun)).Append('.').Append('\n');
+        else
+        {
+            int failed = results.Count(r => r.Error != null);
+            sb.Append($"{(dryRun ? "Dry run: " : "")}{total} {what} item(s): {results.Count - failed} ok, {failed} failed" +
+                      (results.Count < total ? $", stopped after item {results.Count}" : "") + "\n");
+            foreach (var r in results) sb.Append($"  {r.Address}  {Line(r)}\n");
+        }
+        if (dryRun) sb.Append("Nothing recorded; dryRun=false applies it.\n");
+        else if (id is { } e) sb.Append($"Recorded as {e} (undo_native_edit editId={e}); " +
+                                        (engine != null ? $"pushed to {NativeEngineService.DisplayName(engine)}.\n" : "engines take it at their next use.\n"));
+        else if (results.Any(r => r.Error == null)) sb.Append("Nothing changed.\n");
+        return sb.ToString();
+    }
+
+    private static string Upper(string s, bool upper) => upper && s.Length > 0 ? char.ToUpperInvariant(s[0]) + s[1..] : s;
 
     /// <summary>Most items in one call.</summary>
     private const int MaxBatchItems = 5000;
@@ -192,69 +239,72 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return list;
     }
 
-    private static string Summary(string what, IReadOnlyList<BatchResult> results, int total, bool dryRun)
-    {
-        int failed = results.Count(r => r.Error != null);
-        var sb = new System.Text.StringBuilder($"{(dryRun ? "Dry run: " : "")}{total} {what} item(s): {results.Count - failed} ok, {failed} failed" +
-                                               (results.Count < total ? $", stopped after item {results.Count}" : "") + (dryRun ? "; nothing recorded" : "") + "\n");
-        foreach (var r in results) sb.AppendLine($"  {r.Address}  {(r.Error == null ? r.Shown : $"failed: {r.Error}")}");
-        return sb.ToString();
-    }
-
-    [McpServerTool(Name = "comment_native", Title = "Comment a native address")]
-    [Description("Comment a native address (kept, pushed to engines). scope: line (repeatable: also where the address is " +
+    [McpServerTool(Name = "comment_native", Title = "Comment a native address", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [Description("Comment a native address (kept, pushed to engines, undoable). scope: line (repeatable: also where the address is " +
                  "referenced), eol, pre or plate (engine kinds; Ghidra's decompiler shows pre), pseudocode (on the statement made from the address), " +
-                 "function, or auto (function at a function start, else line and pseudocode). append adds a line (dedupe skips one it has). Empty clears. " + BatchNote)]
+                 "function, or auto (function at a function start, else line and pseudocode). append adds a line. Empty clears. " + BatchNote)]
     public Task<string> CommentNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
         [Description("The comment text; empty to clear it.")] string? text = null,
         [Description("See the description; default auto.")] string? scope = null,
-        [Description("Add text as a new line of the existing comment.")] bool append = false,
-        [Description("With append: skip a line already there.")] bool dedupe = true,
+        [Description("Add text as a new line of the existing comment; a line it has is skipped.")] bool append = false,
+        [Description("With append: add the line even when the comment has it.")] bool repeatLine = false,
         [Description("Lines 'address = text', or JSON [{address, text, scope?, append?}].")] string? items = null,
-        [Description("Check only; record nothing.")] bool dryRun = false,
+        [Description(ToolSupport.DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description("Stop at the first failing item.")] bool stopOnError = false,
         [Description(PushEngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (native, index) = await Open(image, progress, cancellationToken);
         var list = BatchItems(items, address, text, "text");
         var defaultScope = CommentScopes.Parse(scope);
+        var (native, index) = await Open(image, progress, cancellationToken);
         var plans = new List<CommentPlan>();
-        var results = new List<BatchResult>();
+        var results = new List<ItemResult>();
         foreach (var item in list)
         {
             try
             {
                 var rva = Address(index, item.Address);
                 var itemScope = item.Scope != null ? CommentScopes.Parse(item.Scope) : defaultScope;
-                var plan = PlanComment(native, index, rva, item.Value, itemScope, item.Append ?? append, dedupe,
+                var plan = PlanComment(native, index, rva, item.Value, itemScope, item.Append ?? append, !repeatLine,
                     itemScope == CommentScopes.Function ? await EngineFunctionStart(native, index, rva, engine, progress, cancellationToken) : null);
                 if (plan.Change != null && plans.Any(p => p.Change?.Rva == plan.Rva))
-                    throw new ToolError(ErrorCode.Conflict, "the address is commented twice in this batch");
+                    throw new ToolError(ErrorCode.Conflict, "the address is commented twice in this batch", "comment each address once, or use append");
                 plans.Add(plan);
-                results.Add(new BatchResult(item.Address, plan.Text, null));
+                results.Add(new ItemResult(item.Address, plan.Change is { } c ? CommentChange(native, index, c) : null, null, Text: plan.Text));
             }
-            catch (ToolError e) when (items != null)
+            catch (ToolError e)
             {
-                results.Add(new BatchResult(item.Address, "", e.Message));
+                results.Add(new ItemResult(item.Address, null, null, e));
                 if (stopOnError) break;
             }
         }
+        ThrowIfAllFailed(results, "comment_native");
         var changes = plans.Select(p => p.Change).OfType<NativeEditService.CommentChange>().ToList();
         NativeNamePush.PushResult? pushed = null;
+        string? engineUsed = null;
+        EditId? id = null;
         if (!dryRun && changes.Count > 0)
         {
-            edits.ApplyComments(native, index, changes);
-            pushed = await PushNames(native, engine, progress, cancellationToken);
+            id = edits.ApplyComments(native, index, changes);
+            (pushed, engineUsed) = await PushNames(native, engine, progress, cancellationToken);
         }
         var pseudo = changes.Where(c => c.Pseudo != null).Select(c => c.Rva).ToList();
-        var note = dryRun || pseudo.Count == 0 ? "" : PushNote(pushed, pseudo);
-        if (items == null) return (dryRun ? "Dry run: " : "") + (results[0].Error ?? results[0].Shown) + note;
-        return Summary("comment", results, list.Count, dryRun) + note.TrimStart();
+        var note = dryRun || pseudo.Count == 0 ? "" : PushNote(pushed, pseudo).TrimStart() + "\n";
+        var outcome = Outcome("comment", results, list.Count, dryRun, id, engineUsed, single: items == null, r => r.Text!.TrimEnd('.'));
+        return ToolOutput.Edit(Record(results, dryRun, id, engineUsed), outcome + note);
     });
+
+    /// <summary>The comment change at one address as an edit change: the line comment when it changes, else the pseudocode one.</summary>
+    private EditChange CommentChange(LoadedNative native, NativeCodeIndex index, NativeEditService.CommentChange c)
+    {
+        var va = NativeAddress.Va(index.Image, c.Rva);
+        return c.Line != null
+            ? new EditChange("comment", va, index.Sourced.CommentAt(c.Rva)?.Text, c.Line.Trim().Length == 0 ? null : c.Line.Trim())
+            : new EditChange("pseudocode", va, edits.Annotations(native).PseudoCommentAt(c.Rva), c.Pseudo!.Trim().Length == 0 ? null : c.Pseudo.Trim());
+    }
 
     /// <summary>comment_native scopes.</summary>
     internal static class CommentScopes
@@ -329,13 +379,14 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     /// <summary>Pushes the names and comments into an engine session now: the one asked for, else one open on the image; null when none.</summary>
-    private async Task<NativeNamePush.PushResult?> PushNames(LoadedNative native, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    private async Task<(NativeNamePush.PushResult? Result, string? Engine)> PushNames(LoadedNative native, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        if (engines == null || names == null) return null;
+        if (engines == null || names == null) return (null, null);
         var session = string.IsNullOrWhiteSpace(engine) ? engines.CompletedSession(native)
             : await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
                 progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), ct);
-        return session == null ? null : await EnsurePushed(native, session, ct) ?? new NativeNamePush.PushResult(0, 0, null, true, "", TimeSpan.Zero);
+        if (session == null) return (null, null);
+        return (await EnsurePushed(native, session, ct) ?? new NativeNamePush.PushResult(0, 0, null, true, "", TimeSpan.Zero), session.ProviderId);
     }
 
     /// <summary>Brings the session's names, recovered types and user types up to date (in that order); the names push's result.</summary>
@@ -356,7 +407,11 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             " Not placed in the pseudocode: " + string.Join("; ", failed.Take(10).Select(f => $"rva 0x{f.Rva:X}: {f.Error}")) + ".";
     }
 
-    [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations")]
+    /// <summary>export_native_annotations' record.</summary>
+    public sealed record AnnotationExportResult(string OutputPath, string Format, int Names, int Comments, int PseudoComments, int Types,
+        [property: Description("Names and comments of the imported layers beneath the user's.")] int Imported, long Bytes, string Sha256);
+
+    [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations", UseStructuredContent = true, OutputSchemaType = typeof(AnnotationExportResult))]
     [Description("Write the image's names and comments (with the NativeAOT, Il2Cpp, ObjC and Swift names) as an IDAPython script, a Ghidra script or JSON; the IDA " +
                  "script and JSON carry the user's engine types too. Scripts apply by rebased RVA. header: a C header of declared types, prototypes " +
                  "and typed globals.")]
@@ -376,23 +431,26 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             ? AnnotationHeader.Render(ann, index.NameAt, rva => index.FunctionByStart(rva) != null, imported)
             : AnnotationExport.Render(ann, fmt, imported);
         var target = SafeFile.WriteAllText(outputPath, text, overwrite);
-        return $"Exported {ann.NameCount} name(s), {ann.CommentCount} comment(s), {ann.PseudoCommentCount} pseudocode comment(s) and {ann.UserTypes.Count} user type(s)" +
-               (imported.Count > 0 ? $", with {imported.Count} name(s) and comment(s) of the {imported.Sources} layer(s) beneath them," : "") + $" to {target} ({fmt} format)" +
-               (fmt == AnnotationExport.Format.Ghidra && ann.UserTypes.Count > 0 ? "; user types are not in Ghidra scripts." : ".");
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        var record = new AnnotationExportResult(target, fmt.ToString().ToLowerInvariant(), ann.NameCount, ann.CommentCount, ann.PseudoCommentCount, ann.UserTypes.Count,
+            imported.Count, bytes.Length, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)));
+        return ToolOutput.Report($"Exported {ann.NameCount} name(s), {ann.CommentCount} comment(s), {ann.PseudoCommentCount} pseudocode comment(s) and {ann.UserTypes.Count} user type(s)" +
+               (imported.Count > 0 ? $", with {imported.Count} name(s) and comment(s) of the {imported.Sources} layer(s) beneath them," : "") + $" to {target} ({record.Format} format)" +
+               (fmt == AnnotationExport.Format.Ghidra && ann.UserTypes.Count > 0 ? "; user types are not in Ghidra scripts." : "."), record);
     });
 
-    [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes")]
-    [Description("Replace bytes at a native address in memory, as an undoable edit that every read path then sees. A partly overwritten " +
-                 "instruction is padded with NOPs; mid-instruction, past the function end or on header / zero-fill bytes needs force. ELF / Mach-O: " +
-                 "loader-rewritten bytes need force, encrypted ones are refused, signatures become invalid.")]
+    [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [Description("Replace bytes at a native address in memory, as an undoable edit every read path sees. A partly overwritten instruction is padded " +
+                 "with NOPs; mid-instruction, past the function end, header bytes or ELF/Mach-O loader-rewritten bytes need allowUnsafe; encrypted bytes " +
+                 "are refused; signatures become invalid.")]
     public Task<string> PatchBytes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Replacement bytes as hex ('90 90', '9090' or '0x90,0x90').")] string? hex = null,
         [Description("Instead of hex: a number of type (range-checked); ptr: or a name.")] string? value = null,
         [Description("With value: i8-i64, u8-u64, f32, f64 or ptr; a be suffix for big-endian.")] string? type = null,
-        [Description(ForceDescription)] bool force = false,
-        [Description("Preview only; do not record the patch.")] bool dryRun = false,
+        [Description(AllowUnsafeDescription)] bool allowUnsafe = false,
+        [Description(ToolSupport.DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description(RelocationsDescription)] string? relocations = null,
         [Description(ExtendDescription)] bool extend = false,
         [Description(StubModeDescription)] string? stubMode = null,
@@ -408,17 +466,13 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         if (value != null && TypedValue.IsPointer(type) && !TypedValue.IsInteger(value))
             value = $"0x{index.Image.ImageBase + Address(index, value):X}";
         var bytes = value != null ? TypedValue.Encode(type!, value, index.Image.Is64Bit) : ParseHex(hex!);
-        if (extend)
-        {
-            var extended = edits.PrepareExtendedPatch(index, rva, bytes, null, PatchExtension.ParseMode(stubMode), $"patch_bytes {bytes.Length} bytes (stub)", null, PatchExtension.ParsePlacement(placement));
-            return note + edits.ApplyPatch(native, index, extended, dryRun);
-        }
-        var mode = NativeEditService.ParseRelocationMode(relocations);
-        var prepared = edits.PreparePatch(index, rva, bytes, force, value != null ? $"patch_bytes {type} {value}" : $"patch_bytes {bytes.Length} bytes", mode);
-        return note + edits.ApplyPatch(native, index, prepared, dryRun);
+        var prepared = extend
+            ? edits.PrepareExtendedPatch(index, rva, bytes, null, PatchExtension.ParseMode(stubMode), $"patch_bytes {bytes.Length} bytes (stub)", null, PatchExtension.ParsePlacement(placement))
+            : edits.PreparePatch(index, rva, bytes, allowUnsafe, value != null ? $"patch_bytes {type} {value}" : $"patch_bytes {bytes.Length} bytes", NativeEditService.ParseRelocationMode(relocations));
+        return PatchOutcome(native, index, prepared, dryRun, note);
     });
 
-    [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code")]
+    [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; 'db <hex>') and write them at a native " +
                  "address in memory, branches and RIP-relative references computed for that address. Same safety rules, NOP padding and undo as " +
                  "patch_bytes; PE absolute addresses ([addr], 'offset name', imm64) get base relocations.")]
@@ -426,8 +480,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Assembly, one instruction per line.")] string assembly,
-        [Description(ForceDescription)] bool force = false,
-        [Description("Preview only; do not record the patch.")] bool dryRun = false,
+        [Description(AllowUnsafeDescription)] bool allowUnsafe = false,
+        [Description(ToolSupport.DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description(RelocationsDescription)] string? relocations = null,
         [Description(ExtendDescription)] bool extend = false,
         [Description(StubModeDescription)] string? stubMode = null,
@@ -437,61 +491,185 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         var (native, index, note) = await OpenToPatch(image, dryRun, progress, cancellationToken);
         var rva = Address(index, address);
+        if (index.Image.Arch is not (NativeArch.X86 or NativeArch.X64))
+            throw new ToolError(ErrorCode.Unsupported, $"patch_asm assembles x86 and x64; {native.Id} is {index.Image.Arch}.",
+                "assemble the instructions elsewhere and pass their bytes to patch_bytes");
         ulong startVa = index.Image.ImageBase + rva;
         Func<string, ulong?> resolve = name =>
         {
             try { return index.Image.ImageBase + Address(index, name); }
             catch (ToolError) { return null; }
         };
+        NativeEditService.PatchResult prepared;
         if (extend)
         {
             // Assemble the new code at the eventual stub address inside the extension; here only validate it decodes.
             var newBytes = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, resolve).Bytes;
-            var extended = edits.PrepareExtendedPatch(index, rva, newBytes, assembly, PatchExtension.ParseMode(stubMode), "patch_asm (stub)", resolve, PatchExtension.ParsePlacement(placement));
-            return note + edits.ApplyPatch(native, index, extended, dryRun);
+            prepared = edits.PrepareExtendedPatch(index, rva, newBytes, assembly, PatchExtension.ParseMode(stubMode), "patch_asm (stub)", resolve, PatchExtension.ParsePlacement(placement));
         }
-        var mode = NativeEditService.ParseRelocationMode(relocations);
-        var result = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, resolve);
-        var prepared = edits.PreparePatch(index, rva, result.Bytes, force, "patch_asm", mode, result.Constants, assembly);
-        return note + edits.ApplyPatch(native, index, prepared, dryRun);
+        else
+        {
+            var result = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, resolve);
+            prepared = edits.PreparePatch(index, rva, result.Bytes, allowUnsafe, "patch_asm", NativeEditService.ParseRelocationMode(relocations), result.Constants, assembly);
+        }
+        return PatchOutcome(native, index, prepared, dryRun, note);
     });
 
-    [McpServerTool(Name = "list_native_edits", Title = "List native byte patches")]
-    [Description("The in-memory byte patches of a native image, numbered (undo_native_edit, save_native). Then the names by source: the user's " +
-                 "(rename_native / comment_native) and each imported layer (pdb, il2cpp, ida) with counts, origin, identity and whether it was " +
-                 "saved or restored when the image loaded.")]
+    private string PatchOutcome(LoadedNative native, NativeCodeIndex index, NativeEditService.PatchResult prepared, bool dryRun, string note)
+    {
+        var applied = edits.Apply(native, index, prepared, dryRun);
+        var p = applied.Patch;
+        var change = new EditChange("bytes", NativeAddress.Va(native.Image, p.Rva), Convert.ToHexString(p.Original), Convert.ToHexString(p.Replacement));
+        return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, [change], applied.EditId is { } id ? [id] : []), note + applied.Text);
+    }
+
+    /// <summary>list_native_edits' row: an edit (id, tool, kind) or, with search, a matching name or comment (source, kind).</summary>
+    public sealed record NativeEditRow(
+        [property: Description("Edit id for undo_native_edit; absent on search rows.")] string? EditId,
+        [property: Description("patch, annotation or engine; name or comment on search rows.")] string Kind,
+        string? Address,
+        [property: Description("What the edit did, or the matching text.")] string Text,
+        [property: Description("The tool that made the edit, or the name source (user, pdb, ...).")] string Source,
+        [property: Description("Addresses or items the edit changed.")] int Changes);
+
+    /// <summary>list_native_edits' record.</summary>
+    public sealed record NativeEditList(string Image, IReadOnlyList<NativeEditRow> Items, int Total,
+        [property: Description("The name layers: the user's and each imported one with counts and origin.")] IReadOnlyList<string> Layers)
+    {
+        public int Offset { get; init; }
+    }
+
+    [McpServerTool(Name = "list_native_edits", Title = "List native edits", UseStructuredContent = true, OutputSchemaType = typeof(NativeEditList))]
+    [Description("Native edits of an image in the order made, each with the editId undo_native_edit takes: byte patches, names, comments, " +
+                 "engine type edits. Then the name layers (user, pdb, il2cpp, ida, ...) with counts and origin. search: the names and comments that match instead.")]
     public Task<string> ListNativeEdits(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Instead: the names and comments (user and layers) whose text matches: " + NameFilter.Description + ".")] string? search = null,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
+        [Description("Rows per page (default 100).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var filter = NameFilter.Parse(search);
         var (native, _) = await Open(image, progress, cancellationToken);
-        if (filter == null) return edits.List(native);
-        var matches = NoteMarks.Search(native, code, filter);
-        var rows = matches.Select(m => $"{NativeAddress.Va(native.Image, m.Rva)}  {m.Source,-9} {m.Kind,-7}  {Format.Clip(m.Text.ReplaceLineEndings(" "), 200)}").ToList();
-        int shown = Math.Min(rows.Count, MaxSearchRows);
-        return $"{native.Id}: {matches.Count} name(s) and comment(s) matching '{filter.Text}'\n" + string.Join("\n", rows.Take(shown)) +
-               (rows.Count > shown ? $"\n... {rows.Count - shown} more: narrow the search" : "") + filter.Note("annotation");
+        var layers = edits.NameLayers(native);
+        int from = Math.Max(0, offset), count = ToolSupport.ClampLimit(limit);
+        List<NativeEditRow> rows;
+        string header;
+        if (filter == null)
+        {
+            rows = [.. edits.Journal.Entries(native).Select(e => Row(native, e))];
+            header = $"{native.Id}: native edits in the order made (undo_native_edit editId=...)\n" +
+                     (layers.Count > 0 ? "Names (priority user > pdb > nativeaot > il2cpp > objc > swift > ida > ghidra > discovered):\n" + string.Concat(layers.Select(l => $"  {l}\n")) : "");
+        }
+        else
+        {
+            rows = [.. NoteMarks.Search(native, code, filter).Select(m =>
+                new NativeEditRow(null, m.Kind, NativeAddress.Va(native.Image, m.Rva), Format.Clip(m.Text.ReplaceLineEndings(" "), 200), m.Source, 1))];
+            header = $"{native.Id}: names and comments matching '{filter.Text}'{filter.Note("annotation")}\n";
+        }
+        return ToolOutput.List(rows.Skip(from).Take(count).ToList(), from, count, rows.Count,
+            r => r.EditId != null ? $"{r.EditId}  {r.Kind,-10} {r.Address ?? "",-18} {r.Text}" : $"{r.Address}  {r.Source,-9} {r.Kind,-7}  {r.Text}",
+            page => new NativeEditList(native.Id, page, rows.Count, layers) { Offset = from }, filter == null ? "edit" : "hit", header);
     });
 
-    /// <summary>Rows list_native_edits search= shows.</summary>
-    private const int MaxSearchRows = 500;
+    private static NativeEditRow Row(LoadedNative native, NativeJournalEntry e)
+    {
+        string? address = null;
+        string text = e.Description;
+        int changes = 1;
+        if (e.Patch is { } p)
+        {
+            address = NativeAddress.Va(native.Image, p.Rva);
+            text = $"{p.Description}: {NativeEditService.PatchDetail(native.Image, p)}";
+        }
+        else if (e.Annotations.Count > 0)
+        {
+            changes = e.Annotations.Count;
+            address = NativeAddress.Va(native.Image, e.Annotations[0].Rva);
+            if (changes == 1) text = $"{e.Tool}: {Describe(e.Annotations[0])}";
+        }
+        else if (e.UserTypes is { } d)
+        {
+            changes = d.Items.Count;
+            if (changes == 1 && d.Describe().First() is var (kind, target, before, after))
+                text = $"{e.Tool} ({e.Engine}): {kind} {target}: {before ?? "(none)"} -> {after ?? "(none)"}";
+        }
+        return new NativeEditRow(e.Id.ToString(), e.Kind, address, text, e.Tool, changes);
+    }
 
-    [McpServerTool(Name = "undo_native_edit", Title = "Undo a native byte patch")]
-    [Description("Undo one in-memory byte patch of a native image — the last by default, or any earlier one by number (from list_native_edits).")]
+    private static string Describe(NativeAnnotationChange c)
+    {
+        var parts = new List<string>();
+        if (c.Before.Name != c.After.Name) parts.Add($"name {c.Before.Name ?? "(none)"} -> {c.After.Name ?? "(none)"}");
+        if (c.Before.Comment != c.After.Comment) parts.Add($"comment {Format.Clip((c.Before.Comment ?? "(none)").ReplaceLineEndings(" "), 60)} -> {Format.Clip((c.After.Comment ?? "(none)").ReplaceLineEndings(" "), 60)}");
+        if (c.Before.Pseudo != c.After.Pseudo) parts.Add("pseudocode comment");
+        if (parts.Count == 0 && c.Before.CommentKind != c.After.CommentKind) parts.Add($"comment kind {c.Before.CommentKind ?? "repeatable"} -> {c.After.CommentKind ?? "repeatable"}");
+        return string.Join("; ", parts);
+    }
+
+    [McpServerTool(Name = "undo_native_edit", Title = "Undo a native edit", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
+    [Description("Undo native edits by editId (list_native_edits), the last by default: a patch, name, comment or engine type edit gets its previous " +
+                 "value back, pushed to the engines. Refused while a later edit changed the same item.")]
     public Task<string> UndoNativeEdit(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Patch number (1-based, from list_native_edits); omit for the last.")] int? number = null,
+        [Description("Edit id (image#n, or #n); comma-separated for several, undone in that order; omit for the last.")] string? editId = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, _) = await Open(image, progress, cancellationToken);
-        return edits.Undo(native, number);
+        var ids = string.IsNullOrWhiteSpace(editId) ? [null] : editId.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => (string?)t).ToList();
+        var done = new List<NativeUndoResult>();
+        var results = new List<ItemResult>();
+        foreach (var text in ids)
+        {
+            try
+            {
+                var r = await edits.Journal.UndoAsync(native, text == null ? null : ParseEditId(native, text), cancellationToken);
+                done.Add(r);
+                results.Add(new ItemResult(text ?? r.Entry.Id.ToString(), null, null, Text: UndoLine(r)));
+            }
+            catch (ToolError e) { results.Add(new ItemResult(text ?? "(last)", null, null, e)); }
+        }
+        ThrowIfAllFailed(results, "undo_native_edit");
+        var sb = new System.Text.StringBuilder();
+        foreach (var r in results) sb.Append(r.Error != null ? $"{r.Address}: failed: {r.Error.Message}\n" : r.Text + "\n");
+        sb.Append($"{edits.Journal.Entries(native).Count} native edit(s) remain.");
+        int failed = results.Count(r => r.Error != null);
+        var outcome = new EditOutcome(true, false, [.. done.SelectMany(r => r.Changes)], [.. done.Select(r => r.Entry.Id)])
+        {
+            Failed = failed > 0 ? failed : null,
+            Items = failed > 0 ? [.. results.Where(r => r.Error != null).Select(r => (object)new { target = r.Address, error = BatchError.From(r.Error!) })] : null,
+            PushedTo = done.SelectMany(r => r.PushedTo).Distinct().ToList() is { Count: > 0 } engines ? engines : null,
+        };
+        return ToolOutput.Edit(outcome, sb.ToString());
     });
 
-    [McpServerTool(Name = "save_native", Title = "Save patched native image")]
+    private static string UndoLine(NativeUndoResult r)
+    {
+        var what = r.Changes.Count == 1 ? $"{r.Changes[0].Kind} at {r.Changes[0].Target} back to {r.Changes[0].After ?? "(none)"}" : $"{r.Changes.Count} change(s)";
+        return $"Undid {r.Entry.Id} ({r.Entry.Description}): {what}" +
+               (r.PushedTo.Count > 0 ? $"; pushed to {string.Join(", ", r.PushedTo.Select(NativeEngineService.DisplayName))}" : "") + "." +
+               string.Concat(r.Notes.Select(n => $"\n  note: {n}"));
+    }
+
+    /// <summary>An edit id of <paramref name="native"/>: "image#n", "#n" or "n".</summary>
+    internal static EditId ParseEditId(LoadedNative native, string text)
+    {
+        var t = text.Trim();
+        if (EditId.TryParse(t, out var id) && id.Target.Length > 0) return id;
+        if (int.TryParse(t.TrimStart('#'), out var n) && n > 0) return new EditId(native.Id, n);
+        throw new ToolError(ErrorCode.InvalidArgument, $"'{text}' is not an edit id.", "pass an id from list_native_edits, e.g. " + native.Id + "#1");
+    }
+
+    /// <summary>save_native's record.</summary>
+    public sealed record NativeSaveResult(string OutputPath, long Bytes, int Patches, string Sha256,
+        [property: Description("The recomputed PE checksum, when the original had one.")] string? Checksum,
+        [property: Description("The original's backup, when the original was replaced.")] string? Backup,
+        [property: Description("Every byte outside the patches matches the original and the relocations re-parse as planned.")] bool Verified,
+        IReadOnlyList<string> Notes);
+
+    [McpServerTool(Name = "save_native", Title = "Save patched native image", UseStructuredContent = true, OutputSchemaType = typeof(NativeSaveResult))]
     [Description("Write the patched native image to a new file: unpatched bytes identical, PE checksum recomputed, a signature invalidated " +
                  "(stripSignature removes it). Atomic and verified before it replaces the target; overwrite=true keeps a .bak and refuses a file changed on disk.")]
     public Task<string> SaveNative(
@@ -503,9 +681,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, _) = await Open(image, progress, cancellationToken);
-        var report = edits.Save(native, outputPath, overwrite, stripSignature);
+        var saved = edits.Write(native, outputPath, overwrite, stripSignature);
         journal?.Saved(native);
-        return report;
+        return ToolOutput.Report(saved.Text, new NativeSaveResult(saved.OutputPath, saved.Bytes, saved.Patches, saved.Sha256, saved.Checksum, saved.Backup, saved.Verified, saved.Notes));
     });
 
     private static byte[] ParseHex(string hex)

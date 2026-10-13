@@ -38,4 +38,6 @@ public sealed record EditOutcome(bool Applied, bool DryRun, IReadOnlyList<EditCh
     public int? Failed { get; init; }
     public IReadOnlyList<object>? Items { get; init; }
     public string? ResultId { get; init; }
+    /// <summary>The engines the change was pushed to (ida, ghidra); empty: none open, they take it at their next use.</summary>
+    public IReadOnlyList<string>? PushedTo { get; init; }
 }

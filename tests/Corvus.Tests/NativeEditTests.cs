@@ -372,7 +372,7 @@ public class NativeEditTests(ITestOutputHelper output)
         h.Edits.Annotations(native).ChangeUserTypes(l => l.WithDeclarations("struct Ctx { int n; };").WithType(entry, "int __stdcall(struct Ctx *c)"));
         var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
         var output = h.Dir.File("tiny.h");
-        Assert.Contains("(Header format)", await tools.ExportNativeAnnotations(h.Path, output, "header"));
+        Assert.Contains("(header format)", await tools.ExportNativeAnnotations(h.Path, output, "header"));
         var header = File.ReadAllText(output);
         Assert.Contains("struct Ctx { int n; };", header);
         Assert.Contains($"int __stdcall Start(struct Ctx *c); // rva 0x{entry:X}", header);
@@ -402,24 +402,24 @@ public class NativeEditTests(ITestOutputHelper output)
         var ann = h.Code.Annotations(native);
 
         // auto: a function start takes the function comment, any other address the line and the pseudocode comment
-        Assert.Contains("function", await tools.CommentNative(h.Path, At(entry), "decrypts"));
+        Assert.Contains("function", await tools.CommentNative(h.Path, At(entry), "decrypts", dryRun: false));
         Assert.Equal(("decrypts", null), (ann.CommentAt(entry), ann.PseudoCommentAt(entry)));
-        var both = await tools.CommentNative(h.Path, At(inside), "returns 1");
+        var both = await tools.CommentNative(h.Path, At(inside), "returns 1", dryRun: false);
         _output.WriteLine(both);
         Assert.Contains("reach the engine at its next use", both);
         Assert.Equal(("returns 1", "returns 1"), (ann.CommentAt(inside), ann.PseudoCommentAt(inside)));
         Assert.Equal("returns 1", index.CommentFor(inside));
 
         // append, deduped by line; scope function from inside the function
-        Assert.Contains("already has this line", await tools.CommentNative(h.Path, At(inside), " returns 1 ", scope: "pseudocode", append: true));
-        await tools.CommentNative(h.Path, At(inside), "checked", scope: "pseudocode", append: true);
-        await tools.CommentNative(h.Path, At(inside), "checked", scope: "pseudocode", append: true, dedupe: false);
+        Assert.Contains("already has this line", await tools.CommentNative(h.Path, At(inside), " returns 1 ", scope: "pseudocode", append: true, dryRun: false));
+        await tools.CommentNative(h.Path, At(inside), "checked", scope: "pseudocode", append: true, dryRun: false);
+        await tools.CommentNative(h.Path, At(inside), "checked", scope: "pseudocode", append: true, repeatLine: true, dryRun: false);
         Assert.Equal(("returns 1", "returns 1\nchecked\nchecked"), (ann.CommentAt(inside), ann.PseudoCommentAt(inside)));
-        await tools.CommentNative(h.Path, At(inside), "second", scope: "function", append: true);
+        await tools.CommentNative(h.Path, At(inside), "second", scope: "function", append: true, dryRun: false);
         Assert.Equal("decrypts\nsecond", ann.CommentAt(entry));
-        await tools.CommentNative(h.Path, At(inside), "", scope: "line");
+        await tools.CommentNative(h.Path, At(inside), "", scope: "line", dryRun: false);
         Assert.Equal((null, "returns 1\nchecked\nchecked"), (ann.CommentAt(inside), ann.PseudoCommentAt(inside)));
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.CommentNative(h.Path, At(inside), "x", scope: "everywhere"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.CommentNative(h.Path, At(inside), "x", scope: "everywhere", dryRun: false))).Code);
 
         // kept in the sidecar (format 3), and exported by every format
         using (var env2 = new Env())
@@ -435,7 +435,7 @@ public class NativeEditTests(ITestOutputHelper output)
             Assert.Contains("1 pseudocode comment(s)", await tools.ExportNativeAnnotations(h.Path, file, format));
             Assert.Contains(expected, File.ReadAllText(file));
         }
-        await tools.CommentNative(h.Path, At(inside), "", scope: "pseudocode");
+        await tools.CommentNative(h.Path, At(inside), "", scope: "pseudocode", dryRun: false);
         Assert.Equal(0, ann.PseudoCommentCount);
     }
 
@@ -476,21 +476,21 @@ public class NativeEditTests(ITestOutputHelper output)
         uint inside = native.Image.EntryPointRva + 5;
         var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
         var ann = h.Code.Annotations(native);
-        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "eol");
+        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "eol", dryRun: false);
         Assert.Equal(("ends here", "eol"), (ann.CommentAt(inside), ann.CommentKindAt(inside)));
         var before = NativeNamePush.Effective(ann, [], native.Image);
         // the same text as a pre comment is a change of kind, not "unchanged"
-        Assert.Contains("pre comment set", await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "pre"));
+        Assert.Contains("pre comment set", await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "pre", dryRun: false));
         Assert.Equal("pre", ann.CommentKindAt(inside));
         Assert.NotEqual(NativeNamePush.StampOf(before), NativeNamePush.StampOf(NativeNamePush.Effective(ann, [], native.Image)));
         var file = h.Dir.File("export.java");
         await tools.ExportNativeAnnotations(h.Path, file, "ghidra");
         Assert.Contains($"setPreComment(base.add(0x{inside:X}L), \"ends here\")", File.ReadAllText(file));
         // back to line: the kind is dropped; a removed comment takes its kind with it
-        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "line");
+        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "line", dryRun: false);
         Assert.Null(ann.CommentKindAt(inside));
-        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "x", scope: "plate");
-        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "", scope: "line");
+        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "x", scope: "plate", dryRun: false);
+        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "", scope: "line", dryRun: false);
         Assert.Equal((null, null), (ann.CommentAt(inside), ann.CommentKindAt(inside)));
     }
 
@@ -540,13 +540,13 @@ public class NativeEditTests(ITestOutputHelper output)
         await tools.PatchBytes(h.Path, at, value: "0xB8", type: "u8", dryRun: true);
         Assert.False(native.HasPatches);
         // mov eax, 1 -> mov eax, 7: the immediate is a u32 inside the instruction
-        _output.WriteLine(await tools.PatchBytes(h.Path, $"rva:0x{entry + 1:X}", value: "7", type: "u32", force: true));
+        _output.WriteLine(await tools.PatchBytes(h.Path, $"rva:0x{entry + 1:X}", value: "7", type: "u32", allowUnsafe: true, dryRun: false));
         Assert.True(native.HasPatches);
         Assert.Matches(@"mov\s+eax,\s*7\b", await new NativeCodeTools(h.Env.Workspace, h.Code, h.Env.Pager).Disassemble(h.Path, at));
         await tools.UndoNativeEdit(h.Path);
         Assert.False(native.HasPatches);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.PatchBytes(h.Path, at, hex: "90", value: "1", type: "u8"))).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.PatchBytes(h.Path, at, value: "1"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.PatchBytes(h.Path, at, hex: "90", value: "1", type: "u8", dryRun: false))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.PatchBytes(h.Path, at, value: "1", dryRun: false))).Code);
     }
 
     /// <summary>After a patch the code index rebuilds; a dry run previews on the analysis from before the patch instead of waiting for that rebuild.</summary>
@@ -560,7 +560,7 @@ public class NativeEditTests(ITestOutputHelper output)
         var native = h.Load();
         await code.Index(native, null, default);
         uint entry = native.Image.EntryPointRva;
-        await tools.PatchBytes(h.Path, $"rva:0x{entry + 1:X}", value: "7", type: "u32", force: true);
+        await tools.PatchBytes(h.Path, $"rva:0x{entry + 1:X}", value: "7", type: "u32", allowUnsafe: true, dryRun: false);
         Assert.Null(code.Ready(native)); // discarded by the patch; nothing rebuilds it in the background here
 
         var preview = await tools.PatchAsm(h.Path, $"rva:0x{entry:X}", "mov eax, 9", dryRun: true);
@@ -568,7 +568,7 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.Null(code.Ready(native)); // not built for the preview
         Assert.Matches(@"Before:\s+\S+\s+B807000000\s+mov\s+eax,\s*7", preview); // the current bytes
         Assert.Contains("analysis from before the last patch", preview);
-        var real = await tools.PatchAsm(h.Path, $"rva:0x{entry + 6:X}", "int3"); // a real patch checks against the rebuilt index
+        var real = await tools.PatchAsm(h.Path, $"rva:0x{entry + 6:X}", "int3", dryRun: false); // a real patch checks against the rebuilt index
         Assert.StartsWith("Patched", real);
         Assert.DoesNotContain(native.Analysis.Keys, k => k.Name.Contains("Rebased", StringComparison.Ordinal)); // the stand-in went with the old bytes
     }
@@ -593,30 +593,31 @@ public class NativeEditTests(ITestOutputHelper output)
         uint e = native.Image.EntryPointRva;
         var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
         var ann = h.Code.Annotations(native);
-        await tools.RenameNative(h.Path, $"rva:0x{e + 6:X}", "Taken");
+        await tools.RenameNative(h.Path, $"rva:0x{e + 6:X}", "Taken", dryRun: false);
         var before = Revision(h);
 
         var items = $"rva:0x{e:X} = Start\nrva:0x{e + 1:X} = 9bad\nrva:0x{e + 2:X} = Taken\nrva:0x{e + 3:X} = Third\nnowhere = X";
         var dry = await tools.RenameNative(h.Path, items: items, dryRun: true);
         _output.WriteLine(dry);
-        Assert.StartsWith("Dry run: 5 name item(s): 2 ok, 3 failed; nothing recorded", dry);
+        Assert.StartsWith("Dry run: 5 name item(s): 2 ok, 3 failed\n", dry);
+        Assert.Contains("Nothing recorded", dry);
         Assert.Contains("-> Start", dry);
         Assert.Null(ann.NameAt(e));
         Assert.Equal(before, Revision(h));
 
-        var stopped = await tools.RenameNative(h.Path, items: items, stopOnError: true);
+        var stopped = await tools.RenameNative(h.Path, items: items, stopOnError: true, dryRun: false);
         Assert.StartsWith("5 name item(s): 1 ok, 1 failed, stopped after item 2", stopped);
         Assert.Equal(("Start", null), (ann.NameAt(e), ann.NameAt(e + 3)));
         Assert.Equal(before + 1, Revision(h));
 
         // JSON form, the same name twice in one batch, and a clear
-        var json = await tools.RenameNative(h.Path, items: $$"""[{"address":"rva:0x{{e + 3:X}}","name":"Twin"},{"address":"rva:0x{{e + 4:X}}","name":"Twin"},{"address":"rva:0x{{e:X}}","name":""}]""");
+        var json = await tools.RenameNative(h.Path, items: $$"""[{"address":"rva:0x{{e + 3:X}}","name":"Twin"},{"address":"rva:0x{{e + 4:X}}","name":"Twin"},{"address":"rva:0x{{e:X}}","name":""}]""", dryRun: false);
         _output.WriteLine(json);
         Assert.StartsWith("3 name item(s): 2 ok, 1 failed", json);
         Assert.Equal(("Twin", null, null), (ann.NameAt(e + 3), ann.NameAt(e + 4), ann.NameAt(e)));
         Assert.Equal(before + 2, Revision(h));
         Assert.Equal("Twin", index.NameAt(e + 3));
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.RenameNative(h.Path, $"rva:0x{e:X}", "A", items: items))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.RenameNative(h.Path, $"rva:0x{e:X}", "A", items: items, dryRun: false))).Code);
     }
 
     [Fact]
@@ -627,17 +628,17 @@ public class NativeEditTests(ITestOutputHelper output)
         uint e = native.Image.EntryPointRva;
         var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
         var ann = h.Code.Annotations(native);
-        await tools.CommentNative(h.Path, $"rva:0x{e + 1:X}", "first", scope: "line");
+        await tools.CommentNative(h.Path, $"rva:0x{e + 1:X}", "first", scope: "line", dryRun: false);
         var before = Revision(h);
         var result = await tools.CommentNative(h.Path, items:
             $$"""[{"address":"rva:0x{{e + 1:X}}","text":"second","append":true},{"address":"rva:0x{{e + 2:X}}","text":"a = b","scope":"eol"},{"address":"rva:0x{{e + 3:X}}","text":"x","scope":"nowhere"}]""",
-            scope: "line");
+            scope: "line", dryRun: false);
         _output.WriteLine(result);
         Assert.StartsWith("3 comment item(s): 2 ok, 1 failed", result);
         Assert.Equal(("first\nsecond", "a = b", "eol"), (ann.CommentAt(e + 1), ann.CommentAt(e + 2), ann.CommentKindAt(e + 2)));
         Assert.Equal(before + 1, Revision(h));
         // lines keep a '=' in the text
-        await tools.CommentNative(h.Path, items: $"rva:0x{e + 4:X} = x == y", scope: "line");
+        await tools.CommentNative(h.Path, items: $"rva:0x{e + 4:X} = x == y", scope: "line", dryRun: false);
         Assert.Equal("x == y", ann.CommentAt(e + 4));
     }
 
@@ -696,7 +697,7 @@ public class NativeEditTests(ITestOutputHelper output)
         var padded = h.Edits.PreparePatch(index, entry, [0xC3], force: false, "patch_bytes 1 bytes");
         Assert.Equal("patch_bytes 5 bytes (1 given, 4 NOP padding)", padded.Patch.Description);
         h.Edits.ApplyPatch(native, index, padded, dryRun: false);
-        Assert.Contains("5 bytes  ", h.Edits.List(native));
+        Assert.Contains("5 bytes ", h.Edits.List(native));
         Assert.Contains("patch_bytes 5 bytes (1 given, 4 NOP padding)", h.Edits.List(native));
         Assert.Equal("patch_asm ret, 5 bytes (1 given, 4 NOP padding)", NativeEditService.Sized("patch_asm ret", 1, 5));
         Assert.Equal("patch_bytes 5 bytes", NativeEditService.Sized("patch_bytes 5 bytes", 5, 5));

@@ -10,7 +10,6 @@ get_type_hierarchy
 inspect_process
 list_edits
 list_exports
-list_native_edits
 list_native_types
 make_code_pattern
 map_java_dotnet
