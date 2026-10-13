@@ -37,7 +37,8 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
 
     public sealed record FeatureReport(string Image, string Query, IReadOnlyList<FeatureSeedRecord> Seeds,
         [property: Description("Every match, followed or not (maxSeeds).")] int TotalSeeds, [property: Description("Functions of this page, ranked.")] IReadOnlyList<FeatureFunctionRecord> Functions,
-        int TotalFunctions, int Offset, bool Truncated, IReadOnlyList<FeatureHubRecord> Hubs, IReadOnlyList<string> Notes);
+        int TotalFunctions, int Offset, bool Truncated, [property: Description("The offset of the next page of functions.")] int? NextOffset,
+        IReadOnlyList<FeatureHubRecord> Hubs, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "trace_native_feature", Title = "Trace a native feature", UseStructuredContent = true, OutputSchemaType = typeof(FeatureReport))]
     [Description("Finds the native code behind a behaviour from a text or value: strings, function and data names, imports (also late-bound), " +
@@ -145,7 +146,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         var page = r.Functions.Skip(offset).Take(limit).Select(f => new FeatureFunctionRecord(Va(f.Function.Start), f.Name, f.Score, f.Seeds,
             f.Evidence.Select(e => new FeatureEvidenceRecord(Va(e.Site), e.Kind, e.Detail, e.Seed)).ToList(), f.EvidenceTotal, f.Flags)).ToList();
         return new FeatureReport(id, r.Query, r.Seeds.Select(s => new FeatureSeedRecord(s.Id, s.Kind, Va(s.Rva), s.Text, s.References, s.Error)).ToList(), r.TotalSeeds, page,
-            r.Functions.Count, offset, offset + page.Count < r.Functions.Count,
+            r.Functions.Count, offset, offset + page.Count < r.Functions.Count, offset + page.Count < r.Functions.Count ? offset + page.Count : null,
             r.Hubs.Take(20).Select(h => new FeatureHubRecord(Va(h.Function.Start), h.Name, h.Reaches.Select(Va).ToList(), h.Depth)).ToList(), r.Notes);
     }
 
@@ -155,13 +156,13 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
                                    $"{Plural(r.TotalFunctions, "function")}, {Plural(result.Hubs.Count, "hub")}\n");
         sb.AppendLine("\nSeeds:");
         foreach (var s in r.Seeds)
-            sb.AppendLine($"  [{s.Id}] {s.Kind,-7} {s.Address}  {s.Text}  ({Plural(s.References, "reference")}{(s.Error != null ? $"; failed: {s.Error}" : "")})");
+            sb.AppendLine($"  [{s.Id}] {s.Kind,-7} {s.Address}  {OneLine(s.Text)}  ({Plural(s.References, "reference")}{(s.Error != null ? $"; failed: {s.Error}" : "")})");
         if (r.Seeds.Count == 0) sb.AppendLine("  none: nothing matches (try regex=true, another spelling, or kinds=strings,names,imports)");
         sb.AppendLine($"\nFunctions (ranked; {r.Offset + 1}-{r.Offset + r.Functions.Count} of {r.TotalFunctions}):");
         foreach (var f in r.Functions)
         {
             sb.AppendLine($"  {f.Address}  {f.Name}  score {f.Score}, seeds {string.Join(",", f.Seeds)}{(f.Flags.Count > 0 ? $"  [{string.Join(", ", f.Flags)}]" : "")}");
-            foreach (var e in f.Evidence.Take(6)) sb.AppendLine($"      {e.Site}  {e.Kind}: {Format.Clip(e.Detail, 200)}");
+            foreach (var e in f.Evidence.Take(6)) sb.AppendLine($"      {e.Site}  {e.Kind}: {OneLine(Format.Clip(e.Detail, 200))}");
             if (f.EvidenceTotal > 6) sb.AppendLine($"      ... {f.EvidenceTotal - 6} more (structured output)");
         }
         if (r.Truncated) sb.AppendLine($"  [More: offset={r.Offset + r.Functions.Count}]");
@@ -172,7 +173,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         }
         var silent = r.Seeds.Where(s => s.References == 0 && s.Error == null && s.Kind is "string" or "import" or "class").ToList();
         if (silent.Count > 0)
-            sb.AppendLine($"\nUnreferenced seeds ({silent.Count}): {string.Join(", ", silent.Take(10).Select(s => s.Text))} — built at run time, reached through a " +
+            sb.AppendLine($"\nUnreferenced seeds ({silent.Count}): {string.Join(", ", silent.Take(10).Select(s => OneLine(s.Text)))} — built at run time, reached through a " +
                           "computed offset, or not used");
         foreach (var n in r.Notes) sb.AppendLine("Note: " + n);
         if (index.Truncations.Count > 0) sb.AppendLine("Note: " + string.Join("; ", index.Truncations));
@@ -184,4 +185,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         }
         return pager.Page(sb.ToString());
     }
+
+    /// <summary>A string from the image on one line: its line breaks would otherwise read as rows of the report.</summary>
+    private static string OneLine(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
 }

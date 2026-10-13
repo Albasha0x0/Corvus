@@ -1292,7 +1292,7 @@ Finds the native code behind a behaviour from a text or value: strings, function
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `50` | Functions per page (max 500). |
 
-Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `truncated`, `hubs`, `notes`.
+Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `truncated`, `nextOffset`, `hubs`, `notes`.
 
 ### find_similar_functions
 

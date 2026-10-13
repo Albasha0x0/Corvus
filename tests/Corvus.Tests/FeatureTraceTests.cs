@@ -122,6 +122,12 @@ public sealed class FeatureTraceTests : IDisposable
         Assert.Contains("seeds 0,1", functions.Split('\n')[1]);
         var page = await tools.TraceNativeFeature(path, "CreateFile|settings saved", regex: true, offset: 1, limit: 1);
         NativeLinkTests.Has(page, "Functions (ranked; 2-2 of 2)");
+        // The continuation is in the record too (S4.1), and only while there is a next page.
+        var collected = Corvus.Mcp.ToolOutput.Collect();
+        await tools.TraceNativeFeature(path, "CreateFile|settings saved", regex: true, limit: 1);
+        Assert.Equal(1, ((NativeFeatureTools.FeatureReport)collected.Record!).NextOffset);
+        await tools.TraceNativeFeature(path, "CreateFile|settings saved", regex: true, offset: 1, limit: 1);
+        Assert.Null(((NativeFeatureTools.FeatureReport)collected.Record!).NextOffset);
         var e = await Assert.ThrowsAsync<ToolError>(() => tools.TraceNativeFeature(path, "x", kinds: "strings,bogus"));
         Assert.Equal(ErrorCode.InvalidArgument, e.Code);
     }

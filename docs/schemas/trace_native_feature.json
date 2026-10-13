@@ -127,6 +127,10 @@
     "truncated": {
       "type": "boolean"
     },
+    "nextOffset": {
+      "description": "The offset of the next page of functions.",
+      "type": "integer"
+    },
     "hubs": {
       "type": "array",
       "items": {
