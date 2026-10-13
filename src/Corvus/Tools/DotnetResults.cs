@@ -276,6 +276,7 @@ public sealed record R2rLookup(
 /// <summary>export_project's outcome (S4.2).</summary>
 public sealed record ExportOutcome(
     [property: Description("The export completed and is in outputDirectory.")] bool Applied,
+    [property: Description("The assembly id or package file exported.")] string Source,
     string OutputDirectory,
     [property: Description("Files written.")] int Files,
     [property: Description(".csproj, or the Gradle build file of a package.")] string? ProjectFile,

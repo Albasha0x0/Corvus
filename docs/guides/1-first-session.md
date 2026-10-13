@@ -41,8 +41,9 @@ Loaded Notes: Notes, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
   samples/Notes/v1/bin/Notes.dll
   8 types, 2 namespaces
 === [2/3] search_symbols
-1 match:
+1 match (showing 1-1):
   type     Notes.CsvExporter  [Notes] 0x02000008
+[End: 1 match]
 === [3/3] decompile_member
 // [Notes] Notes.CsvExporter
 using System.Collections.Generic;

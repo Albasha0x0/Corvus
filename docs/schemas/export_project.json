@@ -5,6 +5,10 @@
       "description": "The export completed and is in outputDirectory.",
       "type": "boolean"
     },
+    "source": {
+      "description": "The assembly id or package file exported.",
+      "type": "string"
+    },
     "outputDirectory": {
       "type": "string"
     },
@@ -55,6 +59,7 @@
   },
   "required": [
     "applied",
+    "source",
     "outputDirectory",
     "files",
     "failedTypes"

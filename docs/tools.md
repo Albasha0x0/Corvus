@@ -477,7 +477,7 @@ Decompile an assembly into a C# project on disk (.cs per type, .csproj, resource
 | `outputDirectory` | string | yes |  | Empty or new output directory. |
 | `overwrite` | boolean |  | `false` | Replace a previous export in outputDirectory. |
 
-Structured output: `applied`, `outputDirectory`, `files`, `projectFile`, `failedTypes`, `replaced`, `notes`.
+Structured output: `applied`, `source`, `outputDirectory`, `files`, `projectFile`, `failedTypes`, `replaced`, `notes`.
 
 ### get_r2r_code
 
