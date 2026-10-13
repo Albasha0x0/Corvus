@@ -354,11 +354,12 @@ internal sealed class X86Decoder : ICodeDecoder
     // esp at the function's entry; esp tracked through push / pop / add / sub, per block from the branch that reaches it
     private int _esp;
     private bool _espKnown, _runStart;
-    // the register values and esp at a block start, from the branch that first reached it (case labels: the last dispatch)
+    // the register values, esp and (i386) the spills at a block start, from the branch that first reached it (case labels: the last dispatch)
     private readonly Dictionary<uint, int> _stateAt = [];
-    private uint[] _statePool = new uint[StateSize * 64];
+    private uint[] _statePool = new uint[I386StateSize * 64];
     private int _states, _dispatchState = -1;
-    private const int StateSize = 18;
+    private int StateSize => _is64 ? 18 : I386StateSize;
+    private const int I386StateSize = 19 + 2 * SpillSlots;
 
     private int SaveState()
     {
@@ -367,6 +368,15 @@ internal sealed class X86Decoder : ICodeDecoder
         _known!.CopyTo(_statePool, at);
         _statePool[at + 16] = (uint)_esp;
         _statePool[at + 17] = _espKnown ? 1u : 0;
+        if (!_is64)
+        {
+            _statePool[at + 18] = (uint)_spills;
+            for (int n = 0; n < _spills; n++)
+            {
+                _statePool[at + 19 + n] = (uint)_spillDisp[n];
+                _statePool[at + 19 + SpillSlots + n] = _spillValue[n];
+            }
+        }
         return _states++;
     }
 
@@ -380,10 +390,18 @@ internal sealed class X86Decoder : ICodeDecoder
         Array.Copy(_statePool, at, _known!, 0, 16);
         _esp = (int)_statePool[at + 16];
         _espKnown = _statePool[at + 17] != 0;
+        if (_is64) return;
+        _spills = (int)_statePool[at + 18];
+        for (int n = 0; n < _spills; n++)
+        {
+            _spillDisp[n] = (int)_statePool[at + 19 + n];
+            _spillValue[n] = _statePool[at + 19 + SpillSlots + n];
+        }
     }
 
-    private readonly int[] _spillDisp = new int[8];
-    private readonly uint[] _spillValue = new uint[8];
+    private const int SpillSlots = 8;
+    private readonly int[] _spillDisp = new int[SpillSlots];
+    private readonly uint[] _spillValue = new uint[SpillSlots];
     private int _spills;
 
     private void TrackEsp(in Instruction i, in Insn insn)
