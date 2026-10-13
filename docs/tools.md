@@ -947,7 +947,7 @@ Name the functions and data of a native Il2Cpp binary (GameAssembly, libil2cpp.s
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `assembly` | string |  |  | Dummy assemblies to use; omit for every loaded one with Il2Cpp metadata. |
 | `clear` | boolean |  | `false` | Remove the il2cpp names (and their saved copy) instead of applying them. |
 
@@ -965,7 +965,7 @@ Overview of a native image. PE: machine, kind, subsystem, base, entry point, tim
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 | `view` | string |  |  | summary, or code (waits for the code index). Values: summary, code. |
@@ -980,7 +980,7 @@ Functions a native image imports, per DLL or library (delay-loaded and lazy bind
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `library` | string |  |  | Only this library (name with or without .dll). |
 | `filter` | string |  |  | Name substring (case-insensitive). |
 | `bind` | boolean |  | `false` | Bind each import to the export it reaches, with a summary. |
@@ -999,7 +999,7 @@ A native image's exported functions and data: ordinal, VA, name (demangled C++ f
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name substring (case-insensitive; the demangled form too). |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `300` | Max rows. |
@@ -1015,7 +1015,7 @@ What a native address is: RVA, VA, file offset, section and access, nearest expo
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
 
@@ -1029,7 +1029,7 @@ Find a byte pattern in a native image's mapped sections (hex with ?? wildcards, 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `pattern` | string |  |  | Hex bytes with ?? wildcards ('48 8B 05 ?? ?? ?? ??'), or text when text=true. |
 | `text` | boolean |  | `false` | pattern is text (ASCII and UTF-16LE). |
 | `section` | string |  |  | Only this section (e.g. .text, .rdata). |
@@ -1048,7 +1048,7 @@ Hex dump (with ASCII) of a native image's bytes at an address, as the loader map
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `length` | integer |  |  | Bytes to dump (default 256, max 65536); with type, values to read (default 1, max 4096). |
 | `offset` | integer |  | `0` | Bytes from address (a page's nextOffset). |
@@ -1078,12 +1078,12 @@ Functions of a native image (x86 / x64 / ARM): address, size, name (user, PDB, I
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
 | `sort` | string |  |  | address (default), name, size (largest first) or callers (most called first). Values: address, name, size, callers. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `150` | Max rows. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `minSize` | integer |  |  | Smallest size in bytes. |
 | `maxSize` | integer |  |  | Largest size in bytes. |
 | `from` | string |  |  | Lowest start address. |
@@ -1103,12 +1103,12 @@ Named data items of a native image outside code, from every name source (PDB wit
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name substring (case-insensitive). |
 | `section` | string |  |  | Only this section, e.g. .data. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Max rows (default 200). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `image`, `items`, `offset`, `total`, `engine`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -1121,13 +1121,13 @@ MASM-syntax disassembly of the native function containing an address (with block
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `function` | boolean |  | `true` | The whole containing function; false: maxInstructions from the address. |
 | `maxInstructions` | integer |  | `2000` | Max instructions. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`, `image`, `function`, `address`, `engine`.
 
@@ -1139,12 +1139,12 @@ What is at an address of a native image, instruction by instruction: decoded, mi
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `limit` | integer |  | `1` | Instructions to inspect (1-64). |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `engine`, `engineNote`, `items`, `notes`, `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -1156,7 +1156,7 @@ Find instructions by mnemonic, operand or whole-line regex (case-insensitive) an
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `mnemonic` | string |  |  | Mnemonic regex, e.g. '^(call\|jmp)$'. |
 | `operands` | string |  |  | Operand text regex, e.g. 'rsp\+\|fs:'. |
 | `text` | string |  |  | Regex over the whole instruction text. |
@@ -1167,7 +1167,7 @@ Find instructions by mnemonic, operand or whole-line regex (case-insensitive) an
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Max matches (max 2000). |
 | `maxInstructions` | integer |  | `500000` | Max instructions scanned (max 5000000). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `image`, `items`, `offset`, `total`, `scanned`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -1180,12 +1180,12 @@ Basic blocks of the native function containing an address, paged: range, instruc
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `150` | Blocks per page (default 150). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `function`, `address`, `engine`, `items`, `offset`, `total`, `switches`, `unresolvedJumps`, `tailCalls`, `cut`, `summary`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1197,12 +1197,12 @@ What references a native address: calls (also via import slots and thunks), jump
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Or a struct member: Type::member, Type.member, Type+0xOFFSET. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Max rows. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 targets. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Adds the RTTI virtual calls an engine lacks. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Adds the RTTI virtual calls an engine lacks. Values: auto, ours, ida, ghidra. |
 | `direction` | string |  |  | to (default), from or both. Values: to, from, both. |
 | `kind` | string |  |  | any, code (calls, jumps), data (reads, writes, pointers) or metadata (.pdata, CFG, export tables). Values: any, code, data, metadata. |
 | `scope` | string |  |  | Struct member: typed (default) or all (every function; call again to continue). Values: typed, all. |
@@ -1218,7 +1218,7 @@ Callers or callees of a native function, several levels deep, through thunks and
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `function` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `direction` | string |  | `callees` | callees (default), callers, or both (depth 1, by call site). Values: callers, callees, both. |
 | `depth` | integer |  | `3` | Levels (1-8). |
@@ -1226,7 +1226,7 @@ Callers or callees of a native function, several levels deep, through thunks and
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Max nodes per page. |
 | `calls` | string |  |  | Call edges: all (default), direct or virtual. Values: all, direct, virtual. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `image`, `root`, `direction`, `items`, `offset`, `total`, `frontier`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -1239,7 +1239,7 @@ Virtual call sites resolved through RTTI (MSVC or Itanium) or NativeAOT MethodTa
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `function` | string |  |  | Only sites in this function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `status` | string |  |  | Only sites with this status. Values: exact, possible, unresolved. |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -1259,12 +1259,12 @@ Strings (ASCII and UTF-16) a native image's code or data references, with addres
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `query` | string |  |  | Case-insensitive substring, or a regex with regex=true; omit to list all. |
 | `regex` | boolean |  | `false` | Treat query as a regular expression. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Max rows. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `maxLength` | integer |  | `200` | Characters per string (max 4000); longer ones are clipped. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
@@ -1278,7 +1278,7 @@ Call sites of a native image (x86 / x64 / ARM) with their argument values, recov
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | A call instruction, or an address in a function (all calls in it): Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `callee` | string |  |  | Only calls to this API, module!name or function; without address, every call to it in the image. |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -1295,7 +1295,7 @@ Traces a value through native code (x86 / x64 / ARM) across functions. Backward:
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | An instruction, a call, a function start (with argument) or a writable global. Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `location` | string |  |  | The value at address: a register (rdx, ecx, xmm1; ARM64 x1, w2, d0; ARM32 r1, s0, d0), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), op1 / op2 (an operand of the instruction) or result (the value the call at address returns). |
 | `argument` | string |  |  | An argument of the call at address, or a parameter of the function starting there: 1-based position or API parameter name. |
@@ -1321,12 +1321,12 @@ Targets of call and tail-jump sites in native code (x86 / x64 / ARM) with basis 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | A call instruction, or an address in a function (its sites): Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `scope` | string |  |  | Default: site at a call, else function; image (every indirect site) without address. Values: site, function, image. |
 | `status` | string |  |  | Default all; indirect: all but direct branches. Values: all, resolved, possible, ambiguous, unresolved, indirect. |
 | `deep` | boolean |  | `false` | Trace pointers that arrive as parameters back into the callers (slower). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `75` | Max sites (default 75, max 1000). |
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
@@ -1342,7 +1342,7 @@ Everything known about one native function, in sections bounded by maxItems with
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | An address inside the function, or up to 16 comma-separated: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `sections` | string |  |  | Comma-separated section names (default all but constants, params and pseudocode). |
 | `maxItems` | integer |  | `40` | Facts per section (1-500). |
@@ -1362,7 +1362,7 @@ Finds the native code behind a behaviour from a text or value: strings, function
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `query` | string | yes |  | Case-insensitive substring, or a regex with regex=true. |
 | `regex` | boolean |  | `false` | Treat query as a regular expression. |
 | `kinds` | string |  |  | Seed kinds, comma-separated: strings, names, imports, exports, classes, constants (default all). |
@@ -1371,7 +1371,7 @@ Finds the native code behind a behaviour from a text or value: strings, function
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `50` | Functions per page (max 500). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `truncated`, `nextOffset`, `hubs`, `notes`.
 
@@ -1383,7 +1383,7 @@ Functions like a given one in a native image, ranked by score with evidence: ins
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | view=similar: an address in the function. |
 | `view` | string |  |  | similar (default with address), duplicates or clusters (default without). Values: similar, duplicates, clusters. |
 | `scope` | string |  |  | image (default) or all (view=similar). Values: image, all. |
@@ -1403,7 +1403,7 @@ Exception handling of the native function containing an address. ELF / Mach-O: F
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Omit for an image summary. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
@@ -1418,7 +1418,7 @@ C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name substring (case-insensitive). |
 | `slots` | boolean |  | `false` | Include each vftable's slot addresses. |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -1437,7 +1437,7 @@ A native type's layout (fields with offset, size and bit fields, bases, padding;
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `name` | string |  |  | Type name (Packet, ns::Widget, Ns.Type for Il2Cpp), or a glob listing the matches (_IMAGE_*, *Widget*). |
 | `id` | string |  |  | Type id from a result (pdb:0x1A2B, rtti:0x140012000, il2cpp:Ns.Type). |
 | `address` | string |  |  | A typed address: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
@@ -1447,7 +1447,7 @@ A native type's layout (fields with offset, size and bit fields, bases, padding;
 | `format` | string |  |  | table (default) or c (a C declaration). Values: table, c. |
 | `offset` | integer |  | `0` | Index of the first row (field, enumerator, slot, candidate). |
 | `limit` | integer |  | `200` | Max rows (max 5000). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ida, ghidra. |
 | `read` | boolean |  | `false` | Add the field values at address (with name or id: that type read there). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
@@ -1461,7 +1461,7 @@ C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call r
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Required unless functions is given. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `addresses` | boolean |  | `false` | Prefix each line with the address it was generated from. |
@@ -1484,7 +1484,7 @@ Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pse
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `pattern` | string | yes |  | Regex. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `filter` | string |  |  | Function name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
@@ -1503,7 +1503,7 @@ Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memo
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Start. Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `args` | string |  |  | By the calling convention: integer, address, 'text' or u'text' (pointer to a copy), buf:N (pointer to N zero bytes), hex:41A0 (pointer to bytes). |
 | `registers` | string |  |  | rcx=0x10, rdx='key' (values as args). |
@@ -1543,7 +1543,7 @@ Load the PDB of a native image: function and data names (publics, globals, proce
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `path` | string |  |  | PDB file, or a directory (or symbol store) to look in first. |
 | `download` | boolean |  | `false` | Download from a symbol server when no local PDB matches (network). |
 | `server` | string |  |  | Symbol server URL for download (default: _NT_SYMBOL_PATH servers, else https://msdl.microsoft.com/download/symbols). |
@@ -1562,7 +1562,7 @@ Symbols of the PDB loaded for a native image (load_pdb, or found automatically):
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `query` | string |  |  | Name or decorated name substring (case-insensitive); empty for all. |
 | `kind` | string |  |  | Only this kind (default all). Values: function, data, public, all. |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -1579,7 +1579,7 @@ What a NativeAOT image's own metadata recovers (.NET 7-10; PE, ELF, Mach-O). vie
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `view` | string |  |  | What to show (default summary). Values: summary, sections, types, type, methods, strings, statics. |
 | `query` | string |  |  | view=type: a type name or MethodTable address; list views: substring filter. |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -1600,7 +1600,7 @@ Name a native address: used by every native tool, pushed to the engines, kept pe
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `name` | string |  |  | The new name; empty to clear the name at this address. |
 | `allowDuplicate` | boolean |  | `false` | Allow a name already used at another address. |
@@ -1620,7 +1620,7 @@ Comment a native address (kept, pushed to engines, undoable). scope: line (repea
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `text` | string |  |  | The comment text; empty to clear it. |
 | `scope` | string |  |  | See the description; default auto. Values: auto, line, eol, pre, plate, pseudocode, function. |
@@ -1641,7 +1641,7 @@ Write the image's names and comments (with the NativeAOT, Il2Cpp, ObjC and Swift
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `outputPath` | string | yes |  | Output file path. |
 | `format` | string |  |  | Default json. Values: ida, ghidra, json, header. |
 | `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
@@ -1656,7 +1656,7 @@ Replace bytes at a native address in memory, as an undoable edit every read path
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `hex` | string |  |  | Replacement bytes as hex ('90 90', '9090' or '0x90,0x90'). |
 | `value` | string |  |  | Instead of hex: a number of type (range-checked); ptr: or a name. |
@@ -1678,7 +1678,7 @@ Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch tar
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `assembly` | string | yes |  | Assembly, one instruction per line. |
 | `allowUnsafe` | boolean |  | `false` | Allow what the safety checks refuse: mid-instruction, past the function end, header or loader-written bytes. |
@@ -1698,7 +1698,7 @@ Native edits of an image in the order made, each with the editId undo_native_edi
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `search` | string |  |  | Instead: the names and comments (user and layers) whose text matches: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Rows per page (default 100). |
@@ -1713,7 +1713,7 @@ Undo native edits by editId (list_native_edits), the last by default: a patch, n
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `editId` | string |  |  | Edit id (image#n, or #n); comma-separated for several, undone in that order; omit for the last. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
@@ -1726,7 +1726,7 @@ Write the patched native image to a new file: unpatched bytes identical, PE chec
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `outputPath` | string | yes |  | Output file path. |
 | `overwrite` | boolean |  | `false` | Allow replacing an existing file. |
 | `stripSignature` | boolean |  | `false` | Remove the Authenticode certificate table from the output. |
@@ -1741,7 +1741,7 @@ Write the image's in-memory byte patches for other tools: ida an IDAPython scrip
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `outputPath` | string | yes |  | Output file path. |
 | `format` | string |  |  | Default json. Values: ida, dif, ips, ips32, json. |
 | `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
@@ -1879,7 +1879,7 @@ Make a byte pattern for an address that survives rebuilds: instruction bytes wit
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `addresses` | string[] |  |  | Instead of address: up to 50 addresses. |
 | `anchor` | string |  | `auto` | auto, address, reference, xrefs or range. Values: auto, address, reference, xrefs, range. |
@@ -2046,7 +2046,7 @@ IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `engine` | string |  |  | Default auto: both. Values: auto, ida, ghidra. |
 
 Structured output: `image`, `engines`.
@@ -2059,7 +2059,7 @@ Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | A function start or a global: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `type` | string |  |  | C prototype for a function, C type for a global; empty to clear the user type. |
 | `items` | string |  |  | Instead of address and type: lines 'address = type'. |
@@ -2078,7 +2078,7 @@ Rename and/or retype a local or argument in a native function's pseudocode, name
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `local` | string |  |  | The variable: its name in the pseudocode, or stack:<offset> (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
@@ -2098,7 +2098,7 @@ Rename and/or retype a stack frame member, by its get_native_frame name (var_28)
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `variable` | string | yes |  | The member: its name, or its frame offset (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
@@ -2118,7 +2118,7 @@ A native function's stack frame as the engine has it (members: offset, name, typ
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `locals` | boolean |  | `false` | Decompile for the locals too. |
@@ -2135,7 +2135,7 @@ Declare C types (structs, unions, enums, typedefs, function types) in the engine
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `declarations` | string |  |  | C declarations; types they name must exist or be declared too. |
 | `typeName` | string |  |  | Enum, struct or union to edit. |
 | `members` | string |  |  | Enum: 'NAME=value, ...' (hex or decimal; or lines); 'NAME=' removes. |
@@ -2154,7 +2154,7 @@ The named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, dec
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
 | `kind` | string |  |  | udt: struct or union. Values: struct, union, udt, enum, typedef, func, ptr. |
 | `name` | string |  |  | Show this one type in full instead of a list. |
@@ -2176,7 +2176,7 @@ Change the engine's analysis at an address. code decodes instructions (to end, e
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Start: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `kind` | string | yes |  | What to make. Values: code, function, undefine, data. |
 | `end` | string |  |  | Exclusive end address (same forms as address). |
@@ -2193,7 +2193,7 @@ Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `analyzers` | boolean |  | `false` | List the analyzer options and values instead of running. |
 | `filter` | string |  |  | With analyzers: name filter. |
@@ -2212,7 +2212,7 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | The instruction: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `operand` | integer | yes |  | Operand index, 0 for the first. |
 | `display` | string | yes |  | How to display it (see the description). Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
@@ -2229,7 +2229,7 @@ Run Python in the IDA worker holding a native image's database (idalib): IDAPyth
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `code` | string |  |  | Python source (or pass file). |
 | `reset` | boolean |  | `false` | Clear the globals earlier calls left. |
 | `engine` | string |  |  | Default auto. Values: auto, ida. |
@@ -2248,7 +2248,7 @@ Run Java in the Ghidra worker holding a native image's program: a GhidraScript c
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `code` | string | yes |  | Java source: a class extending GhidraScript, or statements for run(). |
 | `timeoutSeconds` | integer |  | `120` | Seconds before the script is cancelled (1-3600). |
 | `engine` | string |  |  | Default auto. Values: auto, ghidra. |
@@ -2265,7 +2265,7 @@ Write a native image's engine database (analysis plus names, comments and types 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
+| `image` | string | yes |  | Native image id, file name or path. |
 | `outputPath` | string | yes |  | The .i64 (IDA), .gzf, .h or .gdt (Ghidra) file to write. |
 | `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
 | `engine` | string |  |  | Default: the extension's engine, else IDA. Values: auto, ida, ghidra. |
