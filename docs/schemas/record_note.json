@@ -21,9 +21,7 @@
     },
     "evidence": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "items": {}
     },
     "anchor": {
       "type": "object",

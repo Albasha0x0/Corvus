@@ -1966,8 +1966,8 @@ Record a finding, question, hypothesis or todo anchored to a native address, a .
 | `kind` | string |  |  | Default finding. Values: finding, question, hypothesis, todo. |
 | `status` | string |  |  | Default open. Values: open, confirmed, refuted, answered, dropped. |
 | `anchor` | string |  |  | '<image>@<address>', '<assembly>:<symbol or token>', an image or assembly id (the whole file), 'dump:<id or path>', or empty (session-wide). |
-| `tags` | string |  |  | Comma-separated tags (at most 10). |
-| `evidence` | string |  |  | Where it was seen, ';'-separated (at most 10), e.g. a tool call. |
+| `tags` | string[] |  |  | At most 10. |
+| `evidence` | array |  |  | Where it was seen (at most 10): {tool, args} of a call made here (its resultSha256 is filled in), or {text}. |
 
 Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
 
@@ -1985,9 +1985,9 @@ Change a note in part: status, kind, text, tags, evidence. A note changed since 
 | `kind` | string |  |  | New kind. Values: finding, question, hypothesis, todo. |
 | `text` | string |  |  | Replacement text. |
 | `appendText` | string |  |  | Text appended on a new line. |
-| `addTags` | string |  |  | Comma-separated tags to add. |
-| `removeTags` | string |  |  | Comma-separated tags to remove. |
-| `addEvidence` | string |  |  | ';'-separated evidence entries to add. |
+| `addTags` | string[] |  |  | Tags to add. |
+| `removeTags` | string[] |  |  | Tags to remove. |
+| `addEvidence` | array |  |  | Where it was seen (at most 10): {tool, args} of a call made here (its resultSha256 is filled in), or {text}. |
 
 Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
 
@@ -2005,7 +2005,7 @@ Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists 
 | `tag` | string |  |  | Only notes with this tag. |
 | `text` | string |  |  | Text substring (case-insensitive). |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `50` | Notes to return (max 500). |
+| `limit` | integer |  | `50` | Notes per page (default 50). |
 
 Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

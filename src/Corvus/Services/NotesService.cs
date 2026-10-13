@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Corvus.Core;
 using Corvus.Native.Annotations;
@@ -23,13 +24,50 @@ public sealed record NoteAnchor(
     [JsonIgnore] public string StoreKey => Kind == DotNet ? "mvid-" + Mvid!.ToLowerInvariant() : Sha256?.ToLowerInvariant() ?? "global";
 }
 
+/// <summary>
+/// Where a note's claim was seen: a tool call (tool, args) whose result hashes to resultSha256, so it can be re-run and
+/// compared; or free text. A plain string (note files before evidence objects) reads as text.
+/// </summary>
+[JsonConverter(typeof(NoteEvidenceConverter))]
+public sealed record NoteEvidence(
+    [property: JsonPropertyName("tool")] string? Tool = null,
+    [property: JsonPropertyName("args")] JsonObject? Args = null,
+    [property: JsonPropertyName("resultSha256")] string? ResultSha256 = null,
+    [property: JsonPropertyName("text")] string? Text = null)
+{
+    public static implicit operator NoteEvidence(string text) => new(Text: text);
+
+    /// <summary>Equal entries name the same call (tool and canonical args) or the same text.</summary>
+    [JsonIgnore] internal string Key => Tool != null ? Tool + " " + Corvus.Mcp.ToolOutput.Canonical(Args ?? new JsonObject()) : "text " + Text;
+
+    public override string ToString() =>
+        Tool == null ? Text ?? "" : $"{Tool} {Corvus.Mcp.ToolOutput.Canonical(Args ?? new JsonObject())}" + (ResultSha256 != null ? $" sha256 {ResultSha256[..12]}" : "") + (Text != null ? $" ({Text})" : "");
+}
+
+internal sealed class NoteEvidenceConverter : JsonConverter<NoteEvidence>
+{
+    private sealed record Shape(string? Tool, JsonObject? Args, string? ResultSha256, string? Text);
+
+    private static readonly JsonSerializerOptions Plain = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+
+    public override NoteEvidence Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String) return new NoteEvidence(Text: reader.GetString());
+        var s = JsonSerializer.Deserialize<Shape>(ref reader, Plain) ?? throw new JsonException("an evidence entry is an object or a string");
+        return new NoteEvidence(s.Tool, s.Args, s.ResultSha256, s.Text);
+    }
+
+    public override void Write(Utf8JsonWriter writer, NoteEvidence value, JsonSerializerOptions options) =>
+        JsonSerializer.Serialize(writer, new Shape(value.Tool, value.Args, value.ResultSha256, value.Text), Plain);
+}
+
 public sealed record Note(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("kind")] string Kind,
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("text")] string Text,
     [property: JsonPropertyName("tags")] IReadOnlyList<string> Tags,
-    [property: JsonPropertyName("evidence")] IReadOnlyList<string> Evidence,
+    [property: JsonPropertyName("evidence")] IReadOnlyList<NoteEvidence> Evidence,
     [property: JsonPropertyName("anchor")] NoteAnchor Anchor,
     [property: JsonPropertyName("revision")] int Revision,
     [property: JsonPropertyName("created")] DateTime Created,
@@ -38,7 +76,7 @@ public sealed record Note(
 
 /// <summary>A partial update: null leaves a field as it is.</summary>
 public sealed record NoteChange(string? Status = null, string? Text = null, string? AppendText = null, IReadOnlyList<string>? AddTags = null,
-    IReadOnlyList<string>? RemoveTags = null, IReadOnlyList<string>? AddEvidence = null, string? Kind = null);
+    IReadOnlyList<string>? RemoveTags = null, IReadOnlyList<NoteEvidence>? AddEvidence = null, string? Kind = null);
 
 /// <summary>
 /// Analyst notes, persisted per user beside the annotation sidecars (&lt;annotations&gt;/notes/&lt;sha256 | mvid-guid | global&gt;.json)
@@ -47,11 +85,13 @@ public sealed record NoteChange(string? Status = null, string? Text = null, stri
 /// </summary>
 public sealed class NotesService(AnnotationStore store)
 {
-    public const string Format = "corvus-notes/1";
+    // 2: evidence entries are objects (tool, args, resultSha256, text); 1 had strings, read as text.
+    public const string Format = "corvus-notes/2";
+    private const string Format1 = "corvus-notes/1";
 
     // Migration only: the format of note files written before the rename; read, and rewritten in the current one.
     private const string LegacyFormat = "net-decompiler-notes/1";
-    public const int MaxText = 4_000, MaxTags = 10, MaxEvidence = 10, MaxEvidenceChars = 400, MaxTagChars = 64;
+    public const int MaxText = 4_000, MaxTags = 10, MaxEvidence = 10, MaxEvidenceChars = 1_000, MaxTagChars = 64;
     public const int MaxPerFile = 10_000, MaxTotal = 50_000;
     public static readonly string[] Kinds = ["finding", "question", "hypothesis", "todo"];
     public static readonly string[] Statuses = ["open", "confirmed", "refuted", "answered", "dropped"];
@@ -97,6 +137,48 @@ public sealed class NotesService(AnnotationStore store)
         return t;
     }
 
+    /// <summary>
+    /// Checks evidence entries: a tool call or a text, each within <see cref="MaxEvidenceChars"/>; a call without resultSha256
+    /// takes the hash of this process's latest identical call, if any (else <paramref name="unmatched"/> names it).
+    /// </summary>
+    public static List<NoteEvidence> CheckEvidence(IReadOnlyList<NoteEvidence>? entries, List<string>? unmatched = null)
+    {
+        var list = new List<NoteEvidence>();
+        foreach (var raw in entries ?? [])
+        {
+            var e = raw with { Tool = string.IsNullOrWhiteSpace(raw.Tool) ? null : raw.Tool.Trim(), Text = string.IsNullOrWhiteSpace(raw.Text) ? null : raw.Text.Trim(),
+                ResultSha256 = string.IsNullOrWhiteSpace(raw.ResultSha256) ? null : raw.ResultSha256.Trim().ToLowerInvariant() };
+            if (e.Tool == null && e.Text == null)
+                throw new ToolError(ErrorCode.InvalidArgument, "An evidence entry needs a tool (with its args) or a text.", "pass {tool, args} of the call that shows it, or {text}");
+            if (e.Tool == null && (e.Args != null || e.ResultSha256 != null))
+                throw new ToolError(ErrorCode.InvalidArgument, "An evidence entry with args or resultSha256 needs the tool they belong to.");
+            if (e.ResultSha256 is { } sha && (sha.Length != 64 || !sha.All(char.IsAsciiHexDigit)))
+                throw new ToolError(ErrorCode.InvalidArgument, $"resultSha256 '{sha}' is not a SHA-256 (64 hex digits).", "copy it from _meta corvus/provenance, or leave it out");
+            if (e.Tool != null && e.ResultSha256 == null)
+            {
+                e = e with { ResultSha256 = Corvus.Mcp.ToolOutput.RecentResult(e.Tool, e.Args) };
+                if (e.ResultSha256 == null) unmatched?.Add(e.Tool);
+            }
+            list.Add(e);
+        }
+        return list;
+    }
+
+    private static List<NoteEvidence> MergeEvidence(IEnumerable<NoteEvidence> current, IReadOnlyList<NoteEvidence>? add)
+    {
+        var list = current.ToList();
+        foreach (var e in add ?? [])
+        {
+            int size = JsonSerializer.Serialize(e).Length;
+            if (size > MaxEvidenceChars) throw new ToolError(ErrorCode.LimitExceeded, $"An evidence entry is {size} characters as JSON; the limit is {MaxEvidenceChars}.");
+            int i = list.FindIndex(x => x.Key == e.Key);
+            if (i < 0) list.Add(e);
+            else if (e.ResultSha256 != null) list[i] = e; // the same call again: its latest result
+        }
+        if (list.Count > MaxEvidence) throw new ToolError(ErrorCode.LimitExceeded, $"A note holds at most {MaxEvidence} evidence entries ({list.Count} given).");
+        return list;
+    }
+
     private static List<string> Merge(IEnumerable<string> current, IReadOnlyList<string>? add, IReadOnlyList<string>? remove, int max, int maxChars, string what)
     {
         var list = current.ToList();
@@ -113,11 +195,11 @@ public sealed class NotesService(AnnotationStore store)
     }
 
     /// <summary>Records a new note (revision 1).</summary>
-    public Note Record(string text, string? kind, string? status, NoteAnchor anchor, IReadOnlyList<string>? tags, IReadOnlyList<string>? evidence, string? author)
+    public Note Record(string text, string? kind, string? status, NoteAnchor anchor, IReadOnlyList<string>? tags, IReadOnlyList<NoteEvidence>? evidence, string? author)
     {
         var now = DateTime.UtcNow;
         var note = new Note(NewId(), CheckKind(kind), CheckStatus(status), CheckText(text), Merge([], tags, null, MaxTags, MaxTagChars, "tag"),
-            Merge([], evidence, null, MaxEvidence, MaxEvidenceChars, "evidence"), anchor, 1, now, now, author);
+            MergeEvidence([], evidence), anchor, 1, now, now, author);
         if (CountAll() >= MaxTotal)
             throw new ToolError(ErrorCode.LimitExceeded, $"The note store holds {MaxTotal:N0} notes, its limit.", "update_note status=dropped, or remove note files under " + Root);
         Write(anchor.StoreKey, file =>
@@ -155,7 +237,7 @@ public sealed class NotesService(AnnotationStore store)
                 Status = change.Status != null ? CheckStatus(change.Status) : current.Status,
                 Text = text,
                 Tags = Merge(current.Tags, change.AddTags, change.RemoveTags, MaxTags, MaxTagChars, "tag"),
-                Evidence = Merge(current.Evidence, change.AddEvidence, null, MaxEvidence, MaxEvidenceChars, "evidence"),
+                Evidence = MergeEvidence(current.Evidence, change.AddEvidence),
                 Revision = current.Revision + 1,
                 Updated = DateTime.UtcNow,
             };
@@ -198,7 +280,7 @@ public sealed class NotesService(AnnotationStore store)
         var (written, problem) = LockedJsonFile.Update<NoteFile>(path, current =>
         {
             var file = current ?? new NoteFile();
-            if (file.Format is not (Format or LegacyFormat))
+            if (file.Format is not (Format or Format1 or LegacyFormat))
                 throw new ToolError(ErrorCode.Conflict, $"{path} has format '{file.Format}', not {Format}; it is left untouched.");
             file.Format = Format;
             change(file);
@@ -229,7 +311,7 @@ public sealed class NotesService(AnnotationStore store)
     {
         if (!Directory.Exists(Root)) yield break;
         foreach (var path in Directory.EnumerateFiles(Root, "*.json"))
-            if (LockedJsonFile.Read<NoteFile>(path, Json).Value is { Format: Format or LegacyFormat } file)
+            if (LockedJsonFile.Read<NoteFile>(path, Json).Value is { Format: Format or Format1 or LegacyFormat } file)
                 yield return (Path.GetFileNameWithoutExtension(path), file.Notes);
     }
 

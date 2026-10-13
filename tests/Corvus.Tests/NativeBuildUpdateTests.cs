@@ -178,7 +178,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         var carried = h.Notes.Read(newN.OriginalSha256).Single(n => n.Text == "bias added here");
         Assert.Equal((F1 + Shift + 6, "new.dll@" + Va(F1 + Shift + 6)), (carried.Anchor.Rva!.Value, carried.Anchor.Label));
         Assert.Equal(["bias"], carried.Tags);
-        Assert.StartsWith("carried from old.dll@" + Va(F1 + 6), carried.Evidence[^1]);
+        Assert.StartsWith("carried from old.dll@" + Va(F1 + 6), carried.Evidence[^1].Text);
 
         var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, include: "notes");
         Assert.Equal(2, again.Items.Count(i => i is { Category: "notes", Outcome: "already_present" }));

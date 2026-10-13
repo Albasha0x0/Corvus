@@ -3,6 +3,7 @@ using dnlib.DotNet;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Services;
 
@@ -17,8 +18,10 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
 
     public sealed record NoteList(
         [property: Description("Notes, newest first.")] IReadOnlyList<Note> Items,
-        int Offset, int Total, bool Truncated,
+        int Offset, int Total,
         [property: Description("How the filters were applied (e.g. the function an address was widened to).")] IReadOnlyList<string> Notes);
+
+    private const string EvidenceDescription = "Where it was seen (at most 10): {tool, args} of a call made here (its resultSha256 is filled in), or {text}.";
 
     [McpServerTool(Name = "record_note", Title = "Record a note", UseStructuredContent = true)]
     [Description("Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per user, " +
@@ -28,13 +31,13 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
         [Description("Default finding.")] string? kind = null,
         [Description("Default open.")] string? status = null,
         [Description(AnchorDescription)] string? anchor = null,
-        [Description("Comma-separated tags (at most 10).")] string? tags = null,
-        [Description("Where it was seen, ';'-separated (at most 10), e.g. a tool call.")] string? evidence = null,
+        [Description("At most 10.")] string[]? tags = null,
+        [Description(EvidenceDescription)] NoteEvidence[]? evidence = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var resolved = Anchor(anchor);
-        return notes.Record(text, kind, status, resolved, Split(tags, ','), Split(evidence, ';'), context?.Server?.ClientInfo?.Name);
+        return notes.Record(text, kind, status, resolved, tags, Evidence(evidence), context?.Server?.ClientInfo?.Name);
     }, cancellationToken);
 
     [McpServerTool(Name = "update_note", Title = "Update a note", UseStructuredContent = true)]
@@ -46,24 +49,33 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
         [Description("New kind.")] string? kind = null,
         [Description("Replacement text.")] string? text = null,
         [Description("Text appended on a new line.")] string? appendText = null,
-        [Description("Comma-separated tags to add.")] string? addTags = null,
-        [Description("Comma-separated tags to remove.")] string? removeTags = null,
-        [Description("';'-separated evidence entries to add.")] string? addEvidence = null,
+        [Description("Tags to add.")] string[]? addTags = null,
+        [Description("Tags to remove.")] string[]? removeTags = null,
+        [Description(EvidenceDescription)] NoteEvidence[]? addEvidence = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
-        notes.Update((id ?? "").Trim(), expectedRevision,
-            new NoteChange(status, text, appendText, Split(addTags, ','), Split(removeTags, ','), Split(addEvidence, ';'), kind)), cancellationToken);
+        notes.Update((id ?? "").Trim(), expectedRevision, new NoteChange(status, text, appendText, addTags, removeTags, Evidence(addEvidence), kind)), cancellationToken);
 
-    [McpServerTool(Name = "list_notes", Title = "List notes", UseStructuredContent = true)]
+    /// <summary>Checked evidence; a call this process has no result for keeps no hash, with a warning.</summary>
+    private static List<NoteEvidence> Evidence(NoteEvidence[]? entries)
+    {
+        var unmatched = new List<string>();
+        var list = NotesService.CheckEvidence(entries, unmatched);
+        if (unmatched.Count > 0)
+            ToolOutput.Warn($"no earlier call here of {string.Join(", ", unmatched.Distinct())} with those args: recorded without resultSha256 (make the call, then add it)");
+        return list;
+    }
+
+    [McpServerTool(Name = "list_notes", Title = "List notes", UseStructuredContent = true, OutputSchemaType = typeof(NoteList))]
     [Description("Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists all its notes, '<image>@<address>' those in the containing function, " +
                  "'<assembly>:<type>' those on its members too.")]
-    public Task<NoteList> ListNotes(
+    public Task<string> ListNotes(
         [Description("Default open; all for every status.")] string? status = null,
         [Description("Only this kind.")] string? kind = null,
         [Description(AnchorDescription)] string? anchor = null,
         [Description("Only notes with this tag.")] string? tag = null,
         [Description("Text substring (case-insensitive).")] string? text = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Notes to return (max 500).")] int limit = 50,
+        [Description("Notes per page (default 50).")] int limit = 50,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var st = string.IsNullOrWhiteSpace(status) ? "open" : status.Trim().ToLowerInvariant();
@@ -79,13 +91,15 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
             .Where(n => string.IsNullOrWhiteSpace(text) || n.Text.Contains(text.Trim(), StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(n => n.Updated).ThenBy(n => n.Id, StringComparer.Ordinal).ToList();
         offset = Math.Max(0, offset);
-        limit = Math.Clamp(limit, 1, 500);
-        var page = all.Skip(offset).Take(limit).ToList();
-        return new NoteList(page, offset, all.Count, offset + page.Count < all.Count, info);
+        limit = ToolSupport.ClampLimit(limit, 500);
+        var header = string.Concat(info.Select(i => $"Note: {i}\n"));
+        return ToolOutput.List(all, offset, limit, Row, page => new NoteList(page, offset, all.Count, info), "note", header);
     }, cancellationToken);
 
-    private static List<string>? Split(string? list, char separator) =>
-        string.IsNullOrWhiteSpace(list) ? null : list.Split(separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    private static string Row(Note n) =>
+        $"{n.Id} r{n.Revision}  {n.Kind}/{n.Status}  {n.Anchor.Label ?? n.Anchor.Kind}  {Format.Clip(n.Text.ReplaceLineEndings(" "), 300)}" +
+        (n.Tags.Count > 0 ? $"  [{string.Join(", ", n.Tags)}]" : "") +
+        string.Concat(n.Evidence.Select(e => $"\nevidence: {Format.Clip(e.ToString(), 200)}"));
 
     /// <summary>Resolves an anchor argument to the identity it is stored under.</summary>
     public NoteAnchor Anchor(string? anchor)

@@ -1,4 +1,8 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using ModelContextProtocol.Protocol;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native.Annotations;
 using Corvus.Services;
 using Corvus.Tools;
@@ -6,6 +10,7 @@ using Corvus.Tools;
 namespace Corvus.Tests;
 
 /// <summary>record_note / update_note / list_notes: persistence, partial updates, revision conflicts, anchors, filters, concurrent writers.</summary>
+[Collection(InProcessCatalogCollection.Name)]
 public sealed class NotesTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -38,7 +43,7 @@ public sealed class NotesTests : IDisposable
         Assert.Equal("confirmed", updated.Status);
         Assert.Equal("decoder at the second call\nverified by stepping", updated.Text);
         Assert.Equal(["xor"], updated.Tags);
-        Assert.Equal(["get_il x"], updated.Evidence);
+        Assert.Equal("get_il x", Assert.Single(updated.Evidence).Text);
 
         // a fresh store (another process) reads the same note
         var read = Store().All().Single();
@@ -99,7 +104,7 @@ public sealed class NotesTests : IDisposable
         workspace.Load(Env.FixturePath);
         var native = workspace.FindNative("native.dll")!;
 
-        var atFirst = await tools.RecordNote("entry point stub", anchor: "native.dll@First", tags: "entry");
+        var atFirst = await tools.RecordNote("entry point stub", anchor: "native.dll@First", tags: ["entry"]);
         Assert.Equal((NoteAnchor.Native, native.OriginalSha256), (atFirst.Anchor.Kind, atFirst.Anchor.Sha256));
         Assert.NotNull(atFirst.Anchor.Rva);
         var member = await tools.RecordNote("scores are capped", kind: "finding", anchor: "TestFixture:Account::Score");
@@ -113,19 +118,76 @@ public sealed class NotesTests : IDisposable
         await tools.RecordNote("global todo", kind: "todo");
         await Assert.ThrowsAsync<ToolError>(() => tools.RecordNote("x", anchor: "NoSuchThing:Foo"));
 
-        Assert.Equal(5, (await tools.ListNotes()).Total);
-        Assert.Equal(3, (await tools.ListNotes(anchor: "TestFixture")).Total);
-        Assert.Equal(2, (await tools.ListNotes(anchor: "TestFixture:Account")).Total); // the type includes its members
-        Assert.Equal(["entry point stub"], (await tools.ListNotes(anchor: "native.dll@First")).Items.Select(n => n.Text));
-        Assert.Equal(["packed?"], (await tools.ListNotes(kind: "question")).Items.Select(n => n.Text));
-        Assert.Equal(["entry point stub"], (await tools.ListNotes(tag: "ENTRY")).Items.Select(n => n.Text));
-        Assert.Equal(["global todo"], (await tools.ListNotes(anchor: "global")).Items.Select(n => n.Text));
+        async Task<NoteTools.NoteList> List(string? status = null, string? kind = null, string? anchor = null, string? tag = null, int offset = 0, int limit = 50)
+        {
+            var collector = ToolOutput.Collect();
+            await tools.ListNotes(status, kind, anchor, tag, offset: offset, limit: limit);
+            return Assert.IsType<NoteTools.NoteList>(collector.Value);
+        }
+        Assert.Equal(5, (await List()).Total);
+        Assert.Equal(3, (await List(anchor: "TestFixture")).Total);
+        Assert.Equal(2, (await List(anchor: "TestFixture:Account")).Total); // the type includes its members
+        Assert.Equal(["entry point stub"], (await List(anchor: "native.dll@First")).Items.Select(n => n.Text));
+        Assert.Equal(["packed?"], (await List(kind: "question")).Items.Select(n => n.Text));
+        Assert.Equal(["entry point stub"], (await List(tag: "ENTRY")).Items.Select(n => n.Text));
+        Assert.Equal(["global todo"], (await List(anchor: "global")).Items.Select(n => n.Text));
 
         await tools.UpdateNote(file.Id, 1, status: "answered", text: "not packed");
-        Assert.Equal(4, (await tools.ListNotes()).Total);
-        Assert.Equal(["not packed"], (await tools.ListNotes(status: "answered")).Items.Select(n => n.Text));
-        var page = await tools.ListNotes(status: "all", offset: 1, limit: 2);
-        Assert.Equal((2, 5, true), (page.Items.Count, page.Total, page.Truncated));
+        Assert.Equal(4, (await List()).Total);
+        Assert.Equal(["not packed"], (await List(status: "answered")).Items.Select(n => n.Text));
+        var page = await List(status: "all", offset: 1, limit: 2);
+        Assert.Equal((2, 5), (page.Items.Count, page.Total));
+        var text = await tools.ListNotes(status: "all", offset: 1, limit: 2);
+        Assert.Contains("5 notes (showing 2-3):\n  n", text);
+        Assert.Contains("[More: offset=3]", text);
         Assert.Equal((4, 5), notes.Counts());
+    }
+
+    /// <summary>MB N1: an evidence entry names a call made here; its resultSha256 is filled in, and re-running the call reproduces it.</summary>
+    [Fact]
+    public async Task EvidenceReRunsAndMatchesByResultSha256()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var args = new Dictionary<string, object?> { ["assembly"] = "TestFixture", ["limit"] = 3 };
+        var seen = await server.Client.CallToolAsync("list_types", args);
+        string Sha(CallToolResult r) => (string)r.Meta![ToolOutput.ProvenanceKey]!["resultSha256"]!;
+        var evidence = new object[] { new { tool = "list_types", args }, new { text = "seen in the debugger" }, new { tool = "list_types", args = new { assembly = "Nope" } } };
+        var recorded = await server.Client.CallToolAsync("record_note", new Dictionary<string, object?>
+        {
+            ["text"] = "three types to start with", ["tags"] = new[] { "evidence", "test" }, ["evidence"] = evidence,
+        });
+        Assert.NotEqual(true, recorded.IsError);
+        var note = JsonNode.Parse(recorded.StructuredContent!.Value.GetRawText())!;
+        Assert.Equal(["evidence", "test"], note["tags"]!.AsArray().Select(t => (string)t!));
+        var entries = note["evidence"]!.AsArray();
+        Assert.Equal(Sha(seen), (string)entries[0]!["resultSha256"]!);
+        Assert.Equal("seen in the debugger", (string)entries[1]!["text"]!);
+        Assert.Null(entries[2]!["resultSha256"]); // no such call was made
+        Assert.Contains("no earlier call here of list_types", (string)note["warnings"]![0]!);
+
+        // A later check re-runs the recorded call: the same result has the same hash.
+        var e = entries[0]!;
+        var again = await server.Client.CallToolAsync((string)e["tool"]!, JsonSerializer.Deserialize<Dictionary<string, object?>>(e["args"]!.ToJsonString()));
+        Assert.Equal((string)e["resultSha256"]!, ToolOutput.ResultSha256(again));
+        Assert.Equal((string)e["resultSha256"]!, Sha(again));
+        await server.Client.CallToolAsync("update_note", new Dictionary<string, object?> { ["id"] = (string)note["id"]!, ["expectedRevision"] = 1, ["status"] = "dropped" });
+    }
+
+    /// <summary>Note files from before evidence objects (corvus-notes/1, evidence as strings) read as text entries.</summary>
+    [Fact]
+    public void FormatOneEvidenceStringsReadAsText()
+    {
+        var store = Store();
+        Directory.CreateDirectory(store.Root);
+        File.WriteAllText(Path.Combine(store.Root, "global.json"), ("{'format':'corvus-notes/1','notes':[{'id':'nabcdefgh','kind':'finding','status':'open','text':'old','tags':['t'],'evidence':['get_il x']," +
+            "'anchor':{'kind':'none'},'revision':1,'created':'2026-01-01T00:00:00Z','updated':'2026-01-01T00:00:00Z','author':null}]}").Replace('\'', '"'));
+        var old = Assert.Single(store.All());
+        Assert.Equal(new NoteEvidence(Text: "get_il x"), Assert.Single(old.Evidence));
+        var updated = store.Update(old.Id, 1, new NoteChange(AddEvidence: [new NoteEvidence("get_il", new JsonObject { ["symbol"] = "A::B" })]));
+        Assert.Equal(2, updated.Evidence.Count);
+        Assert.Contains("\"format\": \"corvus-notes/2\"", File.ReadAllText(Path.Combine(store.Root, "global.json")));
+        Assert.Equal(updated.Evidence[1].Args!.ToJsonString(), Store().All().Single().Evidence[1].Args!.ToJsonString());
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NotesService.CheckEvidence([new NoteEvidence()])).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NotesService.CheckEvidence([new NoteEvidence("x", ResultSha256: "abc")])).Code);
     }
 }

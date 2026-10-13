@@ -43,12 +43,27 @@ public static partial class ToolOutput
         // An error is no result to verify: what was asked of which inputs is its provenance.
         if (result.IsError == true) return p;
         p["resultSha256"] = ResultSha256(result);
+        Remember(tool, (string)p["args"]!, (string)p["resultSha256"]!);
         p["coverage"] = call.Coverage?.Status ?? "complete";
         if (call.Coverage is { Limitations.Count: > 0 } c)
             p["limitations"] = new JsonArray(c.Limitations.Concat(p["limitations"] is JsonArray stated ? stated.Select(l => (string)l!) : [])
                 .Distinct().Take(8).Select(l => (JsonNode)JsonValue.Create(l)!).ToArray());
         return p;
     }
+
+    private const int MaxRecent = 1_000;
+
+    private static readonly ConcurrentDictionary<(string Tool, string Args), string> Recent = new();
+
+    private static void Remember(string tool, string args, string resultSha256)
+    {
+        if (Recent.Count >= MaxRecent) Recent.Clear(); // a bounded memory of this process's calls, not a cache that must hold everything
+        Recent[(tool, args)] = resultSha256;
+    }
+
+    /// <summary>The resultSha256 of this process's latest successful call of <paramref name="tool"/> with these arguments (note evidence), or null.</summary>
+    public static string? RecentResult(string tool, JsonNode? args) =>
+        Recent.GetValueOrDefault((tool, Sha256(Canonical(args ?? new JsonObject()))));
 
     /// <summary>SHA-256 of the canonical structured JSON (sorted keys, compact), else of the text blocks.</summary>
     public static string ResultSha256(CallToolResult result) =>
