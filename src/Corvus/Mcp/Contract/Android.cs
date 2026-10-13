@@ -75,6 +75,6 @@ public sealed partial record ToolContract
         ["pull_android_file"] = Row(O.Edit, L.Long, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),
         ["read_android_log"] = Row(O.Report, L.Interactive),
         ["install_android_package"] = Row(O.Edit, L.Long, noDryRun: "N14: gated by --allow-device-changes"),
-        ["uninstall_android_package"] = Row(O.Edit, L.Long, noDryRun: "N14: gated by --allow-device-changes"),
+        ["uninstall_android_package"] = Row(O.Edit, L.Interactive, noDryRun: "N14: gated by --allow-device-changes"),
     };
 }

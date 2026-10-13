@@ -1,30 +1,29 @@
 # Exemptions from: every tool has a minimal valid and an invalid call in the quick contract sweep (S12.1)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-add_members_csharp
-add_types_csharp
-apply_edits
-apply_il2cpp_names
-compare_assemblies
-compare_native_images
-decompile_java
-export_engine_database
-export_il2cpp_symbols
-export_project
-ghidra_script
-ida_python
-install_android_package
-load_session
-migrate_native_names
-migrate_native_patches
-patch_method_csharp
-pull_android_file
-pull_android_package
-reanalyze_native
-save_native
-search_decompiled
-simplify_methods
-undo_edit
-uninstall_android_package
-unpack_container
-update_to_new_build
-verify_native_imports
+add_members_csharp # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+add_types_csharp # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+apply_edits # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+apply_il2cpp_names # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+compare_assemblies # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+compare_native_images # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+decompile_java # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+export_engine_database # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+export_il2cpp_symbols # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+export_project # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+ghidra_script # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+ida_python # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+install_android_package # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+load_session # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+migrate_native_names # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+migrate_native_patches # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+patch_method_csharp # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+pull_android_file # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+pull_android_package # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+reanalyze_native # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+save_native # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+search_decompiled # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+simplify_methods # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+undo_edit # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+unpack_container # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+update_to_new_build # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+verify_native_imports # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it

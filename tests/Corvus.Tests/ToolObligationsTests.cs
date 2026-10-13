@@ -47,6 +47,14 @@ public partial class ToolObligationsTests
         Ratchet.Check("quick-sweep", "every tool has a minimal valid and an invalid call in the quick contract sweep (S12.1)", violations);
     }
 
+    /// <summary>The quick sweep leaves out the Long latency class, so only tools that can run past 10 s belong there.</summary>
+    [Fact]
+    public void LongLatencyToolsAreLongRunning()
+    {
+        var notLong = Names.Where(n => ToolContract.Of(n).Latency == LatencyClass.Long && !ToolEffects.Of(n).LongRunning).ToList();
+        Assert.True(notLong.Count == 0, "latency Long without longRunning in ToolEffects: " + string.Join(", ", notLong));
+    }
+
     [Fact]
     public void EveryToolHasAProtocolSample()
     {
