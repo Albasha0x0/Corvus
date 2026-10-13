@@ -181,4 +181,46 @@ public class NativeArm64SwitchTests
         Assert.Empty(graph.Switches);
         Assert.Contains("entry 3", Assert.Single(graph.UnresolvedJumps).Reason);
     }
+
+    /// <summary>
+    /// The table register is written twice in the function (no single function-wide value), and its table value reaches
+    /// the dispatch block through the branch to it; or the table address is spilled to the stack across a call and reloaded.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_table_base_from_the_branch_state_or_a_stack_slot(bool spilled)
+    {
+        var a = new A64(Code);
+        uint anchor = 0, dflt = 0, dispatchBlock = 0, ext = 0;
+        var caseAt = new uint[3];
+        int tableReg = spilled ? 9 : 19, index = spilled ? 20 : 8;
+        a.Word(MovX(19, 1)).Word(A64.Adrp(a.Here, Table, tableReg, Base)).Word(A64.AddImm(tableReg, tableReg, Table & 0xFFF)).Word(MovX(index, 0));
+        if (spilled)
+        {
+            a.Word(0xF9000BE9).Later(at => A64.Bl(at, ext)).Word(A64.LdrX(9, 31, 16));      // str x9, [sp, #16]; bl ext; ldr x9, [sp, #16]
+            a.Word(CmpImm(index, 2)).Later(at => A64.BCond(at, dflt, Hi));
+        }
+        else
+        {
+            a.Word(CmpImm(index, 2)).Later(at => A64.BCond(at, dispatchBlock, Ne)).Word(A64.MovW(0, 9)).Word(A64.Ret);
+            dispatchBlock = a.Here;
+            a.Later(at => A64.BCond(at, dflt, Hi));
+        }
+        a.Later(at => A64.Adr(at, anchor, 10)).Word(Ldrb(11, tableReg, index)).Word(AddShift(10, 10, 11, 2)).Word(A64.Br(10));
+        anchor = a.Here;
+        for (int i = 0; i < 3; i++) { caseAt[i] = a.Here; a.Word(A64.MovW(0, (uint)i + 1)).Word(A64.Ret); }
+        dflt = a.Here;
+        a.Word(A64.MovW(0, 0)).Word(A64.Ret);
+        ext = a.Here;
+        a.Word(A64.MovW(9, 0)).Word(A64.Ret);
+        var data = new byte[0x200];
+        caseAt.Select(t => (byte)((t - anchor) / 4)).ToArray().CopyTo(data, Table - Data);
+        var index2 = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), data, entry: Code));
+        var graph = index2.GetGraph(index2.FunctionByStart(Code)!);
+
+        var sw = Assert.Single(graph.Switches);
+        Assert.Equal(Table, sw.TableRva);
+        Assert.Equal(caseAt, sw.Cases.Select(c => c.Target));
+    }
 }

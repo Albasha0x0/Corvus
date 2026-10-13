@@ -33,6 +33,8 @@ internal sealed class Arm64Decoder : ICodeDecoder
     private const int RingSize = 32;
     private readonly Arm64Instruction[] _ring = new Arm64Instruction[RingSize];
     private readonly uint[] _ringRva = new uint[RingSize];
+    // per ring slot: the address the instruction wrote to its destination register, or 0
+    private readonly ulong[] _ringAddress = new ulong[RingSize];
     private int _ringHead, _ringCount;
     private IndexBound _runBound;
 
@@ -62,7 +64,15 @@ internal sealed class Arm64Decoder : ICodeDecoder
     /// <summary>The last decoded instruction.</summary>
     public Arm64Instruction Last => _last;
 
-    public void BeginFunction() => Array.Clear(_savedState);
+    public void BeginFunction()
+    {
+        Array.Clear(_savedState);
+        _walking = true;
+        _stateAt.Clear();
+        _statePool.Clear();
+        _dispatchState = -1;
+        _slots.Clear();
+    }
 
     public void BeginRun(IndexBound incoming)
     {
@@ -71,6 +81,42 @@ internal sealed class Arm64Decoder : ICodeDecoder
             if (_savedState[r] == 1) Set(r, Known.Address, _saved[r]);
         _ringCount = 0;
         _runBound = incoming;
+        _runStart = true;
+    }
+
+    // what registers and frame slots hold at a block start, from the branch that first reached it (case labels: the last
+    // dispatch); tracked between BeginFunction and the next single-instruction query (ThunkSlot)
+    private bool _walking, _runStart;
+    private readonly Dictionary<uint, int> _stateAt = [];
+    private readonly List<(int Reg, Known Kind, long Slot, ulong Value)> _statePool = [];
+    private int _dispatchState = -1;
+    // frame slots [sp + n] / [x29 + n] holding an address (a jump table base spilled across calls), by base and offset
+    private readonly Dictionary<long, ulong> _slots = [];
+
+    /// <summary>The known registers and slots, as a state index (its first entry in the pool; a sentinel ends it).</summary>
+    private int SaveState()
+    {
+        int at = _statePool.Count;
+        for (int r = 0; r < Registers; r++)
+            if (_kind[r] != Known.None) _statePool.Add((r, _kind[r], 0, _value[r]));
+        foreach (var (slot, value) in _slots) _statePool.Add((-1, Known.Address, slot, value));
+        _statePool.Add((-2, Known.None, 0, 0));
+        return at;
+    }
+
+    /// <summary>At the first instruction of a run: the registers and slots the branch to it saw (over the function-wide ones).</summary>
+    private void RestoreState(uint rva)
+    {
+        _runStart = false;
+        int at = _stateAt.TryGetValue(rva, out int s) ? s : _dispatchState;
+        _slots.Clear();
+        if (at < 0) return;
+        for (; _statePool[at].Reg != -2; at++)
+        {
+            var (reg, kind, slot, value) = _statePool[at];
+            if (reg >= 0) Set(reg, kind, value);
+            else _slots[slot] = value;
+        }
     }
 
     /// <summary>An address written to a register: kept for the function while it is the only one seen.</summary>
@@ -129,6 +175,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
             _ringCount = 0;
             return;
         }
+        if (_runStart && _walking) RestoreState(rva);
         _ring[_ringHead] = _last;
         _ringRva[_ringHead] = rva;
         _ringHead = (_ringHead + 1) % RingSize;
@@ -163,11 +210,18 @@ internal sealed class Arm64Decoder : ICodeDecoder
             }
             if (label is { } off && insn.Flow is FlowKind.Jump or FlowKind.Call or FlowKind.ConditionalJump)
                 insn.HasTarget = TryRva(_imageBase + rva + (ulong)off, out insn.Target);
+            if (_walking)
+            {
+                if (insn.Flow is FlowKind.Jump or FlowKind.ConditionalJump && insn.HasTarget && !_stateAt.ContainsKey(insn.Target)) _stateAt[insn.Target] = SaveState();
+                else if (insn.Flow == FlowKind.IndirectJump) _dispatchState = SaveState();
+            }
             if (insn.Flow is FlowKind.Call or FlowKind.IndirectCall) ClearCallerSaved();
             return;
         }
         insn.Flow = m is Arm64Mnemonic.BRK or Arm64Mnemonic.HLT or Arm64Mnemonic.UDF ? FlowKind.Trap : FlowKind.Next;
         Track(ref insn, rva, label);
+        int written = Written(in _last);
+        _ringAddress[(_ringHead - 1 + RingSize) % RingSize] = written >= 0 && _kind[written] == Known.Address ? _value[written] : 0;
     }
 
     /// <summary>
@@ -252,6 +306,11 @@ internal sealed class Arm64Decoder : ICodeDecoder
             var a = mem.Accessor;
             int b = a.BaseRegister.Kind == Arm64RegisterKind.X ? a.BaseRegister.Index : -1;
             bool post = a.OffsetKind == Arm64MemoryOffsetKind.None && k + 1 < i.OperandCount && i.GetOperand(k + 1).Kind == Arm64OperandKind.Immediate;
+            if ((a.BaseRegister.Kind == Arm64RegisterKind.SP || b == 29) && !a.HasIndexRegister && _walking)
+            {
+                FrameSlot(in i, dest, ((long)(b == 29 ? 29 : 31) << 32) + (a.HasImmediate && !post ? a.Immediate : 0), (mem.Flags & Arm64OperandFlags.Write) != 0, a.IsPreIncrement || post);
+                return;
+            }
             if (b >= 0 && b < Registers && _kind[b] == Known.Address && !a.HasIndexRegister)
             {
                 ulong at = _value[b] + (a.HasImmediate && !post ? (ulong)(long)a.Immediate : 0);
@@ -270,6 +329,25 @@ internal sealed class Arm64Decoder : ICodeDecoder
             break;
         }
         Clobber();
+    }
+
+    /// <summary>
+    /// A load or store at frame slot <paramref name="slot"/>: "str xN, [sp, #n]" of a known address keeps it for the slot,
+    /// "ldr xD, [sp, #n]" gets it back; any other store there forgets it, and moving sp forgets every sp slot.
+    /// </summary>
+    private void FrameSlot(in Arm64Instruction i, int dest, long slot, bool store, bool writeback)
+    {
+        bool wide = i.Id is Arm64InstructionId.STR_64_ldst_pos or Arm64InstructionId.STUR_64_ldst_unscaled or Arm64InstructionId.LDR_64_ldst_pos
+            or Arm64InstructionId.LDUR_64_ldst_unscaled;
+        if (store)
+        {
+            if (wide && dest >= 0 && _kind[dest] == Known.Address) _slots[slot] = _value[dest];
+            else { _slots.Remove(slot); _slots.Remove(slot + 8); }
+        }
+        Clobber();
+        if (writeback && slot >> 32 == 31) _slots.Clear();
+        else if (writeback) { _kind[29] = Known.None; Forget(29); }
+        if (!store && wide && dest >= 0 && _slots.TryGetValue(slot, out ulong value)) Set(dest, Known.Address, value);
     }
 
     private static bool Is64BitLoad(Arm64InstructionId id) =>
@@ -301,6 +379,8 @@ internal sealed class Arm64Decoder : ICodeDecoder
         {
             var op = i.GetOperand(k);
             if (op.Kind != Arm64OperandKind.Register || (op.Flags & Arm64OperandFlags.Write) == 0) continue;
+            // sp moved: what the sp slots held is at other offsets now
+            if (((Arm64RegisterOperand)op).Value.Kind == Arm64RegisterKind.SP) _slots.Clear();
             int r = XorW((Arm64RegisterOperand)op);
             if (r < 0) continue;
             _kind[r] = Known.None;
@@ -430,7 +510,10 @@ internal sealed class Arm64Decoder : ICodeDecoder
     {
         int w = Writer(k, reg);
         if (w < 0 && reg >= 0 && _savedState[reg] == 1) return _saved[reg];
-        if (w < 0 || depth > 6) return null;
+        // set before the run (or by a load the walk followed): the value it holds now, unless written since step k
+        if (w >= 0 && !IsAddressForming(in Back(w))) return _ringAddress[(_ringHead - 1 - w + RingSize * 2) % RingSize] is var a and not 0 ? a : null;
+        if (w < 0) return reg >= 0 && _kind[reg] == Known.Address && Unchanged(k, reg) ? _value[reg] : null;
+        if (depth > 6) return null;
         ref var x = ref Back(w);
         ulong pc = _imageBase + BackRva(w);
         long? label = LabelOffset(in x);
@@ -451,6 +534,22 @@ internal sealed class Arm64Decoder : ICodeDecoder
         }
         return null;
     }
+
+    /// <summary>No instruction in steps 0 .. <paramref name="k"/> - 1 writes <paramref name="reg"/> (a call writes x0-x18 and x30).</summary>
+    private bool Unchanged(int k, int reg)
+    {
+        for (int j = 0; j < k && j < _ringCount; j++)
+        {
+            ref var x = ref Back(j);
+            if (Writes(in x, reg) || (reg < 19 || reg == 30) && x.Mnemonic is Arm64Mnemonic.BL or Arm64Mnemonic.BLR or Arm64Mnemonic.BLRAA or Arm64Mnemonic.BLRAAZ
+                or Arm64Mnemonic.BLRAB or Arm64Mnemonic.BLRABZ) return false;
+        }
+        return true;
+    }
+
+    private static bool IsAddressForming(in Arm64Instruction x) =>
+        x.Id is Arm64InstructionId.ADRP_only_pcreladdr or Arm64InstructionId.ADR_only_pcreladdr or Arm64InstructionId.ADD_64_addsub_imm
+            or Arm64InstructionId.MOV_add_64_addsub_imm or Arm64InstructionId.MOV_orr_64_log_shift;
 
     private static bool SetsFlags(in Arm64Instruction i) =>
         i.Mnemonic is Arm64Mnemonic.CMP or Arm64Mnemonic.CMN or Arm64Mnemonic.TST or Arm64Mnemonic.SUBS or Arm64Mnemonic.ADDS or Arm64Mnemonic.ANDS
@@ -699,6 +798,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
     /// </summary>
     public uint? ThunkSlot(uint rva, Func<uint, bool> isImportSlot)
     {
+        _walking = false;
         BeginRun(IndexBound.None);
         for (int n = 0; n < 5; n++, rva += 4)
         {
