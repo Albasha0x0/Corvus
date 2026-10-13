@@ -1810,7 +1810,7 @@ Match the functions of two builds of one native image (x86 / x64 / ARM64) in tie
 | `newImage` | string | yes |  | The newer build: native image id or path. |
 | `view` | string |  | `pairs` | pairs, changed (code differs), unmatched or ambiguous (with candidates). Values: pairs, changed, unmatched, ambiguous. |
 | `tier` | integer |  | `0` | Only pairs of this tier (1-5); 0 for all. |
-| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by names. |
 | `minScore` | number |  | `0.7` | Least similarity for a fuzzy match (0-1). |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `40` | Max rows. |
@@ -1833,7 +1833,7 @@ What changed in one function between two builds (paired through compare_native_i
 | `side` | string |  | `old` | Which build the address is in. Values: old, new. |
 | `view` | string |  | `asm` | asm, or pseudocode (needs an engine). Values: asm, pseudocode. |
 | `context` | integer |  | `4` | Unchanged rows or lines around each change (0-50). |
-| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by names. |
 | `engine` | string |  |  | view=pseudocode: auto, ida or ghidra. Values: auto, ida, ghidra. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `500` | Max rows. |
@@ -1853,7 +1853,7 @@ Where addresses of the old build are in the new build: a function start to the m
 | `newImage` | string | yes |  | The newer build: native image id or path. |
 | `address` | string |  |  | Address in the old build: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
-| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by names. |
 
 Structured output: `oldImage`, `newImage`, `results`, `failed`.
 
@@ -1909,7 +1909,7 @@ Copy the old build's names, comments and engine types to the new build's user an
 | `minScore` | number |  | `0` | Least mapping confidence accepted (0-1). |
 | `sources` | string[] |  |  | Layers to copy (default user). |
 | `namesOnly` | boolean |  | `false` | Names only, no comments. |
-| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by names. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Max rows. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
@@ -1928,7 +1928,7 @@ Carry byte patches from an old build to a new one through the build matcher (com
 | `newImage` | string | yes |  | The new build: native image id or path (load both; the second gets an id like name#2). |
 | `patchSet` | string |  |  | A JSON patch set (export_native_patches format=json): path or text. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
-| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by names. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Max rows. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
@@ -1939,26 +1939,27 @@ Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `applied`, `editI
 
 **Update work to a new build** (destructive, idempotent, long-running)
 
-Carry work on an old build of a native image (x86 / x64 / ARM64) to its new build through one function match (compare_native_images): user names, comments and engine types (migrate_native_names rules); the PDB layer (from the new build's PDB) and the Il2Cpp layer (from its metadata, else mapped); byte patches (migrate_native_patches rules, stubs re-created after verification); code patterns checked for drift; the Il2Cpp method -> RVA mapping; notes. dryRun=false applies names, layers, then patches; a re-run reports already_present. Returns per-category counts with reason codes and a paged item list. Two .NET assemblies: notes, mapped by find_counterpart; edits: export_edits + apply_edits.
+Carry the work on an old native build to its new build through one function match: names, comments and engine types, PDB and Il2Cpp layers, patches (stubs re-created), code-pattern drift, the Il2Cpp method mapping, notes. Returns per-category counts with reason codes and the items; a re-run reports already_present. Two .NET assemblies: notes via find_counterpart. Rules: guide topic builds.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | The old build: native image id or path (the source of names, layers and patches). |
-| `newImage` | string | yes |  | The new build: native image id or path (load both; the second gets an id like name#2). |
-| `dryRun` | boolean |  | `true` | Report what would carry over without changing the new build. |
-| `include` | string |  |  | Comma-separated: names, pdb, il2cpp (names layer and method mapping), patches, patterns, notes; default all. |
-| `patchSet` | string |  |  | A JSON patch set (export_native_patches format=json; path or text) instead of the old build's in-memory patches. |
-| `stubPlacement` | string |  |  | Where re-created patch stubs go: auto (default: a cave, else a new section), cave or section. Values: auto, cave, section. |
-| `oldIl2Cpp` | string |  |  | The old build's Il2Cpp dummy assemblies (comma-separated ids); omit to find them (a dump of this binary, the metadata beside it, or what apply_il2cpp_names used). |
-| `newIl2Cpp` | string |  |  | The new build's Il2Cpp dummy assemblies (comma-separated ids); omit to find them the same way. |
-| `useNames` | boolean |  | `true` | Match functions by export, PDB, Il2Cpp and user names first; false: code only. |
-| `maxPatterns` | integer |  | `100` | Most sites (names and patches) to make code patterns for (0-1000). |
+| `oldImage` | string | yes |  | The old build: native image id or path. |
+| `newImage` | string | yes |  | The new build: native image id or path. |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
+| `include` | string[] |  |  | Categories to carry (default all). |
+| `patchSet` | string |  |  | Patch set (export_native_patches json): text or path. |
+| `stubPlacement` | string |  |  | Re-created patch stubs: auto, cave or section. Values: auto, cave, section. |
+| `oldIl2Cpp` | string[] |  |  | Old build's Il2Cpp dummy assemblies. |
+| `newIl2Cpp` | string[] |  |  | New build's Il2Cpp dummy assemblies. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by names. |
+| `maxPatterns` | integer |  | `100` | Most code patterns made (0-1000). |
 | `category` | string |  |  | Only items of this category. Values: names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping, notes, dotnet. |
 | `outcome` | string |  |  | Only items with this outcome. Values: carried, would_carry, already_present, refused, not_applicable, ambiguous. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `100` | Items to return (max 2000). |
+| `limit` | integer |  | `100` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `summary`, `oldImage`, `newImage`, `dryRun`, `editIds`, `included`, `oldFunctions`, `newFunctions`, `functionsMatched`, `categories`, `il2CppMapping`, `category`, `outcome`, `offset`, `total`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `summary`, `oldImage`, `newImage`, `dryRun`, `editIds`, `included`, `oldFunctions`, `newFunctions`, `functionsMatched`, `categories`, `il2CppMapping`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ## notes
 

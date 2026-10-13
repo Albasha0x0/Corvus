@@ -151,7 +151,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         h.Code.Annotations(oldN).SetName(NativeFormats.ElfWriter.TextRva, "entry_renamed");
         var index = await h.Code.Index(oldN, null, default);
         h.Edits.ApplyPatch(oldN, index, h.Edits.PreparePatch(index, NativeFormats.ElfWriter.TextRva + 10, [0xB8, 0x03, 0, 0, 0], false, "patch_bytes 5 bytes"), dryRun: false);
-        var report = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id);
+        var report = await h.Tools.Update(oldN.Id, newN.Id);
         Assert.Contains(report.Items, i => i is { Category: "names", Value: "entry_renamed", Outcome: "would_carry" });
         Assert.Contains(report.Items, i => i is { Category: "patches", Outcome: "would_carry" });
     }
@@ -167,20 +167,20 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         h.Notes.Record("loop removed later", "question", null, At(F5 + 2), null, null, null);
         h.Notes.Record("whole file packed?", "question", null, new NoteAnchor(NoteAnchor.File, Sha256: oldN.OriginalSha256, Label: "old.dll"), null, null, null);
 
-        var dry = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "notes");
+        var dry = await h.Tools.Update(oldN.Id, newN.Id, include: ["notes"]);
         Assert.Equal(("would_carry", Va(F1 + Shift + 6)), One(dry, "notes", i => i.Value == "bias added here") is var b ? (b.Outcome, b.NewAddress) : default);
         Assert.Equal("refused", One(dry, "notes", i => i.Value == "loop removed later").Outcome);
         Assert.Equal(("would_carry", "file"), One(dry, "notes", i => i.Value == "whole file packed?") is var f ? (f.Outcome, f.Reason) : default);
         Assert.Empty(h.Notes.Read(newN.OriginalSha256));
 
-        var run = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, include: "notes");
+        var run = await h.Tools.Update(oldN.Id, newN.Id, dryRun: false, include: ["notes"]);
         Assert.Equal(2, run.Categories.Single(c => c.Category == "notes").Carried);
         var carried = h.Notes.Read(newN.OriginalSha256).Single(n => n.Text == "bias added here");
         Assert.Equal((F1 + Shift + 6, "new.dll@" + Va(F1 + Shift + 6)), (carried.Anchor.Rva!.Value, carried.Anchor.Label));
         Assert.Equal(["bias"], carried.Tags);
         Assert.StartsWith("carried from old.dll@" + Va(F1 + 6), carried.Evidence[^1].Text);
 
-        var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, include: "notes");
+        var again = await h.Tools.Update(oldN.Id, newN.Id, dryRun: false, include: ["notes"]);
         Assert.Equal(2, again.Items.Count(i => i is { Category: "notes", Outcome: "already_present" }));
         Assert.Equal(2, h.Notes.Read(newN.OriginalSha256).Count);
     }
@@ -207,21 +207,21 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         h.Notes.Record("dead code?", "question", null, On("Gone"), null, null, null);
         h.Notes.Record("obfuscated build", null, null, new NoteAnchor(NoteAnchor.File, Sha256: oldAsm.OriginalSha256, Label: oldAsm.Id), null, null, null);
 
-        var dry = await h.Tools.UpdateToNewBuild(oldAsm.Id, newAsm.Id, include: "notes");
+        var dry = await h.Tools.Update(oldAsm.Id, newAsm.Id, include: ["notes"]);
         var summaryToken = h.Env.Workspace.Read(() => newAsm.Module.Find("N.Shop", false).Methods.Single(x => x.Name == "Summary").MDToken.Raw);
         Assert.Equal(("would_carry", $"0x{summaryToken:X8}"), One(dry, "notes", i => i.Value == "checks the license") is var d ? (d.Outcome, d.NewAddress) : default);
         Assert.Equal(("refused", "no_counterpart"), One(dry, "notes", i => i.Value == "dead code?") is var g ? (g.Outcome, g.Reason) : default);
         Assert.Equal(("would_carry", "file"), One(dry, "notes", i => i.Value == "obfuscated build") is var f ? (f.Outcome, f.Reason) : default);
         Assert.Equal("reported", dry.Categories.Single(c => c.Category == "dotnet").Status);
-        Assert.Equal("not_applicable", (await h.Tools.UpdateToNewBuild(oldAsm.Id, newAsm.Id)).Categories.Single(c => c.Category == "names").Status);
+        Assert.Equal("not_applicable", (await h.Tools.Update(oldAsm.Id, newAsm.Id)).Categories.Single(c => c.Category == "names").Status);
 
-        await h.Tools.UpdateToNewBuild(oldAsm.Id, newAsm.Id, dryRun: false, include: "notes");
+        await h.Tools.Update(oldAsm.Id, newAsm.Id, dryRun: false, include: ["notes"]);
         var carried = h.Notes.Read(new NoteAnchor(NoteAnchor.DotNet, Mvid: newAsm.Module.Mvid.ToString()).StoreKey).Single();
         Assert.Equal((summaryToken, $"{newAsm.Id}:N.Shop::Summary(int)"), (carried.Anchor.Token!.Value, carried.Anchor.Label));
         Assert.Equal(["license"], carried.Tags);
         Assert.Single(h.Notes.Read(newAsm.OriginalSha256.ToLowerInvariant()));
 
-        var again = await h.Tools.UpdateToNewBuild(oldAsm.Id, newAsm.Id, dryRun: false, include: "notes");
+        var again = await h.Tools.Update(oldAsm.Id, newAsm.Id, dryRun: false, include: ["notes"]);
         Assert.Equal(2, again.Items.Count(i => i.Outcome == "already_present"));
     }
 
@@ -232,7 +232,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         var (oldN, newN) = await Prepare(h);
 
         // ---- dry run: everything reported, nothing changed ----
-        var dry = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: true, limit: 2000);
+        var dry = await h.Tools.Update(oldN.Id, newN.Id, dryRun: true, limit: 2000);
         output.WriteLine(dry.Summary);
         Assert.True(dry.DryRun);
         Assert.StartsWith("Dry run", dry.Summary);
@@ -266,13 +266,20 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal(0, h.Code.Annotations(newN).NameCount);
         Assert.Null(NativeNameLayers.OfOrNull(newN)?.Get(NativeNameSource.Il2Cpp));
 
+        // the tool: summary, category reasons and rows in the text
+        var (tool, text) = await BuildToolCalls.Collected<BuildUpdateTools.UpdateReport>(() => h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: ["patches"], limit: 1));
+        Assert.Equal((1, 0), (tool.Items.Count, tool.Offset));
+        Assert.StartsWith("Dry run (nothing changed): ", text);
+        Assert.Contains("patches (previewed): ", text);
+        Assert.Contains("[More: offset=1]", text);
+
         // paging and filters
-        var page = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "patches", outcome: "refused", limit: 1);
-        Assert.Equal((2, 1, true), (page.Total, page.Items.Count, page.Truncated));
+        var page = await h.Tools.Update(oldN.Id, newN.Id, include: ["patches"], outcome: "refused", limit: 1);
+        Assert.Equal((2, 1), (page.Total, page.Items.Count));
         Assert.Equal("not_included", page.Categories.Single(c => c.Category == "names").Status);
 
         // ---- apply ----
-        var applied = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, limit: 2000);
+        var applied = await h.Tools.Update(oldN.Id, newN.Id, dryRun: false, limit: 2000);
         output.WriteLine(applied.Summary);
         Assert.Equal(3, applied.Categories.Single(c => c.Category == "patches").Carried);
         Assert.Equal(3, newN.Patches.Patches.Count);
@@ -289,7 +296,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Contains("confidence", carried.Comments[F3 + Shift]);
 
         // ---- re-run: nothing applied twice ----
-        var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, limit: 2000);
+        var again = await h.Tools.Update(oldN.Id, newN.Id, dryRun: false, limit: 2000);
         Assert.Equal(3, newN.Patches.Patches.Count);
         Assert.Equal(3, again.Categories.Single(c => c.Category == "patches").AlreadyPresent);
         Assert.Equal("already_present", One(again, "names", i => i.Value == "ReadGlobal").Outcome);
@@ -307,12 +314,12 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         await new NativePatchTools(h.Env.Workspace, h.Code, h.Edits).Export(oldN.Id, json, "json");
         // a patch set exported before the stub's new code was recorded
         File.WriteAllText(json, System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(json), "\"newCode\":\\s*\"[0-9A-F]*\"", "\"newCode\": null"));
-        var r = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "patches", patchSet: json);
+        var r = await h.Tools.Update(oldN.Id, newN.Id, include: ["patches"], patchSet: json);
         Assert.Equal(("refused", "stub_code_unknown"), One(r, "patches", _ => true) is var e ? (e.Outcome, e.Reason) : default);
 
-        await Assert.ThrowsAsync<ToolError>(() => h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names,bogus"));
-        await Assert.ThrowsAsync<ToolError>(() => h.Tools.UpdateToNewBuild(oldN.Id, oldN.Id));
-        await Assert.ThrowsAsync<ToolError>(() => h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, stubPlacement: "heap"));
+        await Assert.ThrowsAsync<ToolError>(() => h.Tools.Update(oldN.Id, newN.Id, include: ["names", "bogus"]));
+        await Assert.ThrowsAsync<ToolError>(() => h.Tools.Update(oldN.Id, oldN.Id));
+        await Assert.ThrowsAsync<ToolError>(() => h.Tools.Update(oldN.Id, newN.Id, stubPlacement: "heap"));
     }
 
     [Fact]
@@ -337,7 +344,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         module.Write(path);
         var v2 = h.Env.Workspace.LoadAny(path).Assembly!;
 
-        var r = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "il2cpp", oldIl2Cpp: h.Env.Fixture.Id, newIl2Cpp: v2.Id, limit: 2000);
+        var r = await h.Tools.Update(oldN.Id, newN.Id, include: ["il2cpp"], oldIl2Cpp: [h.Env.Fixture.Id], newIl2Cpp: [v2.Id], limit: 2000);
         var map = r.Il2CppMapping!;
         output.WriteLine(r.Summary);
         Assert.True(map.Agree >= 1, r.Summary);
@@ -462,7 +469,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal(("would_set", "copied"), (Entry("field", null).Action, Entry("field", null).Reason));
         Assert.Equal("int mine(void)", Assert.Single(h.Code.Annotations(newN).UserTypes.Types).Value);
 
-        var preview = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names", limit: 500);
+        var preview = await h.Tools.Update(oldN.Id, newN.Id, include: ["names"], limit: 500);
         Assert.Equal("would_carry", One(preview, "names", i => i.Kind == "local").Outcome);
         Assert.Equal("refused", One(preview, "names", i => i.Kind == "type" && i.OldAddress == Va(F2)).Outcome);
 
@@ -480,7 +487,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal([new("Theirs", "Kept"), new Corvus.Native.Providers.NativeTypeEdit("OldCfg", null)], carried.TypeEdits);
         Assert.Equal(new Corvus.Native.Providers.NativeFieldEdit("Cfg", "b", null, "int"), Assert.Single(carried.Fields));
 
-        var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names", dryRun: false, limit: 500);
+        var again = await h.Tools.Update(oldN.Id, newN.Id, include: ["names"], dryRun: false, limit: 500);
         Assert.Equal("already_present", One(again, "names", i => i.Kind == "local").Outcome);
         Assert.Equal("already_present", One(again, "names", i => i.Kind == "declarations").Outcome);
     }
@@ -546,13 +553,13 @@ public class NativeBuildUpdateRealTests(ITestOutputHelper output)
             }
 
             var sw = Stopwatch.StartNew();
-            var dry = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: true, maxPatterns: 30, limit: 1);
+            var dry = await h.Tools.Update(oldN.Id, newN.Id, dryRun: true, maxPatterns: 30, limit: 1);
             var dryTime = sw.Elapsed;
             sw.Restart();
-            var applied = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, maxPatterns: 30, limit: 1);
+            var applied = await h.Tools.Update(oldN.Id, newN.Id, dryRun: false, maxPatterns: 30, limit: 1);
             var applyTime = sw.Elapsed;
             sw.Restart();
-            var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, include: "names,patches", limit: 1);
+            var again = await h.Tools.Update(oldN.Id, newN.Id, dryRun: false, include: ["names", "patches"], limit: 1);
             var rerunTime = sw.Elapsed;
             pairs++;
             output.WriteLine($"{label}: {dry.FunctionsMatched}/{dry.OldFunctions} matched; load {load.ElapsedMilliseconds} ms, dry run {dryTime.TotalMilliseconds:0} ms, " +

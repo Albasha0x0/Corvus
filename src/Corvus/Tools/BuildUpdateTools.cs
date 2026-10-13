@@ -4,6 +4,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Code;
 using Corvus.Native.Diff;
@@ -39,9 +40,12 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("Carried to the new build (or would be, in a dry run).")] int Carried,
         [property: Description("Already on the new build (a re-run).")] int AlreadyPresent,
         int Refused, int NotApplicable, int Ambiguous,
-        [property: Description("Item counts by reason code.")] IReadOnlyList<ReasonCount> Reasons,
-        [property: Description("Counts by reason code of the items not carried (refused, not_applicable, ambiguous).")] IReadOnlyList<ReasonCount> NotCarriedBy,
-        string Detail);
+        [property: Description("Item counts by reason code (docs/migration-reasons.md).")] IReadOnlyList<ReasonCount> Reasons,
+        string Detail)
+    {
+        /// <summary>The reasons of the items not carried, for the summary.</summary>
+        [System.Text.Json.Serialization.JsonIgnore] public IReadOnlyList<ReasonCount> NotCarriedBy { get; init; } = [];
+    }
 
     public sealed record UpdateItem(
         string Category,
@@ -76,38 +80,57 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         int OldFunctions, int NewFunctions, int FunctionsMatched,
         IReadOnlyList<UpdateCategory> Categories,
         [property: Description("The Il2Cpp method mapping (null when not applicable).")] Il2CppMappingSummary? Il2CppMapping,
-        [property: Description("Item filter: category.")] string? Category,
-        [property: Description("Item filter: outcome.")] string? Outcome,
-        int Offset, int Total, bool Truncated,
-        IReadOnlyList<UpdateItem> Items,
+        IReadOnlyList<UpdateItem> Items, int Offset, int Total,
         [property: Description("What was not covered (functions that did not decode, capped work, scope).")] IReadOnlyList<string> Notes);
 
     private sealed record Item(string Category, string Kind, uint? OldRva, uint? NewRva, string Value, string Outcome, string Reason, double Confidence, int? Tier, string Detail);
 
-    [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true)]
-    [Description("Carry work on an old build of a native image (x86 / x64 / ARM64) to its new build through one function match " +
-                 "(compare_native_images): user names, comments and engine types (migrate_native_names rules); the PDB layer (from the new build's " +
-                 "PDB) and the Il2Cpp layer (from its metadata, else mapped); byte patches (migrate_native_patches rules, stubs re-created after " +
-                 "verification); code patterns checked for drift; the Il2Cpp method -> RVA mapping; notes. dryRun=false applies names, layers, then " +
-                 "patches; a re-run reports already_present. Returns per-category counts with reason codes and a paged item list. Two .NET " +
-                 "assemblies: notes, mapped by find_counterpart; edits: export_edits + apply_edits.")]
-    public Task<UpdateReport> UpdateToNewBuild(
-        [Description("The old build: native image id or path (the source of names, layers and patches).")] string oldImage,
-        [Description("The new build: native image id or path (load both; the second gets an id like name#2).")] string newImage,
-        [Description("Report what would carry over without changing the new build.")] bool dryRun = true,
-        [Description("Comma-separated: names, pdb, il2cpp (names layer and method mapping), patches, patterns, notes; default all.")] string? include = null,
-        [Description("A JSON patch set (export_native_patches format=json; path or text) instead of the old build's in-memory patches.")] string? patchSet = null,
-        [Description("Where re-created patch stubs go: auto (default: a cave, else a new section), cave or section.")] string? stubPlacement = null,
-        [Description("The old build's Il2Cpp dummy assemblies (comma-separated ids); omit to find them (a dump of this binary, the metadata beside it, or what apply_il2cpp_names used).")] string? oldIl2Cpp = null,
-        [Description("The new build's Il2Cpp dummy assemblies (comma-separated ids); omit to find them the same way.")] string? newIl2Cpp = null,
-        [Description("Match functions by export, PDB, Il2Cpp and user names first; false: code only.")] bool useNames = true,
-        [Description("Most sites (names and patches) to make code patterns for (0-1000).")] int maxPatterns = 100,
+    [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true, OutputSchemaType = typeof(UpdateReport))]
+    [Description("Carry the work on an old native build to its new build through one function match: names, comments and engine types, " +
+                 "PDB and Il2Cpp layers, patches (stubs re-created), code-pattern drift, the Il2Cpp method mapping, notes. Returns " +
+                 "per-category counts with reason codes and the items; a re-run reports already_present. Two .NET assemblies: notes via " +
+                 "find_counterpart. Rules: guide topic builds.")]
+    public Task<string> UpdateToNewBuild(
+        [Description("The old build: native image id or path.")] string oldImage,
+        [Description("The new build: native image id or path.")] string newImage,
+        [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
+        [Description("Categories to carry (default all).")] string[]? include = null,
+        [Description("Patch set (export_native_patches json): text or path.")] string? patchSet = null,
+        [Description("Re-created patch stubs: auto, cave or section.")] string? stubPlacement = null,
+        [Description("Old build's Il2Cpp dummy assemblies.")] string[]? oldIl2Cpp = null,
+        [Description("New build's Il2Cpp dummy assemblies.")] string[]? newIl2Cpp = null,
+        [Description(NativeDiffTools.CodeOnlyDescription)] bool codeOnly = false,
+        [Description("Most code patterns made (0-1000).")] int maxPatterns = 100,
         [Description("Only items of this category.")] string? category = null,
         [Description("Only items with this outcome.")] string? outcome = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Items to return (max 2000).")] int limit = 100,
+        [Description(LimitDescription)] int limit = 100,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+    {
+        var r = await Update(oldImage, newImage, dryRun, include, patchSet, stubPlacement, oldIl2Cpp, newIl2Cpp, codeOnly, maxPatterns, category, outcome,
+            0, int.MaxValue, progress, cancellationToken);
+        var head = new StringBuilder(r.Summary).Append('\n');
+        if (r.EditIds.Count > 0) head.Append($"Recorded as {string.Join(", ", r.EditIds)} (undo_native_edit editId={r.EditIds[0]}).\n");
+        foreach (var c in r.Categories.Where(c => c.Considered > 0))
+            head.Append($"{c.Category} ({c.Status}): {string.Join(", ", c.Reasons.Take(6).Select(x => $"{x.Reason} {x.Count}"))}\n");
+        foreach (var n in r.Notes) head.Append("Note: ").Append(n).Append('\n');
+        return ToolOutput.List(r.Items.Skip(Math.Max(0, offset)).ToList(), Math.Max(0, offset), limit, r.Total,
+            i => $"{i.Category} {i.Kind} {i.OldAddress ?? "-"} -> {i.NewAddress ?? "-"} {Format.Literal(i.Value.Length <= 80 ? i.Value : i.Value[..77] + "...")}: {i.Outcome} ({i.Reason})",
+            page => r with { Items = page, Offset = Math.Max(0, offset) }, "item", head.ToString());
+    });
+
+    /// <summary>update_to_new_build as a record: the items after the filters, from offset.</summary>
+    internal Task<UpdateReport> Update(string oldImage, string newImage, bool dryRun = true, string[]? include = null, string? patchSet = null,
+        string? stubPlacement = null, string[]? oldIl2Cpp = null, string[]? newIl2Cpp = null, bool codeOnly = false, int maxPatterns = 100, string? category = null,
+        string? outcome = null, int offset = 0, int limit = 100, IProgress<ProgressNotificationValue>? progress = null, CancellationToken cancellationToken = default) =>
+        UpdateCore(oldImage, newImage, dryRun, include, patchSet, stubPlacement, oldIl2Cpp, newIl2Cpp, codeOnly, maxPatterns, category, outcome, offset, limit,
+            progress ?? new Progress<ProgressNotificationValue>(), cancellationToken);
+
+    private async Task<UpdateReport> UpdateCore(string oldImage, string newImage, bool dryRun, string[]? include, string? patchSet, string? stubPlacement,
+        string[]? oldIl2Cpp, string[]? newIl2Cpp, bool codeOnly, int maxPatterns, string? category, string? outcome, int offset, int limit,
+        IProgress<ProgressNotificationValue> progress, CancellationToken cancellationToken)
     {
         var ct = cancellationToken;
         var included = ParseInclude(include);
@@ -120,13 +143,13 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         if (outcomeFilter != null && !Outcomes.Contains(outcomeFilter))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown outcome '{outcome}'.", "use " + string.Join(", ", Outcomes));
         offset = Math.Max(0, offset);
-        limit = ClampLimit(limit, 2000);
+        limit = Math.Max(1, limit);
         const int phases = 7;
         void Phase(int done, string message) => progress.Report(new ProgressNotificationValue { Progress = done, Total = phases, Message = message });
         if (comparer != null && await Task.Run(() => ManagedPair(oldImage, newImage), ct) is { } managed)
             return await Task.Run(() => DotNetUpdate(managed.Old, managed.New, dryRun, included, categoryFilter, outcomeFilter, offset, limit, ct), ct);
 
-        var pair = await new BuildPairs(workspace, code).Match(oldImage, newImage, new MatchOptions { UseNames = useNames },
+        var pair = await new BuildPairs(workspace, code).Match(oldImage, newImage, new MatchOptions { UseNames = !codeOnly },
             new ProgressSpan(progress, 0, 2, phases), ct);
         var (oldNative, newNative, newIndex, match) = (pair.Old, pair.New, pair.NewIndex, pair.Match);
         var mapper = new AddressMapper(match);
@@ -210,13 +233,13 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         return new UpdateReport(Summary(oldNative.Id, newNative.Id, dryRun, match, categoryList, mappingSummary), oldNative.Id, newNative.Id, dryRun, editIds,
             CategoryOrder.Where(included.Contains).ToList(),
             match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, categoryList, mappingSummary,
-            categoryFilter, outcomeFilter, offset, filtered.Count, offset + limit < filtered.Count, page, notes.Distinct().ToList());
-    });
+            page, offset, filtered.Count, notes.Distinct().ToList());
+    }
 
-    private static HashSet<string> ParseInclude(string? include)
+    private static HashSet<string> ParseInclude(string[]? include)
     {
         var set = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var part in (string.IsNullOrWhiteSpace(include) ? "all" : include).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var part in include is { Length: > 0 } ? include.Select(i => i.Trim()).Where(i => i.Length > 0).DefaultIfEmpty("all") : ["all"])
         {
             switch (part.ToLowerInvariant())
             {
@@ -228,7 +251,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                 case "patches": set.Add(Patches); break;
                 case "patterns": set.Add(Patterns); break;
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown category '{part}' in include.", "use names, pdb, il2cpp, patches, patterns, notes or all, comma-separated");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown category '{part}' in include.", "use names, pdb, il2cpp, patches, patterns, notes or all");
             }
         }
         return set;
@@ -335,8 +358,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         int Methods(LoadedAssembly a) => workspace.Read(() => a.Module.GetTypes().Sum(t => t.Methods.Count));
         return new UpdateReport(sb.ToString(), oldAsm.Id, newAsm.Id, dryRun, [], CategoryOrder.Where(included.Contains).ToList(),
             Methods(oldAsm), Methods(newAsm), cmp.MemberMap.Keys.Count(k => k is dnlib.DotNet.MethodDef), categoryList, null,
-            categoryFilter, outcomeFilter, offset, filtered.Count, offset + limit < filtered.Count, page,
-            ["a .NET pair: notes are mapped by find_counterpart; addresses are metadata tokens"]);
+            page, offset, filtered.Count, ["a .NET pair: notes are mapped by find_counterpart; addresses are metadata tokens"]);
     }
 
     /// <summary>
@@ -427,8 +449,8 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         static List<ReasonCount> Count(IEnumerable<Item> list) => list.GroupBy(i => i.Reason).Select(g => new ReasonCount(g.Key, g.Count()))
             .OrderByDescending(r => r.Count).ThenBy(r => r.Reason, StringComparer.Ordinal).ToList();
         return new UpdateCategory(name, c.Status, mine.Count, carried, mine.Count(i => i.Outcome == "already_present"), mine.Count(i => i.Outcome == "refused"),
-            mine.Count(i => i.Outcome == "not_applicable"), mine.Count(i => i.Outcome == "ambiguous"), Count(mine),
-            Count(mine.Where(i => i.Outcome is "refused" or "not_applicable" or "ambiguous")), c.Detail);
+            mine.Count(i => i.Outcome == "not_applicable"), mine.Count(i => i.Outcome == "ambiguous"), Count(mine), c.Detail)
+            { NotCarriedBy = Count(mine.Where(i => i.Outcome is "refused" or "not_applicable" or "ambiguous")) };
     }
 
     private static string Summary(string oldId, string newId, bool dryRun, MatchResult match, List<UpdateCategory> categories, Il2CppMappingSummary? map)
@@ -512,14 +534,13 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     /// The Il2Cpp dummy assemblies of <paramref name="native"/>: the given ones, else the loaded dump made from this binary,
     /// else the Il2Cpp metadata beside it (built-in reader), else what apply_il2cpp_names used for it; null when none.
     /// </summary>
-    private (List<LoadedAssembly>? Scope, string Source) Il2CppScope(LoadedNative native, string? explicitScope, List<string> notes, CancellationToken ct)
+    private (List<LoadedAssembly>? Scope, string Source) Il2CppScope(LoadedNative native, string[]? explicitScope, List<string> notes, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(explicitScope))
+        if (explicitScope?.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToList() is { Count: > 0 } ids)
         {
-            var given = workspace.Read(() => explicitScope.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(workspace.Get).Distinct().Where(a => il2cpp.GetIndex(a).Count > 0).ToList());
+            var given = workspace.Read(() => ids.Select(workspace.Get).Distinct().Where(a => il2cpp.GetIndex(a).Count > 0).ToList());
             if (given.Count == 0)
-                throw new ToolError(ErrorCode.InvalidArgument, $"'{explicitScope}' names no Il2Cpp dummy assembly (methods with [Address] attributes).",
+                throw new ToolError(ErrorCode.InvalidArgument, $"'{string.Join(", ", ids)}' names no Il2Cpp dummy assembly (methods with [Address] attributes).",
                     "pass the ids of the build's DummyDll assemblies (list_assemblies), or omit it to find them");
             return (given, "assemblies " + string.Join(", ", given.Select(a => a.Id)));
         }

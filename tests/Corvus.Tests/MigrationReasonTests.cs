@@ -44,7 +44,7 @@ public class MigrationReasonTests
 
         var diff = new NativeDiffTools(h.Env.Workspace, h.Code);
         var migrated = (await diff.CarryNames(oldN.Id, newN.Id, true, 5, 0, null, false, false, default, default)).Items.Select(e => (e.Kind, e.OldAddress, e.Reason)).Order().ToList();
-        var updated = (await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names")).Items.Where(i => i.Category == "names")
+        var updated = (await h.Tools.Update(oldN.Id, newN.Id, include: ["names"])).Items.Where(i => i.Category == "names")
             .Select(i => (i.Kind, i.OldAddress, i.Reason)).Order().ToList();
         Assert.Equal(migrated, updated);
         Assert.All(migrated, m => Assert.True(MigrationReasons.IsKnown(m.Reason), m.Reason));

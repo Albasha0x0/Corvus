@@ -22,9 +22,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     private const string OldDescription = "The older build: native image id or path (load both; the second gets an id like app.dll#2).";
     private const string NewDescription = "The newer build: native image id or path.";
-    private const string UseNamesDescription =
-        "Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only.";
-    internal const string CodeOnlyDescription = "Match functions by code only, not by export, PDB, Il2Cpp or user names.";
+    internal const string CodeOnlyDescription = "Match functions by code only, not by names.";
 
     /// <summary>
     /// One row of compare_native_images: a pair (both addresses, tier, basis, score, sizes; the new name and counts only where

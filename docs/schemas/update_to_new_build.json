@@ -69,7 +69,7 @@
             "type": "integer"
           },
           "reasons": {
-            "description": "Item counts by reason code.",
+            "description": "Item counts by reason code (docs/migration-reasons.md).",
             "type": "array",
             "items": {
               "type": "object",
@@ -87,13 +87,6 @@
               ]
             }
           },
-          "notCarriedBy": {
-            "description": "Counts by reason code of the items not carried (refused, not_applicable, ambiguous).",
-            "type": "array",
-            "items": {
-              "$ref": "#/properties/categories/items/properties/reasons/items"
-            }
-          },
           "detail": {
             "type": "string"
           }
@@ -108,7 +101,6 @@
           "notApplicable",
           "ambiguous",
           "reasons",
-          "notCarriedBy",
           "detail"
         ]
       }
@@ -172,20 +164,6 @@
         "ambiguous"
       ]
     },
-    "category": {
-      "description": "Item filter: category.",
-      "type": "string"
-    },
-    "outcome": {
-      "description": "Item filter: outcome.",
-      "type": "string"
-    },
-    "offset": {
-      "type": "integer"
-    },
-    "total": {
-      "type": "integer"
-    },
     "items": {
       "type": "array",
       "items": {
@@ -239,6 +217,12 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
     "notes": {
       "description": "What was not covered (functions that did not decode, capped work, scope).",
       "type": "array",
@@ -288,9 +272,9 @@
     "newFunctions",
     "functionsMatched",
     "categories",
+    "items",
     "offset",
     "total",
-    "items",
     "notes"
   ]
 }

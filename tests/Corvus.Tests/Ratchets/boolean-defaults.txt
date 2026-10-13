@@ -9,4 +9,3 @@ install_android_package.replace
 read_dump_memory.imageFallback
 trace_native_values.followGlobals
 unpack_container.load
-update_to_new_build.useNames

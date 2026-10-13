@@ -365,8 +365,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["diff_function"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["address"] = "First" }, "\"view\":\"asm\""),
         ["migrate_native_names"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"dryRun\":true"),
         ["make_code_pattern"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"anchor\""),
-        ["update_to_new_build"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["include"] = "names,pdb,patches" }, "\"dryRun\":true"),
-        ["search_code_pattern"] = (new() { ["pattern"] = "C3", ["images"] = NativeSample(dir) }, "\"hits\""),
+        ["update_to_new_build"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["include"] = new[] { "names", "pdb", "patches" } }, "\"dryRun\":true"),
+        ["search_code_pattern"] = (new() { ["pattern"] = "C3", ["images"] = new[] { NativeSample(dir) } }, "\"items\""),
         ["open_minidump"] = (new() { ["path"] = SyntheticCrash.Write(dir) }, "EXCEPTION_ACCESS_VIOLATION"),
         ["dump_stack"] = (new() { ["dump"] = SyntheticCrash.Write(dir) }, "\"function\":\"Outer\""),
         // a native process: nothing to decode (ManagedDumpRealTests covers .NET dumps)
