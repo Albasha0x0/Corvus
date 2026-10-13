@@ -270,6 +270,9 @@ public partial class ProtocolSampleTests
         // A kept text has the OS's line ends, so its length differs per OS.
         if (tool == "read_result")
             text = KeptChars().Replace(text, m => m.Groups[1].Success ? "<chars> chars" : m.Groups[2].Value + "\"<chars>\"");
+        // A text that names a machine path has a length per checkout.
+        else if (json && (text.Contains("<fixtures>", StringComparison.Ordinal) || text.Contains("<repo>", StringComparison.Ordinal)))
+            text = KeptChars().Replace(text, m => m.Groups[2].Success ? m.Groups[2].Value + "\"<chars>\"" : m.Value);
         if (json) text = text.Replace(@"\r\n", @"\n");
         return Volatile().Replace(text, "<id>").ReplaceLineEndings("\n");
     }

@@ -142,7 +142,7 @@
       "decompile_native image=sample-build-a.dll address=0x140001000"
     ],
     "offset": 0,
-    "totalChars": 2542,
+    "totalChars": "<chars>",
     "notices": [
       "loaded sample-build-a.dll from <fixtures>/sample-build-a.dll"
     ]
