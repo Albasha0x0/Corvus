@@ -33,7 +33,11 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
 
     public sealed record SessionAnnotations(Dictionary<string, string> Names, Dictionary<string, string> Comments);
 
-    public sealed record SessionNative(string Id, string Sha256, JsonElement? Patches, SessionAnnotations? Annotations);
+    public sealed record SessionNative(string Id, string Sha256, JsonElement? Patches, SessionAnnotations? Annotations)
+    {
+        /// <summary>The native edit journal's name, comment and engine edits (<see cref="NativeEditJournal.Export"/>), so they stay undoable after load_session.</summary>
+        public JsonElement? Journal { get; init; }
+    }
 
     /// <summary>
     /// An Il2Cpp game read by the built-in reader: <see cref="Input"/> is what load_assembly reads again (the package, else
@@ -110,7 +114,10 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
                 SessionAnnotations? annotations = null;
                 if (include.Contains("annotations") && code.Annotations(n) is { } ann && (ann.NameCount > 0 || ann.CommentCount > 0))
                     annotations = new SessionAnnotations(ann.Names().ToDictionary(x => Hex(x.Rva), x => x.Name), ann.Comments().ToDictionary(x => Hex(x.Rva), x => x.Comment));
-                if (patches != null || annotations != null) native.Add(new SessionNative(n.Id, n.OriginalSha256, patches, annotations));
+                JsonElement? edits = null;
+                if (include.Contains("annotations") && new NativeEditJournal(workspace, code).Export(n) is { Count: > 0 } entries)
+                    edits = JsonSerializer.SerializeToElement(entries);
+                if (patches != null || annotations != null || edits != null) native.Add(new SessionNative(n.Id, n.OriginalSha256, patches, annotations) { Journal = edits });
             }
             return 0;
         });

@@ -191,6 +191,12 @@ public sealed class SessionFileTests : IDisposable
         native.Image.Read(0x1041, imm);
         Assert.Equal(2, imm[0]);
         Assert.Single(b.Workspace.Get("TestFixture").Edits);
+        // the rename and the comment are journaled again, so undo takes the name back
+        Assert.Equal(("applied", 2), (Item(run, "journal").Outcome, Item(run, "journal").Count));
+        var rename = b.NativeEdits.Journal.Entries(native).Single(e => e.Tool == "rename_native");
+        await b.NativeEdits.Journal.UndoAsync(native, rename.Id, default);
+        Assert.Null(b.Code.Annotations(native).NameAt(0x1040));
+        b.NativeEdits.Rename(native, b.Code.Ready(native) ?? await b.Code.Index(native, null, default), 0x1040, "make_two", allowDuplicate: false);
 
         // again: everything is there already
         var again = await b.Tools.LoadSession(session, dryRun: false, include: "patches,annotations,notes", searchRoots: _dir.File("moved"));

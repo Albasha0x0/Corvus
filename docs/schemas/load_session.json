@@ -40,7 +40,7 @@
         "type": "object",
         "properties": {
           "kind": {
-            "description": "file, il2cpp, dump, edits, patches, names, comments or notes.",
+            "description": "file, il2cpp, dump, edits, patches, names, comments, journal or notes.",
             "type": "string"
           },
           "id": {

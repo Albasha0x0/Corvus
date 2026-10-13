@@ -291,10 +291,11 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
     public IReadOnlyList<EditId> Import(LoadedNative native, JsonArray records)
     {
         var ids = new List<EditId>();
+        var known = Export(native).Select(n => n?.ToJsonString()).ToHashSet();
         foreach (var node in records)
         {
             var r = node?.Deserialize<JournalRecord>(Options);
-            if (r == null) continue;
+            if (r == null || known.Contains(node!.ToJsonString())) continue; // already journaled: a session loaded twice
             if (r.Kind == NativeJournalEntry.AnnotationKind && r.Annotations is { Count: > 0 } a)
                 ids.Add(Add(native, id => new NativeJournalEntry(id, r.Tool, r.Kind, r.Description) { Annotations = a }));
             else if (r.Kind == NativeJournalEntry.EngineKind && r.UserTypes is { Count: > 0 } u)

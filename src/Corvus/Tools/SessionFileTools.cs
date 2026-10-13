@@ -19,7 +19,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     public sealed record SessionSaved(string Path, int Files, int EditedAssemblies, int Edits, int PatchedImages, int Patches, int Names, int Comments, int Notes);
 
     public sealed record SessionItem(
-        [property: Description("file, il2cpp, dump, edits, patches, names, comments or notes.")] string Kind,
+        [property: Description("file, il2cpp, dump, edits, patches, names, comments, journal or notes.")] string Kind,
         [property: Description("The id the session recorded.")] string Id,
         [property: Description("loaded, already_loaded, would_load, applied, would_apply, already_present, refused or not_found.")] string Outcome,
         [property: Description("How or why: recorded_path, relative_path, search_root, same_build, other_build, sha_mismatch, old_build_needed, " +
@@ -197,6 +197,12 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
                 }
                 else Add("names", n.Id, dryRun ? WouldApply : Refused, old.ContainsKey(n.Sha256) ? "other_build" : "old_build_needed", ann.Names.Count + ann.Comments.Count,
                     old.ContainsKey(n.Sha256) ? "carried through the function match when applied" : "the recorded build is needed to match functions; pass its folder in searchRoots");
+            }
+            if (parts.Contains("annotations") && n.Journal is { ValueKind: System.Text.Json.JsonValueKind.Array } recorded && !carried && !dryRun
+                && current.GetValueOrDefault(n.Sha256) is { } journalId && workspace.Read(() => workspace.Natives.FirstOrDefault(x => x.Id == journalId)) is { } journaled)
+            {
+                var ids = nativeEdits.Journal.Import(journaled, System.Text.Json.Nodes.JsonNode.Parse(recorded.GetRawText())!.AsArray());
+                Add("journal", n.Id, ids.Count > 0 ? Applied : AlreadyPresent, "same_build", ids.Count, $"{ids.Count} name, comment and engine edit(s) undoable on {journaled.Id} (list_native_edits)");
             }
             if (parts.Contains("patches") && n.Patches is { } patches)
             {
