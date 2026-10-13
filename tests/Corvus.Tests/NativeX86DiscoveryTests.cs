@@ -302,6 +302,7 @@ public class NativeX86DiscoveryTests
     [InlineData(8)] // a byte element compared in memory, then loaded: cmp byte [eax + esi], 2; ja; movzx ecx, byte [eax + esi]
     [InlineData(9)] // the index scaled into another frame slot (mov eax, [ebp-8]; shl eax, 2; mov [ebp-12], eax), bounded in the first, reloaded scaled
     [InlineData(10)] // the GOT pointer spilled, the slot reused on a path decoded first; the dispatch block reloads it on the path that kept it
+    [InlineData(11)] // a byte element at a large GOT offset compared, then loaded: cmp byte [ebx + eax*2 + k], 2; ja; movzx ecx, byte [ebx + eax*2 + k]
     public void I386_position_independent_switch_tables_resolve(int form)
     {
         const uint Got = Data, Table = Data + 0x40;
@@ -333,6 +334,7 @@ public class NativeX86DiscoveryTests
             else if (form == 7) { a.mov(__dword_ptr[esp + 8], ebx); a.xor(ebx, ebx); a.push(ecx); a.cmp(eax, 2); a.ja(dflt); a.mov(edx, __dword_ptr[esp + 12]); a.pop(ecx); }
             else if (form == 6) { a.mov(esi, eax); a.cmp(__byte_ptr[esi], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[esi]); }
             else if (form == 8) { a.xor(esi, esi); a.cmp(__byte_ptr[eax + esi], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[eax + esi]); }
+            else if (form == 11) { a.cmp(__byte_ptr[ebx + eax * 2 + 0x123456], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[ebx + eax * 2 + 0x123456]); }
             else if (form == 10)
             {
                 a.mov(__dword_ptr[esp + 8], ebx); a.test(ecx, ecx); a.jne(disp); a.mov(__dword_ptr[esp + 8], ecx); a.xor(eax, eax); a.ret();
@@ -349,6 +351,7 @@ public class NativeX86DiscoveryTests
                 case 7:
                 case 10: a.mov(eax, __dword_ptr[edx + eax * 4 + (int)(Table - Got)]); a.add(eax, edx); a.jmp(eax); break;
                 case 8:
+                case 11:
                 case 6: a.mov(eax, __dword_ptr[ebx + ecx * 4 + (int)(Table - Got)]); a.add(eax, ebx); a.jmp(eax); break;
                 case 4: a.mov(eax, __dword_ptr[ebx + ecx * 4 + (int)(Table - Got)]); a.add(eax, ebx); a.xchg(eax, edx); a.jmp(edx); break;
                 case 5:

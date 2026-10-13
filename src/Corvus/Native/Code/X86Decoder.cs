@@ -747,6 +747,26 @@ internal sealed class X86Decoder : ICodeDecoder
         && x.MemorySize is MemorySize.UInt8 or MemorySize.UInt16 or MemorySize.UInt32 or MemorySize.Int32 or MemorySize.UInt64 or MemorySize.Int64
         && !(x.Mnemonic == Mnemonic.Movzx && !_is64 && TryRva(x.MemoryDisplacement64, out uint table) && _image.SectionAt(table) != null);
 
+    /// <summary>
+    /// The load at step <paramref name="k"/> reads memory a "cmp [same], imm; ja / jae" just before it bounds (an element of a
+    /// table of bytes at a large GOT offset), with neither address register written between: the loaded value is the index.
+    /// </summary>
+    private bool LoadOfCompared(int k, in Instruction x)
+    {
+        if (x.Mnemonic is not (Mnemonic.Mov or Mnemonic.Movzx) || x.Op1Kind != OpKind.Memory || x.MemoryBase == Register.None) return false;
+        Register b = x.MemoryBase.GetFullRegister(), i = x.MemoryIndex.GetFullRegister();
+        bool branch = false;
+        for (int j = k + 1, n = 0; j < _ringCount && n < 6; j++, n++)
+        {
+            ref var c = ref Back(j);
+            if (c.FlowControl == FlowControl.ConditionalBranch) { branch = c.ConditionCode is ConditionCode.a or ConditionCode.ae; continue; }
+            if (WritesRegister(in c, b) || (i != Register.None && WritesRegister(in c, i))) return false;
+            if (c.RflagsModified == RflagsBits.None) continue;
+            return branch && c.Mnemonic == Mnemonic.Cmp && c.MemorySize == x.MemorySize && IsSlot(in c, b, x.MemoryDisplacement64, i, x.MemoryIndexScale);
+        }
+        return false;
+    }
+
     /// <summary>Operand 0 is the memory slot [base + index*scale + disp].</summary>
     private static bool IsSlot(in Instruction x, Register slotBase, ulong slotDisp, Register slotIndex = Register.None, int slotScale = 1) =>
         x.Op0Kind == OpKind.Memory && x.MemoryBase.GetFullRegister() == slotBase && x.MemoryIndex.GetFullRegister() == slotIndex
@@ -1070,7 +1090,7 @@ internal sealed class X86Decoder : ICodeDecoder
                 bound = (null, 0, true);
                 return true;
             }
-            if (IsSlotLoad(in x))
+            if (IsSlotLoad(in x) || LoadOfCompared(k, in x))
             {
                 inSlot = true;
                 slotBase = x.MemoryBase.GetFullRegister();
