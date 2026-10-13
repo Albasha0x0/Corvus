@@ -14,6 +14,11 @@
     "dryRun": {
       "type": "boolean"
     },
+    "editIds": {
+      "description": "The journaled edits (undo_native_edit): names and comments, user types, patches.",
+      "type": "array",
+      "items": {}
+    },
     "included": {
       "description": "Categories included in this run.",
       "type": "array",
@@ -277,6 +282,7 @@
     "oldImage",
     "newImage",
     "dryRun",
+    "editIds",
     "included",
     "oldFunctions",
     "newFunctions",

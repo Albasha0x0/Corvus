@@ -3,7 +3,9 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
+using Corvus.Native.Annotations;
 using Corvus.Native.Code;
 using Corvus.Native.Diff;
 using Corvus.Native.Providers;
@@ -14,12 +16,15 @@ namespace Corvus.Tools;
 
 /// <summary>Two builds of one native image: function matching, carrying names and addresses forward, and rebuild-stable code patterns.</summary>
 [McpServerToolType]
-public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null)
+public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeEditService? edits = null)
 {
+    private readonly NativeEditJournal journal = edits?.Journal ?? new NativeEditJournal(workspace, code, engines);
+
     private const string OldDescription = "The older build: native image id or path (load both; the second gets an id like app.dll#2).";
     private const string NewDescription = "The newer build: native image id or path.";
     private const string UseNamesDescription =
         "Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only.";
+    internal const string CodeOnlyDescription = "Match functions by code only, not by export, PDB, Il2Cpp or user names.";
 
     public sealed record TierCount(
         [property: Description("1 name_or_bytes, 2 structure, 3 signature, 4 call_graph, 5 fuzzy.")] int Tier, string Name, int Pairs);
@@ -66,22 +71,19 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("Candidate or nearby new addresses when not mapped.")] IReadOnlyList<string> Candidates);
 
     public sealed record MigrationEntry(
-        [property: Description("name, comment, or a user type: declarations, type_edit, enum_member, field, analysis, operand, type, local, stack_var.")] string Kind,
+        [property: Description("name, comment, pseudo_comment, or a user type: declarations, type_edit, enum_member, field, analysis, operand, type, local, stack_var.")] string Kind,
         [property: Description("Layer it came from in the old build: user, pdb or il2cpp.")] string Source,
-        [property: Description("Null for declarations.")] string? OldAddress, string? NewAddress, string Value,
-        [property: Description("set (or would_set in a dry run) or skipped.")] string Action,
-        [property: Description("For set: how the address was mapped. For skipped: same_name, same_comment, user_name_exists, user_comment_exists, " +
-                               "name_in_use, new_has_own_name, duplicate_target, invalid_name, below_min_tier, below_min_score, same_declarations, same_type, " +
-                               "user_type_exists, not_a_function_start, same_local, user_local_exists, same_stack_var, user_stack_var_exists, same_analysis, " +
-                               "user_analysis_exists, same_operand, user_operand_exists, same_enum_member, user_enum_member_exists, or the mapping's reason.")]
-        string Reason,
+        string? OldAddress, string? NewAddress, string Value,
+        [property: Description("set, would_set (dry run) or skipped.")] string Action,
+        [property: Description("How it was carried or why not (docs/migration-reasons.md).")] string Reason,
         int? Tier, double Confidence, string Detail);
 
     public sealed record ReasonCount(string Reason, int Count);
 
     public sealed record MigrationReport(
-        string OldImage, string NewImage, bool DryRun, int Considered, int Set, int Skipped,
-        IReadOnlyList<ReasonCount> SkippedBy, int Offset, int Total, bool Truncated, IReadOnlyList<MigrationEntry> Entries, IReadOnlyList<string> Notes);
+        string OldImage, string NewImage, bool DryRun, bool Applied,
+        [property: Description("The journaled edits (undo_native_edit): names and comments, user types.")] IReadOnlyList<EditId> EditIds,
+        int Set, int Skipped, IReadOnlyList<ReasonCount> SkippedBy, IReadOnlyList<MigrationEntry> Items, int Offset, int Total, IReadOnlyList<string> Notes);
 
     public sealed record CodePatternResult(
         string Image, string Address,
@@ -307,36 +309,58 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             Math.Round(pair.Score, 3), v, summary, same, changed, removed, added, rows, unified, [], truncated, notes);
     }
 
-    [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true)]
-    [Description("Copy names and comments from the old build to the new build's user annotations through the function matches and address " +
-                 "mapping (map_address_between_builds). Sources: the old build's user annotations with its engine types, optionally its pdb and " +
-                 "il2cpp names. Never replaces a user name, comment or type of the new build; every skipped item has a reason code.")]
-    public async Task<MigrationReport> MigrateNativeNames(
+    [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true, OutputSchemaType = typeof(MigrationReport))]
+    [Description("Copy the old build's names, comments and engine types to the new build's user annotations through the function match " +
+                 "(map_address_between_builds). Never replaces a user name, comment or type of the new build; each skipped item has a reason " +
+                 "code. Applied as undoable edits (editIds).")]
+    public Task<string> MigrateNativeNames(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
-        [Description(DryRunDescription)] bool dryRun = false,
-        [Description("Weakest match tier accepted: 1 (names and identical bytes) to 5 (all).")] int minTier = 5,
+        [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
+        [Description("Weakest match tier accepted: 1 (names, identical bytes) to 5 (all).")] int minTier = 5,
         [Description("Least mapping confidence accepted (0-1).")] double minScore = 0,
-        [Description("Comma-separated layers to copy: user (default), pdb, il2cpp.")] string? sources = null,
-        [Description("Copy comments too.")] bool comments = true,
-        [Description(UseNamesDescription)] bool useNames = true,
-        [Description("Entries to skip in the report.")] int offset = 0,
-        [Description("Entries to return (max 5000).")] int limit = 200,
+        [Description("Layers to copy (default user).")] string[]? sources = null,
+        [Description("Names only, no comments.")] bool namesOnly = false,
+        [Description(CodeOnlyDescription)] bool codeOnly = false,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description(LimitDescription)] int limit = 100,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+    {
+        var r = await CarryNames(oldImage, newImage, dryRun, minTier, minScore, sources, namesOnly, codeOnly, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        var head = new System.Text.StringBuilder();
+        string skipped = r.Skipped == 0 ? "" : $"; {r.Skipped} skipped ({string.Join(", ", r.SkippedBy.Take(4).Select(x => $"{x.Reason} {x.Count}"))})";
+        head.Append(dryRun ? $"Dry run: {r.Set} of {r.Total} item(s) would carry from {r.OldImage} to {r.NewImage}{skipped}. Nothing recorded; dryRun=false applies it.\n"
+            : $"{r.Set} of {r.Total} item(s) carried from {r.OldImage} to {r.NewImage}{skipped}. " +
+              (r.EditIds.Count > 0 ? $"Recorded as {string.Join(", ", r.EditIds)} (undo_native_edit editId={r.EditIds[0]}).\n" : "Nothing changed.\n"));
+        foreach (var n in r.Notes) head.Append("Note: ").Append(n).Append('\n');
+        return ToolOutput.List(r.Items, offset, limit, e =>
+                $"{e.Kind} {e.OldAddress ?? "-"} -> {e.NewAddress ?? "-"} {Format.Literal(Clip(e.Value))}: " +
+                (e.Action == "skipped" ? $"skipped, {e.Reason} ({e.Detail})" : $"{e.Action} ({e.Reason}{(e.Tier is { } t ? $", tier {t}" : "")})"),
+            rows => r with { Items = rows, Offset = offset }, "item", head.ToString());
+    });
+
+    private static string Clip(string s) => s.Length <= 80 ? s : s[..77] + "...";
+
+    /// <summary>
+    /// migrate_native_names without paging (load_session uses it too): every planned item in old-address order, the user
+    /// types after them; applied as journaled edits unless <paramref name="dryRun"/>.
+    /// </summary>
+    internal async Task<MigrationReport> CarryNames(string oldImage, string newImage, bool dryRun, int minTier, double minScore, string[]? sources,
+        bool namesOnly, bool codeOnly, ProgressSpan progress, CancellationToken cancellationToken)
     {
         if (minTier is < 1 or > 5) throw new ToolError(ErrorCode.InvalidArgument, $"minTier must be 1-5, not {minTier}.");
         if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.");
         var layers = new HashSet<NativeNameSource>();
-        foreach (var s in (sources ?? "user").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            layers.Add(NativeNameSources.Parse(s) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown source '{s}'.", "use user, pdb or il2cpp, comma-separated"));
-        var (oldNative, newNative, match) = await Match(oldImage, newImage, useNames, 0.7, context, cancellationToken);
+        foreach (var s in sources is { Length: > 0 } ? sources : ["user"])
+            layers.Add(NativeNameSources.Parse(s.Trim()) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown source '{s}'.", "use user, pdb or il2cpp"));
+        var pair = await pairs.Match(oldImage, newImage, new MatchOptions { UseNames = !codeOnly }, progress.Part(0, 0.8), cancellationToken);
+        var (oldNative, newNative, match) = (pair.Old, pair.New, pair.Match);
+        bool comments = !namesOnly;
 
         var items = new List<MigrationSource>();
-        if (layers.Contains(NativeNameSource.User))
-        {
-            items.AddRange(NameMigration.UserItems(code.Annotations(oldNative), comments));
-        }
+        if (layers.Contains(NativeNameSource.User)) items.AddRange(NameMigration.UserItems(code.Annotations(oldNative), comments));
         foreach (var source in new[] { NativeNameSource.Pdb, NativeNameSource.Il2Cpp })
         {
             if (!layers.Contains(source) || NativeNameLayers.OfOrNull(oldNative)?.Get(source) is not { } layer) continue;
@@ -347,41 +371,58 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         if (items.Count == 0)
             notes.Add($"{oldNative.Id} has no {string.Join(" / ", layers.Select(l => l.Id()))} names or comments to carry over");
 
+        progress.Part(0.8, 1).Report(0, "planning");
         var newAnn = code.Annotations(newNative);
         var options = new MigrationOptions { MinTier = minTier, MinScore = minScore };
         var steps = await Task.Run(() => NameMigration.Plan(new AddressMapper(match), items, match.New.Index, newAnn, options, cancellationToken), cancellationToken);
         var typeSteps = layers.Contains(NativeNameSource.User)
             ? await Task.Run(() => UserTypeMigration.Plan(new AddressMapper(match), code.Annotations(oldNative).UserTypes, newAnn.UserTypes, options, cancellationToken), cancellationToken)
             : [];
-        if (!dryRun && typeSteps.Any(s => s.Set)) newAnn.ChangeUserTypes(l => UserTypeMigration.Apply(l, typeSteps));
-
-        if (!dryRun && steps.Any(s => s.Set))
-            workspace.Write(() =>
-            {
-                var (names, lines) = NameMigration.Apply(newAnn, steps);
-                foreach (var index in new[] { match.New.Index, code.Ready(newNative) }.OfType<NativeCodeIndex>().Distinct())
-                {
-                    foreach (var (rva, name) in names) index.SetUserName(rva, name);
-                    foreach (var (rva, text) in lines) index.SetUserComment(rva, text);
-                }
-                return 0;
-            });
+        var ids = dryRun ? [] : ApplyMigration(journal, workspace, code, newNative, match.New.Index, steps, typeSteps, "migrate_native_names");
 
         var o = match.Old.Index;
         var n = match.New.Index;
-        offset = Math.Max(0, offset);
-        limit = ClampLimit(limit, 5000);
         string Action(bool isSet) => isSet ? dryRun ? "would_set" : "set" : "skipped";
         var all = steps.OrderBy(s => s.Item.OldRva).ThenBy(s => s.Item.Kind).Select(s => (s.Set, s.Reason, Entry: new MigrationEntry(
                 s.Item.Kind, s.Item.Source.Id(), Va(o, s.Item.OldRva), s.NewRva is { } at ? Va(n, at) : null, s.Value, Action(s.Set), s.Reason, s.Tier, s.Confidence, s.Detail)))
             .Concat(typeSteps.Select(s => (s.Set, s.Reason, Entry: new MigrationEntry(s.Kind, NativeNameSource.User.Id(), s.OldRva is { } from ? Va(o, from) : null,
                 s.NewRva is { } to ? Va(n, to) : null, s.Value, Action(s.Set), s.Reason, s.Tier, s.Confidence, s.Detail))))
             .ToList();
-        var entries = all.Skip(offset).Take(limit).Select(e => e.Entry).ToList();
-        var skippedBy = all.Where(s => !s.Set).GroupBy(s => s.Reason).Select(g => new ReasonCount(g.Key, g.Count())).OrderByDescending(r => r.Count).ToList();
+        var skippedBy = all.Where(s => !s.Set).GroupBy(s => s.Reason).Select(g => new ReasonCount(g.Key, g.Count()))
+            .OrderByDescending(r => r.Count).ThenBy(r => r.Reason, StringComparer.Ordinal).ToList();
         int set = all.Count(s => s.Set);
-        return new MigrationReport(oldNative.Id, newNative.Id, dryRun, all.Count, set, all.Count - set, skippedBy, offset, all.Count,
-            offset + limit < all.Count, entries, notes);
+        return new MigrationReport(oldNative.Id, newNative.Id, dryRun, ids.Count > 0, ids, set, all.Count - set, skippedBy, [.. all.Select(e => e.Entry)], 0, all.Count, notes);
+    }
+
+    /// <summary>
+    /// Writes the planned names and comments (with their kinds) to the new build's user layer and code indexes, and the
+    /// planned user types, each as one journaled edit; returns their ids (none when nothing was set).
+    /// </summary>
+    internal static List<EditId> ApplyMigration(NativeEditJournal journal, AssemblyWorkspace workspace, NativeCodeService code, LoadedNative native,
+        NativeCodeIndex matched, IReadOnlyList<MigrationStep> steps, IReadOnlyList<UserTypeStep> typeSteps, string tool)
+    {
+        var ids = new List<EditId>();
+        var ann = code.Annotations(native);
+        var set = steps.Where(s => s.Set && s.NewRva != null).ToList();
+        if (set.Count > 0 && journal.RecordAnnotations(native, tool, set.Select(s => s.NewRva!.Value), () => workspace.Write(() =>
+            {
+                var (names, lines) = NameMigration.Apply(ann, set);
+                foreach (var index in new[] { matched, code.Ready(native) }.OfType<NativeCodeIndex>().Distinct())
+                {
+                    foreach (var (rva, name) in names) index.SetUserName(rva, name);
+                    foreach (var (rva, text) in lines) index.SetUserComment(rva, text);
+                }
+                return 0;
+            }), $"{tool}: {set.Count} name(s) and comment(s)") is { } id)
+            ids.Add(id);
+        if (typeSteps.Any(s => s.Set))
+        {
+            UserTypeLayer? before = null, after = null;
+            ann.ChangeUserTypes(l => { before = l; return after = UserTypeMigration.Apply(l, typeSteps); });
+            if (before != null && journal.RecordUserTypes(native, tool, null, before, after!, $"{tool}: {typeSteps.Count(s => s.Set)} user type(s)") is { } typeId)
+                ids.Add(typeId);
+        }
+        return ids;
     }
 
     [McpServerTool(Name = "make_code_pattern", Title = "Make a code pattern", UseStructuredContent = true)]

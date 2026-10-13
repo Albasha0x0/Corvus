@@ -1890,22 +1890,23 @@ Structured output: `pattern`, `length`, `images`, `total`, `truncated`, `hits`, 
 
 **Carry names to a new build** (edit, idempotent, long-running)
 
-Copy names and comments from the old build to the new build's user annotations through the function matches and address mapping (map_address_between_builds). Sources: the old build's user annotations with its engine types, optionally its pdb and il2cpp names. Never replaces a user name, comment or type of the new build; every skipped item has a reason code.
+Copy the old build's names, comments and engine types to the new build's user annotations through the function match (map_address_between_builds). Never replaces a user name, comment or type of the new build; each skipped item has a reason code. Applied as undoable edits (editIds).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
 | `newImage` | string | yes |  | The newer build: native image id or path. |
-| `dryRun` | boolean |  | `false` | Preview the change without applying it. |
-| `minTier` | integer |  | `5` | Weakest match tier accepted: 1 (names and identical bytes) to 5 (all). |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
+| `minTier` | integer |  | `5` | Weakest match tier accepted: 1 (names, identical bytes) to 5 (all). |
 | `minScore` | number |  | `0` | Least mapping confidence accepted (0-1). |
-| `sources` | string |  |  | Comma-separated layers to copy: user (default), pdb, il2cpp. |
-| `comments` | boolean |  | `true` | Copy comments too. |
-| `useNames` | boolean |  | `true` | Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only. |
-| `offset` | integer |  | `0` | Entries to skip in the report. |
-| `limit` | integer |  | `200` | Entries to return (max 5000). |
+| `sources` | string[] |  |  | Layers to copy (default user). |
+| `namesOnly` | boolean |  | `false` | Names only, no comments. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `oldImage`, `newImage`, `dryRun`, `considered`, `set`, `skipped`, `skippedBy`, `offset`, `total`, `entries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `oldImage`, `newImage`, `dryRun`, `applied`, `editIds`, `set`, `skipped`, `skippedBy`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### migrate_native_patches
 
@@ -1948,7 +1949,7 @@ Carry work on an old build of a native image (x86 / x64 / ARM64) to its new buil
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Items to return (max 2000). |
 
-Structured output: `summary`, `oldImage`, `newImage`, `dryRun`, `included`, `oldFunctions`, `newFunctions`, `functionsMatched`, `categories`, `il2CppMapping`, `category`, `outcome`, `offset`, `total`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `summary`, `oldImage`, `newImage`, `dryRun`, `editIds`, `included`, `oldFunctions`, `newFunctions`, `functionsMatched`, `categories`, `il2CppMapping`, `category`, `outcome`, `offset`, `total`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ## notes
 

@@ -9,8 +9,6 @@ disassemble.function
 dump_stack.exceptionContext
 install_android_package.replace
 map_address_between_builds.useNames
-migrate_native_names.comments
-migrate_native_names.useNames
 migrate_native_patches.useNames
 read_dump_memory.imageFallback
 trace_native_values.followGlobals

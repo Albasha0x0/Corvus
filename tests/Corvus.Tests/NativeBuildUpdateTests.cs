@@ -382,8 +382,8 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         h.Code.Annotations(newN).ChangeUserTypes(l => l.WithType(F2 + Shift, "int mine(void)").WithTypeEdit(new("Theirs", "Kept")));
         var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
 
-        var dry = await tools.MigrateNativeNames(oldN.Id, newN.Id, dryRun: true, limit: 500);
-        NativeDiffTools.MigrationEntry Entry(string kind, string? old) => Assert.Single(dry.Entries, e => e.Kind == kind && e.OldAddress == old);
+        var dry = await tools.CarryNames(oldN.Id, newN.Id, true, 5, 0, null, false, false, default, default);
+        NativeDiffTools.MigrationEntry Entry(string kind, string? old) => Assert.Single(dry.Items, e => e.Kind == kind && e.OldAddress == old);
         Assert.Equal(("would_set", "copied"), (Entry("declarations", null).Action, Entry("declarations", null).Reason));
         Assert.Equal(("would_set", Va(F1 + Shift)), (Entry("type", Va(F1)).Action, Entry("type", Va(F1)).NewAddress));
         Assert.Equal(("skipped", "function_not_matched"), (Entry("type", Va(F5)).Action, Entry("type", Va(F5)).Reason));
@@ -392,7 +392,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal(("would_set", Va(F3 + Shift)), (Entry("stack_var", Va(F3)).Action, Entry("stack_var", Va(F3)).NewAddress));
         Assert.Equal(("would_set", Va(F1 + Shift)), (Entry("analysis", Va(F1)).Action, Entry("analysis", Va(F1)).NewAddress));
         Assert.Equal(("would_set", "copied"), (Entry("enum_member", null).Action, Entry("enum_member", null).Reason));
-        Assert.Equal(["copied", "user_type_edit_exists"], dry.Entries.Where(e => e.Kind == "type_edit").Select(e => e.Reason));
+        Assert.Equal(["copied", "user_type_edit_exists"], dry.Items.Where(e => e.Kind == "type_edit").Select(e => e.Reason));
         Assert.Equal(("would_set", "copied"), (Entry("field", null).Action, Entry("field", null).Reason));
         Assert.Equal("int mine(void)", Assert.Single(h.Code.Annotations(newN).UserTypes.Types).Value);
 
@@ -400,7 +400,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal("would_carry", One(preview, "names", i => i.Kind == "local").Outcome);
         Assert.Equal("refused", One(preview, "names", i => i.Kind == "type" && i.OldAddress == Va(F2)).Outcome);
 
-        await tools.MigrateNativeNames(oldN.Id, newN.Id, dryRun: false);
+        await tools.CarryNames(oldN.Id, newN.Id, false, 5, 0, null, false, false, default, default);
         var carried = h.Code.Annotations(newN).UserTypes;
         Assert.Equal(["struct Cfg { int a; };"], carried.Declarations);
         Assert.Equal("int __fastcall ReadGlobal(void)", carried.Types[F1 + Shift]);

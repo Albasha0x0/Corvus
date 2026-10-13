@@ -33,6 +33,7 @@ public static partial class ParameterDomains
         ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference", "xrefs", "range"]), ["engine"] = Engine, ["format"] = Of(["ida", "x64dbg", "mask", "bitmask"]) },
         ["compare_native_images"] = new Dictionary<string, Domain> { ["view"] = Of(["pairs", "changed", "unmatched", "ambiguous"]) },
         ["compare_assemblies"] = new Dictionary<string, Domain> { ["changes"] = Of(Services.AssemblyComparer.ChangeKinds, "all") },
+        ["migrate_native_names"] = new Dictionary<string, Domain> { ["sources"] = Of(["user", "pdb", "il2cpp"]) },
         ["compare_folders"] = new Dictionary<string, Domain> { ["change"] = Of(Services.Analysis.FolderCompare.Views) },
         ["diff_function"] = new Dictionary<string, Domain> { ["side"] = Of(["old", "new"]), ["view"] = Of(["asm", "pseudocode"]), ["engine"] = DecompilerEngine },
         ["update_to_new_build"] = new Dictionary<string, Domain>

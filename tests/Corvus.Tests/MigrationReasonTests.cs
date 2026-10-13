@@ -43,7 +43,7 @@ public class MigrationReasonTests
         newAnn.SetName(F6 + Shift, "Fourth");
 
         var diff = new NativeDiffTools(h.Env.Workspace, h.Code);
-        var migrated = (await diff.MigrateNativeNames(oldN.Id, newN.Id, dryRun: true)).Entries.Select(e => (e.Kind, e.OldAddress, e.Reason)).Order().ToList();
+        var migrated = (await diff.CarryNames(oldN.Id, newN.Id, true, 5, 0, null, false, false, default, default)).Items.Select(e => (e.Kind, e.OldAddress, e.Reason)).Order().ToList();
         var updated = (await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names")).Items.Where(i => i.Category == "names")
             .Select(i => (i.Kind, i.OldAddress, i.Reason)).Order().ToList();
         Assert.Equal(migrated, updated);
@@ -52,7 +52,7 @@ public class MigrationReasonTests
         Assert.Contains(("name", Va(F4), "name_in_use"), migrated);
         Assert.Contains(("name", Va(F5), "function_not_matched"), migrated);
 
-        await diff.MigrateNativeNames(oldN.Id, newN.Id, dryRun: false);
+        await diff.CarryNames(oldN.Id, newN.Id, false, 5, 0, null, false, false, default, default);
         Assert.Equal(("boxed note", "plate"), (newAnn.CommentAt(F2 + Shift), newAnn.CommentKindAt(F2 + Shift)));
         Assert.Equal(("adds the bias", null), (newAnn.CommentAt(F1 + Shift + 6), newAnn.CommentKindAt(F1 + Shift + 6)));
         Assert.Equal("decompiler note", newAnn.PseudoCommentAt(F1 + Shift));

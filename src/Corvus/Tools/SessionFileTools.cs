@@ -207,9 +207,9 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
                 else if (old.GetValueOrDefault(n.Sha256) is { } oldId && current.GetValueOrDefault(n.Sha256) is { } newId && !dryRun)
                 {
                     Annotations(n.Id, oldId, ann, dryRun, Add);
-                    var report = await new NativeDiffTools(workspace, code, engines).MigrateNativeNames(oldId, newId, dryRun: false, limit: 1, cancellationToken: ct);
+                    var report = await new NativeDiffTools(workspace, code, engines, nativeEdits).CarryNames(oldId, newId, false, 5, 0, null, false, false, default, ct);
                     Add("names", n.Id, report.Set > 0 ? Applied : AlreadyPresent, "other_build", report.Set,
-                        $"{report.Set} of {report.Considered} names and comments carried to {newId} through the function match; skipped: " +
+                        $"{report.Set} of {report.Total} names and comments carried to {newId} through the function match; skipped: " +
                         string.Join(", ", report.SkippedBy.Select(r => $"{r.Reason} {r.Count}")));
                 }
                 else Add("names", n.Id, dryRun ? WouldApply : Refused, old.ContainsKey(n.Sha256) ? "other_build" : "old_build_needed", ann.Names.Count + ann.Comments.Count,

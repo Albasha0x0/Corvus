@@ -301,15 +301,25 @@ public class NativeDiffTests
         code.Annotations(oldNative).SetName(first, "Renamed");
         oldIndex.SetUserName(first, "Renamed");
 
-        var dry = await tools.MigrateNativeNames(v1, v2, dryRun: true);
-        Assert.Equal("would_set", Assert.Single(dry.Entries).Action);
+        // D7: a call without dryRun is a preview
+        var (dry, dryText) = await BuildToolCalls.Collected<Corvus.Tools.NativeDiffTools.MigrationReport>(() => tools.MigrateNativeNames(v1, v2));
+        Assert.Equal(("would_set", "name"), (Assert.Single(dry.Items).Action, dry.Items[0].Kind));
+        Assert.Empty(dry.EditIds);
+        Assert.StartsWith("Dry run: 1 of 1 item(s) would carry", dryText);
+        Assert.Contains("1 item (showing 1-1):", dryText);
         Assert.Null(code.Annotations(newNative).NameAt(first));
 
-        var done = await tools.MigrateNativeNames(v1, v2);
-        Assert.Equal(1, done.Set);
+        var (done, doneText) = await BuildToolCalls.Collected<Corvus.Tools.NativeDiffTools.MigrationReport>(() => tools.MigrateNativeNames(v1, v2, dryRun: false));
+        Assert.Equal((1, true), (done.Set, done.Applied));
+        var id = Assert.Single(done.EditIds);
+        Assert.Contains($"Recorded as {id} (undo_native_edit editId={id})", doneText);
         Assert.Equal("Renamed", code.Annotations(newNative).NameAt(first));
         Assert.Equal("Renamed", (await code.Index(newNative, null, default)).NameAt(first));
-        Assert.Equal("same_name", Assert.Single((await tools.MigrateNativeNames(v1, v2)).Entries).Reason);
+        Assert.Equal("same_name", Assert.Single((await tools.CarryNames(v1, v2, true, 5, 0, null, false, false, default, default)).Items).Reason);
+
+        // one undo takes the migration back
+        await new Corvus.Services.NativeEditJournal(env.Workspace, code).UndoAsync(newNative, id, default);
+        Assert.Null(code.Annotations(newNative).NameAt(first));
     }
 
     [Fact]

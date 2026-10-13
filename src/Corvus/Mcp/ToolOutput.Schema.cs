@@ -34,7 +34,6 @@ public static partial class ToolOutput
         ["bucket_minidumps"] = ["buckets"],
         ["get_android_device_info"] = ["properties"],
         ["migrate_native_patches"] = ["entries"],
-        ["migrate_native_names"] = ["entries"],
         ["compare_folders"] = ["entries"],
         ["search_container"] = ["matches"],
     };

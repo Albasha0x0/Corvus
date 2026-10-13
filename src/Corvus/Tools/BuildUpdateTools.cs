@@ -71,6 +71,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     public sealed record UpdateReport(
         [property: Description("One paragraph: what carried over, what did not, and the next step.")] string Summary,
         string OldImage, string NewImage, bool DryRun,
+        [property: Description("The journaled edits (undo_native_edit): names and comments, user types, patches.")] IReadOnlyList<EditId> EditIds,
         [property: Description("Categories included in this run.")] IReadOnlyList<string> Included,
         int OldFunctions, int NewFunctions, int FunctionsMatched,
         IReadOnlyList<UpdateCategory> Categories,
@@ -136,6 +137,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         notes.AddRange(match.New.Index.Truncations.Select(t => "new: " + t));
 
         var items = new List<Item>();
+        var editIds = new List<EditId>();
         var categories = new Dictionary<string, (string Status, string Detail, int? Carried)>();
         var patternTargets = new List<(string Kind, uint OldRva, uint? NewRva, string Value)>();
         string Carry(bool set) => set ? dryRun ? "would_carry" : "carried" : "refused";
@@ -155,22 +157,11 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                 items.Add(new Item(Names, s.Item.Kind, s.Item.OldRva, s.NewRva, s.Value, result, s.Reason, s.Confidence, s.Tier, s.Detail));
                 if (s.Item.Kind == "name") patternTargets.Add(("name", s.Item.OldRva, s.NewRva, s.Value));
             }
-            if (!dryRun && steps.Any(s => s.Set))
-                workspace.Write(() =>
-                {
-                    var (setNames, setComments) = NameMigration.Apply(newAnn, steps);
-                    foreach (var index in new[] { match.New.Index, code.Ready(newNative) }.OfType<NativeCodeIndex>().Distinct())
-                    {
-                        foreach (var (rva, name) in setNames) index.SetUserName(rva, name);
-                        foreach (var (rva, text) in setComments) index.SetUserComment(rva, text);
-                    }
-                    return 0;
-                });
             var typeSteps = await Task.Run(() => UserTypeMigration.Plan(mapper, oldAnn.UserTypes, newAnn.UserTypes, new MigrationOptions(), ct), ct);
             foreach (var s in typeSteps)
                 items.Add(new Item(Names, s.Kind, s.OldRva, s.NewRva, s.Value, s.Set ? Carry(true) : s.Reason.StartsWith("same_", StringComparison.Ordinal) ? "already_present"
                     : s.Reason == "ambiguous" ? "ambiguous" : "refused", s.Reason, s.Confidence, s.Tier, s.Detail));
-            if (!dryRun && typeSteps.Any(s => s.Set)) newAnn.ChangeUserTypes(l => UserTypeMigration.Apply(l, typeSteps));
+            if (!dryRun) editIds.AddRange(NativeDiffTools.ApplyMigration(edits.Journal, workspace, code, newNative, match.New.Index, steps, typeSteps, "update_to_new_build"));
             categories[Names] = (sources.Count + typeSteps.Count == 0 ? "not_applicable" : Status(),
                 sources.Count + typeSteps.Count == 0 ? $"{oldNative.Id} has no user names, comments or types"
                     : $"{sources.Count} user name(s) and comment(s) and {typeSteps.Count} user type(s) of {oldNative.Id}", null);
@@ -194,7 +185,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         Phase(4, "patches");
         if (included.Contains(Patches))
         {
-            var applied = await PatchStep(oldNative, newNative, newIndex, match, mapper, patchSet, placement, dryRun, items, categories, notes, ct);
+            var applied = await PatchStep(oldNative, newNative, newIndex, match, mapper, patchSet, placement, dryRun, items, categories, notes, editIds, ct);
             patternTargets.AddRange(applied);
         }
 
@@ -216,7 +207,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             i.OldRva is { } o ? NativeAddress.Va(oldImg, o) : null, i.NewRva is { } n ? NativeAddress.Va(newImg, n) : null,
             i.Value, i.Outcome, i.Reason, Math.Round(i.Confidence, 3), i.Tier, i.Detail)).ToList();
         Phase(7, "done");
-        return new UpdateReport(Summary(oldNative.Id, newNative.Id, dryRun, match, categoryList, mappingSummary), oldNative.Id, newNative.Id, dryRun,
+        return new UpdateReport(Summary(oldNative.Id, newNative.Id, dryRun, match, categoryList, mappingSummary), oldNative.Id, newNative.Id, dryRun, editIds,
             CategoryOrder.Where(included.Contains).ToList(),
             match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, categoryList, mappingSummary,
             categoryFilter, outcomeFilter, offset, filtered.Count, offset + limit < filtered.Count, page, notes.Distinct().ToList());
@@ -342,7 +333,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         AppendCategories(sb, categoryList, dryRun, null);
         sb.Append("Edits: export_edits, then apply_edits targetBuild=other.");
         int Methods(LoadedAssembly a) => workspace.Read(() => a.Module.GetTypes().Sum(t => t.Methods.Count));
-        return new UpdateReport(sb.ToString(), oldAsm.Id, newAsm.Id, dryRun, CategoryOrder.Where(included.Contains).ToList(),
+        return new UpdateReport(sb.ToString(), oldAsm.Id, newAsm.Id, dryRun, [], CategoryOrder.Where(included.Contains).ToList(),
             Methods(oldAsm), Methods(newAsm), cmp.MemberMap.Keys.Count(k => k is dnlib.DotNet.MethodDef), categoryList, null,
             categoryFilter, outcomeFilter, offset, filtered.Count, offset + limit < filtered.Count, page,
             ["a .NET pair: notes are mapped by find_counterpart; addresses are metadata tokens"]);
@@ -680,7 +671,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     private async Task<List<(string Kind, uint OldRva, uint? NewRva, string Value)>> PatchStep(LoadedNative oldNative, LoadedNative newNative, NativeCodeIndex newIndex,
         MatchResult match, AddressMapper mapper, string? patchSet, StubPlacement placement, bool dryRun, List<Item> items,
-        Dictionary<string, (string Status, string Detail, int? Carried)> categories, List<string> notes, CancellationToken ct)
+        Dictionary<string, (string Status, string Detail, int? Carried)> categories, List<string> notes, List<EditId> editIds, CancellationToken ct)
     {
         List<MigratablePatch> patches;
         string source;
@@ -767,7 +758,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                 try
                 {
                     var prepared = step.Patch.IsStub ? PrepareStub(rva, step.Patch) : PreparePlain(rva, repl, step.Patch.Assembly);
-                    edits.ApplyPatch(newNative, currentNew, prepared, dryRun: false);
+                    if (edits.Apply(newNative, currentNew, prepared, dryRun: false).EditId is { } patchId) editIds.Add(patchId);
                     currentNew = await code.Index(newNative, null, ct);
                     updated.Add(step with { Status = "applied" });
                 }

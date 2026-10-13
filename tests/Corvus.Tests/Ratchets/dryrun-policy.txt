@@ -1,3 +1,2 @@
 # Exemptions from: a tool recorded dryRun=true takes dryRun defaulting to true, and only those take it (S7.3, D7)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-migrate_native_names
