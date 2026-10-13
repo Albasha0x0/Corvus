@@ -8,5 +8,9 @@
   <!-- Fixtures are decompiler input: their shape is what the tests read, so analyzers do not reshape them. -->
   <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('TestFixture'))">
     <RunAnalyzers>false</RunAnalyzers>
+    <!-- No git queries: the commit in the informational version and Source Link's paths and URL would make a checkout
+         without .git (git archive) build another image (offsets, MVID). -->
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 </Project>
