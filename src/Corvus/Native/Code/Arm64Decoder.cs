@@ -275,6 +275,19 @@ internal sealed class Arm64Decoder : ICodeDecoder
                 }
                 break;
             }
+            // add xd, xn, #0 decodes as its mov alias: a page of an adrp completed at offset 0
+            case Arm64InstructionId.MOV_add_64_addsub_imm when i.OperandCount == 2 && i.GetOperand(1).Kind == Arm64OperandKind.Register:
+            {
+                int src = Reg(1);
+                if (src >= 0 && _kind[src] == Known.Address)
+                {
+                    ulong value = _value[src];
+                    if (dest != src || _savedState[dest] != 1) SetAddress(dest, value);
+                    Address(ref insn, value);
+                    return;
+                }
+                break;
+            }
             case Arm64InstructionId.MOV_orr_64_log_shift:
             {
                 int src = Reg(1);

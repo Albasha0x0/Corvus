@@ -223,4 +223,16 @@ public class NativeArm64SwitchTests
         Assert.Equal(Table, sw.TableRva);
         Assert.Equal(caseAt, sw.Cases.Select(c => c.Target));
     }
+
+    /// <summary>adrp x19, page; mov x1, x19 (add x1, x19, #0 in its mov alias): a data reference to the page start.</summary>
+    [Fact]
+    public void An_adrp_page_completed_by_the_mov_alias_is_a_data_reference()
+    {
+        var a = new A64(Code);
+        a.Word(A64.Adrp(a.Here, Data, 19, Base));
+        uint mov = a.Here;
+        a.Word(0x91000261).Word(A64.Ret);                      // mov x1, x19
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), new byte[0x100], entry: Code));
+        Assert.Contains(index.RefsTo(Data), x => x.From == mov);
+    }
 }
