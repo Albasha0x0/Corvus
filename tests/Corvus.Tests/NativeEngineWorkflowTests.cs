@@ -52,7 +52,7 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output) : IDispo
         var clock = Stopwatch.StartNew();
         var text = await rig.Analysis.DecompileNative(path, functions: ["CheckSumMappedFile", "MapFileAndCheckSumW", "no_such_function", "CheckSumMappedFile"], engine: engine);
         output.WriteLine($"{engine}: batch of 4 in {clock.Elapsed.TotalSeconds:0.0} s (includes the analysis)\n{string.Join('\n', text.Split('\n').Where(l => l.StartsWith("// ", StringComparison.Ordinal)))}");
-        Assert.Contains($"// 4 inputs: 2 decompiled, 1 failed, 0 skipped, 1 duplicate ({engine})", text);
+        Assert.Contains($"// 4 inputs: 2 decompiled, 1 failed, 0 not reached, 1 duplicate ({engine})", text);
         Assert.Contains("(input \"no_such_function\"): error not_found", text);
         Assert.Contains("(input \"CheckSumMappedFile\"): the same function as [1]", text);
         Assert.Contains("MapFileAndCheckSumW(", text);
