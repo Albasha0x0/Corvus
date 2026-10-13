@@ -11,6 +11,9 @@ public sealed partial class MinidumpService
     private const string FullMemoryHint = "write the dump with full memory (procdump -ma, DOTNET_DbgMiniDumpType=4, MiniDumpWithFullMemory) to inspect the heap";
 
     /// <summary>mode=stats: a type with its object count and total size; mode=objects: one object.</summary>
+    /// <summary>A TypeDef token, or null when there is none: arrays and generic instances carry 0 or a nil row (0x02000000).</summary>
+    internal static string? TypeDefToken(long token) => (token & 0xFFFFFF) == 0 ? null : $"0x{token:X8}";
+
     public sealed record HeapRow(string Type,
         [property: Description("stats: bytes of all its objects; objects: the object's size.")] ulong Size)
     {
@@ -96,7 +99,7 @@ public sealed partial class MinidumpService
                 var page = rows.Skip(offset).Take(limit).Select(r =>
                 {
                     var (assembly, _) = AssemblyFor(r.Type.ModulePath, r.Type.Mvid);
-                    return new HeapRow(r.Type.Name, r.TotalSize) { Count = r.Count, Assembly = assembly, Token = r.Type.Token != 0 ? $"0x{r.Type.Token:X8}" : null };
+                    return new HeapRow(r.Type.Name, r.TotalSize) { Count = r.Count, Assembly = assembly, Token = TypeDefToken(r.Type.Token) };
                 }).ToList();
                 return new HeapReport(s.Id, "stats", pattern, minSize, walked, bytes, page, offset, rows.Count, !stopped, notes);
             }
@@ -124,7 +127,7 @@ public sealed partial class MinidumpService
             if (check == "mismatch") notes.Add($"{assembly} is another build of the type's module (MVID differs).");
             var fields = view.Fields.Select(f => new ObjectFieldRow(f.Path, f.Depth, f.Type, f.Offset, f.Value, f.Address is { } a ? Hex(s.Dump, a) : null)).ToList();
             return new ObjectReport(s.Id, Hex(s.Dump, view.Address), view.Type.Name, view.Size, assembly,
-                view.Type.Token != 0 ? $"0x{view.Type.Token:X8}" : null, check, view.Value, view.Length, fields, view.Truncated, notes);
+                TypeDefToken(view.Type.Token), check, view.Value, view.Length, fields, view.Truncated, notes);
         }
     }
 }

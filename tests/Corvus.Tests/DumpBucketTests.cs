@@ -118,4 +118,11 @@ public sealed class DumpBucketTests : IDisposable
         var missing = await Assert.ThrowsAsync<ToolError>(() => _service.Bucket(_dir.File("nowhere"), false, null, 3, null, false, true, 10, null, 0, 50, null, default));
         Assert.Equal(ErrorCode.NotFound, missing.Code);
     }
+
+    /// <summary>K4: dump_heap and dump_object rows of arrays and generic instances (no TypeDef, or the nil row 0x02000000) carry no token.</summary>
+    [Theory]
+    [InlineData(0L, null)]
+    [InlineData(0x02000000L, null)]
+    [InlineData(0x02000012L, "0x02000012")]
+    public void HeapRowsLeaveOutANilTypeDefToken(long token, string? expected) => Assert.Equal(expected, MinidumpService.TypeDefToken(token));
 }
