@@ -427,6 +427,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         IReadOnlyList<Native.Providers.EngineString> engineStrings = [];
         if (choice.External)
             engineStrings = await (await _engine!.Session(native, choice, progress, cancellationToken)).ListStringsAsync(MaxEngineData, cancellationToken);
+        // Image strings include packed tables of rare names, which the estimate counts up to a quarter low.
+        OutputCall.Budgeted?.Tighten(80);
         var timeouts = new RegexTimeouts();
         var rows = new List<string>();
         var items = new List<NativeStringEntry>();

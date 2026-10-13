@@ -61,6 +61,12 @@ public class IncompleteResultTests
         var list = Assert.IsType<NativeStringList>(collector.Value);
         Assert.Equal(1, list.NotEvaluated);
         Assert.Empty(list.Items);
+
+        // Image strings are fitted to 80% of the budget: packed tables of rare names are estimated low (G1 budget).
+        var call = OutputCall.Begin(new OutputCall("search_native_strings", 6_000, null));
+        await h.CodeTools.SearchNativeStrings(path, "aaaZ");
+        Assert.Equal(4_800, call.Tokens);
+        OutputCall.Begin(null!);
     }
 
     [Fact]

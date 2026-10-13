@@ -28,7 +28,13 @@ public sealed class OutputCall
     public string? Tool { get; }
 
     /// <summary>Estimated tokens each part may take.</summary>
-    public int Tokens { get; }
+    public int Tokens { get; private set; }
+
+    /// <summary>
+    /// Fits this call's parts to <paramref name="percent"/>% of its budget: for text the estimate counts low, such as packed
+    /// string tables of rare names read from an image (up to 1.25x their o200k count).
+    /// </summary>
+    public void Tighten(int percent) => Tokens = Tokens * Math.Clamp(percent, 1, 100) / 100;
 
     /// <summary>The client's character cap per part, if any.</summary>
     public int? Chars { get; }
