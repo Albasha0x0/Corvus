@@ -288,6 +288,8 @@ public sealed partial class CallAnalysis
     private List<(uint Site, NativeFunction Caller, string Name)> Wrapped(CallSiteInfo s, CancellationToken ct)
     {
         var result = new List<(uint, NativeFunction, string)>();
+        // without direct callers there is no constant to find: skip the slices (functions with hundreds of resolver calls)
+        if (!Index.Callers(s.Caller).Any(c => c.Kind == XrefKind.Call && c.Caller != null)) return result;
         var root = Slices.Backward(s.Caller, new SliceSeed(SliceSeedKind.Argument, s.Rva, Slices.LocationName(Slices.ParameterEntry(1))), ct);
         if (root.Nodes.Count <= root.Root || root.Nodes[root.Root] is not { Kind: SliceNodeKind.Parameter, Index: >= 0 and var k }) return result;
         if (!Slices.Forward(s.Caller, new SliceSeed(SliceSeedKind.Result, s.Rva, Is64 ? "rax" : "eax"), ct).Nodes.Any(n => n.Kind == SliceNodeKind.Return)) return result;

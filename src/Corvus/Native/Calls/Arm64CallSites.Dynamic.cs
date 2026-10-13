@@ -89,9 +89,15 @@ internal sealed partial class Arm64CallSites
     private List<(uint Site, NativeFunction Caller, string Name)> Wrapped(CallSiteInfo s, CancellationToken ct)
     {
         var result = new List<(uint, NativeFunction, string)>();
+        // without direct callers there is no constant to find: skip the slices (functions with hundreds of resolver calls)
+        if (!_index.Callers(s.Caller).Any(c => c.Kind == XrefKind.Call && c.Caller != null)) return result;
         var trace = Arm64Trace.For(_index);
-        var root = trace.Slices.Backward(s.Caller, new SliceSeed(SliceSeedKind.Argument, s.Rva, "x1"), ct);
-        if (root.Nodes.Count <= root.Root || root.Nodes[root.Root] is not { Kind: SliceNodeKind.Parameter, Index: >= 0 and < Arguments and var k }) return result;
+        // the name must be a parameter of the caller: a budgeted value, not a whole slice (minutes over large functions)
+        var own = trace.Code(s.Caller, ct);
+        var (sb, si) = own.Position(s.Rva);
+        if (sb < 0) return result;
+        var named = new Arm64Resolver(trace, own) { Budget = 1500 }.Before(A64Loc.Reg(1), sb, si);
+        if (named.Kind != A64Kind.Incoming || A64Function.ParameterIndex(named.Loc) is not (>= 0 and < Arguments and var k)) return result;
         if (!trace.Slices.Forward(s.Caller, new SliceSeed(SliceSeedKind.Result, s.Rva, "x0"), ct).Nodes.Any(n => n.Kind == SliceNodeKind.Return)) return result;
         foreach (var c in _index.Callers(s.Caller).Where(c => c.Kind == XrefKind.Call && c.Caller != null).DistinctBy(c => c.From).Take(256))
         {

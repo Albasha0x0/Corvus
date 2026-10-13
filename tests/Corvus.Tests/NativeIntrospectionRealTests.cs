@@ -55,6 +55,26 @@ public sealed class NativeIntrospectionRealTests(ITestOutputHelper output) : IDi
         Assert.DoesNotContain("error:", text);
     }
 
+    /// <summary>
+    /// The ARM64 single-file host calls GetProcAddress over 200 times from two functions nothing calls, with names it does not
+    /// pass in: finding the late-bound imports costs about what indexing does, not minutes of slicing those functions.
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void Arm64_late_bound_imports_of_a_large_image_cost_about_an_index_build()
+    {
+        var pe = PeFile.Open(RealPackages.File("Microsoft.NETCore.App.Host.win-arm64", "10.0.11", "runtimes", "win-arm64", "native", "singlefilehost.exe"));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var index = NativeCodeIndex.Build(pe);
+        var build = clock.Elapsed;
+        clock.Restart();
+        var set = Arm64CallSites.For(index).DynamicImports();
+        var late = clock.Elapsed;
+        output.WriteLine($"index {build.TotalSeconds:0.0} s, late-bound imports {late.TotalSeconds:0.0} s: {set.GetProcAddressSites} resolver calls, {set.Imports.Count} named");
+        Assert.True(set.GetProcAddressSites > 200 && set.Imports.Count > 20);
+        Assert.True(late < build * 2 + TimeSpan.FromSeconds(1), $"late-bound imports took {late.TotalSeconds:0.0} s, the index {build.TotalSeconds:0.0} s");
+    }
+
     [Trait("Speed", "Slow")]
     [WindowsFact]
     public void X64_unwind_data_of_a_system_dll()
