@@ -110,7 +110,7 @@ public sealed class NativeLinkManagedSweepTests(ITestOutputHelper output)
             var pe = PeFile.Open(file);
             return NativeAddress.Va(pe, pe.Exports.Single(e => e.Name == export).Rva);
         }
-        var tree = await graph.GetCallTree("Program::Main", "callees", depth: 5);
+        var tree = await graph.GetCallTree("Program::Main", "callees", depth: 5, limit: 5_000);
         output.WriteLine(tree);
         HasI(tree, $"native: kernel32.dll!CreateFileW -> KERNELBASE.dll!CreateFileW at {Va(kernelbase, "CreateFileW")} [KernelBase.dll]");
         HasI(tree, $"native: kernel32.dll!HeapAlloc -> ntdll.dll!RtlAllocateHeap at {Va(ntdll, "RtlAllocateHeap")} [ntdll.dll]");
@@ -126,7 +126,7 @@ public sealed class NativeLinkManagedSweepTests(ITestOutputHelper output)
         HasI(back, "Native::CreateFile(string, uint, uint, nint, uint, uint, nint)  [CallsKernel32]");
         HasI(back, "Program::Open()");
         HasI(back, "[KernelBase.dll]");
-        var callers = await graph.GetCallTree("native:kernel32.dll!HeapAlloc", "callers", depth: 2);
+        var callers = await graph.GetCallTree("native:kernel32.dll!HeapAlloc", "callers", depth: 2, limit: 5_000);
         HasI(callers, "Native::Alloc(");
         HasI(callers, "Program::Main()");
     }

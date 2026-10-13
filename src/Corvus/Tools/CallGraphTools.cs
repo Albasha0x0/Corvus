@@ -26,10 +26,21 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         [Description("Stop after this many nodes.")] int maxNodes = 300,
         [Description("Callees: also calls into assemblies not loaded (framework).")] bool includeExternal = false,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description("Nodes per page (default 200).")] int limit = 200,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
+        // Rows are the tree's nodes in order: the text and the record page them together.
+        string Page(string text, List<CallGraphService.TreeNode> nodes, string root, string direction, int levels, bool truncated)
+        {
+            var lines = text.Split('\n');
+            var header = lines[0] + "\n" + (nodes.Count == 0 ? string.Concat(lines.Skip(1).Where(l => l.Trim().Length > 0).Select(l => l + "\n")) : "")
+                + (truncated ? lines.LastOrDefault(l => l.StartsWith("[Stopped after", StringComparison.Ordinal)) + "\n" : "");
+            int from = Math.Max(0, offset), count = ClampLimit(limit);
+            return ToolOutput.List(nodes.Skip(from).Take(count).ToList(), from, count, nodes.Count, TreeRow,
+                rows => new CallTree(root, direction, levels, rows, nodes.Count, truncated) { Offset = from }, "node", header, totalExact: !truncated);
+        }
         bool callers = (direction ?? "").Trim().ToLowerInvariant() switch
         {
             "callers" or "caller" or "up" or "in" => true,
@@ -47,7 +58,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 // Lines below the header, two spaces per level.
                 var nodes = ReferenceTools.Lines(text).Skip(1)
                     .Select(l => new CallGraphService.TreeNode(Math.Max(1, (l.Length - l.TrimStart(' ').Length) / 2), l.Trim(), null, "native", null)).ToList();
-                return ToolOutput.With(pager.Page(text, offset, maxTokens), new CallTree($"native {native}", directionName, levels, nodes, nodes.Count, false));
+                return Page(text, nodes, $"native {native}", directionName, levels, false);
             }, cancellationToken);
         }
         if (link != null) await link.WarmUp(null, cancellationToken);
@@ -59,10 +70,14 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 : (m, left, indent) => link.NativeCallees(m, left, indent, max, cancellationToken);
             var nodes = new List<CallGraphService.TreeNode>();
             var text = graph.Tree(sym.Assembly, (MethodDef)sym.Member, callers, levels, max, includeExternal, cancellationToken, hook, nodes, out bool truncated);
-            return ToolOutput.With(pager.Page(text, offset, maxTokens),
-                new CallTree($"{sym.Label} [{sym.Assembly.Id}]", directionName, levels, nodes, nodes.Count, truncated));
+            return Page(text, nodes, $"{sym.Label} [{sym.Assembly.Id}]", directionName, levels, truncated);
         }, cancellationToken);
     }
+
+    /// <summary>A tree node as its text line: two spaces per level below the first.</summary>
+    private static string TreeRow(CallGraphService.TreeNode n) =>
+        new string(' ', Math.Max(0, n.Level - 1) * 2) + n.Label + (n.Assembly != null ? $"  [{n.Assembly}]" : "") +
+        (n.Kind == "external" ? "  (external)" : n.Note != null ? $"  ({n.Note})" : "");
 
     /// <summary>Call tree rooted at a native export: native code below or above it, and the managed methods bound to it.</summary>
     private string NativeTree(NativeLinkService link, NativeSymbol symbol, bool callers, int depth, int maxNodes, CancellationToken ct)

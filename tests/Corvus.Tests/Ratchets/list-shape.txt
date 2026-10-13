@@ -4,7 +4,6 @@ compare_assemblies
 convert_number
 decompile_native
 find_call_paths
-get_call_tree
 inspect_instruction
 list_android_devices
 map_java_dotnet

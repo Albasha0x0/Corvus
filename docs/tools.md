@@ -429,10 +429,11 @@ Multi-level callers or callees of a method across loaded assemblies; callers inc
 | `maxNodes` | integer |  | `300` | Stop after this many nodes. |
 | `includeExternal` | boolean |  | `false` | Callees: also calls into assemblies not loaded (framework). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `200` | Nodes per page (default 200). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 
-Structured output: `root`, `direction`, `depth`, `items`, `total`, `limit`, `totalExact`, `hasMore`.
+Structured output: `root`, `direction`, `depth`, `items`, `total`, `offset`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
 ### find_call_paths
 

@@ -127,7 +127,12 @@ public sealed record CallTree(
     int Depth,
     [property: Description("Nodes in tree order (depth-first).")] IReadOnlyList<Services.CallGraphService.TreeNode> Items,
     int Total,
-    [property: Description("maxNodes stopped the walk, or items were cut to fit the response.")] bool Truncated);
+    [property: Description("maxNodes stopped the walk.")] bool Truncated)
+{
+    public int Offset { get; init; }
+
+    public bool TotalExact => !Truncated;
+}
 
 public sealed record PathStepEntry(SymbolRef Method, [property: Description("Reached by virtual dispatch through this base/interface method.")] string? Via,
     [property: Description("Native steps: the call site (VA) in the previous step that reaches this one.")] string? Site = null,

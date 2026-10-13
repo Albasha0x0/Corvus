@@ -47,14 +47,20 @@
     "total": {
       "type": "integer"
     },
-    "limit": {
+    "offset": {
       "type": "integer"
     },
     "totalExact": {
       "type": "boolean"
     },
+    "limit": {
+      "type": "integer"
+    },
     "hasMore": {
       "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",

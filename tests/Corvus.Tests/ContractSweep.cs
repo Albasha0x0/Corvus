@@ -661,6 +661,13 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
 
         (_, json) = await Call("get_call_tree", new() { ["method"] = "Account::Charge(int)", ["direction"] = "callers" });
         Assert.Contains(json.GetProperty("items").EnumerateArray(), n => n.GetProperty("kind").GetString() == "method" && n.GetProperty("level").GetInt32() == 1);
+        // Pages by node rows: the text and the record hold the same nodes and continue at the same offset (G1).
+        (text, json) = await Call("get_call_tree", new() { ["method"] = "Account::Charge(int)", ["direction"] = "callers", ["limit"] = 1 });
+        var node = Assert.Single(json.GetProperty("items").EnumerateArray());
+        Assert.Equal(1, json.GetProperty("nextOffset").GetInt32());
+        Assert.Contains("(showing 1-1)", text);
+        Assert.Contains("\n  " + node.GetProperty("label").GetString(), text);
+        Assert.Contains("[More: offset=1]", text);
 
         (_, json) = await Call("list_exports", new() { ["image"] = McpProtocolTests.NativeSample(_dir) });
         Assert.True(json.GetProperty("items")[0].GetProperty("ordinal").GetInt32() > 0);
