@@ -245,9 +245,9 @@ public partial class UnpackTests
         await McpProtocolTests.AssertMatchesOutputSchema(client, "list_assemblies", stateResult);
         var state = Structured(stateResult);
         Assert.False(state.TryGetProperty("container", out _));
-        var byId = Prop(state, "assemblies").EnumerateArray().ToDictionary(a => Prop(a, "id").GetString()!);
+        var byId = Prop(state, "items").EnumerateArray().ToDictionary(a => Prop(a, "id").GetString()!);
         Assert.True(Prop(byId["Hello"], "readyToRun").GetBoolean());
-        Assert.False(Prop(byId["TestFixture"], "readyToRun").GetBoolean());
+        Assert.False(Has(byId["TestFixture"], "readyToRun"));
         Assert.False(byId["TestFixture"].TryGetProperty("merged", out _));
         Assert.StartsWith("Merged assembly (ILMerge-style)", Prop(byId["IlMerged"], "merged").GetString());
 
@@ -257,10 +257,10 @@ public partial class UnpackTests
         var withBundle = Structured(bundleResult);
         var container = Prop(withBundle, "container");
         Assert.Equal(".NET single-file bundle", Prop(container, "container").GetString());
-        var hello = Assert.Single(Prop(container, "assemblies").EnumerateArray());
-        Assert.Equal("Hello.dll", Prop(hello, "path").GetString());
-        Assert.False(Prop(hello, "readyToRun").GetBoolean());
-        Assert.Equal(0, Prop(withBundle, "assemblies").GetArrayLength()); // with path, only the container is listed
+        var hello = Assert.Single(Prop(withBundle, "items").EnumerateArray()); // with path, the rows are the container's
+        Assert.Equal(("contained", "Hello.dll"), (Prop(hello, "kind").GetString(), Prop(hello, "path").GetString()));
+        Assert.False(Has(hello, "readyToRun"));
+        Assert.Equal(1, Prop(withBundle, "total").GetInt32());
 
         // A corrupt container gives a tool error; the server keeps serving.
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));

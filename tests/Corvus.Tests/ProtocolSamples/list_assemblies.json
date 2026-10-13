@@ -3,26 +3,28 @@
   "arguments": {},
   "isError": false,
   "content": [
-    "assemblies (1):\n  id           name                                      version  path                                      types  il2CppDummy  unsavedEdits  readyToRun\n  TestFixture  TestFixture, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null 1.0.0.0  <fixtures>/TestFixture.dll 24     true         []            false\nsearchDirectories: <fixtures>\nbackgroundIndexing: idle\ntotal: 1\n"
+    "Search directories: <fixtures>\nBackground indexing: idle\n1 file (showing 1-1):\n  TestFixture  1.0.0.0, 24 types, Il2Cpp dummy  <fixtures>/TestFixture.dll\n[End: 1 file]\n"
   ],
   "structuredContent": {
-    "assemblies": [
+    "items": [
       {
+        "kind": "assembly",
         "id": "TestFixture",
+        "path": "<fixtures>/TestFixture.dll",
         "name": "TestFixture, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
         "version": "1.0.0.0",
-        "path": "<fixtures>/TestFixture.dll",
         "types": 24,
-        "il2CppDummy": true,
-        "unsavedEdits": [],
-        "readyToRun": false
+        "il2CppDummy": true
       }
     ],
+    "offset": 0,
+    "total": 1,
     "searchDirectories": [
       "<fixtures>"
     ],
     "backgroundIndexing": "idle",
-    "total": 1,
-    "nativeImages": []
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
   }
 }

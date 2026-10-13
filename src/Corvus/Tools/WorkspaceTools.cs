@@ -16,25 +16,34 @@ namespace Corvus.Tools;
 public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, IndexingService indexing, UnpackService unpacker,
     NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null)
 {
-    public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits,
-        bool ReadyToRun, string? Merged);
-
-    public sealed record NativeEntry(string Id, string Path, string Machine, string Kind, long Size, string Sha256)
+    /// <summary>
+    /// A list_assemblies row: a loaded assembly or native image, or with path an assembly or file inside the container;
+    /// fields that do not apply to the kind are absent.
+    /// </summary>
+    public sealed record WorkspaceEntry(
+        [property: Description("assembly, native, contained (an assembly inside the container) or file (an archive entry).")] string Kind,
+        [property: Description("The id other tools take; absent inside a container.")] string? Id,
+        string Path)
     {
-        /// <summary>Universal Mach-O: every slice of the file (load_assembly slice= loads another).</summary>
-        public IReadOnlyList<string>? Slices { get; init; }
+        public string? Name { get; init; }
+        public string? Version { get; init; }
+        public int? Types { get; init; }
+        public bool? Il2CppDummy { get; init; }
+        public bool? ReadyToRun { get; init; }
+        [Description("ILMerge / ILRepack note.")] public string? Merged { get; init; }
+        public IReadOnlyList<string>? UnsavedEdits { get; init; }
+        public string? Machine { get; init; }
+        [Description("dll or exe, and the mixed-mode assembly a native view belongs to.")] public string? FileKind { get; init; }
+        public long? Size { get; init; }
+        public string? Sha256 { get; init; }
+        [Description("Universal Mach-O: every slice (load_assembly slice= loads another).")] public IReadOnlyList<string>? Slices { get; init; }
+        [Description("Where inside the container it was found.")] public string? Origin { get; init; }
+        public string? Detail { get; init; }
     }
 
-    /// <summary>Workspace listing, or the container contents when list_assemblies is given a path.</summary>
-    public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing,
-        UnpackService.ContainerListing? Container = null)
-    {
-        /// <summary>Count of assemblies matching the filter; Assemblies holds one page.</summary>
-        public int Total { get; init; }
-
-        /// <summary>Loaded native images matching the filter (not paged).</summary>
-        public IReadOnlyList<NativeEntry> NativeImages { get; init; } = [];
-    }
+    /// <summary>list_assemblies' record: one page of rows; with path, the container's source, kind and notes.</summary>
+    public sealed record WorkspaceList(IReadOnlyList<WorkspaceEntry> Items, int Offset, int Total, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing,
+        UnpackService.ContainerListing? Container = null);
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly")]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (an application folder, Unity *_Data/Managed, a DummyDll folder). " +
@@ -167,43 +176,80 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", UseStructuredContent = true)]
-    [Description("Loaded assemblies with their ids (for other tools), versions, paths, Il2Cpp dummy, ReadyToRun and merged (ILMerge / ILRepack) flags and unsaved edits; " +
+    [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceList))]
+    [Description("Loaded assemblies and native images with their ids (for other tools), versions, paths, Il2Cpp dummy, ReadyToRun and merged (ILMerge / ILRepack) flags and unsaved edits; " +
                  "plus the reference search directories. With path: the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, " +
                  "Costura host, zip) without extracting them (unpack_container extracts and loads them); archives (Electron .asar with integrity verdicts, Unity WebGL .data, HAR / mitmproxy captures) list their files.")]
-    public Task<WorkspaceState> ListAssemblies(
+    public Task<string> ListAssemblies(
         [Description("A container file (or Blazor _framework folder) to list instead of the workspace.")] string? path = null,
         [Description("Id, name or path substring (case-insensitive).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max assemblies.")] int limit = 100,
+        [Description("Rows per page (default 100).")] int limit = 100,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
-        var container = path == null ? null : unpacker.List(path, AnalysisLimits.Default, cancellationToken, filter, offset, limit);
-        if (container != null) // container listing only; the workspace is omitted
-            return new WorkspaceState([], [], indexing.Status, container) { Total = container.Total };
-        return workspace.Read(() =>
+        offset = Math.Max(0, offset);
+        limit = ClampLimit(limit, 1000);
+        if (path != null)
         {
-            var matching = workspace.Assemblies.Where(a => filter == null || a.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                                                           || a.FullAssemblyName.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                                                           || a.FilePath.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-            return new WorkspaceState(
-                matching.Skip(Math.Max(0, offset)).Take(ClampLimit(limit, 1000)).Select(a => new AssemblyEntry(a.Id, a.FullAssemblyName,
-                    a.Module.Assembly?.Version?.ToString() ?? "", a.FilePath, MetadataUtil.CountedTypes(a.Module).Count, il2cpp.GetIndex(a).Count > 0,
-                    a.Edits.Select(e => e.Description).ToList(), AssemblyTraits.IsReadyToRun(a.OriginalBytes), AssemblyTraits.MergeNote(a.Module))).ToList(),
-                workspace.SearchDirectories,
-                indexing.Status,
-                container)
+            var c = unpacker.List(path, AnalysisLimits.Default, cancellationToken, filter, offset, limit);
+            // An archive's rows are its files; any other container's are the assemblies inside.
+            var rows = c.Files is { } files
+                ? files.Select(f => new WorkspaceEntry("file", null, f.Path) { Size = f.Size, Detail = f.Detail }).ToList()
+                : c.Assemblies.Select(x => new WorkspaceEntry("contained", null, x.Path)
+                {
+                    Name = x.Name, Version = x.Version, Size = x.Size, Sha256 = x.Sha256, Origin = x.Origin, ReadyToRun = x.ReadyToRun ? true : null, Merged = x.Merged,
+                }).ToList();
+            int total = c.Files != null ? c.FileTotal ?? rows.Count : c.Total;
+            var container = c with { Assemblies = c.Files != null ? c.Assemblies : [], Files = null, FileTotal = null };
+            var header = $"{c.Container}: {c.Source}\n" + string.Concat(c.Notes.Select(n => $"Note: {n}\n")) +
+                         (c.Files != null && c.Assemblies.Count > 0 ? $"Assemblies inside: {string.Join(", ", c.Assemblies.Select(x => x.Path))}\n" : "");
+            return ToolOutput.List(rows, offset, limit, total, Row, page => new WorkspaceList(page, offset, total, [], indexing.Status, container),
+                c.Files != null ? "file" : "assembly", header);
+        }
+        var (all, directories) = workspace.Read(() =>
+        {
+            bool Match(string id, string? name, string file) => filter == null || id.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                || name?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true || file.Contains(filter, StringComparison.OrdinalIgnoreCase);
+            var assemblies = workspace.Assemblies.Where(a => Match(a.Id, a.FullAssemblyName, a.FilePath)).ToList();
+            var natives = workspace.Natives.Where(n => Match(n.Id, null, n.FilePath)).ToList();
+            // Rows are built for the page only: type counts and trait probes read each module.
+            var rows = new List<WorkspaceEntry>();
+            int index = 0;
+            foreach (var a in assemblies)
             {
-                Total = matching.Count,
-                NativeImages = workspace.Natives.Where(n => filter == null || n.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                                                            || n.FilePath.Contains(filter, StringComparison.OrdinalIgnoreCase))
-                    .Select(n => new NativeEntry(n.Id, n.FilePath, n.Image.MachineName, (n.Image.IsDll ? "dll" : "exe") + (n.ManagedView != null ? $" (native view of mixed-mode assembly {n.ManagedView.Id})" : ""), n.Image.FileSize, n.Image.Sha256)
-                    {
-                        Slices = n.Image is Native.MachO.MachOFile { Slices.Count: > 0 } m ? [.. m.Slices.Select(x => x.Name)] : null,
-                    }).ToList(),
-            };
+                if (index++ < offset || rows.Count >= limit) continue;
+                rows.Add(new WorkspaceEntry("assembly", a.Id, a.FilePath)
+                {
+                    Name = a.FullAssemblyName, Version = a.Module.Assembly?.Version?.ToString() ?? "", Types = MetadataUtil.CountedTypes(a.Module).Count,
+                    Il2CppDummy = il2cpp.GetIndex(a).Count > 0 ? true : null, ReadyToRun = AssemblyTraits.IsReadyToRun(a.OriginalBytes) ? true : null,
+                    Merged = AssemblyTraits.MergeNote(a.Module), UnsavedEdits = a.Edits.Count > 0 ? [.. a.Edits.Select(e => e.Description)] : null,
+                });
+            }
+            foreach (var n in natives)
+            {
+                if (index++ < offset || rows.Count >= limit) continue;
+                rows.Add(new WorkspaceEntry("native", n.Id, n.FilePath)
+                {
+                    Machine = n.Image.MachineName, FileKind = (n.Image.IsDll ? "dll" : "exe") + (n.ManagedView != null ? $", native view of {n.ManagedView.Id}" : ""),
+                    Size = n.Image.FileSize, Sha256 = n.Image.Sha256,
+                    Slices = n.Image is Native.MachO.MachOFile { Slices.Count: > 0 } m ? [.. m.Slices.Select(x => x.Name)] : null,
+                });
+            }
+            return ((rows, assemblies.Count + natives.Count), workspace.SearchDirectories.ToList());
         });
+        var (page, count) = all;
+        var head = $"Search directories: {(directories.Count == 0 ? "none" : string.Join("; ", directories))}\nBackground indexing: {indexing.Status}\n";
+        return ToolOutput.List(page, offset, limit, count, Row, rows => new WorkspaceList(rows, offset, count, directories, indexing.Status), "file", head);
     }, cancellationToken);
+
+    private static string Row(WorkspaceEntry e) => e.Kind switch
+    {
+        "assembly" => $"{e.Id}  {e.Version}, {e.Types} types" + (e.Il2CppDummy == true ? ", Il2Cpp dummy" : "") + (e.ReadyToRun == true ? ", ReadyToRun" : "") +
+                      (e.Merged != null ? ", merged" : "") + (e.UnsavedEdits is { Count: > 0 } u ? $", {Plural(u.Count, "unsaved edit")}" : "") + $"  {e.Path}",
+        "native" => $"{e.Id}  native {e.Machine} {e.FileKind}, {e.Size:N0} bytes" + (e.Slices != null ? $", slices {string.Join(", ", e.Slices)}" : "") + $"  {e.Path}",
+        "contained" => $"{e.Path}  {e.Name} {e.Version}, {e.Size:N0} bytes, {e.Origin}" + (e.ReadyToRun == true ? ", ReadyToRun" : "") + (e.Merged != null ? ", merged" : ""),
+        _ => $"{e.Path}  {e.Size:N0} bytes" + (e.Detail != null ? $", {e.Detail}" : ""),
+    };
 
     [McpServerTool(Name = "unload_assembly", Title = "Unload assembly")]
     [Description("Remove an assembly from the workspace (unsaved edits are discarded).")]

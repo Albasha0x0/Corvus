@@ -1,12 +1,20 @@
 {
   "type": "object",
   "properties": {
-    "assemblies": {
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
+          "kind": {
+            "description": "assembly, native, contained (an assembly inside the container) or file (an archive entry).",
+            "type": "string"
+          },
           "id": {
+            "description": "The id other tools take; absent inside a container.",
+            "type": "string"
+          },
+          "path": {
             "type": "string"
           },
           "name": {
@@ -15,14 +23,18 @@
           "version": {
             "type": "string"
           },
-          "path": {
-            "type": "string"
-          },
           "types": {
             "type": "integer"
           },
           "il2CppDummy": {
             "type": "boolean"
+          },
+          "readyToRun": {
+            "type": "boolean"
+          },
+          "merged": {
+            "description": "ILMerge / ILRepack note.",
+            "type": "string"
           },
           "unsavedEdits": {
             "type": "array",
@@ -30,24 +42,45 @@
               "type": "string"
             }
           },
-          "readyToRun": {
-            "type": "boolean"
+          "machine": {
+            "type": "string"
           },
-          "merged": {
+          "fileKind": {
+            "description": "dll or exe, and the mixed-mode assembly a native view belongs to.",
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "slices": {
+            "description": "Universal Mach-O: every slice (load_assembly slice= loads another).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "origin": {
+            "description": "Where inside the container it was found.",
+            "type": "string"
+          },
+          "detail": {
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "name",
-          "version",
-          "path",
-          "types",
-          "il2CppDummy",
-          "unsavedEdits",
-          "readyToRun"
+          "kind",
+          "path"
         ]
       }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
     },
     "searchDirectories": {
       "type": "array",
@@ -147,48 +180,17 @@
         "notes"
       ]
     },
-    "total": {
+    "limit": {
       "type": "integer"
     },
-    "nativeImages": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "machine": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "size": {
-            "type": "integer"
-          },
-          "sha256": {
-            "type": "string"
-          },
-          "slices": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "id",
-          "path",
-          "machine",
-          "kind",
-          "size",
-          "sha256"
-        ]
-      }
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -210,7 +212,9 @@
     }
   },
   "required": [
-    "assemblies",
+    "items",
+    "offset",
+    "total",
     "searchDirectories",
     "backgroundIndexing"
   ]

@@ -125,15 +125,23 @@ public class InspectionEdgeTests : IDisposable
     {
         _workspace.LoadDirectory(Path.GetDirectoryName(Env.FixturePath)!, false);
         var tools = new WorkspaceTools(_workspace, new Il2CppService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
-        var all = await tools.ListAssemblies();
+        async Task<(string Text, WorkspaceTools.WorkspaceList List)> List(int offset = 0, int limit = 100, string? filter = null)
+        {
+            var collector = Corvus.Mcp.ToolOutput.Collect();
+            var text = await tools.ListAssemblies(filter: filter, offset: offset, limit: limit);
+            return (text, Assert.IsType<WorkspaceTools.WorkspaceList>(collector.Value));
+        }
+        var (_, all) = await List();
         Assert.True(all.Total > 3);
-        var page = await tools.ListAssemblies(offset: 1, limit: 2);
-        Assert.Equal(2, page.Assemblies.Count);
+        var (text, page) = await List(offset: 1, limit: 2);
+        Assert.Equal(2, page.Items.Count);
         Assert.Equal(all.Total, page.Total);
-        Assert.Equal(all.Assemblies[1].Id, page.Assemblies[0].Id);
-        var fixtures = await tools.ListAssemblies(filter: "testfixture");
-        Assert.All(fixtures.Assemblies, a => Assert.Contains("TestFixture", a.Id, StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(fixtures.Assemblies.Count, fixtures.Total);
+        Assert.Equal(all.Items[1].Id, page.Items[0].Id);
+        Assert.Contains($"{all.Total} files (showing 2-3):\n  {page.Items[0].Id}  ", text);
+        Assert.Contains("[More: offset=3]", text);
+        var (_, fixtures) = await List(filter: "testfixture");
+        Assert.All(fixtures.Items, a => Assert.Contains("TestFixture", a.Id, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(fixtures.Items.Count, fixtures.Total);
     }
 
     [Fact]

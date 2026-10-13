@@ -73,16 +73,16 @@ Add a directory for resolving referenced assemblies that are not loaded (an appl
 
 **List loaded assemblies** (read-only, idempotent)
 
-Loaded assemblies with their ids (for other tools), versions, paths, Il2Cpp dummy, ReadyToRun and merged (ILMerge / ILRepack) flags and unsaved edits; plus the reference search directories. With path: the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting them (unpack_container extracts and loads them); archives (Electron .asar with integrity verdicts, Unity WebGL .data, HAR / mitmproxy captures) list their files.
+Loaded assemblies and native images with their ids (for other tools), versions, paths, Il2Cpp dummy, ReadyToRun and merged (ILMerge / ILRepack) flags and unsaved edits; plus the reference search directories. With path: the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting them (unpack_container extracts and loads them); archives (Electron .asar with integrity verdicts, Unity WebGL .data, HAR / mitmproxy captures) list their files.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | A container file (or Blazor _framework folder) to list instead of the workspace. |
 | `filter` | string |  |  | Id, name or path substring (case-insensitive). |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `100` | Max assemblies. |
+| `limit` | integer |  | `100` | Rows per page (default 100). |
 
-Structured output: `assemblies`, `searchDirectories`, `backgroundIndexing`, `container`, `total`, `nativeImages`.
+Structured output: `items`, `offset`, `total`, `searchDirectories`, `backgroundIndexing`, `container`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### server_status
 

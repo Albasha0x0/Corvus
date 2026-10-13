@@ -38,8 +38,10 @@ public sealed class FormatLoadTests
         var x64 = h.Workspace.Read(() => h.Workspace.GetNative("libSkiaSharp.dylib[x86_64]"));
         Assert.Equal(NativeArch.X64, x64.Image.Arch);
         Assert.Equal(x64.Image.Sha256, h.Workspace.ReloadNative(x64).Image.Sha256);
-        var listed = await h.WorkspaceTools.ListAssemblies();
-        Assert.Equal(["x86_64", "arm64"], listed.NativeImages[0].Slices);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        Assert.Contains("libSkiaSharp.dylib[arm64]  native ", await h.WorkspaceTools.ListAssemblies());
+        var listed = Assert.IsType<WorkspaceTools.WorkspaceList>(collector.Value);
+        Assert.Equal(["x86_64", "arm64"], listed.Items.First(i => i.Kind == "native").Slices);
 
         var elf = await h.WorkspaceTools.LoadAssembly(NativeFixtures.LinuxArm64DbgShim);
         Assert.Contains("libdbgshim.so: EM_AARCH64 ELF64 shared object", elf);
