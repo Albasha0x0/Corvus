@@ -240,7 +240,7 @@ public partial class ProtocolSampleTests
     private static readonly HashSet<string> PathSized = ["export_native_patches", "export_native_annotations", "export_il2cpp_symbols"];
 
     /// <summary>A note only a non-Windows host adds (it has no Windows system DLLs to check against), in text or as a record entry.</summary>
-    [GeneratedRegex(@"\nNote: This host has no Windows system DLLs[^\n]*|""This host has no Windows system DLLs[^""]*"",?")]
+    [GeneratedRegex(@"\nNote: This host has no Windows system DLLs[^\n]*|,\s*""This host has no Windows system DLLs[^""]*""|""This host has no Windows system DLLs[^""]*""\s*,?")]
     private static partial Regex HostNote();
 
     /// <summary>How many symbol folders a PDB lookup searched depends on the machine's symbol paths.</summary>

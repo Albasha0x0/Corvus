@@ -56,8 +56,8 @@ public sealed class ReanalyzeNativeTests : IDisposable
     public async Task A_run_passes_options_and_range_and_drops_cached_pseudocode()
     {
         var (control, search, engine, native) = Setup();
-        await search.SearchDecompiled(native.Id, "return");
-        Assert.Equal(1, engine.Decompiles);
+        var first = await search.SearchDecompiled(native.Id, "return");
+        Assert.True(engine.Decompiles == 1, $"{engine.Decompiles} decompiles; search answered: {first}");
         engine.ReanalysisResult = () => new NativeReanalysis(false, 10, 14, TimeSpan.FromSeconds(2), ["unknown analysis option 'Bogus'"]);
         var (text, call) = await EngineMeta.Run(() => control.ReanalyzeNative(native.Id, options: ["AF_FLIRT=false", "Decompiler Parameter ID = true", "Bogus=1"],
             from: "rva:0x1000", to: "rva:0x1100", timeoutSeconds: 30));
