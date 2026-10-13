@@ -52,7 +52,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         [Description("table (default) or c (a C declaration).")] string? format = null,
         [Description("Index of the first row (field, enumerator, slot, candidate).")] int offset = 0,
         [Description("Max rows (max 5000).")] int limit = 200,
-        [Description("Engine for source=engine (default auto).")] string? engine = null,
+        [Description(NativeCodeTools.EngineDescription)] string? engine = null,
         [Description("Add the field values at address (with name or id: that type read there).")] bool read = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -87,15 +87,24 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
 
         var (native, rva) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, code, image, string.IsNullOrWhiteSpace(address) ? "rva:0" : address), cancellationToken);
         INativeDecompilerSession? session = null;
+        // source=engine: an engine-only read; auto: the engine the shared rule picks (one that analyzed these bytes, or named), else none
+        EngineChoice? choice = null;
         if (src == NativeTypeCatalog.Engine)
         {
-            if (engines == null) throw new ToolError(ErrorCode.Unsupported, "No decompiler engine is configured.");
-            engines.Provider(engine);
-            session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+            if (engines == null) throw new ToolError(ErrorCode.Unsupported, "No decompiler engine is configured.", "use source=auto, pdb or rtti");
+            choice = EngineChoice.EngineOnly(engine, engines, native);
+        }
+        else if (src is "" or "auto")
+        {
+            var (mode, named) = EngineChoice.Mode(engine, engines);
+            if (EngineChoice.Of(mode, named, engines, native, null) is { External: true } picked) choice = picked;
+        }
+        if (choice != null)
+        {
+            session = await engines!.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
                 progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
             if (userTypes != null) await userTypes.EnsureAsync(native, session, cancellationToken);
         }
-        else if (src is "" or "auto" && engines?.CompletedSession(native) is { } open) session = open;
 
         var catalog = new NativeTypeCatalog(workspace, code);
         var ctx = await catalog.Open(native, sources, session, src == NativeTypeCatalog.Engine, cancellationToken);

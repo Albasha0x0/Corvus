@@ -112,8 +112,7 @@ public sealed partial class NativeCodeTools
         [Description("Instructions to inspect (1-64).")] int count = 1,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        [Description("auto (default): the built-in decoder for x86 / x64 / ARM, else IDA, else Ghidra.")]
-        string? engine = null,
+        [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -123,18 +122,11 @@ public sealed partial class NativeCodeTools
         int n = Math.Clamp(count, 1, MaxInspectCount);
         bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;
         bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
-        var origin = mode.Named ? $"engine={EngineModes.Name(mode.Mode)}" : $"server default {EngineModes.Name(mode.Mode)}";
-        var choice = mode.Mode switch
-        {
-            EngineMode.Ida or EngineMode.Ghidra => NativeEngineCode.Choose(mode.Mode, mode.Named, engines, native, index),
-            _ when operands => new EngineChoice("ours", $"{origin}: the built-in decoder"),
-            // instruction details for other instruction sets come from an engine
-            EngineMode.Auto when (engines?.UnavailabilityOf("ida") == null ? "ida" : engines?.UnavailabilityOf("ghidra") == null ? "ghidra" : null) is { } id && engines != null =>
-                new EngineChoice(id, undecoded
-                    ? $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions"
-                    : $"{origin}: the built-in inspector reads x86 / x64 / ARM operands"),
-            _ => throw NativeEngineCode.Unsupported(index, engines),
-        };
+        // instruction details for other instruction sets come from an engine
+        var choice = EngineChoice.Of(mode.Mode, mode.Named, engines, native, operands ? null
+            : undecoded ? $"the built-in analysis does not decode {index.Image.ArchName()} instructions"
+            : $"the built-in inspector reads x86 / x64 / ARM operands, not {index.Image.ArchName()}");
+        if (!choice.External && !operands) throw NativeEngineCode.Unsupported(index, engines);
         var (text, report) = choice.External
             ? await InspectWithEngine(native, index, rva, n, choice, progress, cancellationToken)
             : await Task.Run(() => Inspect(native.Id, index, rva, n, choice, cancellationToken), cancellationToken);

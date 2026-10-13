@@ -82,6 +82,17 @@ public sealed class EngineViewTests : IDisposable
     }
 
     [Fact]
+    public async Task Inspect_and_native_type_use_the_shared_auto_rule_and_open_no_engine_for_unanalyzed_bytes()
+    {
+        var rig = Setup();
+        var native = await Loaded(rig);
+        Assert.StartsWith("Engine: ours (server default auto: no engine has analyzed these bytes)", await rig.Tools.InspectInstruction(rig.Image, native.Image.Exports[0].Name!));
+        var types = new NativeTypeInfoTools(rig.Workspace, rig.Code, rig.Engines);
+        await Assert.ThrowsAsync<ToolError>(() => types.GetNativeType(rig.Image, name: "NoSuchType"));
+        Assert.Equal(0, rig.Provider.Opens);
+    }
+
+    [Fact]
     public async Task Engine_status_reports_not_started_opening_with_its_stage_and_open_with_the_engine_view()
     {
         var rig = Setup();
