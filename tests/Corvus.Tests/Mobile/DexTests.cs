@@ -156,6 +156,8 @@ public sealed class DexTests : IDisposable
         Assert.Equal(4, _dex.ListClasses(jar, null, null, 0, 10, default).Total);
         var aab = Save(_dir, "app.aab", ContainerFixtures.Zip(("base/manifest/AndroidManifest.xml", [1]), ("base/dex/classes.dex", Dex())));
         Assert.Equal(4, _dex.ListClasses(aab, null, null, 0, 10, default).Total);
+        var classJar = Save(_dir, "classes.jar", ContainerFixtures.Zip(("p/A.class", [0xCA, 0xFE, 0xBA, 0xBE])));
+        Assert.Contains("decompile_java", Assert.Throws<ToolError>(() => _dex.ListClasses(classJar, null, null, 0, 10, default)).Remediation);
         var none = Save(_dir, "none.apk", Apk());
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => _dex.ListClasses(none, null, null, 0, 10, default)).Code);
         Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => _dex.ListClasses(Env.FixturePath, null, null, 0, 10, default)).Code);

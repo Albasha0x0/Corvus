@@ -251,11 +251,16 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Decompiler.")] string? engine = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
+        RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
         if (engine is { Length: > 0 } e && !e.Trim().Equals("jadx", StringComparison.OrdinalIgnoreCase))
             throw new ToolError(ErrorCode.InvalidArgument, $"unknown engine '{e}'; use jadx.");
-        var text = await Task.Run(() => java.Decompile(path, symbol, smaliFallback, cancellationToken), cancellationToken).ConfigureAwait(false);
+        var text = await OrderedProgress.Run(context, progress =>
+        {
+            progress.Report(new ProgressNotificationValue { Progress = 0, Message = "JADX: starting and loading the package (once per package)" });
+            return Task.Run(() => java.Decompile(path, symbol, smaliFallback, cancellationToken), cancellationToken);
+        }).ConfigureAwait(false);
         return pager.Page(text, offset, maxTokens);
     }
 

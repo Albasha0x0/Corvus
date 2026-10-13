@@ -129,7 +129,13 @@ public sealed class DexIndex
                 names = [.. entries.Keys.OrderBy(n => n.Length).ThenBy(n => n, StringComparer.Ordinal)];
                 read = n => { using var s = entries[n].Open(); return Blob.ReadBounded(s, limits.MaxItemBytes); };
             }
-            if (names.Count == 0) throw new ToolError(ErrorCode.NotFound, $"{full} has no classes*.dex.", "a package with native code only, or a bundle split without code");
+            if (names.Count == 0)
+            {
+                bool classFiles = zip?.Entries.Any(e => e.FullName.EndsWith(".class", StringComparison.Ordinal)) == true;
+                throw new ToolError(ErrorCode.NotFound, $"{full} has no classes*.dex.", classFiles
+                    ? $"a jar of Java .class files: decompile_java path={full} reads its classes by name"
+                    : "a package with native code only, or a bundle split without code");
+            }
             foreach (var n in names)
             {
                 ct.ThrowIfCancellationRequested();
