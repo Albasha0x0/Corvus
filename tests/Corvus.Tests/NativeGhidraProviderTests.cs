@@ -120,6 +120,30 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         Assert.StartsWith("push", listing.Instructions[0].Text, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Code nothing references (mov eax, 7; ret after the entry's padding): Ghidra makes no function; the server's index starts one there.</summary>
+    [GhidraFact]
+    public async Task A_function_only_the_server_s_index_knows_is_made_on_request()
+    {
+        var text = new byte[0x20];
+        Array.Fill(text, (byte)0xCC);
+        text[0] = 0xC3;
+        new byte[] { 0xB8, 0x07, 0, 0, 0, 0xC3 }.CopyTo(text, 0x10);
+        var dir = new TempDir();
+        _owned.Add(dir);
+        var path = dir.File("dead.so");
+        File.WriteAllBytes(path, new NativeFormats.ElfWriter { Machine = NativeFormats.ElfWriter.EmX64, Entry = NativeFormats.ElfWriter.TextRva, Text = text }.Build());
+        var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = dir.File("cache") });
+        _owned.Add(provider);
+        const uint rva = NativeFormats.ElfWriter.TextRva + 0x10;
+        bool known = false;
+        await using var s = (GhidraSession)await provider.OpenAsync(path, null, Offline with { KnownStart = (r, _) => Task.FromResult(known && r == rva) });
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => s.GetBlocksAsync(rva))).Code);
+        known = true;
+        var decompiled = await s.DecompileAsync(rva);
+        Assert.Equal(rva, decompiled.StartRva);
+        Assert.Equal(rva, (await s.GetBlocksAsync(rva)).StartRva);
+    }
+
     [GhidraFact]
     public async Task Open_list_decompile_disassemble_blocks_xrefs()
     {

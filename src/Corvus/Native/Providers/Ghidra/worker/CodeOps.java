@@ -59,6 +59,22 @@ final class CodeOps {
         return f;
     }
 
+    /**
+     * make_function: a function at the RVA when no function contains it (the server's index has one starting there that
+     * the analysis missed); the caller holds the write lock. Returns whether it was made.
+     */
+    static JsonElement makeFunction(Worker w, Worker.Request r) {
+        Address a = w.addr(r.args, "rva");
+        JsonObject o = new JsonObject();
+        if (w.program.getFunctionManager().getFunctionContaining(a) == null) {
+            if (w.program.getListing().getInstructionAt(a) == null) new DisassembleCommand(a, null, true).applyTo(w.program, r.monitor);
+            new CreateFunctionCmd(a).applyTo(w.program, r.monitor);
+        }
+        Function f = w.program.getFunctionManager().getFunctionContaining(a);
+        o.addProperty("made", f != null && f.getEntryPoint().equals(a));
+        return o;
+    }
+
     /** Without auto-analysis: disassembles from the address and makes a function there (as IDA's worker does). */
     private static synchronized Function create(Worker w, Address a) {
         int tx = w.program.startTransaction("function on request");

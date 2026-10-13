@@ -314,6 +314,11 @@ public sealed record NativeOpenOptions
     /// request in ARM state unless told; null when unknown.
     /// </summary>
     public Func<CancellationToken, Task<IReadOnlyList<(uint Start, uint End)>>>? ThumbCode { get; init; }
+    /// <summary>
+    /// Whether the server's index has a function starting at an RVA: an engine whose analysis has none there makes it when
+    /// a function request names that address; null when unknown.
+    /// </summary>
+    public Func<uint, CancellationToken, Task<bool>>? KnownStart { get; init; }
 }
 
 /// <summary>Full: the engine's auto-analysis. None: load only, functions made where they are asked for (huge or hostile inputs).</summary>

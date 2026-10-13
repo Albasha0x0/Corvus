@@ -315,9 +315,27 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         var first = timeout ?? provider.DecompileTimeout;
         var args = WorkerRows.Args(("rva", rva), ("timeout", (int)Math.Ceiling(first.TotalSeconds)),
             ("retry_timeout", (int)GhidraOptions.RetryTimeout(first).TotalSeconds), ("fail_first", failFirst));
-        var r = await CallAsync("decompile", args, cancellationToken, timeout: GhidraOptions.DecompileRequestTimeout(first, Options.RequestTimeout)).ConfigureAwait(false);
+        var r = await FunctionCallAsync("decompile", args, rva, cancellationToken, GhidraOptions.DecompileRequestTimeout(first, Options.RequestTimeout)).ConfigureAwait(false);
         if (r.TryGetProperty("retried", out var retried) && retried.GetBoolean()) Interlocked.Increment(ref _retries);
         return WorkerRows.Decompiled(r);
+    }
+
+    /// <summary>
+    /// A request about the function at <paramref name=rva/>: where the analysis has none but the server's index starts one there
+    /// (<see cref="NativeOpenOptions.KnownStart"/>), the worker makes it and the request runs again.
+    /// </summary>
+    private async Task<System.Text.Json.JsonElement> FunctionCallAsync(string op, JsonObject args, uint rva, CancellationToken cancellationToken, TimeSpan? timeout = null)
+    {
+        try
+        {
+            return await CallAsync(op, args, cancellationToken, timeout: timeout).ConfigureAwait(false);
+        }
+        catch (ToolError e) when (e.Code == ErrorCode.NotFound && Options.KnownStart != null)
+        {
+            if (!await Options.KnownStart(rva, cancellationToken).ConfigureAwait(false)) throw;
+        }
+        await CallAsync("make_function", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false);
+        return await CallAsync(op, args, cancellationToken, timeout: timeout).ConfigureAwait(false);
     }
 
     private int _retries;
@@ -335,7 +353,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     }
 
     public async Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) =>
-        WorkerRows.Disassembly(await CallAsync("disasm", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+        WorkerRows.Disassembly(await FunctionCallAsync("disasm", WorkerRows.Args(("rva", rva)), rva, cancellationToken).ConfigureAwait(false));
 
     public async Task<FunctionDisassembly> DisassembleRangeAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
         WorkerRows.Range(rva, await CallAsync("disasm_range", WorkerRows.Args(("rva", rva), ("count", Math.Clamp(count, 1, 200_000))), cancellationToken).ConfigureAwait(false));
@@ -353,13 +371,14 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         EngineInstructions.Parse(await CallAsync("insn", WorkerRows.Args(("rva", rva), ("count", Math.Clamp(count, 1, 64))), cancellationToken).ConfigureAwait(false));
 
     public async Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
-        WorkerRows.Blocks(await CallAsync("blocks", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+        WorkerRows.Blocks(await FunctionCallAsync("blocks", WorkerRows.Args(("rva", rva)), rva, cancellationToken).ConfigureAwait(false));
 
     public async Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
         WorkerRows.Xrefs(await CallAsync("xrefs_to", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
 
     public async Task<IReadOnlyList<NativeXref>> GetXrefsFromAsync(uint rva, bool wholeFunction = false, CancellationToken cancellationToken = default) =>
-        WorkerRows.Xrefs(await CallAsync("xrefs_from", WorkerRows.Args(("rva", rva), ("function", wholeFunction)), cancellationToken).ConfigureAwait(false));
+        WorkerRows.Xrefs(await (wholeFunction ? FunctionCallAsync("xrefs_from", WorkerRows.Args(("rva", rva), ("function", true)), rva, cancellationToken)
+            : CallAsync("xrefs_from", WorkerRows.Args(("rva", rva), ("function", false)), cancellationToken)).ConfigureAwait(false));
 
     public async Task<string> SetNameAsync(uint rva, string name, CancellationToken cancellationToken = default)
     {
@@ -424,7 +443,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     }
 
     public async Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) =>
-        WorkerRows.Frame(await CallAsync("frame", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+        WorkerRows.Frame(await FunctionCallAsync("frame", WorkerRows.Args(("rva", rva)), rva, cancellationToken).ConfigureAwait(false));
 
     public async Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default) =>
         WorkerRows.TypeList(await CallAsync("types", WorkerRows.Args(("filter", filter), ("kind", kind), ("offset", offset), ("limit", limit)), cancellationToken)
@@ -470,7 +489,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         WorkerRows.Strings(await CallAsync("defined_strings", WorkerRows.Args(("max", Math.Clamp(max, 1, 500_000))), cancellationToken).ConfigureAwait(false));
 
     public async Task<EngineFunctionRecord> GetFunctionRecordAsync(uint rva, CancellationToken cancellationToken = default) =>
-        WorkerRows.FunctionRecord(await CallAsync("function_info", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+        WorkerRows.FunctionRecord(await FunctionCallAsync("function_info", WorkerRows.Args(("rva", rva)), rva, cancellationToken).ConfigureAwait(false));
 
     public async Task<IReadOnlyList<EngineNamespace>> ListNamespacesAsync(CancellationToken cancellationToken = default) =>
         WorkerRows.Namespaces(await CallAsync("namespaces", new JsonObject(), cancellationToken).ConfigureAwait(false));

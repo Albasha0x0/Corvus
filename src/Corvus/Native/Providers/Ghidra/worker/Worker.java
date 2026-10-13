@@ -293,6 +293,7 @@ public class Worker implements GhidraLaunchable {
             case "defined_data": return read(() -> InfoOps.data(this, r));
             case "defined_strings": return read(() -> InfoOps.strings(this, r));
             case "function_info": return read(() -> InfoOps.functionInfo(this, r));
+            case "make_function": return write("function on request", () -> CodeOps.makeFunction(this, r));
             case "namespaces": return read(() -> InfoOps.namespaces(this, r));
             case "script": return ScriptOps.run(this, r);
             case "field_xrefs": return read(() -> FieldOps.fieldXrefs(this, r));

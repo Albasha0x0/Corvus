@@ -191,6 +191,7 @@ public sealed class NativeEngineService : IDisposable
         {
             Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, Analysis = _analysis,
             ThumbCode = native.Image.Arch == Native.NativeArch.Arm && _code != null ? ct => ThumbCode(native, ct) : null,
+            KnownStart = _code != null ? async (rva, ct) => (await _code.Index(native, null, ct).ConfigureAwait(false)).FunctionByStart(rva) != null : null,
         };
 
     /// <summary>The Thumb functions' byte ranges in the server's index, merged.</summary>
