@@ -93,9 +93,11 @@ internal sealed class Arm64Decoder : ICodeDecoder
     // frame slots [sp + n] / [x29 + n] holding an address (a jump table base spilled across calls), by base and offset
     private readonly Dictionary<long, ulong> _slots = [];
 
-    /// <summary>The known registers and slots, as a state index (its first entry in the pool; a sentinel ends it).</summary>
+    /// <summary>The known registers and slots, as a state index (its first entry in the pool; a sentinel ends it), or -1 for none.</summary>
     private int SaveState()
     {
+        // nothing known: the empty state (-1), as a block nothing reached by a branch starts with
+        if (_slots.Count == 0 && Array.IndexOf(_kind, Known.Address) < 0 && Array.IndexOf(_kind, Known.ImportSlot) < 0 && Array.IndexOf(_kind, Known.Local) < 0) return -1;
         int at = _statePool.Count;
         for (int r = 0; r < Registers; r++)
             if (_kind[r] != Known.None) _statePool.Add((r, _kind[r], 0, _value[r]));
