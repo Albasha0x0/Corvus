@@ -49,7 +49,12 @@ public class NativeCallTreeTests
         // a walk by pages of 3 gives the same rows
         var walked = new List<NativeTreeNode>();
         for (int offset = 0; offset < full.Total; offset += 3)
-            walked.AddRange((await Tree(tools, at, offset: offset, limit: 3)).Record.Items);
+        {
+            var page = (await Tree(tools, at, offset: offset, limit: 3)).Record;
+            walked.AddRange(page.Items);
+            // a page names its own unexpanded nodes only (a whole tree's frontier can be thousands)
+            Assert.All(page.Frontier ?? [], f => Assert.Contains(page.Items, n => n.Address == f));
+        }
         Assert.Equal(JsonSerializer.Serialize(full.Items, ToolOutput.Json), JsonSerializer.Serialize(walked, ToolOutput.Json));
 
         // depth 1 leaves its children on the frontier; expanding each frontier node gives the depth-2 nodes of the full tree

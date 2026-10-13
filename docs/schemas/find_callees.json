@@ -63,11 +63,11 @@
                 "type": "string"
               },
               "edge": {
-                "description": "How the parent reaches it: call, import, virtual, virtual?, dynamic, pinvoke, native (a managed method's native body), managed.",
+                "description": "How the parent reaches it: call, jump (tail call), import, virtual, virtual?, dynamic, pinvoke, native (a managed method's native body), managed.",
                 "type": "string"
               },
               "flags": {
-                "description": "repeated (expanded elsewhere), more (children not expanded), unresolved, not-loaded.",
+                "description": "repeated (expanded elsewhere), more (children not expanded), unresolved, not-loaded; caller or callee by call site.",
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -75,6 +75,10 @@
               },
               "note": {
                 "description": "Binding or edge detail: the provider of an import, the candidate count of a virtual call.",
+                "type": "string"
+              },
+              "site": {
+                "description": "VA of the call instruction of the edge, when the tree is by call site.",
                 "type": "string"
               }
             },

@@ -15,7 +15,7 @@ public sealed record NativeCallTreeResult(
     [property: Description("Root function (or import) and its VA.")] string Root,
     [property: Description("callers, callees or both (one level: each node's site is its call instruction).")] string Direction,
     IReadOnlyList<NativeTreeNode> Items, int Offset, int Total,
-    [property: Description("VAs of nodes not expanded (depth or maxNodes reached): pass one as function to continue there.")] IReadOnlyList<string>? Frontier,
+    [property: Description("VAs of this page's nodes not expanded (depth or maxNodes reached): pass one as function to continue there.")] IReadOnlyList<string>? Frontier,
     [property: Description(EngineDoc.Engine)] string Engine,
     [property: Description(EngineDoc.Note)] string? EngineNote);
 
@@ -27,10 +27,12 @@ public sealed partial class NativeCodeTools
     /// <summary>The page of <paramref name="rows"/> from <paramref name="offset"/>, as text lines and the record.</summary>
     private static string TreePage(int limit, LoadedNative native, string root, string direction, List<TreeRow> rows, int offset, string header, EngineChoice choice)
     {
-        var frontier = rows.Where(r => r.Node.Flags?.Contains("more") == true && r.Node.Address != null).Select(r => r.Node.Address!).Distinct().ToList();
+        // the page's frontier: a whole tree's can hold thousands of nodes
+        static List<string>? Frontier(IEnumerable<TreeRow> page) =>
+            page.Where(r => r.Node.Flags?.Contains("more") == true && r.Node.Address != null).Select(r => r.Node.Address!).Distinct().ToList() is { Count: > 0 } f ? f : null;
         return ToolOutput.List(rows, Math.Max(0, offset), ClampLimit(limit), r => r.Line,
             page => new NativeCallTreeResult(native.Id, root, direction, page.Select(r => r.Node).ToList(), Math.Max(0, offset), rows.Count,
-                frontier.Count > 0 ? frontier : null, choice.Engine, choice.Note), "node", choice.Line + "\n" + header);
+                Frontier(page), choice.Engine, choice.Note), "node", choice.Line + "\n" + header);
     }
 
     /// <summary>Rows of a link-service tree: its text lines beside the rows it wrote.</summary>
