@@ -3,24 +3,23 @@ using Corvus.Services.Mobile;
 
 namespace Corvus.Tests;
 
-/// <summary>The Android device tools against the fake adb: parsing, serial selection, pulls, the log budget and the device-change gate.</summary>
-[Collection(ExternalToolEnvironmentCollection.Name)]
+/// <summary>
+/// The Android device tools against the fake adb: parsing, serial selection, pulls and the device-change gate. The fake is
+/// passed to the service, not through CORVUS_ADB, so these run beside the external tool environment tests.
+/// </summary>
 public sealed class DeviceTests : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly FakeTool _fake = FakeDevice.Configure(new FakeTool(), AndroidSamples.Apk());
-    private readonly EnvironmentScope _env;
-
-    public DeviceTests() => _env = new EnvironmentScope().Set("CORVUS_ADB", FakeTool.Executable);
 
     public void Dispose()
     {
-        _env.Dispose();
         _fake.Dispose();
         _dir.Dispose();
     }
 
-    private DeviceService Service(bool allowChanges = false) => new(new ServerOptions { AllowDeviceChanges = allowChanges }) { Environment = _fake.Environment };
+    private DeviceService Service(bool allowChanges = false) =>
+        new(new ServerOptions { AllowDeviceChanges = allowChanges }) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable };
 
     [Fact]
     public void Devices_RowsStatesAndUnparsedLines()
@@ -104,24 +103,6 @@ public sealed class DeviceTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => Service().Log(null, null, null, null, null, "kernel", default)).Code);
     }
 
-    /// <summary>A 1 MB log reads newest first in pages within the report budget; nextOffset walks to older lines.</summary>
-    [Trait("Speed", "Slow")]
-    [Fact]
-    public async Task Log_PagesNewestFirstWithinTheBudget()
-    {
-        using var script = new EnvironmentScope().Set(FakeTool.ScriptVariable, _fake.ScriptPath);
-        await using var server = await InProcessServer.StartAsync();
-        var page = await server.Client.CallToolAsync("read_android_log", new Dictionary<string, object?> { ["tag"] = "Flood" });
-        var text = string.Concat(page.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
-        var record = page.StructuredContent!.Value;
-        Assert.Equal(5_000, record.GetProperty("total").GetInt32());
-        Assert.True(TokenEstimate.Of(text) <= 4_200 && TokenEstimate.Of(record.GetRawText()) <= 4_200, $"{TokenEstimate.Of(text)} / {TokenEstimate.Of(record.GetRawText())}");
-        int next = record.GetProperty("nextOffset").GetInt32();
-        Assert.Equal(next, record.GetProperty("items").GetArrayLength());
-        Assert.Contains($"[More: offset={next}]", text);
-        Assert.Equal("Flood", record.GetProperty("items")[0].GetProperty("tag").GetString());
-    }
-
     [Fact]
     public void InstallAndUninstall_AreGated_ThenMapFailures()
     {
@@ -159,6 +140,42 @@ public sealed class DeviceTests : IDisposable
         Assert.Equal(["-s", FakeDevice.Serial, "install-multiple", "-r", apk], _fake.ArgumentLists.Last());
         await tools.InstallAndroidPackage(apk, keepInstalled: true);
         Assert.Equal(["-s", FakeDevice.Serial, "install-multiple", apk], _fake.ArgumentLists.Last());
+    }
+}
+
+/// <summary>The device tools through CORVUS_ADB and an in-process server: the process environment, so one class at a time.</summary>
+[Collection(ExternalToolEnvironmentCollection.Name)]
+public sealed class DeviceEnvironmentTests : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly FakeTool _fake = FakeDevice.Configure(new FakeTool(), AndroidSamples.Apk());
+    private readonly EnvironmentScope _env = new EnvironmentScope().Set("CORVUS_ADB", FakeTool.Executable);
+
+    public void Dispose()
+    {
+        _env.Dispose();
+        _fake.Dispose();
+        _dir.Dispose();
+    }
+
+    private DeviceService Service() => new(new ServerOptions()) { Environment = _fake.Environment };
+
+    /// <summary>A 1 MB log reads newest first in pages within the report budget; nextOffset walks to older lines.</summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public async Task Log_PagesNewestFirstWithinTheBudget()
+    {
+        using var script = new EnvironmentScope().Set(FakeTool.ScriptVariable, _fake.ScriptPath);
+        await using var server = await InProcessServer.StartAsync();
+        var page = await server.Client.CallToolAsync("read_android_log", new Dictionary<string, object?> { ["tag"] = "Flood" });
+        var text = string.Concat(page.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
+        var record = page.StructuredContent!.Value;
+        Assert.Equal(5_000, record.GetProperty("total").GetInt32());
+        Assert.True(TokenEstimate.Of(text) <= 4_200 && TokenEstimate.Of(record.GetRawText()) <= 4_200, $"{TokenEstimate.Of(text)} / {TokenEstimate.Of(record.GetRawText())}");
+        int next = record.GetProperty("nextOffset").GetInt32();
+        Assert.Equal(next, record.GetProperty("items").GetArrayLength());
+        Assert.Contains($"[More: offset={next}]", text);
+        Assert.Equal("Flood", record.GetProperty("items")[0].GetProperty("tag").GetString());
     }
 
     [Fact]

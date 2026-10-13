@@ -4,7 +4,6 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>Tool families: every tool in exactly one, option parsing, and a server lists only what it was started with.</summary>
-[Collection(InProcessCatalogCollection.Name)]
 public class ToolsetTests
 {
     [Fact]
@@ -58,8 +57,8 @@ public class ToolsetTests
     [Fact]
     public async Task ServerRegistersOnlyItsToolsets()
     {
-        await using var client = await McpProtocolTests.StartServerAsync(Toolsets.Option, "dotnet");
-        var tools = (await client.ListToolsAsync()).Select(t => t.Name).ToHashSet();
+        await using var server = await Start(Toolsets.Option, "dotnet");
+        var tools = (await server.Client.ListToolsAsync()).Select(t => t.Name).ToHashSet();
         Assert.Equal(Catalog.OfThisBuild(Toolsets.Parse("dotnet")).Tools.Select(t => (string)t["name"]!).ToHashSet(), tools);
         Assert.Contains("server_status", tools);
         Assert.DoesNotContain("get_pe_info", tools);
@@ -104,9 +103,18 @@ public class ToolsetTests
     [Fact]
     public async Task ServerRegistersOnlyTheWhitelistedTools()
     {
-        await using var client = await McpProtocolTests.StartServerAsync(Toolsets.ToolsFileOption, "triage");
-        var tools = (await client.ListToolsAsync()).Select(t => t.Name).ToHashSet();
+        await using var server = await Start(Toolsets.ToolsFileOption, "triage");
+        var tools = (await server.Client.ListToolsAsync()).Select(t => t.Name).ToHashSet();
         var expected = Toolsets.ToolLists["triage"].Concat(Toolsets.Families.Single(f => f.Name == Toolsets.Session).Tools).ToHashSet();
         Assert.Equal(expected, tools);
+    }
+
+    /// <summary>A server from command-line options, in this process (a stdio server costs a process start and its JIT).</summary>
+    private static Task<InProcessServer> Start(params string[] args)
+    {
+        var options = ServerOptions.Parse(args);
+        options.BackgroundIndexing = false;
+        options.WatchFiles = false;
+        return InProcessServer.StartAsync(options: options);
     }
 }

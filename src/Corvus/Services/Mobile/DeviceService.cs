@@ -65,10 +65,14 @@ public sealed partial class DeviceService(ServerOptions options)
     /// <summary>Extra environment for adb (tests).</summary>
     internal IReadOnlyDictionary<string, string?>? Environment { get; init; }
 
+    /// <summary>The adb to run instead of the located one (tests that must not set CORVUS_ADB for the whole process).</summary>
+    internal string? AdbOverride { get; init; }
+
     private static ExternalTool Adb => ExternalTools.Adb;
 
     private string AdbPath()
     {
+        if (AdbOverride != null) return AdbOverride;
         var probe = ExternalTools.Probe(Adb);
         if (probe.Path is { } path && probe.Found) return path;
         throw new ToolError(ErrorCode.ProviderUnavailable, $"adb is not available: {probe.Problem}.", probe.Remediation);
