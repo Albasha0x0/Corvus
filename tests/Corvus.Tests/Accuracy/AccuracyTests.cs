@@ -74,6 +74,33 @@ public class AccuracyTests(ITestOutputHelper output)
         return Path.Combine([root, id.ToLowerInvariant(), version, .. parts]);
     }
 
+    /// <summary>SHA-256 over every function (start, ranges, flags) and cross-reference: tells whether a change touched an image at all.</summary>
+    private static string Digest(NativeCodeIndex index)
+    {
+        using var h = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        Span<byte> b = stackalloc byte[12];
+        foreach (var f in index.Functions)
+        {
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b, f.Start);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b[4..], (uint)f.Flags);
+            h.AppendData(b[..8]);
+            foreach (var (s, e) in index.Ranges(f))
+            {
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b, s);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b[4..], e);
+                h.AppendData(b[..8]);
+            }
+        }
+        foreach (var x in index.RefsFrom(0, uint.MaxValue))
+        {
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b, x.From);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b[4..], x.To);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b[8..], (uint)x.Kind);
+            h.AppendData(b);
+        }
+        return Convert.ToHexStringLower(h.GetHashAndReset());
+    }
+
     /// <summary>End of the main body: the code ranges chained from the start across gaps of at most 16 bytes.</summary>
     public static uint MainEnd(NativeCodeIndex index, NativeFunction f)
     {
@@ -130,7 +157,7 @@ public class AccuracyTests(ITestOutputHelper output)
             }
             var doc = new JsonObject
             {
-                ["engine"] = "ours", ["id"] = id, ["base"] = 0, ["seconds"] = Math.Round(sw.Elapsed.TotalSeconds, 2),
+                ["engine"] = "ours", ["id"] = id, ["base"] = 0, ["seconds"] = Math.Round(sw.Elapsed.TotalSeconds, 2), ["digest"] = Digest(index),
                 ["imageBase"] = image.ImageBase, ["functions"] = funcs, ["xrefs"] = xrefs,
             };
             File.WriteAllText(Path.Combine(outDir, id + ".json"), doc.ToJsonString());

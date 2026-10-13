@@ -170,6 +170,12 @@ internal sealed class X86Decoder : ICodeDecoder
         }
         if (insn.Flow is FlowKind.Jump or FlowKind.Call or FlowKind.ConditionalJump && IsNear(i.Op0Kind))
             insn.HasTarget = TryRva(i.NearBranchTarget, out insn.Target);
+        if (insn.Flow == FlowKind.Call && i.Code is Iced.Intel.Code.Call_rel32_32 or Iced.Intel.Code.Call_rel32_64 && Retpoline(data, pos, end) is { } thunk)
+        {
+            insn.Flow = thunk.Flow;
+            insn.Length = thunk.Length;
+            insn.HasTarget = false;
+        }
 
         bool hasMemory = false, hasImmediate = false;
         for (int k = 0; k < i.OpCount; k++)
@@ -181,6 +187,33 @@ internal sealed class X86Decoder : ICodeDecoder
         if (hasMemory) ResolveMemory(in i, ref insn);
         if (hasImmediate) ResolveImmediate(in i, ref insn);
         if (_pic != null) TrackPic(in i, in insn);
+    }
+
+    /// <summary>
+    /// A retpoline or return thunk at the call at <paramref name="pos"/>: "call L; capture loop (pause / lfence / int3); L: mov [rsp], reg; ret"
+    /// is an indirect jump through reg, "L: lea rsp, [rsp+8]; ret" (or add rsp, 8) a return. The thunk decodes as that one
+    /// instruction, so its capture loop and L are neither code to follow nor a call target. Null for any other call.
+    /// </summary>
+    private (FlowKind Flow, int Length)? Retpoline(byte[] data, int pos, int end)
+    {
+        int gap = BitConverter.ToInt32(data, pos + 1);
+        int at = pos + 5 + gap;
+        if (gap is < 2 or > 32 || at + 7 > end) return null;
+        ReadOnlySpan<byte> loop = data.AsSpan(pos + 5, 3), l = data.AsSpan(at);
+        if (!(loop[0] == 0xCC || loop.StartsWith((ReadOnlySpan<byte>)[0xF3, 0x90]) || loop.StartsWith((ReadOnlySpan<byte>)[0x0F, 0xAE, 0xE8]))) return null;
+        int rex = 0;
+        if (_is64)
+        {
+            if (l[0] is 0x48 or 0x4C && l[1] == 0x89 && (l[2] & 0xC7) == 0x04 && l[3] == 0x24 && l[4] == 0xC3) return (FlowKind.IndirectJump, at + 5 - pos);
+            if (l[0] != 0x48) return null;
+            l = l[1..];
+            rex = 1;
+        }
+        else if (l[0] == 0x89 && (l[1] & 0xC7) == 0x04 && l[2] == 0x24 && l[3] == 0xC3) return (FlowKind.IndirectJump, at + 4 - pos);
+        byte size = _is64 ? (byte)8 : (byte)4;
+        if (l.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x64, 0x24, size, 0xC3])) return (FlowKind.Return, at + rex + 5 - pos);
+        if (l.StartsWith((ReadOnlySpan<byte>)[0x83, 0xC4, size, 0xC3])) return (FlowKind.Return, at + rex + 4 - pos);
+        return null;
     }
 
     // i386 position-independent code outside PE: register -> the RVA it holds after "call __x86.get_pc_thunk.reg; add reg, imm" (0 = unknown)
