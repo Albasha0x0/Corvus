@@ -111,7 +111,7 @@ public class IlHealthTests : IDisposable
 
         using var clean = new Env();
         var corrupt = clean.Workspace.Load(path);
-        var compare = new CompareTools(clean.Workspace, new AssemblyComparer(clean.Workspace), clean.Pager, clean.Decompiler);
+        var compare = new CompareTools(clean.Workspace, new AssemblyComparer(clean.Workspace), clean.Decompiler);
         Assert.Contains($"Skipped: {invalid} method bodies of the new build ({corrupt.Id}) are not valid IL (encrypted?) and were not compared",
             await compare.CompareAssemblies(clean.Fixture.Id, corrupt.Id));
         Assert.Contains($"Skipped: 0 old and {invalid} new method bodies are not valid IL and were not compared",
@@ -179,7 +179,7 @@ public class IlHealthTests : IDisposable
         Assert.Contains(plain, m => m.Change == "removed" && m.Old!.Name == "Gone");
         Assert.Contains(plain, m => m.Change == "added" && m.New!.Name == "Fresh");
 
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Decompiler);
         var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
         Assert.Contains("unknown   method Foo(int): ", text);
         Assert.Contains("1 added, 1 removed, 0 ambiguous, 2 unknown", text);

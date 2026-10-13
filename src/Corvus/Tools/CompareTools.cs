@@ -13,7 +13,7 @@ using TypeChange = Corvus.Services.AssemblyComparer.TypeChange;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, OutputPager pager, DecompilerService decompiler)
+public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, DecompilerService decompiler)
 {
     private static readonly string[] AllKinds = ["renamed", "moved", "signature", "body", "metadata", "type", "offset", "address", "added", "removed", "ambiguous", "unknown"];
 
@@ -41,8 +41,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [property: Description("Member matches by confidence: exact, strong, structural.")] IReadOnlyList<KindCount> MemberMatches,
         int AmbiguousMembers, int OldSkippedBodies, int NewSkippedBodies,
         [property: Description("Compiler-generated type and member changes left out.")] int HiddenCompilerGenerated,
-        [property: Description("The changes listed in the text, in its order; only with offset 0, cut when too long.")] IReadOnlyList<ChangeItem> Items,
-        int Total, bool Truncated,
+        [property: Description("The changes of this page, in the text's order.")] IReadOnlyList<ChangeItem> Items,
+        int Offset, int Total,
         [property: Description("The file tokenMapPath wrote.")] string? TokenMapFile,
         int TokenMapEntries);
 
@@ -70,7 +70,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [Description("Also show compiler-generated types and members (closures, state machines, backing fields), which change with every recompile.")] bool includeCompilerGenerated = false,
         [Description("Write the whole assembly's token map (old -> new token, status, tier, confidence, body hash equality) to this JSON file.")] string? tokenMapPath = null,
         [Description("Replace an existing token map file.")] bool overwrite = false,
-        [Description(CharOffsetDescription)] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description("Changes per page (default 200).")] int limit = 200,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
@@ -122,37 +123,29 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             sb.AppendLine($"Token map: {map.Count} old types and members written to {mapFile}.");
         }
 
-        var items = new List<ChangeItem>();
+        // One row per change; a row starting a new group (its type, or a section) prints the group's heading first.
+        var rows = new List<(ChangeItem Item, string Group, string? Line)>();
         // Removed types are listed here only for the methods that moved out of them.
         foreach (var t in types.Where(t => t.Change is "renamed" or "changed" or "removed"))
         {
             var members = t.Members.Where(m => m.Dimensions.Any(d => kinds.Contains(d.Kind))).ToList();
             if (t.Change != "renamed" && members.Count == 0) continue;
-            sb.AppendLine();
-            sb.AppendLine(t.Change == "renamed"
+            var heading = t.Change == "renamed"
                 ? $"{t.Old!.FullName} -> {t.New!.FullName}  (renamed, match {t.Score:P0}; {Tier(AssemblyComparer.TypeTier(t.Old, t.New))})"
-                : t.Change == "removed" ? $"{t.Old!.FullName}  (removed)" : t.Old!.FullName);
-            if (t.Change == "renamed") items.Add(TypeItem(t));
-            foreach (var m in members)
-            {
-                sb.AppendLine($"    {m.Change,-9} {Describe(cmp, m)}");
-                items.Add(MemberItem(cmp, m));
-            }
+                : t.Change == "removed" ? $"{t.Old!.FullName}  (removed)" : t.Old!.FullName;
+            if (t.Change == "renamed") rows.Add((TypeItem(t), heading, null));
+            foreach (var m in members) rows.Add((MemberItem(cmp, m), heading, $"{m.Change,-9} {Describe(cmp, m)}"));
         }
         var ambiguousTypes = types.Where(t => t.Change == "ambiguous").ToList();
-        if (ambiguousTypes.Count > 0)
-        {
-            sb.AppendLine($"\nAmbiguous types ({ambiguousTypes.Count}; several new types match equally well):");
-            foreach (var t in ambiguousTypes.Take(300))
-                sb.AppendLine($"  {t.Old!.FullName} -> {string.Join(" | ", t.Candidates!.Select(c => c.FullName))}");
-            items.AddRange(ambiguousTypes.Select(TypeItem));
-        }
+        foreach (var t in ambiguousTypes)
+            rows.Add((TypeItem(t), $"Ambiguous types ({ambiguousTypes.Count}; several new types match equally well):",
+                $"{t.Old!.FullName} -> {string.Join(" | ", t.Candidates!.Select(c => c.FullName))}"));
         if (listAddedRemovedTypes)
-        {
-            Section(sb, "Removed types", types.Where(t => t.Change == "removed").Select(t => t.Old!.FullName));
-            Section(sb, "Added types", types.Where(t => t.Change == "added").Select(t => t.New!.FullName));
-            items.AddRange(types.Where(t => t.Change is "removed" or "added").Select(TypeItem));
-        }
+            foreach (var change in new[] { "removed", "added" })
+            {
+                var list = types.Where(t => t.Change == change).ToList();
+                foreach (var t in list) rows.Add((TypeItem(t), $"{(change == "removed" ? "Removed" : "Added")} types ({list.Count}):", (t.Old ?? t.New)!.FullName));
+            }
 
         var matches = cmp.MemberMap.Where(m => @namespace == null || (m.Key.DeclaringType?.FullName.StartsWith(@namespace, StringComparison.Ordinal) ?? false))
             .GroupBy(m => m.Value.Confidence).ToDictionary(g => g.Key, g => g.Count());
@@ -162,8 +155,16 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             [.. Confidences.Select(c => new KindCount(c, matches.GetValueOrDefault(c)))],
             cmp.Ambiguous.Keys.Count(m => m is not TypeDef && (@namespace == null || (m.DeclaringType?.FullName.StartsWith(@namespace, StringComparison.Ordinal) ?? false))),
             cmp.OldSkippedBodies, cmp.NewSkippedBodies, hiddenTypes + hiddenMembers,
-            offset == 0 ? items : [], items.Count, false, mapFile, mapEntries);
-        return ToolOutput.With(pager.Page(sb.ToString(), offset, maxTokens), result);
+            [], Math.Max(0, offset), rows.Count, mapFile, mapEntries);
+        string? group = null;
+        string Row((ChangeItem Item, string Group, string? Line) r)
+        {
+            var text = (r.Group != group ? r.Group + (r.Line != null ? "\n" : "") : "") + (r.Line != null ? "  " + r.Line : "");
+            group = r.Group;
+            return text;
+        }
+        return ToolOutput.List(rows, offset, ClampLimit(limit), Row, page => result with { Items = page.Select(r => r.Item).ToList() }, "change",
+            sb.Append('\n').ToString());
     }, cancellationToken);
 
     private static ChangeItem TypeItem(TypeChange t)
@@ -422,14 +423,5 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
                 c.DeclaringType?.Name == m.Old!.DeclaringType?.Name ? Name(c) : $"{c.DeclaringType?.FullName}::{Name(c)}"))}",
             _ => $"{kind} {Name(member)}: {m.Detail}",
         }) + more;
-    }
-
-    private static void Section(StringBuilder sb, string title, IEnumerable<string> names)
-    {
-        var list = names.ToList();
-        if (list.Count == 0) return;
-        sb.AppendLine($"\n{title} ({list.Count}):");
-        foreach (var n in list.Take(300)) sb.AppendLine("  " + n);
-        if (list.Count > 300) sb.AppendLine($"  … {list.Count - 300} more");
     }
 }

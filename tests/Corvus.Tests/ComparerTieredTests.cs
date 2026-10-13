@@ -56,7 +56,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     {
         using var env = new Env(Write("v1", V1));
         var newer = env.Workspace.Load(Write("v2", V2));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Decompiler);
 
         var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
         output.WriteLine(text);
@@ -116,7 +116,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
             """;
         using var env = new Env(Write("mv1", before));
         var newer = env.Workspace.Load(Write("mv2", after));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Decompiler);
 
         var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
         output.WriteLine(text);
@@ -146,7 +146,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
             string.Concat(Enumerable.Range(0, 400).Select(i => $"s = s * {i + k} + {i};\n")) + "return s; } }";
         using var env = new Env(Write("d1", Big(3)));
         var newer = env.Workspace.Load(Write("d2", Big(4)));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Decompiler);
 
         var edit = await tools.FindCounterpart("Big::Edit", env.Fixture.Id, newer.Id, diff: true, il: true);
         output.WriteLine(edit);
@@ -188,7 +188,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
             """;
         using var env = new Env(Write("r1", before));
         var newer = env.Workspace.Load(Write("r2", after));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Decompiler);
 
         var run = await tools.FindCounterpart("Engine::Run", env.Fixture.Id, newer.Id, diff: true, il: true);
         output.WriteLine(run);
@@ -212,7 +212,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     {
         using var env = new Env(Write("v1", V1));
         var newer = env.Workspace.Load(Write("v2", V2));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Decompiler);
         var mapPath = _dir.File("map.json");
 
         var collector = Corvus.Mcp.ToolOutput.Collect();
@@ -226,6 +226,13 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(("method", "renamed", "Calc::MovedRenamed(int)", "IL hash", "strong"), (moved.Kind, moved.Change, moved.New, moved.Tier, moved.Confidence));
         Assert.Equal(2, result.Items.Single(i => i.Change == "ambiguous").Candidates!.Count);
         Assert.Equal(result.Items.Count, result.Total);
+        Assert.Contains($"{result.Total} changes (showing 1-{result.Total})", text);
+        // Rows page by offset: the second change alone, with its group heading, in both parts (G1).
+        var page = await tools.CompareAssemblies(env.Fixture.Id, newer.Id, offset: 1, limit: 1);
+        var second = Assert.IsType<CompareTools.AssemblyComparison>(collector.Value);
+        Assert.Equal(result.Items[1], Assert.Single(second.Items));
+        Assert.Contains("(showing 2-2)", page);
+        Assert.Contains(result.Total > 2 ? "[More: offset=2]" : "[End:", page);
         Assert.Contains($"Token map: {result.TokenMapEntries} old types and members written to {mapPath}.", text);
 
         using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(mapPath));
@@ -269,7 +276,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
             """;
         using var env = new Env(Write("m1", before));
         var newer = env.Workspace.Load(Write("m2", after));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Decompiler);
 
         var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
         output.WriteLine(text);

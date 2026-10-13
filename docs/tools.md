@@ -1663,10 +1663,11 @@ Compare two builds of an assembly (load both; the second gets an id like Name#2)
 | `includeCompilerGenerated` | boolean |  | `false` | Also show compiler-generated types and members (closures, state machines, backing fields), which change with every recompile. |
 | `tokenMapPath` | string |  |  | Write the whole assembly's token map (old -> new token, status, tier, confidence, body hash equality) to this JSON file. |
 | `overwrite` | boolean |  | `false` | Replace an existing token map file. |
-| `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `200` | Changes per page (default 200). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 
-Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `total`, `tokenMapFile`, `tokenMapEntries`, `limit`, `totalExact`, `hasMore`.
+Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `offset`, `total`, `tokenMapFile`, `tokenMapEntries`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### find_counterpart
 

@@ -99,7 +99,7 @@
       "type": "integer"
     },
     "items": {
-      "description": "The changes listed in the text, in its order; only with offset 0, cut when too long.",
+      "description": "The changes of this page, in the text's order.",
       "type": "array",
       "items": {
         "type": "object",
@@ -164,6 +164,9 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
     "total": {
       "type": "integer"
     },
@@ -182,6 +185,9 @@
     },
     "hasMore": {
       "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -215,6 +221,7 @@
     "newSkippedBodies",
     "hiddenCompilerGenerated",
     "items",
+    "offset",
     "total",
     "tokenMapEntries"
   ]
