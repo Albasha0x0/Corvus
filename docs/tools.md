@@ -2115,7 +2115,7 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 
 **Run IDAPython on a native image** (destructive, open-world, long-running)
 
-Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base = image base, globals persist (reset=true clears); returns a final expression's value, stdout and stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights. Not journaled: a worker restart loses changes unless persist=true.
+Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base = image base, globals persist (reset=true clears); returns a final expression's value, stdout and stderr. An exception is an error unless allowError. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights. Not journaled: persist=true saves.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2124,33 +2124,40 @@ Run Python in the IDA worker holding a native image's database (idalib): IDAPyth
 | `reset` | boolean |  | `false` | Clear the globals earlier calls left. |
 | `engine` | string |  |  | Default auto. Values: auto, ida. |
 | `file` | string |  |  | A .py file to run instead of code. |
-| `maxOutput` | integer |  | `20000` | Characters kept of the result, stdout and stderr each (100-200000). |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 | `persist` | boolean |  | `false` | Save the database after the script. |
+| `allowError` | boolean |  | `false` | Return an exception as the result instead of an error. |
+
+Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
 
 ### ghidra_script
 
 **Run a Ghidra script on a native image** (destructive, open-world, long-running)
 
-Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first (currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved. Off unless the server runs with --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights. Changes are not in the annotation sidecar.
+Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first (currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved; an exception rolls it back and is an error unless allowError. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `code` | string | yes |  | Java source: a class extending GhidraScript, or statements for run(). |
-| `timeout` | integer |  | `120` | Seconds before the script is cancelled (1-3600). |
+| `timeoutSeconds` | integer |  | `120` | Seconds before the script is cancelled (1-3600). |
 | `engine` | string |  |  | Default auto. Values: auto, ghidra. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
+| `allowError` | boolean |  | `false` | Return an exception as the result instead of an error. |
+
+Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
 
 ### export_engine_database
 
 **Export the engine database** (destructive, idempotent, open-world, long-running)
 
-Write a native image's engine database (analysis plus names, comments and types pushed from here) for the engine's GUI: IDA a compressed .i64, Ghidra a packed .gzf; Ghidra's own types also as .h or .gdt.
+Write a native image's engine database (analysis plus names, comments and types pushed from here) for the engine's GUI: IDA a compressed .i64, Ghidra a packed .gzf; Ghidra's own types also as .h or .gdt. Written whole or not at all.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `outputPath` | string | yes |  | The .i64 (IDA), .gzf, .h or .gdt (Ghidra) file to write. |
-| `force` | boolean |  | `false` | Replace outputPath if it exists. |
+| `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
 | `engine` | string |  |  | Default: the extension's engine, else IDA. Values: auto, ida, ghidra. |
 
 Structured output: `image`, `engine`, `path`, `bytes`, `note`.

@@ -6,8 +6,8 @@ ida_python: IDAPython in the image's IDA worker (idalib, headless). Off unless t
 Environment: idaapi, idc, idautils and the ida_* modules (auto, bytes, entry, frame, funcs, gdl, hexrays, ida, lines, loader,
 nalt, name, netnode, segment, typeinf, ua, xref) are imported. base is
 the image base: IDA works in VAs (ea = base + rva); the other tools take either form. Globals persist between calls
-(reset=true clears them). The last line, when an expression, is the result (its repr); print() goes to stdout. Output is
-clipped at maxOutput per stream: return counts or slices of large lists, or page with an offset global.
+(reset=true clears them). The last line, when an expression, is the result (its repr); print() goes to stdout. Output past
+the page is kept whole under a resultId (read_result pages it); an exception is an error unless allowError=true.
 The database: names, comments and types set with the other tools are pushed before the script runs. Script changes are not
 journaled: a worker restart (crash, time limit) loses them unless persist=true saves the database; names and comments that
 should survive and reach other tools and new builds belong in rename_native / comment_native / set_native_type instead.

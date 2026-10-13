@@ -15,10 +15,9 @@ public sealed class EngineScriptToolTests
         using var workspace = new AssemblyWorkspace(options);
         using var engines = new NativeEngineService();
         var tools = new EngineScriptTools(workspace, engines, options);
-        Task<string> Run(string? code = null, string? file = null, int maxOutput = 20_000) => tools.IdaPython("x.dll", code, file: file, maxOutput: maxOutput);
+        Task<string> Run(string? code = null, string? file = null) => tools.IdaPython("x.dll", code, file: file);
         Assert.Equal("Pass code or file.", (await Assert.ThrowsAsync<ToolError>(() => Run())).Message);
         Assert.Equal("Pass code or file, not both.", (await Assert.ThrowsAsync<ToolError>(() => Run("1", "a.py"))).Message);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Run("1", maxOutput: 10))).Code);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => Run(file: dir.File("missing.py")))).Code);
         var off = new EngineScriptTools(workspace, engines, new ServerOptions());
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => off.IdaPython("x.dll", "1"))).Code);

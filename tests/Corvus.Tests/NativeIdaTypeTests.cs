@@ -274,16 +274,18 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.True(int.Parse(count.Split("Result: ")[1].Split('\n')[0]) > 50, count);
         await rig.Scripts.IdaPython(Image, "x = 20\nprint('set', x)");
         Assert.Contains("Result: 42", await rig.Scripts.IdaPython(Image, "x * 2 + 2"));
-        Assert.Contains("ZeroDivisionError", await rig.Scripts.IdaPython(Image, "1 / 0"));
-        Assert.Contains("NameError", await rig.Scripts.IdaPython(Image, "x", reset: true));
+        var raised = await Assert.ThrowsAsync<ToolError>(() => rig.Scripts.IdaPython(Image, "1 / 0"));
+        Assert.Contains("ZeroDivisionError", raised.Message);
+        Assert.Contains("ZeroDivisionError", await rig.Scripts.IdaPython(Image, "1 / 0", allowError: true));
+        Assert.Contains("NameError", await rig.Scripts.IdaPython(Image, "x", reset: true, allowError: true));
         var printed = await rig.Scripts.IdaPython(Image, "print('hello from ida')");
         Assert.Contains("stdout:\nhello from ida", printed);
-        // a script file, output clipped, the database saved afterwards
+        // a script file, the database saved afterwards
         var script = _dir.File("script.py");
         File.WriteAllText(script, "print('y' * 500)\n7 * 6");
-        var clipped = await rig.Scripts.IdaPython(Image, file: script, maxOutput: 100);
-        Assert.Contains("Result: 42", clipped);
-        Assert.Contains("[clipped at 100 of 500 characters]", clipped);
+        var printedFile = await rig.Scripts.IdaPython(Image, file: script);
+        Assert.Contains("Result: 42", printedFile);
+        Assert.Contains(new string('y', 500), printedFile);
         var database = Directory.EnumerateFiles(_dir.File("cache-q"), "*.i64", SearchOption.AllDirectories).Single();
         var before = File.GetLastWriteTimeUtc(database);
         await Task.Delay(1100);
@@ -304,7 +306,8 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         await rig.Types.DeclareNativeTypes(Image, "struct SampleShipped { int a; };");
         var export = new EngineExportTools(rig.Workspace, rig.Engines, rig.Code);
         var target = _dir.File("out/copy");
-        var r = await export.ExportEngineDatabase(Image, target);
+        var (_, call) = await EngineMeta.Run(() => export.ExportEngineDatabase(Image, target));
+        var r = Assert.IsType<EngineExportTools.DatabaseExport>(call.Record);
         output.WriteLine($"{r.Path} {r.Bytes}");
         Assert.Equal(Path.GetFullPath(target + ".i64"), r.Path);
         Assert.True(new FileInfo(r.Path).Length > 1000 && r.Bytes == new FileInfo(r.Path).Length);
@@ -320,7 +323,22 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         await session.SaveAsync();
         Assert.Equal(own, session.DatabasePath);
         Assert.Equal(copyTime, File.GetLastWriteTimeUtc(r.Path));
-        Assert.Equal(r.Path, (await export.ExportEngineDatabase(Image, r.Path, force: true)).Path);
+        Assert.Contains(r.Path, await export.ExportEngineDatabase(Image, r.Path, overwrite: true));
+        Assert.Empty(Directory.EnumerateFiles(Path.GetDirectoryName(r.Path)!, "*.tmp"));
+
+        // a path past IDA's 259 characters is written through a short one and moved, or refused before IDA works
+        var deep = Path.Combine(_dir.File("long"), new string('d', 120), new string('e', 120), "copy.i64");
+        Assert.True(deep.Length > 300);
+        try
+        {
+            Assert.Contains(deep, await export.ExportEngineDatabase(Image, deep));
+            Assert.True(new FileInfo(deep).Length > 1000);
+        }
+        catch (ToolError e)
+        {
+            Assert.Equal(ErrorCode.IoError, e.Code);
+            Assert.Contains("characters", e.Message);
+        }
         Assert.Contains((await session.GetTypeAsync("SampleShipped")).Members, m => m.Name == "a");
     }
 
