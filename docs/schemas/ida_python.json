@@ -9,7 +9,6 @@
       "type": "string"
     },
     "result": {
-      "description": "The final expression's value (ida_python).",
       "type": "string"
     },
     "stdout": {
@@ -19,11 +18,9 @@
       "type": "string"
     },
     "error": {
-      "description": "The exception and traceback, with allowError=true (else the call is an error).",
       "type": "string"
     },
     "saved": {
-      "description": "Whether the database was saved after the script.",
       "type": "boolean"
     },
     "notices": {

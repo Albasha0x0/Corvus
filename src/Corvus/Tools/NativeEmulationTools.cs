@@ -97,41 +97,30 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
         r.GetProperty("where").GetString() is { } w ? $"{r.GetProperty("pc").GetString()} ({w})" : r.GetProperty("pc").GetString() ?? "?";
 
     public sealed record EmulatedRegister(string Name, string Value);
-    public sealed record EmulatedCall(string Site, string Target, string? Name,
-        [property: Description("into (stepped in), stub (answered by stubs=) or skip.")] string Action, string? Value);
-    public sealed record EmulatedMemory(string Va, [property: Description("The image item there, if any.")] string? Where, long Length,
-        [property: Description("The bytes, hex.")] string Bytes, [property: Description("The bytes as text, when they read as ASCII or UTF-16.")] string? Text);
+    public sealed record EmulatedCall(string Site, string? Name, string Action, string? Value);
+    public sealed record EmulatedMemory(string Va, long Length, string Bytes, string? Text);
     public sealed record EmulatedRead(string? Label, string Va, string? Bytes, string? Text, string? Error);
-    public sealed record EmulatedScratch(string Label, string Va, int Length);
 
-    [Description("An emulation run: why it stopped, the return value, changed registers, calls, written memory, reads and trace.")]
-    public sealed record EmulationReport(string Image, string Engine, string Language, long Instructions,
-        [property: Description("returned, stop_address, instruction_budget, time_budget, unmodelled_call, memory_fault, unmapped_execute, error or cancelled.")] string Stop,
-        [property: Description("Where it stopped (VA and item), unless it returned.")] string? StoppedAt,
-        string? ReturnRegister, string? ReturnValue,
-        [property: Description("Registers the run changed.")] IReadOnlyList<EmulatedRegister> Registers,
-        int CallCount, IReadOnlyList<EmulatedCall> Calls, IReadOnlyList<EmulatedScratch> Scratch,
-        int WrittenRanges, long StackBytesWritten, IReadOnlyList<EmulatedMemory> Written, IReadOnlyList<EmulatedRead> Reads,
-        [property: Description("The last instructions: VA and text.")] IReadOnlyList<IReadOnlyList<string>> Trace)
+    public sealed record EmulationReport(string Image, string Engine, long Instructions, string Stop, string? StoppedAt, string? ReturnRegister, string? ReturnValue,
+        IReadOnlyList<EmulatedRegister> Registers, int CallCount, IReadOnlyList<EmulatedCall> Calls, IReadOnlyList<EmulatedMemory> Written,
+        IReadOnlyList<EmulatedRead> Reads, IReadOnlyList<IReadOnlyList<string>> Trace)
     {
-        [Description("Seconds the run took (moved to _meta).")] public double? ElapsedSeconds { get; init; }
+        public double? ElapsedSeconds { get; init; }
     }
 
     internal static EmulationReport Report(string imageId, JsonElement r)
     {
         string? S(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         var stop = S(r, "stop") ?? "stopped";
-        return new EmulationReport(imageId, "ghidra", S(r, "language") ?? "", r.GetProperty("instructions").GetInt64(), stop, stop == "returned" ? null : At(r),
+        return new EmulationReport(imageId, "ghidra", r.GetProperty("instructions").GetInt64(), stop, stop == "returned" ? null : At(r),
             stop == "returned" ? S(r, "return_register") : null, stop == "returned" ? S(r, "return_value") : null,
             [.. r.GetProperty("registers").EnumerateArray().Where(x => x[2].GetBoolean()).Select(x => new EmulatedRegister(x[0].GetString()!, x[1].GetString()!))],
             r.GetProperty("call_count").GetInt32(),
-            [.. r.GetProperty("calls").EnumerateArray().Select(c => new EmulatedCall(S(c, "site") ?? "", S(c, "target") ?? "", S(c, "name"), S(c, "action") ?? "", S(c, "value")))],
-            [.. r.GetProperty("scratch").EnumerateArray().Select(s => new EmulatedScratch(S(s, "label") ?? "", S(s, "va") ?? "", s.GetProperty("length").GetInt32()))],
-            r.GetProperty("written_ranges").GetInt32(), r.GetProperty("stack_bytes_written").GetInt64(),
+            [.. r.GetProperty("calls").EnumerateArray().Select(c => new EmulatedCall(S(c, "site") ?? "", S(c, "name") ?? S(c, "target"), S(c, "action") ?? "", S(c, "value")))],
             [.. r.GetProperty("written").EnumerateArray().Select(w =>
             {
                 var bytes = Convert.FromHexString(S(w, "bytes") ?? "");
-                return new EmulatedMemory(S(w, "va") ?? "", S(w, "where"), w.GetProperty("length").GetInt64(), Convert.ToHexString(bytes), Ascii(bytes) ?? Utf16(bytes));
+                return new EmulatedMemory(S(w, "va") ?? "", w.GetProperty("length").GetInt64(), Convert.ToHexString(bytes), Ascii(bytes) ?? Utf16(bytes));
             })],
             [.. r.GetProperty("reads").EnumerateArray().Select(x =>
             {

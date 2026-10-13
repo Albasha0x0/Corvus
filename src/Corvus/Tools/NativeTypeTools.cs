@@ -52,26 +52,34 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private static string Edited(string text, EditId? id, IReadOnlyList<EditChange> changes, int? failed)
     {
         text = text.TrimEnd('\n') + (id is { } e ? $"\nEdit {e} (undo_native_edit editId={e} takes it back)" : "") + "\n";
-        return ToolOutput.Edit(new EditOutcome(changes.Count > 0, false, changes, id is { } i ? [i] : []) { Failed = failed is > 0 ? failed : null }, text);
+        return ToolOutput.With(text, new EditResult(changes.Count > 0, false, [.. changes.Select(c => new EditTarget(c.Kind, c.Target))], id is { } i ? [i] : [])
+            { Failed = failed is > 0 ? failed : null });
     }
 
-    [Description("A stack frame member or a decompiler local of get_native_frame.")]
+    // the compact single-edit outcome (the shape of the .NET edit tools'): before and after are in the text
+    public sealed record EditTarget(string Kind, string Target);
+
+    public sealed record EditResult(bool Applied, bool DryRun, IReadOnlyList<EditTarget> Changes, IReadOnlyList<EditId> EditIds)
+    {
+        public int? Failed { get; init; }
+    }
+
     public sealed record FrameRow(
-        [property: Description("member (the engine's frame) or local (the decompiler's variables).")] string Kind,
+        string Kind,
         string Name,
         string Type,
-        [property: Description("member: offset from the frame's lowest address; local: its stack offset, when on the stack.")] int? Offset,
-        [property: Description("member: offset from the return address (IDA's var_/arg_).")] int? BaseOffset,
+        int? Offset,
+        int? BaseOffset,
         int? Size,
-        [property: Description("member: local, arg or special (return address, saved registers).")] string? Slot,
-        [property: Description("local: register name, or stack.")] string? Location,
+        string? Slot,
+        string? Location,
         bool? Argument,
         bool? UserName,
         bool? UserType);
 
-    public sealed record FrameReport(string Image, string Engine, [property: Description("VA of the function start.")] string Function, string Name,
+    public sealed record FrameReport(string Image, string Engine, string Function, string Name,
         int LocalSize, int SavedRegisters, int ReturnAddressOffset, int Members, int Locals,
-        [property: Description("Why there are no decompiler locals (decompiler error, or locals not asked).")] string? LocalsNote,
+        string? LocalsNote,
         IReadOnlyList<FrameRow> Items, int Offset, int Total);
 
     [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals", UseStructuredContent = true, OutputSchemaType = typeof(FrameReport))]
@@ -138,7 +146,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     private static string Plural(int n, string noun) => ToolSupport.Plural(n, noun);
 
-    [McpServerTool(Name = "set_native_stack_var", Title = "Rename, retype or delete a stack variable")]
+    [McpServerTool(Name = "set_native_stack_var", Title = "Rename, retype or delete a stack variable", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Rename and/or retype a stack frame member, by its get_native_frame name (var_28) or frame offset (0x20, from the lowest " +
                  "address); a type at an empty offset creates one. The return address and saved registers are refused." + KeptNote)]
     public Task<string> SetNativeStackVar(
@@ -204,7 +212,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     private static string Va(LoadedNative native, uint rva) => NativeAddress.Va(native.Image, rva);
 
-    [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type")]
+    [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or the type of a global ('Handler *[8]') " +
                  "in the engine. Named types must exist there (pushed PDB, RTTI and Il2Cpp types, or declare_native_types). User types win over " +
                  "recovered ones; empty clears. rename=true also names the function as its prototype does." + KeptNote)]
@@ -320,7 +328,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             lines.Length - applied);
     }
 
-    [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local")]
+    [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or " +
                  "stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused." + KeptNote)]
     public Task<string> SetNativeLocal(
@@ -472,7 +480,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return layer;
     }
 
-    [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine")]
+    [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine; a type of the same name is replaced, and " +
                  "declarations win over recovered types. Errors carry the engine's messages and are not saved. typeName with members upserts or " +
                  "removes enum members, with fields struct or union members; delete or rename edits a named type." + KeptNote)]
@@ -663,7 +671,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return result;
     }
 
-    [McpServerTool(Name = "define_native", Title = "Redefine code or data in the engine")]
+    [McpServerTool(Name = "define_native", Title = "Redefine code or data in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Change the engine's analysis at an address. code decodes instructions (to end, else following the flow); function makes " +
                  "a function (with end: its extent; on one: moves its end); undefine makes unknown bytes (to end, else the item; at a function start " +
                  "the function); data makes a data item of type. Data and undefine replace a user type on a global there." + KeptNote)]
@@ -701,7 +709,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return Edited($"{k} at {where} ({session.ProviderId}): {done.Text}", id, new EditChange(k, where, null, done.Text));
     });
 
-    [McpServerTool(Name = "set_native_operand", Title = "Set how an operand displays")]
+    [McpServerTool(Name = "set_native_operand", Title = "Set how an operand displays", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: " +
                  "offset (the constant as an address), stack (a stack variable), enum (type: the enum; a member of the constant's value), struct " +
                  "(type: 'Packet' or 'Packet+0x10'; IDA only) or default (the engine's). Ghidra shows numbers and enum members as equates." + KeptNote)]
@@ -797,13 +805,13 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     public sealed record TypeMemberEntry(string Name, string? Type,
-        [property: Description("Struct or union: byte offset; enum: the member's value.")] long Offset, long? Size);
+        long Offset, long? Size);
 
-    public sealed record TypeEntry(string Name, [property: Description("struct, union, enum, typedef, func or ptr.")] string Kind, long? Size, int MemberCount,
-        [property: Description("members=true: the first 32.")] IReadOnlyList<TypeMemberEntry>? Members,
-        [property: Description("related=true: the types it refers to.")] IReadOnlyList<string>? Related)
+    public sealed record TypeEntry(string Name, string Kind, long? Size, int MemberCount,
+        IReadOnlyList<TypeMemberEntry>? Members,
+        IReadOnlyList<string>? Related)
     {
-        [Description("name=: the type as a C declaration.")] public string? Declaration { get; init; }
+        public string? Declaration { get; init; }
     }
 
     public sealed record TypeListReport(string Engine, IReadOnlyList<TypeEntry> Items, int Offset, int Total);

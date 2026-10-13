@@ -9,11 +9,9 @@
       "type": "string"
     },
     "scope": {
-      "description": "The range reanalyzed (VAs), or the whole image.",
       "type": "string"
     },
     "complete": {
-      "description": "The analysis queue ran empty; false: the time ran out and the rest runs on the next reanalysis.",
       "type": "boolean"
     },
     "functionsBefore": {
@@ -23,7 +21,6 @@
       "type": "integer"
     },
     "options": {
-      "description": "name=value set for this run only.",
       "type": "array",
       "items": {
         "type": "string"
@@ -36,7 +33,6 @@
       }
     },
     "items": {
-      "description": "analyzers=true: the options matching filter.",
       "type": "array",
       "items": {
         "type": "object",
@@ -48,9 +44,6 @@
             "type": "string"
           },
           "type": {
-            "type": "string"
-          },
-          "description": {
             "type": "string"
           }
         },

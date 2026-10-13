@@ -17,10 +17,10 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
 {
     [Description("A script's outcome; past the page the whole text is kept under resultId.")]
     public sealed record ScriptReport(string Image, string Engine,
-        [property: Description("The final expression's value (ida_python).")] string? Result,
+        string? Result,
         string? Stdout, string? Stderr,
-        [property: Description("The exception and traceback, with allowError=true (else the call is an error).")] string? Error,
-        [property: Description("Whether the database was saved after the script.")] bool Saved);
+        string? Error,
+        bool Saved);
 
     [McpServerTool(Name = "ida_python", Title = "Run IDAPython on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
     [Description("Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base = image base, " +

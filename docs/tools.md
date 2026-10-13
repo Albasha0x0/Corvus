@@ -1439,7 +1439,7 @@ Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memo
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
 | `engine` | string |  |  | auto or ghidra. Values: auto, ghidra. |
 
-Structured output: `image`, `engine`, `language`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `scratch`, `writtenRanges`, `stackBytesWritten`, `written`, `reads`, `trace`.
+Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`.
 
 ### verify_native_imports
 
@@ -1970,6 +1970,8 @@ Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+
 ### set_native_local
 
 **Rename or retype a decompiler local** (destructive, idempotent, open-world, long-running)
@@ -1988,6 +1990,8 @@ Rename and/or retype a local or argument in a native function's pseudocode, name
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+
 ### set_native_stack_var
 
 **Rename, retype or delete a stack variable** (destructive, idempotent, open-world, long-running)
@@ -2005,6 +2009,8 @@ Rename and/or retype a stack frame member, by its get_native_frame name (var_28)
 | `clear` | boolean |  | `false` | Drop the user's edit, restoring the engine's member. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### get_native_frame
 
@@ -2039,6 +2045,8 @@ Declare C types (structs, unions, enums, typedefs, function types) in the engine
 | `delete` | string |  |  | A type to delete. |
 | `rename` | string |  |  | 'Old=New'; kept edits naming it follow. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### list_native_types
 
@@ -2077,6 +2085,8 @@ Change the engine's analysis at an address. code decodes instructions (to end, e
 | `type` | string |  |  | kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16) or a C type, with an optional [count] (dword[8]). |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+
 ### reanalyze_native
 
 **Re-run native auto-analysis** (destructive, open-world, long-running)
@@ -2110,6 +2120,8 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 | `display` | string | yes |  | How to display it (see the description). Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
 | `type` | string |  |  | display=enum or struct: the type's name (struct: optionally +delta). |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### ida_python
 

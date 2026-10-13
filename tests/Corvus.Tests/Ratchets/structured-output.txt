@@ -5,9 +5,7 @@ add_search_directory
 add_types_csharp
 apply_edits
 apply_il2cpp_names
-declare_native_types
 decompile_java
-define_native
 diff_edits
 disassemble
 disassemble_dex
@@ -33,10 +31,6 @@ rename_symbol
 revert_edits
 save_assembly
 search_instructions
-set_native_local
-set_native_operand
-set_native_stack_var
-set_native_type
 simplify_methods
 stub_method
 undo_edit

@@ -16,16 +16,16 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeCodeService? code = null)
 {
-    public sealed record AnalyzerEntry(string Name, string Value, string Type, string? Description);
+    public sealed record AnalyzerEntry(string Name, string Value, string Type);
 
     [Description("A reanalysis run, or with analyzers=true the analyzer options (items).")]
     public sealed record ReanalysisReport(string Image, string Engine,
-        [property: Description("The range reanalyzed (VAs), or the whole image.")] string? Scope,
-        [property: Description("The analysis queue ran empty; false: the time ran out and the rest runs on the next reanalysis.")] bool? Complete,
+        string? Scope,
+        bool? Complete,
         int? FunctionsBefore, int? FunctionsAfter,
-        [property: Description("name=value set for this run only.")] IReadOnlyList<string>? Options,
+        IReadOnlyList<string>? Options,
         IReadOnlyList<string>? Warnings,
-        [property: Description("analyzers=true: the options matching filter.")] IReadOnlyList<AnalyzerEntry>? Items,
+        IReadOnlyList<AnalyzerEntry>? Items,
         int? Total)
     {
         [Description("Seconds the run took (moved to _meta).")] public double? ElapsedSeconds { get; init; }
@@ -74,13 +74,14 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         if (analyzers)
         {
             var all = (await control.AnalyzersAsync(cancellationToken)).Where(a => nameFilter == null || nameFilter.IsMatch(a.Name))
-                .Select(a => new AnalyzerEntry(a.Name, a.Value, a.Type, string.IsNullOrWhiteSpace(a.Description) ? null : Format.Clip(a.Description.ReplaceLineEndings(" "), 160)))
+                .ToList();
+            var entries = all.Select(a => new AnalyzerEntry(a.Name, a.Value, a.Type))
                 .ToList();
             // No offset: the whole list; past the page the call filter keeps it for read_result.
             var text = $"// {native.Id}: {session.ProviderId} analysis options" + (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + "\n" +
-                       $"{Plural(all.Count, "option")}:\n" + string.Concat(all.Select(a => $"  {a.Name} = {a.Value}  ({a.Type}){(a.Description != null ? "  " + a.Description : "")}\n")) +
+                       $"{Plural(all.Count, "option")}:\n" + string.Concat(all.Select(a => $"  {a.Name} = {a.Value}  ({a.Type}){(string.IsNullOrWhiteSpace(a.Description) ? "" : "  " + Format.Clip(a.Description.ReplaceLineEndings(" "), 160))}\n")) +
                        (nameFilter?.Note("option name") ?? "");
-            return ToolOutput.Report(text, new ReanalysisReport(native.Id, session.ProviderId, null, null, null, null, null, null, all, all.Count));
+            return ToolOutput.Report(text, new ReanalysisReport(native.Id, session.ProviderId, null, null, null, null, null, null, entries, entries.Count));
         }
 
         var r = await control.ReanalyzeAsync(pairs, from, from is { } s ? to ?? s + 1 : null, timeoutSeconds, cancellationToken);

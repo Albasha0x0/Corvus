@@ -54,7 +54,7 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
     {
         var (text, c) = await EngineMeta.Run(call);
         output.WriteLine(text.Split('\n')[0]);
-        var outcome = Assert.IsType<EditOutcome>(c.Record);
+        var outcome = Assert.IsType<NativeTypeTools.EditResult>(c.Record);
         Assert.True(outcome.Applied);
         return (text, Assert.Single(outcome.EditIds));
     }

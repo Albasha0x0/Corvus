@@ -8,7 +8,6 @@
       "type": "string"
     },
     "function": {
-      "description": "VA of the function start.",
       "type": "string"
     },
     "name": {
@@ -30,17 +29,14 @@
       "type": "integer"
     },
     "localsNote": {
-      "description": "Why there are no decompiler locals (decompiler error, or locals not asked).",
       "type": "string"
     },
     "items": {
       "type": "array",
       "items": {
-        "description": "A stack frame member or a decompiler local of get_native_frame.",
         "type": "object",
         "properties": {
           "kind": {
-            "description": "member (the engine's frame) or local (the decompiler's variables).",
             "type": "string"
           },
           "name": {
@@ -50,22 +46,18 @@
             "type": "string"
           },
           "offset": {
-            "description": "member: offset from the frame's lowest address; local: its stack offset, when on the stack.",
             "type": "integer"
           },
           "baseOffset": {
-            "description": "member: offset from the return address (IDA's var_/arg_).",
             "type": "integer"
           },
           "size": {
             "type": "integer"
           },
           "slot": {
-            "description": "member: local, arg or special (return address, saved registers).",
             "type": "string"
           },
           "location": {
-            "description": "local: register name, or stack.",
             "type": "string"
           },
           "argument": {

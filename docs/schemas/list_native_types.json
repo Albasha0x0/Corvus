@@ -13,7 +13,6 @@
             "type": "string"
           },
           "kind": {
-            "description": "struct, union, enum, typedef, func or ptr.",
             "type": "string"
           },
           "size": {
@@ -23,7 +22,6 @@
             "type": "integer"
           },
           "members": {
-            "description": "members=true: the first 32.",
             "type": "array",
             "items": {
               "type": "object",
@@ -35,7 +33,6 @@
                   "type": "string"
                 },
                 "offset": {
-                  "description": "Struct or union: byte offset; enum: the member's value.",
                   "type": "integer"
                 },
                 "size": {
@@ -49,14 +46,12 @@
             }
           },
           "related": {
-            "description": "related=true: the types it refers to.",
             "type": "array",
             "items": {
               "type": "string"
             }
           },
           "declaration": {
-            "description": "name=: the type as a C declaration.",
             "type": "string"
           }
         },
