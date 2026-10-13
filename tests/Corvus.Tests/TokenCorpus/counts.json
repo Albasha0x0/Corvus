@@ -213,6 +213,12 @@
    "source": "o200k"
   },
   {
+   "file": "list/search_native_strings-packed.txt",
+   "chars": 8940,
+   "tokens": 3396,
+   "source": "o200k"
+  },
+  {
    "file": "list/search_native_strings.txt",
    "chars": 7911,
    "tokens": 3411,
