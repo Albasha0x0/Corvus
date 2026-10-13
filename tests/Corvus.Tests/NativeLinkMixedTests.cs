@@ -118,7 +118,7 @@ public sealed class NativeLinkMixedTests(ITestOutputHelper output)
         output.WriteLine(callers);
         NativeLinkTests.Has(callers, "native: ");
         NativeLinkTests.Has(callers, "through vtfixup slot");
-        NativeLinkTests.Has(await refs.FindReferences("ManagedHelper"), "native call sites");
+        NativeLinkTests.Has(await refs.FindReferences("ManagedHelper"), "native call: [mixedtest.dll]");
 
         // the native export back to its managed callers, through both seams
         var back = await refs.FindReferences("mixedtest.dll!NativeAdd");

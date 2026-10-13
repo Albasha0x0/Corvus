@@ -107,8 +107,11 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         var sb = new StringBuilder();
         if (edge is "pinvoke" or "native") sb.Append("native: ").Append(note ?? name);
         else if (edge == "import" && note != null && !note.StartsWith("calls ", StringComparison.Ordinal)) sb.Append(name).Append(" -> ").Append(note);
+        // "managed" joins the two worlds: a managed method (its label has ::) reached from native code, or native code entering managed code.
+        else if (edge == "managed" && name.Contains("::", StringComparison.Ordinal)) sb.Append("managed: ").Append(name).Append(note != null ? "  " + note : "");
         else
         {
+            if (edge == "managed") sb.Append("native: ");
             sb.Append(name);
             if (address != null && !name.Contains(address, StringComparison.Ordinal)) sb.Append(" at ").Append(address);
             if (image != null) sb.Append(" [").Append(image).Append(']');
