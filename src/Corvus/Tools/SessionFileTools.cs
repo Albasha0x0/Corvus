@@ -321,10 +321,24 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
             else if (existing != null) conflicting++;
             else comments.Add((rva, value));
         }
+        var pseudo = new List<(uint, string?)>();
+        foreach (var (key, value) in ann.Pseudo ?? [])
+        {
+            if (SessionService.Rva(key) is not { } rva) { invalid++; continue; }
+            var existing = annotations.PseudoCommentAt(rva);
+            if (existing == value.Trim()) present++;
+            else if (existing != null) conflicting++;
+            else pseudo.Add((rva, value));
+        }
+        // a comment's engine kind goes with it (repeatable when none was recorded)
+        var kinds = comments.Where(c => ann.CommentKinds?.GetValueOrDefault(SessionService.Hex(c.Item1)) != null)
+            .Select(c => (c.Item1, (string?)ann.CommentKinds![SessionService.Hex(c.Item1)])).ToList();
+        if (!dryRun && pseudo.Count > 0) workspace.Write(() => { annotations.Apply([], [], pseudo, allowDuplicate: true); return 0; });
         if (!dryRun && names.Count + comments.Count > 0)
             workspace.Write(() =>
             {
                 annotations.SetMany(names, comments);
+                if (kinds.Count > 0) annotations.Apply([], [.. comments.Select(c => (c.Item1, (string?)c.Item2))], [], allowDuplicate: true, kinds: kinds);
                 if (code.Ready(native) is { } index)
                 {
                     foreach (var (rva, name) in names) index.SetUserName(rva, name);
@@ -332,7 +346,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
                 }
                 return 0;
             });
-        int set = names.Count + comments.Count;
+        int set = names.Count + comments.Count + pseudo.Count;
         add("names", recordedId, set > 0 ? dryRun ? WouldApply : Applied : conflicting + invalid > 0 ? Refused : AlreadyPresent,
             conflicting > 0 ? "user_name_exists" : invalid > 0 ? "invalid_name" : "same_build", set,
             $"{set} set, {present} already present, {conflicting} kept (a different user name or comment exists), {invalid} invalid, on {native.Id}");

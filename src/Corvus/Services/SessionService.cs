@@ -31,7 +31,13 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
 
     public sealed record SessionEdits(string Id, string Sha256, EditHistoryService.Script Script);
 
-    public sealed record SessionAnnotations(Dictionary<string, string> Names, Dictionary<string, string> Comments);
+    public sealed record SessionAnnotations(Dictionary<string, string> Names, Dictionary<string, string> Comments)
+    {
+        /// <summary>Decompiler (pseudocode) comments by RVA.</summary>
+        public Dictionary<string, string>? Pseudo { get; init; }
+        /// <summary>Engine comment kinds (eol, pre, plate) of comments that are not repeatable, by RVA.</summary>
+        public Dictionary<string, string>? CommentKinds { get; init; }
+    }
 
     public sealed record SessionNative(string Id, string Sha256, JsonElement? Patches, SessionAnnotations? Annotations)
     {
@@ -75,7 +81,7 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
         return set;
     }
 
-    private static string Hex(uint rva) => rva.ToString("x", CultureInfo.InvariantCulture);
+    internal static string Hex(uint rva) => rva.ToString("x", CultureInfo.InvariantCulture);
 
     /// <summary>The session of what is loaded now; <paramref name="sessionPath"/> anchors the relative paths.</summary>
     public Document Build(string sessionPath, IReadOnlySet<string> include)
@@ -112,8 +118,15 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
                     patches = doc.RootElement.Clone();
                 }
                 SessionAnnotations? annotations = null;
-                if (include.Contains("annotations") && code.Annotations(n) is { } ann && (ann.NameCount > 0 || ann.CommentCount > 0))
-                    annotations = new SessionAnnotations(ann.Names().ToDictionary(x => Hex(x.Rva), x => x.Name), ann.Comments().ToDictionary(x => Hex(x.Rva), x => x.Comment));
+                if (include.Contains("annotations") && code.Annotations(n) is { } ann && (ann.NameCount > 0 || ann.CommentCount > 0 || ann.PseudoCommentCount > 0))
+                {
+                    var kinds = ann.Comments().Where(x => ann.CommentKindAt(x.Rva) != null).ToDictionary(x => Hex(x.Rva), x => ann.CommentKindAt(x.Rva)!);
+                    annotations = new SessionAnnotations(ann.Names().ToDictionary(x => Hex(x.Rva), x => x.Name), ann.Comments().ToDictionary(x => Hex(x.Rva), x => x.Comment))
+                    {
+                        Pseudo = ann.PseudoCommentCount > 0 ? ann.PseudoComments().ToDictionary(x => Hex(x.Rva), x => x.Comment) : null,
+                        CommentKinds = kinds.Count > 0 ? kinds : null,
+                    };
+                }
                 JsonElement? edits = null;
                 if (include.Contains("annotations") && new NativeEditJournal(workspace, code).Export(n) is { Count: > 0 } entries)
                     edits = JsonSerializer.SerializeToElement(entries);

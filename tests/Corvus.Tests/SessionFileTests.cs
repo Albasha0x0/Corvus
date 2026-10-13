@@ -164,6 +164,25 @@ public sealed class SessionFileTests : IDisposable
         Assert.Equal(binarySha, Assert.Single(b.Workspace.Natives).OriginalSha256);
     }
 
+    /// <summary>Pseudocode comments and the engine kind of a comment travel with the session too.</summary>
+    [Fact]
+    public async Task PseudocodeCommentsAndCommentKindsRoundTrip()
+    {
+        var image = Place("p", "native.dll", OldImage);
+        var path = _dir.File(Path.Combine("p", "pseudo.session.json"));
+        using (var a = new Stack(_dir.File("store-pa")))
+        {
+            var native = a.Workspace.LoadAny(image).Native!;
+            a.Code.Annotations(native).Apply([], [(0x1000u, (string?)"before the loop")], [(0x1040u, (string?)"returns two")], kinds: [(0x1000u, (string?)"pre")]);
+            await a.Tools.SaveSession(path);
+        }
+        using var b = new Stack(_dir.File("store-pb"));
+        await b.Tools.LoadSession(path, dryRun: false);
+        var loaded = b.Code.Annotations(b.Workspace.FindNative("native.dll")!);
+        Assert.Equal("returns two", loaded.PseudoCommentAt(0x1040));
+        Assert.Equal(("before the loop", "pre"), (loaded.CommentAt(0x1000), loaded.CommentKindAt(0x1000)));
+    }
+
     [Fact]
     public async Task RestoresTheSameBuildFromMovedFiles()
     {
