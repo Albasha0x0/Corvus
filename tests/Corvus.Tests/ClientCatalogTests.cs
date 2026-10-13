@@ -14,8 +14,8 @@ public sealed class ClientCatalogTests : IDisposable
     private static readonly JsonDocumentOptions Lenient = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
     private static JsonNode ReadJson(string path) => JsonNode.Parse(File.ReadAllText(path), documentOptions: Lenient)!;
 
-    private McpClient Client(string id, Dictionary<string, string>? variables = null) =>
-        ClientCatalog.All(_home.Env(variables: variables)).Single(c => c.Id == id);
+    private McpClient Client(string id, Dictionary<string, string>? variables = null, HostOs? os = null) =>
+        ClientCatalog.All(_home.Env(variables: variables, os: os)).Single(c => c.Id == id);
 
     [Fact]
     public void NewClients_GetTheirOwnEntryShapes()
@@ -163,7 +163,7 @@ public sealed class ClientCatalogTests : IDisposable
             "AppData", "Roaming", "Code", "User", "mcp.json");
         var (code, output) = _home.Run(_home.Env(os: HostOs.Windows), "install", "--no-check", "--client", "vscode");
         Assert.True(code == 0, output);
-        Assert.Equal(["--client", "vscode", "--toolsets", "core", "--load", "x"], Client("vscode").Target.Current("corvus")!.Args);
+        Assert.Equal(["--client", "vscode", "--toolsets", "core", "--load", "x"], Client("vscode", os: HostOs.Windows).Target.Current("corvus")!.Args);
     }
 
     [Fact]

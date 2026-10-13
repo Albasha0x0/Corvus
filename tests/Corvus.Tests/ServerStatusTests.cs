@@ -44,7 +44,7 @@ public class ServerStatusTests
         Assert.Equal(root, Field("run", "dataDir"));
         var json = structured.ToJsonString();
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(json, System.Text.RegularExpressions.Regex.Escape(JsonEncodedText.Encode(root).ToString())));
-        Assert.Null(structured["warnings"]);
+        Assert.True(structured["warnings"] is null, structured["warnings"]?.ToJsonString());
         int room = Corvus.Core.TokenEstimate.Of(JsonEncodedText.Encode(new string('a', 40) + string.Concat(Enumerable.Repeat(@"\Some Folder-Name", 13))).ToString());
         Assert.InRange(Corvus.Core.TokenEstimate.Of(json) + room, 1, CallFilter.FitTokens(OutputClasses.Budget(OutputClass.Report)));
         Assert.InRange(Corvus.Core.TokenEstimate.Of((string)JsonNode.Parse(output)!["text"]!) + room, 1, CallFilter.FitTokens(OutputClasses.Budget(OutputClass.Report)));

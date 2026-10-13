@@ -50,7 +50,7 @@ public class NativeRealPagingTests
         return $"rva:0x{f.Start:X}";
     }
 
-    [Theory, Trait("Data", "Real")]
+    [Theory, Trait("Data", "Real"), Trait("Speed", "Slow")]
     [InlineData("linux-mips64", "EM_MIPS")]
     [InlineData("linux-s390x", "EM_S390")]
     [InlineData("linux-ppc64le", "EM_PPC64")]

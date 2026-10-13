@@ -212,9 +212,20 @@ public partial class ProtocolSampleTests
                 Directory.CreateDirectory(Folder);
                 File.WriteAllText(file, text);
             }
-            else if (File.ReadAllText(file).ReplaceLineEndings("\n") != text) stale.Add(tool);
+            else if (File.ReadAllText(file).ReplaceLineEndings("\n") is var recorded && recorded != text)
+                stale.Add($"{tool}: {FirstDifference(recorded, text)}");
         }
-        Assert.True(stale.Count == 0, "protocol samples changed (check the diff, then CORVUS_UPDATE_DOCS=1 records them): " + string.Join(", ", stale));
+        Assert.True(stale.Count == 0, "protocol samples changed (check the diff, then CORVUS_UPDATE_DOCS=1 records them):\n" + string.Join("\n", stale));
+    }
+
+    /// <summary>The first line that differs, recorded then current, so a failure on another OS shows its cause.</summary>
+    private static string FirstDifference(string recorded, string current)
+    {
+        string[] a = recorded.Split('\n'), b = current.Split('\n');
+        int i = 0;
+        while (i < a.Length && i < b.Length && a[i] == b[i]) i++;
+        static string At(string[] lines, int at) => at < lines.Length ? lines[at].Trim() is var t && t.Length > 200 ? t[..200] : lines[at].Trim() : "(end)";
+        return $"line {i + 1}: recorded {At(a, i)} | now {At(b, i)}";
     }
 
     // Never from inside a \uXXXX escape (JSON kept as a JSON string escapes its quotes).
