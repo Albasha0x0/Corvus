@@ -125,7 +125,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
             if (PdbService.StateOf(native) == null && code != null && native.Image.Format == ImageFormat.Pe) index = await code.Index(native, null, ct).ConfigureAwait(false);
             pdb = PdbService.StateOf(native)?.Pdb;
         }
-        var model = pdb != null ? await Task.Run(() => PdbTypeModel.Of(pdb, PointerSize(native)), ct).ConfigureAwait(false) : null;
+        var model = pdb != null ? await Task.Run(() => PdbTypeModel.Of(pdb, PointerSize(native), ct), ct).ConfigureAwait(false) : null;
         var context = new Context { Native = native, PdbFile = pdb, Model = model, Index = index ?? code?.Ready(native), Session = session, EngineRequested = engineRequested, Sources = sources };
         if (sources.Contains(Pdb) && pdb == null) context.Notes.Add("no PDB is loaded for the image (load_pdb)");
         // the IPI stream only matters for prototypes

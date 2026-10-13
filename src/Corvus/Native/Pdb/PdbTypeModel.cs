@@ -132,19 +132,26 @@ public sealed class PdbTypeModel
 
     private sealed class Cache
     {
-        public readonly Lazy<PdbTypeModel>?[] Models = new Lazy<PdbTypeModel>?[2];
+        public readonly Task<PdbTypeModel>?[] Models = new Task<PdbTypeModel>?[2];
     }
 
     private static readonly ConditionalWeakTable<PdbFile, Cache> Models = new();
 
-    /// <summary><see cref="Read"/>, kept for the lifetime of <paramref name="pdb"/>.</summary>
-    public static PdbTypeModel Of(PdbFile pdb, int pointerSize)
+    /// <summary>
+    /// <see cref="Read"/>, kept for the lifetime of <paramref name="pdb"/>. One read is shared by all callers; a caller's
+    /// cancellation ends its wait, not the read, and a failed read is tried again by the next call.
+    /// </summary>
+    public static PdbTypeModel Of(PdbFile pdb, int pointerSize, CancellationToken ct = default)
     {
         var cache = Models.GetValue(pdb, _ => new Cache());
         int slot = pointerSize == 4 ? 0 : 1;
-        Lazy<PdbTypeModel> lazy;
-        lock (cache) lazy = cache.Models[slot] ??= new Lazy<PdbTypeModel>(() => Read(pdb, pointerSize));
-        return lazy.Value;
+        Task<PdbTypeModel> read;
+        lock (cache)
+        {
+            if (cache.Models[slot] is { IsFaulted: true } or { IsCanceled: true }) cache.Models[slot] = null;
+            read = cache.Models[slot] ??= Task.Run(() => Read(pdb, pointerSize));
+        }
+        return read.WaitAsync(ct).GetAwaiter().GetResult();
     }
 
     private static Stream ReadStream(MsfFile msf, int index, string label, List<string> notes, CancellationToken ct)

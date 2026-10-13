@@ -77,6 +77,10 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
         Assert.Same(PdbTypeModel.Of(pdb, 8), PdbTypeModel.Of(pdb, 8));
         Assert.NotSame(PdbTypeModel.Of(pdb, 8), PdbTypeModel.Of(pdb, 4));
         Assert.Equal(0x403u, Named(PdbTypeModel.Of(pdb, 4), "Base").Members[0].Type); // the vftable pointer: T_32PVOID
+        // a cancelled wait ends at once and leaves the shared read usable
+        var other = Fixture();
+        Assert.ThrowsAny<OperationCanceledException>(() => PdbTypeModel.Of(other, 8, new CancellationToken(canceled: true)));
+        Assert.NotNull(PdbTypeModel.Of(other, 8));
     }
 
     /// <summary>The writer's output for the fixture, pinned: the model refactor must leave it byte for byte.</summary>
