@@ -35,6 +35,7 @@ public static partial class ParameterDomains
         ["rename_symbol"] = new Dictionary<string, Domain> { ["kind"] = ResolveKind },
         ["patch_method_il"] = new Dictionary<string, Domain> { ["mode"] = Of(["replace", "prepend"], "prefix", "insert") },
         ["apply_edits"] = new Dictionary<string, Domain> { ["targetBuild"] = Of(["same", "other"]) },
+        ["simplify_methods"] = new Dictionary<string, Domain> { ["passes"] = Of(["fold", "cfg", "inline"], "all") },
     };
 }
 

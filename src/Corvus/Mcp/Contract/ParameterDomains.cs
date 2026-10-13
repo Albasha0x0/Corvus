@@ -57,7 +57,7 @@ public static partial class ParameterDomains
     public static Domain? Find(string? tool, string parameter) =>
         tool != null && Table.TryGetValue(tool, out var parameters) && parameters.TryGetValue(parameter, out var domain) ? domain : null;
 
-    /// <summary>Adds "enum" to each listed parameter's schema (with null when the parameter takes null).</summary>
+    /// <summary>Adds "enum" to each listed parameter's schema (with null when the parameter takes null), or to its items for an array.</summary>
     public static void Apply(IEnumerable<McpServerTool> tools)
     {
         foreach (var tool in tools)
@@ -69,6 +69,11 @@ public static partial class ParameterDomains
             {
                 if (schema["properties"]?[name] is not JsonObject property) continue;
                 var values = new JsonArray(domain.Values.Select(v => (JsonNode?)JsonValue.Create(v)).ToArray());
+                if (property["items"] is JsonObject items)
+                {
+                    items["enum"] = values;
+                    continue;
+                }
                 if (property["type"] is JsonArray types && types.Any(x => (string?)x == "null")) values.Add(null);
                 property["enum"] = values;
             }

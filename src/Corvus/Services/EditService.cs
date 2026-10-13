@@ -340,12 +340,14 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         }
         CSharpPatcher.Outcome preview;
         using var reuse = csharp.ReuseCompiles();
+        CallProgress.Report(1, 3, $"compiling against {asm.Id} (decompiled context, references)");
         using (var scratch = ModuleDefMD.Load(asm.GetImageBytes(), workspace.DnlibContext))
         {
             scratch.EnableTypeDefFindCache = true;
             preview = merge(scratch);
         }
         if (dryRun) return preview;
+        CallProgress.Report(2, 3, $"applying to {asm.Id}");
         try
         {
             return merge(asm.Module);
@@ -389,7 +391,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
                    "disk and restored at run time (an integrity check): bodies that happen to decode are not the code that runs, and a rewritten image would not run. [unreadable-bodies]";
         }
         var simplifier = new MethodSimplifier(asm.Module, options);
-        var changes = simplifier.Run(methods, ct);
+        var changes = simplifier.Run(methods, ct, (done, total) => CallProgress.Report(done, total, $"{done} of {total} methods simplified"));
         var changed = changes.Where(c => c.Changed).ToList();
         var report = SimplifyReport(changes, methods.Count, dryRun, simplifier.ExtendedInitializers);
         var header = dryRun
@@ -594,6 +596,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     {
         for (int i = 0; i < records.Count; i++)
         {
+            CallProgress.Report(i, records.Count, $"replaying edit {i + 1} of {records.Count}: {records[i].Description}");
             try
             {
                 int count = asm.Edits.Count;

@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Mcp;
@@ -68,7 +70,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("The new body's statements only.")] string code,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Default true: preview the IL that would be written; pass dryRun=false to apply.")] bool dryRun = true,
-        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
         return Outcome(sym.Assembly, dryRun, () =>
@@ -76,7 +79,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             var result = edits.PatchMethodCSharp(sym, code, dryRun, cancellationToken);
             return dryRun ? result : $"{result}\n\nDecompiled result:\n{decompiler.DecompileMembers(sym.Assembly, [sym.Member], cancellationToken)}";
         }, _ => [new EditChange("body", sym.Label)]);
-    }, cancellationToken);
+    }, cancellationToken));
 
     [McpServerTool(Name = "add_members_csharp", Title = "Add members to a type (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Add members written in C# to an existing class or struct: methods, fields, properties, events, constructors, nested types; " +
@@ -86,11 +89,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("C# member declarations.")] string code,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
-        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
         return Outcome(sym.Assembly, dryRun, () => edits.AddMembersCSharp(sym, code, dryRun, cancellationToken), Touched("member", sym.Label));
-    }, cancellationToken);
+    }, cancellationToken));
 
     [McpServerTool(Name = "add_types_csharp", Title = "Add new types (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Add classes, structs, interfaces, enums or delegates written in C# (with their namespace) to an assembly; they can use its private / internal types. " +
@@ -99,11 +103,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description(AssemblyDescription)] string assembly,
         [Description("C# source declaring the new types.")] string code,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
-        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
     {
         var asm = workspace.Get(assembly);
         return Outcome(asm, dryRun, () => edits.AddTypesCSharp(asm, code, dryRun, cancellationToken), Touched("type", asm.Id));
-    }, cancellationToken);
+    }, cancellationToken));
 
     [McpServerTool(Name = "list_edits", Title = "List unsaved edits", UseStructuredContent = true, OutputSchemaType = typeof(EditList))]
     [Description("The unsaved edits of an assembly in order, each with its number (editId <assembly>#<number>, kept when other edits are undone) for undo_edit and diff_edits.")]
@@ -126,13 +131,14 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> UndoEdit(
         [Description(AssemblyDescription)] string assembly,
         [Description("Edit number from list_edits (the #n of its editId); omit for the last.")] int? number = null,
-        CancellationToken cancellationToken = default) => Write(workspace, () =>
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => WithProgress(context, () => Write(workspace, () =>
     {
         var asm = workspace.Get(assembly);
         var text = edits.Undo(asm, number, cancellationToken, out var removed);
         var id = new EditId(asm.Id, removed.Number);
         return ToolOutput.Edit(new EditOutcome(true, false, [new EditChange("undo", id.ToString(), removed.Description)], [id]), $"[{asm.Id}] {text}");
-    }, cancellationToken);
+    }, cancellationToken));
 
     [McpServerTool(Name = "revert_edits", Title = "Discard all edits", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Discard every unsaved edit of an assembly. The discarded edits are kept as an edit script: read_result id=<resultId> outputPath=x.json, then apply_edits path=x.json restores them.")]
@@ -185,7 +191,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Default true: apply every edit (compiled, stack-checked), report, roll back; pass dryRun=false to keep them.")] bool dryRun = true,
         [Description("Roll everything back on the first failure.")] bool stopOnError = true,
         [Description("same: only the script's build; other: another build, symbols re-resolved by name.")] string targetBuild = "same",
-        CancellationToken cancellationToken = default) => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => WithProgress(context, () => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
     {
         var run = history.Run(path, assembly, dryRun, stopOnError, cancellationToken, EditHistoryService.ParseTargetBuild(targetBuild));
         // A failure that rolled everything back, or a script whose every edit failed, applied nothing: an error with each edit's outcome.
@@ -204,7 +211,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         var ids = run.Items.Where(i => i.EditId != null).Select(i => EditId.TryParse(i.EditId, out var id) ? id : default).ToList();
         var changes = run.Items.Where(i => i.Error == null).Select(i => new EditChange("replay", i.Description)).ToList();
         return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, changes, ids) { Failed = run.Failed, Items = [.. run.Items] }, run.Report);
-    }, cancellationToken);
+    }, cancellationToken));
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Rewrite a method body from IL text, in memory (stack-validated first). Easiest: edit get_il's lines and pass them back (operand syntax: guide edits topic). " +
@@ -230,15 +237,16 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> SimplifyMethods(
         [Description("A method, or a type (nested types included). " + SymbolDescription + " Omit for the whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
-        [Description("Comma-separated passes: fold, cfg, inline (default: all).")] string? passes = null,
-        [Description("Max evaluation call depth (default 8).")] int? maxDepth = null,
-        [Description("Max IL instructions per evaluated call, nested calls included (default 100000).")] int? budget = null,
+        [Description("Passes to run (default: all).")] string[]? passes = null,
+        [Description("Max evaluation call depth.")] int maxDepth = 8,
+        [Description("Max IL instructions per evaluated call, nested calls included.")] int budget = 100_000,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description("Evaluate machine reads (paths, environment, machine / user names) against fixed stand-ins (docs/simplify.md) so code using them folds.")]
         bool deterministicEnvironment = false,
-        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
     {
-        var options = SimplifyOptions.Parse(passes, maxDepth, budget, deterministicEnvironment);
+        var options = SimplifyOptions.Parse(passes == null ? null : string.Join(",", passes), maxDepth, budget, deterministicEnvironment);
         ResolvedSymbol? sym = null;
         LoadedAssembly asm;
         if (string.IsNullOrWhiteSpace(symbol))
@@ -253,7 +261,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             asm = sym.Assembly;
         }
         return Outcome(asm, dryRun, () => edits.SimplifyMethods(asm, sym, options, dryRun, cancellationToken), Touched("body", sym?.Label ?? asm.Id));
-    }, cancellationToken);
+    }, cancellationToken));
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", UseStructuredContent = true, OutputSchemaType = typeof(EditService.SavedFile))]
     [Description("Write an assembly with its edits to a new file, atomically. Overwriting needs overwrite=true; the original is first copied to '<file>.bak', " +
@@ -287,6 +295,15 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             : $"\nEdit {string.Join(", ", ids)}. Unsaved edits in {asm.Id}: {asm.Edits.Count}.";
         return ToolOutput.Edit(new EditOutcome(!dryRun && ids.Count > 0, dryRun, dryRun || ids.Count > 0 ? changes(recorded) : [], ids), $"[{asm.Id}] {text}{tail}");
     }
+
+    /// <summary>Runs a long call with progress: one report at once (before any lock wait), then the phases its services report.</summary>
+    internal static Task<string> WithProgress(RequestContext<CallToolRequestParams>? context, Func<Task<string>> run) =>
+        OrderedProgress.Run(context!, async progress =>
+        {
+            progress.Report(new ProgressNotificationValue { Progress = 0, Message = "started" });
+            using var scope = CallProgress.Begin((done, total, message) => progress.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = message }));
+            return await run();
+        });
 
     /// <summary>The members an edit recorded as touched, or <paramref name="scope"/> for a preview.</summary>
     private static Func<IReadOnlyList<EditRecord>, IReadOnlyList<EditChange>> Touched(string kind, string scope) => recorded =>

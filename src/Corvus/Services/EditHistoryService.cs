@@ -220,6 +220,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
             for (int i = 0; i < records.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
+                CallProgress.Report(i, records.Count, $"applying edit {i + 1} of {records.Count}: {records[i].Description}");
                 try
                 {
                     remapped.Clear();

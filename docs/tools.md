@@ -740,9 +740,9 @@ Compiler-style cleanup of method bodies in memory, for transformed code. Passes:
 |---|---|---|---|---|
 | `symbol` | string |  |  | A method, or a type (nested types included). Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). Omit for the whole assembly. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. Required when symbol is omitted. |
-| `passes` | string |  |  | Comma-separated passes: fold, cfg, inline (default: all). |
-| `maxDepth` | integer |  |  | Max evaluation call depth (default 8). |
-| `budget` | integer |  |  | Max IL instructions per evaluated call, nested calls included (default 100000). |
+| `passes` | string[] |  |  | Passes to run (default: all). |
+| `maxDepth` | integer |  | `8` | Max evaluation call depth. |
+| `budget` | integer |  | `100000` | Max IL instructions per evaluated call, nested calls included. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 | `deterministicEnvironment` | boolean |  | `false` | Evaluate machine reads (module path, directories, special folders, environment, machine / user names) against fixed stand-ins (docs/simplify.md), so code depending on them folds; results then hold for that environment. Without it they are reported (external-io). |
 

@@ -76,10 +76,14 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         if (inner.TryGetValue(newAsm, out var cached) && cached.Key == key)
             return cached.Value;
 
+        CallProgress.Report(0, 4, $"fingerprinting {oldAsm.Id}");
         var oldInfo = Fingerprints(oldAsm, ct);
+        CallProgress.Report(1, 4, $"fingerprinting {newAsm.Id}");
         var newInfo = Fingerprints(newAsm, ct);
         var ambiguous = new Dictionary<IMemberDef, Ambiguity>();
+        CallProgress.Report(2, 4, "matching types");
         var typeMap = MatchTypes(oldInfo, newInfo, out var typeScores, ambiguous, ct);
+        CallProgress.Report(3, 4, "matching members");
         var memberMap = new Dictionary<IMemberDef, Match>();
         // Member changes by old type: matched types, and removed types (methods moved out of them).
         var members = new Dictionary<TypeDef, List<MemberChange>>();

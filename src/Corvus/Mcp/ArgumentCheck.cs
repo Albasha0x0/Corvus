@@ -43,6 +43,10 @@ public static class ArgumentCheck
             {
                 if (value.ValueKind == JsonValueKind.String && property.TryGetProperty("enum", out var allowed) && allowed.ValueKind == JsonValueKind.Array)
                     CheckValue(tool, name, value.GetString()!, allowed);
+                if (value.ValueKind == JsonValueKind.Array && property.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Object
+                    && items.TryGetProperty("enum", out var allowedItems) && allowedItems.ValueKind == JsonValueKind.Array)
+                    foreach (var item in value.EnumerateArray().Where(i => i.ValueKind == JsonValueKind.String))
+                        CheckValue(tool, name, item.GetString()!, allowedItems);
                 if (name == "limit" && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var limit) && limit < 1 && IsNativeTool(tool))
                     throw new ToolError(ErrorCode.InvalidArgument, $"parameter 'limit' must be at least 1, not {limit}.", "Pass limit=1 or more, or omit it for the default.")
                     {

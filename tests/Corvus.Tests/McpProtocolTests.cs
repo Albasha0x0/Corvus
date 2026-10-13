@@ -652,6 +652,34 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.All(updates, u => Assert.Equal(2, u.Progress.Total));
         }
 
+        /// <summary>Long edits report at once, then their phases: compile and apply for a C# patch, one step per replayed edit for an undo.</summary>
+        [Fact]
+        public async Task LongEditsReportTheirPhases()
+        {
+            var updates = new ConcurrentQueue<ProgressNotificationParams>();
+            await using var handler = _client.RegisterNotificationHandler(NotificationMethods.ProgressNotification, (n, _) =>
+            {
+                updates.Enqueue(n.Params.Deserialize<ProgressNotificationParams>(McpJsonUtilities.DefaultOptions)!);
+                return ValueTask.CompletedTask;
+            });
+            async Task<List<string?>> Messages(string tool, Dictionary<string, object?> args)
+            {
+                updates.Clear();
+                var result = await _client.CallToolAsync(tool, args, new SyncProgress(_ => { }));
+                Assert.NotEqual(true, result.IsError);
+                for (int i = 0; i < 250 && !updates.Any(u => u.Progress.Message == "started"); i++) await Task.Delay(20);
+                await Task.Delay(100);
+                return updates.Select(u => u.Progress.Message).ToList();
+            }
+            var patch = await Messages("patch_method_csharp", new() { ["method"] = "Account::Score", ["code"] = "return 3;", ["dryRun"] = false });
+            // Updates closer than OrderedProgress.MinInterval are coalesced: the first and the latest are sent.
+            Assert.Equal("started", patch[0]);
+            Assert.Contains(patch, m => m!.StartsWith("compiling against", StringComparison.Ordinal) || m.StartsWith("applying to", StringComparison.Ordinal));
+            await _client.CallToolAsync("stub_method", new Dictionary<string, object?> { ["method"] = "Secret::Validate", ["value"] = "true", ["dryRun"] = false });
+            var undo = await Messages("undo_edit", new() { ["assembly"] = "TestFixture", ["number"] = 2 });
+            Assert.Contains(undo, m => m!.StartsWith("replaying edit 1 of 1", StringComparison.Ordinal));
+        }
+
         [Fact]
         public async Task SubscribedResourcesGetUpdatesAndTheListNeverChanges()
         {

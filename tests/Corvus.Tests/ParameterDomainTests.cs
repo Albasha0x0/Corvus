@@ -27,9 +27,16 @@ public class ParameterDomainTests
                 var property = schema["properties"]?[name] as JsonObject;
                 Assert.True(property != null, $"{tool} has no parameter {name}");
                 var types = property!["type"] is JsonArray a ? a.Select(t => (string?)t).ToList() : [(string?)property["type"]];
+                bool array = types.Contains("array");
+                if (array)
+                {
+                    // An array of closed values: the items carry the enum, without null.
+                    property = (JsonObject)property["items"]!;
+                    types = property["type"] is JsonArray i ? i.Select(t => (string?)t).ToList() : [(string?)property["type"]];
+                }
                 Assert.Contains("string", types);
                 var advertised = property["enum"]!.AsArray().Select(v => v?.GetValue<string>()).ToList();
-                Assert.Equal([.. domain.Values, .. types.Contains("null") ? new string?[] { null } : []], advertised);
+                Assert.Equal([.. domain.Values, .. !array && types.Contains("null") ? new string?[] { null } : []], advertised);
                 Assert.Empty(domain.Aliases.Intersect(domain.Values, StringComparer.OrdinalIgnoreCase));
             }
     }
@@ -54,6 +61,10 @@ public class ParameterDomainTests
         Assert.StartsWith("parameter 'engine' must be one of auto, ida, ghidra, not 'ours'.", engine.Message);
         var script = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("ida_python"), Args(("engine", "ghidra")), "ida_python"));
         Assert.StartsWith("parameter 'engine' must be one of auto, ida, not 'ghidra'.", script.Message);
+        // Each item of an array of closed values is checked.
+        var pass = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("simplify_methods"), Args(("passes", new[] { "fold", "cgf" })), "simplify_methods"));
+        Assert.Equal("parameter 'passes' must be one of fold, cfg, inline, not 'cgf'. Did you mean 'cfg'?", pass.Message);
+        ArgumentCheck.Apply(Schema("simplify_methods"), Args(("passes", new[] { "CFG", "all" })), "simplify_methods");
     }
 
     [Theory]

@@ -114,12 +114,15 @@ public sealed class MethodSimplifier
     /// <summary>Test hook: runs on the rewritten body before it is verified.</summary>
     internal Action<CilBody>? AfterPasses { get; set; }
 
-    public List<MethodChange> Run(IEnumerable<MethodDef> methods, CancellationToken ct)
+    public List<MethodChange> Run(IEnumerable<MethodDef> methods, CancellationToken ct, Action<int, int>? progress = null)
     {
         var changes = new List<MethodChange>();
-        foreach (var m in methods)
+        var list = methods as IReadOnlyCollection<MethodDef> ?? methods.ToList();
+        int done = 0;
+        foreach (var m in list)
         {
             ct.ThrowIfCancellationRequested();
+            progress?.Invoke(done++, list.Count);
             MethodChange? change;
             try
             {
