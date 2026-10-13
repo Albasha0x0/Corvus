@@ -62,7 +62,8 @@ public partial class ToolObligationsTests
         Ratchet.Check("protocol-sample", "every tool has a recorded request/response in tests/Corvus.Tests/ProtocolSamples (S12.2)", violations);
     }
 
-    [GeneratedRegex("""\[Trait\("Data",\s*"Real"\)\]""")]
+    // Also inside a combined attribute list: [Fact, Trait("Data", "Real")].
+    [GeneratedRegex("""Trait\("Data",\s*"Real"\)""")]
     private static partial Regex RealTrait();
 
     [Fact]

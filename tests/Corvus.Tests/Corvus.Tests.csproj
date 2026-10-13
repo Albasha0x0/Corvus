@@ -63,6 +63,8 @@
     <PackageDownload Include="runtime.osx-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
     <PackageDownload Include="Gee.External.Capstone" Version="[2.3.0]" />
     <PackageDownload Include="SQLitePCLRaw.lib.e_sqlite3" Version="[2.1.2];[2.1.11]" />
+    <!-- A native DLL with its matching PDB (load_pdb, PDB symbols and types). -->
+    <PackageDownload Include="HarfBuzzSharp.NativeAssets.Win32" Version="[14.2.0]" />
   </ItemGroup>
 
   <!-- Native images in ELF, Mach-O, ARM64 and ARM PE form for the native format readers and code analysis (runtimes/<rid>/native). -->
