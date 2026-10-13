@@ -7,5 +7,10 @@
   "content": [
     "Unloaded loaded.dll."
   ],
-  "structuredContent": null
+  "structuredContent": {
+    "ids": [
+      "loaded.dll"
+    ],
+    "text": "Unloaded loaded.dll."
+  }
 }

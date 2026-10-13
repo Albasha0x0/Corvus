@@ -10,7 +10,6 @@
   "structuredContent": {
     "id": "<id>",
     "tool": "revert_edits",
-    "format": "text",
     "totalChars": "<chars>",
     "offset": 0,
     "code": "{\n  \"format\": \"corvus-edits/1\",\n  \"assembly\": \"Sample.Meter\",\n  \"mvid\": \"<id>\",\n  \"sha256\": \"<id>\",\n  \"identity\": \"Sample.Meter, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null\",\n  \"created\": \"<time>\",\n  \"edits\": [\n    {\n      \"kind\": \"stub_method\",\n      \"args\": {\n        \"method\": \"Sample.Meter.Gauge::Scale(int)\",\n        \"methodKind\": \"method\",\n        \"methodToken\": \"0x06000002\",\n        \"methodSignature\": \"0:System.Int32(System.Int32)\",\n        \"value\": \"0\"\n      },\n      \"description\": \"stub Sample.Meter.Gauge::Scale(int) =\\u003E return 0;\"\n    }\n  ],\n  \"labels\": 2\n}"

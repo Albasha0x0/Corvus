@@ -3,7 +3,7 @@
   "arguments": {
     "path": "samples/lz4.nupkg",
     "outputDirectory": "samples/unpack",
-    "load": false,
+    "extractOnly": true,
     "limit": 5
   },
   "isError": false,

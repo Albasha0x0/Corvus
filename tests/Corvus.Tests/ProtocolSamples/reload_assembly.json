@@ -7,5 +7,10 @@
   "content": [
     "Reloaded loaded.dll from <fixtures>/samples/loaded.dll (sha256 bde7d94c07e13285)."
   ],
-  "structuredContent": null
+  "structuredContent": {
+    "ids": [
+      "loaded.dll"
+    ],
+    "text": "Reloaded loaded.dll from <fixtures>/samples/loaded.dll (sha256 bde7d94c07e13285)."
+  }
 }

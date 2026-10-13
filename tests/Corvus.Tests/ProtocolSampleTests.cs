@@ -94,7 +94,7 @@ public partial class ProtocolSampleTests
         ["compare_folders"] = new() { ["oldPath"] = In + "folders-old", ["newPath"] = In + "folders-new", ["caseSensitive"] = true },
         // Containers and Android packages
         ["search_container"] = new() { ["path"] = In + "lz4.nupkg", ["query"] = "LZ4Codec", ["kind"] = "type" },
-        ["unpack_container"] = new() { ["path"] = In + "lz4.nupkg", ["outputDirectory"] = In + "unpack", ["load"] = false, ["limit"] = 5 },
+        ["unpack_container"] = new() { ["path"] = In + "lz4.nupkg", ["outputDirectory"] = In + "unpack", ["extractOnly"] = true, ["limit"] = 5 },
         ["unity_overview"] = new() { ["path"] = In + "MonoGame" },
         ["get_android_manifest"] = new() { ["path"] = In + "app.apk" },
         ["list_android_resources"] = new() { ["path"] = In + "app.apk", ["type"] = "string" },

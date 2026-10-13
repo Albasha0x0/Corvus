@@ -7,5 +7,10 @@
   "content": [
     "Loaded native image loaded.dll: AMD64 executable, WINDOWS_CUI\n  <fixtures>/samples/loaded.dll\n  4 sections, 2 imports, 2 exports, 1 unwind entry"
   ],
-  "structuredContent": null
+  "structuredContent": {
+    "ids": [
+      "loaded.dll"
+    ],
+    "text": "Loaded native image loaded.dll: AMD64 executable, WINDOWS_CUI\n  <fixtures>/samples/loaded.dll\n  4 sections, 2 imports, 2 exports, 1 unwind entry"
+  }
 }
