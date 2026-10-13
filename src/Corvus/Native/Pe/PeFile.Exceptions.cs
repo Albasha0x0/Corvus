@@ -48,6 +48,7 @@ public sealed partial class PeFile
             if (!budget.Step()) break;
             var e = bytes.AsSpan(i * entrySize);
             uint begin = BinaryPrimitives.ReadUInt32LittleEndian(e), end, unwind;
+            bool fragment = false;
             if (arch == NativeArch.X64)
             {
                 end = BinaryPrimitives.ReadUInt32LittleEndian(e[4..]);
@@ -69,11 +70,13 @@ public sealed partial class PeFile
                         continue;
                     }
                     length = (header & 0x3FFFF) << (int)unitShift;
+                    fragment = arch == NativeArch.Arm64 && FirstUnwindCode(unwindData, header) == 0xE5;
                 }
                 else
                 {
                     unwind = 0;
                     length = ((unwindData >> 2) & 0x7FF) << (int)unitShift;
+                    fragment = arch == NativeArch.Arm64 && (unwindData & 3) == 2;
                 }
                 end = unchecked(begin + length);
             }
@@ -82,7 +85,7 @@ public sealed partial class PeFile
                 invalid++;
                 continue;
             }
-            result.Add(new RuntimeFunction(begin, end, unwind));
+            result.Add(new RuntimeFunction(begin, end, unwind) { Fragment = fragment });
         }
         if (invalid > 0) log.Add($"{invalid} runtime function entries have an empty or unmapped range or unreadable unwind data; skipped");
         for (int i = 1; i < result.Count; i++)
@@ -93,5 +96,22 @@ public sealed partial class PeFile
                 break;
             }
         return result;
+    }
+
+    /// <summary>ARM64 .xdata: the first unwind code byte after the header, its extension and the epilogue scopes; -1 when unreadable.</summary>
+    private int FirstUnwindCode(uint xdata, uint header)
+    {
+        uint at = xdata + 4;
+        uint epilogs = (header >> 22) & 0x1F, words = header >> 27;
+        if (epilogs == 0 && words == 0)
+        {
+            if (!TryU32(at, out uint extended)) return -1;
+            epilogs = extended & 0xFFFF;
+            at += 4;
+        }
+        // E set: one epilogue packed in the header; else a word per epilogue scope
+        if ((header & (1u << 21)) == 0) at += 4 * epilogs;
+        Span<byte> code = stackalloc byte[1];
+        return Read(at, code) == 1 ? code[0] : -1;
     }
 }

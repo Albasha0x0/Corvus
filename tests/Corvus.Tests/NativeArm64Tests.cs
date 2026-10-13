@@ -391,7 +391,9 @@ public class NativeArm64Tests
         var index = NativeCodeIndex.Build(pe);
         Assert.Equal(CodeSupport.Full, index.Support);
         var starts = index.Functions.Select(f => f.Start).ToHashSet();
-        Assert.All(pe.RuntimeFunctions, rf => Assert.Contains(rf.BeginRva, starts));
+        // every entry starts a function, but a fragment without prologue the flow of another reaches, which joins it
+        Assert.All(pe.RuntimeFunctions, rf => Assert.True(starts.Contains(rf.BeginRva) || rf.Fragment && index.FunctionAt(rf.BeginRva) != null, $"0x{rf.BeginRva:X}"));
+        Assert.Contains(pe.RuntimeFunctions, rf => rf.Fragment && !starts.Contains(rf.BeginRva));
         Assert.True(index.Functions.Count > pe.RuntimeFunctions.Count / 2);
         Assert.True(index.Stats.Instructions > 20_000, $"{index.Stats.Instructions} instructions");
         var invalid = index.Functions.Count(f => (f.Flags & FunctionFlags.InvalidCode) != 0);

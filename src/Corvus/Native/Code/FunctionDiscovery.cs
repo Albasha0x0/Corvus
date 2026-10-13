@@ -69,7 +69,8 @@ internal sealed partial class FunctionDiscovery
     {
         var image = _ctx.Image;
         var roots = new List<(uint Rva, FunctionSource Source)>();
-        foreach (var (primary, _) in _ctx.PdataRanges) roots.Add((primary, FunctionSource.Pdata));
+        foreach (var (primary, _) in _ctx.PdataRanges)
+            if (!_ctx.PdataFragments.Contains(primary)) roots.Add((primary, FunctionSource.Pdata));
         if (image.EntryPointRva != 0 && _ctx.Code.IsCode(image.EntryPointRva)) roots.Add((image.EntryPointRva, FunctionSource.EntryPoint));
         foreach (var t in image.TlsCallbackRvas)
             if (_ctx.Code.IsCode(t)) roots.Add((t, FunctionSource.TlsCallback));
@@ -100,6 +101,10 @@ internal sealed partial class FunctionDiscovery
                 if (_ctx.ArmModes is { } modes) modes.Hint(pad, modes.StartMode(function));
                 _direct.Explore(pad, chunk: true);
             }
+        Drain();
+        // ARM64 .pdata fragments no function's flow reached stay functions of their own
+        foreach (uint f in _ctx.PdataFragments.Order())
+            if (_ctx.Code.BitIndex(f) is var bit and >= 0 && !_covered[bit]) Add(f, FunctionSource.Pdata, strong: true);
         Drain();
 
         int iterations = 0;

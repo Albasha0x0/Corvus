@@ -204,7 +204,7 @@ internal sealed class FunctionWalker
         if (own == null) return false;
         foreach (var (b, e) in own) if (target >= b && target < e) return false;
         // x64: leaving the function's .pdata ranges into another function's ranges
-        return _ctx.PdataOwner(target) is { } owner && owner != start;
+        return _ctx.PdataOwner(target) is { } owner && owner != start && !_ctx.PdataFragments.Contains(owner);
     }
 
     private bool IsNoReturnCall(uint target) => _ctx.NoReturn.Contains(target);

@@ -57,7 +57,11 @@ public sealed record NativeImport(string Module, string? Name, ushort? Ordinal, 
 public sealed record NativeExport(string? Name, uint Ordinal, uint Rva, string? ForwardedTo, string? Version = null);
 
 /// <summary>A function range from the exception directory (.pdata) on x64, ARM64 and ARM.</summary>
-public sealed record RuntimeFunction(uint BeginRva, uint EndRva, uint UnwindInfoRva);
+public sealed record RuntimeFunction(uint BeginRva, uint EndRva, uint UnwindInfoRva)
+{
+    /// <summary>ARM64: a part of a function without its prologue (packed flag 2, or unwind codes that begin with end_c).</summary>
+    public bool Fragment { get; init; }
+}
 
 /// <summary>Something the parser could not read or that looks wrong; results are still returned for the rest.</summary>
 public sealed record ParseIssue(string Area, string Message, long? FileOffset = null);

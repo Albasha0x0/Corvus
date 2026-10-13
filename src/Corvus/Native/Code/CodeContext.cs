@@ -39,6 +39,8 @@ internal sealed class CodeContext
     public Dictionary<uint, NativeImport> ImportSlots { get; } = [];
     /// <summary>x64 .pdata: primary function start -> its ranges (primary and chained fragments).</summary>
     public Dictionary<uint, List<(uint Begin, uint End)>> PdataRanges { get; } = [];
+    /// <summary>ARM64: .pdata entries of function parts without a prologue; they join the function whose flow reaches them.</summary>
+    public HashSet<uint> PdataFragments { get; } = [];
     /// <summary>All .pdata ranges sorted by begin, with their primary start.</summary>
     public (uint Begin, uint End, uint Primary)[] PdataSorted { get; private set; } = [];
 
@@ -259,6 +261,7 @@ internal sealed class CodeContext
             var rf = entries[i];
             if (rf.EndRva <= rf.BeginRva) continue;
             if (handlers[i] != 0) ExceptionHandlers.Add(handlers[i]);
+            if (rf.Fragment && Image.Arch == NativeArch.Arm64) PdataFragments.Add(rf.BeginRva);
             uint primary = primaries[i];
             if (!PdataRanges.TryGetValue(primary, out var list)) PdataRanges[primary] = list = [];
             list.Add((rf.BeginRva, rf.EndRva));
