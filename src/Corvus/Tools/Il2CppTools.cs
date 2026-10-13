@@ -344,11 +344,11 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     }
 
     private static string Showing(int offset, int limit, int total) =>
-        total > limit || offset > 0 ? offset >= total ? $" (none from offset {offset})" : $" (showing {offset + 1}-{Math.Min(total, offset + limit)})" : "";
+        total > limit || offset > 0 ? offset >= total ? $" (none from offset {offset})" : $" (showing {offset + 1}-{Math.Min(total, (long)offset + limit)})" : "";
 
     private static void AppendMore(StringBuilder sb, int offset, int limit, int total, string indent)
     {
-        if (offset + limit < total) sb.AppendLine($"{indent}[More: offset={offset + limit}]");
+        if ((long)offset + limit < total) sb.AppendLine($"{indent}[More: offset={offset + limit}]"); // long: offset may be int.MaxValue
     }
 
     private const int MaxLiteralsPerMethod = 100;
@@ -456,7 +456,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
                 rows.Add(Match("method", Format.MemberLabel(m.Method)) with { Token = Format.Token(m.Method), Assembly = m.Assembly.Id });
             }
             var script = r.Image.Script;
-            foreach (var e in r.ScriptMethods.Skip(Math.Max(0, offset - r.Methods.Count)).Take(Math.Max(0, offset + limit - Math.Max(offset, r.Methods.Count))))
+            foreach (var e in r.ScriptMethods.Skip(Math.Max(0, offset - r.Methods.Count)).Take((int)Math.Max(0, (long)offset + limit - Math.Max(offset, r.Methods.Count))))
             {
                 sb.AppendLine($"  [{k}] {f.Relation}: {script!.MethodName(e)}  (start 0x{start:X})  script.json (no dummy-DLL method)");
                 var definition = DefinitionLine(r.Image, e);

@@ -90,6 +90,7 @@ public sealed class Il2CppNavigationTests(ITestOutputHelper output) : IDisposabl
         Assert.DoesNotContain("Shared<object>", paged);
         Assert.Contains("[More: offset=1]", paged);
         Assert.Contains("Shared<object>", await tools.FindMethodByAddress("0x1100", offset: 1));
+        Assert.DoesNotContain("[More:", await tools.FindMethodByAddress("0x1100", offset: int.MaxValue)); // offset + limit must not wrap
         Assert.Contains("0x52000 is not inside a known function or at a metadata slot", await tools.FindMethodByAddress("0x52000"));
         var type = await tools.FindMethodByAddress("0x5000");
         Assert.Contains("[RVA] metadata slot: Fixture.Native.NativeThing_TypeInfo  (Fixture_Native_NativeThing_c*)", type);
