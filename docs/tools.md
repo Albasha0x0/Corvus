@@ -557,20 +557,19 @@ Structured output: `assembly`, `methodsScanned`, `features`, `category`, `notes`
 
 ### extract_strings
 
-**Extract typed strings** (destructive, idempotent)
+**Extract typed strings** (read-only, idempotent)
 
-Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from an assembly's literals, constants, resource text and decoded base64 / hex / compressed text, each with count, locations and the APIs it is passed to; savePath exports JSON or CSV.
+Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from an assembly's literals, constants, resource text and decoded base64 / hex / compressed text, each with count, locations and the APIs it is passed to. All values are kept: read_result outputPath exports them (text: CSV, json).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
 | `path` | string |  |  | A .NET assembly file to analyze without loading it; pass this or assembly. |
-| `types` | string |  |  | Only these comma-separated types: url, domain, ipv4, ipv6, email, file_path, named_pipe, registry_key, mutex, user_agent, crypto_key. |
-| `savePath` | string |  |  | Write the values to this file. |
-| `format` | string |  |  | json (default) or csv (implied by a .csv savePath). Values: json, csv. |
-| `overwrite` | boolean |  | `false` | Replace savePath if it exists. |
+| `types` | string[] |  |  | Only these types. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Max rows. |
 
-Structured output: `assembly`, `total`, `values`, `savedTo`, `notes`.
+Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResultId`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### extract_embedded
 

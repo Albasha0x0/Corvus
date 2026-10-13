@@ -8,7 +8,7 @@ using Corvus.Services.Analysis;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class InspectionTools(InspectionService inspection, AssemblyWorkspace? workspace = null, NativeCodeService? code = null)
+public sealed class InspectionTools(InspectionService inspection, AssemblyWorkspace? workspace = null, NativeCodeService? code = null, ResultStore? results = null)
 {
     private const string AssemblyParam = "A loaded assembly; pass this or path.";
     private const string PathParam = "A .NET assembly file to analyze without loading it; pass this or assembly.";
@@ -67,19 +67,25 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         return ToolOutput.Report(ContainerText.Survey(record), record);
     }
 
-    [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true)]
+    [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true, OutputSchemaType = typeof(ValuePage))]
     [Description("Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from an assembly's literals, constants, " +
-                 "resource text and decoded base64 / hex / compressed text, each with count, locations and the APIs it is passed to; savePath exports JSON or CSV.")]
-    public Task<InspectionService.ValueReport> ExtractStrings(
+                 "resource text and decoded base64 / hex / compressed text, each with count, locations and the APIs it is passed to. All values are kept: " +
+                 "read_result outputPath exports them (text: CSV, json).")]
+    public async Task<string> ExtractStrings(
         [Description(AssemblyParam)] string? assembly = null,
         [Description(PathParam)] string? path = null,
-        [Description("Only these comma-separated types: url, domain, ipv4, ipv6, email, file_path, named_pipe, registry_key, mutex, user_agent, crypto_key.")] string? types = null,
-        [Description("Write the values to this file.")] string? savePath = null,
-        [Description("json (default) or csv (implied by a .csv savePath).")] string? format = null,
-        [Description("Replace savePath if it exists.")] bool overwrite = false,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => inspection.ExtractStrings(assembly, path,
-            types?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), savePath, format, overwrite, cancellationToken), cancellationToken);
+        [Description("Only these types.")] string[]? types = null,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
+        [Description(ToolSupport.LimitDescription)] int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        var report = await Task.Run(() => inspection.ExtractStrings(assembly, path, types, cancellationToken), cancellationToken);
+        string? kept = null;
+        if (results != null && report.Total > 0)
+            kept = results.Keep(Values.ToCsv(report.Values), new KeptOrigin("extract_strings"),
+                System.Text.Json.JsonSerializer.Serialize(new { items = report.Values, total = report.Total }, ToolOutput.Json));
+        return ContainerText.Values(report, offset, ToolSupport.ClampLimit(limit), kept);
+    }
 
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true)]
     [Description("Embedded content of an assembly (resources, static byte arrays, long string literals) decoded through hex, base64, compression and XOR " +

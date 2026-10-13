@@ -1,5 +1,6 @@
 using System.Text;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Services.Analysis;
 
 namespace Corvus.Tools;
@@ -22,8 +23,39 @@ public sealed record SurveyFeature(string Name, string Category, int Matches)
     public IReadOnlyList<Evidence>? Evidence { get; init; }
 }
 
+/// <summary>extract_strings: one page of values; valuesResultId keeps all of them (read_result text is CSV, json the items).</summary>
+public sealed record ValuePage(string Assembly, IReadOnlyList<ExtractedValue> Items, int Offset, int Total)
+{
+    public IReadOnlyDictionary<string, int>? ByType { get; init; }
+    public string? ValuesResultId { get; init; }
+    public IReadOnlyList<string>? Notes { get; init; }
+}
+
 internal static class ContainerText
 {
+    public static string Values(InspectionService.ValueReport report, int offset, int limit, string? kept)
+    {
+        var byType = report.Values.GroupBy(v => v.Type).ToDictionary(g => g.Key, g => g.Count());
+        var header = new StringBuilder($"{Escape(report.Assembly)}: {string.Join(", ", byType.Select(t => $"{t.Value} {t.Key}"))}"
+                                       + (byType.Count == 0 ? "no typed values" : "") + ".\n");
+        if (kept != null) header.Append($"All values: read_result id={kept} (outputPath writes them; format=text is CSV, json the records).\n");
+        foreach (var n in report.Notes) header.Append("Note: ").Append(Escape(n)).Append('\n');
+        return ToolOutput.List(report.Values, offset, limit, ValueRow,
+            rows => new ValuePage(report.Assembly, rows, offset, report.Total)
+            {
+                ByType = byType.Count > 0 ? byType : null, ValuesResultId = kept, Notes = report.Notes.Count > 0 ? report.Notes : null,
+            }, "value", header.ToString());
+    }
+
+    private static string ValueRow(ExtractedValue v)
+    {
+        var sb = new StringBuilder($"{v.Type} {Escape(v.Value)} x{v.Count}");
+        if (v.Detail != null) sb.Append($" ({Escape(v.Detail)})");
+        if (v.Locations.Count > 0) sb.Append(" at ").Append(Escape(v.Locations[0])).Append(v.Locations.Count > 1 ? $" (+{v.Locations.Count - 1})" : "");
+        if (v.PassedTo.Count > 0) sb.Append("; passed to ").Append(Escape(string.Join(", ", v.PassedTo)));
+        return sb.ToString();
+    }
+
     internal static string Escape(string s) => Format.EscapeMarkers(s).Replace("\r", "\\r").Replace("\n", "\\n");
 
     public static SurveyRecord Survey(InspectionService.FeatureReport report, string? category)

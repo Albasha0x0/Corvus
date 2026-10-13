@@ -125,7 +125,7 @@ public class TargetsTests
         using var _d = dir;
         using var ws = new AssemblyWorkspace();
         var inspection = new Corvus.Services.Analysis.InspectionService(ws);
-        var e = Assert.Throws<ToolError>(() => inspection.ExtractStrings(null, native, null, null, null, false, default));
+        var e = Assert.Throws<ToolError>(() => inspection.ExtractStrings(null, native, null, default));
         Assert.Equal(ErrorCode.Unsupported, e.Code);
         Assert.StartsWith($"this tool reads .NET metadata; for a native image: search_native_strings image={native}", e.Remediation);
         var zip = dir.File("app.apk");

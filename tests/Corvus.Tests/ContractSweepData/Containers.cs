@@ -6,6 +6,5 @@ public static partial class ContractSweep
     {
         ["extract_embedded"] = ["outputDirectory"],
         ["unpack_container"] = ["outputDirectory"],
-        ["extract_strings"] = ["savePath"],
     };
 }

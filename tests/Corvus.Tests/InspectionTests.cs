@@ -248,6 +248,34 @@ public class InspectionTests : IDisposable
         Assert.Equal(["download files"], Inspection.SurveyFeatures(null, _dir.File("EverydayApis.dll"), "T1105", default).Features.Select(c => c.Name));
     }
 
+    /// <summary>extract_strings pages its rows and keeps every value: read_result text is the CSV, json the records.</summary>
+    [Fact]
+    public async Task Values_PageAndKeepEveryValueForReadResult()
+    {
+        var path = Save("EverydayApis.dll", EverydayApis());
+        var all = Inspection.ExtractStrings(null, path, null, default);
+        Assert.True(all.Total >= 3);
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        var tools = new Corvus.Tools.InspectionTools(Inspection, _workspace, null, store);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await tools.ExtractStrings(path: path, limit: 2);
+        var page = Assert.IsType<Corvus.Tools.ValuePage>(collector.Value);
+        Assert.Equal(all.Values.Take(2).Select(v => (v.Type, v.Value)), page.Items.Select(v => (v.Type, v.Value)));
+        Assert.Equal((0, all.Total), (page.Offset, page.Total));
+        Assert.Contains($"(showing 1-2)", text);
+        Assert.Contains("[More: offset=2]", text);
+        Assert.Contains($"read_result id={page.ValuesResultId}", text);
+        var kept = store.Read(page.ValuesResultId!);
+        Assert.StartsWith("type,value,count,", kept.Text);
+        Assert.Equal(all.Total + 1, kept.Text.TrimEnd('\n').Split('\n').Length);
+        Assert.Equal(all.Total, JsonDocument.Parse(kept.Record!).RootElement.GetProperty("items").GetArrayLength());
+
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.ExtractStrings(path: path, types: ["url"], offset: 0);
+        Assert.All(Assert.IsType<Corvus.Tools.ValuePage>(collector.Value).Items, v => Assert.Equal("url", v.Type));
+        Assert.Contains("Unknown value type", (await Assert.ThrowsAsync<ToolError>(() => tools.ExtractStrings(path: path, types: ["phone"]))).Message);
+    }
+
     /// <summary>The default page counts matches per feature; category= (or all) adds the evidence, a string's marked derived.</summary>
     [Fact]
     public async Task Features_DefaultPageCountsAndCategoryAddsEvidenceWithBasis()
@@ -362,7 +390,7 @@ public class InspectionTests : IDisposable
             catch (IOException) { /* another test's output is still there */ }
         }
 
-        var url = Assert.Single(Inspection.ExtractStrings(null, path, ["url"], null, null, false, default).Values);
+        var url = Assert.Single(Inspection.ExtractStrings(null, path, ["url"], default).Values);
         Assert.Equal("https://files.example.net/build2", url.Value);
         Assert.Contains(url.Locations, l => l.Contains("(decoded: "));
     }
@@ -473,7 +501,7 @@ public class InspectionTests : IDisposable
     [Fact]
     public void Values_ClassifiedByType_AndLookalikesLeftOut()
     {
-        var report = Inspection.ExtractStrings(null, Save("Strings.dll", StringsFixture()), null, null, null, false, default);
+        var report = Inspection.ExtractStrings(null, Save("Strings.dll", StringsFixture()), null, default);
         var found = report.Values.Select(i => (i.Type, i.Value)).ToList();
 
         Assert.Contains(("ipv4", "192.0.2.1"), found);
@@ -490,21 +518,16 @@ public class InspectionTests : IDisposable
     public void Values_OfEverydayApis_KnowWhereTheyGo_AndExport()
     {
         var path = Save("EverydayApis.dll", EverydayApis());
-        var report = Inspection.ExtractStrings(null, path, null, null, null, false, default);
+        var report = Inspection.ExtractStrings(null, path, null, default);
         var url = Assert.Single(report.Values, i => i.Type == "url" && i.Value == "https://example.com/path");
         Assert.Contains("System.Net.Http.HttpClient::GetStringAsync", url.PassedTo);
         Assert.Contains(report.Values, i => i.Type == "file_path" && i.Value == @"C:\ProgramData\Everyday\settings.ini");
         Assert.Contains(report.Values, i => i.Type == "registry_key" && i.Value == @"Software\Everyday");
 
-        var filtered = Inspection.ExtractStrings(null, path, ["url", "domain"], null, null, false, default);
+        var filtered = Inspection.ExtractStrings(null, path, ["url", "domain"], default);
         Assert.All(filtered.Values, i => Assert.Contains(i.Type, new[] { "url", "domain" }));
 
-        var csv = Inspection.ExtractStrings(null, path, null, _dir.File("strings.csv"), null, false, default);
-        Assert.StartsWith("type,value,count,", File.ReadAllText(csv.SavedTo!));
-        var json = Inspection.ExtractStrings(null, path, null, _dir.File("strings.json"), null, false, default);
-        Assert.Equal(json.Total, JsonDocument.Parse(File.ReadAllText(json.SavedTo!)).RootElement.GetArrayLength());
-        Assert.Contains("exists", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, _dir.File("strings.json"), null, false, default)).Message);
-        Assert.Contains("Unknown value type", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, ["phone"], null, null, false, default)).Message);
+        Assert.Contains("Unknown value type", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, ["phone"], default)).Message);
     }
 
     [Fact]
@@ -621,7 +644,6 @@ public class InspectionTests : IDisposable
         Assert.Contains("Pass either", Assert.Throws<ToolError>(() => Inspection.SurveyFeatures("x", path, null, default)).Message);
         Assert.Contains("not a .NET assembly (zip)",
             Assert.Throws<ToolError>(() => Inspection.SurveyFeatures(null, Save("a.zip", ContainerFixtures.Zip(("a.dll", [1, 2]))), null, default)).Message);
-        Assert.Contains("Unknown format", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, null, "xml", false, default)).Message);
     }
 
     private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_FUZZ_CASES"), out var n) ? n : 30;
@@ -663,7 +685,7 @@ public class InspectionTests : IDisposable
                          {
                              ("summarize_file", () => Inspection.Summarize(null, path, default)),
                              ("survey_features", () => Inspection.SurveyFeatures(null, path, null, default)),
-                             ("extract_strings", () => Inspection.ExtractStrings(null, path, null, null, null, false, default)),
+                             ("extract_strings", () => Inspection.ExtractStrings(null, path, null, default)),
                              ("extract_embedded", () => Inspection.ExtractEmbedded(null, path, false, null, false, default)),
                          })
                 {

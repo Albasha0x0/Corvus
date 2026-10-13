@@ -20,8 +20,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     public sealed record FeatureReport(string Assembly, int MethodsScanned, IReadOnlyList<Feature> Features, IReadOnlyList<string> Notes);
 
-    public sealed record ValueReport(string Assembly, int Total, IReadOnlyList<ExtractedValue> Values,
-        string? SavedTo, IReadOnlyList<string> Notes);
+    public sealed record ValueReport(string Assembly, int Total, IReadOnlyList<ExtractedValue> Values, IReadOnlyList<string> Notes);
 
     public sealed record EmbeddedReport(string Assembly, IReadOnlyList<EmbeddedContent> Contents,
         string? OutputDirectory, IReadOnlyList<string> Notes);
@@ -231,25 +230,19 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return new FeatureReport(label, index.Functions.Count, found, notes);
     }
 
-    public ValueReport ExtractStrings(string? assembly, string? path, IReadOnlyCollection<string>? types, string? savePath, string? format, bool overwrite,
-        CancellationToken ct)
+    /// <summary>Typed values sorted by type (in <see cref="Values.Types"/> order), count descending, then value.</summary>
+    public ValueReport ExtractStrings(string? assembly, string? path, IReadOnlyCollection<string>? types, CancellationToken ct)
     {
+        types = types?.Select(t => t.Trim().ToLowerInvariant()).Where(t => t.Length > 0).ToList();
         var unknown = types?.Where(t => !Values.Types.Contains(t)).ToList();
         if (unknown is { Count: > 0 })
-            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown value type(s): {string.Join(", ", unknown)}. Types: {string.Join(", ", Values.Types)}.");
-        var fmt = (format ?? (savePath != null && savePath.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ? "csv" : "json")).ToLowerInvariant();
-        if (fmt is not ("json" or "csv")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{format}': use json or csv.");
-
-        var report = WithAssembly(assembly, path, s =>
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown value type(s): {string.Join(", ", unknown)}.", $"pass types from: {string.Join(", ", Values.Types)}");
+        return WithAssembly(assembly, path, s =>
         {
             var found = Values.Find(s.Scan, Embedded.Find(s.Scan, Limits, ct), ct);
             if (types is { Count: > 0 }) found = [.. found.Where(i => types.Contains(i.Type))];
-            return new ValueReport(s.Label, found.Count, found, null, s.Scan.Notes);
+            return new ValueReport(s.Label, found.Count, found, s.Scan.Notes);
         }, ct);
-
-        if (savePath == null) return report;
-        var target = SafeFile.WriteAllText(savePath, fmt == "csv" ? Values.ToCsv(report.Values) : Values.ToJson(report.Values), overwrite);
-        return report with { SavedTo = target };
     }
 
     /// <summary>

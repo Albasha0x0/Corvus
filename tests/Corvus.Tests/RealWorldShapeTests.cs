@@ -103,7 +103,7 @@ public class RealWorldShapeTests : IDisposable
             ("costura.metadata", Encoding.ASCII.GetBytes(
                 "costura.a.dll.compressed|4.0.3.0|A, Version=4.0.3.0, Culture=neutral|A.dll|ABC|1\r\nversion 5.0.0.1 and v2.1.0.4 and connect to 10.20.30.40\r\n" +
                 "Start-Process -FilePath 'C:\\Program Files\\App\\App.exe' -ArgumentList $a -WindowStyle Hidden;Remove-Item -Path $sp\r\n"))));
-        var values = Inspection.ExtractStrings(null, path, ["ipv4", "file_path"], null, null, false, default).Values;
+        var values = Inspection.ExtractStrings(null, path, ["ipv4", "file_path"], default).Values;
         Assert.Equal(["10.20.30.40"], values.Where(v => v.Type == "ipv4").Select(v => v.Value));
         Assert.Equal(["C:\\Program Files\\App\\App.exe"], values.Where(v => v.Type == "file_path").Select(v => v.Value));
     }

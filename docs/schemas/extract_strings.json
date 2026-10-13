@@ -4,10 +4,7 @@
     "assembly": {
       "type": "string"
     },
-    "total": {
-      "type": "integer"
-    },
-    "values": {
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
@@ -46,7 +43,19 @@
         ]
       }
     },
-    "savedTo": {
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "byType": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "valuesResultId": {
       "type": "string"
     },
     "notes": {
@@ -54,6 +63,18 @@
       "items": {
         "type": "string"
       }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -76,8 +97,8 @@
   },
   "required": [
     "assembly",
-    "total",
-    "values",
-    "notes"
+    "items",
+    "offset",
+    "total"
   ]
 }
