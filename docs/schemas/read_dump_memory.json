@@ -11,6 +11,7 @@
       "type": "integer"
     },
     "length": {
+      "description": "Bytes readable from address (fewer than requested where neither the dump nor the image holds them).",
       "type": "integer"
     },
     "source": {
@@ -26,24 +27,24 @@
     "protection": {
       "type": "string"
     },
-    "hex": {
-      "description": "Hex dump: address, 16 bytes, ASCII.",
+    "code": {
+      "description": "The page's bytes as hex.",
       "type": "string"
     },
-    "bytes": {
-      "type": "string"
+    "offset": {
+      "description": "Bytes from address where the page starts.",
+      "type": "integer"
     },
     "note": {
       "type": "string"
     },
-    "code": {
-      "type": "string"
-    },
-    "offset": {
-      "type": "integer"
-    },
     "nextOffset": {
+      "description": "Byte offset of the next page; absent on the last.",
       "type": "integer"
+    },
+    "nextAddress": {
+      "description": "Address of the next page: the same call with address=nextAddress continues too.",
+      "type": "string"
     },
     "totalChars": {
       "type": "integer"
@@ -73,7 +74,7 @@
     "requested",
     "length",
     "source",
-    "hex",
-    "bytes"
+    "code",
+    "offset"
   ]
 }

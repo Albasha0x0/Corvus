@@ -130,12 +130,22 @@ public sealed partial class MinidumpService
         [property: Description("Managed frames: decoded (through the runtime's DAC), off, or the DAC status that kept them identified only (not_found, bitness_mismatch, ...); null without a managed runtime.")] string? Managed,
         [property: Description("Where the names and unwind data of each module came from, and what was not covered.")] IReadOnlyList<string> Notes);
 
+    /// <summary>read_dump_memory: a page of the bytes read, as hex (offset counts bytes from address).</summary>
     public sealed record MemoryRead(
-        string Dump, string Address, int Requested, int Length,
+        string Dump, string Address, int Requested,
+        [property: Description("Bytes readable from address (fewer than requested where neither the dump nor the image holds them).")] int Length,
         [property: Description("dump_memory, module_image (disk) or module_image (dump_memory); none when nothing is readable.")] string Source,
         string? Location, string? Region, string? Protection,
-        [property: Description("Hex dump: address, 16 bytes, ASCII.")] string Hex,
-        string Bytes, string? Note);
+        [property: Description("The page's bytes as hex.")] string Code,
+        [property: Description("Bytes from address where the page starts.")] int Offset,
+        string? Note)
+    {
+        [Description("Byte offset of the next page; absent on the last.")] public int? NextOffset { get; init; }
+        [Description("Address of the next page: the same call with address=nextAddress continues too.")] public string? NextAddress { get; init; }
+    }
+
+    /// <summary>The bytes of a read and how to label them.</summary>
+    internal sealed record MemoryBytes(MemoryRead Head, ulong Va, byte[] Data, bool Is64);
 
 
     public Task<DumpReport> Summarize(string path, string? imageDirectories, CancellationToken ct) => Summarize(path, imageDirectories, new DacRequest(), ct);
@@ -528,7 +538,10 @@ public sealed partial class MinidumpService
             "pass a thread id (decimal or 0x hex), '#index', a thread name, or 'exception'");
     }
 
-    public async Task<MemoryRead> ReadMemory(string path, string address, int length, bool imageFallback, CancellationToken ct)
+    public async Task<MemoryRead> ReadMemory(string path, string address, int length, bool imageFallback, CancellationToken ct) =>
+        (await ReadBytes(path, address, length, imageFallback, ct)).Head;
+
+    internal async Task<MemoryBytes> ReadBytes(string path, string address, int length, bool imageFallback, CancellationToken ct)
     {
         using var s = Open(path, null);
         var d = s.Dump;
@@ -555,9 +568,10 @@ public sealed partial class MinidumpService
         var location = await Locate(s, va, false, ct);
         var range = d.RangeAt(va);
         var region = d.RegionAt(va);
-        return new MemoryRead(s.Id, Hex(d, va), length, n, source, location.Symbol ?? location.Note,
+        var head = new MemoryRead(s.Id, Hex(d, va), length, n, source, location.Symbol ?? location.Note,
             range is { } r ? $"{Hex(d, r.Start)}-{Hex(d, r.End)}" : null, region != null ? ProtectName(region.Protect) : null,
-            HexDump(va, buffer.AsSpan(0, n), d.Is64Bit), Convert.ToHexString(buffer, 0, n), note);
+            Convert.ToHexString(buffer, 0, n), 0, note);
+        return new MemoryBytes(head, va, buffer[..n], d.Is64Bit);
     }
 
     private static ulong ParseAddress(MinidumpFile d, string text)
@@ -629,20 +643,23 @@ public sealed partial class MinidumpService
         return basic;
     }
 
+    /// <summary>Bytes per hex dump line: grouped by four in memory order (as xxd -g4), then the line as ASCII.</summary>
+    internal const int HexLine = 32;
+
     internal static string HexDump(ulong address, ReadOnlySpan<byte> bytes, bool is64)
     {
         var sb = new StringBuilder();
-        for (int line = 0; line < bytes.Length; line += 16)
+        for (int line = 0; line < bytes.Length; line += HexLine)
         {
             ulong at = address + (ulong)line;
-            sb.Append(is64 ? $"{at >> 32:X8}`{at & 0xFFFFFFFF:X8}  " : $"{at & 0xFFFFFFFF:X8}  ");
-            int n = Math.Min(16, bytes.Length - line);
-            for (int i = 0; i < 16; i++)
+            sb.Append(is64 ? $"{at:X16} " : $"{at & 0xFFFFFFFF:X8} ");
+            int n = Math.Min(HexLine, bytes.Length - line);
+            for (int i = 0; i < HexLine; i++)
             {
+                if (i % 4 == 0) sb.Append(' ');
                 sb.Append(i < n ? $"{bytes[line + i]:X2}" : "  ");
-                sb.Append(i == 7 ? "-" : " ");
             }
-            sb.Append(' ');
+            sb.Append("  ");
             for (int i = 0; i < n; i++)
             {
                 byte b = bytes[line + i];

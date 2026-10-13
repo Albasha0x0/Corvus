@@ -391,6 +391,35 @@ public sealed class MinidumpTests
         Assert.Equal((2, "0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top"), (bucket.Count, bucket.Signature));
     }
 
+    /// <summary>read_dump_memory pages by bytes within the budget: the pages' hex, walked by nextOffset, is the whole read.</summary>
+    [Fact]
+    public async Task ReadDumpMemoryPagesWalkTheWholeRange()
+    {
+        using var dir = new TempDir();
+        var path = SyntheticCrash.Write(dir);
+        using var service = new MinidumpService();
+        var tools = new Corvus.Tools.MinidumpTools(service);
+        var whole = await service.ReadMemory(path, "synth", 0x1000, true, default);
+        Assert.Equal(0x1000, whole.Length);
+        var hex = new System.Text.StringBuilder();
+        int? offset = 0, pages = 0;
+        while (offset is { } at)
+        {
+            var call = OutputCall.Begin(new OutputCall("read_dump_memory", 1200, null));
+            var text = await tools.ReadDumpMemory(path, "synth", 0x1000, offset: at);
+            var page = Assert.IsType<MinidumpService.MemoryRead>(call.Record);
+            Assert.True(TokenEstimate.Of(text) <= 1200, text);
+            Assert.Equal(at, page.Offset);
+            hex.Append(page.Code);
+            if (page.NextOffset is { } next) Assert.Equal($"0x{SyntheticCrash.Base + (ulong)next:X}", page.NextAddress);
+            offset = page.NextOffset;
+            pages++;
+        }
+        OutputCall.Begin(null!);
+        Assert.InRange(pages ?? 0, 3, 16);
+        Assert.Equal(whole.Code, hex.ToString());
+    }
+
     /// <summary>open_minidump: the summary names the faulting module and thread; each list view pages its rows with one offset.</summary>
     [Fact]
     public async Task OpenMinidumpViewsPageTheirRows()
@@ -472,7 +501,7 @@ public sealed class MinidumpTests
 
         var memory = await service.ReadMemory(path, "synth+0x1000", 16, true, default);
         Assert.Equal("dump_memory", memory.Source);
-        Assert.StartsWith("00007FF6`10001000  53 48 83 EC 20 89 08 48-83 C4 20 5B C3", memory.Hex);
+        Assert.StartsWith("534883EC20890848", memory.Code);
         Assert.Equal("synth!Crash", memory.Location);
         var missing = await service.ReadMemory(path, "0x10", 8, true, default);
         Assert.Equal(0, missing.Length);

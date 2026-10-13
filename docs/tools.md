@@ -2586,7 +2586,7 @@ Crash dumps and crash text.
 
 **Open a crash dump** (read-only, idempotent, open-world, long-running)
 
-Reads a Windows minidump (.dmp). view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, a C++ exception's thrown type), faulting module and thread, the .NET state (managed exception with stack and inner chain, heap), counts. modules (version, PDB, whether a matching image is here), threads, memory, unloaded: paged rows. Gives the id the other dump tools take. Nothing from the dump runs; .NET decoding loads Microsoft's signature-checked DAC for that runtime build.
+Reads a Windows minidump (.dmp). view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, a C++ exception's thrown type), faulting module and thread, the .NET state (managed exception with stack and inner chain, heap), counts. modules (version, PDB, whether a matching image is here), threads, memory, unloaded: paged rows. Gives the id the other dump tools take. .NET decoding loads Microsoft's signature-checked DAC.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2594,9 +2594,9 @@ Reads a Windows minidump (.dmp). view=summary: OS, process, the exception (fault
 | `view` | string |  | `summary` | summary, modules, threads, memory or unloaded. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `50` | Max rows. |
-| `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries, for modules not at their recorded path; kept for the dump. Its own folder is always searched. |
-| `dacPath` | string |  |  | The dumped runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that runtime build is not installed here. |
-| `downloadDac` | boolean |  | `false` | Download the DAC from a symbol server when no local copy matches (network; refused under CORVUS_OFFLINE=1). |
+| `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries, kept for the dump; its own folder is always searched. |
+| `dacPath` | string |  |  | The runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that build is not installed here. |
+| `downloadDac` | boolean |  | `false` | Fetch the DAC from a symbol server when none matches here (network; refused under CORVUS_OFFLINE=1). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `notes`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2615,7 +2615,7 @@ Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP c
 | `maxFrames` | integer |  | `256` | Max frames walked (up to 1024). |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Max rows. |
-| `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries, for modules not at their recorded path; kept for the dump. Its own folder is always searched. |
+| `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries, kept for the dump; its own folder is always searched. |
 | `managed` | string |  | `auto` | auto: .NET frames through the DAC; off: native walk only. Values: auto, off. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
@@ -2632,7 +2632,7 @@ Lists the .NET GC heap of a minidump (through the DAC). stats: count and size pe
 | `dump` | string | yes |  | A .dmp path or the id open_minidump returned. |
 | `mode` | string |  | `stats` | stats (per type) or objects (one row each). Values: stats, objects. |
 | `type` | string |  |  | Type full name, '*' / '?' wildcards; default all. |
-| `minSize` | integer |  | `0` | Only objects of at least this many bytes. |
+| `minSize` | integer |  | `0` | Min object size in bytes. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `50` | Max rows. |
 | `maxObjects` | integer |  | `5000000` | Max objects walked. |
@@ -2644,7 +2644,7 @@ Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `matchedBytes`, 
 
 **Crash dump .NET object** (read-only, idempotent)
 
-One .NET object of a minidump (through the DAC): type, size, fields (references expanded depth levels), a string's or boxed value, or array elements.
+One .NET object of a dump (DAC): type, size, fields (references expanded depth levels), a string's or boxed value, or array elements.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2660,7 +2660,7 @@ Structured output: `dump`, `address`, `type`, `size`, `assembly`, `token`, `buil
 
 **Read crash dump memory** (read-only, idempotent)
 
-Hex dump of a dump's memory at an address, with what is there (module!function, captured range, protection). With imageFallback, bytes the dump lacks come from the module image (writable data then shows initial values); the source is reported.
+Hex dump of a dump's memory at an address with what is there (module!function, captured range, protection). imageFallback fills bytes the dump lacks from the module image (writable data shows initial values).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2668,8 +2668,10 @@ Hex dump of a dump's memory at an address, with what is there (module!function, 
 | `address` | string | yes |  | Hex address, 'module+0x1234', or a module name (its base). |
 | `length` | integer |  | `256` | Bytes to read (up to 65536). |
 | `imageFallback` | boolean |  | `true` | Read bytes the dump does not hold from the module image. |
+| `offset` | integer |  | `0` | Byte offset into the read (a page's nextOffset). |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `dump`, `address`, `requested`, `length`, `source`, `location`, `region`, `protection`, `hex`, `bytes`, `note`, `code`, `offset`, `nextOffset`, `totalChars`.
+Structured output: `dump`, `address`, `requested`, `length`, `source`, `location`, `region`, `protection`, `code`, `offset`, `note`, `nextOffset`, `nextAddress`, `totalChars`.
 
 ### symbolize_stack_text
 

@@ -374,7 +374,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["dump_object"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "0x1000" }, "Error (unsupported) in dump_object: the dumped process has no .NET runtime"),
         ["bucket_minidumps"] = (new() { ["folder"] = Path.GetDirectoryName(SyntheticCrash.Write(dir)) }, "\"signature\":\"0xC0000005 | synth!Crash | synth!Outer > synth!Big\""),
         ["symbolize_stack_text"] = (new() { ["text"] = "System.Exception: boom\n   at Fixture.Model.Account.Charge(Int32 amount)" }, "\"resolved\":\"Fixture.Model.Account::Charge(int)\""),
-        ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "53 48 83 EC"),
+        ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "534883EC"),
         // the test process itself (the server is a child process): read-only, every handle closed
         ["inspect_process"] = (new() { ["process"] = Environment.ProcessId.ToString(), ["sections"] = "modules,threads", ["modulesLimit"] = 5, ["threadsLimit"] = 1 }, "\"detached\":true"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),

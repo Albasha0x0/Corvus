@@ -234,7 +234,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
 
         var memory = await service.ReadMemory(dump, e.Address, 16, true, default);
         Assert.Equal(16, memory.Length);
-        Assert.StartsWith(e.Instruction![(e.Instruction!.LastIndexOf('(') + 1)..^1], memory.Bytes);
+        Assert.StartsWith(e.Instruction![(e.Instruction!.LastIndexOf('(') + 1)..^1], memory.Code);
 
         CompareWithCdb(dump, dir.Path, summary, stack);
     }

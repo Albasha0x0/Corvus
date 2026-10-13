@@ -13,21 +13,21 @@ public sealed class MinidumpTools(MinidumpService dumps)
 {
     private const string DumpDescription = "A .dmp path or the id open_minidump returned.";
     private const string ImageDirectoriesDescription =
-        "Folders (';'-separated) with the program's binaries, for modules not at their recorded path; kept for the dump. Its own folder is always searched.";
+        "Folders (';'-separated) with the program's binaries, kept for the dump; its own folder is always searched.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpReport))]
     [Description("Reads a Windows minidump (.dmp). view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, " +
                  "a C++ exception's thrown type), faulting module and thread, the .NET state (managed exception with stack and inner chain, heap), " +
                  "counts. modules (version, PDB, whether a matching image is here), threads, memory, unloaded: paged rows. Gives the id the other " +
-                 "dump tools take. Nothing from the dump runs; .NET decoding loads Microsoft's signature-checked DAC for that runtime build.")]
+                 "dump tools take. .NET decoding loads Microsoft's signature-checked DAC.")]
     public Task<string> OpenMinidump(
         [Description("The .dmp path (or an open dump's id).")] string path,
         [Description("summary, modules, threads, memory or unloaded.")] string view = "summary",
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
-        [Description("The dumped runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that runtime build is not installed here.")] string? dacPath = null,
-        [Description("Download the DAC from a symbol server when no local copy matches (network; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
+        [Description("The runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that build is not installed here.")] string? dacPath = null,
+        [Description("Fetch the DAC from a symbol server when none matches here (network; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
@@ -89,7 +89,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
         [Description(DumpDescription)] string dump,
         [Description("stats (per type) or objects (one row each).")] string? mode = "stats",
         [Description("Type full name, '*' / '?' wildcards; default all.")] string? type = null,
-        [Description("Only objects of at least this many bytes.")] long minSize = 0,
+        [Description("Min object size in bytes.")] long minSize = 0,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
         [Description("Max objects walked.")] long maxObjects = MinidumpService.DefaultMaxHeapObjects,
@@ -103,7 +103,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
     }, cancellationToken);
 
     [McpServerTool(Name = "dump_object", Title = "Crash dump .NET object", UseStructuredContent = true)]
-    [Description("One .NET object of a minidump (through the DAC): type, size, fields (references expanded depth levels), a string's or " +
+    [Description("One .NET object of a dump (DAC): type, size, fields (references expanded depth levels), a string's or " +
                  "boxed value, or array elements.")]
     public Task<MinidumpService.ObjectReport> DumpObject(
         [Description(DumpDescription)] string dump,
@@ -114,14 +114,62 @@ public sealed class MinidumpTools(MinidumpService dumps)
         CancellationToken cancellationToken = default) =>
         Task.Run(() => dumps.Object(dump, address, depth, maxFields, maxArrayItems, cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "read_dump_memory", Title = "Read crash dump memory", UseStructuredContent = true)]
-    [Description("Hex dump of a dump's memory at an address, with what is there (module!function, captured range, protection). With " +
-                 "imageFallback, bytes the dump lacks come from the module image (writable data then shows initial values); the source is reported.")]
-    public Task<MinidumpService.MemoryRead> ReadDumpMemory(
+    [McpServerTool(Name = "read_dump_memory", Title = "Read crash dump memory", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.MemoryRead))]
+    [Description("Hex dump of a dump's memory at an address with what is there (module!function, captured range, protection). " +
+                 "imageFallback fills bytes the dump lacks from the module image (writable data shows initial values).")]
+    public Task<string> ReadDumpMemory(
         [Description(DumpDescription)] string dump,
         [Description("Hex address, 'module+0x1234', or a module name (its base).")] string address,
         [Description("Bytes to read (up to 65536).")] int length = 256,
         [Description("Read bytes the dump does not hold from the module image.")] bool imageFallback = true,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => dumps.ReadMemory(dump, address, length, imageFallback, cancellationToken), cancellationToken);
+        [Description("Byte offset into the read (a page's nextOffset).")] int offset = 0,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
+    {
+        var read = await dumps.ReadBytes(dump, address, length, imageFallback, cancellationToken);
+        return MemoryPage(read, offset);
+    }, cancellationToken);
+
+    /// <summary>The hex dump lines from <paramref name="offset"/> that fit the call's budget in both parts; the record holds them once, as hex.</summary>
+    internal static string MemoryPage(MinidumpService.MemoryBytes read, int offset)
+    {
+        var h = read.Head;
+        offset = Math.Clamp(offset, 0, read.Data.Length);
+        string header = $"{h.Dump} {h.Address}: {h.Length:N0} of {h.Requested:N0} bytes, {h.Source}" + (h.Location != null ? $", at {h.Location}" : "") +
+                        (h.Region != null ? $", captured {h.Region}" : "") + (h.Protection != null ? $", {h.Protection}" : "") + "\n" + (h.Note != null ? $"note: {h.Note}\n" : "");
+        (string Text, MinidumpService.MemoryRead Record) Page(int end)
+        {
+            var text = header + MinidumpService.HexDump(read.Va + (ulong)offset, read.Data.AsSpan(offset, end - offset), read.Is64);
+            var record = h with { Code = Convert.ToHexString(read.Data, offset, end - offset), Offset = offset };
+            if (end < read.Data.Length)
+            {
+                record = record with { NextOffset = end, NextAddress = $"0x{read.Va + (ulong)end:X}" };
+                text += $"[More: offset={end}] (address {record.NextAddress})\n";
+            }
+            return (text, record);
+        }
+        int lines = (read.Data.Length - offset + MinidumpService.HexLine - 1) / MinidumpService.HexLine;
+        int End(int k) => Math.Min(read.Data.Length, offset + k * MinidumpService.HexLine);
+        int fit = lines;
+        if (OutputCall.Budgeted is { } call && lines > 1)
+        {
+            bool Fits(int k)
+            {
+                var (text, record) = Page(End(k));
+                return call.Fits(text) && call.Fits(System.Text.Json.JsonSerializer.Serialize(record, ToolOutput.Wire));
+            }
+            if (!Fits(lines))
+            {
+                int lo = 1, hi = lines - 1;
+                while (lo < hi)
+                {
+                    int mid = (lo + hi + 1) / 2;
+                    if (Fits(mid)) lo = mid; else hi = mid - 1;
+                }
+                fit = lo;
+            }
+        }
+        var (pageText, pageRecord) = Page(End(fit));
+        return ToolOutput.With(pageText, pageRecord);
+    }
 }
