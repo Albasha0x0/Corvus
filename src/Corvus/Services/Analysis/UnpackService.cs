@@ -131,15 +131,19 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             assemblies.Select(a => Describe(a.Path, a.Bytes, a.Sha256, a.Origin)).ToList(), managed.Notes) { Total = total, Files = files, FileTotal = fileTotal };
     }
 
-    public sealed record ContainerSymbol(string Path, string Assembly, string Name, string Kind);
-
-    public sealed record ContainerSearch(string Source, string Container, int AssembliesSearched, List<ContainerSymbol> Matches, int Total,
-        bool Truncated, List<string> Notes)
+    /// <summary>One page of matches ranked exact, prefix, substring; Searched counts the assemblies (or files) searched.</summary>
+    public sealed record ContainerSearch(string Source, string Container, int Searched, List<ContainerMatch> Items, int Offset, int Total, List<string> Notes)
     {
-        public int Offset { get; init; }
+        [JsonIgnore] public bool Truncated => Offset + Items.Count < Total;
     }
 
-    /// <summary>Null or "any" selects all kinds, events included.</summary>
+    /// <summary>The managed kinds; providers (<see cref="IContainerSearchKind"/>) add theirs.</summary>
+    public static readonly string[] ManagedKinds = ["type", "method", "field", "property"];
+
+    /// <summary>Every kind= value: the managed kinds, then each provider's.</summary>
+    public static IReadOnlyList<string> SearchKinds => [.. ManagedKinds, .. Providers.Of<IContainerSearchKind>().SelectMany(p => p.Kinds)];
+
+    /// <summary>Null or "any" selects all managed kinds, events included.</summary>
     public static SymbolKind ParseSearchKind(string? kind) => kind?.Trim().ToLowerInvariant() switch
     {
         null or "" or "any" => SymbolKind.Any,
@@ -147,8 +151,62 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         "method" => SymbolKind.Method,
         "field" => SymbolKind.Field,
         "property" => SymbolKind.Property,
-        _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}': use type, method, field or property, or omit it for all."),
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", $"pass kind as one of {string.Join(", ", SearchKinds)}, or omit it for all members"),
     };
+
+    /// <summary>A search by a kind= value: a provider's kind, else the managed symbols.</summary>
+    public ContainerSearch Search(string path, string query, string? kind, int limit, AnalysisLimits limits, CancellationToken ct, int offset = 0)
+    {
+        var name = kind?.Trim().ToLowerInvariant();
+        var provider = name is null or "" ? null : Providers.Of<IContainerSearchKind>().FirstOrDefault(p => p.Kinds.Contains(name));
+        return provider == null ? Search(path, query, ParseSearchKind(kind), limit, limits, ct, offset) : SearchFiles(path, query, provider, name!, limit, limits, ct, offset);
+    }
+
+    private static ContainerSearch SearchFiles(string path, string query, IContainerSearchKind provider, string kind, int limit, AnalysisLimits limits,
+        CancellationToken ct, int offset)
+    {
+        var scope = Scope(path, limits, ct);
+        var matcher = SearchService.CreateMatcher(query, regex: false);
+        var all = provider.Search(scope.Scope, kind, matcher, ct).ToList();
+        // Ranked on the last part of the name (a file name, a member name), as the managed search ranks short names.
+        static string Short(string name) => name[(name.LastIndexOfAny(['/', '\\', ':']) + 1)..];
+        var ranked = all.Select((m, i) => (m, i, Rank: SearchService.Rank(Short(m.Name), query)))
+            .OrderBy(x => x.Rank).ThenBy(x => x.i).Select(x => x.m).ToList();
+        return new ContainerSearch(scope.Scope.Source, scope.Scope.Container, scope.Scope.Items.Count,
+            ranked.Skip(Math.Max(0, offset)).Take(limit).ToList(), Math.Max(0, offset), ranked.Count, scope.Notes);
+    }
+
+    /// <summary>Every file of a container (nested containers opened), for search kinds.</summary>
+    internal static (ContainerScope Scope, List<string> Notes) Scope(string path, AnalysisLimits limits, CancellationToken ct)
+    {
+        string source;
+        Walked walked;
+        List<ContainerEntry>? entries;
+        if (WebcilFolder(path, limits, ct) is { } folder)
+        {
+            (source, _, walked) = folder;
+            entries = walked.Entries;
+        }
+        else
+        {
+            (source, var data, var sha) = ReadSource(path, limits);
+            walked = Walk(data, sha, source, limits, ct, allFiles: true);
+            entries = walked.Entries ?? (Blob.Identify(data) == "zip" ? ZipEntries(data) : null);
+        }
+        var items = walked.Items.Select(i => new ContainerItem(i.Relative.Replace(System.IO.Path.DirectorySeparatorChar, '/'), i.Kind, i.Origin, i.Bytes)).ToList();
+        return (new ContainerScope(source, walked.Container, items, entries), walked.Notes);
+    }
+
+    /// <summary>A zip's directory (names and sizes, nothing read); null when it has none (the opener recovered local headers).</summary>
+    private static List<ContainerEntry>? ZipEntries(byte[] data)
+    {
+        try
+        {
+            using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(data, writable: false), System.IO.Compression.ZipArchiveMode.Read);
+            return [.. zip.Entries.Where(e => !e.FullName.EndsWith('/')).Select(e => new ContainerEntry(e.FullName, e.Length))];
+        }
+        catch (InvalidDataException) { return null; }
+    }
 
     /// <summary>
     /// Searches symbol names in every contained assembly in memory, with search_symbols matching. Results are ranked
@@ -163,7 +221,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         var notes = managed.Notes;
         // One bucket per rank, each capped at the page end, to keep the best matches with bounded memory.
         int end = (int)Math.Min(int.MaxValue, (long)offset + limit);
-        var buckets = Enumerable.Range(0, 4).Select(_ => new List<ContainerSymbol>()).ToArray();
+        var buckets = Enumerable.Range(0, 4).Select(_ => new List<ContainerMatch>()).ToArray();
         int total = 0, searched = 0;
         foreach (var a in managed.Assemblies)
         {
@@ -185,7 +243,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                             if (!matcher(name) && !(matchFullName && matcher(Format.MemberLabel(member)))) continue;
                             total++;
                             var bucket = buckets[SearchService.Rank(name, query)];
-                            if (bucket.Count < end) bucket.Add(new ContainerSymbol(a.Path, assemblyName, Format.MemberLabel(member), KindName(member)));
+                            if (bucket.Count < end) bucket.Add(new ContainerMatch(a.Path, Format.MemberLabel(member), KindName(member)) { Assembly = assemblyName });
                         }
                     }
                     searched++;
@@ -197,7 +255,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             }
         }
         var matches = buckets.SelectMany(b => b).Skip(offset).Take(limit).ToList();
-        return new ContainerSearch(managed.Source, managed.Container, searched, matches, total, offset + matches.Count < total, notes) { Offset = offset };
+        return new ContainerSearch(managed.Source, managed.Container, searched, matches, offset, total, notes);
     }
 
     private static string KindName(IMemberDef m) => m switch

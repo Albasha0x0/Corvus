@@ -595,17 +595,17 @@ Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `n
 
 **Search inside a container** (read-only, idempotent)
 
-Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names); each match with its inner path, assembly, full name and kind.
+Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names), exact matches first; kind=file matches inner file names and paths.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | Absolute path to the container or assembly file. |
 | `query` | string | yes |  | Name or part of a name. |
-| `kind` | string |  |  | Restrict to this kind; omit for all (events included). Values: type, method, field, property. |
-| `limit` | integer |  | `200` | Max matches (max 5000). |
+| `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, file. |
+| `limit` | integer |  | `100` | Max rows. |
 | `offset` | integer |  | `0` | Rows to skip. |
 
-Structured output: `source`, `container`, `assembliesSearched`, `matches`, `total`, `notes`, `offset`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### unpack_container
 

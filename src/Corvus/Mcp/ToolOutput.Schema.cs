@@ -33,7 +33,6 @@ public static partial class ToolOutput
         ["bucket_minidumps"] = ["buckets"],
         ["get_android_device_info"] = ["properties"],
         ["compare_folders"] = ["entries"],
-        ["search_container"] = ["matches"],
     };
 
     internal static void Envelope(JsonObject root, OutputClass output, string? tool = null)

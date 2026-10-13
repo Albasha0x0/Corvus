@@ -7,10 +7,10 @@
     "container": {
       "type": "string"
     },
-    "assembliesSearched": {
+    "searched": {
       "type": "integer"
     },
-    "matches": {
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
@@ -18,23 +18,28 @@
           "path": {
             "type": "string"
           },
-          "assembly": {
-            "type": "string"
-          },
           "name": {
             "type": "string"
           },
           "kind": {
             "type": "string"
+          },
+          "assembly": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
           }
         },
         "required": [
           "path",
-          "assembly",
           "name",
           "kind"
         ]
       }
+    },
+    "offset": {
+      "type": "integer"
     },
     "total": {
       "type": "integer"
@@ -44,9 +49,6 @@
       "items": {
         "type": "string"
       }
-    },
-    "offset": {
-      "type": "integer"
     },
     "limit": {
       "type": "integer"
@@ -82,8 +84,9 @@
   "required": [
     "source",
     "container",
-    "assembliesSearched",
-    "matches",
+    "searched",
+    "items",
+    "offset",
     "total",
     "notes"
   ]

@@ -93,6 +93,35 @@ public sealed class ContainerProviderTests : IDisposable
         Assert.Equal("inner.fake_unpacked/Fixture.dll", Assert.Single(listing.Assemblies).Path);
     }
 
+    /// <summary>A kind that matches the Blob kind of inner files ("zip", ".NET assembly").</summary>
+    internal sealed class BlobKindSearch : IContainerSearchKind
+    {
+        public IReadOnlyList<string> Kinds => ["blobkind"];
+
+        public IEnumerable<ContainerMatch> Search(ContainerScope scope, string kind, Func<string, bool> matches, CancellationToken ct) =>
+            scope.Items.Where(i => matches(i.Kind)).Select(i => new ContainerMatch(i.Path, i.Kind, kind));
+    }
+
+    [Fact]
+    public void SearchKindsFromProvidersAndTheBuiltInFileKind()
+    {
+        var zip = _dir.File("app.zip");
+        File.WriteAllBytes(zip, ContainerFixtures.Zip(("lib/net8.0/Fixture.dll", File.ReadAllBytes(Env.FixturePath)), ("assets/readme.txt", "hello"u8.ToArray()),
+            ("assets/fixture-notes.txt", "notes"u8.ToArray())));
+        var unpacker = new UnpackService(_workspace);
+        var files = unpacker.Search(zip, "fixture", "file", 10, AnalysisLimits.Default, default);
+        Assert.Equal(["lib/net8.0/Fixture.dll", "assets/fixture-notes.txt"], files.Items.Select(m => m.Path)); // prefix before substring
+        Assert.All(files.Items, m => Assert.Equal("file", m.Kind));
+        Assert.StartsWith(".NET assembly, ", files.Items[0].Detail);
+        Assert.Single(unpacker.Search(zip, "fixture", "file", 1, AnalysisLimits.Default, default, offset: 1).Items);
+        Assert.Contains("file", UnpackService.SearchKinds);
+
+        Assert.Contains("Unknown kind", Assert.Throws<ToolError>(() => unpacker.Search(zip, "net", "blobkind", 10, AnalysisLimits.Default, default)).Message);
+        using var _ = Providers.With(new BlobKindSearch());
+        var byKind = unpacker.Search(zip, ".net", "blobkind", 10, AnalysisLimits.Default, default);
+        Assert.Equal("lib/net8.0/Fixture.dll", Assert.Single(byKind.Items).Path);
+    }
+
     [Fact]
     public void SurveyRuleProvidersAddRulesAndFeatureKinds()
     {

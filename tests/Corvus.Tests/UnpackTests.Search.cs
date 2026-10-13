@@ -17,10 +17,10 @@ public partial class UnpackTests
 
     private static void AssertNothingFound(UnpackService.ContainerSearch s)
     {
-        Assert.Empty(s.Matches);
+        Assert.Empty(s.Items);
         Assert.Equal(0, s.Total);
         Assert.False(s.Truncated);
-        Assert.True(s.AssembliesSearched > 0);
+        Assert.True(s.Searched > 0);
     }
 
     /// <summary>A kind filter keeps exactly the unfiltered matches of that kind.</summary>
@@ -30,11 +30,11 @@ public partial class UnpackTests
         foreach (var kind in kinds)
         {
             var filtered = Search(path, query, kind);
-            Assert.NotEmpty(filtered.Matches);
-            Assert.All(filtered.Matches, m => Assert.Equal(kind, m.Kind));
-            Assert.Equal(all.Matches.Where(m => m.Kind == kind).Select(m => (m.Path, m.Name)).Order(), filtered.Matches.Select(m => (m.Path, m.Name)).Order());
+            Assert.NotEmpty(filtered.Items);
+            Assert.All(filtered.Items, m => Assert.Equal(kind, m.Kind));
+            Assert.Equal(all.Items.Where(m => m.Kind == kind).Select(m => (m.Path, m.Name)).Order(), filtered.Items.Select(m => (m.Path, m.Name)).Order());
         }
-        Assert.True(all.Matches.Select(m => m.Kind).Distinct().Count() >= kinds.Length);
+        Assert.True(all.Items.Select(m => m.Kind).Distinct().Count() >= kinds.Length);
     }
 
     private static byte[] CosturaHostWithFixture() => ContainerFixtures.Module("CosturaHost",
@@ -43,15 +43,15 @@ public partial class UnpackTests
     [Fact]
     public void Search_SingleFileBundle()
     {
-        var program = Assert.Single(Search(fx.Bundle, "Program", "type").Matches);
-        Assert.Equal(new UnpackService.ContainerSymbol("Hello.dll", "Hello", "Program", "type"), program);
+        var program = Assert.Single(Search(fx.Bundle, "Program", "type").Items);
+        Assert.Equal(new ContainerMatch("Hello.dll", "Program", "type") { Assembly = "Hello" }, program);
 
-        var main = Assert.Single(Search(fx.Bundle, "<Main>$").Matches);
+        var main = Assert.Single(Search(fx.Bundle, "<Main>$").Items);
         Assert.Equal(("Hello.dll", "method"), (main.Path, main.Kind));
         Assert.StartsWith("Program::<Main>$(", main.Name);
 
         AssertNothingFound(Search(fx.Bundle, NoSuchSymbol));
-        Assert.Empty(Search(fx.Bundle, "Program", "method").Matches); // only the type has that name
+        Assert.Empty(Search(fx.Bundle, "Program", "method").Items); // only the type has that name
         Assert.Equal(".NET single-file bundle", Search(fx.Bundle, "Program").Container);
     }
 
@@ -59,7 +59,7 @@ public partial class UnpackTests
     public void Search_NuGetPackage()
     {
         var package = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4");
-        var codec = Search(package, "LZ4Codec", "type").Matches.Where(m => m.Name == "K4os.Compression.LZ4.LZ4Codec").ToList();
+        var codec = Search(package, "LZ4Codec", "type").Items.Where(m => m.Name == "K4os.Compression.LZ4.LZ4Codec").ToList();
         var assemblies = List(package).Assemblies;
         Assert.Equal(assemblies.Count, codec.Count); // one per target framework
         Assert.All(codec, m => Assert.Matches(@"^lib/[^/]+/K4os\.Compression\.LZ4\.dll$", m.Path));
@@ -73,14 +73,14 @@ public partial class UnpackTests
     public void Search_ApkStyleZip()
     {
         var apk = Save("app.apk", BuildApk().Apk);
-        var account = Assert.Single(Search(apk, "Account", "type").Matches, m => m.Name == "Fixture.Model.Account");
+        var account = Assert.Single(Search(apk, "Account", "type").Items, m => m.Name == "Fixture.Model.Account");
         Assert.Equal(("assemblies/TestFixture.dll", "TestFixture"), (account.Path, account.Assembly)); // decoded from XALZ
-        Assert.Contains(Search(apk, "Marker", "type").Matches, m => m.Assembly == "StoreRaw" && m.Path.StartsWith("carved_0x"));
+        Assert.Contains(Search(apk, "Marker", "type").Items, m => m.Assembly == "StoreRaw" && m.Path.StartsWith("carved_0x"));
 
         AssertNothingFound(Search(apk, NoSuchSymbol));
-        Assert.Equal(["Fixture.Model.Account::MaxBalance", "Fixture.Model.Account::_balance"], Search(apk, "balance", "field").Matches.Select(m => m.Name).Order(StringComparer.Ordinal));
-        Assert.Equal(["Fixture.Model.Account::Balance"], Search(apk, "balance", "property").Matches.Select(m => m.Name));
-        Assert.Empty(Search(apk, "balance", "type").Matches);
+        Assert.Equal(["Fixture.Model.Account::MaxBalance", "Fixture.Model.Account::_balance"], Search(apk, "balance", "field").Items.Select(m => m.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(["Fixture.Model.Account::Balance"], Search(apk, "balance", "property").Items.Select(m => m.Name));
+        Assert.Empty(Search(apk, "balance", "type").Items);
         AssertKindFilterNarrows(apk, "balance", "field", "property");
     }
 
@@ -90,13 +90,13 @@ public partial class UnpackTests
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
         var outer = Save("outer.zip", ContainerFixtures.Zip(("packages/k4os.nupkg", nupkg), ("app/CosturaHost.exe", CosturaHostWithFixture())));
 
-        var account = Assert.Single(Search(outer, "Account", "type").Matches, m => m.Name == "Fixture.Model.Account");
+        var account = Assert.Single(Search(outer, "Account", "type").Items, m => m.Name == "Fixture.Model.Account");
         Assert.Equal("app/CosturaHost.exe_unpacked/testfixture.dll", account.Path);
-        Assert.All(Search(outer, "LZ4Codec", "type").Matches, m => Assert.Matches(@"^packages/k4os\.nupkg_unpacked/lib/[^/]+/K4os\.Compression\.LZ4\.dll$", m.Path));
+        Assert.All(Search(outer, "LZ4Codec", "type").Items, m => Assert.Matches(@"^packages/k4os\.nupkg_unpacked/lib/[^/]+/K4os\.Compression\.LZ4\.dll$", m.Path));
 
         AssertNothingFound(Search(outer, NoSuchSymbol));
         AssertKindFilterNarrows(outer, "Charge", "method");
-        Assert.Empty(Search(outer, "Charge", "property").Matches);
+        Assert.Empty(Search(outer, "Charge", "property").Items);
     }
 
     [Fact]
@@ -104,9 +104,9 @@ public partial class UnpackTests
     {
         var s = Search(Env.FixturePath, "Account::Charge", "method");
         Assert.Equal("none (plain .NET assembly)", s.Container);
-        Assert.Equal(2, s.Matches.Count); // both overloads, matched on the full name
-        Assert.All(s.Matches, m => Assert.Equal("TestFixture.dll", m.Path));
-        Assert.Contains(Search(Env.FixturePath, "Charg*").Matches, m => m.Name.StartsWith("Fixture.Model.Account::Charge("));
+        Assert.Equal(2, s.Items.Count); // both overloads, matched on the full name
+        Assert.All(s.Items, m => Assert.Equal("TestFixture.dll", m.Path));
+        Assert.Contains(Search(Env.FixturePath, "Charg*").Items, m => m.Name.StartsWith("Fixture.Model.Account::Charge("));
     }
 
     [Fact]
@@ -127,22 +127,22 @@ public partial class UnpackTests
         var zip = Save("many.zip", ContainerFixtures.Zip(("lib/Many.dll", System.IO.File.ReadAllBytes(many))));
 
         var s = Search(zip, "hit", limit: 50);
-        Assert.Equal(50, s.Matches.Count);
+        Assert.Equal(50, s.Items.Count);
         Assert.Equal(601, s.Total); // 300 types + 300 methods + the exact one
         Assert.True(s.Truncated);
-        Assert.Equal("Many.Hit", s.Matches[0].Name); // case-insensitive exact match ranks first
-        Assert.All(s.Matches, m => Assert.Equal("lib/Many.dll", m.Path));
+        Assert.Equal("Many.Hit", s.Items[0].Name); // case-insensitive exact match ranks first
+        Assert.All(s.Items, m => Assert.Equal("lib/Many.dll", m.Path));
 
         var all = Search(zip, "hit", limit: 5000);
-        Assert.Equal(601, all.Matches.Count);
+        Assert.Equal(601, all.Items.Count);
         Assert.False(all.Truncated);
 
         // offset pages the same ranked order (G1: the continuation is a row offset in the record).
         var next = Unpacker.Search(zip, "hit", SymbolKind.Any, 50, AnalysisLimits.Default, default, offset: 50);
         Assert.Equal(50, next.Offset);
-        Assert.Equal(all.Matches.Skip(50).Take(50), next.Matches);
+        Assert.Equal(all.Items.Skip(50).Take(50), next.Items);
         var last = Unpacker.Search(zip, "hit", SymbolKind.Any, 50, AnalysisLimits.Default, default, offset: 600);
-        Assert.Single(last.Matches);
+        Assert.Single(last.Items);
         Assert.False(last.Truncated);
     }
 
@@ -153,7 +153,7 @@ public partial class UnpackTests
         var input = Path.Combine(sandbox.Path, $"app-{Guid.NewGuid():N}.apk");
         System.IO.File.WriteAllBytes(input, BuildApk().Apk);
 
-        Assert.NotEmpty(Search(input, "Account").Matches);
+        Assert.NotEmpty(Search(input, "Account").Items);
 
         Assert.Equal([input], Directory.GetFileSystemEntries(sandbox.Path));
         // default unpack folders are named after their input, which no other run shares

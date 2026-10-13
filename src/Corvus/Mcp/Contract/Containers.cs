@@ -24,7 +24,7 @@ public static partial class ParameterDomains
 {
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> ContainersTools() => new(StringComparer.Ordinal)
     {
-        ["search_container"] = new Dictionary<string, Domain> { ["kind"] = Of(["type", "method", "field", "property"], "any") },
+        ["search_container"] = new Dictionary<string, Domain> { ["kind"] = Of([.. Services.Analysis.UnpackService.SearchKinds], "any") },
         ["extract_strings"] = new Dictionary<string, Domain> { ["types"] = Of([.. Services.Analysis.Values.Types]) },
     };
 }
@@ -37,7 +37,7 @@ public sealed partial record ToolContract
         ["survey_features"] = Row(O.Report, L.Interactive, core: true),
         ["extract_strings"] = Row(O.List, L.Interactive, core: true, sort: "type, count descending, value"),
         ["extract_embedded"] = Row(O.List, L.Interactive, core: true, sort: "assembly, then resources, static data, strings", noDryRun: "writes new names only, never over a different file"),
-        ["search_container"] = Row(O.List, L.Interactive, core: true, sort: "container entry, metadata order"),
+        ["search_container"] = Row(O.List, L.Interactive, core: true, sort: "exact, prefix, then substring matches; container entry, metadata order"),
         ["unpack_container"] = Row(O.Edit, L.Long, lean: true, core: true, noDryRun: "extracts only into an empty directory or its own earlier unpack"),
         ["unity_overview"] = Row(O.Report, L.Interactive, core: true),
     };

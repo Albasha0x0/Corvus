@@ -40,6 +40,15 @@ public sealed record EmbeddedPage(string Assembly, IReadOnlyList<EmbeddedContent
 
 internal static class ContainerText
 {
+    public static string Search(UnpackService.ContainerSearch s, int limit)
+    {
+        var header = new StringBuilder($"{Escape(Path.GetFileName(s.Source))} ({s.Container}): {s.Searched} searched.\n");
+        foreach (var n in s.Notes) header.Append("Note: ").Append(Escape(n)).Append('\n');
+        return ToolOutput.List(s.Items, s.Offset, limit, s.Total, m =>
+                $"{m.Kind} {Escape(m.Name)}" + (m.Kind == "file" ? "" : $" in {Escape(m.Path)}") + (m.Detail != null ? $" ({Escape(m.Detail)})" : ""),
+            rows => s with { Items = [.. rows] }, "match", header.ToString());
+    }
+
     public static string Embedded(InspectionService.EmbeddedReport report, int offset, int limit)
     {
         var header = new StringBuilder($"{Escape(report.Assembly)}: ");

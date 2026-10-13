@@ -21,16 +21,19 @@ public sealed class UnpackTools(UnpackService unpacker)
         CancellationToken cancellationToken = default) =>
         Task.Run(() => unpacker.Unpack(path, outputDirectory, load, AnalysisLimits.Default, cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true)]
+    [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
     [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, " +
-                 "without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names); each match with its inner path, assembly, full name and kind.")]
-    public Task<UnpackService.ContainerSearch> SearchContainer(
+                 "without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names), exact matches first; " +
+                 "kind=file matches inner file names and paths.")]
+    public async Task<string> SearchContainer(
         [Description("Absolute path to the container or assembly file.")] string path,
         [Description("Name or part of a name.")] string query,
-        [Description("Restrict to this kind; omit for all (events included).")] string? kind = null,
-        [Description("Max matches (max 5000).")] int limit = 200,
+        [Description("Restrict to this kind; omit for all members (events included).")] string? kind = null,
+        [Description(LimitDescription)] int limit = 100,
         [Description(RowOffsetDescription)] int offset = 0,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => unpacker.Search(path, query, UnpackService.ParseSearchKind(kind), ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset),
-            cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        var found = await Task.Run(() => unpacker.Search(path, query, kind, ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset), cancellationToken);
+        return ContainerText.Search(found, ClampLimit(limit));
+    }
 }
