@@ -26,7 +26,7 @@ public class NativeListBudgetTests
         }
     }
 
-    [WindowsFact]
+    [WindowsFact, Trait("Speed", "Slow")]
     public async Task Read_bytes_pages_64_KiB_by_bytes_with_contiguous_pages()
     {
         await using var server = await InProcessServer.StartAsync();
@@ -50,7 +50,7 @@ public class NativeListBudgetTests
         Assert.InRange(pages, 16, 64);
     }
 
-    [WindowsFact]
+    [WindowsFact, Trait("Speed", "Slow")]
     public async Task Disassemble_pages_are_contiguous_and_the_record_carries_the_code()
     {
         await using var server = await InProcessServer.StartAsync();
