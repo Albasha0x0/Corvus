@@ -59,8 +59,8 @@ public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposab
         Assert.Equal("True", set.Result?.Trim());
         var text = await rig.Analysis.DecompileNative(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida");
         output.WriteLine(text.Split('\n')[0]);
-        Assert.Contains("// Widget::Run at ", text);
-        Assert.Contains("; symbol ?Run@Widget@@QEAAXXZ)", text);
+        // the name in effect (the export) wins in pseudocode headers, as in list_functions (DN-4); the frame shows the engine's
+        Assert.Contains($"// {Function} at ", text);
         var frame = await rig.Types.GetNativeFrame(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida", locals: true);
         output.WriteLine(frame.Split('\n')[0]);
         Assert.StartsWith("Frame of Widget::Run at ", frame);
