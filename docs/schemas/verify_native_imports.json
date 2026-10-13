@@ -107,7 +107,7 @@
       }
     },
     "dynamicLoads": {
-      "description": "Run-time native loading found in the IL (first 100).",
+      "description": "Run-time native loading found in the IL (first 20).",
       "type": "array",
       "items": {
         "type": "object",

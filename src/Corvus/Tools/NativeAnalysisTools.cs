@@ -150,21 +150,21 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         [property: Description("Declarations matching the filter.")] int Total,
         bool Truncated,
         [property: Description("Contradicted, unresolved and dynamic_only first, then not_checked and verified.")] IReadOnlyList<NativeImportVerifier.Check> Items,
-        [property: Description("Run-time native loading found in the IL (first 100).")] IReadOnlyList<DynamicNativeLoad> DynamicLoads,
+        [property: Description("Run-time native loading found in the IL (first 20).")] IReadOnlyList<DynamicNativeLoad> DynamicLoads,
         int DynamicLoadsTotal,
         [property: Description("Malformed metadata found while reading the declarations, with locations.")] IReadOnlyList<MetadataIssue> MetadataIssues,
         IReadOnlyList<string> Notes);
 
-    [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", UseStructuredContent = true)]
+    [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", UseStructuredContent = true, OutputSchemaType = typeof(NativeImportReport))]
     [Description("Check a .NET assembly's P/Invoke declarations against the exports of their libraries, with the runtime's lookup rules (search " +
                  "order, API sets, A/W suffixes, stdcall decoration, ordinals, forwarders; .so/.dylib probing along the RID chain, __Internal in " +
                  "Il2Cpp). Verdict per declaration with a reason: verified, contradicted (missing_export, arch_mismatch), unresolved (dll_not_found " +
                  "with places searched), dynamic_only, not_checked. Run-time loading found in the IL is listed too.")]
-    public Task<NativeImportReport> VerifyNativeImports(
+    public Task<string> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only declarations with this status or reason code (e.g. contradicted, missing_export).")] string? status = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max rows (max 5000).")] int limit = 500,
+        [Description("Max rows (default 100, max 5000).")] int limit = 100,
         [Description("Target platform (default auto).")] string? platform = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -198,7 +198,21 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         if (!OperatingSystem.IsWindows() && result.Platform.IsWindows)
             notes.Add("This host has no Windows system DLLs: DLLs next to the assembly are checked (exports, ordinals, forwarders); declarations bound to " +
                       "system DLLs are unresolved (system_dll_not_on_host).");
-        return new NativeImportReport(asm.Id, checks.Count, counts, filter, offset, selected.Count, offset + limit < selected.Count,
-            selected.Skip(offset).Take(limit).ToList(), result.DynamicLoads.Take(100).ToList(), result.DynamicLoads.Count, result.MetadataIssues, notes);
+        var loads = result.DynamicLoads.Take(20).ToList();
+        var head = new StringBuilder($"{asm.Id}: {Plural(checks.Count, "P/Invoke declaration")}" + (counts.Count > 0
+            ? ": " + string.Join(", ", counts.Select(c => $"{c.Count} {c.Status} ({c.Reason})")) : "") + "\n");
+        if (result.DynamicLoads.Count > 0)
+        {
+            head.AppendLine($"Run-time native loading in the IL ({result.DynamicLoads.Count}{(loads.Count < result.DynamicLoads.Count ? $", first {loads.Count}" : "")}):");
+            foreach (var d in loads) head.AppendLine($"  {d.Kind}  {Format.EscapeMarkers(d.Method)}+{d.IlOffset}" + (d.Library != null ? $"  {Format.EscapeMarkers(d.Library)}" : ""));
+        }
+        foreach (var m in result.MetadataIssues.Take(10)) head.AppendLine($"Metadata issue: {m}");
+        foreach (var n in notes) head.AppendLine($"Note: {n}");
+        var page = selected.Skip(offset).Take(limit).ToList();
+        return ToolOutput.List(page, offset, limit, selected.Count,
+            c => $"{c.Status} ({c.Reason})  {Format.EscapeMarkers(c.Method)}  {c.Module}!{c.EntryPoint}" + (c.ResolvedFile != null ? $"  -> {Path.GetFileName(c.ResolvedFile)}" : "") +
+                 (c.Export != null && c.Export != c.EntryPoint ? $"!{c.Export}" : "") + (c.Detail.Length > 0 ? $": {Format.EscapeMarkers(c.Detail)}" : ""),
+            rows => new NativeImportReport(asm.Id, checks.Count, counts, filter, offset, selected.Count, offset + rows.Count < selected.Count,
+                rows, loads, result.DynamicLoads.Count, result.MetadataIssues.Take(10).ToList(), notes), "declaration", head.ToString());
     }, cancellationToken));
 }

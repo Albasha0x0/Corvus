@@ -1491,7 +1491,7 @@ Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports 
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 | `status` | string |  |  | Only declarations with this status or reason code (e.g. contradicted, missing_export). |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `500` | Max rows (max 5000). |
+| `limit` | integer |  | `100` | Max rows (default 100, max 5000). |
 | `platform` | string |  |  | Target platform (default auto). Values: auto, windows, linux, osx, android, ios. |
 
 Structured output: `assembly`, `declarations`, `counts`, `filter`, `offset`, `total`, `items`, `dynamicLoads`, `dynamicLoadsTotal`, `metadataIssues`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
