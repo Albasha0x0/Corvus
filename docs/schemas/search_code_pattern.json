@@ -10,13 +10,7 @@
     "images": {
       "type": "integer"
     },
-    "total": {
-      "type": "integer"
-    },
-    "truncated": {
-      "type": "boolean"
-    },
-    "hits": {
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
@@ -47,11 +41,64 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "failed": {
+      "description": "Images that could not be searched; the others are.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "next"
+            ]
+          }
+        },
+        "required": [
+          "image",
+          "error"
+        ]
+      }
+    },
     "notes": {
       "type": "array",
       "items": {
         "type": "string"
       }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -76,9 +123,9 @@
     "pattern",
     "length",
     "images",
+    "items",
+    "offset",
     "total",
-    "truncated",
-    "hits",
     "notes"
   ]
 }

@@ -124,7 +124,10 @@ public class NativeToolBoundsTests
         Assert.StartsWith("0 hits", await h.Native.SearchBytes(path, "?? 48 89 E6"));
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => h.Native.SearchBytes(path, "?? ??"))).Code);
         var diff = new Corvus.Tools.NativeDiffTools(h.Workspace, h.Code);
-        var hit = Assert.Single((await diff.SearchCodePattern("?? ?? 89 E5", "lead.dll")).Hits);
+        var (search, searchText) = await BuildToolCalls.Collected<Corvus.Tools.NativeDiffTools.PatternSearch>(() => diff.SearchCodePattern("?? ?? 89 E5", ["lead.dll", "no_such.dll"]));
+        var hit = Assert.Single(search.Items);
+        Assert.Equal("no_such.dll", Assert.Single(search.Failed!).Image);
+        Assert.Contains("1 hit (showing 1-1):", searchText);
         Assert.Equal((0u, $"0x{b.ImageBase + text.Rva:X}"), (hit.FunctionOffset!.Value, hit.Address));
 
         // ARM64 hits name their function too
@@ -133,9 +136,10 @@ public class NativeToolBoundsTests
         var f = index.Functions.First(x => x.Size >= 8);
         var head = new byte[8];
         arm.Image.Read(f.Start, head);
-        var armHits = await diff.SearchCodePattern("?? ?? ?? ?? " + string.Join(" ", head.Skip(4).Select(x => x.ToString("X2"))), arm.Id);
+        var (armHits, _) = await BuildToolCalls.Collected<Corvus.Tools.NativeDiffTools.PatternSearch>(() =>
+            diff.SearchCodePattern("?? ?? ?? ?? " + string.Join(" ", head.Skip(4).Select(x => x.ToString("X2"))), [arm.Id], limit: 5000));
         Assert.Empty(armHits.Notes);
-        Assert.Contains(armHits.Hits, x => x.FunctionOffset == 0 && x.FunctionAddress == Corvus.Native.NativeAddress.Va(arm.Image, f.Start));
+        Assert.Contains(armHits.Items, x => x.FunctionOffset == 0 && x.FunctionAddress == Corvus.Native.NativeAddress.Va(arm.Image, f.Start));
     }
 
     [WindowsFact]

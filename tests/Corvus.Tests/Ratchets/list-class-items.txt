@@ -12,7 +12,6 @@ list_assemblies
 list_cpp_classes
 native_call_tree
 read_result
-search_code_pattern
 search_container
 search_decompiled
 symbolize_stack_text

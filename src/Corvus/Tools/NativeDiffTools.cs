@@ -147,7 +147,11 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     public sealed record PatternHit(string Image, string Address, string Section, string? Function, string? FunctionAddress, uint? FunctionOffset);
 
-    public sealed record PatternSearch(string Pattern, int Length, int Images, int Total, bool Truncated, IReadOnlyList<PatternHit> Hits, IReadOnlyList<string> Notes);
+    public sealed record PatternSearch(string Pattern, int Length, int Images, IReadOnlyList<PatternHit> Items, int Offset, int Total,
+        [property: Description("Images that could not be searched; the others are.")] IReadOnlyList<ImageError>? Failed,
+        IReadOnlyList<string> Notes);
+
+    public sealed record ImageError(string Image, BatchError Error);
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
     [Description("Match the functions of two builds of one native image (x86 / x64 / ARM64) in tiers: 1 same name, import or identical bytes; 2 same " +
@@ -670,24 +674,29 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             best.Note + "; " + note, list, choice.Engine);
     }
 
-    [McpServerTool(Name = "search_code_pattern", Title = "Search a code pattern", UseStructuredContent = true)]
-    [Description("Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the executable sections of the loaded native " +
-                 "images, with the function and offset of each hit.")]
-    public async Task<PatternSearch> SearchCodePattern(
+    [McpServerTool(Name = "search_code_pattern", Title = "Search a code pattern", UseStructuredContent = true, OutputSchemaType = typeof(PatternSearch))]
+    [Description("Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the executable sections of loaded native images, " +
+                 "by image then address, with the function and offset of each hit.")]
+    public Task<string> SearchCodePattern(
         [Description("Hex bytes with ?? wildcards.")] string pattern,
-        [Description("Comma-separated image ids or paths; omit for every loaded native image.")] string? images = null,
+        [Description("Image ids or paths; omit for every loaded native image.")] string[]? images = null,
         [Description("Search every section, not only executable ones.")] bool allSections = false,
-        [Description("Max hits (max 5000).")] int limit = 200,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description(LimitDescription)] int limit = 100,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (bytes, mask, _) = NativeTools.ParseHexPattern(pattern ?? "");
         if (bytes.Length == 0)
             throw new ToolError(ErrorCode.InvalidArgument, "The pattern is empty.", "pass hex bytes such as '48 8B 05 ?? ?? ?? ??'");
         var p = new BytePattern(bytes, mask);
+        offset = Math.Max(0, offset);
         limit = ClampLimit(limit, 5000);
+        int want = End(offset, limit);
         List<LoadedNative> targets;
-        if (string.IsNullOrWhiteSpace(images))
+        var failed = new List<ImageError>();
+        if (images is not { Length: > 0 })
         {
             targets = workspace.Read(() => workspace.Natives.ToList());
             if (targets.Count == 0)
@@ -695,38 +704,47 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         else
         {
-            targets = [];
-            foreach (var id in images.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                targets.Add(await Resolve(id, cancellationToken));
-            targets = targets.DistinctBy(t => t.Id).ToList();
+            var batch = BatchResult.ThrowIfAllFailed(await BatchResult.RunAsync(images, id => Resolve(id.Trim(), cancellationToken), "search_code_pattern"));
+            targets = batch.Items.Where(i => i.Value != null).Select(i => i.Value!).DistinctBy(t => t.Id).ToList();
+            failed.AddRange(batch.Items.Where(i => i.Error != null).Select(i => new ImageError(i.Target.Trim(), i.Error!)));
         }
 
         var hits = new List<PatternHit>();
         var notes = new List<string>();
         int total = 0;
-        foreach (var native in targets)
+        for (int k = 0; k < targets.Count; k++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var native = targets[k];
+            var span = new ProgressSpan(progress, k, k + 1, targets.Count);
+            span.Report(0, $"searching {native.Id}");
             var pe = native.Image;
             var sections = await Task.Run(() => CodePatterns.CodeSections(pe, allSections), cancellationToken);
             int count = 0;
-            var found = await Task.Run(() => CodePatterns.Find(sections, p, limit, out count, cancellationToken), cancellationToken);
+            var found = await Task.Run(() => CodePatterns.Find(sections, p, Math.Max(0, want - total), out count, cancellationToken), cancellationToken);
+            int before = total;
             total += count;
-            if (found.Count == 0 || hits.Count >= limit) continue;
+            if (found.Count == 0 || before >= want) continue;
             NativeCodeIndex? index = null;
             if (pe.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64)
-                index = await code.Index(native, null, cancellationToken);
+                index = await code.Index(native, span.Sink == null ? null : new Progress<CodeIndexProgress>(x =>
+                    span.Report(x.Total > 0 ? (double)x.Done / x.Total : 0, $"indexing {native.Id}: {x.Phase}")), cancellationToken);
             else notes.Add($"{native.Id}: {pe.Arch} code is not analyzed, so hits have no containing function");
-            foreach (var rva in found)
+            foreach (var rva in found.Order())
             {
-                if (hits.Count >= limit) break;
                 var fn = index?.FunctionAt(rva);
                 hits.Add(new PatternHit(native.Id, NativeAddress.Va(pe, rva), pe.SectionAt(rva)?.Name ?? "", fn != null ? Name(index!, fn) : null,
                     fn != null ? NativeAddress.Va(pe, fn.Start) : null, fn != null ? rva - fn.Start : null));
             }
         }
-        return new PatternSearch(p.ToString(), p.Length, targets.Count, total, total > hits.Count, hits, notes);
-    }
+        var record = new PatternSearch(p.ToString(), p.Length, targets.Count, [], offset, total, failed.Count > 0 ? failed : null, notes);
+        var head = new System.Text.StringBuilder($"{p} in {Plural(targets.Count, "image")}" + (failed.Count > 0 ? $"; {failed.Count} failed" : "") + ":\n");
+        foreach (var f in failed) head.Append($"{f.Image}: error {f.Error.Code}: {f.Error.Message}\n");
+        foreach (var note in notes) head.Append("Note: ").Append(note).Append('\n');
+        return ToolOutput.List(hits.Skip(offset).ToList(), offset, limit, total,
+            h => $"{h.Image} {h.Address} {h.Section}" + (h.Function != null ? $"  {h.Function}+0x{h.FunctionOffset:X}" : ""),
+            page => record with { Items = page }, "hit", head.ToString());
+    });
 
     private readonly BuildPairs pairs = new(workspace, code);
 

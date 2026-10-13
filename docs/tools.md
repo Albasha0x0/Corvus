@@ -1881,16 +1881,18 @@ Structured output: `image`, `format`, `results`, `failed`.
 
 **Search a code pattern** (read-only, idempotent, long-running)
 
-Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the executable sections of the loaded native images, with the function and offset of each hit.
+Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the executable sections of loaded native images, by image then address, with the function and offset of each hit.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `pattern` | string | yes |  | Hex bytes with ?? wildcards. |
-| `images` | string |  |  | Comma-separated image ids or paths; omit for every loaded native image. |
+| `images` | string[] |  |  | Image ids or paths; omit for every loaded native image. |
 | `allSections` | boolean |  | `false` | Search every section, not only executable ones. |
-| `limit` | integer |  | `200` | Max hits (max 5000). |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `pattern`, `length`, `images`, `total`, `truncated`, `hits`, `notes`.
+Structured output: `pattern`, `length`, `images`, `items`, `offset`, `total`, `failed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### migrate_native_names
 
