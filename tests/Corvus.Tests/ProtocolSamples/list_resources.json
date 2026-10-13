@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "TestFixture: 2 managed resources\n2 resources (showing 1-2):\n  Fixture.Strings.resources  [embedded, 264 bytes, 2 entries]  file 0x2B30  sha256 <id>\n  Fixture.hello.txt  [embedded, 46 bytes]  file 0x2C40  sha256 <id>\n[End: 2 resources]\n"
+    "TestFixture: 2 managed resources\n2 resources (showing 1-2):\n  Fixture.Strings.resources  [embedded, 264 bytes, 2 entries]  file 0x2AF0  sha256 <id>\n  Fixture.hello.txt  [embedded, 46 bytes]  file 0x2C00  sha256 <id>\n[End: 2 resources]\n"
   ],
   "structuredContent": {
     "assembly": "TestFixture",
@@ -16,7 +16,7 @@
         "size": 264,
         "entries": 2,
         "public": true,
-        "fileOffset": "0x2B30",
+        "fileOffset": "0x2AF0",
         "sha256": "<id>"
       },
       {
@@ -24,7 +24,7 @@
         "kind": "embedded",
         "size": 46,
         "public": true,
-        "fileOffset": "0x2C40",
+        "fileOffset": "0x2C00",
         "sha256": "<id>"
       }
     ],
