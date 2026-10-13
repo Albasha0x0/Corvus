@@ -735,6 +735,13 @@ internal sealed partial class FunctionDiscovery
         byte x = b[p];
         if (x is 0xCC or 0x90 or 0x00) return 1;
         ReadOnlySpan<byte> s = b.AsSpan(p, end - p);
+        // GNU as fill for a long alignment: a short jump over nops to the aligned start
+        if (x == 0xEB && s.Length >= 2 && s[1] is > 0 and < 0x80 && 2 + s[1] <= s.Length)
+        {
+            int q = p + 2, to = p + 2 + s[1];
+            while (q < to && b[q] != 0xEB && PaddingLength(b, q, to) is var fill and > 0) q += fill;
+            return q == to ? to - p : 0;
+        }
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0xA4, 0x24, 0x00, 0x00, 0x00, 0x00])) return 7; // lea esp, [esp+0]
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x9B, 0x00, 0x00, 0x00, 0x00])) return 6;       // lea ebx, [ebx+0]
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x64, 0x24, 0x00])) return 4;                   // lea esp, [esp+0]

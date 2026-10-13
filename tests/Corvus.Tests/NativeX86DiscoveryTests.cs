@@ -63,4 +63,13 @@ public class NativeX86DiscoveryTests
         Assert.NotNull(index.FunctionByStart(rva(callee)));
         Assert.False(index.FunctionByStart(Code)!.Flags.HasFlag(FunctionFlags.NoReturn));
     }
+
+    [Fact]
+    public void A_short_jump_over_nops_is_alignment_fill_not_a_function()
+    {
+        // f: call g; ret; then GNU as fill "jmp +13; 13 x nop" up to g
+        byte[] code = [0xE8, 0x10, 0, 0, 0, 0xC3, 0xEB, 0x0D, .. Enumerable.Repeat((byte)0x90, 13), 0x31, 0xC0, 0xC3];
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, code, entry: Code, format: ImageFormat.Elf));
+        Assert.Equal([Code, Code + 0x15], index.Functions.Select(f => f.Start));
+    }
 }

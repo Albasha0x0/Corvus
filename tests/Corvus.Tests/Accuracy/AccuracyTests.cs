@@ -140,7 +140,11 @@ public class AccuracyTests(ITestOutputHelper output)
             var index = NativeCodeIndex.Build(image);
             sw.Stop();
             var funcs = new JsonArray();
+            var unresolved = new JsonArray();
             foreach (var f in index.Functions)
+            {
+                if (f.Flags.HasFlag(FunctionFlags.UnresolvedJumps))
+                    foreach (var u in index.GetGraph(f).UnresolvedJumps) unresolved.Add(new JsonArray(f.Start, u.Rva, u.Reason));
                 funcs.Add(new JsonObject
                 {
                     ["start"] = f.Start, ["end"] = MainEnd(index, f), ["maxEnd"] = f.End, ["size"] = f.Size,
@@ -148,6 +152,7 @@ public class AccuracyTests(ITestOutputHelper output)
                     ["funclet"] = f.Flags.HasFlag(FunctionFlags.Funclet), ["chunks"] = f.Chunks.Count,
                     ["source"] = f.Sources.ToString(), ["flags"] = f.Flags.ToString(),
                 });
+            }
             var xrefs = new JsonObject();
             foreach (var t in targets)
             {
@@ -158,7 +163,7 @@ public class AccuracyTests(ITestOutputHelper output)
             var doc = new JsonObject
             {
                 ["engine"] = "ours", ["id"] = id, ["base"] = 0, ["seconds"] = Math.Round(sw.Elapsed.TotalSeconds, 2), ["digest"] = Digest(index),
-                ["imageBase"] = image.ImageBase, ["functions"] = funcs, ["xrefs"] = xrefs,
+                ["imageBase"] = image.ImageBase, ["functions"] = funcs, ["xrefs"] = xrefs, ["unresolved"] = unresolved,
             };
             File.WriteAllText(Path.Combine(outDir, id + ".json"), doc.ToJsonString());
             output.WriteLine($"{id}: {index.Functions.Count} functions, {sw.ElapsedMilliseconds} ms");
