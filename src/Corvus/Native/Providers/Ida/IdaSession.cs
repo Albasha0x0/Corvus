@@ -249,7 +249,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         if (!DecompilerAvailable)
             throw new ToolError(ErrorCode.Unsupported, $"The Hex-Rays decompiler is not available for {Arch} in this IDA install (not installed or not licensed).",
                 IdaProvider.Remediation(ErrorCode.Unsupported, ""));
-        return WorkerRows.Decompiled(await CallAsync("decompile", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+        return await CachedAsync(OutputCacheKinds.Decompile, OutputCacheKinds.At(rva), async () =>
+            WorkerRows.Decompiled(await CallAsync("decompile", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false))).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<DecompileOutcome>> DecompileManyAsync(IReadOnlyList<uint> rvas, double secondsPerItem, double budgetSeconds,
@@ -258,9 +259,12 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         if (!DecompilerAvailable)
             throw new ToolError(ErrorCode.Unsupported, $"The Hex-Rays decompiler is not available for {Arch} in this IDA install (not installed or not licensed).",
                 IdaProvider.Remediation(ErrorCode.Unsupported, ""));
-        var args = IdaProvider.Args(("rvas", new JsonArray(rvas.Select(r => (JsonNode)r).ToArray())), ("seconds_per_item", secondsPerItem), ("budget_seconds", budgetSeconds));
-        // the worker keeps the budget; the request limit only catches a stuck worker
-        return WorkerRows.DecompiledMany(await CallAsync("decompile_many", args, cancellationToken, timeout: TimeSpan.FromSeconds(budgetSeconds + 60)).ConfigureAwait(false));
+        return await CachedManyAsync(rvas, async asked =>
+        {
+            var args = IdaProvider.Args(("rvas", new JsonArray(asked.Select(r => (JsonNode)r).ToArray())), ("seconds_per_item", secondsPerItem), ("budget_seconds", budgetSeconds));
+            // the worker keeps the budget; the request limit only catches a stuck worker
+            return WorkerRows.DecompiledMany(await CallAsync("decompile_many", args, cancellationToken, timeout: TimeSpan.FromSeconds(budgetSeconds + 60)).ConfigureAwait(false));
+        }).ConfigureAwait(false);
     }
 
     public async Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) =>
@@ -453,7 +457,12 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     public Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) => GetFrameAsync(rva, true, cancellationToken);
 
-    public async Task<NativeFrame> GetFrameAsync(uint rva, bool withLocals, CancellationToken cancellationToken = default)
+    // the decompiler's locals are the slow part (a decompile): only that frame is kept across processes
+    public Task<NativeFrame> GetFrameAsync(uint rva, bool withLocals, CancellationToken cancellationToken = default) => withLocals
+        ? CachedAsync(OutputCacheKinds.Frame, OutputCacheKinds.At(rva), () => FrameAsync(rva, true, cancellationToken))
+        : FrameAsync(rva, false, cancellationToken);
+
+    private async Task<NativeFrame> FrameAsync(uint rva, bool withLocals, CancellationToken cancellationToken)
     {
         var r = await CallAsync("frame", IdaProvider.Args(("rva", rva), ("locals", withLocals)), cancellationToken).ConfigureAwait(false);
         var members = r.GetProperty("members").EnumerateArray()

@@ -72,6 +72,14 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     public ProviderAvailability CheckAvailability() => Static().Result;
 
+    /// <summary>The project directory an open of <paramref name="imagePath"/> would use, when its cache entry exists; null otherwise. Opens nothing.</summary>
+    internal string? ProjectFor(string imagePath, string sha256, EngineAnalysis analysis)
+    {
+        if (Static().Ghidra is not { } ghidra || Cache.Find(ProviderId, sha256) is not { } entry) return null;
+        try { return GhidraSession.Project(this, ghidra, entry, GhidraSession.ReadHeader(imagePath, imagePath), SymbolMode.Default, analysis).Directory; }
+        catch (ToolError) { return null; }
+    }
+
     /// <summary>The installed version, or null when Ghidra is not available.</summary>
     internal string? Version => Static().Ghidra?.Version;
 
@@ -82,7 +90,8 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     private (ProviderAvailability Result, GhidraInstallation? Ghidra, JavaRuntime? Java) Static()
     {
-        lock (_availabilityLock)
+        // locating Java runs processes: a call waiting here stops when it is cancelled
+        using (AssemblyWorkspace.Lock(_availabilityLock))
             return _static ??= ComputeStatic();
     }
 

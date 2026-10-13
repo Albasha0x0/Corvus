@@ -88,8 +88,31 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        string? setup = null;
+        if (locals && engines.OutputCache != null)
+        {
+            // another process read this frame in the database state saved on disk, after the same pushes: no engine needed
+            EngineChoice.Mode(engine, engines);
+            var (saved, at) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, code, image, function), cancellationToken);
+            var answer = EngineChoice.EngineOnly(engine, engines, saved);
+            setup = EngineReport.SetupDigest(saved, code, "frame", names != null, types != null);
+            if (engines.Answer<NativeFrame>(saved, answer.Engine, setup, OutputCacheKinds.Frame, at) is { } stored)
+            {
+                EngineReport.Answered(answer, engines);
+                EngineReport.Cached(1, 0);
+                return FrameResult(saved, stored, answer.Engine, locals, offset, limit);
+            }
+        }
         var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
-        var f = await session.GetFrameAsync(rva, locals, cancellationToken);
+        NativeFrame f;
+        using (EngineReport.Heartbeat(progress, $"{session.ProviderId} reading the frame at {Va(native, rva)}"))
+            f = await session.GetFrameAsync(rva, locals, cancellationToken);
+        if (setup != null) engines.Remember(native, session, setup, OutputCacheKinds.Frame, rva, f);
+        return FrameResult(native, f, session.ProviderId, locals, offset, limit);
+    });
+
+    private static string FrameResult(LoadedNative native, NativeFrame f, string engine, bool locals, int offset, int limit)
+    {
         var (display, symbol) = NativeTools.Named(f.Name, native.Image.Format);
         var rows = new List<FrameRow>();
         foreach (var m in f.Members)
@@ -99,14 +122,14 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             rows.Add(new FrameRow("local", l.Name, l.Type, l.Stack, null, null, null, l.Stack is { } ? "stack" : l.Location, l.IsArgument ? true : null,
                 l.UserName ? true : null, l.UserType ? true : null));
         string? localsNote = !locals ? "not asked (locals=true adds them)" : f.DecompilerError;
-        var header = $"Frame of {display} at {Va(native, f.StartRva)}{(symbol.Length > 0 ? $" ({symbol[2..]})" : "")} ({session.ProviderId}): {f.LocalSize} bytes of " +
+        var header = $"Frame of {display} at {Va(native, f.StartRva)}{(symbol.Length > 0 ? $" ({symbol[2..]})" : "")} ({engine}): {f.LocalSize} bytes of " +
                      $"locals, {f.SavedRegisters} of saved registers; return address at +0x{f.ReturnAddressOffset:X}; {Plural(f.Members.Count, "member")}, " +
                      (localsNote != null ? $"no decompiler locals ({localsNote})" : Plural(named.Count, "decompiler local")) + "\n";
         offset = Math.Max(0, offset);
         return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, Row,
-            page => new FrameReport(native.Id, session.ProviderId, Va(native, f.StartRva), display, f.LocalSize, f.SavedRegisters, f.ReturnAddressOffset,
+            page => new FrameReport(native.Id, engine, Va(native, f.StartRva), display, f.LocalSize, f.SavedRegisters, f.ReturnAddressOffset,
                 f.Members.Count, named.Count, localsNote, page, offset, rows.Count), "row", header);
-    });
+    }
 
     private static string Row(FrameRow r) => r.Kind == "member"
         ? $"member +0x{r.Offset:X} [{(r.BaseOffset < 0 ? "-" : "+")}0x{Math.Abs(r.BaseOffset ?? 0):X}]  {r.Name}  {r.Type}  {r.Size}  {r.Slot}"

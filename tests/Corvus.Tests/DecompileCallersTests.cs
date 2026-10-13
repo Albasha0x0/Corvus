@@ -46,7 +46,7 @@ public sealed class DecompileCallersTests : IDisposable
     {
         var (tools, engine, native) = Setup();
         var text = await tools.DecompileNative(native.Id, callersOf: "rva:0x1004");
-        Assert.Contains("// 2 inputs: 2 decompiled, 0 failed, 0 skipped, 0 duplicate", text);
+        Assert.Contains("// 2 inputs: 2 decompiled, 0 failed, 0 not reached, 0 duplicate", text);
         Assert.True(text.IndexOf("first_caller", StringComparison.Ordinal) < text.IndexOf("second_caller", StringComparison.Ordinal));
         Assert.Contains("return target() + target();", text);
         Assert.DoesNotContain("reader", text); // a data reference is not a call

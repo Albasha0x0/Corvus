@@ -45,9 +45,10 @@ public sealed partial class NativeAnalysisTools
         [property: Description("Functions asked for.")] int Inputs,
         int Succeeded,
         int Failed,
-        int Skipped,
-        [property: Description("The call that decompiles the skipped items, when there are any.")] string? Next)
+        [property: Description("Inputs not reached (maxFunctions or the time budget).")] int Skipped,
+        [property: Description("functions / callersOf: offset= of the first input not reached.")] int? NextInput)
     {
+        [Description("functions / callersOf: the first input of this call.")] public int? Offset { get; init; }
         [Description("Why this engine answered.")] public string? EngineNote { get; init; }
     }
 
@@ -61,7 +62,7 @@ public sealed partial class NativeAnalysisTools
         [Description(NativeTools.AddressDescription + " Required unless functions is given.")] string? address = null,
         [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
         [Description("Prefix each line with the address it was generated from.")] bool addresses = false,
-        [Description(CharOffsetDescription)] int offset = 0,
+        [Description("Character offset (nextOffset); with functions or callersOf, the first input (nextInput).")] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Several functions instead of address: addresses or names, in the order wanted.")] string[]? functions = null,
         [Description("With functions: seconds per function (1-600).")] int perFunctionSeconds = 60,
@@ -85,6 +86,16 @@ public sealed partial class NativeAnalysisTools
         uint rva = 0;
         if (!batch || callers) (native, rva) = await Task.Run(() => Resolve(image, callers ? callersOf! : address!), cancellationToken);
         var choice = EngineChoice.EngineOnly(engine, engines, native!);
+        // another process decompiled this function in the database state saved on disk, after the same pushes: no engine needed
+        string? setup = !batch && !refs && engines.OutputCache != null ? SetupDigest(native!) : null;
+        if (setup != null && engines.Answer<DecompileAnswer>(native!, choice.Engine, setup, AnswerKind(addresses), rva) is { } answered)
+        {
+            EngineReport.Answered(choice, engines);
+            EngineReport.Cached(1, 0);
+            return NotesHeader(native!, rva, offset) + answered.Header + ToolOutput.Text(pager, answered.Text, offset,
+                new DecompileReport(native!.Id, choice.Engine, [SingleItem(native, address!, rva, answered.Start, answered.Name, answered.Text)], 1, 1, 0, 0, null)
+                    { EngineNote = choice.Note }, maxTokens);
+        }
         var session = await engines.Session(native!, choice.Engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
         EngineReport.Answered(choice, engines, session);
@@ -96,35 +107,68 @@ public sealed partial class NativeAnalysisTools
         {
             if (refs) throw new ToolError(ErrorCode.InvalidArgument, "refs applies to one function (address), not functions.", "drop refs, or decompile one address");
             if (callers) functions = await Callers(native!, session, rva, callersOf!, cancellationToken);
-            var (text, report) = await Batch(native!, session, functions!, addresses, Math.Clamp(perFunctionSeconds, 1, 600), Math.Clamp(maxFunctions, 1, 200), cancellationToken);
-            return pushed + ToolOutput.Text(pager, text, offset, report with { EngineNote = choice.Note }, maxTokens);
+            var (text, report) = await Batch(native!, session, functions!, addresses, Math.Clamp(perFunctionSeconds, 1, 600), Math.Clamp(maxFunctions, 1, 200), offset, cancellationToken);
+            // offset counts inputs here; a text past the budget is kept whole under a resultId
+            return ToolOutput.Report(pushed + text, report with { EngineNote = choice.Note });
         }
         if (types != null) await types.EnsureMethodAsync(native!, session, code?.Ready(native!)?.FunctionAt(rva)?.Start ?? rva, cancellationToken);
         DecompiledFunction? decompiled = null;
-        var single = pager.GetOrCreate(TextKey(native!, session, rva, addresses), () =>
+        string single;
+        using (EngineReport.Heartbeat(progress, $"{session.ProviderId} decompiling {NativeAddress.Va(native!.Image, rva)}"))
         {
-            decompiled = session.DecompileWithinAsync(rva, limit, cancellationToken).GetAwaiter().GetResult();
-            return FunctionText(native!, session, decompiled, addresses);
-        });
-        string header = "";
-        if (notes != null && offset == 0)
-        {
-            var fn = code?.Ready(native!)?.FunctionAt(rva);
-            uint start = fn?.Start ?? rva, end = fn != null ? fn.Start + Math.Max(1u, fn.Size) : rva + 1;
-            header = NotesService.Header(notes.OpenCount(native!.OriginalSha256.ToLowerInvariant(), a => a.Kind == NoteAnchor.Native && a.Rva >= start && a.Rva < end),
-                $"{native.Id}@{NativeAddress.Va(native.Image, start)}");
+            try
+            {
+                single = pager.GetOrCreate(TextKey(native!, session, rva, addresses), () =>
+                {
+                    decompiled = session.DecompileWithinAsync(rva, limit, cancellationToken).GetAwaiter().GetResult();
+                    return FunctionText(native!, session, decompiled, addresses);
+                });
+            }
+            catch (ToolError e) when (e.Code == ErrorCode.NotFound && code?.Ready(native!)?.FunctionAt(rva) is { } ours)
+            {
+                // the engine has no function there but the built-in analysis has: say how to make one
+                var other = session.ProviderId == "ida" ? "ghidra" : "ida";
+                throw new ToolError(ErrorCode.NotFound, $"{e.Message} ({NativeEngineService.DisplayName(session.ProviderId)}); the built-in analysis has a function at " +
+                    $"{NativeAddress.Va(native!.Image, ours.Start)}.",
+                    $"define_native image={native.Id} address={NativeAddress.Va(native.Image, ours.Start)} kind=function engine={session.ProviderId} makes it, or engine={other}")
+                    { Details = e.Details };
+            }
         }
-        var known = code?.Ready(native!)?.FunctionAt(rva);
-        uint? functionStart = decompiled?.StartRva ?? known?.Start;
+        uint? functionStart = decompiled?.StartRva ?? code?.Ready(native!)?.FunctionAt(rva)?.Start;
+        var name = FunctionName(native!, functionStart, decompiled?.Name);
+        if (setup != null) engines.Remember(native!, session, setup, AnswerKind(addresses), rva, new DecompileAnswer(pushed, single, functionStart, name));
         (string Text, List<DecompileRef> Items)? objects = refs
             ? await References(native!, session, TextKey(native!, session, rva, addresses) + "|refs", functionStart ?? rva, cancellationToken)
             : null;
-        var item = new DecompileItem(address!, NativeAddress.Va(native!.Image, rva), functionStart is { } fs ? NativeAddress.Va(native.Image, fs) : null,
-            (decompiled?.Name ?? known?.Name) is { } shown ? NativeTools.DisplayName(shown, native.Image.Format) : null, "ok", null, null, single.Count(c => c == '\n'), single.Length)
-            { Refs = objects?.Items };
-        return header + pushed + ToolOutput.Text(pager, single, offset, new DecompileReport(native.Id, session.ProviderId, [item], 1, 1, 0, 0, null) { EngineNote = choice.Note },
-            maxTokens) + (offset == 0 && objects != null ? objects.Value.Text : "");
+        var item = SingleItem(native!, address!, rva, functionStart, name, single) with { Refs = objects?.Items };
+        return NotesHeader(native!, rva, offset) + pushed + ToolOutput.Text(pager, single, offset, new DecompileReport(native!.Id, session.ProviderId, [item], 1, 1, 0, 0, null)
+            { EngineNote = choice.Note }, maxTokens) + (offset == 0 && objects != null ? objects.Value.Text : "");
     });
+
+    /// <summary>One function's pseudocode as served without an engine: the stable header, the text, its start and name.</summary>
+    internal sealed record DecompileAnswer(string Header, string Text, uint? Start, string? Name);
+
+    private static string AnswerKind(bool addresses) => addresses ? "decompile-text-addresses" : "decompile-text";
+
+    /// <summary>The name in effect at a function start (user, PDB, ..., the engine's last), the same in every call and tool.</summary>
+    private string? FunctionName(LoadedNative native, uint? start, string? engineName) =>
+        (start is { } s && code?.Ready(native)?.NameAt(s) is { } known ? known : engineName) is { } shown ? NativeTools.DisplayName(shown, native.Image.Format) : null;
+
+    private static DecompileItem SingleItem(LoadedNative native, string input, uint rva, uint? start, string? name, string text) =>
+        new(input, NativeAddress.Va(native.Image, rva), start is { } s ? NativeAddress.Va(native.Image, s) : null, name, "ok", null, null, text.Count(c => c == '\n'), text.Length);
+
+    /// <summary>The open notes on the function, as the first lines of its first page.</summary>
+    private string NotesHeader(LoadedNative native, uint rva, int offset)
+    {
+        if (notes == null || offset != 0) return "";
+        var fn = code?.Ready(native)?.FunctionAt(rva);
+        uint start = fn?.Start ?? rva, end = fn != null ? fn.Start + Math.Max(1u, fn.Size) : rva + 1;
+        return NotesService.Header(notes.OpenCount(native.OriginalSha256.ToLowerInvariant(), a => a.Kind == NoteAnchor.Native && a.Rva >= start && a.Rva < end),
+            $"{native.Id}@{NativeAddress.Va(native.Image, start)}");
+    }
+
+    private string SetupDigest(LoadedNative native) =>
+        EngineReport.SetupDigest(native, code, notes != null ? NoteMarks.Digest(native, notes) : "", types != null, userTypes != null, names != null);
 
     /// <summary>Most objects the refs footer lists.</summary>
     private const int MaxRefs = 200;
@@ -233,11 +277,12 @@ public sealed partial class NativeAnalysisTools
         $"decompile|{session.ProviderId}|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}|" +
         $"{NativePdbTypes.CurrentStamp(session)}|{NativeUserTypePush.CurrentStamp(session)}|{EngineControl.Generation(session)}";
 
-    private static string FunctionText(LoadedNative native, INativeDecompilerSession session, DecompiledFunction function, bool addresses)
+    private string FunctionText(LoadedNative native, INativeDecompilerSession session, DecompiledFunction function, bool addresses)
     {
         var lines = function.Text.Split('\n');
         var byLine = function.LineAddresses.GroupBy(l => l.Line).ToDictionary(g => g.Key, g => g.Min(l => l.Rva));
-        var (display, symbol) = NativeTools.Named(function.Name, native.Image.Format);
+        // the name in effect (user, PDB, ...), as list_functions and search_decompiled show it
+        var (display, symbol) = NativeTools.Named(code?.Ready(native)?.NameAt(function.StartRva) ?? function.Name, native.Image.Format);
         // one stable header line: open time and saved-analysis state are in _meta
         var sb = new StringBuilder($"// {display} at {NativeAddress.Va(native.Image, function.StartRva)} ({session.ProviderId}" +
                                    $"{(session.DatabaseNote is { } note ? ", " + note : "")}{symbol})\n");
@@ -252,8 +297,10 @@ public sealed partial class NativeAnalysisTools
     /// earlier function are marked, texts already cached are reused, and the engine's per-item outcomes are kept as they come.
     /// </summary>
     private async Task<(string Text, DecompileReport Report)> Batch(LoadedNative native, INativeDecompilerSession session, string[] inputs, bool addresses,
-        int perItem, int max, CancellationToken ct)
+        int perItem, int max, int start, CancellationToken ct)
     {
+        if (start < 0 || start > inputs.Length)
+            throw new ToolError(ErrorCode.InvalidArgument, $"offset {start} is outside the {inputs.Length} inputs.", "offset=0, or the nextOffset of the previous result");
         var image = native.Image;
         var index = code?.Ready(native);
         string Va(uint r) => NativeAddress.Va(image, r);
@@ -276,7 +323,7 @@ public sealed partial class NativeAnalysisTools
         var firstOf = new Dictionary<uint, int>();
         var asked = new List<int>();
         int taken = 0;
-        for (int i = 0; i < n; i++)
+        for (int i = start; i < n; i++)
         {
             if (errors[i] != null) { status[i] = "error"; continue; }
             if (starts[i] is { } s && firstOf.ContainsKey(s)) { status[i] = "duplicate"; continue; }
@@ -307,13 +354,15 @@ public sealed partial class NativeAnalysisTools
             }
         }
 
-        var items = new List<DecompileItem>(n);
+        // the inputs from the first skipped one on are the next call's (offset=); skipped ones are counted, not listed
+        int firstSkipped = Enumerable.Range(start, n - start).Where(i => status[i] == "skipped").DefaultIfEmpty(-1).First();
+        int end = firstSkipped >= 0 ? firstSkipped : n;
+        var items = new List<DecompileItem>(end - start);
         var sb = new StringBuilder();
-        var skipped = new List<string>();
-        for (int i = 0; i < n; i++)
+        for (int i = start; i < end; i++)
         {
             var o = outcomes[i];
-            var name = (o?.Function?.Name ?? (starts[i] is { } s ? index?.NameAt(s) : null)) is { } symbol ? NativeTools.DisplayName(symbol, image.Format) : null;
+            var name = FunctionName(native, starts[i], o?.Function?.Name);
             var where = starts[i] is { } st ? Va(st) : rvas[i] is { } r ? Va(r) : null;
             var head = $"// [{i + 1}/{n}] {name ?? where ?? inputs[i]}{(where != null && name != null ? $" at {where}" : "")} (input \"{inputs[i]}\")";
             string? code = null, message = null;
@@ -326,10 +375,6 @@ public sealed partial class NativeAnalysisTools
                     var first = Array.FindIndex(starts, x => x == starts[i]);
                     sb.Append($"{head}: the same function as [{first + 1}]").Append('\n');
                     break;
-                case "skipped":
-                    skipped.Add(inputs[i]);
-                    sb.Append($"{head}: skipped ({(outcomes[i] != null ? "time budget used" : $"maxFunctions={max}")})").Append('\n');
-                    break;
                 default:
                     (code, message) = errors[i] ?? (o?.ErrorCode ?? "failed", o?.Error ?? "failed");
                     sb.Append($"{head}: error {code}: {message}").Append('\n');
@@ -338,13 +383,12 @@ public sealed partial class NativeAnalysisTools
             items.Add(new DecompileItem(inputs[i], rvas[i] is { } a ? Va(a) : null, starts[i] is { } fs ? Va(fs) : null, name, status[i], code, message,
                 texts[i]?.Count(c => c == '\n') ?? 0, texts[i]?.Length ?? 0));
         }
-        int ok = items.Count(x => x.Status == "ok"), failed = items.Count(x => x.Status == "error");
-        string? next = skipped.Count > 0
-            ? $"decompile_native image={native.Id} functions=[{string.Join(", ", skipped.Select(x => $"\"{x}\""))}]"
-            : null;
-        var summary = $"// {Plural(n, "input")}: {ok} decompiled, {failed} failed, {skipped.Count} skipped, {items.Count(x => x.Status == "duplicate")} duplicate ({session.ProviderId})\n";
-        if (next != null) sb.Append($"// Next: {next}").Append('\n');
-        return (summary + sb, new DecompileReport(native.Id, session.ProviderId, items, n, ok, failed, skipped.Count, next));
+        int ok = items.Count(x => x.Status == "ok"), failed = items.Count(x => x.Status == "error"), skipped = n - end;
+        var summary = $"// {Plural(n, "input")}" + (start > 0 ? $" from offset {start}" : "") + $": {ok} decompiled, {failed} failed, {skipped} not reached, " +
+                      $"{items.Count(x => x.Status == "duplicate")} duplicate ({session.ProviderId})\n";
+        if (skipped > 0)
+            sb.Append($"// {Plural(skipped, "input")} not reached ({(outcomes[end] != null ? "time budget used" : $"maxFunctions={max}")}) [More: offset={end}]\n");
+        return (summary + sb, new DecompileReport(native.Id, session.ProviderId, items, n, ok, failed, skipped, skipped > 0 ? end : null) { Offset = start });
     }
 
     /// <summary>

@@ -51,6 +51,9 @@ internal static class NoteMarks
         return result;
     }
 
+    /// <summary>The stamp of the marks the image's notes make (what a push would record), without an engine.</summary>
+    public static string Digest(LoadedNative native, NotesService notes) => Stamp(Marks(native, notes));
+
     /// <summary>"notes: 3 marks in ida" for a decompile header, or null.</summary>
     public static string? Describe(NativeMarkResult? result, string engine) =>
         result == null ? null : $"notes: {result.Set} mark(s) in {engine}" + (result.Failed > 0 ? $", {result.Failed} not placed ({result.Failures[0]})" : "");

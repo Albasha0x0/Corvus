@@ -54,6 +54,8 @@ public sealed class NativeEngineService : IDisposable
     {
         _providers = providers;
         _cacheRoot = cacheRoot;
+        _outputCache = new(() => Environment.GetEnvironmentVariable(EngineOutputCache.MaxMegabytesVariable) == "0" ? null
+            : new EngineOutputCache(cacheRoot ?? AnalysisCache.DefaultRoot));
         _code = code;
         DefaultMode = options?.Engine ?? EngineMode.Auto;
         RequestTimeout = TimeSpan.FromSeconds(options?.EngineRequestTimeoutSeconds ?? 120);
@@ -213,9 +215,65 @@ public sealed class NativeEngineService : IDisposable
 
     private readonly EngineAnalysis _analysis;
 
-    private NativeOpenOptions OpenOptions(LoadedNative native, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
+    /// <summary>Engine answers kept across processes (EL-1); null when switched off (<see cref="EngineOutputCache.MaxMegabytesVariable"/>=0).</summary>
+    public EngineOutputCache? OutputCache => _outputCache.Value;
+
+    private Lazy<EngineOutputCache?> _outputCache = null!;
+
+    // ---- answers without opening an engine ----
+
+    /// <summary>
+    /// The state of engine <paramref name="id"/>'s saved database of the image when this process has no session of it (a
+    /// session's own state wins: it may hold changes not saved yet); null when unknown. Reads files only.
+    /// </summary>
+    public string? SavedState(LoadedNative native, string id)
+    {
+        if (OutputCache == null || Existing(native, id)?.Opening != null || native.HasPatches || UnavailabilityOf(id) != null) return null;
+        var db = Find(id) switch
+        {
+            IdaProvider ida => ida.SavedDatabasePath(native.OriginalSha256, _analysis == EngineAnalysis.None ? "default-noauto" : "default"),
+            GhidraProvider ghidra => ghidra.ProjectFor(native.FilePath, native.OriginalSha256, _analysis),
+            _ => null,
+        };
+        return db != null ? EngineOutputCache.ReadState(db) : null;
+    }
+
+    private string NoOpenKey(LoadedNative native, string id, string state, string setup, string kind, uint rva) =>
+        EngineOutputCache.Key("no-open", OutputIdentity(id), id, native.OriginalSha256.ToLowerInvariant(), state, setup, kind, OutputCacheKinds.At(rva));
+
+    /// <summary>
+    /// An answer stored for the database state saved on disk and the server's setup inputs <paramref name="setup"/> (names,
+    /// types, PDB, notes and patches it would push first); the engine is not opened. Null when the image has a session of
+    /// that engine here, or nothing is stored.
+    /// </summary>
+    public T? Answer<T>(LoadedNative native, string id, string setup, string kind, uint rva) where T : class
+    {
+        if (OutputCache is not { } cache || SavedState(native, id) is not { } state) return null;
+        if (cache.Get(NoOpenKey(native, id, state, setup, kind, rva)) is not { } hit) return null;
+        try { return System.Text.Json.JsonSerializer.Deserialize<T>(hit, EngineOutputCache.Json); }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    /// <summary>
+    /// Stores an answer made by <paramref name="session"/> for later processes that have not opened the engine: under the state
+    /// the session opened at and the state it is in now (a later open of the database saved now), when only the server's
+    /// setup pushes for <paramref name="setup"/> changed the database since the open.
+    /// </summary>
+    public void Remember<T>(LoadedNative native, INativeDecompilerSession session, string setup, string kind, uint rva, T value)
+    {
+        if (OutputCache is not { } cache || session is not WorkerSessionBase w || !w.OnlySetupSinceOpen || native.HasPatches) return;
+        var json = System.Text.Json.JsonSerializer.Serialize(value, EngineOutputCache.Json);
+        foreach (var state in new[] { w.OpenState, w.DatabaseState }.Distinct())
+            if (state.Length > 0 && !state.StartsWith('u')) cache.Put(NoOpenKey(native, session.ProviderId, state, setup, kind, rva), json);
+    }
+
+    /// <summary>What decides an engine's answers besides its database: its build and analysis settings.</summary>
+    internal string OutputIdentity(string id) => Identity(id) is var i ? $"{i.Engine}|{i.Build}|{i.Profile}" : id;
+
+    private NativeOpenOptions OpenOptions(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
         new()
         {
+            OutputCache = OutputCache, OutputIdentity = OutputIdentity(id),
             Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, Analysis = _analysis,
             ThumbCode = native.Image.Arch == Native.NativeArch.Arm && _code != null ? ct => ThumbCode(native, ct) : null,
             KnownStart = _code != null ? async (rva, ct) => (await _code.Index(native, null, ct).ConfigureAwait(false)).FunctionByStart(rva) != null : null,
@@ -492,8 +550,8 @@ public sealed class NativeEngineService : IDisposable
             // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
             // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
             holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
-                ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), OpenOptions(native, progress, holder.OpenedPdb))
-                : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(native, progress, holder.OpenedPdb), native.Released);
+                ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), OpenOptions(native, id, progress, holder.OpenedPdb))
+                : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(native, id, progress, holder.OpenedPdb), native.Released);
             // Once open, the library functions IDA recognized become the image's ida name layer, Ghidra's own names its ghidra layer.
             if (id is IdaProvider.ProviderId or GhidraProvider.ProviderId)
                 holder.LibraryNames = holder.Opening.ContinueWith(async opened =>
@@ -513,7 +571,7 @@ public sealed class NativeEngineService : IDisposable
 
     /// <summary>Opens a session on the patched bytes (written to a private file; the engine keeps its own copy per hash).</summary>
     private Task<INativeDecompilerSession> OpenPatched(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
-        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, OpenOptions(native, progress, pdbPath));
+        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, OpenOptions(native, id, progress, pdbPath));
 
     /// <summary>Opens a session on <paramref name="content"/> (the patched bytes when null), written to a private file named <paramref name="name"/>.</summary>
     private static Task<INativeDecompilerSession> OpenBytes(INativeDecompilerProvider provider, LoadedNative native, string name, byte[]? content,
@@ -563,7 +621,7 @@ public sealed class NativeEngineService : IDisposable
         Existing(native, id) is { Patched: not null } h && h.PatchedState == h.SyncedKey;
 
     /// <summary>
-    /// One engine's session of an image as get_engine_status reports it: State opening (Stage, Seconds since the open
+    /// One engine's session of an image as the engine status reports it: State opening (Stage, Seconds since the open
     /// started), open (Session), failed (Error) or closed.
     /// </summary>
     public sealed record ImageEngineStatus(string Engine, string State, string? Stage, double Seconds, INativeDecompilerSession? Session, string? Error)

@@ -252,12 +252,13 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
         var source = NativePdbTypes.Current(session)!;
         Assert.Equal(NativePdbTypes.RouteIda, source.Route);
 
-        // idempotent: the next call does not load again; a new session on the saved database finds the stamp
+        // idempotent: the next call does not load again; a new session on the saved database finds the stamp (addresses=true: no answer
+        // stored for it, so the engine opens)
         Assert.Contains("(already in the database)", await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}")));
         rig.Engines.Dispose();
         var rig2 = Setup(_dir.File("cache"));
         await rig2.Pdbs.Load(rig2.Workspace.LoadAny(built.Exe).Native!, pdbPath, false, null, false, TimeSpan.FromSeconds(30), 1 << 30, default);
-        var reopened = await EngineMeta.WithPushes(() => rig2.Analysis.DecompileNative(built.Exe, $"rva:0x{scoreRva:X}"));
+        var reopened = await EngineMeta.WithPushes(() => rig2.Analysis.DecompileNative(built.Exe, $"rva:0x{scoreRva:X}", addresses: true));
         output.WriteLine(reopened.Split('\n')[0]);
         Assert.Contains("(already in the database)", reopened);
         Assert.Contains("->sequence_number", reopened);

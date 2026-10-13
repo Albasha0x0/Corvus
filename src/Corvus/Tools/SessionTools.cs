@@ -30,7 +30,10 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [property: Description("Requests waiting for this session.")] int Queued,
         [property: Description("Unsaved edits a restart would replay.")] int Unsaved,
         int Restarts, string? Database, bool ReusedDatabase,
-        [property: Description("no auto-analysis, or a read-only snapshot of a database another process holds.")] string? Note);
+        [property: Description("no auto-analysis, or a read-only snapshot of a database another process holds.")] string? Note)
+    {
+        [Description("running, complete or partial (the analysis budget ran out).")] public string? Analysis { get; init; }
+    }
 
     [Description("Seconds per IDA or Ghidra request (CORVUS_ENGINE_REQUEST_TIMEOUT) and per engine start plus analysis (CORVUS_ENGINE_OPEN_TIMEOUT).")]
     public sealed record EngineLimits(int RequestSeconds, int OpenSeconds);
@@ -73,7 +76,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
     [Description("Which server runs (version, program, install kind, client), a catalog digest, what is loaded, limits, long-running tools, " +
-                 "capabilities with the fix when missing, tool families, unusable tools, and engine sessions (busy op, queue). expectedCatalogDigest " +
+                 "capabilities with the fix when missing, tool families, unusable tools, and engine sessions (busy op, analysis, queue). expectedCatalogDigest " +
                  "detects a stale server; expectedExecutable checks the registered copy.")]
     public ServerStatus GetServerStatus(
         [Description("Catalog digest to compare (t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
@@ -133,7 +136,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             NoteCountsOf(notes),
             new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds),
             (engines?.SessionStates() ?? []).Select(e => new EngineSession(e.Image, e.State.Engine, e.State.WorkerPid, e.State.State, e.State.BusyOp,
-                e.State.BusySeconds, e.State.Stage, e.State.Queued, e.State.Unsaved, e.State.Restarts, e.State.Database, e.State.ReusedDatabase, e.State.Note)).ToList(),
+                e.State.BusySeconds, e.State.Stage, e.State.Queued, e.State.Unsaved, e.State.Restarts, e.State.Database, e.State.ReusedDatabase, e.State.Note)
+                    { Analysis = e.State.Analysis }).ToList(),
             new CatalogFilter(options.ToolAllowList != null ? options.ToolAllowListSource ?? "(set)" : null, options.ToolAllowList?.Count, options.TracePath),
             context?.Services is { } services ? StatusSections.Collect(services) : []);
     }

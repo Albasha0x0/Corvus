@@ -1,4 +1,5 @@
 using Corvus.Core;
+using ModelContextProtocol;
 using Corvus.Mcp;
 using Corvus.Native.Providers;
 using Corvus.Services;
@@ -24,6 +25,12 @@ internal static class EngineReport
         meta["engineVersion"] = id.Version;
         meta["engineBuild"] = id.Build;
         meta["engineProfile"] = id.Profile;
+        // a saved database that could not be opened was analyzed again: said once, by the call that opened it
+        if (session is WorkerSessionBase { Rebuilt: { } rebuilt } w)
+        {
+            ToolOutput.Warn(rebuilt);
+            w.Rebuilt = null;
+        }
         if (session != null)
         {
             meta["analysis"] = session.AnalysisComplete ? "complete" : "partial";
@@ -48,6 +55,33 @@ internal static class EngineReport
         if (OutputCall.Current is not { } call) return;
         call.EngineMeta["outputCache"] = new { hits, misses };
     }
+
+    /// <summary>
+    /// Everything the server pushes into an engine database before a tool's answer (names and comments in effect, user types,
+    /// the PDB, the tool's own pushes such as notes, Il2Cpp names): equal digests mean equal pushes, so an answer stored after
+    /// them holds for another process that has not opened the engine.
+    /// </summary>
+    public static string SetupDigest(LoadedNative native, NativeCodeService? code, params object?[] tool)
+    {
+        var user = code?.Annotations(native);
+        var layers = Native.Code.NativeNameLayers.OfOrNull(native)?.Layers ?? [];
+        var pdb = PdbService.PathForEngines(native);
+        var pdbFile = pdb != null && new FileInfo(pdb) is { Exists: true } f ? $"{pdb}|{f.Length}|{f.LastWriteTimeUtc.Ticks}" : "";
+        return EngineOutputCache.Key(["setup", NativeNamePush.StampOf(NativeNamePush.Effective(user, layers, native.Image)),
+            NativeNamePush.StampOf(NativeNamePush.Effective(user, layers, native.Image, withPdb: true)), user?.UserTypes.Stamp, pdbFile,
+            Il2CppNativeNames.Of(native) != null, .. tool]);
+    }
+
+    /// <summary>While an engine works on one request: a progress notification every few seconds naming it and the time so far (S9.2).</summary>
+    public static IDisposable Heartbeat(IProgress<ProgressNotificationValue> progress, string what)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        return new Timer(_ => progress.Report(new ProgressNotificationValue
+            { Progress = (float)clock.Elapsed.TotalSeconds, Message = $"{what} ({clock.Elapsed.TotalSeconds:0} s)" }), null, HeartbeatEvery, HeartbeatEvery);
+    }
+
+    /// <summary>Under the 5 s the progress contract allows between notifications.</summary>
+    internal static readonly TimeSpan HeartbeatEvery = TimeSpan.FromSeconds(4);
 
     private static void Limit(string id)
     {

@@ -45,6 +45,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     private readonly IdaProviderOptions _options = options ?? new IdaProviderOptions();
     private readonly ConcurrentDictionary<IdaSession, byte> _sessions = new();
     private readonly object _availabilityLock = new();
+    internal object AvailabilityLock => _availabilityLock;
     private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python)? _static;
     private int _disposed;
 
@@ -83,7 +84,8 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
 
     private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static()
     {
-        lock (_availabilityLock)
+        // locating Python runs processes: a call waiting here stops when it is cancelled
+        using (AssemblyWorkspace.Lock(_availabilityLock))
             return _static ??= ComputeStatic();
     }
 

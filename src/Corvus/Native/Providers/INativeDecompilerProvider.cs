@@ -36,7 +36,11 @@ public interface INativeDecompilerProvider : IDisposable
 /// requests waiting, edits a restart would replay, restarts, and the database.
 /// </summary>
 public sealed record EngineSessionState(string Engine, string ImagePath, int? WorkerPid, string State, string? BusyOp, double BusySeconds,
-    string? Stage, int Queued, int Unsaved, int Restarts, string? Database, bool ReusedDatabase, string? Note = null);
+    string? Stage, int Queued, int Unsaved, int Restarts, string? Database, bool ReusedDatabase, string? Note = null)
+{
+    /// <summary>running (the open's analysis), complete, or partial (the analysis budget ran out).</summary>
+    public string? Analysis { get; init; }
+}
 
 /// <summary>
 /// One analyzed image. Requests that change the database run one at a time in arrival order; an engine may run reads
@@ -322,6 +326,10 @@ public sealed record NativeOpenOptions
     /// a function request names that address; null when unknown.
     /// </summary>
     public Func<uint, CancellationToken, Task<bool>>? KnownStart { get; init; }
+    /// <summary>Where answers to read requests are kept across processes; null keeps none.</summary>
+    public EngineOutputCache? OutputCache { get; init; }
+    /// <summary>The engine's build and analysis settings, part of every output key.</summary>
+    public string? OutputIdentity { get; init; }
 }
 
 /// <summary>Full: the engine's auto-analysis. None: load only, functions made where they are asked for (huge or hostile inputs).</summary>

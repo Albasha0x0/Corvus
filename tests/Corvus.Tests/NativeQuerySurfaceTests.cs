@@ -64,9 +64,10 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         var rig = await Setup();
         rig.Provider.Functions = [(rig.First, rig.Second, "?Run@Widget@@QEAAXXZ"), (rig.Second, rig.Second + 0x10, "Second")];
         var batch = await rig.Analysis.DecompileNative(rig.Native.Id, functions: ["First", "Second"]);
-        Assert.Contains("// [1/2] Widget::Run at", batch);
+        // the name in effect (the export) wins over the engine's in pseudocode headers, as in list_functions (DN-4)
+        Assert.Contains("// [1/2] First at", batch);
         var text = await rig.Analysis.DecompileNative(rig.Native.Id, "First");
-        Assert.Matches(@"// Widget::Run at 0x[0-9A-F]+ \(ida; symbol \?Run@Widget@@QEAAXXZ\)", text);
+        Assert.Matches(@"// First at 0x[0-9A-F]+ \(ida\)", text);
         var frame = await rig.Types.GetNativeFrame(rig.Native.Id, "First", locals: true);
         Assert.StartsWith("Frame of Widget::Run at ", frame);
         Assert.Contains("(symbol ?Run@Widget@@QEAAXXZ)", frame);

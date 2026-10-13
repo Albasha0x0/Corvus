@@ -88,7 +88,7 @@ Structured output: `assemblies`, `searchDirectories`, `backgroundIndexing`, `con
 
 **Server status** (read-only, idempotent, open-world)
 
-Which server runs (version, program, install kind, client), a catalog digest, what is loaded, limits, long-running tools, capabilities with the fix when missing, tool families, unusable tools, and engine sessions (busy op, queue). expectedCatalogDigest detects a stale server; expectedExecutable checks the registered copy.
+Which server runs (version, program, install kind, client), a catalog digest, what is loaded, limits, long-running tools, capabilities with the fix when missing, tool families, unusable tools, and engine sessions (busy op, analysis, queue). expectedCatalogDigest detects a stale server; expectedExecutable checks the registered copy.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1388,7 +1388,7 @@ C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra.
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Required unless functions is given. |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 | `addresses` | boolean |  | `false` | Prefix each line with the address it was generated from. |
-| `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
+| `offset` | integer |  | `0` | Character offset (nextOffset); with functions or callersOf, the first input (nextInput). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 | `functions` | string[] |  |  | Several functions instead of address: addresses or names, in the order wanted. |
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (1-600). |
@@ -1397,7 +1397,7 @@ C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra.
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600; default CORVUS_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x. |
 | `callersOf` | string |  |  | Instead of address: decompile the functions calling this one (engine references). |
 
-Structured output: `image`, `engine`, `items`, `inputs`, `succeeded`, `failed`, `skipped`, `next`, `engineNote`, `code`, `offset`, `nextOffset`, `totalChars`.
+Structured output: `image`, `engine`, `items`, `inputs`, `succeeded`, `failed`, `skipped`, `nextInput`, `offset`, `engineNote`, `code`, `nextOffset`, `totalChars`.
 
 ### search_decompiled
 

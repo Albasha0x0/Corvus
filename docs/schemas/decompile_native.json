@@ -98,11 +98,16 @@
       "type": "integer"
     },
     "skipped": {
+      "description": "Inputs not reached (maxFunctions or the time budget).",
       "type": "integer"
     },
-    "next": {
-      "description": "The call that decompiles the skipped items, when there are any.",
-      "type": "string"
+    "nextInput": {
+      "description": "functions / callersOf: offset= of the first input not reached.",
+      "type": "integer"
+    },
+    "offset": {
+      "description": "functions / callersOf: the first input of this call.",
+      "type": "integer"
     },
     "engineNote": {
       "description": "Why this engine answered.",
@@ -110,9 +115,6 @@
     },
     "code": {
       "type": "string"
-    },
-    "offset": {
-      "type": "integer"
     },
     "nextOffset": {
       "type": "integer"

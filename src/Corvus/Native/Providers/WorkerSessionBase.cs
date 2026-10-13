@@ -35,6 +35,9 @@ public static class EngineUse
     public sealed class Record
     {
         public string? Engine { get; internal set; }
+        /// <summary>Engine answers the output cache served instead of the engine.</summary>
+        public int Cached => _cached;
+        internal int _cached;
     }
 
     private static readonly AsyncLocal<Record?> Current = new();
@@ -45,6 +48,11 @@ public static class EngineUse
     public static void Note(string engine)
     {
         if (Current.Value is { } r) r.Engine = engine;
+    }
+
+    public static void Cached()
+    {
+        if (Current.Value is { } r) Interlocked.Increment(ref r._cached);
     }
 }
 
@@ -139,7 +147,10 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         else state = "idle";
         int queued = Math.Max(0, Volatile.Read(ref _calls) - running.Count - (starting != null ? 1 : 0));
         return new EngineSessionState(ProviderId, ImagePath, WorkerProcessId, state, op, Math.Round(seconds, 1), stage, queued, UnsavedCount,
-            Volatile.Read(ref _restarts), DatabaseLocation, ReusedDatabase, Note);
+            Volatile.Read(ref _restarts), DatabaseLocation, ReusedDatabase, Note)
+        {
+            Analysis = state == "opening" && OpenTime == TimeSpan.Zero ? "running" : this is INativeDecompilerSession { AnalysisComplete: false } ? "partial" : "complete",
+        };
     }
 
     /// <summary>Notes the worker's progress stage while the session starts (open, load, analysis).</summary>
@@ -197,12 +208,17 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     {
         DiscardLeftovers();
         var reuse = DatabaseExists;
+        // read before the engine opens it: an open may touch the database's files
+        var saved = reuse && firstOpen && !ReadOnlySnapshot && DatabaseLocation is { } db ? EngineOutputCache.ReadState(db) : null;
+        bool fresh = !reuse;
         try
         {
             await StartWorkerAndOpenAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (ToolError e) when (reuse && e.Code is ErrorCode.ProviderUnavailable or ErrorCode.Failed or ErrorCode.MalformedInput)
         {
+            fresh = true;
+            Rebuilt = $"the saved {EngineName} database could not be opened ({e.Message}); it was analyzed again";
             // A damaged database (killed during save, older engine format) or one stamped with other input is rebuilt from the input copy.
             KillWorker("reopen");
             DeleteDatabase();
@@ -218,7 +234,141 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
                 try { await _worker!.RequestAsync(op, (JsonObject)args.DeepClone(), Options.RequestTimeout, cancellationToken).ConfigureAwait(false); }
                 catch (ToolError e) when (e.Code is not (ErrorCode.Timeout or ErrorCode.ProviderUnavailable)) { /* rejected now: skip */ }
             }
+            // what was not journaled is gone: the state is unknown
+            SetState(UnknownState(), offSetup: true);
+            return;
         }
+        // a snapshot is not saved and the snapshot's source may have unsaved changes; a time-limited first analysis is not reproducible
+        bool complete = this is not INativeDecompilerSession { AnalysisComplete: false };
+        var start = ReadOnlySnapshot ? UnknownState()
+            : fresh ? (complete ? EngineOutputCache.Key("fresh", Options.OutputIdentity, Sha256) : UnknownState())
+            : saved ?? UnknownState();
+        SetState(start, offSetup: false);
+        OpenState = start;
+        if (fresh) Saved();
+    }
+
+    /// <summary>Why the saved database was analyzed again on the last open (damaged, truncated, another input), until a tool reports it.</summary>
+    internal string? Rebuilt { get; set; }
+
+    // ---- database state (engine output cache) ----
+
+    private string _state = "";
+    private int _offSetup;
+    private int _writesInFlight;
+
+    /// <summary>
+    /// What the database holds: a chain over the requests that changed it since it was created (or loaded from a saved
+    /// state); one starting "u" is unknown (not reproducible elsewhere: a worker restart, a snapshot, a partial analysis).
+    /// </summary>
+    internal string DatabaseState => Volatile.Read(ref _state);
+
+    /// <summary>The state the session opened at.</summary>
+    internal string OpenState { get; private set; } = "";
+
+    /// <summary>Whether only setup requests (names, types, PDB, marks and patches pushed by the server) changed the database since it opened.</summary>
+    internal bool OnlySetupSinceOpen => Volatile.Read(ref _offSetup) == 0;
+
+    /// <summary>Requests the server sends to bring a database up to date with its own state; they follow from the server's inputs.</summary>
+    private static readonly HashSet<string> SetupOps = ["apply_names", "apply_types", "apply_user_types", "load_pdb", "set_marks", "sync_patches", "set_thumb", "pseudo_comments", "rebase"];
+
+    /// <summary>Requests whose effect does not follow from their arguments alone.</summary>
+    private static readonly HashSet<string> OpaqueOps = ["python", "script"];
+
+    /// <summary>Requests that change no database content, though a worker may not list them as reads.</summary>
+    private static readonly HashSet<string> NoContentOps = ["save", "save_as", "export_gzf", "export_types", "close", "sleep", "hello"];
+
+    private static string UnknownState() => "u" + Guid.NewGuid().ToString("N");
+
+    private void SetState(string state, bool offSetup)
+    {
+        Volatile.Write(ref _state, state);
+        Volatile.Write(ref _offSetup, offSetup ? 1 : 0);
+    }
+
+    /// <summary>The state after <paramref name="op"/> changed the database.</summary>
+    private void Advance(string op, JsonObject args, JsonElement result)
+    {
+        if (NoContentOps.Contains(op)) return;
+        // a patch sync that found the database as wanted changed nothing
+        if (op == "sync_patches" && result.ValueKind == JsonValueKind.Object && result.TryGetProperty("patched", out var p) && result.TryGetProperty("reverted", out var r)
+            && p.GetInt32() + r.GetInt32() == 0) return;
+        lock (_sync)
+        {
+            var now = Volatile.Read(ref _state);
+            Volatile.Write(ref _state, OpaqueOps.Contains(op) || now.StartsWith('u') ? UnknownState() : EngineOutputCache.Key(now, op, args.ToJsonString()));
+            if (!SetupOps.Contains(op)) Volatile.Write(ref _offSetup, 1);
+        }
+    }
+
+    /// <summary>
+    /// Records the state with the database as saved now, for the next open in any process; <paramref name="own"/> counts
+    /// the saving request among the changes in flight. With another change in flight the saved state is unknown.
+    /// </summary>
+    private void Saved(int own = 0)
+    {
+        if (ReadOnlySnapshot || Options.OutputCache == null || DatabaseLocation is not { } db) return;
+        var state = DatabaseState;
+        if (!state.StartsWith('u') && Volatile.Read(ref _writesInFlight) == own) EngineOutputCache.WriteState(db, state);
+        else EngineOutputCache.ClearState(db);
+    }
+
+    /// <summary>
+    /// The engine answer <paramref name="what"/> (decompile, frame) of <paramref name="key"/> stored in this database state, in
+    /// any process; false in an unknown state, while a change is in flight, or when none is stored.
+    /// </summary>
+    internal bool TryCached<T>(string what, string key, out T value, out string state)
+    {
+        value = default!;
+        state = DatabaseState;
+        if (Options.OutputCache is not { } cache || state.StartsWith('u') || Volatile.Read(ref _writesInFlight) != 0) return false;
+        if (cache.Get(EngineOutputCache.OutputKey(Options.OutputIdentity, ProviderId, Sha256, state, what, key)) is not { } hit) return false;
+        try { value = JsonSerializer.Deserialize<T>(hit, EngineOutputCache.Json)!; }
+        catch (JsonException) { return false; }
+        EngineUse.Note(ProviderId);
+        EngineUse.Cached();
+        return value != null;
+    }
+
+    /// <summary>Stores an answer made in <paramref name="state"/> when the database is still in it and no change is in flight.</summary>
+    internal void StoreCached<T>(string what, string key, string state, T value)
+    {
+        if (Options.OutputCache is not { } cache || state.StartsWith('u') || DatabaseState != state || Volatile.Read(ref _writesInFlight) != 0) return;
+        cache.Put(EngineOutputCache.OutputKey(Options.OutputIdentity, ProviderId, Sha256, state, what, key), JsonSerializer.Serialize(value, EngineOutputCache.Json));
+    }
+
+    /// <summary>Several functions' pseudocode: those stored come from the output cache, the rest from one request to <paramref name="ask"/> (and are stored).</summary>
+    internal async Task<IReadOnlyList<DecompileOutcome>> CachedManyAsync(IReadOnlyList<uint> rvas, Func<IReadOnlyList<uint>, Task<IReadOnlyList<DecompileOutcome>>> ask)
+    {
+        var results = new DecompileOutcome?[rvas.Count];
+        var missing = new List<int>();
+        string state = DatabaseState;
+        for (int i = 0; i < rvas.Count; i++)
+            if (TryCached<DecompiledFunction>(OutputCacheKinds.Decompile, OutputCacheKinds.At(rvas[i]), out var f, out state)) results[i] = new DecompileOutcome(rvas[i], DecompileStatus.Ok, f, null, null);
+            else missing.Add(i);
+        if (missing.Count > 0)
+        {
+            bool quiet = Volatile.Read(ref _writesInFlight) == 0;
+            var asked = await ask([.. missing.Select(i => rvas[i])]).ConfigureAwait(false);
+            for (int k = 0; k < missing.Count; k++)
+            {
+                int i = missing[k];
+                var o = k < asked.Count ? asked[k] : new DecompileOutcome(rvas[i], DecompileStatus.Skipped, null, null, null);
+                results[i] = o;
+                if (quiet && o is { Status: DecompileStatus.Ok, Function: { } done }) StoreCached(OutputCacheKinds.Decompile, OutputCacheKinds.At(rvas[i]), state, done);
+            }
+        }
+        return results.Select(r => r!).ToList();
+    }
+
+    /// <summary>An engine answer from the output cache, else from <paramref name="ask"/> and stored.</summary>
+    internal async Task<T> CachedAsync<T>(string what, string key, Func<Task<T>> ask)
+    {
+        if (TryCached<T>(what, key, out var hit, out var state)) return hit;
+        bool quiet = Volatile.Read(ref _writesInFlight) == 0;
+        var value = await ask().ConfigureAwait(false);
+        if (quiet) StoreCached(what, key, state, value);
+        return value;
     }
 
     private async Task StartWorkerAndOpenAsync(CancellationToken cancellationToken)
@@ -268,7 +418,11 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         var held = true;
         if (ReadOnlySnapshot) journal = false;
         bool changes = !ReadsOnly(op);
-        if (changes) Interlocked.Increment(ref _generation);
+        if (changes)
+        {
+            Interlocked.Increment(ref _generation);
+            Interlocked.Increment(ref _writesInFlight);
+        }
         try
         {
             if (_closed) throw new ToolError(ErrorCode.NotLoaded, $"The {EngineName} session for {ImagePath} is closed.", "Open the image again.");
@@ -293,7 +447,16 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
             }
             try
             {
-                var result = await worker.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? RequestTimeout, cancellationToken).ConfigureAwait(false);
+                JsonElement result;
+                try { result = await worker.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? RequestTimeout, cancellationToken).ConfigureAwait(false); }
+                catch when (changes)
+                {
+                    // a change that failed part way leaves the database in a state nobody can name
+                    SetState(UnknownState(), offSetup: true);
+                    throw;
+                }
+                if (changes) Advance(op, args, result);
+                if (saves) Saved(changes ? 1 : 0);
                 bool saveNow;
                 lock (_sync)
                 {
@@ -306,6 +469,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
                 {
                     await worker.RequestAsync("save", new JsonObject(), Options.RequestTimeout, cancellationToken).ConfigureAwait(false);
                     lock (_sync) _unsaved.Clear();
+                    Saved(changes ? 1 : 0);
                 }
                 return result;
             }
@@ -327,7 +491,11 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         }
         finally
         {
-            if (changes) Interlocked.Increment(ref _generation);
+            if (changes)
+            {
+                Interlocked.Increment(ref _generation);
+                Interlocked.Decrement(ref _writesInFlight);
+            }
             Interlocked.Decrement(ref _calls);
             if (held) _gate.Release();
         }
@@ -370,7 +538,13 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         }
         if (w != null)
         {
-            try { await w.ShutdownAsync("close", CloseArgs(save && !ReadOnlySnapshot), ShutdownGrace).ConfigureAwait(false); }
+            // only a close that rewrote the database saved what the state names (a killed worker saves nothing)
+            var before = save && DatabaseLocation is { } db ? EngineOutputCache.Identity(db) : null;
+            try
+            {
+                await w.ShutdownAsync("close", CloseArgs(save && !ReadOnlySnapshot), ShutdownGrace).ConfigureAwait(false);
+                if (save && DatabaseLocation is { } saved && EngineOutputCache.Identity(saved) != before) Saved();
+            }
             finally { w.Dispose(); }
         }
         Entry?.Dispose();

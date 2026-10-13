@@ -13,7 +13,6 @@ compare_native_images
 convert_number
 declare_native_types
 decompile_java
-decompile_native
 define_native
 diff_edits
 diff_function
@@ -50,7 +49,6 @@ get_native_type
 get_nativeaot_info
 get_pe_info
 ghidra_script
-ida_python
 inspect_instruction
 inspect_process
 install_android_package

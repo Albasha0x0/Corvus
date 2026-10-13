@@ -47,6 +47,16 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     protected override TimeSpan ShutdownGrace => provider.Options.ShutdownGrace;
     protected override int MaxRestarts => provider.Options.MaxRestarts;
     protected override bool ConcurrentRequests => true;
+
+    /// <summary>The worker's read requests (Worker.java runs them under read()), and save.</summary>
+    private static readonly HashSet<string> ReadOps =
+    [
+        "hello", "functions", "decompile", "disasm", "disasm_range", "blocks", "xrefs_to", "xrefs_from", "names", "type_guess", "virtual_targets", "frame",
+        "types", "type", "get_stamp", "decompile_many", "insn", "value_slice", "image_info", "defined_data", "defined_strings", "function_info", "namespaces",
+        "field_xrefs", "export_types", "analyzers", "function_candidates", "emulate", "function_table", "save",
+    ];
+
+    protected override bool ReadsOnly(string op) => ReadOps.Contains(op);
     protected override int JournalSaveThreshold => provider.Options.JournalSaveThreshold;
     internal string ProjectDirectory => _projectDirectory;
     protected override string? DatabaseLocation => _projectDirectory.Length > 0 ? _projectDirectory : null;
@@ -67,15 +77,22 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         var header = ReadHeader(Entry!.InputCopy, ImagePath);
         Arch = header.Arch;
         _headerImageBase = header.ImageBase;
-        var profile = provider.Profile;
-        _loaderArguments = [.. GhidraOptions.LoaderArguments(profile)];
-        if (header.IsElf && header.ImageBase is { } elfBase)
-            _loaderArguments.Add(new(GhidraOptions.ElfImageBaseArgument, elfBase.ToString("x", CultureInfo.InvariantCulture)));
-        _analyzerOptions = GhidraOptions.AnalyzerOptions(profile, Options.Symbols, provider.ExtraOptions);
-        var key = GhidraOptions.ProfileKey(ghidra, profile, _loaderArguments, _analyzerOptions, provider.Extensions);
-        // a load-only project is its own profile, as in IDA
-        _projectDirectory = Path.Combine(Entry.Directory, "p-" + key + (Options.Analysis == EngineAnalysis.None ? "-noauto" : ""));
+        (_projectDirectory, _loaderArguments, _analyzerOptions) = Project(provider, ghidra, Entry.Directory, header, Options.Symbols, Options.Analysis);
         RenameLegacyProject(_projectDirectory);
+    }
+
+    /// <summary>The project directory an open uses in a cache entry, with its loader and analyzer options (also found without an open).</summary>
+    internal static (string Directory, List<KeyValuePair<string, string>> Loader, IReadOnlyList<KeyValuePair<string, string>> Analyzers) Project(
+        GhidraProvider provider, GhidraInstallation ghidra, string entryDirectory, Header header, SymbolMode symbols, EngineAnalysis analysis)
+    {
+        var profile = provider.Profile;
+        List<KeyValuePair<string, string>> loader = [.. GhidraOptions.LoaderArguments(profile)];
+        if (header.IsElf && header.ImageBase is { } elfBase)
+            loader.Add(new(GhidraOptions.ElfImageBaseArgument, elfBase.ToString("x", CultureInfo.InvariantCulture)));
+        var analyzers = GhidraOptions.AnalyzerOptions(profile, symbols, provider.ExtraOptions);
+        var key = GhidraOptions.ProfileKey(ghidra, profile, loader, analyzers, provider.Extensions);
+        // a load-only project is its own profile, as in IDA
+        return (Path.Combine(entryDirectory, "p-" + key + (analysis == EngineAnalysis.None ? "-noauto" : "")), loader, analyzers);
     }
 
     internal readonly record struct Header(NativeArch Arch, ulong? ImageBase, bool IsElf);
@@ -313,11 +330,16 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             throw new ToolError(ErrorCode.Unsupported, $"Ghidra's native decompiler is not built for {GhidraInstallation.PlatformName} in {ghidra.Directory}.",
                 ghidra.DecompilerRemediation);
         var first = timeout ?? provider.DecompileTimeout;
-        var args = WorkerRows.Args(("rva", rva), ("timeout", (int)Math.Ceiling(first.TotalSeconds)),
-            ("retry_timeout", (int)GhidraOptions.RetryTimeout(first).TotalSeconds), ("fail_first", failFirst));
-        var r = await FunctionCallAsync("decompile", args, rva, cancellationToken, GhidraOptions.DecompileRequestTimeout(first, Options.RequestTimeout)).ConfigureAwait(false);
-        if (r.TryGetProperty("retried", out var retried) && retried.GetBoolean()) Interlocked.Increment(ref _retries);
-        return WorkerRows.Decompiled(r);
+        async Task<DecompiledFunction> Ask()
+        {
+            var args = WorkerRows.Args(("rva", rva), ("timeout", (int)Math.Ceiling(first.TotalSeconds)),
+                ("retry_timeout", (int)GhidraOptions.RetryTimeout(first).TotalSeconds), ("fail_first", failFirst));
+            var r = await FunctionCallAsync("decompile", args, rva, cancellationToken, GhidraOptions.DecompileRequestTimeout(first, Options.RequestTimeout)).ConfigureAwait(false);
+            if (r.TryGetProperty("retried", out var retried) && retried.GetBoolean()) Interlocked.Increment(ref _retries);
+            return WorkerRows.Decompiled(r);
+        }
+        // a pseudocode does not depend on the time it took; the retry hook always asks the worker
+        return failFirst ? await Ask().ConfigureAwait(false) : await CachedAsync(OutputCacheKinds.Decompile, OutputCacheKinds.At(rva), Ask).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -348,8 +370,11 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         if (!DecompilerAvailable)
             throw new ToolError(ErrorCode.Unsupported, $"Ghidra's native decompiler is not built for {GhidraInstallation.PlatformName} in {ghidra.Directory}.",
                 ghidra.DecompilerRemediation);
-        var args = WorkerRows.Args(("rvas", new JsonArray(rvas.Select(r => (JsonNode)r).ToArray())), ("seconds_per_item", secondsPerItem), ("budget_seconds", budgetSeconds));
-        return WorkerRows.DecompiledMany(await CallAsync("decompile_many", args, cancellationToken, timeout: TimeSpan.FromSeconds(budgetSeconds + 60)).ConfigureAwait(false));
+        return await CachedManyAsync(rvas, async asked =>
+        {
+            var args = WorkerRows.Args(("rvas", new JsonArray(asked.Select(r => (JsonNode)r).ToArray())), ("seconds_per_item", secondsPerItem), ("budget_seconds", budgetSeconds));
+            return WorkerRows.DecompiledMany(await CallAsync("decompile_many", args, cancellationToken, timeout: TimeSpan.FromSeconds(budgetSeconds + 60)).ConfigureAwait(false));
+        }).ConfigureAwait(false);
     }
 
     public async Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) =>
@@ -444,7 +469,11 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
 
     public Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) => GetFrameAsync(rva, true, cancellationToken);
 
-    public async Task<NativeFrame> GetFrameAsync(uint rva, bool locals, CancellationToken cancellationToken = default) =>
+    public Task<NativeFrame> GetFrameAsync(uint rva, bool locals, CancellationToken cancellationToken = default) => locals
+        ? CachedAsync(OutputCacheKinds.Frame, OutputCacheKinds.At(rva), () => FrameAsync(rva, true, cancellationToken))
+        : FrameAsync(rva, false, cancellationToken);
+
+    private async Task<NativeFrame> FrameAsync(uint rva, bool locals, CancellationToken cancellationToken) =>
         WorkerRows.Frame(await FunctionCallAsync("frame", WorkerRows.Args(("rva", rva), ("locals", locals)), rva, cancellationToken).ConfigureAwait(false));
 
     public async Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default) =>

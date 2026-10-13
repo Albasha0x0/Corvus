@@ -44,7 +44,7 @@ public sealed class DecompileBatchTests : IDisposable
         var (tools, provider, native, first, second) = await Setup();
         provider.Failing.Add(second);
         var text = await tools.DecompileNative(native.Id, functions: ["Second", "First", "no_such_name", $"rva:0x{first:X}"]);
-        Assert.Contains("// 4 inputs: 1 decompiled, 2 failed, 0 skipped, 1 duplicate (ida)", text);
+        Assert.Contains("// 4 inputs: 1 decompiled, 2 failed, 0 not reached, 1 duplicate (ida)", text);
         Assert.Matches(@"// \[1/4\] Second at 0x[0-9A-F]+ \(input ""Second""\): error failed: decompilation failed at", text);
         Assert.Contains("// [2/4] First at", text);
         Assert.Contains("int First(void)", text);
@@ -58,9 +58,14 @@ public sealed class DecompileBatchTests : IDisposable
     {
         var (tools, provider, native, _, _) = await Setup();
         var text = await tools.DecompileNative(native.Id, functions: ["First", "Second"], maxFunctions: 1);
-        Assert.Contains("(input \"Second\"): skipped (maxFunctions=1)", text);
-        Assert.Contains($"// Next: decompile_native image={native.Id} functions=[\"Second\"]", text);
+        Assert.Contains("// 1 input not reached (maxFunctions=1) [More: offset=1]", text);
+        Assert.DoesNotContain("(input \"Second\")", text);
         Assert.Equal(1, provider.Decompiles);
+        // the next call starts at that input
+        var next = await tools.DecompileNative(native.Id, functions: ["First", "Second"], maxFunctions: 1, offset: 1);
+        Assert.Contains("// 2 inputs from offset 1: 1 decompiled", next);
+        Assert.Contains("(input \"Second\")", next);
+        Assert.Equal(2, provider.Decompiles);
     }
 
     [Fact]

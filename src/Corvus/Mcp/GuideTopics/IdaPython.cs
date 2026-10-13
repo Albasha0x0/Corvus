@@ -29,6 +29,7 @@ public static partial class Guide
           comments: ida_bytes.set_cmt(ea, "text", False); ida_funcs.set_func_cmt(f, "text", True)
           analysis: ida_auto.plan_range(start, end); ida_auto.auto_wait() (blocks until done; reanalyze_native has a budget)
         Prefer the typed tools for what they cover (find_xrefs, decompile_native, search_instructions, list_globals): they page,
-        merge the server's names and keep edits; use scripts for what they do not.
+        merge the server's names and keep edits; use scripts for what they do not. get_engine_status (engine toolset) shows the
+        engine's own view of the database: language, compiler, entry points, memory blocks.
         """;
 }

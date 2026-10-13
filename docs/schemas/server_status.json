@@ -245,6 +245,10 @@
           "note": {
             "description": "no auto-analysis, or a read-only snapshot of a database another process holds.",
             "type": "string"
+          },
+          "analysis": {
+            "description": "running, complete or partial (the analysis budget ran out).",
+            "type": "string"
           }
         },
         "required": [
