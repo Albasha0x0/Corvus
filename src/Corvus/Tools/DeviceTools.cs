@@ -17,7 +17,7 @@ public sealed class DeviceTools(DeviceService devices)
         Task.Run(() => devices.Devices(cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true, OutputSchemaType = typeof(AndroidDeviceInfo))]
-    [Description("A device's properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, " +
+    [Description("Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, " +
                  "ro.debuggable, ro.secure, emulator or not.")]
     public Task<string> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
@@ -80,7 +80,7 @@ public sealed class DeviceTools(DeviceService devices)
         Task.Run(() => devices.PullFile(remotePath, outputPath, overwrite, serial, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "read_android_log", Title = "Read device log", UseStructuredContent = true, OutputSchemaType = typeof(AndroidLogPage))]
-    [Description("The device log (logcat -d), newest lines first, by buffer, process, tag, priority and start time.")]
+    [Description("Device log (logcat -d), newest lines first, by buffer, process, tag, priority and start time.")]
     public Task<string> ReadAndroidLog(
         [Description(SerialDescription)] string? serial = null,
         [Description("Only this process id.")] int? pid = null,

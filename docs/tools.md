@@ -2368,7 +2368,7 @@ Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `tota
 
 **Map Java and .NET** (read-only, idempotent)
 
-The other side of a Java / .NET bridge. .NET for Android (Xamarin / MAUI): a Java wrapper class or method to its .NET type or method and back ([Register] and crc64 names). Unity Mono: the C# reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a confidence. A * / ? pattern lists matching pairs. Reads loaded assemblies, and the package's with path.
+Pairs across a Java / .NET bridge. .NET for Android (Xamarin / MAUI): a Java wrapper class or method to its .NET type or method and back ([Register] and crc64 names). Unity Mono: the C# reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a confidence. A * / ? pattern lists matching pairs. Reads loaded assemblies, and the package's with path.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2410,7 +2410,7 @@ Structured output: `items`, `unparsed`.
 
 **Android device info** (read-only, idempotent, open-world)
 
-A device's properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator or not.
+Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator or not.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2483,7 +2483,7 @@ Structured output: `remote`, `local`, `size`, `sha256`.
 
 **Read device log** (read-only, idempotent, open-world)
 
-The device log (logcat -d), newest lines first, by buffer, process, tag, priority and start time.
+Device log (logcat -d), newest lines first, by buffer, process, tag, priority and start time.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

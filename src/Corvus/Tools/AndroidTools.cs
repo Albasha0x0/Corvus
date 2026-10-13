@@ -244,7 +244,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }
 
     [McpServerTool(Name = "map_java_dotnet", Title = "Map Java and .NET", UseStructuredContent = true, OutputSchemaType = typeof(JavaDotNetResult))]
-    [Description("The other side of a Java / .NET bridge. .NET for Android (Xamarin / MAUI): a Java " +
+    [Description("Pairs across a Java / .NET bridge. .NET for Android (Xamarin / MAUI): a Java " +
                  "wrapper class or method to its .NET type or method and back ([Register] and crc64 names). Unity Mono: the C# " +
                  "reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a " +
                  "confidence. A * / ? pattern lists matching pairs. Reads loaded assemblies, and the package's with path.")]
