@@ -7,8 +7,6 @@ bucket_minidumps
 compare_native_images
 convert_number
 declare_native_types
-decompile_java
-decompile_native
 define_native
 diff_function
 disassemble
@@ -20,8 +18,6 @@ export_engine_database
 export_il2cpp_symbols
 extract_embedded
 extract_strings
-find_counterpart
-find_dex_references
 find_method_by_address
 find_similar_functions
 find_virtual_calls
@@ -49,8 +45,6 @@ list_android_packages
 list_android_resources
 list_assemblies
 list_cpp_classes
-list_dex_classes
-list_edits
 list_exports
 list_functions
 list_globals
