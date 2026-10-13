@@ -205,7 +205,7 @@ public partial class UnpackTests
         await McpProtocolTests.AssertMatchesOutputSchema(client, "search_container", ok);
         var json = JsonDocument.Parse(ok.StructuredContent!.ToString()!).RootElement;
         Assert.False(Prop(json, "hasMore").GetBoolean());
-        var match = Assert.Single(Prop(json, "matches").EnumerateArray());
+        var match = Assert.Single(Prop(json, "items").EnumerateArray());
         // A page carries its continuation in the record (S4.1), as a row offset.
         var page = await client.CallToolAsync("search_container", new Dictionary<string, object?>
         {
