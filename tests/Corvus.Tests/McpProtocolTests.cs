@@ -59,8 +59,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),
         });
-        // No separate probe limit: a server/discover answered late on a busy machine must not turn into an initialize fallback.
-        return await McpClient.CreateAsync(transport, new McpClientOptions { ProtocolVersion = protocolVersion, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan });
+        // No separate probe limit: a server/discover answered late on a busy machine must not turn into an initialize fallback;
+        // initialize gets 3 min, since a stdio server starts slowly on small CI runners.
+        return await McpClient.CreateAsync(transport, new McpClientOptions { ProtocolVersion = protocolVersion, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan, InitializationTimeout = TimeSpan.FromMinutes(3) });
     }
 
     private static string Text(CallToolResult r) => string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text));
