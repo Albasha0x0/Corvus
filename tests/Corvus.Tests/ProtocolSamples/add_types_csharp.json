@@ -1,0 +1,22 @@
+{
+  "tool": "add_types_csharp",
+  "arguments": {
+    "assembly": "TestFixture",
+    "code": "namespace Mods { public static class M { public static int One() { return 1; } } }"
+  },
+  "isError": false,
+  "content": [
+    "[TestFixture] Dry run — compiled OK; would add to TestFixture: Mods.M\nNothing changed (dry run); pass dryRun=false to apply."
+  ],
+  "structuredContent": {
+    "applied": false,
+    "dryRun": true,
+    "changes": [
+      {
+        "kind": "type",
+        "target": "TestFixture"
+      }
+    ],
+    "editIds": []
+  }
+}

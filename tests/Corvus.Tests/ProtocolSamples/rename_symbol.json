@@ -1,0 +1,24 @@
+{
+  "tool": "rename_symbol",
+  "arguments": {
+    "symbol": "Account",
+    "newName": "Customer"
+  },
+  "isError": false,
+  "content": [
+    "[TestFixture] Dry run — would rename type Fixture.Model.Account -> Customer\nNothing changed (dry run); pass dryRun=false to apply."
+  ],
+  "structuredContent": {
+    "applied": false,
+    "dryRun": true,
+    "changes": [
+      {
+        "kind": "rename",
+        "target": "Fixture.Model.Account",
+        "before": "Account",
+        "after": "Customer"
+      }
+    ],
+    "editIds": []
+  }
+}

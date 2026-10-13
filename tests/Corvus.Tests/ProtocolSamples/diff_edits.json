@@ -1,0 +1,15 @@
+{
+  "tool": "diff_edits",
+  "arguments": {
+    "assembly": "TestFixture"
+  },
+  "isError": false,
+  "content": [
+    "TestFixture has no edits."
+  ],
+  "structuredContent": {
+    "offset": 0,
+    "totalChars": 25,
+    "code": "TestFixture has no edits."
+  }
+}

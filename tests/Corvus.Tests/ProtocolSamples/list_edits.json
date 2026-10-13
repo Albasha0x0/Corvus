@@ -1,0 +1,19 @@
+{
+  "tool": "list_edits",
+  "arguments": {
+    "assembly": "TestFixture"
+  },
+  "isError": false,
+  "content": [
+    "TestFixture has no unsaved edits.\n0 edits:\n[End: 0 edits]\n"
+  ],
+  "structuredContent": {
+    "assembly": "TestFixture",
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "limit": 200,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

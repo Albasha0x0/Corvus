@@ -1,0 +1,22 @@
+{
+  "tool": "add_members_csharp",
+  "arguments": {
+    "type": "Account",
+    "code": "public int Twice(int x) { return x * 2; }"
+  },
+  "isError": false,
+  "content": [
+    "[TestFixture] Dry run — compiled OK; would add to Fixture.Model.Account: Fixture.Model.Account::Twice(int)\nNothing changed (dry run); pass dryRun=false to apply."
+  ],
+  "structuredContent": {
+    "applied": false,
+    "dryRun": true,
+    "changes": [
+      {
+        "kind": "member",
+        "target": "Fixture.Model.Account"
+      }
+    ],
+    "editIds": []
+  }
+}

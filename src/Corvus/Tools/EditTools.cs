@@ -122,7 +122,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         var rows = asm.Edits.Select(e => new EditListItem(e.Number, new EditId(asm.Id, e.Number).ToString(), e.Kind, e.Description, e.Touched)).ToList();
         return ToolOutput.List(rows, offset, ClampLimit(limit), r => $"#{r.Number}  {r.Tool,-20} {r.Description}",
             page => new EditList(asm.Id, page, Math.Max(0, offset), rows.Count), "edit",
-            rows.Count == 0 ? $"{asm.Id} has no unsaved edits.\n" : $"{asm.Id}: {Plural(rows.Count, "edit")}, in order (undo_edit and diff_edits take the number):\n");
+            rows.Count == 0 ? $"{asm.Id} has no unsaved edits.\n" : $"{asm.Id}, in order (undo_edit and diff_edits take the number):\n");
     }, cancellationToken);
 
     [McpServerTool(Name = "undo_edit", Title = "Undo an edit", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]

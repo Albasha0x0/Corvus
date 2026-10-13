@@ -1,0 +1,26 @@
+{
+  "tool": "stub_method",
+  "arguments": {
+    "method": "Secret::Validate",
+    "value": "true",
+    "dryRun": false
+  },
+  "isError": false,
+  "content": [
+    "[TestFixture] stub Fixture.Model.Secret::Validate(string) => return true;\nEdit TestFixture#1. Unsaved edits in TestFixture: 1."
+  ],
+  "structuredContent": {
+    "applied": true,
+    "dryRun": false,
+    "changes": [
+      {
+        "kind": "body",
+        "target": "Fixture.Model.Secret::Validate(string)",
+        "after": "return true;"
+      }
+    ],
+    "editIds": [
+      "TestFixture#1"
+    ]
+  }
+}

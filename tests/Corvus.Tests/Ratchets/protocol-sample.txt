@@ -1,8 +1,6 @@
 # Exemptions from: every tool has a recorded request/response in tests/Corvus.Tests/ProtocolSamples (S12.2)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-add_members_csharp
 add_search_directory
-add_types_csharp
 analyze_native_function
 apply_edits
 apply_il2cpp_names
@@ -16,7 +14,6 @@ declare_native_types
 decompile_java
 decompile_native
 define_native
-diff_edits
 diff_function
 disassemble
 disassemble_dex
@@ -62,7 +59,6 @@ list_android_packages
 list_android_resources
 list_cpp_classes
 list_dex_classes
-list_edits
 list_exports
 list_functions
 list_globals
@@ -83,8 +79,6 @@ native_call_tree
 open_minidump
 patch_asm
 patch_bytes
-patch_method_csharp
-patch_method_il
 pull_android_file
 pull_android_package
 read_android_log
@@ -94,9 +88,7 @@ read_result
 reanalyze_native
 record_note
 reload_assembly
-rename_namespace
 rename_native
-rename_symbol
 resolve_address
 resolve_call_targets
 revert_edits
@@ -116,14 +108,11 @@ set_native_local
 set_native_operand
 set_native_stack_var
 set_native_type
-simplify_methods
-stub_method
 summarize_file
 survey_features
 symbolize_stack_text
 trace_native_feature
 trace_native_values
-undo_edit
 undo_native_edit
 uninstall_android_package
 unity_overview

@@ -1,0 +1,22 @@
+{
+  "tool": "patch_method_il",
+  "arguments": {
+    "method": "Account::Score",
+    "il": "ldc.i4.7\nret"
+  },
+  "isError": false,
+  "content": [
+    "[TestFixture] Dry run — Fixture.Model.Account::Score() would become (2 instructions, maxstack 1):\n  IL_0000: ldc.i4.7\n  IL_0001: ret\nNothing changed (dry run); pass dryRun=false to apply."
+  ],
+  "structuredContent": {
+    "applied": false,
+    "dryRun": true,
+    "changes": [
+      {
+        "kind": "body",
+        "target": "Fixture.Model.Account::Score()"
+      }
+    ],
+    "editIds": []
+  }
+}

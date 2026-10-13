@@ -1,0 +1,24 @@
+{
+  "tool": "undo_edit",
+  "arguments": {
+    "assembly": "TestFixture"
+  },
+  "isError": false,
+  "content": [
+    "[TestFixture] Undid #1 (stub Fixture.Model.Secret::Validate(string) => return true;). TestFixture now has 0 edit(s)."
+  ],
+  "structuredContent": {
+    "applied": true,
+    "dryRun": false,
+    "changes": [
+      {
+        "kind": "undo",
+        "target": "TestFixture#1",
+        "before": "stub Fixture.Model.Secret::Validate(string) => return true;"
+      }
+    ],
+    "editIds": [
+      "TestFixture#1"
+    ]
+  }
+}

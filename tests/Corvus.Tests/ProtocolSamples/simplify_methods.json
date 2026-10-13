@@ -1,0 +1,21 @@
+{
+  "tool": "simplify_methods",
+  "arguments": {
+    "symbol": "Account"
+  },
+  "isError": false,
+  "content": [
+    "[TestFixture] Dry run — simplify Fixture.Model.Account (fold,cfg,inline): 2 of 31 method(s) would change.\nTotals: 2 of 31 method(s) changed; 2 unreachable block(s) removed.\n\nFixture.Model.Account/<LoadAsync>d__17::MoveNext()  [70 -> 68 instructions]\n  collapsed 1 branch chain(s), removed 1 unreachable block(s) (1 instructions)\nFixture.Model.Account/<Range>d__18::MoveNext()  [39 -> 35 instructions]\n  collapsed 3 branch chain(s), removed 1 unreachable block(s) (3 instructions)\nNothing changed (dry run); pass dryRun=false to apply."
+  ],
+  "structuredContent": {
+    "applied": false,
+    "dryRun": true,
+    "changes": [
+      {
+        "kind": "body",
+        "target": "Fixture.Model.Account"
+      }
+    ],
+    "editIds": []
+  }
+}
