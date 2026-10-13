@@ -395,14 +395,14 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
 
     [McpServerTool(Name = "find_method_by_address", Title = "Native address to method", UseStructuredContent = true, OutputSchemaType = typeof(Il2CppLookup))]
     [Description("Map a native address (from IDA, Ghidra or a crash log) of an Il2Cpp game to the method(s) whose function contains it, or the string literal, " +
-                 "type metadata or MethodInfo slot at it; generic instantiations are named with script.json (without it a containing method is a guess). " +
-                 "Code shared by many methods is paged.")]
+                 "type metadata or MethodInfo slot at it; generic instantiations are named with script.json (without it a containing method is a guess).")]
     public Task<string> FindMethodByAddress(
         [Description("Hex as IDA / Ghidra show it ('0x1A2B3C', '1A2B3Ch', '00000001`8001A2B3'); 'd:' prefix for decimal.")] string address,
         [Description("auto: a VA at or above the image base, else an RVA, else a file offset.")] string kind = "auto",
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Index of the first method to list when many share the code.")] int offset = 0,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max methods listed.")] int limit = DefaultListLimit,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var value = Il2CppService.ParseAddress(address) ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{address}' is not a valid hex address.",

@@ -890,15 +890,16 @@ Structured output: `symbol`, `members`, `items`, `offset`, `total`, `limit`, `to
 
 **Native address to method** (read-only, idempotent)
 
-Map a native address (from IDA, Ghidra or a crash log) of an Il2Cpp game to the method(s) whose function contains it, or the string literal, type metadata or MethodInfo slot at it; generic instantiations are named with script.json (without it a containing method is a guess). Code shared by many methods is paged.
+Map a native address (from IDA, Ghidra or a crash log) of an Il2Cpp game to the method(s) whose function contains it, or the string literal, type metadata or MethodInfo slot at it; generic instantiations are named with script.json (without it a containing method is a guess).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `address` | string | yes |  | Hex as IDA / Ghidra show it ('0x1A2B3C', '1A2B3Ch', '00000001`8001A2B3'); 'd:' prefix for decimal. |
 | `kind` | string |  | `auto` | auto: a VA at or above the image base, else an RVA, else a file offset. Values: auto, rva, va, offset. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `offset` | integer |  | `0` | Index of the first method to list when many share the code. |
+| `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `20` | Max methods listed. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `address`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
