@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService references, NativeLinkService? link = null)
 {
     [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)", UseStructuredContent = true, OutputSchemaType = typeof(ReferenceList))]
-    [Description("Every usage of a symbol across loaded assemblies: a method's call sites (also through base / interface methods it implements), a field's " +
+    [Description("Every usage of a symbol across loaded assemblies: a method's call sites (also through base / interface methods), a field's " +
                  "reads, writes and address uses, a type's every use (bases, signatures, locals, casts, attributes). kind=overrides: a method's overrides. " +
                  "A native export: its P/Invoke callers and native call sites.")]
     public async Task<string> FindReferences(
@@ -23,6 +23,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         [Description("Symbol kind; overrides: the method's overrides and implementations.")] string? kind = null,
         [Description("Methods: no calls through base / interface declarations.")] bool directOnly = false,
         [Description(LimitDescription)] int limit = 150,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default)
     {
@@ -134,6 +135,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         [Description("Collapse repeated targets into one row with a count.")] bool distinct = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 200,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
         if (link != null) await link.WarmUp(null, cancellationToken);

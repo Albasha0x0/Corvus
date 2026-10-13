@@ -19,6 +19,7 @@ public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceS
         [Description(AssemblyDescription)] string assembly,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 200,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         static string Row(ResourceEntry r) => r.Rva != null

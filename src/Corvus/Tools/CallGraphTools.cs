@@ -162,6 +162,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         [Description("Start method, same forms as to (native only when to is native).")] string? from = null,
         [Description("Max chain length (max 30).")] int maxDepth = 8,
         [Description(LimitDescription)] int limit = 10,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("No hops through virtual dispatch (native: RTTI virtual calls, pointers).")] bool directOnly = false,
         [Description(AssemblyFilterDescription)] string? assembly = null,

@@ -15,14 +15,13 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunService r2r, OutputPager pager)
 {
-    private const string AssemblyPathNote = " A full path to an assembly that is not loaded yet loads it.";
 
     [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
     [Description("Precompiled native code of a method in a ReadyToRun assembly (the shared framework too): entry, code ranges, fixup cells and x86 / x64 " +
                  "disassembly with cells named by what they resolve to; generics per compiled instantiation, composite images included.")]
     public Task<string> GetR2RCode(
         [Description(SymbolDescription)] string method,
-        [Description(AssemblyFilterDescription + AssemblyPathNote)] string? assembly = null,
+        [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Only bodies whose name contains this text ('Int32', '__Canon').")] string? instantiation = null,
         [Description("Max bodies disassembled; the rest are listed with addresses.")] int maxBodies = 4,
         [Description("Max instructions per body.")] int maxInstructions = 1500,
@@ -122,10 +121,10 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
     }
 
     [McpServerTool(Name = "find_r2r_method", Title = "Managed method at a ReadyToRun address", UseStructuredContent = true, OutputSchemaType = typeof(R2rLookup))]
-    [Description("Returns the managed method whose ReadyToRun code contains a native address (from a dump, profiler or debugger): name, token, range, offset and " +
-                 "the instruction there; an import cell is described by what it resolves to. Addresses are in the file holding the code.")]
+    [Description("Managed method whose ReadyToRun code holds a native address (from a dump, profiler or debugger): name, token, range, offset and " +
+                 "instruction, or what an import cell resolves to. Addresses are in the file holding the code.")]
     public Task<string> FindR2RMethod(
-        [Description(AssemblyDescription + AssemblyPathNote)] string assembly,
+        [Description(AssemblyDescription)] string assembly,
         [Description("A VA or RVA in the code image (rva:/va:/off: prefix).")] string address,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {

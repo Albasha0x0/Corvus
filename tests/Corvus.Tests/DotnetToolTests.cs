@@ -82,6 +82,18 @@ public sealed class DotnetToolTests : IAsyncLifetime
         Assert.Equal(0, code.GetProperty("offset").GetInt32());
     }
 
+    /// <summary>maxTokens sizes a list page: a small budget holds fewer rows and continues where it stopped.</summary>
+    [Fact]
+    public async Task MaxTokensSizesAListPage()
+    {
+        var (_, full) = await Call("list_types", new() { ["assembly"] = "TestFixture" });
+        var (text, small) = await Call("list_types", new() { ["assembly"] = "TestFixture", ["maxTokens"] = 500 });
+        int shown = small.GetProperty("items").GetArrayLength();
+        Assert.True(shown < full.GetProperty("items").GetArrayLength(), $"{shown} rows at 500 tokens");
+        Assert.Equal(shown, small.GetProperty("nextOffset").GetInt32());
+        Assert.Contains($"[More: offset={shown}]", text);
+    }
+
     [Fact]
     public async Task ResolveSymbolPagesItsMatches()
     {

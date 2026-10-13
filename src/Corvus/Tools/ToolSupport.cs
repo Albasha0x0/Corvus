@@ -21,7 +21,7 @@ internal static class ToolSupport
     public const string RowOffsetDescription = "Rows to skip.";
     /// <summary>offset of a text tool: characters.</summary>
     public const string CharOffsetDescription = "Character offset (a page's nextOffset).";
-    public const string MaxTokensDescription = "Page size in tokens (min 500).";
+    public const string MaxTokensDescription = "Page size in tokens.";
     /// <summary>limit of a list tool: rows per page; the page is cut further to the token budget.</summary>
     public const string LimitDescription = "Max rows.";
     public const string DryRunDescription = "Preview the change without applying it.";

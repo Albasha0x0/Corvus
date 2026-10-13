@@ -21,6 +21,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description("Only types in namespaces starting with this.")] string? @namespace = null,
         [Description("Treat query as a regular expression.")] bool regex = false,
         [Description(LimitDescription)] int limit = 100,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
@@ -42,6 +43,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Treat query as a regular expression.")] bool regex = false,
         [Description(LimitDescription)] int limit = 100,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Il2Cpp: max functions listed per literal.")] int usesPerLiteral = 10,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -132,6 +134,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description("Decimal, 0x hex, negative or floating-point.")] string value,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(LimitDescription)] int limit = 100,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
@@ -145,12 +148,13 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     }, cancellationToken);
 
     [McpServerTool(Name = "search_il", Title = "Search IL instruction patterns", UseStructuredContent = true, OutputSchemaType = typeof(IlMatchList))]
-    [Description("Find methods containing an IL instruction sequence: elements separated by ';' or newlines, each 'opcode [operand]' with * and ? wildcards " +
-                 "(operands match member and type names, strings, numbers); '...' skips up to 16 instructions. Example: 'ldstr *password*; ...; call *::Hash*'.")]
+    [Description("Find methods containing an IL instruction sequence: ';'-separated 'opcode [operand]' elements with * and ? wildcards (operands match " +
+                 "names, strings, numbers); '...' skips up to 16 instructions, e.g. 'ldstr *password*; ...; call *::Hash*'.")]
     public Task<string> SearchIL(
         [Description("Instruction pattern.")] string pattern,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(LimitDescription)] int limit = 100,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Instructions shown per match (1-24).")] int context = 8,
         CancellationToken cancellationToken = default) => Read(workspace, () =>

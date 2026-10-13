@@ -21,6 +21,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description("Substring (case-insensitive).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 200,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var scope = workspace.Scope(assembly);
@@ -48,6 +49,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description("Leave out nested types.")] bool topLevelOnly = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 150,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var timeouts = new RegexTimeouts();
@@ -84,9 +86,10 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("summary, nested, fields, properties, events, methods or all.")] string section = "summary",
-        [Description("Include compiler-generated members (backing fields, lambdas, state machines).")] bool includeCompilerGenerated = false,
+        [Description("Include compiler-generated members.")] bool includeCompilerGenerated = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 100,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         section = (section ?? "summary").Trim().ToLowerInvariant();
@@ -152,6 +155,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 200,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type, referenced: true);
@@ -248,6 +252,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description("Restrict to this kind.")] string? kind = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 50,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, symbol, SymbolResolver.ParseKind(kind));
