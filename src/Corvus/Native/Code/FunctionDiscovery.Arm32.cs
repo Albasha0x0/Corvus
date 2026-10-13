@@ -44,6 +44,18 @@ internal sealed partial class FunctionDiscovery
         return false;
     }
 
+    /// <summary>
+    /// ARM32: the jump at <paramref name="site"/> skips only a speculation barrier (dsb sy; isb) to land at
+    /// <paramref name="target"/>: a tail call to the next function, as no compiler jumps to its own fall-through.
+    /// </summary>
+    private bool JumpOverBarrier(uint site, uint target)
+    {
+        if (_ctx.ArmModes == null || target < site || target - site is not (10 or 12)) return false;
+        Span<byte> b = stackalloc byte[8];
+        if (_ctx.Image.Read(target - 8, b) < 8) return false;
+        return BinaryPrimitives.ReadUInt32LittleEndian(b) is 0x8F4FF3BF or 0xF57FF04F && BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) is 0x8F6FF3BF or 0xF57FF06F;
+    }
+
     /// <summary>Thumb: an IT instruction in the four halfwords before <paramref name="rva"/> makes it conditional, so no function starts there.</summary>
     private bool InsideItBlock(uint rva)
     {

@@ -170,7 +170,7 @@ internal sealed partial class FunctionDiscovery
         private readonly ICodeDecoder? _thunks;
         private readonly X86Decoder? _x86Dec;
         private readonly X86Decoder? _x86Peek;
-        // x86 / x64 / ARM64: jumps that may leave the function are recorded (FunctionDiscovery.TailTargets)
+        // jumps that may leave the function are recorded (FunctionDiscovery.TailTargets)
         private readonly bool _tailJumps;
         private readonly bool _speculative;
         private readonly Func<uint, uint, bool> _anyStartBetween;
@@ -200,7 +200,7 @@ internal sealed partial class FunctionDiscovery
             _thunks = thunks;
             _x86Dec = HybridDecoder.PrimaryOf(dec) as X86Decoder;
             _x86Peek = HybridDecoder.PrimaryOf(peek) as X86Decoder;
-            _tailJumps = _x86Dec != null || HybridDecoder.PrimaryOf(dec) is Arm64Decoder;
+            _tailJumps = _x86Dec != null || HybridDecoder.PrimaryOf(dec) is Arm64Decoder or Arm32Decoder;
             _speculative = speculative;
             _anyStartBetween = AnyStartBetween;
             _inNoReturn = InNoReturn;
@@ -400,7 +400,7 @@ internal sealed partial class FunctionDiscovery
                     else
                     {
                         // without unwind ranges: a jump that may leave the function (a tail call, decided after discovery)
-                        if (own == null && !_chunk && _tailJumps && (insn.Target < root || insn.Target - insn.Rva > 16)) WriteJump(insn.Rva, insn.Target, root);
+                        if (own == null && !_chunk && _tailJumps && (insn.Target < root || insn.Target - insn.Rva > 16 || d.JumpOverBarrier(insn.Rva, insn.Target))) WriteJump(insn.Rva, insn.Target, root);
                         Branch(insn.Target, root, own, IndexBound.None);
                     }
                     return false;

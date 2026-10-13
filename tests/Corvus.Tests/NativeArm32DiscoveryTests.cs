@@ -147,4 +147,56 @@ public class NativeArm32DiscoveryTests
         modes.HintNeighbor(Text + 2, thumb: false);
         Assert.True(modes.StartMode(Text + 2));
     }
+
+    // b.w (T4) from Thumb: BL with bit 14 of the second halfword clear
+    private static uint BW(uint from, uint to) => A32Code.Bl(from, to) & 0xFFFFBFFF | 0x1000;
+
+    /// <summary>
+    /// main: push {r4, lr}; cmp r0, #0; bne 1f; b.w cold; 1: pop.w {r4, lr}; b.w helper. helper, before main, runs on its
+    /// own frame (push; a tbb switch; pop {r4, pc}): a tail-called function. cold pops main's frame: a block of main.
+    /// </summary>
+    [Fact]
+    public void A_tail_jump_target_before_its_function_is_a_function_when_its_frame_balances()
+    {
+        var a = new A32Code(Text);
+        uint helper = 0, cold, main, after = 0, dflt = 0, tb;
+        var cases = new uint[2];
+        a.H(A32Code.BxLr);
+        cold = a.Here;
+        a.H(A32Code.MovImm(0, 3)).H(A32Code.PopPc(0x10));
+        helper = a.Here;
+        a.H(A32Code.PushLr(0x10)).H(A32Code.CmpImm(0, 1)).Later(2, at => A32Code.BCond(at, dflt, 8));   // bhi default
+        tb = a.Here;
+        a.T(A32Code.Tbb(0)).Later(2, _ => (cases[0] - (tb + 4)) / 2 | (cases[1] - (tb + 4)) / 2 << 8);
+        for (int k = 0; k < 2; k++) { cases[k] = a.Here; a.H(A32Code.MovImm(0, k + 10)).H(A32Code.PopPc(0x10)); }
+        dflt = a.Here;
+        a.H(A32Code.MovImm(0, 0)).H(A32Code.PopPc(0x10));
+        main = a.Here;
+        a.H(A32Code.PushLr(0x10)).H(A32Code.CmpImm(0, 0)).Later(2, at => A32Code.BCond(at, after, 1));      // bne
+        a.Later(-4, at => BW(at, cold));
+        after = a.Here;
+        a.T(0xE8BD4010).Later(-4, at => BW(at, helper));                                                       // pop.w {r4, lr}
+        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = a.Bytes() };
+        w.Symbols.Add(new ElfWriter.Symbol("main", main | 1, Type: 2));
+        var index = NativeCodeIndex.Build(ElfFile.FromBytes(w.Build(), "tail.so"));
+
+        Assert.True(index.FunctionByStart(helper) is { } h && (h.Sources & FunctionSource.TailJump) != 0);
+        Assert.Null(index.FunctionByStart(cold));
+        Assert.Equal(main, index.FunctionAt(cold)?.Start);
+    }
+
+    /// <summary>main: b.w over a speculation barrier (dsb sy; isb sy) to the code right after it: a tail call to the next function.</summary>
+    [Fact]
+    public void A_jump_over_a_speculation_barrier_is_a_tail_call()
+    {
+        var a = new A32Code(Text);
+        uint next = 0;
+        a.H(0x460B).Later(-4, at => BW(at, next)).T(0xF3BF8F4F).T(0xF3BF8F6F);   // mov r3, r1; b.w next; dsb sy; isb sy
+        next = a.Here;
+        a.H(A32Code.PushLr(0x10)).H(A32Code.MovImm(0, 1)).H(A32Code.PopPc(0x10));
+        var index = Build(a);
+
+        Assert.True(index.FunctionByStart(next) is { } f && (f.Sources & FunctionSource.TailJump) != 0);
+        Assert.Equal([(Text, Text + 6)], index.Ranges(index.FunctionByStart(Text)!));
+    }
 }
