@@ -110,6 +110,13 @@ internal sealed class Arm32Modes
         if (_facts.TryAdd(start, thumb) && !sure) _unsure.TryAdd(start, 0);
     }
 
+    /// <summary>A start whose bytes read in both states takes the state of the code analysis decoded right before it.</summary>
+    public void HintNeighbor(uint start, bool thumb)
+    {
+        if (_allThumb || _sealed || _facts.ContainsKey(start) || MappingAt(start) != null || Guess(_image, start).Sure) return;
+        _facts.TryAdd(start, thumb);
+    }
+
     /// <summary>The state of the function at <paramref name="start"/> was guessed between two plausible readings.</summary>
     public bool IsUnsure(uint start) => _unsure.ContainsKey(start);
 

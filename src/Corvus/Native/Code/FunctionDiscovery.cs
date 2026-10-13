@@ -333,8 +333,11 @@ internal sealed partial class FunctionDiscovery
         // more known code only adds reasons to reject, so a rejection is final
         if (_rejected.Contains(rva)) return false;
         Heartbeat();
+        // ARM32: an IT before the address may turn out to be a literal later, so this rejection is not final
+        if (_ctx.ArmModes != null && InsideItBlock(rva)) return false;
         // a relocated pointer with the Thumb bit points to code even where the bytes read as text (ldr; str; bx lr is "IjAbpG")
-        if (_dataInCode.Contains(rva) || (!_thumbPointerTargets.Contains(rva) && StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null) || !Verify(rva, out bool funclet))
+        if (_dataInCode.Contains(rva) || (!_thumbPointerTargets.Contains(rva) && StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null)
+            || IsLiteral(rva, 2) || !Verify(rva, out bool funclet))
         {
             _rejected.Add(rva);
             return false;
@@ -440,6 +443,7 @@ internal sealed partial class FunctionDiscovery
         private readonly FunctionDiscovery d;
         private readonly ICodeDecoder _peek;
         private readonly X86Decoder? _x86Peek;
+        private readonly Arm32Decoder? _arm;
         private readonly ICodeDecoder _thunks;
         private readonly Dictionary<uint, uint?> _thunkCache = [];
         private readonly ScratchSet _seen = new();
@@ -451,6 +455,7 @@ internal sealed partial class FunctionDiscovery
             d = owner;
             _peek = owner._ctx.NewDecoder(computeAccess: false);
             _x86Peek = HybridDecoder.PrimaryOf(_peek) as X86Decoder;
+            _arm = HybridDecoder.PrimaryOf(_peek) as Arm32Decoder;
             _thunks = owner._ctx.NewDecoder(computeAccess: false);
         }
 
@@ -475,9 +480,18 @@ internal sealed partial class FunctionDiscovery
         private bool IsNoReturnTarget(uint target)
         {
             if (d._ctx.NoReturn.Contains(target)) return true;
-            if (!_thunkCache.TryGetValue(target, out var slot)) _thunkCache[target] = slot = _thunks.ThunkSlot(target, d._ctx.ImportSlots.ContainsKey);
-            return slot is { } s && d._ctx.NoReturn.Contains(s);
+            return Slot(target) is { } s && d._ctx.NoReturn.Contains(s);
         }
+
+        private uint? Slot(uint target)
+        {
+            if (!_thunkCache.TryGetValue(target, out var slot)) _thunkCache[target] = slot = _thunks.ThunkSlot(target, d._ctx.ImportSlots.ContainsKey);
+            return slot;
+        }
+
+        /// <summary>ARM32: a branch to an import stub or one that changes state is a tail call (a PLT entry is A32 code after a Thumb "bx pc").</summary>
+        private bool IsArmTailCall(uint target) =>
+            _arm != null && (Slot(target) != null || _arm.LastSwitchesState || _arm.LastIsComputed || _arm.IsStateSwitchStub(target));
 
         /// <param name="funclet">x86: the code runs in another function's frame (exception filter, handler or catch block).</param>
             public bool Run(uint root, out bool funclet)
@@ -507,7 +521,7 @@ internal sealed partial class FunctionDiscovery
                     if (d._covered[bit]) return false;
                     if (++count > VerifyLimit) return false;
                     if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible() || _peek.LastHasImplausibleDisplacement(a)
-                        || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last, d._ctx.Image.Format == ImageFormat.Pe))) return false;
+                        || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last, d._ctx.Image.Format == ImageFormat.Pe)) || d.IsLiteral(a, insn.Length)) return false;
                     // int3 ends code only as padding after a call that does not return
                     if (insn.Flow == FlowKind.Trap && _x86Peek?.Last.Mnemonic == Iced.Intel.Mnemonic.Int3 && previous is not (FlowKind.Call or FlowKind.IndirectCall)) return false;
                     previous = insn.Flow;
@@ -538,11 +552,11 @@ internal sealed partial class FunctionDiscovery
                             break;
                         case FlowKind.Jump:
                             if (!insn.HasTarget || !d._ctx.Code.IsCode(insn.Target)) return false;
-                            if (!Known(insn.Target) && !d.IsFarJump(in insn, root)) work.Push(insn.Target);
+                            if (!Known(insn.Target) && !d.IsFarJump(in insn, root) && !IsArmTailCall(insn.Target)) work.Push(insn.Target);
                             goto endRun;
                         case FlowKind.ConditionalJump:
                             if (!insn.HasTarget || !d._ctx.Code.IsCode(insn.Target)) return false;
-                            if (!Known(insn.Target)) work.Push(insn.Target);
+                            if (!Known(insn.Target) && !IsArmTailCall(insn.Target)) work.Push(insn.Target);
                             break;
                         case FlowKind.IndirectCall:
                             if (insn.HasMem && d._ctx.NoReturn.Contains(insn.MemTarget)) goto endRun;
@@ -636,8 +650,10 @@ internal sealed partial class FunctionDiscovery
                 if (p >= beat) { Heartbeat(); beat = p + 0x10000; }
                 if (_covered[region.BitBase + p])
                 {
+                    int end = (int)(_covered.NextClear(region.BitBase + p, region.BitBase + bytes.Length) - region.BitBase);
+                    if (!arm64 && end >= 4 && end < bytes.Length) TryAfterCode(region, end);
                     // on to the next even offset past the covered run
-                    p = (((int)(_covered.NextClear(region.BitBase + p, region.BitBase + bytes.Length) - region.BitBase) + 1) & ~1) - 2;
+                    p = ((end + 1) & ~1) - 2;
                     continue;
                 }
                 bool? thumb = arm64 ? ((p & 3) == 0 && IsArm64Prologue(bytes, p) ? false : null) : Arm32Prologue(bytes, p, armState);

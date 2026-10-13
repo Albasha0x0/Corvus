@@ -223,6 +223,7 @@ internal sealed partial class FunctionDiscovery
                 _pendingRemoved.Clear();
             }
             List<(uint Begin, uint End)>? own = _ctx.PdataRanges.TryGetValue(root, out var r) ? r : null;
+            if (_ctx.ArmModes != null) d.HintFromNeighbor(root);
             _ctx.ArmModes?.Fix(root);
             _dec.BeginFunction(root);
             _work.Clear();
@@ -248,7 +249,8 @@ internal sealed partial class FunctionDiscovery
                     long bit = region.BitBase + (a - region.Rva);
                     if (IsStart(bit)) break;
                     _dec.Decode(region, a, out var insn);
-                    if (insn.Flow == FlowKind.Invalid)
+                    // ARM32: a literal pool known code loads ends the run (after a call that does not return)
+                    if (insn.Flow == FlowKind.Invalid || d.IsLiteral(a, insn.Length))
                     {
                         if (_speculative) Log.Add(new Op(OpKind.Invalid, bit, 0));
                         break;
@@ -265,6 +267,7 @@ internal sealed partial class FunctionDiscovery
                         }
                     }
                     if (insn.HasImm && _ctx.Code.IsCode(insn.ImmTarget)) Write(OpKind.AddressCandidate, insn.ImmTarget);
+                    if (_ctx.ArmModes != null) d.NoteArm32(_dec, in insn, bit);
                     if (!Follow(in insn, root, own)) break;
                     a = insn.Next;
                 }

@@ -122,8 +122,20 @@ internal sealed class Arm32Decoder : ICodeDecoder
         return true;
     }
 
+    /// <summary>Bytes a load moves: one register's access size times the registers it loads.</summary>
+    private static int LoadSize(in ArmInstruction i)
+    {
+        for (int k = 0; k < i.OperandCount; k++)
+            if (i.Operands[k].Kind == ArmOperandKind.VectorList) return i.AccessSize * Math.Max(1, (int)i.Operands[k].Count);
+        return i.AccessSize * (i.Mnemonic == "ldrd" ? 2 : 1);
+    }
+
+    /// <summary>Bytes the last instruction loads from a known address inside code (a literal pool entry at its memory target); 0 for none.</summary>
+    public int LastLiteralSize { get; private set; }
+
     private void DecodeBytes(ReadOnlySpan<byte> bytes, uint rva, out Insn insn)
     {
+        LastLiteralSize = 0;
         if (!_pinned) _thumb = Modes.At(rva);
         if (rva != _expected) _itLeft = 0;
         uint va = _imageBase + rva;
@@ -339,6 +351,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
                 insn.HasMem = true;
                 insn.MemTarget = at;
                 insn.MemAccess = i.Loads && i.Stores ? OperandAccess.ReadWrite : i.Stores ? OperandAccess.Write : OperandAccess.Read;
+                if (i.Loads && !i.Stores && op.Index == ArmOperand.NoReg && _code?.IsCode(at) == true) LastLiteralSize = LoadSize(in i);
             }
             int dest = i.Loads && i.AccessSize == 4 && i.Mnemonic is "ldr" && i.Op(0).Kind == ArmOperandKind.Register ? i.Op(0).Reg : -1;
             Clobber();
