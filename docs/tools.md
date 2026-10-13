@@ -1386,7 +1386,7 @@ C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra.
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Required unless functions is given. |
-| `engine` | string |  |  | auto (default): an engine open on this image, else IDA, else Ghidra (or the server's --engine). Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 | `addresses` | boolean |  | `false` | Prefix each line with the address it was generated from. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
@@ -1397,7 +1397,7 @@ C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra.
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600; default CORVUS_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x. |
 | `callersOf` | string |  |  | Instead of address: decompile the functions calling this one (engine references). |
 
-Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`, `limit`, `totalExact`, `hasMore`.
+Structured output: `image`, `engine`, `items`, `inputs`, `succeeded`, `failed`, `skipped`, `next`, `engineNote`, `code`, `offset`, `nextOffset`, `totalChars`.
 
 ### search_decompiled
 

@@ -38,12 +38,15 @@ public static partial class ToolOutput
             ["args"] = Sha256(Canonical(args == null ? new JsonObject() : JsonSerializer.SerializeToNode(args))),
         };
         if (engine != null) p["engine"] = engine;
+        foreach (var (key, value) in call.EngineMeta) p[key] = value is null ? null : Serialize(value);
         p["corvus"] = ServerIdentity.InformationalVersion;
         // An error is no result to verify: what was asked of which inputs is its provenance.
         if (result.IsError == true) return p;
         p["resultSha256"] = ResultSha256(result);
         p["coverage"] = call.Coverage?.Status ?? "complete";
-        if (call.Coverage is { Limitations.Count: > 0 } c) p["limitations"] = new JsonArray(c.Limitations.Take(8).Select(l => (JsonNode)JsonValue.Create(l)!).ToArray());
+        if (call.Coverage is { Limitations.Count: > 0 } c)
+            p["limitations"] = new JsonArray(c.Limitations.Concat(p["limitations"] is JsonArray stated ? stated.Select(l => (string)l!) : [])
+                .Distinct().Take(8).Select(l => (JsonNode)JsonValue.Create(l)!).ToArray());
         return p;
     }
 

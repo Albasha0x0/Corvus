@@ -242,7 +242,7 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
         var load = await rig.Pdbs.Load(native, pdbPath, false, null, false, TimeSpan.FromSeconds(30), 1 << 30, default);
         Assert.NotNull(load.State);
         var clock = Stopwatch.StartNew();
-        var after = await rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}");
+        var after = await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}"));
         output.WriteLine($"after load_pdb ({clock.Elapsed.TotalSeconds:0.0} s):\n{after}");
         Assert.Contains("types: PDB fixture.pdb via IDA's PDB loader: loaded", after);
         Assert.Contains("Packet *", after);
@@ -253,11 +253,11 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(NativePdbTypes.RouteIda, source.Route);
 
         // idempotent: the next call does not load again; a new session on the saved database finds the stamp
-        Assert.Contains("(already in the database)", (await rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}")).Split('\n')[0]);
+        Assert.Contains("(already in the database)", await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}")));
         rig.Engines.Dispose();
         var rig2 = Setup(_dir.File("cache"));
         await rig2.Pdbs.Load(rig2.Workspace.LoadAny(built.Exe).Native!, pdbPath, false, null, false, TimeSpan.FromSeconds(30), 1 << 30, default);
-        var reopened = await rig2.Analysis.DecompileNative(built.Exe, $"rva:0x{scoreRva:X}");
+        var reopened = await EngineMeta.WithPushes(() => rig2.Analysis.DecompileNative(built.Exe, $"rva:0x{scoreRva:X}"));
         output.WriteLine(reopened.Split('\n')[0]);
         Assert.Contains("(already in the database)", reopened);
         Assert.Contains("->sequence_number", reopened);

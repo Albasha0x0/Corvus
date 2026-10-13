@@ -72,6 +72,14 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     public ProviderAvailability CheckAvailability() => Static().Result;
 
+    /// <summary>The installed version, or null when Ghidra is not available.</summary>
+    internal string? Version => Static().Ghidra?.Version;
+
+    /// <summary>What decides Ghidra's output besides the project: release, revision, profile, extra options, extensions, decompiler limits.</summary>
+    internal string? EngineBuild => Static().Ghidra is { } g
+        ? $"{g.Version} {g.Revision} {Profile} {ExtraOptions} {string.Join(",", Extensions.Select(e => e.Name))} {DecompileTimeout.TotalSeconds} {DecompilePayloadMb}"
+        : null;
+
     private (ProviderAvailability Result, GhidraInstallation? Ghidra, JavaRuntime? Java) Static()
     {
         lock (_availabilityLock)

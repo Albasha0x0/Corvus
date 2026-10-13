@@ -66,7 +66,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         var batch = await rig.Analysis.DecompileNative(rig.Native.Id, functions: ["First", "Second"]);
         Assert.Contains("// [1/2] Widget::Run at", batch);
         var text = await rig.Analysis.DecompileNative(rig.Native.Id, "First");
-        Assert.Matches(@"// Widget::Run at 0x[0-9A-F]+ \(ida, saved analysis; symbol \?Run@Widget@@QEAAXXZ\)", text);
+        Assert.Matches(@"// Widget::Run at 0x[0-9A-F]+ \(ida; symbol \?Run@Widget@@QEAAXXZ\)", text);
         var frame = await rig.Types.GetNativeFrame(rig.Native.Id, "First");
         Assert.StartsWith("Frame of Widget::Run at ", frame);
         Assert.Contains("(symbol ?Run@Widget@@QEAAXXZ)", frame);

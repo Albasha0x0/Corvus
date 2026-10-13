@@ -17,7 +17,7 @@ internal sealed record EngineChoice(string Engine, string Note)
                                       "ida / ghidra: that engine, started when needed.";
 
     /// <summary>The engine parameter text shared by the engine-only tools.</summary>
-    public const string EngineOnlyDescription = "auto (default): the first engine (IDA, then Ghidra) that has analyzed these bytes, else the first installed.";
+    public const string EngineOnlyDescription = "auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed.";
 
     /// <summary>Whether an external engine answers (not the built-in index).</summary>
     public bool External => Engine != "ours";
@@ -63,12 +63,17 @@ internal sealed record EngineChoice(string Engine, string Note)
     {
         var (mode, named) = Mode(engine, engines);
         var origin = Origin(mode, named);
+        if (named && mode == EngineMode.Ours)
+            throw new ToolError(ErrorCode.InvalidArgument, "engine=ours: this tool needs an engine (IDA or Ghidra); the built-in analysis has no such view.",
+                "use engine=auto, ida or ghidra");
         if (EngineModes.ProviderId(mode) is { } id) return Named(id, origin, engines);
         // ours as the server default leaves the choice to auto: these tools have no built-in path
-        if (engines.AnalyzedBy(native) is { } analyzed)
+        var first = engines.FirstAvailable();
+        // the preferred engine gets one note whether or not it has analyzed the bytes yet: the answer is the same
+        if (engines.AnalyzedBy(native) is { } analyzed && analyzed != first)
             return new(analyzed, $"{origin}: {NativeEngineService.DisplayName(analyzed)} has analyzed these bytes");
-        if (engines.FirstAvailable() is { } first)
-            return new(first, $"{origin}: {NativeEngineService.DisplayName(first)} is the first engine installed");
+        if (first != null)
+            return new(first, $"{origin}: {NativeEngineService.DisplayName(first)}, the preferred engine installed");
         var u = engines.Unavailability!.Value;
         throw new ToolError(ErrorCode.ProviderUnavailable, $"No native decompiler engine is available: {u.Reason}", u.Remediation);
     }

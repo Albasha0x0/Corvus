@@ -78,6 +78,9 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
                 "Install IDA Pro 9 or newer, or set CORVUS_IDA_DIR to such an install.");
     }
 
+    /// <summary>The installed build (its digest names the saved databases), or null when IDA is not available.</summary>
+    internal string? EngineBuild => Static().Ida?.EngineDigest();
+
     private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static()
     {
         lock (_availabilityLock)

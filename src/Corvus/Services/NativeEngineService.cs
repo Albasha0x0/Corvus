@@ -78,6 +78,20 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>"IDA", "Ghidra", or the id of another engine.</summary>
     public static string DisplayName(string id) => id switch { IdaProvider.ProviderId => "IDA", GhidraProvider.ProviderId => "Ghidra", _ => id };
 
+    /// <summary>An engine's version, build and analysis profile, from its static checks (no worker is started).</summary>
+    public sealed record EngineIdentity(string Engine, string? Version, string? Build, string Profile);
+
+    public EngineIdentity Identity(string id)
+    {
+        var analysis = _analysis == EngineAnalysis.None ? "none" : "full";
+        return Find(id) switch
+        {
+            IdaProvider ida => new(id, ida.Version, ida.EngineBuild, analysis),
+            GhidraProvider ghidra => new(id, ghidra.Version, ghidra.EngineBuild, _analysis == EngineAnalysis.None ? "none" : ghidra.Profile.ToString().ToLowerInvariant()),
+            _ => new(id, null, null, analysis),
+        };
+    }
+
     /// <summary>Whether any engine is installed and usable (static checks, cached).</summary>
     public bool IsAvailable => _providers.Any(p => p.Provider.Value.CheckAvailability().IsAvailable);
 

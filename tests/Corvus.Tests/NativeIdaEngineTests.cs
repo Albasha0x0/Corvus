@@ -342,7 +342,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var path = CallArgumentTests.BuildSample(_dir, "x64", ClassesSource, "classes", "/MD /TP /EHsc");
         if (path == null) { output.WriteLine("no MSVC build tools"); return; }
         var rig = Setup();
-        var text = await rig.Analysis.DecompileNative(path, "rva:0x" + PeFile.Open(path).EntryPointRva.ToString("X"));
+        var text = await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(path, "rva:0x" + PeFile.Open(path).EntryPointRva.ToString("X")));
         output.WriteLine(text.Split('\n')[0] + "\n" + text.Split('\n')[1]);
         var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
         var rtti = native.GetAnalysis(n => Native.Msvc.MsvcRtti.Analyze(n.Image));
@@ -353,7 +353,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
                                                                          (c.Bases.Count > 0 ? " bases " + string.Join(",", c.Bases.Select(b => $"{b.Name}@{b.Offset:X}")) : ""))));
         Assert.Contains(batch.Classes, c => c.Name == "Both" && c.Bases.Any(b => b.Name == "Printer" && b.Offset > 0));
 
-        Assert.Contains("// types: pushed", text);
+        Assert.Contains("types: pushed", text);
 
         // Rect::Twice (Rect's last slot) is inherited by Both at offset 0: it is Rect's method
         var twice = rect.Vtables.Single(v => v.Offset == 0).SlotRvas[^1];
@@ -426,7 +426,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var image = Native.NativeImageLoader.Open(path);
         var cls = Native.Itanium.CppRtti.Analyze(image).Classes.Single(c => c.Name == "vanguard::runtime::CInstrumentationMethod");
         var slot = cls.Vtables.Single(v => v.Offset == 0).SlotRvas.Last(s => s != 0);
-        var text = await rig.Analysis.DecompileNative(path, $"rva:0x{slot:X}");
+        var text = await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(path, $"rva:0x{slot:X}"));
         output.WriteLine(text);
         Assert.Matches(@"types: pushed .* and \d+ C\+\+ class\(es\) \([1-9]\d* structs, [1-9]\d* vftables", text);
     }

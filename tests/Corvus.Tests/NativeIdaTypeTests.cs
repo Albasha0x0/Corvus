@@ -80,7 +80,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         foreach (var d in _owned) d.Dispose();
         _owned.Clear();
         var fresh = Setup("cache-b");
-        var again = await fresh.Analysis.DecompileNative(Image, Function);
+        var again = await EngineMeta.WithPushes(() => fresh.Analysis.DecompileNative(Image, Function));
         Assert.Contains("user types: pushed 2 item(s)", again);
         Assert.Contains("unsigned int *headerSum", again);
 

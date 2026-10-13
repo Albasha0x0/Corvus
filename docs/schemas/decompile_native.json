@@ -87,7 +87,8 @@
         ]
       }
     },
-    "total": {
+    "inputs": {
+      "description": "Functions asked for.",
       "type": "integer"
     },
     "succeeded": {
@@ -103,14 +104,21 @@
       "description": "The call that decompiles the skipped items, when there are any.",
       "type": "string"
     },
-    "limit": {
+    "engineNote": {
+      "description": "Why this engine answered.",
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
       "type": "integer"
     },
-    "totalExact": {
-      "type": "boolean"
+    "nextOffset": {
+      "type": "integer"
     },
-    "hasMore": {
-      "type": "boolean"
+    "totalChars": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -135,7 +143,7 @@
     "image",
     "engine",
     "items",
-    "total",
+    "inputs",
     "succeeded",
     "failed",
     "skipped"

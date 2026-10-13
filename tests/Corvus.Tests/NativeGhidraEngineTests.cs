@@ -86,7 +86,7 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         new NativeEditService(rig.Workspace, rig.Code).Rename(native, index, calleeRva, "SampleRenamedHelper", false);
         var decompiled = await rig.Analysis.DecompileNative(native.Id, Export, engine: "ghidra");
         output.WriteLine(decompiled);
-        Assert.Contains("(ghidra, ", decompiled.Split('\n').First(l => l.StartsWith("// " + Export, StringComparison.Ordinal)));
+        Assert.Contains("(ghidra", decompiled.Split('\n').First(l => l.StartsWith("// " + Export, StringComparison.Ordinal)));
         Assert.Contains("SampleRenamedHelper", decompiled);
         Assert.Contains("SampleRenamedHelper", await rig.Tools.NativeCallTree(native.Id, Export, depth: 1));
 
@@ -147,7 +147,7 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
         Assert.NotNull((await rig.Pdbs.Load(native, pdbPath, false, null, false, TimeSpan.FromSeconds(30), 1 << 30, default)).State);
         var clock = Stopwatch.StartNew();
-        var after = await rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}");
+        var after = await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}"));
         output.WriteLine($"after load_pdb ({clock.Elapsed.TotalSeconds:0.0} s):\n{after}");
         Assert.Contains("types: PDB fixture.pdb via Ghidra's PDB loader: loaded", after);
         Assert.Contains("sequence_number", after);
@@ -155,7 +155,7 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         var session = await rig.Engines.Session(native, null, null, default);
         Assert.Equal("ghidra", session.ProviderId);
         Assert.Equal(NativePdbTypes.RouteGhidra, NativePdbTypes.Current(session)!.Route);
-        Assert.Contains("(already in the database)", (await rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}")).Split('\n')[0]);
+        Assert.Contains("(already in the database)", await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}")));
     }
 
     [GhidraFact]
@@ -229,7 +229,7 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         var image = Native.NativeImageLoader.Open(path);
         var cls = Native.Itanium.CppRtti.Analyze(image).Classes.Single(c => c.Name == "vanguard::runtime::CInstrumentationMethod");
         var slot = cls.Vtables.Single(v => v.Offset == 0).SlotRvas.Last(s => s != 0);
-        var text = await rig.Analysis.DecompileNative(path, $"rva:0x{slot:X}", engine: "ghidra");
+        var text = await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(path, $"rva:0x{slot:X}", engine: "ghidra"));
         output.WriteLine(text);
         Assert.Matches(@"types: pushed .* and \d+ C\+\+ class\(es\) \([1-9]\d* structs, [1-9]\d* vftables", text);
     }
@@ -260,7 +260,7 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         output.WriteLine($"{Export} calls: IDA {idaCalls.Count}, Ghidra {ghidraCalls.Count}, both {idaCalls.Intersect(ghidraCalls).Count()}");
         Assert.Equal(idaCalls, ghidraCalls);
         // both sessions stay open on one image; auto prefers IDA's
-        Assert.Contains("Engine: ida (server default auto: IDA's analysis", await rig.Tools.GetCfg(native.Id, Export));
+        Assert.Contains("Engine: ida (server default auto: IDA has analyzed these bytes)", await rig.Tools.GetCfg(native.Id, Export));
         Assert.Contains("Engine: ghidra", await rig.Tools.GetCfg(native.Id, Export, engine: "ghidra"));
     }
 }
