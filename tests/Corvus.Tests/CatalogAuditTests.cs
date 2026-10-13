@@ -17,8 +17,19 @@ public class CatalogAuditTests
     /// <summary>Largest input schema of one tool, compact UTF-8 JSON.</summary>
     private const int MaxInputSchemaBytes = 8 * 1024;
 
-    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas): 165,631 at 155 tools after the trim (from 225,472), plus 2%; 171,039 at 157 tools with find_similar_functions and emulate_native; 172,651 at 158 with compare_folders, the container and Electron texts and the objc / swift sources, to come back under 171,000 with the planned trim. Trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 172_700;
+    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas): 172,651 at 158 tools before Phase 2; 159,006 at 155 after S-TRIM (no null in input types, implied defaults left out). Trim descriptions before raising it.</summary>
+    private const int MaxModelFacingBytes = 160_000;
+
+    /// <summary>The whole tools/list result of the full profile (§5): 410 KB before Phase 1, 349,663 after Phase 2's family lanes, 298,031 after S-TRIM.</summary>
+    private const int MaxToolsListBytes = 300_000;
+
+    [Fact]
+    public void ToolsListStaysWithinItsCeiling()
+    {
+        var list = new JsonObject { ["tools"] = new JsonArray([.. Catalog.OfThisBuild(Toolsets.All).Tools]) };
+        var bytes = Encoding.UTF8.GetByteCount(list.ToJsonString());
+        Assert.True(bytes <= MaxToolsListBytes, $"tools/list is {bytes:N0} bytes, over {MaxToolsListBytes:N0}: trim descriptions or output schemas");
+    }
 
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild().Tools;
 
@@ -113,10 +124,10 @@ public class CatalogAuditTests
         Ratchet.Check("output-schema-bytes", $"an output schema is at most {MaxOutputSchemaBytes} bytes in tools/list (S8.1)", outputs);
     }
 
-    /// <summary>Per profile: tool count and model-facing bytes (names, descriptions, input schemas); measured 42,987 (lean) and 108,165 (core) when the profiles landed, plus 1%.</summary>
+    /// <summary>Per profile: tool count and model-facing bytes (names, descriptions, input schemas); measured 40,839 (lean) and 102,284 (core) after S-TRIM, plus about 1%.</summary>
     [Theory]
-    [InlineData(Toolsets.Lean, 40, 43_450)]
-    [InlineData(Toolsets.CoreName, 100, 109_250)]
+    [InlineData(Toolsets.Lean, 40, 41_250)]
+    [InlineData(Toolsets.CoreName, 100, 103_300)]
     public void ProfilesStayWithinTheirCeilings(string profile, int maxTools, int maxModelFacing)
     {
         var tools = Catalog.OfThisBuild(Toolsets.Parse(profile)).Tools;
