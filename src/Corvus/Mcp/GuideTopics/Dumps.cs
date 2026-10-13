@@ -17,7 +17,7 @@ public static partial class Guide
         No dump, only text (Player.log, error.log, Report.wer, event text, an exception's ToString, a debugger stack):
         symbolize_stack_text names each frame in the loaded build; check buildCheck before trusting a name (mismatch: another build).
         A folder of dumps: bucket_minidumps groups them by signature; open the largest bucket's representative.
-        inspect_process does the same for a running local process (Windows), read-only: modules, regions, threads and stacks. It
+        inspect_process does the same for a running local process (Windows), read-only: view=summary, modules, regions, threads, stacks. It
         opens only query and read handles, writes and suspends nothing, and closes every handle before returning. Pick the target
         by pid or name (a shared name is refused with the candidate pids).
         """;

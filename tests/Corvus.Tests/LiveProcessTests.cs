@@ -43,8 +43,8 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
     {
         using var dumps = new MinidumpService();
         var service = new LiveProcessService(dumps);
-        async Task<ToolError> Fails(string process, string? sections = null) =>
-            await Assert.ThrowsAsync<ToolError>(() => service.Inspect(process, sections, null, 0, 1, 0, 1, null, 0, 1, 1, null, 5, default));
+        async Task<ToolError> Fails(string process, string? view = null) =>
+            await Assert.ThrowsAsync<ToolError>(() => service.Inspect(process, view, null, 0, 1, null, 1, null, 5, default));
         if (!OperatingSystem.IsWindows())
         {
             Assert.Equal(ErrorCode.ProviderUnavailable, (await Fails("1")).Code);
@@ -53,7 +53,7 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
         Assert.Equal(ErrorCode.NotFound, (await Fails("no-such-process-" + Guid.NewGuid().ToString("N")[..8])).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Fails("0")).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Fails(Environment.ProcessId.ToString())).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Fails("1", "modules,bogus")).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Fails("1", "bogus")).Code);
         // the System process (pid 4) exists and is never readable from user mode
         var system = await Fails("4");
         Assert.True(system.Code is ErrorCode.AccessDenied or ErrorCode.NotFound, system.Code.ToString());
@@ -90,26 +90,42 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
             var clock = Stopwatch.StartNew();
             using var dumps = new MinidumpService();
             var service = new LiveProcessService(dumps);
-            var report = await service.Inspect(child.Id.ToString(), null, null, 0, 200, 0, 1000, "writable", 0, 50, 64, null, 60, default);
-            output.WriteLine($"{systemFolder}: {report.ModuleCount} modules, {report.RegionCount}/{report.RegionsTotal} writable regions, {report.ThreadCount} threads, " +
-                             $"handles {report.HandlesOpened}/{report.HandlesClosed}, {clock.ElapsedMilliseconds} ms");
-            foreach (var t in report.Threads)
-                output.WriteLine($"  thread {t.Id} suspend={t.SuspendCount} {t.Location} [{t.StackStop}] " + string.Join(" <- ", t.Frames.Take(6).Select(f => f.Symbol)));
+            string pid = child.Id.ToString();
+            var summary = await service.Inspect(pid, "summary", null, 0, 50, null, 64, null, 60, default);
+            var modules = (await service.Inspect(pid, "modules", null, 0, 1000, null, 64, null, 60, default)).Items!.Cast<MinidumpService.ModuleSummary>().ToList();
+            var regions = await service.Inspect(pid, "regions", null, 0, 1000, "writable", 64, null, 60, default);
+            var threads = await service.Inspect(pid, "threads", null, 0, 50, null, 64, null, 60, default);
+            var rows = threads.Items!.Cast<LiveProcessService.ThreadRow>().ToList();
+            output.WriteLine($"{systemFolder}: {summary.Counts!.Modules} modules, {regions.Total}/{summary.Counts.RegionsTotal} writable regions, {summary.Counts.Threads} threads, " +
+                             $"handles {threads.HandlesOpened}/{threads.HandlesClosed}, {clock.ElapsedMilliseconds} ms");
 
-            Assert.True(report.Detached);
-            Assert.Equal(report.HandlesOpened, report.HandlesClosed);
-            Assert.True(report.HandlesOpened >= 1 + report.Threads.Count);
-            Assert.True(report.StillRunning);
-            Assert.Equal(systemFolder == "SysWOW64" ? "x86" : "x64", report.Architecture);
-            Assert.Equal(systemFolder == "SysWOW64", report.Wow64);
-            Assert.Contains(report.Modules, m => m.Name.Equals("findstr.exe", StringComparison.OrdinalIgnoreCase) && m.LocalImage == "matches");
-            Assert.Contains(report.Modules, m => m.Name.Equals("ntdll.dll", StringComparison.OrdinalIgnoreCase));
-            Assert.NotEmpty(report.Regions);
-            Assert.All(report.Threads, t => Assert.Equal(0u, t.SuspendCount));
+            foreach (var r in new[] { summary, regions, threads })
+            {
+                Assert.True(r.Detached);
+                Assert.Equal(r.HandlesOpened, r.HandlesClosed);
+                Assert.True(r.StillRunning);
+                Assert.Equal(systemFolder == "SysWOW64" ? "x86" : "x64", r.Architecture);
+                Assert.Equal(systemFolder == "SysWOW64", r.Wow64);
+            }
+            Assert.True(threads.HandlesOpened >= 1 + rows.Count);
+            Assert.Equal("findstr.exe", summary.MainModule!.Name, ignoreCase: true);
+            Assert.Contains(modules, m => m.Name.Equals("findstr.exe", StringComparison.OrdinalIgnoreCase) && m.LocalImage == "matches");
+            Assert.Contains(modules, m => m.Name.Equals("ntdll.dll", StringComparison.OrdinalIgnoreCase));
+            Assert.NotEmpty(regions.Items!);
+            Assert.All(rows, t => Assert.Equal(0u, t.SuspendCount));
             // the main thread waits in a read of its input: the stack runs from an ntdll system call stub up into findstr
-            var main = report.Threads.First(t => t.Frames.Any(f => f.Module?.Equals("findstr.exe", StringComparison.OrdinalIgnoreCase) == true));
-            Assert.StartsWith("ntdll!Nt", main.Frames[0].Symbol);
-            Assert.All(main.Frames.TakeWhile(f => f.Basis != "inferred"), f => Assert.NotNull(f.Module));
+            List<MinidumpService.StackFrame>? main = null;
+            foreach (var t in rows)
+            {
+                var stack = await service.Inspect(pid, "stacks", t.Id.ToString(), 0, 64, null, 64, null, 60, default);
+                var frames = stack.Items!.Cast<MinidumpService.StackFrame>().ToList();
+                output.WriteLine($"  thread {t.Id} suspend={t.SuspendCount} {t.Location} [{stack.StackStop}] " + string.Join(" <- ", frames.Take(6).Select(f => f.Symbol)));
+                Assert.True(stack.Detached);
+                if (main == null && frames.Any(f => f.Module?.Equals("findstr.exe", StringComparison.OrdinalIgnoreCase) == true)) main = frames;
+            }
+            Assert.NotNull(main);
+            Assert.StartsWith("ntdll!Nt", main[0].Symbol);
+            Assert.All(main.TakeWhile(f => f.Basis != "inferred"), f => Assert.NotNull(f.Module));
 
             var after = Snapshot(child.Id);
             Assert.Equal(before.Writable, after.Writable);
@@ -139,7 +155,7 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
         var service = new LiveProcessService(dumps);
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.Inspect("4", null, null, 0, 1, 0, 1, null, 0, 1, 1, null, 5, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.Inspect("4", null, null, 0, 1, null, 1, null, 5, cts.Token));
     }
 
     /// <summary>Writes a line to findstr and waits until all its threads wait again (findstr buffers its output on a pipe).</summary>
@@ -209,11 +225,11 @@ public sealed class LiveProcessSweepTests(ITestOutputHelper output)
         {
             try
             {
-                var r = await service.Inspect(pid.ToString(), "threads,stacks", null, 0, 1, 0, 1, null, 0, 8, 64, null, 30, default);
+                var r = await service.Inspect(pid.ToString(), "stacks", null, 0, 64, null, 64, null, 30, default);
                 Assert.True(r.Detached, $"{name} ({pid}): {r.HandlesOpened} opened, {r.HandlesClosed} closed");
                 ok++;
-                threads += r.Threads.Count;
-                foreach (var f in r.Threads.SelectMany(t => t.Frames))
+                threads++;
+                foreach (var f in r.Items!.Cast<MinidumpService.StackFrame>())
                 {
                     frames++;
                     if (f.Function != null) named++;

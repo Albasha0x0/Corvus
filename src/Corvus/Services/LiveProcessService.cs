@@ -16,92 +16,89 @@ namespace Corvus.Services;
 /// </summary>
 public sealed class LiveProcessService(MinidumpService dumps)
 {
-    public const int DefaultModules = 50, DefaultRegions = 100, DefaultThreads = 20, DefaultFrames = 32;
+    public const int DefaultLimit = 50, DefaultFrames = 64;
     public const int MaxFrames = 256, MaxListLimit = 1000, MaxTimeoutSeconds = 120, DefaultTimeoutSeconds = 20;
     private const int MaxCandidates = 20;
 
-    private static readonly string[] Sections = ["modules", "regions", "threads", "stacks"];
+    /// <summary>inspect_process views: the summary report, then the paged lists (stacks: the frames of one thread).</summary>
+    public static readonly string[] Views = ["summary", "modules", "regions", "threads", "stacks"];
     private static readonly string[] RegionFilters = ["committed", "all", "executable", "writable", "image", "private", "mapped"];
-
-    public sealed record RegionRow(
-        string Base, string End, string Size,
-        [property: Description("commit, reserve or free.")] string State,
-        [property: Description("Page protection, e.g. PAGE_EXECUTE_READ; null for reserved and free memory.")] string? Protection,
-        [property: Description("image, mapped or private; null for free memory.")] string? Type,
-        string? AllocationBase,
-        [property: Description("The module whose image holds the region, or null.")] string? Module);
+    private const int LargestRegions = 10;
 
     public sealed record ThreadRow(
         uint Id, string? Name,
         [property: Description("Read from the kernel (NtQueryInformationThread ThreadSuspendCount); inspection never changes it.")] uint? SuspendCount,
-        int? Priority, int? BasePriority, string? Teb, string? StackLow, string? StackHigh,
+        int? Priority, string? Teb, string? StackLow, string? StackHigh,
         string? StartAddress,
         [property: Description("module!function of the thread's start address.")] string? StartSymbol,
         string? InstructionPointer, string? StackPointer,
         [property: Description("module!function+0xoffset of the instruction pointer.")] string? Location,
         string? Registers,
-        [property: Description("Frames walked (the walk is bounded by maxFrames); 0 when stacks are not requested.")] int FrameCount,
-        IReadOnlyList<MinidumpService.StackFrame> Frames,
-        [property: Description("Why the walk ended: end_of_stack, max_frames, left_the_stack, no_unwind_data, ...; null when not walked.")] string? StackStop,
-        int HeuristicFrames,
         [property: Description("What could not be read for this thread (exited, registers not read), or null.")] string? Error);
 
+    public sealed record LiveCounts(int Modules, int Threads,
+        [property: Description("Committed regions.")] int Regions,
+        [property: Description("All regions, reserved and free included.")] int RegionsTotal);
+
+    /// <summary>
+    /// inspect_process: identity and the read-only guarantee in every view; view=summary adds counts, the main module and the
+    /// largest committed regions; a list view fills items (module, region, thread or stack frame rows) with offset and total.
+    /// </summary>
     public sealed record LiveReport(
-        int ProcessId, string Name, string? Path,
+        int ProcessId, string Name, string View, string? Path,
         [property: Description("x64, x86, ARM64: the process's own instruction set (x86 for a WoW64 process).")] string Architecture,
-        bool Wow64, string? StartTimeUtc,
+        bool Wow64,
         [property: Description("Managed runtime loaded in the process (CoreCLR, CLR, Mono) or Il2Cpp; null for none.")] string? Runtime,
         [property: Description("The handles this call opened, with their access rights: the read-only guarantee.")] IReadOnlyList<string> Access,
-        int ModuleCount, int ModulesOffset, bool ModulesTruncated, IReadOnlyList<MinidumpService.ModuleSummary> Modules,
-        [property: Description("Regions matching regionFilter (all regions: regionsTotal).")] int RegionCount, int RegionsTotal, string RegionFilter,
-        int RegionsOffset, bool RegionsTruncated, IReadOnlyList<RegionRow> Regions,
-        int ThreadCount, int ThreadsOffset, bool ThreadsTruncated, IReadOnlyList<ThreadRow> Threads,
         [property: Description("Every handle to the process and its threads was closed before returning.")] bool Detached,
         int HandlesOpened, int HandlesClosed,
         [property: Description("The process was still running when inspection ended.")] bool StillRunning,
         long ElapsedMs,
-        [property: Description("Where names and unwind data came from, and what was not covered.")] IReadOnlyList<string> Notes);
+        [property: Description("Where names and unwind data came from, and what was not covered.")] IReadOnlyList<string> Notes)
+    {
+        public string? StartTimeUtc { get; init; }
+        public LiveCounts? Counts { get; init; }
+        public MinidumpService.ModuleSummary? MainModule { get; init; }
+        [Description("The largest committed regions.")] public IReadOnlyList<MinidumpService.MemoryRow>? LargestRegions { get; init; }
+        [Description("view=stacks: the thread walked.")] public ThreadRow? Thread { get; init; }
+        [Description("view=stacks: why the walk ended (end_of_stack, max_frames, left_the_stack, ...).")] public string? StackStop { get; init; }
+        [Description("List views: module, region, thread or frame rows.")] public IReadOnlyList<object>? Items { get; init; }
+        public int? Offset { get; init; }
+        public int? Total { get; init; }
+    }
 
-    public async Task<LiveReport> Inspect(
-        string process, string? sections, string? thread, int modulesOffset, int modulesLimit, int regionsOffset, int regionsLimit, string? regionFilter,
-        int threadsOffset, int threadsLimit, int maxFrames, string? imageDirectories, int timeoutSeconds, CancellationToken ct)
+    public async Task<LiveReport> Inspect(string process, string? view, string? thread, int offset, int limit, string? regionFilter, int maxFrames,
+        string? imageDirectories, int timeoutSeconds, CancellationToken ct)
     {
         if (!OperatingSystem.IsWindows())
             throw new ToolError(ErrorCode.ProviderUnavailable, "live process inspection uses the Windows process API; this server is not running on Windows.",
                 "inspect a minidump instead (open_minidump), or run the server on Windows") { Details = new { reason = "platform_not_windows" } };
-        var want = ParseSections(sections);
+        var v = (view ?? "summary").Trim().ToLowerInvariant();
+        if (!Views.Contains(v)) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", Views));
         string filter = (regionFilter ?? "committed").Trim().ToLowerInvariant();
         if (!RegionFilters.Contains(filter))
             throw new ToolError(ErrorCode.InvalidArgument, $"regionFilter '{regionFilter}' is not one of {string.Join(", ", RegionFilters)}.");
         if (timeoutSeconds < 1 || timeoutSeconds > MaxTimeoutSeconds)
             throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds must be 1-{MaxTimeoutSeconds}.");
         var (pid, name) = Resolve(process);
-        var dirsRequested = imageDirectories;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         try
         {
-            return await Task.Run(() => Run(pid, name, want, thread, modulesOffset, modulesLimit, regionsOffset, regionsLimit, filter,
-                threadsOffset, threadsLimit, maxFrames, dirsRequested, timeout.Token), timeout.Token);
+            return await Task.Run(() => Run(pid, name, v, thread, Math.Max(0, offset), Math.Clamp(limit, 1, MaxListLimit), filter, Math.Clamp(maxFrames, 1, MaxFrames),
+                imageDirectories, timeout.Token), timeout.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             throw new ToolError(ErrorCode.Timeout, $"inspecting process {pid} took longer than {timeoutSeconds} s; every handle was closed.",
-                "list fewer threads (threadsLimit), fewer frames (maxFrames), or leave out stacks / regions") { Details = new { reason = "timeout", pid } };
+                "list fewer rows (limit) or fewer frames (maxFrames)") { Details = new { reason = "timeout", pid } };
         }
     }
 
-    private async Task<LiveReport> Run(int pid, string name, HashSet<string> want, string? threadFilter, int modulesOffset, int modulesLimit,
-        int regionsOffset, int regionsLimit, string filter, int threadsOffset, int threadsLimit, int maxFrames, string? imageDirectories, CancellationToken ct)
+    private async Task<LiveReport> Run(int pid, string name, string view, string? threadFilter, int offset, int limit, string filter, int maxFrames,
+        string? imageDirectories, CancellationToken ct)
     {
         var clock = Stopwatch.StartNew();
-        modulesOffset = Math.Max(0, modulesOffset);
-        regionsOffset = Math.Max(0, regionsOffset);
-        threadsOffset = Math.Max(0, threadsOffset);
-        modulesLimit = Math.Clamp(modulesLimit, 1, MaxListLimit);
-        regionsLimit = Math.Clamp(regionsLimit, 1, MaxListLimit);
-        threadsLimit = Math.Clamp(threadsLimit, 1, MaxListLimit);
-        maxFrames = Math.Clamp(maxFrames, 1, MaxFrames);
         var notes = new List<string>();
         ct.ThrowIfCancellationRequested();
         var live = LiveProcess.Attach(pid, ct);
@@ -114,58 +111,77 @@ public sealed class LiveProcessService(MinidumpService dumps)
             if (live.ModulesNote != null) notes.Add(live.ModulesNote);
             MinidumpService.HostsClr(live, out var runtime);
             if (runtime == null && live.Modules.Any(m => m.FileName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))) runtime = "Il2Cpp (Unity)";
-
-            var modules = new List<MinidumpService.ModuleSummary>();
-            if (want.Contains("modules"))
-                foreach (var m in live.Modules.Skip(modulesOffset).Take(modulesLimit))
-                {
-                    ct.ThrowIfCancellationRequested();
-                    modules.Add(MinidumpService.ModuleRow(m, dirs, live.Arch));
-                }
-
-            var regionRows = new List<RegionRow>();
-            int regionCount = 0, regionsTotal = 0;
-            if (want.Contains("regions"))
+            report = new LiveReport(pid, name, view, live.ImagePath, MinidumpService.ArchName(live.Arch, 0xFFFF), live.Wow64, runtime, AccessList(),
+                false, 0, 0, false, 0, notes) { StartTimeUtc = view == "summary" ? live.StartTimeUtc?.ToString("u") : null };
+            switch (view)
             {
-                var regions = live.Regions(ct);
-                regionsTotal = regions.Count;
-                var matching = regions.Where(r => Matches(r, filter)).ToList();
-                regionCount = matching.Count;
-                foreach (var r in matching.Skip(regionsOffset).Take(regionsLimit))
-                    regionRows.Add(new RegionRow(Hex(live, r.Base), Hex(live, r.Base + r.Size), $"0x{r.Size:X}", StateName(r.State),
-                        r.State == 0x1000 ? MinidumpService.ProtectName(r.Protect) : null, TypeName(r.Type),
-                        r.State == 0x10000 ? null : Hex(live, r.AllocationBase), live.ModuleAt(r.Base)?.FileName));
-                if (regionsTotal >= MinidumpLimits.MaxMemoryRegions) notes.Add($"only the first {MinidumpLimits.MaxMemoryRegions} regions were read");
-            }
-
-            // threads and stacks
-            var rows = new List<ThreadRow>();
-            int threadCount = 0;
-            bool stacks = want.Contains("stacks");
-            if (want.Contains("threads") || stacks)
-            {
-                var entries = live.Threads(ct);
-                if (threadFilter is { Length: > 0 }) entries = PickThreads(live, entries, threadFilter);
-                threadCount = entries.Count;
-                var walker = session.Walker();
-                foreach (var e in entries.Skip(threadsOffset).Take(threadsLimit))
+                case "summary":
                 {
-                    ct.ThrowIfCancellationRequested();
-                    rows.Add(await ThreadRowFor(session, live, walker, e, stacks, maxFrames, ct));
+                    var regions = live.Regions(ct);
+                    var committed = regions.Where(r => r.State == 0x1000).ToList();
+                    report = report with
+                    {
+                        Counts = new LiveCounts(live.Modules.Count, live.Threads(ct).Count, committed.Count, regions.Count),
+                        MainModule = (live.Modules.FirstOrDefault(m => m.Path.Equals(live.ImagePath, StringComparison.OrdinalIgnoreCase)) ?? live.Modules.FirstOrDefault()) is { } main ? MinidumpService.ModuleRow(main, dirs, live.Arch) : null,
+                        LargestRegions = committed.OrderByDescending(r => r.Size).ThenBy(r => r.Base).Take(LargestRegions).Select(r => MinidumpService.RegionRow(live, r, null)).ToList(),
+                    };
+                    if (regions.Count >= MinidumpLimits.MaxMemoryRegions) notes.Add($"only the first {MinidumpLimits.MaxMemoryRegions} regions were read");
+                    break;
                 }
-                if (!live.CanReadContexts) notes.Add($"registers and stacks of a {live.Arch} process are not read by this server ({System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}).");
-                if (stacks && rows.Count > 0)
-                    notes.Add("Threads were not suspended: each register context is a snapshot of a running thread, so a frame of a thread that was executing user code may be stale.");
+                case "modules":
+                    report = report with
+                    {
+                        Items = live.Modules.Skip(offset).Take(limit).Select(m => (object)MinidumpService.ModuleRow(m, dirs, live.Arch)).ToList(),
+                        Offset = offset, Total = live.Modules.Count,
+                    };
+                    break;
+                case "regions":
+                {
+                    var regions = live.Regions(ct);
+                    var matching = regions.Where(r => Matches(r, filter)).ToList();
+                    report = report with { Items = matching.Skip(offset).Take(limit).Select(r => (object)MinidumpService.RegionRow(live, r, null)).ToList(), Offset = offset, Total = matching.Count };
+                    if (regions.Count >= MinidumpLimits.MaxMemoryRegions) notes.Add($"only the first {MinidumpLimits.MaxMemoryRegions} regions were read");
+                    break;
+                }
+                case "threads":
+                {
+                    var entries = live.Threads(ct);
+                    if (threadFilter is { Length: > 0 }) entries = PickThreads(live, entries, threadFilter);
+                    var rows = new List<object>();
+                    foreach (var e in entries.Skip(offset).Take(limit))
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        rows.Add((await ThreadRowFor(session, live, e, ct)).Row with { Registers = null });
+                    }
+                    report = report with { Items = rows, Offset = offset, Total = entries.Count };
+                    if (!live.CanReadContexts) notes.Add($"registers of a {live.Arch} process are not read by this server ({System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}).");
+                    break;
+                }
+                default: // stacks: the frames of one thread
+                {
+                    var entries = live.Threads(ct);
+                    var e = (threadFilter is { Length: > 0 } ? PickThreads(live, entries, threadFilter) : entries).FirstOrDefault()
+                            ?? throw new ToolError(ErrorCode.NotFound, $"process {pid} has no thread to walk.", "view=threads lists them");
+                    var (row, ctx, stackLow, stackHigh) = await ThreadRowFor(session, live, e, ct);
+                    IReadOnlyList<MinidumpService.StackFrame> frames = [];
+                    string? stop = null;
+                    if (ctx != null)
+                    {
+                        var walk = session.Walker().Walk(ctx, stackLow, stackHigh, maxFrames, ct);
+                        frames = await dumps.Frames(session, walk, offset, limit, ct);
+                        stop = walk.Stop;
+                        report = report with { Total = walk.Frames.Count };
+                    }
+                    else notes.Add(live.CanReadContexts ? $"thread {e.Id}: {row.Error ?? "no register context"}"
+                        : $"stacks of a {live.Arch} process are not walked by this server ({System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}).");
+                    notes.Add("Threads were not suspended: the register context is a snapshot of a running thread, so a frame of a thread that was executing user code may be stale.");
+                    notes.AddRange(MinidumpService.ModuleNotes(session));
+                    report = report with { Thread = row, StackStop = stop, Items = frames.Cast<object>().ToList(), Offset = offset, Total = report.Total ?? 0 };
+                    break;
+                }
             }
-            if (stacks || rows.Count > 0) notes.AddRange(MinidumpService.ModuleNotes(session));
-            bool running = live.IsRunning;
-            if (!running) notes.Add("the process exited while it was being inspected; reads after that returned nothing.");
-            report = new LiveReport(pid, name, live.ImagePath, MinidumpService.ArchName(live.Arch, 0xFFFF), live.Wow64, live.StartTimeUtc?.ToString("u"), runtime,
-                AccessList(),
-                live.Modules.Count, modulesOffset, want.Contains("modules") && modulesOffset + modules.Count < live.Modules.Count, modules,
-                regionCount, regionsTotal, filter, regionsOffset, regionsOffset + regionRows.Count < regionCount, regionRows,
-                threadCount, threadsOffset, threadsOffset + rows.Count < threadCount, rows,
-                false, 0, 0, running, 0, notes);
+            if (!live.IsRunning) notes.Add("the process exited while it was being inspected; reads after that returned nothing.");
+            report = report with { StillRunning = live.IsRunning };
         }
         finally
         {
@@ -181,26 +197,15 @@ public sealed class LiveProcessService(MinidumpService dumps)
         };
     }
 
-    private async Task<ThreadRow> ThreadRowFor(MinidumpService.Session s, LiveProcess live, StackWalker walker, LiveThreadEntry e, bool stacks, int maxFrames, CancellationToken ct)
+    private async Task<(ThreadRow Row, DumpContext? Context, ulong StackLow, ulong StackHigh)> ThreadRowFor(MinidumpService.Session s, LiveProcess live, LiveThreadEntry e, CancellationToken ct)
     {
         var t = live.ReadThread(e.Id, context: true);
         string? startSymbol = t.StartAddress is { } sa && sa != 0 ? (await dumps.Locate(s, sa, false, ct)).Symbol : null;
         var ctx = t.Context;
         string? location = ctx != null ? (await dumps.Locate(s, ctx.Ip, false, ct)).Symbol : null;
-        IReadOnlyList<MinidumpService.StackFrame> frames = [];
-        int frameCount = 0, heuristic = 0;
-        string? stop = null;
-        if (stacks && ctx != null)
-        {
-            var walk = walker.Walk(ctx, t.StackLow ?? 0, t.StackHigh ?? 0, maxFrames, ct);
-            frames = await dumps.Frames(s, walk, 0, maxFrames, ct);
-            frameCount = walk.Frames.Count;
-            heuristic = walk.Frames.Count(f => f.Heuristic);
-            stop = walk.Stop;
-        }
-        return new ThreadRow(t.Id, t.Name, t.SuspendCount, t.Priority, t.BasePriority ?? e.BasePriority, Opt(live, t.Teb), Opt(live, t.StackLow), Opt(live, t.StackHigh),
-            Opt(live, t.StartAddress), startSymbol, ctx != null ? Hex(live, ctx.Ip) : null, ctx != null ? Hex(live, ctx.Sp) : null, location, ctx?.Format(),
-            frameCount, frames, stop, heuristic, t.Error);
+        var row = new ThreadRow(t.Id, t.Name, t.SuspendCount, t.Priority ?? t.BasePriority ?? e.BasePriority, Opt(live, t.Teb), Opt(live, t.StackLow), Opt(live, t.StackHigh),
+            Opt(live, t.StartAddress), startSymbol, ctx != null ? Hex(live, ctx.Ip) : null, ctx != null ? Hex(live, ctx.Sp) : null, location, ctx?.Format(), t.Error);
+        return (row, ctx, t.StackLow ?? 0, t.StackHigh ?? 0);
     }
 
     /// <summary>A process id (decimal or 0x hex) or a process name (with or without .exe); a name must match one process.</summary>
@@ -270,26 +275,6 @@ public sealed class LiveProcessService(MinidumpService dumps)
         throw new ToolError(ErrorCode.NotFound, $"process {live.Pid} has no thread '{t}'.", "pass a thread id (decimal or 0x hex) or a thread name");
     }
 
-    private static HashSet<string> ParseSections(string? sections)
-    {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var text = sections?.Trim();
-        if (string.IsNullOrEmpty(text) || text.Equals("all", StringComparison.OrdinalIgnoreCase))
-        {
-            set.UnionWith(Sections);
-            return set;
-        }
-        foreach (var part in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var p = part.ToLowerInvariant();
-            if (!Sections.Contains(p))
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown section '{part}'.", $"pass a comma-separated list of {string.Join(", ", Sections)}, or all");
-            set.Add(p);
-        }
-        if (set.Count == 0) throw new ToolError(ErrorCode.InvalidArgument, "sections is empty.", $"pass a comma-separated list of {string.Join(", ", Sections)}, or all");
-        return set;
-    }
-
     internal static IReadOnlyList<string> AccessList() =>
     [
         $"process: OpenProcess PROCESS_QUERY_INFORMATION | PROCESS_VM_READ (0x{LiveProcess.ProcessAccess:X})",
@@ -308,23 +293,6 @@ public sealed class LiveProcessService(MinidumpService dumps)
         "private" => r.State == 0x1000 && r.Type == 0x20000,
         "mapped" => r.State == 0x1000 && r.Type == 0x40000,
         _ => false,
-    };
-
-    private static string StateName(uint state) => state switch
-    {
-        0x1000 => "commit",
-        0x2000 => "reserve",
-        0x10000 => "free",
-        _ => $"0x{state:X}",
-    };
-
-    private static string? TypeName(uint type) => type switch
-    {
-        0x1000000 => "image",
-        0x40000 => "mapped",
-        0x20000 => "private",
-        0 => null,
-        _ => $"0x{type:X}",
     };
 
     private static string Hex(LiveProcess p, ulong v) => MinidumpService.Hex(p, v);

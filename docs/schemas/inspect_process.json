@@ -7,6 +7,9 @@
     "name": {
       "type": "string"
     },
+    "view": {
+      "type": "string"
+    },
     "path": {
       "type": "string"
     },
@@ -17,9 +20,6 @@
     "wow64": {
       "type": "boolean"
     },
-    "startTimeUtc": {
-      "type": "string"
-    },
     "runtime": {
       "description": "Managed runtime loaded in the process (CoreCLR, CLR, Mono) or Il2Cpp; null for none.",
       "type": "string"
@@ -29,296 +29,6 @@
       "type": "array",
       "items": {
         "type": "string"
-      }
-    },
-    "moduleCount": {
-      "type": "integer"
-    },
-    "modulesOffset": {
-      "type": "integer"
-    },
-    "modulesTruncated": {
-      "type": "boolean"
-    },
-    "modules": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "base": {
-            "type": "string"
-          },
-          "size": {
-            "type": "string"
-          },
-          "timeDateStamp": {
-            "type": "string"
-          },
-          "built": {
-            "type": "string"
-          },
-          "fileVersion": {
-            "type": "string"
-          },
-          "pdbName": {
-            "type": "string"
-          },
-          "pdbGuid": {
-            "type": "string"
-          },
-          "pdbAge": {
-            "type": "integer"
-          },
-          "localImage": {
-            "description": "matches (a file with this timestamp and size was found), mismatch (a different build) or missing.",
-            "type": "string"
-          },
-          "localPath": {
-            "type": "string"
-          },
-          "localDetail": {
-            "type": "string"
-          },
-          "managed": {
-            "description": "A .NET assembly (from the local file's header); null when unknown.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "name",
-          "path",
-          "base",
-          "size",
-          "timeDateStamp",
-          "localImage",
-          "localDetail"
-        ]
-      }
-    },
-    "regionCount": {
-      "description": "Regions matching regionFilter (all regions: regionsTotal).",
-      "type": "integer"
-    },
-    "regionsTotal": {
-      "type": "integer"
-    },
-    "regionFilter": {
-      "type": "string"
-    },
-    "regionsOffset": {
-      "type": "integer"
-    },
-    "regionsTruncated": {
-      "type": "boolean"
-    },
-    "regions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "base": {
-            "type": "string"
-          },
-          "end": {
-            "type": "string"
-          },
-          "size": {
-            "type": "string"
-          },
-          "state": {
-            "description": "commit, reserve or free.",
-            "type": "string"
-          },
-          "protection": {
-            "description": "Page protection, e.g. PAGE_EXECUTE_READ; null for reserved and free memory.",
-            "type": "string"
-          },
-          "type": {
-            "description": "image, mapped or private; null for free memory.",
-            "type": "string"
-          },
-          "allocationBase": {
-            "type": "string"
-          },
-          "module": {
-            "description": "The module whose image holds the region, or null.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "base",
-          "end",
-          "size",
-          "state"
-        ]
-      }
-    },
-    "threadCount": {
-      "type": "integer"
-    },
-    "threadsOffset": {
-      "type": "integer"
-    },
-    "threadsTruncated": {
-      "type": "boolean"
-    },
-    "threads": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "name": {
-            "type": "string"
-          },
-          "suspendCount": {
-            "description": "Read from the kernel (NtQueryInformationThread ThreadSuspendCount); inspection never changes it.",
-            "type": "integer"
-          },
-          "priority": {
-            "type": "integer"
-          },
-          "basePriority": {
-            "type": "integer"
-          },
-          "teb": {
-            "type": "string"
-          },
-          "stackLow": {
-            "type": "string"
-          },
-          "stackHigh": {
-            "type": "string"
-          },
-          "startAddress": {
-            "type": "string"
-          },
-          "startSymbol": {
-            "description": "module!function of the thread's start address.",
-            "type": "string"
-          },
-          "instructionPointer": {
-            "type": "string"
-          },
-          "stackPointer": {
-            "type": "string"
-          },
-          "location": {
-            "description": "module!function+0xoffset of the instruction pointer.",
-            "type": "string"
-          },
-          "registers": {
-            "type": "string"
-          },
-          "frameCount": {
-            "description": "Frames walked (the walk is bounded by maxFrames); 0 when stacks are not requested.",
-            "type": "integer"
-          },
-          "frames": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "index": {
-                  "type": "integer"
-                },
-                "address": {
-                  "type": "string"
-                },
-                "stackPointer": {
-                  "type": "string"
-                },
-                "module": {
-                  "type": "string"
-                },
-                "moduleOffset": {
-                  "type": "string"
-                },
-                "symbol": {
-                  "description": "module!function+0xoffset, or module+0xoffset when the function has no name.",
-                  "type": "string"
-                },
-                "function": {
-                  "type": "string"
-                },
-                "symbolSource": {
-                  "description": "user, pdb, il2cpp, discovered, export, nearest_export (a guess) or none.",
-                  "type": "string"
-                },
-                "functionAddress": {
-                  "type": "string"
-                },
-                "kind": {
-                  "description": "native, managed (JIT or ReadyToRun code), unloaded_module or unknown.",
-                  "type": "string"
-                },
-                "method": {
-                  "description": "How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).",
-                  "type": "string"
-                },
-                "basis": {
-                  "description": "derived (frame pointer chain, x86 call target) or inferred (a stack scan, may be stale; or a nearest-export name); absent when unwind data or the runtime observed it.",
-                  "type": "string"
-                },
-                "note": {
-                  "type": "string"
-                },
-                "token": {
-                  "description": "Managed frames: the method token, for decompile_member with assembly.",
-                  "type": "string"
-                },
-                "ilOffset": {
-                  "description": "Managed frames: IL offset of the instruction, when the dump holds the JIT's IL map.",
-                  "type": "integer"
-                },
-                "assembly": {
-                  "description": "Managed frames: id of the loaded assembly that is this build (file name and MVID).",
-                  "type": "string"
-                },
-                "buildCheck": {
-                  "description": "Managed frames: match, mismatch (the loaded assembly of that name is another build), or unknown.",
-                  "type": "string"
-                },
-                "statement": {
-                  "description": "Managed frames: the C# statement at the IL offset (decompiled with sequence points), for a matching build.",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "index",
-                "address",
-                "stackPointer",
-                "kind",
-                "method"
-              ]
-            }
-          },
-          "stackStop": {
-            "description": "Why the walk ended: end_of_stack, max_frames, left_the_stack, no_unwind_data, ...; null when not walked.",
-            "type": "string"
-          },
-          "heuristicFrames": {
-            "type": "integer"
-          },
-          "error": {
-            "description": "What could not be read for this thread (exited, registers not read), or null.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "frameCount",
-          "frames",
-          "heuristicFrames"
-        ]
       }
     },
     "detached": {
@@ -342,6 +52,216 @@
         "type": "string"
       }
     },
+    "startTimeUtc": {
+      "type": "string"
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "modules": {
+          "type": "integer"
+        },
+        "threads": {
+          "type": "integer"
+        },
+        "regions": {
+          "description": "Committed regions.",
+          "type": "integer"
+        },
+        "regionsTotal": {
+          "description": "All regions, reserved and free included.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "modules",
+        "threads",
+        "regions",
+        "regionsTotal"
+      ]
+    },
+    "mainModule": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string"
+        },
+        "timeDateStamp": {
+          "type": "string"
+        },
+        "built": {
+          "type": "string"
+        },
+        "fileVersion": {
+          "type": "string"
+        },
+        "pdbName": {
+          "type": "string"
+        },
+        "pdbGuid": {
+          "type": "string"
+        },
+        "pdbAge": {
+          "type": "integer"
+        },
+        "localImage": {
+          "description": "matches (a file with this timestamp and size was found), mismatch (a different build) or missing.",
+          "type": "string"
+        },
+        "localPath": {
+          "type": "string"
+        },
+        "localDetail": {
+          "type": "string"
+        },
+        "managed": {
+          "description": "A .NET assembly (from the local file's header); null when unknown.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "base",
+        "size",
+        "timeDateStamp",
+        "localImage",
+        "localDetail"
+      ]
+    },
+    "largestRegions": {
+      "description": "The largest committed regions.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "state": {
+            "description": "commit, reserve or free; null for a captured range without region information.",
+            "type": "string"
+          },
+          "protection": {
+            "type": "string"
+          },
+          "type": {
+            "description": "image, mapped or private.",
+            "type": "string"
+          },
+          "module": {
+            "description": "The module whose image holds it.",
+            "type": "string"
+          },
+          "captured": {
+            "description": "Bytes of it the dump holds; null for a live process.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base",
+          "end",
+          "size"
+        ]
+      }
+    },
+    "thread": {
+      "description": "view=stacks: the thread walked.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "suspendCount": {
+          "description": "Read from the kernel (NtQueryInformationThread ThreadSuspendCount); inspection never changes it.",
+          "type": "integer"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "teb": {
+          "type": "string"
+        },
+        "stackLow": {
+          "type": "string"
+        },
+        "stackHigh": {
+          "type": "string"
+        },
+        "startAddress": {
+          "type": "string"
+        },
+        "startSymbol": {
+          "description": "module!function of the thread's start address.",
+          "type": "string"
+        },
+        "instructionPointer": {
+          "type": "string"
+        },
+        "stackPointer": {
+          "type": "string"
+        },
+        "location": {
+          "description": "module!function+0xoffset of the instruction pointer.",
+          "type": "string"
+        },
+        "registers": {
+          "type": "string"
+        },
+        "error": {
+          "description": "What could not be read for this thread (exited, registers not read), or null.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "stackStop": {
+      "description": "view=stacks: why the walk ended (end_of_stack, max_frames, left_the_stack, ...).",
+      "type": "string"
+    },
+    "items": {
+      "description": "List views: module, region, thread or frame rows.",
+      "type": "array",
+      "items": {}
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {
@@ -364,23 +284,10 @@
   "required": [
     "processId",
     "name",
+    "view",
     "architecture",
     "wow64",
     "access",
-    "moduleCount",
-    "modulesOffset",
-    "modulesTruncated",
-    "modules",
-    "regionCount",
-    "regionsTotal",
-    "regionFilter",
-    "regionsOffset",
-    "regionsTruncated",
-    "regions",
-    "threadCount",
-    "threadsOffset",
-    "threadsTruncated",
-    "threads",
     "detached",
     "handlesOpened",
     "handlesClosed",

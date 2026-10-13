@@ -104,6 +104,34 @@ internal static class DumpText
         ? $"{r.Address}  {r.Type}  {r.Size:N0} bytes{(r.Value != null ? $"  {Format.Literal(r.Value)}" : "")}"
         : $"{r.Type}  {r.Count:N0} object{(r.Count == 1 ? "" : "s")}, {r.Size:N0} bytes{(r.Assembly != null ? $"  [{r.Assembly}] {r.Token}" : "")}";
 
+    /// <summary>The process line every inspect_process view starts with, the handle guarantee and the notes.</summary>
+    public static string LiveHeader(LiveProcessService.LiveReport r) =>
+        $"pid {r.ProcessId} {r.Name}: {r.Architecture}{(r.Wow64 ? " (WoW64)" : "")}{(r.Runtime != null ? $", {r.Runtime}" : "")}{(r.StillRunning ? "" : ", exited")}" +
+        $"{(r.StartTimeUtc != null ? $", started {r.StartTimeUtc}" : "")}\n" + (r.Path != null ? $"  path: {r.Path}\n" : "") +
+        $"handles: {r.HandlesOpened} opened, {r.HandlesClosed} closed{(r.Detached ? " (all closed)" : " (NOT all closed)")}; read-only access:\n" +
+        string.Concat(r.Access.Select(a => $"  {a}\n")) + string.Concat(r.Notes.Select(n => $"note: {n}\n"));
+
+    public static string LiveSummary(LiveProcessService.LiveReport r)
+    {
+        var sb = new StringBuilder();
+        if (r.Counts is { } c)
+            sb.AppendLine($"Counts: {Plural(c.Modules, "module")}, {Plural(c.Threads, "thread")}, {Plural(c.Regions, "committed region")} of {c.RegionsTotal} " +
+                          "(view=modules, threads, regions, stacks list them)");
+        if (r.MainModule is { } m) sb.AppendLine("Main module: " + Module(m).Replace("\n", "\n  "));
+        if (r.LargestRegions is { Count: > 0 } regions)
+        {
+            sb.AppendLine("Largest committed regions:");
+            foreach (var x in regions) sb.AppendLine("  " + Memory(x));
+        }
+        return sb.ToString();
+    }
+
+    public static string LiveThread(LiveProcessService.ThreadRow t) =>
+        $"{t.Id}{(t.Name != null ? $" \"{t.Name}\"" : "")}: {t.Location ?? t.InstructionPointer ?? t.Error ?? "no context"}" +
+        $" (ip {t.InstructionPointer ?? "?"}, sp {t.StackPointer ?? "?"}, stack {t.StackLow}-{t.StackHigh}, teb {t.Teb}" +
+        (t.StartAddress != null ? $", start {t.StartSymbol ?? t.StartAddress}" : "") + (t.SuspendCount > 0 ? $", suspended {t.SuspendCount}" : "") + $", priority {t.Priority})" +
+        (t.Registers != null ? $"\nregisters: {t.Registers}" : "") + (t.Error != null && t.Location != null ? $"\nerror: {t.Error}" : "");
+
     public static string Memory(MinidumpService.MemoryRow m) =>
         $"{m.Base}-{m.End} {m.Size}" + (m.State != null ? $" {m.State}" : "") + (m.Protection != null ? $" {m.Protection}" : "") + (m.Type != null ? $" {m.Type}" : "") +
         (m.Module != null ? $" {m.Module}" : "") + (m.Captured is { } cap && m.State != "free" ? $" captured {cap:N0}" : "");

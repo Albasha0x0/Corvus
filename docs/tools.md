@@ -2724,22 +2724,19 @@ Read-only inspection of a running process.
 
 **Inspect a running process (read-only)** (read-only, idempotent, open-world)
 
-A running local process (Windows), as open_minidump / dump_stack show a dump: modules (PDB, matching file on disk), memory regions (VirtualQuery view, paged and filtered), threads (TEB, stack range, start address, registers) and their call stacks, every address named as dump_stack names it. Read-only: opened with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ and THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION only; nothing is written, suspended or attached, and every handle is closed before returning. Threads keep running, so registers are a snapshot.
+Inspects a running local process (Windows) read-only, every address named as dump_stack names a dump. view=summary: identity, counts, main module, largest committed regions; modules (PDB, matching file on disk), regions, threads (TEB, stack, start), stacks (one thread's registers and frames): paged rows. Opens PROCESS_QUERY_INFORMATION | PROCESS_VM_READ and THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION only; nothing is written, suspended or attached, and every handle is closed before returning.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `process` | string | yes |  | Process id (decimal or 0x hex) or name (notepad or notepad.exe); a shared name is refused with the candidate ids. |
-| `sections` | string |  |  | Comma-separated: modules, regions, threads, stacks (implies threads) or all (default). |
-| `thread` | string |  |  | Only this thread: id or name. |
-| `modulesOffset` | integer |  | `0` | First module listed. |
-| `modulesLimit` | integer |  | `50` | Max modules listed. |
-| `regionsOffset` | integer |  | `0` | First region listed (after regionFilter). |
-| `regionsLimit` | integer |  | `100` | Max regions listed. |
-| `regionFilter` | string |  |  | Regions listed (default committed; all adds reserved and free). Values: committed, all, executable, writable, image, private, mapped. |
-| `threadsOffset` | integer |  | `0` | First thread listed. |
-| `threadsLimit` | integer |  | `20` | Max threads listed. |
-| `maxFrames` | integer |  | `32` | Max frames walked per thread (up to 256). |
+| `view` | string |  | `summary` | summary, modules, regions, threads or stacks. |
+| `thread` | string |  |  | threads: only this one; stacks: the thread walked (default the first). Id or name. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `50` | Max rows. |
+| `regionFilter` | string |  |  | view=regions: committed (default), all, executable, writable, image, private or mapped. Values: committed, all, executable, writable, image, private, mapped. |
+| `maxFrames` | integer |  | `64` | view=stacks: max frames walked (up to 256). |
 | `imageDirectories` | string |  |  | Folders with the program's binaries (';'-separated) for modules whose own file is not readable. |
 | `timeoutSeconds` | integer |  | `20` | Time limit in seconds (up to 120). |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `processId`, `name`, `path`, `architecture`, `wow64`, `startTimeUtc`, `runtime`, `access`, `moduleCount`, `modulesOffset`, `modulesTruncated`, `modules`, `regionCount`, `regionsTotal`, `regionFilter`, `regionsOffset`, `regionsTruncated`, `regions`, `threadCount`, `threadsOffset`, `threadsTruncated`, `threads`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `notes`.
+Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`, `runtime`, `access`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `notes`, `startTimeUtc`, `counts`, `mainModule`, `largestRegions`, `thread`, `stackStop`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.

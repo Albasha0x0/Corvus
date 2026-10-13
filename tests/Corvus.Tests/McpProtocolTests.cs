@@ -376,7 +376,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["symbolize_stack_text"] = (new() { ["text"] = "System.Exception: boom\n   at Fixture.Model.Account.Charge(Int32 amount)" }, "\"resolved\":\"Fixture.Model.Account::Charge(int)\""),
         ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "534883EC"),
         // the test process itself (the server is a child process): read-only, every handle closed
-        ["inspect_process"] = (new() { ["process"] = Environment.ProcessId.ToString(), ["sections"] = "modules,threads", ["modulesLimit"] = 5, ["threadsLimit"] = 1 }, "\"detached\":true"),
+        ["inspect_process"] = (new() { ["process"] = Environment.ProcessId.ToString(), ["view"] = "modules", ["limit"] = 5 }, "\"detached\":true"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };

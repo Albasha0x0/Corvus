@@ -2,6 +2,5 @@
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
 get_native_frame
 get_native_type
-inspect_process
 list_exports
 list_native_types
