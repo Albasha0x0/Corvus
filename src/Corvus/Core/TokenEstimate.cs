@@ -10,7 +10,7 @@ public static class TokenEstimate
     private const int LowerNum = 1, LowerDen = 8;     // a lowercase run, with the capital that starts it
     private const int UpperNum = 1, UpperDen = 2;     // a run of capitals not followed by lowercase
     private const int DigitNum = 1, DigitDen = 2;
-    private const int HexNum = 2, HexDen = 3;         // a hex word of 2+ characters with a digit (bytes, tokens)
+    private const int HexNum = 3, HexDen = 5;         // a hex word of 2+ characters with a digit (bytes, tokens); random bytes run 0.57 in o200k
     private const int AddressNum = 4, AddressDen = 5; // 0x…: addresses mix digits and letters, which split
     private const int PunctNum = 1, PunctDen = 2;     // a run of ASCII symbols
     private const int SpaceNum = 1, SpaceDen = 8;     // a run of spaces and tabs

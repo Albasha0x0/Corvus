@@ -33,6 +33,12 @@
    "source": "o200k"
   },
   {
+   "file": "bytes/hex-random.txt",
+   "chars": 8192,
+   "tokens": 4687,
+   "source": "o200k"
+  },
+  {
    "file": "bytes/inspect_instruction.json",
    "chars": 7991,
    "tokens": 2330,
@@ -48,6 +54,12 @@
    "file": "bytes/read_bytes.txt",
    "chars": 7985,
    "tokens": 4742,
+   "source": "o200k"
+  },
+  {
+   "file": "bytes/read_dump_memory-random.txt",
+   "chars": 15872,
+   "tokens": 8996,
    "source": "o200k"
   },
   {
