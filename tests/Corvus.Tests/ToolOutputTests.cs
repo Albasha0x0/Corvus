@@ -9,6 +9,7 @@ using Corvus.Tools;
 namespace Corvus.Tests;
 
 /// <summary>The result builder and the filter's fitting: budgets per part, one continuation, the same rows in both parts.</summary>
+[Collection(ProcessEnvironmentCollection.Name)]
 public class ToolOutputTests
 {
     private static ServiceProvider Services(ServerOptions? options = null) =>
