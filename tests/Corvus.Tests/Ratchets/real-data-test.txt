@@ -8,10 +8,10 @@ compare_native_images
 convert_number
 declare_native_types
 decompile_java
+decompile_native
 define_native
 diff_function
 disassemble
-disassemble_dex
 dump_heap
 dump_object
 dump_stack
@@ -20,6 +20,7 @@ export_engine_database
 export_il2cpp_symbols
 extract_embedded
 extract_strings
+find_counterpart
 find_dex_references
 find_method_by_address
 find_similar_functions
@@ -32,7 +33,6 @@ get_android_package_info
 get_android_resource
 get_call_arguments
 get_cfg
-get_dex_class
 get_engine_status
 get_exception_info
 get_il2cpp_info
@@ -50,11 +50,11 @@ list_android_resources
 list_assemblies
 list_cpp_classes
 list_dex_classes
+list_edits
 list_exports
 list_functions
 list_globals
 list_imports
-list_jni_bindings
 list_native_types
 list_notes
 load_assembly
@@ -62,7 +62,6 @@ load_pdb
 load_session
 make_code_pattern
 map_address_between_builds
-map_java_dotnet
 migrate_native_names
 migrate_native_patches
 native_call_tree
@@ -83,7 +82,6 @@ search_bytes
 search_code_pattern
 search_container
 search_decompiled
-search_dex
 search_instructions
 search_native_strings
 search_pdb_symbols
