@@ -205,6 +205,30 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         public DossierSection Record() => new(name, Total, Items, Error);
     }
 
+    /// <summary>
+    /// The bytes after a no-return call when they look like the body going on (in no function, not padding, decoding up to a
+    /// return or jump); null when the call plausibly ends the function.
+    /// </summary>
+    internal static int? CutAfter(NativeCodeIndex index, FunctionGraph graph, BasicBlock call)
+    {
+        uint after = call.End;
+        // a function discovered there that nothing references is the same code split off
+        if (graph.BlockAt(after) != null || index.FunctionAt(after) is { } next && (next.Start != after || index.CountRefsTo(after) > 0)) return null;
+        var bytes = new byte[8];
+        int read = index.Image.Read(after, bytes);
+        if (read < 4 || bytes.Take(read).All(b => b is 0xCC or 0x90 or 0x00)) return null;
+        var lines = new NativeDisassembler(index.Image).Disassemble(after, 16, after + 128);
+        int n = 0;
+        foreach (var l in lines)
+        {
+            n++;
+            if (l.Facts.Flow is FlowKind.Invalid or FlowKind.Trap) return null;
+            if (l.Facts.Flow is FlowKind.Return or FlowKind.Jump or FlowKind.IndirectJump)
+                return n >= 2 ? (int)(l.Rva + (uint)l.Facts.Length - after) : null;
+        }
+        return null;
+    }
+
     private (string Text, FunctionDossier Report) Build(LoadedNative native, NativeCodeIndex index, NativeFunction f, List<string> wanted, int max, string? pseudo,
         string? pseudoError, CancellationToken ct, (string Engine, EngineFunctionRecord Value)? record = null)
     {
@@ -482,7 +506,19 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                 x.Add(Va(s.JumpRva), $"switch at {Va(s.JumpRva)}: {Plural(s.Cases.Count > 0 ? s.Cases.Count : s.Targets.Count, "case target")}, table {Va(s.TableRva)} " +
                                      $"({s.EntryCount} entries){(s.Default is { } d ? $", default {Va(d)}" : "")} (get_cfg lists the values)", "switch");
             foreach (var u in graph.UnresolvedJumps) x.Add(Va(u.Rva), $"unresolved indirect jump: {u.Reason}", "unresolved");
-            foreach (var b in graph.Blocks.Where(b => b.EndKind == BlockEnd.NoReturnCall)) x.Add(Va(b.LastInstruction), "call that does not return", "noreturn");
+            foreach (var b in graph.Blocks.Where(b => b.EndKind == BlockEnd.NoReturnCall))
+            {
+                x.Add(Va(b.LastInstruction), "call that does not return", "noreturn");
+                if (CutAfter(index, graph, b) is { } cut)
+                {
+                    var callee = index.Callees(f).FirstOrDefault(c => c.From == b.LastInstruction) is { } site
+                        ? site.Import != null ? NativeCodeIndex.ImportName(site.Import) : site.Function?.Name ?? Va(site.Target) : "its callee";
+                    var warning = $"the body may be cut at {Va(b.End)} by the call to {callee} at {Va(b.LastInstruction)} (treated as no-return): " +
+                                  $"the {Plural(cut, "byte")} after it decode as code nothing else reaches";
+                    x.Add(Va(b.End), warning, "noreturn_cut");
+                    ToolOutput.Warn(warning);
+                }
+            }
             foreach (var t in graph.TailCalls) x.Add(Va(t), $"tail call to {index.NameAt(t) ?? Va(t)}", "tail_call");
         }
 

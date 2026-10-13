@@ -149,6 +149,35 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.AnalyzeNativeFunction(path, "Outer", component: true))).Code);
     }
 
+    [Fact]
+    public async Task A_no_return_call_followed_by_orphan_code_warns_that_the_body_may_be_cut()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        byte[] Code(Dictionary<string, uint> slots)
+        {
+            var a = new Assembler(64);
+            var exit = slots["KERNEL32.dll!ExitProcess"];
+            a.sub(rsp, 0x28);
+            a.xor(ecx, ecx);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base + exit), 8)));
+            // the body goes on: a no-return guess would cut it here
+            a.mov(eax, 1);
+            a.add(rsp, 0x28);
+            a.ret();
+            var stream = new MemoryStream();
+            a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text);
+            return stream.ToArray();
+        }
+        var path = _dir.File("cut.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("cut.dll", [("Main", 0)], [("KERNEL32.dll", ["ExitProcess"])], Code));
+        var collector = ToolOutput.Collect();
+        var text = await tools.AnalyzeNativeFunction(path, "Main", sections: "flow");
+        NativeLinkTests.Has(text, "the body may be cut at 0x");
+        NativeLinkTests.Has(text, "by the call to KERNEL32!ExitProcess");
+        Assert.Contains(collector.Warnings, w => w.Contains("may be cut", StringComparison.Ordinal));
+    }
+
     private (AssemblyWorkspace Workspace, NativeFunctionTools Tools) Rig()
     {
         var options = new ServerOptions { BackgroundIndexing = false };
