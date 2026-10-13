@@ -62,6 +62,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [Description("Compare a sample with the engine's view (runs IDA or Ghidra; minutes on a large image the first time).")] bool crossCheck = false,
         [Description("Cross-check: functions to sample.")] int sampleFunctions = 100,
         [Description("Cross-check: time budget in seconds.")] int seconds = 300,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {

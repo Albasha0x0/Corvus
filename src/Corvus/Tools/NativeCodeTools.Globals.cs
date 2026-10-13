@@ -47,6 +47,7 @@ public sealed partial class NativeCodeTools
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 300,
         [Description(EngineDescription)] string? engine = null,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

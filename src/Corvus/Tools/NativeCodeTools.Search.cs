@@ -32,6 +32,7 @@ public sealed partial class NativeCodeTools
         [Description("Max matches (max 2000).")] int limit = 100,
         [Description("Max instructions scanned (max 5000000).")] int maxInstructions = 500_000,
         [Description(EngineDescription)] string? engine = null,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

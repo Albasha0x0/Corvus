@@ -122,6 +122,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Engines: true keeps functions with a prototype, false those without.")] bool? hasType = null,
         [Description("Sort direction instead of the sort's default.")] bool? descending = null,
         [Description("functions (default), or candidates: IDA or Ghidra code in no function, most referenced first.")] string? view = null,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -307,9 +308,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Max nodes in the tree (default 250).")] int maxNodes = 250,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max nodes per page.")] int limit = 200,
-        [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Call edges: all (default), direct or virtual.")] string? calls = null,
         [Description(EngineDescription)] string? engine = null,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -418,6 +419,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows (default 300).")] int limit = 300,
         [Description(EngineDescription)] string? engine = null,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

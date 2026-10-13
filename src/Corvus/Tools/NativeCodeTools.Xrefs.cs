@@ -38,6 +38,7 @@ public sealed partial class NativeCodeTools
         [Description("to (default), from or both.")] string? direction = null,
         [Description("any (default); code: calls, jumps; data: reads, writes, pointers, address-taken.")] string? kind = null,
         [Description("Struct member: typed (default) or all (every function; call again to continue).")] string? scope = null,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

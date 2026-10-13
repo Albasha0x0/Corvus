@@ -119,6 +119,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         [Description("Only this kind (default all).")] string? kind = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 200,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         var native = await Native(image, cancellationToken);

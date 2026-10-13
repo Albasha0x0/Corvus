@@ -57,6 +57,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         [Description("Smallest function compared, in instructions (1-1000).")] int minInstructions = 5,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Items to return (max 500).")] int limit = 20,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

@@ -166,6 +166,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows (max 5000).")] int limit = 500,
         [Description("Target platform (default auto).")] string? platform = null,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {

@@ -53,6 +53,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         [Description("Max rows (max 5000).")] int limit = 200,
         [Description(NativeCodeTools.EngineDescription)] string? engine = null,
         [Description("Add the field values at address (with name or id: that type read there).")] bool read = false,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

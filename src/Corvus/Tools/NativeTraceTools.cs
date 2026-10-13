@@ -106,6 +106,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Nodes per page (max 1000).")] int limit = 200,
         [Description("Per-function slices: ours (built-in), ida or ghidra (that decompiler's IR, started when needed; built-in where it cannot " +
                      "place the seed), or auto (default: an engine that has analyzed these bytes, else ours).")] string? engine = null,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

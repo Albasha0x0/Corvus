@@ -66,6 +66,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max sites (max 1000).")] int limit = 100,
         [Description(NativeTools.EngineTimeoutDescription)] int? timeoutSeconds = null,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

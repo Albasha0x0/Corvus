@@ -269,6 +269,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 500,
         [Description("Also list late-bound imports (waits for the code index).")] bool includeDynamic = false,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
         if (bind && link != null) await link.WarmUp(null, cancellationToken);
@@ -344,6 +345,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description("Name substring (case-insensitive; the demangled form too).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 500,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
@@ -513,6 +515,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description("Max hits.")] int limit = 200,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Instead of pattern: up to 50 patterns.")] string[]? patterns = null,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         if ((patterns is { Length: > 0 }) == !string.IsNullOrEmpty(pattern))

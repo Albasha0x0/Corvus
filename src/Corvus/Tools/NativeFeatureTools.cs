@@ -54,6 +54,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         [Description("Caller levels searched for hubs (0-3).")] int callerDepth = 1,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Functions per page (max 500).")] int limit = 50,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
