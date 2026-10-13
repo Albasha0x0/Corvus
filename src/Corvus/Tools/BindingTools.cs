@@ -12,11 +12,9 @@ public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerato
 {
     [McpServerTool(Name = "generate_cpp_binding", Title = "Generate C++ binding", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
     [Description("Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a struct that resolves the class, field offsets, " +
-                 "static fields and methods once, with typed field accessors, property getters and invoke wrappers. " +
-                 "style=mono: a header on the Mono embedding API. style=il2cpp: on the Il2Cpp runtime exports, plus each method's native code " +
-                 "pointer and a typed direct call. style=hostapi: for a host passing a function table (FindClass, GetMethod, FieldOffset, " +
-                 "StaticFieldOffset, GetStaticFieldData, Invoke). Without style: detected from projectDir, an Il2Cpp dummy assembly or " +
-                 "--binding-style, else mono; the first line says which. A generic definition (List`1) binds as a C++ template.")]
+                 "static fields and methods once, with typed field accessors, property getters and invoke wrappers. style: mono (embedding API), " +
+                 "il2cpp (runtime exports and direct calls) or hostapi (a host's function table; guide il2cpp). Without style: detected from " +
+                 "projectDir, an Il2Cpp dummy assembly or --binding-style, else mono; the first line says which. A generic definition binds as a template.")]
     public Task<string> GenerateCppBinding(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,

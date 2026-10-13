@@ -207,10 +207,12 @@ public sealed class Il2CppNativeNamesTests : IDisposable
     {
         var (native, _) = await Open();
         var tools = new Il2CppNativeTools(_env.Workspace, _code, _names);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
         var text = await tools.ApplyIl2CppNames(native.Id);
+        var outcome = Assert.IsType<Il2CppNamesResult>(collector.Value);
+        Assert.Equal((true, 4, 2, 2, 3), (outcome.Applied, outcome.Functions, outcome.Strings, outcome.MetadataSlots, outcome.MethodInfoSlots));
         Assert.Contains("functions named: 4", text);
-        // the reported time is the whole call: the code index build is most of it on a large binary
-        Assert.Matches(@"in \d+\.\d\d s \(code index \d+\.\d\d s, naming \d+\.\d\d s\)", text);
+        Assert.DoesNotMatch(@"\d\.\d\d s", text); // timings go to _meta
         Assert.Contains("shared code: 2 functions hold 2 more methods", text);
         Assert.Contains("string literals: 2; metadata slots: 2; MethodInfo slots: 3", text);
         Assert.Contains("misses: 2 function start(s) without a method", text);

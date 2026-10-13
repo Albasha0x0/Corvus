@@ -1,0 +1,82 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "applied": {
+      "type": "boolean"
+    },
+    "assemblies": {
+      "type": "string"
+    },
+    "functions": {
+      "type": "integer"
+    },
+    "labels": {
+      "description": "Named at addresses the code index did not find as function starts.",
+      "type": "integer"
+    },
+    "sharedFunctions": {
+      "description": "Functions holding more than one method (the rest named in the comment).",
+      "type": "integer"
+    },
+    "strings": {
+      "type": "integer"
+    },
+    "metadataSlots": {
+      "type": "integer"
+    },
+    "methodInfoSlots": {
+      "type": "integer"
+    },
+    "userNamesKept": {
+      "description": "User names kept over il2cpp names.",
+      "type": "integer"
+    },
+    "suffixed": {
+      "description": "Repeated names suffixed with the RVA.",
+      "type": "integer"
+    },
+    "misses": {
+      "description": "Function starts without a method, and addresses outside the image's sections.",
+      "type": "integer"
+    },
+    "saved": {
+      "description": "Saved with the image's annotations and reapplied on load.",
+      "type": "boolean"
+    },
+    "removed": {
+      "description": "clear=true: names removed.",
+      "type": "integer"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "applied"
+  ]
+}

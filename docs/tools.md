@@ -922,7 +922,7 @@ Structured output: `functions`, `structs`, `files`.
 
 **Generate C++ binding** (read-only, idempotent)
 
-Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a struct that resolves the class, field offsets, static fields and methods once, with typed field accessors, property getters and invoke wrappers. style=mono: a header on the Mono embedding API. style=il2cpp: on the Il2Cpp runtime exports, plus each method's native code pointer and a typed direct call. style=hostapi: for a host passing a function table (FindClass, GetMethod, FieldOffset, StaticFieldOffset, GetStaticFieldData, Invoke). Without style: detected from projectDir, an Il2Cpp dummy assembly or --binding-style, else mono; the first line says which. A generic definition (List`1) binds as a C++ template.
+Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a struct that resolves the class, field offsets, static fields and methods once, with typed field accessors, property getters and invoke wrappers. style: mono (embedding API), il2cpp (runtime exports and direct calls) or hostapi (a host's function table; guide il2cpp). Without style: detected from projectDir, an Il2Cpp dummy assembly or --binding-style, else mono; the first line says which. A generic definition binds as a template.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -942,13 +942,15 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Name a native Il2Cpp binary from its metadata** (destructive, idempotent, long-running)
 
-Name the functions and data of a native Il2Cpp binary (GameAssembly, libil2cpp.so) from the loaded dummy assemblies, script.json (function starts, generic instantiations, TypeInfo and MethodInfo slots) and stringliteral.json. Functions become Ns_Type__Method (a C identifier; a duplicate gets _<RVA>), commented with Ns.Type::Method(args) and the methods sharing the code; every native tool and the engines show them, below user and PDB names. Saved per file hash and reapplied on load; applying again replaces them. Run it once the binary and the dummy assemblies are loaded.
+Name the functions and data of a native Il2Cpp binary (GameAssembly, libil2cpp.so) from the loaded dummy assemblies, script.json (function starts, generic instantiations, TypeInfo and MethodInfo slots) and stringliteral.json. Functions become Ns_Type__Method (a C identifier; a duplicate gets _<RVA>), commented with Ns.Type::Method(args) and the methods sharing the code; every native tool and the engines show them, below user and PDB names. Saved per file hash and reapplied on load; applying again replaces them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `assembly` | string |  |  | Dummy assemblies to use; omit for every loaded one with Il2Cpp metadata. |
 | `clear` | boolean |  | `false` | Remove the il2cpp names (and their saved copy) instead of applying them. |
+
+Structured output: `image`, `applied`, `assemblies`, `functions`, `labels`, `sharedFunctions`, `strings`, `metadataSlots`, `methodInfoSlots`, `userNamesKept`, `suffixed`, `misses`, `saved`, `removed`, `notes`.
 
 ## native
 

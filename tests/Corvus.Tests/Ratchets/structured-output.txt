@@ -1,7 +1,6 @@
 # Exemptions from: every tool returns structured content described by an output schema (S4)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
 add_search_directory
-apply_il2cpp_names
 disassemble
 export_il2cpp_symbols
 find_method_by_address
