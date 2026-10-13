@@ -19,38 +19,6 @@ public sealed class ReadyToRunService(AssemblyWorkspace workspace)
     private static readonly ConcurrentDictionary<(string Path, DateTime Stamp), Once<(R2RImage Image, R2RCodeMap Map)>> Composites = new();
     private static readonly ConcurrentDictionary<(string Path, DateTime Stamp), Once<ModuleDef?>> FileModules = new();
 
-    /// <summary>
-    /// A value built once: the first caller builds it on its own thread (under its own workspace lock); later callers wait
-    /// for it until their call is cancelled (a Lazy would hold them uncancellably).
-    /// </summary>
-    internal sealed class Once<T>
-    {
-        private readonly TaskCompletionSource<T> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _claimed;
-
-        public T Get(Func<T> build, CancellationToken ct)
-        {
-            if (Interlocked.Exchange(ref _claimed, 1) == 0)
-            {
-                try
-                {
-                    var value = build();
-                    _done.SetResult(value);
-                    return value;
-                }
-                catch (Exception ex)
-                {
-                    _done.SetException(ex);
-                    throw;
-                }
-            }
-            if (!ct.CanBeCanceled) ct = AssemblyWorkspace.CallToken;
-            try { _done.Task.Wait(ct); }
-            catch (AggregateException e) when (e.InnerException != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw(); }
-            return _done.Task.Result;
-        }
-    }
-
     /// <summary>ReadyToRun facts and code of one loaded assembly.</summary>
     public sealed class AssemblyCode
     {

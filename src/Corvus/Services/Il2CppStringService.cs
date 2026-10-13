@@ -218,10 +218,11 @@ public sealed class Il2CppStringIndex
 {
     public const uint NoFunction = 0;
 
-    private readonly Lazy<(string[] Values, ulong[] Addresses, Dictionary<ulong, int> BySlot)> _literals;
-    private readonly Lazy<Il2CppScript?> _script;
-    private readonly Lazy<NativeReferences?> _references;
-    private readonly Lazy<(List<NativeCodeScanner.Section>, ulong)?> _binary;
+    // Built once per dump; a call waiting for another call's build stops when it is cancelled.
+    private readonly Deferred<(string[] Values, ulong[] Addresses, Dictionary<ulong, int> BySlot)> _literals;
+    private readonly Deferred<Il2CppScript?> _script;
+    private readonly Deferred<NativeReferences?> _references;
+    private readonly Deferred<(List<NativeCodeScanner.Section>, ulong)?> _binary;
 
     internal Il2CppStringIndex(Il2CppDumpFiles files)
     {

@@ -1,3 +1,5 @@
+using Corvus.Core;
+
 namespace Corvus.Native.NativeAot;
 
 /// <summary>Outcome of one recovery stage: complete, partial, absent or unsupported, with the reason.</summary>
@@ -27,24 +29,18 @@ public sealed class NativeAotImage
         Headers = headers;
         Header = headers[0];
         DebugHeaderMajor = debugHeaderMajor;
-        metadata = new(ReadMetadata);
-        hydrated = new(() => HydratedImage.Create(image, Header));
-        names = new(() => NativeAotNameMaps.Read(this));
-        types = new(() => NativeAotTypes.Read(this));
-        frozen = new(() => NativeAotFrozen.Read(this));
-        statics = new(() => NativeAotStatics.Read(this));
-        dispatch = new(() => NativeAotDispatch.Read(this));
     }
 
     /// <summary>Largest blob read into memory.</summary>
     private const int MaxBlobBytes = 256 << 20;
-    private readonly Lazy<(NativeAotMetadata? Metadata, NativeAotStage Stage)> metadata;
-    private readonly Lazy<HydratedImage> hydrated;
-    private readonly Lazy<NativeAotNameMaps> names;
-    private readonly Lazy<NativeAotTypes> types;
-    private readonly Lazy<NativeAotFrozen> frozen;
-    private readonly Lazy<NativeAotStatics> statics;
-    private readonly Lazy<NativeAotDispatch> dispatch;
+    // Each stage is read once; a call waiting for another call's read stops when it is cancelled.
+    private readonly Once<(NativeAotMetadata? Metadata, NativeAotStage Stage)> metadata = new();
+    private readonly Once<HydratedImage> hydrated = new();
+    private readonly Once<NativeAotNameMaps> names = new();
+    private readonly Once<NativeAotTypes> types = new();
+    private readonly Once<NativeAotFrozen> frozen = new();
+    private readonly Once<NativeAotStatics> statics = new();
+    private readonly Once<NativeAotDispatch> dispatch = new();
 
     public INativeImage Image { get; }
     /// <summary>The module analyzed (the first header found); <see cref="Headers"/> lists every module of a multi-module image.</summary>
@@ -53,11 +49,11 @@ public sealed class NativeAotImage
     public int? DebugHeaderMajor { get; }
     public NativeAotFormat Format => Header.Format;
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<INativeImage, Lazy<NativeAotImage?>> Views = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<INativeImage, Once<NativeAotImage?>> Views = new();
 
     /// <summary>The NativeAOT view of <paramref name="image"/>, opened once per image and shared; null when it has none.</summary>
     public static NativeAotImage? For(INativeImage image) =>
-        Views.GetValue(image, i => new Lazy<NativeAotImage?>(() => Open(i))).Value;
+        Views.GetValue(image, _ => new Once<NativeAotImage?>()).Get(() => Open(image));
 
     /// <summary>The NativeAOT view of <paramref name="image"/>, or null when it has no NativeAOT module header.</summary>
     public static NativeAotImage? Open(INativeImage image, CancellationToken ct = default)
@@ -78,25 +74,25 @@ public sealed class NativeAotImage
     }
 
     /// <summary>The EmbeddedMetadata reader, or null when the blob is absent or unreadable (see the "metadata" stage).</summary>
-    public NativeAotMetadata? Metadata => metadata.Value.Metadata;
+    public NativeAotMetadata? Metadata => metadata.Get(ReadMetadata).Metadata;
 
     /// <summary>The image with dehydrated data expanded and its pointer slots (see the "rehydration" stage).</summary>
-    public HydratedImage Hydrated => hydrated.Value;
+    public HydratedImage Hydrated => hydrated.Get(() => HydratedImage.Create(Image, Header));
 
     /// <summary>Method and type names from the stack-trace, type and invoke maps.</summary>
-    public NativeAotNameMaps Names => names.Value;
+    public NativeAotNameMaps Names => names.Get(() => NativeAotNameMaps.Read(this));
 
     /// <summary>The MethodTables found and their names (see the "method tables" stage).</summary>
-    public NativeAotTypes Types => types.Value;
+    public NativeAotTypes Types => types.Get(() => NativeAotTypes.Read(this));
 
     /// <summary>The objects of the frozen object region, strings with their text.</summary>
-    public NativeAotFrozen Frozen => frozen.Value;
+    public NativeAotFrozen Frozen => frozen.Get(() => NativeAotFrozen.Read(this));
 
     /// <summary>GC, non-GC and thread statics bases with their types and, when the metadata keeps them, fields.</summary>
-    public NativeAotStatics Statics => statics.Value;
+    public NativeAotStatics Statics => statics.Get(() => NativeAotStatics.Read(this));
 
     /// <summary>Interface dispatch cells, interface method names and the implementations of interface slots.</summary>
-    public NativeAotDispatch Dispatch => dispatch.Value;
+    public NativeAotDispatch Dispatch => dispatch.Get(() => NativeAotDispatch.Read(this));
 
     /// <summary>The start of the code a pointer or relative pointer to code targets: ARM32 code pointers carry the Thumb bit.</summary>
     public static uint CodeAddress(INativeImage image, uint target) => image.Arch == NativeArch.Arm ? target & ~1u : target;
@@ -148,7 +144,7 @@ public sealed class NativeAotImage
                 (Format.Exact ? $"ReadyToRun {ReadyToRunVersion}" : $"ReadyToRun {ReadyToRunVersion} is not a known release; best effort with the {Format.Runtime} layout")
                 + (Header.Relocated ? "" : "; no base relocations confirm the header")),
         };
-        stages.Add(metadata.Value.Stage);
+        stages.Add(metadata.Get(ReadMetadata).Stage);
         stages.Add(Hydrated.Stage);
         stages.AddRange(Names.Stages);
         stages.Add(Types.Stage);

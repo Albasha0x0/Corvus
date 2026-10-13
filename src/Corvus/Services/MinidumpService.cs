@@ -31,7 +31,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     /// <summary>A module's image and lightweight names, shared between calls.</summary>
     internal sealed class ModuleCode
     {
-        private readonly Lazy<ModuleNames?> _names;
+        private readonly Deferred<ModuleNames?> _names;
 
         public ModuleCode(PeFile? image, string source, string? localPath, string detail)
         {
@@ -39,7 +39,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             Source = source;
             LocalPath = localPath;
             Detail = detail;
-            _names = new Lazy<ModuleNames?>(() => image == null ? null : BuildNames(image));
+            _names = new Deferred<ModuleNames?>(() => image == null ? null : BuildNames(image));
         }
 
         public PeFile? Image { get; }
