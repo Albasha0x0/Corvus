@@ -94,7 +94,7 @@ public sealed class FormatLoadTests
 
         var dylib = await h.Native.ListExports(NativeFixtures.OsxArm64DbgShim, filter: "RegisterForRuntimeStartup");
         Assert.Contains("_RegisterForRuntimeStartup", Text(dylib));
-        var machoImports = Text(await h.Native.ListImports(NativeFixtures.OsxArm64DbgShim, module: "libSystem"));
+        var machoImports = Text(await h.Native.ListImports(NativeFixtures.OsxArm64DbgShim, library: "libSystem"));
         Assert.Contains("/usr/lib/libSystem.B.dylib!_", machoImports);
     }
 

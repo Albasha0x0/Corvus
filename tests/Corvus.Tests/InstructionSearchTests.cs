@@ -57,7 +57,7 @@ public sealed class InstructionSearchTests : IDisposable
         Assert.Contains("More: offset=1", all);
         Assert.Contains("ret", await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", offset: 1, limit: 1));
         var budget = await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", maxInstructions: 1);
-        Assert.Contains("Scan budget of 1 instruction reached at 0x140001045: continue with start=0x140001045 end=0x140001046", budget);
+        Assert.Contains("Scan budget of 1 instruction reached at 0x140001045: continue with from=0x140001045 to=0x140001046", budget);
 
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Search())).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Search(mnemonic: "(unclosed"))).Code);

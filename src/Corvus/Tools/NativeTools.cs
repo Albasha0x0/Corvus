@@ -263,7 +263,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                  "includeDynamic adds GetProcAddress imports with a constant name, marked [dynamic].")]
     public async Task<string> ListImports(
         [Description(ImageDescription)] string image,
-        [Description("Only this DLL (name with or without .dll).")] string? module = null,
+        [Description("Only this library (name with or without .dll).")] string? library = null,
         [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Bind each import to the export it reaches, with a summary.")] bool bind = false,
         [Description(RowOffsetDescription)] int offset = 0,
@@ -278,11 +278,11 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         {
             var loaded = await Task.Run(() => Targets.Native(workspace, image), cancellationToken);
             var index = await code.Index(loaded, null, cancellationToken);
-            dynamicRows = await Task.Run(() => NativeCallTools.DynamicImportRows(index, module, filter, cancellationToken), cancellationToken);
+            dynamicRows = await Task.Run(() => NativeCallTools.DynamicImportRows(index, library, filter, cancellationToken), cancellationToken);
         }
         return await OnImage(image, native =>
         {
-            if (native.Pe == null) return FormatImports(native, module, filter, bind, offset, limit);
+            if (native.Pe == null) return FormatImports(native, library, filter, bind, offset, limit);
             var pe = native.RequirePe("list_imports");
             var apiSets = ApiSets.Value;
             var rows = new List<string>();
@@ -293,7 +293,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 : null;
             foreach (var mod in pe.ImportModules.Concat(pe.DelayImportModules))
             {
-                if (module != null && !string.Equals(Path.GetFileNameWithoutExtension(mod.Name), Path.GetFileNameWithoutExtension(module.Trim()), StringComparison.OrdinalIgnoreCase)) continue;
+                if (library != null && !string.Equals(Path.GetFileNameWithoutExtension(mod.Name), Path.GetFileNameWithoutExtension(library.Trim()), StringComparison.OrdinalIgnoreCase)) continue;
                 var host = ApiSetSchema.IsApiSetName(mod.Name) ? apiSets?.Resolve(mod.Name, native.FilePath) : null;
                 foreach (var f in mod.Functions)
                 {

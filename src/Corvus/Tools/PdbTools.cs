@@ -45,7 +45,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         [Description("PDB file, or a directory (or symbol store) to look in first.")] string? path = null,
         [Description("Download from a symbol server when no local PDB matches (network).")] bool download = false,
         [Description("Symbol server URL for download (default: _NT_SYMBOL_PATH servers, else https://msdl.microsoft.com/download/symbols).")] string? server = null,
-        [Description("Use the PDB at path even when its GUID or age differs from the image (names may be wrong).")] bool force = false,
+        [Description("Use the PDB at path even when its GUID or age differs from the image (names may be wrong).")] bool allowMismatch = false,
         [Description("Download time limit in seconds.")] int timeoutSeconds = 120,
         [Description("Download size limit in MB.")] int maxMegabytes = 2048,
         [Description("Remove the PDB names and their saved copy instead (not read again this session).")] bool clear = false,
@@ -62,7 +62,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"locating the PDB of {native.Id}" });
         var timeout = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 5, 3600));
         long maxBytes = Math.Clamp(maxMegabytes, 1, 16 * 1024) * (1L << 20);
-        var r = await pdbs.Load(native, path, download, server, force, timeout, maxBytes, cancellationToken);
+        var r = await pdbs.Load(native, path, download, server, allowMismatch, timeout, maxBytes, cancellationToken);
         if (r.State is not { } s)
         {
             var why = native.Pe?.CodeView is { Format: "RSDS" } cv
@@ -78,7 +78,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         var text = new StringBuilder();
         text.AppendLine($"{native.Id}: {s.Path}");
         text.AppendLine($"  GUID {p.Guid:D}, age {p.DbiAge} (info stream age {p.InfoAge}): " +
-                        (native.Pe?.CodeView is { Format: "RSDS" } c ? (p.Matches(c) ? "matches the image" : $"DOES NOT match the image (GUID {c.Guid:D}, age {c.Age}); used because force=true") : "the image has no RSDS record to check against") +
+                        (native.Pe?.CodeView is { Format: "RSDS" } c ? (p.Matches(c) ? "matches the image" : $"DOES NOT match the image (GUID {c.Guid:D}, age {c.Age}); used because allowMismatch=true") : "the image has no RSDS record to check against") +
                         (s.Downloaded ? "; downloaded" : ""));
         int procs = p.Symbols.Count(x => x.Kind is PdbSymbolKind.GlobalProc or PdbSymbolKind.LocalProc);
         int pubs = p.Symbols.Count(x => x.IsPublic);

@@ -302,7 +302,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["get_exception_info"] = (new() { ["image"] = NativeSample(dir) }, "0 frames with exception metadata"),
         ["list_functions"] = (new() { ["image"] = NativeSample(dir) }, "function"),
         ["disassemble"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "First"),
-        ["inspect_instruction"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["count"] = 2 }, "decoded"),
+        ["inspect_instruction"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["limit"] = 2 }, "decoded"),
         ["search_instructions"] = (new() { ["image"] = NativeSample(dir), ["mnemonic"] = "^ret$" }, "match(es)"),
         ["list_globals"] = (new() { ["image"] = NativeSample(dir) }, "named global"),
         ["get_cfg"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "block"),

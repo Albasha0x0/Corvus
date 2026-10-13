@@ -172,7 +172,7 @@ public sealed class PdbService
         if (found == null && !string.IsNullOrWhiteSpace(path) && File.Exists(path) && force)
         {
             found = Path.GetFullPath(path);
-            probes.Add(new PdbProbe(found, "used without a match (force=true)"));
+            probes.Add(new PdbProbe(found, "used without a match (allowMismatch=true)"));
         }
         if (found == null && download)
         {
@@ -204,7 +204,7 @@ public sealed class PdbService
         if (cv is { Format: "RSDS" } && !state.Pdb.Matches(cv) && !force)
             throw new ToolError(ErrorCode.Conflict,
                 $"{found} does not belong to {native.Id}: PDB {state.Pdb.Guid:D} age {state.Pdb.DbiAge}, image {cv.Guid:D} age {cv.Age}.",
-                "pass the PDB of this exact build, or force=true to use it anyway (names may be wrong)");
+                "pass the PDB of this exact build, or allowMismatch=true to use it anyway (names may be wrong)");
 
         var slot = States.GetValue(native, _ => new Slot());
         lock (slot.Gate) { slot.State = state; slot.AutoTried = true; slot.AutoSearch = null; }

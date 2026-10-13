@@ -104,11 +104,11 @@ public sealed partial class NativeCodeTools
     [Description("What is at an address of a native image, instruction by instruction: decoded, mid_instruction (with the covering one), data " +
                  "(string, IAT / GOT slot, switch table, pointer, literal), not_in_function, unmapped, outside_image or invalid. An instruction: " +
                  "bytes, prefixes, encoding; operands (kind, size, access, registers, memory parts); registers and flags read and written; memory " +
-                 "accesses; stack change; flow; references; a call's arguments; a switch's table. count > 1 walks forward.")]
+                 "accesses; stack change; flow; references; a call's arguments; a switch's table. limit > 1 walks forward.")]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("Instructions to inspect (1-64).")] int count = 1,
+        [Description("Instructions to inspect (1-64).")] int limit = 1,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(EngineDescription)] string? engine = null,
@@ -118,7 +118,7 @@ public sealed partial class NativeCodeTools
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var rva = Address(index, address);
-        int n = Math.Clamp(count, 1, MaxInspectCount);
+        int n = Math.Clamp(limit, 1, MaxInspectCount);
         bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;
         bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
         // instruction details for other instruction sets come from an engine

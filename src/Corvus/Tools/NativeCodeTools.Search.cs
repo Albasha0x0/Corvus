@@ -18,7 +18,7 @@ public sealed partial class NativeCodeTools
 {
     [McpServerTool(Name = "search_instructions", Title = "Search native instructions")]
     [Description("Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or " +
-                 "target) in every function, one function, or an address range; a scan budget's end is named in the result (continue with start=).")]
+                 "target) in every function, one function, or an address range; a scan budget's end is named in the result (continue with from=).")]
     public Task<string> SearchInstructions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Mnemonic regex, e.g. '^(call|jmp)$'.")] string? mnemonic = null,
@@ -26,8 +26,8 @@ public sealed partial class NativeCodeTools
         [Description("Regex over the whole instruction text.")] string? text = null,
         [Description("An operand value: 0x10B, 267, or an address.")] string? value = null,
         [Description("Only this function: " + NativeTools.AddressDescription)] string? function = null,
-        [Description("Range start (with end, or alone: to the end of its section).")] string? start = null,
-        [Description("Range end (exclusive).")] string? end = null,
+        [Description("Range start (with to, or alone: to the end of its section).")] string? from = null,
+        [Description("Range end (exclusive).")] string? to = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max matches (max 2000).")] int limit = 100,
         [Description("Max instructions scanned (max 5000000).")] int maxInstructions = 500_000,
@@ -39,7 +39,7 @@ public sealed partial class NativeCodeTools
         var mode = Mode(engine);
         var query = new InstructionQuery(Pattern(mnemonic, "mnemonic"), Pattern(operands, "operands"), Pattern(text, "text"), Value(value));
         if (query.IsEmpty) throw new ToolError(ErrorCode.InvalidArgument, "Nothing to search for.", "pass mnemonic, operands, text or value");
-        if (!string.IsNullOrWhiteSpace(function) && (!string.IsNullOrWhiteSpace(start) || !string.IsNullOrWhiteSpace(end)))
+        if (!string.IsNullOrWhiteSpace(function) && (!string.IsNullOrWhiteSpace(from) || !string.IsNullOrWhiteSpace(to)))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass function or a range, not both.");
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, 2000);
@@ -60,15 +60,15 @@ public sealed partial class NativeCodeTools
                 ranges.AddRange(index.Ranges(f).Select(r => (r.Start, r.End, (NativeFunction?)f)));
             }
         }
-        else if (!string.IsNullOrWhiteSpace(start))
+        else if (!string.IsNullOrWhiteSpace(from))
         {
-            uint from = Address(index, start);
-            uint to = !string.IsNullOrWhiteSpace(end) ? Address(index, end)
-                : index.Image.SectionAt(from) is { } s ? s.Rva + s.VirtualSize : throw new ToolError(ErrorCode.InvalidArgument, "start is in no section.", "pass end too");
-            if (to <= from) throw new ToolError(ErrorCode.InvalidArgument, "end is not after start.");
-            ranges.Add((from, to, null));
+            uint first = Address(index, from);
+            uint last = !string.IsNullOrWhiteSpace(to) ? Address(index, to)
+                : index.Image.SectionAt(first) is { } s ? s.Rva + s.VirtualSize : throw new ToolError(ErrorCode.InvalidArgument, "from is in no section.", "pass to too");
+            if (last <= first) throw new ToolError(ErrorCode.InvalidArgument, "to is not after from.");
+            ranges.Add((first, last, null));
         }
-        else if (!string.IsNullOrWhiteSpace(end)) throw new ToolError(ErrorCode.InvalidArgument, "end needs start.");
+        else if (!string.IsNullOrWhiteSpace(to)) throw new ToolError(ErrorCode.InvalidArgument, "to needs from.");
         else if (!choice.External) foreach (var f in index.Functions.OrderBy(f => f.Start)) ranges.AddRange(index.Ranges(f).Select(r => (r.Start, r.End, (NativeFunction?)f)));
 
         var scan = choice.External
@@ -84,8 +84,8 @@ public sealed partial class NativeCodeTools
         if (fit < lines.Count) sb.AppendLine(OutputPager.CapNote(fit, lines.Count, offset + fit));
         else if (scan.Matches.Count > offset + limit) sb.AppendLine($"More: offset={offset + limit}");
         if (scan.StoppedAt is { } stop)
-            sb.AppendLine($"Scan budget of {Plural(budget, "instruction")} reached at {NativeAddress.Va(index.Image, stop)}: continue with start=0x{index.Image.ImageBase + stop:X}" +
-                          (ranges.Count > 0 && ranges[^1].End > stop ? $" end=0x{index.Image.ImageBase + ranges[^1].End:X}" : "") + ", or raise maxInstructions");
+            sb.AppendLine($"Scan budget of {Plural(budget, "instruction")} reached at {NativeAddress.Va(index.Image, stop)}: continue with from=0x{index.Image.ImageBase + stop:X}" +
+                          (ranges.Count > 0 && ranges[^1].End > stop ? $" to=0x{index.Image.ImageBase + ranges[^1].End:X}" : "") + ", or raise maxInstructions");
         return pager.Page(sb.ToString(), 0, null);
     });
 

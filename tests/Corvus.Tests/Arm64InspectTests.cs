@@ -163,7 +163,7 @@ public class Arm64InspectTests
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var path = NativeFixtures.LinuxArm64DbgShim;
-        var text = await h.CodeTools.InspectInstruction(path, "RegisterForRuntimeStartup", count: 64);
+        var text = await h.CodeTools.InspectInstruction(path, "RegisterForRuntimeStartup", limit: 64);
         Assert.Contains("Engine: ours", text);
         Assert.Contains("a64 encoding", text);
         Assert.Equal(64, text.Split('\n').Count(l => l.Contains("  decoded  in RegisterForRuntimeStartup", StringComparison.Ordinal)));

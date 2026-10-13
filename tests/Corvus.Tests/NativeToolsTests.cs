@@ -31,7 +31,7 @@ public class NativeToolsTests
 
         var imports = await tools.ListImports("kernel32.dll", filter: "NtClose");
         Assert.Contains("ntdll.dll!NtClose", imports);
-        var apiSet = await tools.ListImports("kernel32.dll", module: "api-ms-win-core-synch-l1-1-0");
+        var apiSet = await tools.ListImports("kernel32.dll", library: "api-ms-win-core-synch-l1-1-0");
         Assert.Matches(@"api-ms-win-core-synch-l1-1-0\.dll \((?i:kernelbase)\.dll\)!", apiSet);
 
         var resolved = await tools.ResolveAddress("kernel32.dll", "CreateFileW");

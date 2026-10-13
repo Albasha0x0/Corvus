@@ -88,7 +88,7 @@ public sealed class EngineInspectTests(Xunit.Abstractions.ITestOutputHelper outp
         async Task<InstructionReport> Run(string which, string address, int count)
         {
             var collector = ToolOutput.Collect();
-            await tools.InspectInstruction(native.Id, address, count: count, engine: which);
+            await tools.InspectInstruction(native.Id, address, limit: count, engine: which);
             return Assert.IsType<InstructionReport>(collector.Value);
         }
         var ours = await Run("ours", at, 40);
