@@ -155,7 +155,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
             string at = x.Rva is { } rva ? NativeAddress.Va(native.Image, rva) : $"{x.Segment:X4}:{x.Offset:X8} (not in the image)";
             string name = x.IsPublic ? PdbNaming.Display(x.Name) : x.Name;
             string? sig = x.IsPublic && PdbNaming.Signature(x.Name) is { } full && full != name ? full : null;
-            string? mod = x.Module >= 0 && x.Module < s.Pdb.Modules.Count ? Path.GetFileName(s.Pdb.Modules[x.Module].Name) : null;
+            string? mod = x.Module >= 0 && x.Module < s.Pdb.Modules.Count ? Corvus.Core.Format.ForeignFileName(s.Pdb.Modules[x.Module].Name) : null;
             return new PdbSymbolEntry(at, KindName(x.Kind), x.Size > 0 ? (int)x.Size : null, name, sig, mod);
         }).ToList();
         return ToolOutput.List(page, offset, limit, matches.Count,

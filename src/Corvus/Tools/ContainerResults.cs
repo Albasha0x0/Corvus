@@ -90,7 +90,7 @@ internal static class ContainerText
         if (b.Kind == "il2cpp") sb.Append($", metadata {b.MetadataState}{(b.MetadataVersion is { } v ? $" v{v}" : "")}{(b.MetadataStateReason != null ? $" ({Escape(b.MetadataStateReason)})" : "")}, {b.Metadata ?? "no metadata"}; binary {b.NativeBinary ?? "not found"}");
         else if (b.Kind == "mono") sb.Append($", {b.ManagedAssemblies} assemblies ({b.ManagedState}) in {b.ManagedDirectory}{(b.MonoRuntime != null ? ", " + b.MonoRuntime : "")}{(b.DotnetProfile != null ? ", " + b.DotnetProfile : "")}");
         if (b.ScriptingAssemblies is { } s) sb.Append($", {s} scripting assemblies");
-        if (b.UnreadableNameRatio is { } ratio) sb.Append($", {ratio:P0} unreadable names of {b.NamesRead}");
+        if (b.UnreadableNameRatio is { } ratio) sb.Append($", {Corvus.Core.Format.Percent(ratio)} unreadable names of {b.NamesRead}");
         sb.Append('\n');
         foreach (var e in b.Evidence) sb.Append("  evidence: ").Append(Escape(e)).Append('\n');
         if (r.Markers.Count > 0) sb.Append("Markers:\n");

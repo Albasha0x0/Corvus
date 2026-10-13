@@ -836,7 +836,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
             if (taken.Count == 0) break;
             foreach (var (a, b, score) in taken)
             {
-                pairs.Add((a, b, $"similar content ({score:P0})", "similarity", "structural"));
+                pairs.Add((a, b, $"similar content ({Corvus.Core.Format.Percent(score)})", "similarity", "structural"));
                 olds.Remove(a);
                 news.Remove(b);
             }

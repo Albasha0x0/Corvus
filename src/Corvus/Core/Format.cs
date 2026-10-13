@@ -9,6 +9,13 @@ public static class Format
     /// <summary>"0x06000123", or "(new)" for members added by an edit (no token until the image is written).</summary>
     public static string Token(IMDTokenProvider p) => p.MDToken.Rid == 0 ? "(new)" : $"0x{p.MDToken.Raw:X8}";
 
+    /// <summary>"42%": a ratio as a whole percent, the same on every host (P0 follows the culture: "42 %" under the invariant one).</summary>
+    public static string Percent(double ratio, int decimals = 0) =>
+        Math.Round(ratio * 100, decimals, MidpointRounding.AwayFromZero).ToString(decimals == 0 ? "0" : "0." + new string('0', decimals), System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>The file name of a path recorded on another OS (PDB modules, Windows paths read on Linux): splits on both separators.</summary>
+    public static string ForeignFileName(string path) => path[(path.LastIndexOfAny(['\\', '/']) + 1)..];
+
     public static string Type(TypeSig? sig)
     {
         switch (sig)

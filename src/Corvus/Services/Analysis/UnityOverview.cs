@@ -397,7 +397,7 @@ public static class UnityOverview
             }
         }
         if (ratio is >= 0.3 && namesRead >= 100 && !markers.Any(m => m.Category == "obfuscator"))
-            markers.Add(new MarkerFact("obfuscator", "renamed identifiers", $"{ratio:P0} of {namesRead} identifiers are unreadable or one or two characters long", kind == "mono" ? "assembly_markers" : "metadata_names"));
+            markers.Add(new MarkerFact("obfuscator", "renamed identifiers", $"{Corvus.Core.Format.Percent(ratio.Value)} of {namesRead} identifiers are unreadable or one or two characters long", kind == "mono" ? "assembly_markers" : "metadata_names"));
         string? monoRuntime = mono == null ? null : Path.GetFileNameWithoutExtension(mono) is var n && n.Contains("bdwgc", StringComparison.OrdinalIgnoreCase)
             ? $"{n} (MonoBleedingEdge, .NET 4.x profile)" : $"{n} (legacy Mono, .NET 3.5 profile)";
         return new BackendFacts(kind, evidence, managed, managedDlls.Count, managedState, kind == "mono" ? monoRuntime : null, profile, binary, metadata, size, version,

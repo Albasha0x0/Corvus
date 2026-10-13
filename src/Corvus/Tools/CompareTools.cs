@@ -131,7 +131,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             var members = t.Members.Where(m => m.Dimensions.Any(d => kinds.Contains(d.Kind))).ToList();
             if (t.Change != "renamed" && members.Count == 0) continue;
             var heading = t.Change == "renamed"
-                ? $"{t.Old!.FullName} -> {t.New!.FullName}  (renamed, match {t.Score:P0}; {Tier(AssemblyComparer.TypeTier(t.Old, t.New))})"
+                ? $"{t.Old!.FullName} -> {t.New!.FullName}  (renamed, match {Corvus.Core.Format.Percent(t.Score)}; {Tier(AssemblyComparer.TypeTier(t.Old, t.New))})"
                 : t.Change == "removed" ? $"{t.Old!.FullName}  (removed)" : t.Old!.FullName;
             if (t.Change == "renamed") rows.Add((TypeItem(t), heading, null));
             foreach (var m in members) rows.Add((MemberItem(cmp, m), heading, $"{m.Change,-9} {Describe(cmp, m)}"));
@@ -172,7 +172,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     {
         var (tier, confidence) = t is { Old: { } o, New: { } n } ? AssemblyComparer.TypeTier(o, n) : ((string?)null, (string?)null);
         return new ChangeItem("type", t.Change, t.Old?.FullName, t.Old is { } a ? Format.Token(a) : null, t.New?.FullName, t.New is { } b ? Format.Token(b) : null,
-            [new(t.Change, t.Change == "renamed" ? $"match {t.Score:P0}" : "")], tier, confidence, t.Candidates?.Select(c => $"{c.FullName} {Format.Token(c)}").ToList());
+            [new(t.Change, t.Change == "renamed" ? $"match {Corvus.Core.Format.Percent(t.Score)}" : "")], tier, confidence, t.Candidates?.Select(c => $"{c.FullName} {Format.Token(c)}").ToList());
     }
 
     private static ChangeItem MemberItem(Comparison cmp, MemberChange m)

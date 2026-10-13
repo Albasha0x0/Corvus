@@ -127,7 +127,7 @@ public static class Il2CppMetadataReader
                     catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException)) { tried.Add($"Unity {version}: method pointers unreadable: {Clip(ex.Message)}"); continue; }
                     if (sane < 0.5)
                     {
-                        tried.Add($"Unity {version}: only {sane:P0} of the method pointers are in code");
+                        tried.Add($"Unity {version}: only {Corvus.Core.Format.Percent(sane)} of the method pointers are in code");
                         continue;
                     }
                     chosen = (version, source);

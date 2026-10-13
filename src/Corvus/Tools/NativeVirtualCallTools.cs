@@ -88,7 +88,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         if (r.CrossCheck is { } c)
             sb.AppendLine($"Cross-check with {c.Engine}: {c.SitesChecked} sites in {c.FunctionsDecompiled} decompiled functions; agree {c.Agree}, compatible {c.Compatible}, " +
                           $"disagree {c.Disagree}, {c.Engine} only {c.IdaOnly}, ours only {c.OursOnly}, neither {c.BothNone}" +
-                          (c.AgreementRate is { } rate ? $"; agreement {rate:P1}" : ""));
+                          (c.AgreementRate is { } rate ? $"; agreement {Corvus.Core.Format.Percent(rate, 1)}" : ""));
         foreach (var n in r.Notes) sb.AppendLine("Note: " + n);
         return sb.ToString();
     }

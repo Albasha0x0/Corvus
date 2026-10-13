@@ -68,7 +68,7 @@ public static class Markers
         }
         double ratio = total == 0 ? 0 : Math.Round((double)unreadable / total, 3);
         if (total >= 20 && ratio >= UnreadableThreshold)
-            indicators.Add($"{ratio:P0} of {total} type / method / field names are unreadable or one or two characters long (renamed).");
+            indicators.Add($"{Corvus.Core.Format.Percent(ratio)} of {total} type / method / field names are unreadable or one or two characters long (renamed).");
 
         // String decoder: static, int parameters only, returns string, called from many methods.
         var decoders = scan.Calls
