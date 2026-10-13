@@ -7,7 +7,7 @@
   },
   "isError": false,
   "content": [
-    "Wrote 0 patches of sample-build-a.dll as json to <fixtures>/sample-patches.json (0 records, 642 bytes; 0 changed byte(s)).\nNote: the image has no patches: the export is empty\n"
+    "Wrote 0 patches of sample-build-a.dll as json to <fixtures>/sample-patches.json (0 records, <bytes> bytes; 0 changed byte(s)).\nNote: the image has no patches: the export is empty\n"
   ],
   "structuredContent": {
     "image": "sample-build-a.dll",
@@ -18,7 +18,7 @@
     "changedBytes": 0,
     "records": 0,
     "checksumUpdated": false,
-    "bytes": 642,
+    "bytes": "<bytes>",
     "originalSha256": "<id>",
     "notes": [
       "the image has no patches: the export is empty"

@@ -5,11 +5,11 @@
   },
   "isError": false,
   "content": [
-    "TestFixture.dll: .NET assembly, 13,824 bytes, none (loaded assembly), entropy <entropy>\n<fixtures>/TestFixture.dll\nsha256 <id>\nsha1 <id>  md5 <id>\nSignature: none\nAssemblies (1, the first in full in view=managed):\n  TestFixture 1.0.0.0 library, .NETCoreApp,Version=v10.0, AnyCPU, 1 feature(s) [TestFixture.dll]\nViews: overview, managed, all\nNote: The assembly has unsaved edits: the code scanned is the edited module; hashes and signature are the file's.\n"
+    "TestFixture.dll: .NET assembly, 13,312 bytes, none (loaded assembly), entropy <entropy>\n<fixtures>/TestFixture.dll\nsha256 <id>\nsha1 <id>  md5 <id>\nSignature: none\nAssemblies (1, the first in full in view=managed):\n  TestFixture 1.0.0.0 library, .NETCoreApp,Version=v10.0, AnyCPU, 1 feature(s) [TestFixture.dll]\nViews: overview, managed, all\nNote: The assembly has unsaved edits: the code scanned is the edited module; hashes and signature are the file's.\n"
   ],
   "structuredContent": {
     "path": "<fixtures>/TestFixture.dll",
-    "size": 13824,
+    "size": 13312,
     "type": ".NET assembly",
     "sha256": "<id>",
     "container": "none (loaded assembly)",

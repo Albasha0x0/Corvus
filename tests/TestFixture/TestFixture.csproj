@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Fixture</RootNamespace>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- the PDB path in the image is the same in every checkout, so the fixture is byte-identical -->
+    <PathMap>$(MSBuildProjectDirectory)=/_/TestFixture/</PathMap>
   </PropertyGroup>
 
   <ItemGroup>
