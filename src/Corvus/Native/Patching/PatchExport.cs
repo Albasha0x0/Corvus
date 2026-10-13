@@ -195,6 +195,16 @@ public static class PatchExport
                     return "segment %s starts at 0x%X, inside 0x%X..0x%X" % (ida_segment.get_segm_name(n), n.start_ea, start, end)
                 return None
 
+            def _bitness():
+                # IDA 9 removed get_inf_structure; ida_ida.inf_is_64bit replaces it
+                try:
+                    import ida_ida
+                    if hasattr(ida_ida, "inf_is_64bit"):
+                        return 2 if ida_ida.inf_is_64bit() else 1
+                except ImportError:
+                    pass
+                return 2 if idaapi.get_inf_structure().is_64bit() else 1
+
             def add_segments():
                 base = idaapi.get_imagebase()
                 created = blocked = 0
@@ -210,7 +220,7 @@ public static class PatchExport
                         s = idaapi.segment_t()
                         s.start_ea = start
                         s.end_ea = end
-                        s.bitness = 2 if idaapi.get_inf_structure().is_64bit() else 1
+                        s.bitness = _bitness()
                         s.perm = idaapi.SEGPERM_EXEC | idaapi.SEGPERM_READ
                         if not ida_segment.add_segm_ex(s, name, "CODE", ida_segment.ADDSEG_NOSREG):
                             blocked += 1

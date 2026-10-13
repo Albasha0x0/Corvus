@@ -462,4 +462,82 @@ public class NativePatchExportTests(ITestOutputHelper output)
         Assert.All(theirs.Skip(3).Where(l => l.Length > 0), l => Assert.Contains(l, ours));
         output.WriteLine($"idalib: {line} in {sw.Elapsed.TotalSeconds:0.0} s (of {reports["ida"].Records} entries)");
     }
+
+    /// <summary>
+    /// An extension placed in a new section: the IDAPython script run under idalib against a fresh database of the original
+    /// creates the segment at its RVA with the saved file's section bytes, then applies the site jump; a second run creates
+    /// nothing and applies nothing.
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [WindowsFact]
+    public async Task Ida_script_creates_the_appended_segment_under_idalib()
+    {
+        var src = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "version.dll");
+        if (!File.Exists(src)) return;
+        using var h = new Harness(File.ReadAllBytes(src), "version.dll");
+        var (native, index) = await h.Open();
+        // the first instruction boundary past a prologue (unwind info) that takes a stub
+        NativeEditService.PatchResult? prepared = null;
+        foreach (var fn in native.Image.Exports.Where(e => e.Rva != 0).Select(e => index.FunctionByStart(e.Rva)).OfType<NativeFunction>())
+        {
+            for (uint at = fn.Start; at < fn.End && prepared == null; at += (uint)(index.Decode(at)?.Length ?? 1))
+            {
+                var code = X86Assembler.Assemble(index.Image.Arch, index.Image.ImageBase + at, "xor eax, eax\nret").Bytes;
+                try { prepared = h.Edits.PrepareExtendedPatch(index, at, code, "xor eax, eax\nret", StubMode.Replace, "patch_asm (stub)", null, StubPlacement.Section); }
+                catch (ToolError) { }
+            }
+            if (prepared != null) break;
+        }
+        Assert.NotNull(prepared);
+        h.Edits.ApplyPatch(native, index, prepared, dryRun: false);
+        var growth = Assert.Single(native.Patches.Patches).Growth!;
+        var saved = h.Dir.File("grown-saved.bin");
+        Assert.Contains("Verified", h.Edits.Save(native, saved, overwrite: true, stripSignature: false));
+        var script = h.Dir.File("grown.ida");
+        await h.Tools.ExportNativePatches(native.Id, script, "ida");
+
+        var log = new List<string>();
+        var python = PythonLocator.Find([], log);
+        var ida = IdaInstallation.Locate(null, out var reason, out _);
+        if (python == null || ida == null) { output.WriteLine("IDA not run: " + (python == null ? "no Python" : reason)); return; }
+        var db = h.Dir.File("ida-input.dll");
+        File.Copy(src, db);
+        var driver = h.Dir.File("drive.py");
+        File.WriteAllText(driver, """
+            import os, sys
+            sys.path.insert(0, os.path.join(os.environ["IDADIR"], "idalib", "python"))
+            import idapro
+            target, script, saved, name, rva, offset, size = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5], 16), int(sys.argv[6], 16), int(sys.argv[7], 16)
+            if idapro.open_database(target, True) != 0:
+                print("open failed"); sys.exit(2)
+            import idaapi, ida_bytes, ida_segment
+            def run():
+                g = {"__name__": "__main__"}
+                exec(compile(open(script, encoding="utf-8").read(), script, "exec"), g)
+                return g["CORVUS_SEGMENTS_RESULT"], g["CORVUS_PATCH_RESULT"]
+            (created, blocked), (applied, already, differ, missing) = run()
+            ea = idaapi.get_imagebase() + rva
+            seg = ida_segment.getseg(ea)
+            data = open(saved, "rb").read()
+            same = seg is not None and ida_bytes.get_bytes(ea, size) == data[offset:offset + size]
+            segname = ida_segment.get_segm_name(seg) if seg is not None else "-"
+            (created2, blocked2), (applied2, _, _, _) = run()
+            print("RESULT %d %d %d %d %d %s %d %d %d" % (created, blocked, applied, differ, 1 if same else 0, segname, created2, blocked2, applied2))
+            idapro.close_database(False)
+            """);
+        var env = new Dictionary<string, string?> { ["IDADIR"] = ida.Directory, ["TVHEADLESS"] = "1", ["IDA_IS_INTERACTIVE"] = null };
+        var run = PythonLocator.RunCapture(python.Executable, ["-I", "-u", driver, db, script, saved, growth.SectionName, $"{growth.SectionRva:X}", $"{growth.AppendFileOffset:X}",
+            $"{Math.Min(growth.AppendedData.Length, growth.SectionVirtualSize):X}"], TimeSpan.FromMinutes(5), env);
+        output.WriteLine(run.Stdout);
+        output.WriteLine(run.Stderr);
+        var line = run.Stdout.Split('\n').FirstOrDefault(l => l.StartsWith("RESULT", StringComparison.Ordinal));
+        Assert.True(line != null, $"no RESULT line (exit {run.ExitCode}, timed out {run.TimedOut}):\n{run.Stdout}\n{run.Stderr}");
+        var f = line!.Trim().Split(' ');
+        Assert.Equal(["1", "0"], f[1..3]);          // the segment was created
+        Assert.True(int.Parse(f[3]) >= 1, line);    // the site jump applied
+        Assert.Equal("0", f[4]);                    // no original bytes differed
+        Assert.Equal("1", f[5]);                    // the segment holds the saved file's section bytes
+        Assert.Equal(growth.SectionName, f[6]);
+        Assert.Equal(["0", "0", "0"], f[7..10]);    // a second run reuses the segment and applies nothing
+    }
 }
