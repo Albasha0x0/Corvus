@@ -247,7 +247,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                     if (stopOnError && !dryRun)
                     {
                         edits.Rebuild(asm, before, ct);
-                        sb.AppendLine($"Stopped; {asm.Id} was rolled back to its state before the script. Fix the edit (or pass stopOnError=false to skip failures).");
+                        sb.AppendLine($"Stopped; {asm.Id} was rolled back to its state before the script. Fix the edit (or pass continueOnError=true to skip failures).");
                         return new ApplyOutcome(asm.Id, sb.ToString(), items.Select(x => x with { EditId = null }).ToList(), RolledBack: true);
                     }
                 }

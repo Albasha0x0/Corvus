@@ -59,7 +59,7 @@ public class NativeListBudgetTests
         for (int i = 0; i < 20; i++)
         {
             var result = await server.Client.CallToolAsync("disassemble", new Dictionary<string, object?>
-                { ["image"] = Kernel32, ["address"] = "BaseThreadInitThunk", ["function"] = false, ["maxInstructions"] = 3000, ["offset"] = offset, ["maxTokens"] = 2000 });
+                { ["image"] = Kernel32, ["address"] = "BaseThreadInitThunk", ["fromAddress"] = true, ["maxInstructions"] = 3000, ["offset"] = offset, ["maxTokens"] = 2000 });
             var record = JsonDocument.Parse(result.StructuredContent!.Value.GetRawText()).RootElement;
             Assert.Equal(offset, record.GetProperty("offset").GetInt32());
             Assert.NotNull(record.GetProperty("address").GetString());

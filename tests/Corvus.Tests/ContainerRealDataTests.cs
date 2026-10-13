@@ -113,7 +113,7 @@ public sealed class ContainerRealDataTests(Xunit.Abstractions.ITestOutputHelper 
         Assert.Equal("Newtonsoft.Json.nuspec", files.GetProperty("items")[0].GetProperty("path").GetString());
 
         var outputDir = _dir.File("unpacked");
-        var rows = await Walk("unpack_container", new() { ["path"] = Package, ["outputDirectory"] = outputDir, ["load"] = false, ["limit"] = 4 },
+        var rows = await Walk("unpack_container", new() { ["path"] = Package, ["outputDirectory"] = outputDir, ["extractOnly"] = true, ["limit"] = 4 },
             f => f.GetProperty("path").GetString()!);
         Assert.Equal(rows.Count, rows.Distinct().Count());
         Assert.All(rows, r => Assert.True(File.Exists(Path.Combine(outputDir, r)), r));

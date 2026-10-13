@@ -392,6 +392,18 @@ public sealed class MinidumpTests
     }
 
     /// <summary>read_dump_memory pages by bytes within the budget: the pages' hex, walked by nextOffset, is the whole read.</summary>
+    /// <summary>dump_stack starts the faulting thread at the exception context unless dumpTimeContext (the default of the former exceptionContext=true).</summary>
+    [Fact]
+    public async Task DumpStackStartsAtTheExceptionContextUnlessDumpTimeContext()
+    {
+        using var dir = new TempDir();
+        var path = SyntheticCrash.Write(dir);
+        using var service = new MinidumpService();
+        var tools = new Corvus.Tools.MinidumpTools(service);
+        Assert.Contains("from the exception context", await tools.DumpStack(path));
+        Assert.Contains("from the thread context", await tools.DumpStack(path, dumpTimeContext: true));
+    }
+
     [Fact]
     public async Task ReadDumpMemoryPagesWalkTheWholeRange()
     {

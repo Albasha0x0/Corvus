@@ -78,7 +78,7 @@ public sealed class EditOutcomeTests : IDisposable
         var error = await Assert.ThrowsAsync<ToolError>(() => _tools.ApplyEdits(path, dryRun: false));
         Assert.Equal(ErrorCode.Failed, error.Code);
         Assert.Contains("rolled back", error.Message);
-        Assert.Contains("stopOnError=false", error.Remediation);
+        Assert.Contains("continueOnError=true", error.Remediation);
         var partial = System.Text.Json.JsonSerializer.SerializeToNode(error.Partial)!;
         Assert.Equal((0, 1, true), ((int)partial["applied"]!, (int)partial["failed"]!, (bool)partial["rolledBack"]!));
         Assert.Equal("invalid_argument", (string?)partial["items"]![1]!["Error"]!["Code"]);
@@ -86,10 +86,10 @@ public sealed class EditOutcomeTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyEditsWithoutStopOnErrorSucceedsWithTheFailureCounted()
+    public async Task ApplyEditsWithContinueOnErrorSucceedsWithTheFailureCounted()
     {
         var path = ScriptWithOneBadEdit();
-        var (text, outcome) = await Run<EditOutcome>(() => _tools.ApplyEdits(path, dryRun: false, stopOnError: false));
+        var (text, outcome) = await Run<EditOutcome>(() => _tools.ApplyEdits(path, dryRun: false, continueOnError: true));
         Assert.Equal((true, 1), (outcome.Applied, outcome.Failed));
         Assert.Single(outcome.EditIds);
         Assert.Contains("1 applied, 1 failed", text);

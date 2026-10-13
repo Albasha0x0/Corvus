@@ -39,7 +39,7 @@ public partial class UnpackTests
         var tools = new UnpackTools(Unpacker);
         var output = _dir.File("many-out");
         var collector = Corvus.Mcp.ToolOutput.Collect();
-        var text = await tools.UnpackContainer(zip, output, load: false, offset: 0, limit: 3);
+        var text = await tools.UnpackContainer(zip, output, extractOnly: true, offset: 0, limit: 3);
         var first = Assert.IsType<UnpackPage>(collector.Value);
         Assert.Equal((0, 3), (first.Offset, first.Items.Count));
         Assert.Contains("[More: offset=3]", text);
@@ -50,11 +50,25 @@ public partial class UnpackTests
 
         // the same unpack again pages on: the rows after the first page, the same total
         collector = Corvus.Mcp.ToolOutput.Collect();
-        await tools.UnpackContainer(zip, output, load: false, offset: 3, limit: 100);
+        await tools.UnpackContainer(zip, output, extractOnly: true, offset: 3, limit: 100);
         var rest = Assert.IsType<UnpackPage>(collector.Value);
         Assert.Equal(total, rest.Total);
         Assert.Equal(total - 3, rest.Items.Count);
         Assert.Empty(first.Items.Select(f => f.Path).Intersect(rest.Items.Select(f => f.Path)));
+    }
+
+    /// <summary>unpack_container loads what it extracts unless extractOnly (the default of the former load=true).</summary>
+    [Fact]
+    public async Task LoadsByDefault_ExtractOnlyDoesNot()
+    {
+        var zip = Save("one.zip", ContainerFixtures.Zip(("lib/a.dll", File.ReadAllBytes(Env.FixturePath))));
+        var tools = new UnpackTools(Unpacker);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.UnpackContainer(zip, _dir.File("one-extract"), extractOnly: true);
+        Assert.Null(Assert.Single(Assert.IsType<UnpackPage>(collector.Value).Items, f => f.Path.EndsWith("a.dll", StringComparison.Ordinal)).LoadedAs);
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.UnpackContainer(zip, _dir.File("one-load"));
+        Assert.NotNull(Assert.Single(Assert.IsType<UnpackPage>(collector.Value).Items, f => f.Path.EndsWith("a.dll", StringComparison.Ordinal)).LoadedAs);
     }
 
     [Fact]

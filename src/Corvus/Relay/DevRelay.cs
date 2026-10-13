@@ -361,7 +361,7 @@ public sealed partial class DevRelay : IAsyncDisposable
                 var name = p?["name"]?.GetValue<string>();
                 if (name == null || !ReplayedTools.Contains(name) || IsTrue(response["result"]?["isError"])) return;
                 var args = p!["arguments"] as JsonObject;
-                if (IsTrue(args?["dryRun"]) || (name == "unpack_container" && args?["load"] is JsonValue load && load.TryGetValue<bool>(out var l) && !l)) return;
+                if (IsTrue(args?["dryRun"]) || (name == "unpack_container" && IsTrue(args?["extractOnly"]))) return;
                 _replay.Add(("tools/call", new JsonObject { ["name"] = name, ["arguments"] = args?.DeepClone() }, Label(name, args)));
                 break;
             case "logging/setLevel":

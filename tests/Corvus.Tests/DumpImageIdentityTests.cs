@@ -79,6 +79,20 @@ public sealed class DumpImageIdentityTests : IDisposable
         Assert.Equal("synth!Crash+0x5", (await service.Stack(dump, null, true, 64, 0, 64, null, default)).Items[0].Symbol);
     }
 
+    /// <summary>read_dump_memory fills what the dump lacks from the module image unless dumpOnly (the default of the former imageFallback=true).</summary>
+    [Fact]
+    public async Task ReadDumpMemoryFillsFromTheImageUnlessDumpOnly()
+    {
+        var dump = Dump();
+        var folder = Directory.CreateDirectory(_dir.File("bin")).FullName;
+        System.IO.File.WriteAllBytes(Path.Combine(folder, "synth.dll"), File());
+        using var service = new MinidumpService();
+        var id = (await service.Summarize(dump, folder, default)).Id;
+        var tools = new Corvus.Tools.MinidumpTools(service);
+        Assert.Contains("16 of 16 bytes, module_image", await tools.ReadDumpMemory(id, "synth+0x1000", 16));
+        Assert.Contains("0 of 16 bytes, none", await tools.ReadDumpMemory(id, "synth+0x1000", 16, dumpOnly: true));
+    }
+
     [Fact]
     public async Task SymbolStoreByKeyAndUnderAnotherName()
     {

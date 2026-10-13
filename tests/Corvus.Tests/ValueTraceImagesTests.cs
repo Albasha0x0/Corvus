@@ -38,6 +38,23 @@ public sealed class ValueTraceImagesTests : IDisposable
         return (new NativeTraceTools(ws, code, link: new NativeLinkService(ws, code)), ws);
     }
 
+    /// <summary>trace_native_values follows a writable global into its writers unless stopAtGlobals (the default of the former followGlobals=true).</summary>
+    [Fact]
+    public async Task Backward_follows_globals_unless_stopAtGlobals()
+    {
+        // .text 0x1000: mov dword [rip -> 0x2000], 7; mov ecx, [rip -> 0x2000]; ret. .data 0x2000 (read, write).
+        var b = new PeBuilder { ImageBase = 0x180000000, Characteristics = 0x2022, EntryPoint = 0x1000 };
+        b.Add(".text", [0xC7, 0x05, 0xF6, 0x0F, 0, 0, 7, 0, 0, 0, 0x8B, 0x0D, 0xF0, 0x0F, 0, 0, 0xC3], 0x60000020);
+        b.Add(".data", new byte[0x100], 0xC0000040);
+        var path = _dir.File("global.dll");
+        File.WriteAllBytes(path, b.Build());
+        var options = new ServerOptions { BackgroundIndexing = false };
+        using var ws = new AssemblyWorkspace(options);
+        var tools = new NativeTraceTools(ws, new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann"))));
+        NativeLinkTests.Has(await tools.TraceNativeValues(path, "0x180001010", location: "rcx"), "Values reached (1): 7");
+        Assert.DoesNotContain("Values reached (1): 7", await tools.TraceNativeValues(path, "0x180001010", location: "rcx", stopAtGlobals: true));
+    }
+
     // Main: sub rsp (4), mov ecx (5), call Take at +9, call Get at +0xF, mov ecx, eax at +0x15, call Sleep at +0x17
     [Fact]
     public async Task Forward_value_continues_into_the_provider_through_the_import()

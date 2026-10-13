@@ -1,11 +1,2 @@
 # Exemptions from: a boolean parameter defaults to false, except dryRun (S7.2, D7)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-apply_edits.stopOnError
-compare_assemblies.listAddedRemovedTypes
-decompile_java.smaliFallback
-disassemble.function
-dump_stack.exceptionContext
-install_android_package.replace
-read_dump_memory.imageFallback
-trace_native_values.followGlobals
-unpack_container.load

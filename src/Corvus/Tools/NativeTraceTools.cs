@@ -101,7 +101,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Nodes in the graph (1-5000).")] int maxNodes = 500,
         [Description("Call sites bound per parameter or return (1-256).")] int maxCallers = 16,
         [Description("Writers (backward) or readers (forward) per global (1-256).")] int maxWriters = 16,
-        [Description("Follow writable globals into their writers / readers.")] bool followGlobals = true,
+        [Description("Stop at writable globals, not following their writers / readers.")] bool stopAtGlobals = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Nodes per page (max 1000).")] int limit = 200,
         [Description("Per-function slices: ours (built-in), ida or ghidra (that decompiler's IR, started when needed; built-in where it cannot " +
@@ -140,7 +140,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                 : host is Arm32Trace arm32 ? Arm32Trace.Seed(arm32, address, NativeCodeTools.Address(index, address), location, argument, cancellationToken)
                 : Seed(CallAnalysis.For(index), address, location, argument, cancellationToken);
             var options = new ValueTraceOptions(dir, Math.Clamp(maxDepth, 0, 8), Math.Clamp(maxFunctions, 1, 256), Math.Clamp(maxNodes, 1, 5000),
-                Math.Clamp(maxCallers, 1, 256), Math.Clamp(maxWriters, 1, 256), followGlobals);
+                Math.Clamp(maxCallers, 1, 256), Math.Clamp(maxWriters, 1, 256), !stopAtGlobals);
             var provider = session != null ? new EngineSliceProvider(host, session) : null;
             var graph = ValueTrace.Build(host, seed, options, provider, cancellationToken, links is { Any: true } ? links : null, new NativeTraceTypes(workspace, code));
             var report = Report(index, graph, offset, limit);

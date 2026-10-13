@@ -279,6 +279,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
                 public event System.Action Gone;
                 public event System.Action Kept;
             }
+            public class OldOnly { }
             """;
         const string after = """
             public class Multi
@@ -287,6 +288,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
                 public event System.Action Kept;
                 public event System.Action Fresh;
             }
+            public interface INewOnly { }
             """;
         using var env = new Env(Write("m1", before));
         var newer = env.Workspace.Load(Write("m2", after));
@@ -299,6 +301,12 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("removed   event Gone", text);
         Assert.Contains("added     event Fresh", text);
         Assert.DoesNotContain("event Kept", text);
+        // Added and removed types are listed unless typeCountsOnly (the default lists them, as listAddedRemovedTypes=true did).
+        Assert.Contains("Removed types (1):", text);
+        Assert.Contains("Added types (1):", text);
+        var counted = await tools.CompareAssemblies(env.Fixture.Id, newer.Id, typeCountsOnly: true);
+        Assert.DoesNotContain("Added types (", counted);
+        Assert.DoesNotContain("Removed types (", counted);
         Assert.Matches(@"Members \(each change of a member counted\): \d+ renamed, 0 moved, 1 signature, 1 body, 1 metadata", text);
         // Filtering by a secondary change still lists the member with all of its changes.
         Assert.Contains("signature method Both(int)", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, changes: ["metadata"]));

@@ -332,8 +332,8 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         try { result = await server.Call(tool, arguments, CallTimeout, ct).ConfigureAwait(false); }
         catch (TimeoutException ex) { throw new ToolError(ErrorCode.Timeout, ex.Message + "; the session stays loaded.", "call again, or disassemble_dex for the smali"); }
         catch (InvalidOperationException ex) { throw new ToolError(ErrorCode.Failed, $"the JADX server refused {tool}: {ex.Message}"); }
-        // The server's hints name its own argument; decompile_java's parameter is smaliFallback.
-        var text = result.Text.Replace("smali_fallback=", "smaliFallback=", StringComparison.Ordinal);
+        // The server's hints name its own argument; decompile_java's is the inverse, javaOnly.
+        var text = result.Text.Replace("smali_fallback=false", "javaOnly=true", StringComparison.Ordinal).Replace("smali_fallback=true", "javaOnly=false", StringComparison.Ordinal);
         if (result.IsError) throw new ToolError(ErrorCode.NotFound, $"JADX: {text}", "list_dex_classes and get_dex_class show what the package defines");
         return text;
     }

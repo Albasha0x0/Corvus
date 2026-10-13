@@ -618,7 +618,7 @@ Extract the .NET assemblies inside a container and load them: single-file bundle
 |---|---|---|---|---|
 | `path` | string | yes |  | Container file, or a Blazor _framework folder. |
 | `outputDirectory` | string |  |  | New or empty directory, or an earlier unpack of this file; default under temp. |
-| `load` | boolean |  | `true` | Load the extracted assemblies (ids in loadedAs). |
+| `extractOnly` | boolean |  |  | Extract without loading the assemblies; default: loaded, ids in loadedAs. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Max rows. |
 
@@ -846,7 +846,7 @@ Replay an export_edits script, each edit with its outcome. Another build needs t
 | `path` | string | yes |  | The .json edit script. |
 | `assembly` | string |  |  | Target assembly; omit for the one named in the script. |
 | `dryRun` | boolean |  | `true` | Default true: apply every edit (compiled, stack-checked), report, roll back; pass dryRun=false to keep them. |
-| `stopOnError` | boolean |  | `true` | Roll everything back on the first failure. |
+| `continueOnError` | boolean |  |  | Apply the edits that succeed; default: roll all back on the first failure. |
 | `targetBuild` | string |  | `same` | same: only the script's build; other: another build, symbols re-resolved by name. Values: same, other. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
@@ -1117,13 +1117,13 @@ Structured output: `image`, `items`, `offset`, `total`, `engine`, `limit`, `tota
 
 **Disassemble native code** (read-only, idempotent, open-world, long-running)
 
-MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address when it is in no function or function=false. References and NativeAOT loads are named, strings shown as comments, calls commented with their recovered arguments. Data in the way (strings, pointers, IAT slots, switch tables, gaps) is rendered as data; warnings (mid-instruction, data, bss) repeat in a footer.
+MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address when it is in no function or fromAddress=true. References and NativeAOT loads are named, strings shown as comments, calls commented with their recovered arguments. Data in the way (strings, pointers, IAT slots, switch tables, gaps) is rendered as data; warnings (mid-instruction, data, bss) repeat in a footer.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `function` | boolean |  | `true` | The whole containing function; false: maxInstructions from the address. |
+| `fromAddress` | boolean |  |  | maxInstructions from the address, not the whole containing function. |
 | `maxInstructions` | integer |  | `2000` | Max instructions. |
 | `offset` | integer |  |  | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
@@ -1305,7 +1305,7 @@ Traces a value through native code (x86 / x64 / ARM) across functions. Backward:
 | `maxNodes` | integer |  | `500` | Nodes in the graph (1-5000). |
 | `maxCallers` | integer |  | `16` | Call sites bound per parameter or return (1-256). |
 | `maxWriters` | integer |  | `16` | Writers (backward) or readers (forward) per global (1-256). |
-| `followGlobals` | boolean |  | `true` | Follow writable globals into their writers / readers. |
+| `stopAtGlobals` | boolean |  |  | Stop at writable globals, not following their writers / readers. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `200` | Nodes per page (max 1000). |
 | `engine` | string |  |  | Per-function slices: ours (built-in), ida or ghidra (that decompiler's IR, started when needed; built-in where it cannot place the seed), or auto (default: an engine that has analyzed these bytes, else ours). Values: auto, ours, ida, ghidra. |
@@ -1764,7 +1764,7 @@ Compare two builds of an assembly: renamed, moved, added and removed types and m
 | `newAssembly` | string | yes |  | The new build (id, name or path). |
 | `namespace` | string |  |  | Only types whose old or new full name starts with this. |
 | `changes` | string[] |  |  | Change kinds to list (unknown: unpaired for lack of evidence); default all except address. |
-| `listAddedRemovedTypes` | boolean |  | `true` | List added and removed type names (else counts). |
+| `typeCountsOnly` | boolean |  |  | Count added and removed types without listing them. |
 | `includeCompilerGenerated` | boolean |  |  | Also list compiler-generated types and members (closures, state machines). |
 | `tokenMap` | boolean |  |  | Keep the whole old -> new token map as a result (tokenMapResultId). |
 | `offset` | integer |  |  | Rows to skip. |
@@ -2386,7 +2386,7 @@ Java source of a class or method of an Android package or a jar through JADX (CO
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set, a .dex, or a jar (DEX or .class files). |
 | `symbol` | string | yes |  | A class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)). |
-| `smaliFallback` | boolean |  | `true` | Return smali where JADX fails. |
+| `javaOnly` | boolean |  |  | Partial Java where JADX fails; default: smali there. |
 | `engine` | string |  |  | Decompiler. Values: jadx. |
 | `offset` | integer |  |  | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
@@ -2569,7 +2569,7 @@ Installs an APK, a split set or a directory of APKs on a device in one session; 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, split set or folder of APKs. |
-| `replace` | boolean |  | `true` | Replace an installed app. |
+| `keepInstalled` | boolean |  |  | Fail when the app is installed instead of replacing it. |
 | `downgrade` | boolean |  |  | Allow a lower version code. |
 | `grantPermissions` | boolean |  |  | Grant all requested runtime permissions. |
 | `serial` | string |  |  | Device serial; optional with one device ready. |
@@ -2623,7 +2623,7 @@ Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP c
 |---|---|---|---|---|
 | `dump` | string | yes |  | A .dmp path or the id open_minidump returned. |
 | `thread` | string |  |  | Thread id, '#index', name or 'exception'. Default: the faulting thread, else the first. |
-| `exceptionContext` | boolean |  | `true` | Faulting thread: start at the exception context (.ecxr); false: its context at dump time. |
+| `dumpTimeContext` | boolean |  |  | Faulting thread: its context at dump time, not the exception context (.ecxr). |
 | `maxFrames` | integer |  | `256` | Max frames walked (up to 1024). |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Max rows. |
@@ -2672,14 +2672,14 @@ Structured output: `dump`, `address`, `type`, `size`, `assembly`, `token`, `buil
 
 **Read crash dump memory** (read-only, idempotent)
 
-Hex dump of a dump's memory at an address with what is there (module!function, captured range, protection). imageFallback fills bytes the dump lacks from the module image (writable data shows initial values).
+Hex dump of a dump's memory at an address with what is there (module!function, captured range, protection). Bytes the dump lacks come from the module image (writable data shows initial values) unless dumpOnly.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dump` | string | yes |  | A .dmp path or the id open_minidump returned. |
 | `address` | string | yes |  | Hex address, 'module+0x1234', or a module name (its base). |
 | `length` | integer |  | `256` | Bytes to read (up to 65536). |
-| `imageFallback` | boolean |  | `true` | Read bytes the dump does not hold from the module image. |
+| `dumpOnly` | boolean |  |  | Only the bytes the dump holds, none from the module image. |
 | `offset` | integer |  |  | Byte offset into the read (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 

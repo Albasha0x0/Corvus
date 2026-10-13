@@ -126,8 +126,28 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         {
             _fake.Set("mcp", new JsonObject { ["get_class_source"] = "// (Java body was an anti-decompile stub; showing smali. Pass smali_fallback=false for the partial Java.)\n.class public Lx;" });
             var text = await service.Decompile(Apk(), "com.example.app.Main", true, default);
-            Assert.Contains("Pass smaliFallback=false for the partial Java.", text);
+            Assert.Contains("Pass javaOnly=true for the partial Java.", text);
             Assert.DoesNotContain("smali_fallback", text);
+        }
+    }
+
+    /// <summary>decompile_java asks JADX for smali where Java fails unless javaOnly (the default of the former smaliFallback=true).</summary>
+    [Fact]
+    public async Task DecompileJava_SmaliFallbackByDefault_JavaOnlyTurnsItOff()
+    {
+        var (service, env) = Fake();
+        using (env)
+        using (service)
+        {
+            var dex = new DexService();
+            var tools = new Corvus.Tools.AndroidTools(new AndroidPackageService(), dex, service, new JavaDotNetMap(new AssemblyWorkspace(), dex), new JniBindings(dex),
+                new OutputPager(new ServerOptions()));
+            var apk = Apk();
+            bool Sent() => (bool)_fake.Calls.OfType<JsonObject>().Last(c => (string?)c["tool"] == "get_class_source")["arguments"]!["smali_fallback"]!;
+            await tools.DecompileJava(apk, "com.example.app.Main");
+            Assert.True(Sent());
+            await tools.DecompileJava(apk, "com.example.app.Main", javaOnly: true);
+            Assert.False(Sent());
         }
     }
 

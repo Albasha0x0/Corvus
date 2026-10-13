@@ -185,12 +185,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("The .json edit script.")] string path,
         [Description("Target assembly; omit for the one named in the script.")] string? assembly = null,
         [Description("Default true: apply every edit (compiled, stack-checked), report, roll back; pass dryRun=false to keep them.")] bool dryRun = true,
-        [Description("Roll everything back on the first failure.")] bool stopOnError = true,
+        [Description("Apply the edits that succeed; default: roll all back on the first failure.")] bool continueOnError = false,
         [Description("same: only the script's build; other: another build, symbols re-resolved by name.")] string targetBuild = "same",
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => WithProgress(context, () => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
     {
-        var run = history.Run(path, assembly, dryRun, stopOnError, cancellationToken, EditHistoryService.ParseTargetBuild(targetBuild));
+        var run = history.Run(path, assembly, dryRun, !continueOnError, cancellationToken, EditHistoryService.ParseTargetBuild(targetBuild));
         // A failure that rolled everything back, or a script whose every edit failed, applied nothing: an error with each edit's outcome.
         if (run.Items.Count > 0 && (run.RolledBack || run.Failed == run.Items.Count))
         {
@@ -198,7 +198,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             throw new ToolError(ErrorCode.Failed,
                 $"{(run.RolledBack ? $"Edit #{first.Index} failed and the script was rolled back" : $"All {run.Items.Count} edit(s) failed")}; nothing was applied. " +
                 $"#{first.Index} ({first.Description}): {first.Error!.Message}",
-                $"fix edit #{first.Index} of {Path.GetFileName(path)}{(run.RolledBack ? ", or pass stopOnError=false to apply the others" : "")}; then call apply_edits again")
+                $"fix edit #{first.Index} of {Path.GetFileName(path)}{(run.RolledBack ? ", or pass continueOnError=true to apply the others" : "")}; then call apply_edits again")
             {
                 Partial = new { applied = 0, failed = run.Failed, rolledBack = run.RolledBack, items = run.Items },
             };

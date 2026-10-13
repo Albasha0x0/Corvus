@@ -208,7 +208,7 @@ internal sealed class NativeToolHarness : IDisposable
         {
             var s = index.Strings[index.Strings.Count / 2];
             await Run(path, "find_xrefs", "string", ct => CodeTools.FindXrefs(id, Va(s.Rva), cancellationToken: ct), mustSucceed: true);
-            await Run(path, "disassemble", "raw at string", ct => CodeTools.Disassemble(id, Va(s.Rva), function: false, maxInstructions: 64, cancellationToken: ct), mustSucceed: decoded);
+            await Run(path, "disassemble", "raw at string", ct => CodeTools.Disassemble(id, Va(s.Rva), fromAddress: true, maxInstructions: 64, cancellationToken: ct), mustSucceed: decoded);
             await Run(path, "inspect_instruction", "string interior", ct => CodeTools.InspectInstruction(id, Va(s.Rva + 1), limit: 8, cancellationToken: ct), mustSucceed: operands);
         }
         // Arbitrary addresses: every section start and the last byte of the image.
@@ -221,7 +221,7 @@ internal sealed class NativeToolHarness : IDisposable
             await Run(path, "get_cfg", "section " + section.Name, ct => CodeTools.GetCfg(id, at, cancellationToken: ct));
             await Run(path, "inspect_instruction", "section " + section.Name, ct => CodeTools.InspectInstruction(id, at, limit: 16, cancellationToken: ct), mustSucceed: operands);
         }
-        await Run(path, "disassemble", "image end", ct => CodeTools.Disassemble(id, $"rva:0x{pe.SizeOfImage - 1:X}", function: false, cancellationToken: ct), mustSucceed: decoded);
+        await Run(path, "disassemble", "image end", ct => CodeTools.Disassemble(id, $"rva:0x{pe.SizeOfImage - 1:X}", fromAddress: true, cancellationToken: ct), mustSucceed: decoded);
         await Run(path, "inspect_instruction", "image end", ct => CodeTools.InspectInstruction(id, $"rva:0x{pe.SizeOfImage - 1:X}", limit: 4, cancellationToken: ct), mustSucceed: operands);
 
         if (ida && Engines.Providers[0].CheckAvailability().IsAvailable && pe.EntryPointRva != 0)

@@ -655,6 +655,19 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.Contains("Zonk", await tools.Disassemble(h.Path, "Zonk"));
     }
 
+    /// <summary>disassemble lists the whole containing function unless fromAddress (the default of the former function=true).</summary>
+    [Fact]
+    public async Task Disassemble_WholeFunctionByDefault_FromAddressIsLinear()
+    {
+        using var h = new Harness();
+        var (native, index) = await h.Open();
+        var fn = index.FunctionAt(native.Image.EntryPointRva)!;
+        var tools = new NativeCodeTools(h.Env.Workspace, h.Code, h.Env.Pager);
+        var at = $"rva:0x{fn.Start:X}";
+        Assert.Contains($"bytes, {fn.BlockCount} block", await tools.Disassemble(h.Path, at));
+        Assert.Contains("; 3 instructions from", await tools.Disassemble(h.Path, at, fromAddress: true, maxInstructions: 3));
+    }
+
     [Fact]
     public async Task Rename_RejectsBadNamesAndDuplicates()
     {

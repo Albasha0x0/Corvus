@@ -65,7 +65,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
     public Task<string> DumpStack(
         [Description(DumpDescription)] string dump,
         [Description("Thread id, '#index', name or 'exception'. Default: the faulting thread, else the first.")] string? thread = null,
-        [Description("Faulting thread: start at the exception context (.ecxr); false: its context at dump time.")] bool exceptionContext = true,
+        [Description("Faulting thread: its context at dump time, not the exception context (.ecxr).")] bool dumpTimeContext = false,
         [Description("Max frames walked (up to 1024).")] int maxFrames = 256,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
@@ -74,7 +74,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var r = await dumps.Stack(dump, thread, exceptionContext, maxFrames, offset, limit, imageDirectories,
+        var r = await dumps.Stack(dump, thread, !dumpTimeContext, maxFrames, offset, limit, imageDirectories,
             !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), cancellationToken);
         var header = $"{r.Dump} thread {r.ThreadId}{(r.ThreadName != null ? $" \"{r.ThreadName}\"" : "")}, {r.Architecture}, from the {r.Context} context; walk ended: {r.Stop}" +
                      (r.ScannedFrames > 0 ? $"; {r.ScannedFrames} scanned" : "") + (r.Managed != null ? $"; managed frames: {r.Managed}" : "") + "\n" +
@@ -116,17 +116,17 @@ public sealed class MinidumpTools(MinidumpService dumps)
 
     [McpServerTool(Name = "read_dump_memory", Title = "Read crash dump memory", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.MemoryRead))]
     [Description("Hex dump of a dump's memory at an address with what is there (module!function, captured range, protection). " +
-                 "imageFallback fills bytes the dump lacks from the module image (writable data shows initial values).")]
+                 "Bytes the dump lacks come from the module image (writable data shows initial values) unless dumpOnly.")]
     public Task<string> ReadDumpMemory(
         [Description(DumpDescription)] string dump,
         [Description("Hex address, 'module+0x1234', or a module name (its base).")] string address,
         [Description("Bytes to read (up to 65536).")] int length = 256,
-        [Description("Read bytes the dump does not hold from the module image.")] bool imageFallback = true,
+        [Description("Only the bytes the dump holds, none from the module image.")] bool dumpOnly = false,
         [Description("Byte offset into the read (a page's nextOffset).")] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var read = await dumps.ReadBytes(dump, address, length, imageFallback, cancellationToken);
+        var read = await dumps.ReadBytes(dump, address, length, !dumpOnly, cancellationToken);
         return MemoryPage(read, offset);
     }, cancellationToken);
 

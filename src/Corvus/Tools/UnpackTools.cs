@@ -18,14 +18,14 @@ public sealed class UnpackTools(UnpackService unpacker)
     public Task<string> UnpackContainer(
         [Description("Container file, or a Blazor _framework folder.")] string path,
         [Description("New or empty directory, or an earlier unpack of this file; default under temp.")] string? outputDirectory = null,
-        [Description("Load the extracted assemblies (ids in loadedAs).")] bool load = true,
+        [Description("Extract without loading the assemblies; default: loaded, ids in loadedAs.")] bool extractOnly = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
             int step = 0;
-            var report = await Task.Run(() => unpacker.Unpack(path, outputDirectory, load, AnalysisLimits.Default, cancellationToken,
+            var report = await Task.Run(() => unpacker.Unpack(path, outputDirectory, !extractOnly, AnalysisLimits.Default, cancellationToken,
                 message => progress.Report(new ProgressNotificationValue { Progress = ++step, Message = message })), cancellationToken);
             return ContainerText.Unpack(report, offset, ClampLimit(limit));
         });

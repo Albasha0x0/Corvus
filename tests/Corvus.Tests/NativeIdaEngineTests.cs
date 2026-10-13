@@ -126,7 +126,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.Contains($"{pe.ImageBase + export.Rva:X}", asm);
         Assert.Matches(@"(?m)^  [0-9A-F]+  [0-9A-F]{8} +\S", asm); // ARM64: 4-byte instructions
 
-        var linear = await tools.Disassemble(id, export.Name!, function: false, maxInstructions: 5, engine: "ida");
+        var linear = await tools.Disassemble(id, export.Name!, fromAddress: true, maxInstructions: 5, engine: "ida");
         Assert.Equal(5, linear.Split('\n').Count(l => l.StartsWith("  ", StringComparison.Ordinal)));
 
         var cfg = await tools.GetCfg(id, export.Name!, engine: "ida");

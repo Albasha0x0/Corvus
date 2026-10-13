@@ -65,7 +65,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
         [Description("Change kinds to list (unknown: unpaired for lack of evidence); default all except address.")] string[]? changes = null,
-        [Description("List added and removed type names (else counts).")] bool listAddedRemovedTypes = true,
+        [Description("Count added and removed types without listing them.")] bool typeCountsOnly = false,
         [Description("Also list compiler-generated types and members (closures, state machines).")] bool includeCompilerGenerated = false,
         [Description("Keep the whole old -> new token map as a result (tokenMapResultId).")] bool tokenMap = false,
         [Description(RowOffsetDescription)] int offset = 0,
@@ -140,7 +140,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         foreach (var t in ambiguousTypes)
             rows.Add((TypeItem(t), $"Ambiguous types ({ambiguousTypes.Count}; several new types match equally well):",
                 $"{t.Old!.FullName} -> {string.Join(" | ", t.Candidates!.Select(c => c.FullName))}"));
-        if (listAddedRemovedTypes)
+        if (!typeCountsOnly)
             foreach (var change in new[] { "removed", "added" })
             {
                 var list = types.Where(t => t.Change == change).ToList();

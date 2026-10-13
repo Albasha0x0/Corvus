@@ -445,7 +445,7 @@ public sealed partial class DeviceService(ServerOptions options)
                 throw code switch
                 {
                     "INSTALL_FAILED_VERSION_DOWNGRADE" => new ToolError(ErrorCode.Conflict, $"install failed: {failure.Value}", "pass downgrade=true"),
-                    "INSTALL_FAILED_ALREADY_EXISTS" => new ToolError(ErrorCode.Conflict, $"install failed: {failure.Value}", "pass replace=true"),
+                    "INSTALL_FAILED_ALREADY_EXISTS" => new ToolError(ErrorCode.Conflict, $"install failed: {failure.Value}", "pass keepInstalled=false to replace it"),
                     "INSTALL_FAILED_UPDATE_INCOMPATIBLE" => new ToolError(ErrorCode.Conflict, $"install failed: {failure.Value}", "the installed app has another signature: uninstall it first"),
                     var c when c.StartsWith("INSTALL_PARSE_FAILED", StringComparison.Ordinal) => new ToolError(ErrorCode.MalformedInput, $"install failed: {failure.Value}"),
                     _ => new ToolError(ErrorCode.Failed, $"install failed: {failure.Value}"),

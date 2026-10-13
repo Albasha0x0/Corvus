@@ -148,6 +148,18 @@ public sealed class DeviceTests : IDisposable
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => allowed.Uninstall("com.missing", false, null, default)).Code);
     }
 
+    /// <summary>install_android_package replaces an installed app unless keepInstalled (the default of the former replace=true).</summary>
+    [Fact]
+    public async Task InstallReplacesByDefault_KeepInstalledDoesNot()
+    {
+        var apk = AndroidSamples.Save(_dir, "app.apk", AndroidSamples.Apk());
+        var tools = new Corvus.Tools.DeviceTools(Service(allowChanges: true));
+        await tools.InstallAndroidPackage(apk);
+        Assert.Equal(["-s", FakeDevice.Serial, "install-multiple", "-r", apk], _fake.ArgumentLists.Last());
+        await tools.InstallAndroidPackage(apk, keepInstalled: true);
+        Assert.Equal(["-s", FakeDevice.Serial, "install-multiple", apk], _fake.ArgumentLists.Last());
+    }
+
     [Fact]
     public void WithoutAdb_ProviderUnavailableNamingTheVariable()
     {

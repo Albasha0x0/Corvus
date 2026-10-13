@@ -247,7 +247,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     public async Task<string> DecompileJava(
         [Description("An .apk, .aab or split set, a .dex, or a jar (DEX or .class files).")] string path,
         [Description("A class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)).")] string symbol,
-        [Description("Return smali where JADX fails.")] bool smaliFallback = true,
+        [Description("Partial Java where JADX fails; default: smali there.")] bool javaOnly = false,
         [Description("Decompiler.")] string? engine = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -259,7 +259,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         var text = await OrderedProgress.Run(context, progress =>
         {
             progress.Report(new ProgressNotificationValue { Progress = 0, Message = "JADX: starting and loading the package (once per package)" });
-            return Task.Run(() => java.Decompile(path, symbol, smaliFallback, cancellationToken), cancellationToken);
+            return Task.Run(() => java.Decompile(path, symbol, !javaOnly, cancellationToken), cancellationToken);
         }).ConfigureAwait(false);
         return pager.Page(text, offset, maxTokens);
     }

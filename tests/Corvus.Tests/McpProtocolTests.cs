@@ -258,7 +258,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["get_android_resource"] = (new() { ["path"] = dir.File("app.apk"), ["name"] = "@xml/network_security_config" }, "example.com</domain>"),
         ["unity_overview"] = (new() { ["path"] = UnityOverviewTests.MonoSample(dir) }, "\"kind\":\"mono\""),
         ["search_container"] = (new() { ["path"] = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), ["query"] = "LZ4Codec", ["kind"] = "type" }, "K4os.Compression.LZ4.LZ4Codec"),
-        ["unpack_container"] = (new() { ["path"] = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), ["outputDirectory"] = dir.File("unpack"), ["load"] = false }, "NuGet package"),
+        ["unpack_container"] = (new() { ["path"] = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), ["outputDirectory"] = dir.File("unpack"), ["extractOnly"] = true }, "NuGet package"),
         ["get_il2cpp_info"] = (new() { ["symbol"] = "NativeThing" }, "RVA=0x1100"),
         ["find_method_by_address"] = (new() { ["address"] = "1004" }, "NativeThing::First"),
         ["rename_symbol"] = (new() { ["symbol"] = "Account", ["newName"] = "Customer", ["dryRun"] = true }, "Dry run"),

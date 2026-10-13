@@ -106,12 +106,12 @@ public sealed class DeviceTools(DeviceService devices)
                  "INSTALL_FAILED_ code. Changes the device: needs the server option --allow-device-changes.")]
     public Task<string> InstallAndroidPackage(
         [Description("An .apk, split set or folder of APKs.")] string path,
-        [Description("Replace an installed app.")] bool replace = true,
+        [Description("Fail when the app is installed instead of replacing it.")] bool keepInstalled = false,
         [Description("Allow a lower version code.")] bool downgrade = false,
         [Description("Grant all requested runtime permissions.")] bool grantPermissions = false,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() => Outcome(devices.Install(path, replace, downgrade, grantPermissions, serial, cancellationToken)), cancellationToken);
+        Task.Run(() => Outcome(devices.Install(path, !keepInstalled, downgrade, grantPermissions, serial, cancellationToken)), cancellationToken);
 
     /// <summary>A device change as an edit outcome: the package (or the device when unknown) and its version code after an install.</summary>
     private static string Outcome(DeviceChange c) =>

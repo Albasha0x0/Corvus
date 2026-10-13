@@ -181,13 +181,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code", UseStructuredContent = true, OutputSchemaType = typeof(DisassemblyPage))]
     [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +
-                 "when it is in no function or function=false. References and NativeAOT loads are named, strings shown as comments, calls commented " +
+                 "when it is in no function or fromAddress=true. References and NativeAOT loads are named, strings shown as comments, calls commented " +
                  "with their recovered arguments. Data in the way (strings, pointers, IAT slots, switch tables, gaps) is rendered as data; warnings " +
                  "(mid-instruction, data, bss) repeat in a footer.")]
     public Task<string> Disassemble(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("The whole containing function; false: maxInstructions from the address.")] bool function = true,
+        [Description("maxInstructions from the address, not the whole containing function.")] bool fromAddress = false,
         [Description("Max instructions.")] int maxInstructions = 2000,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -202,7 +202,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (choice.External)
         {
             var at = Address(index, address);
-            var listing = await _engine!.Disassemble(native, index, at, function, max, offset, maxTokens, choice, progress, cancellationToken);
+            var listing = await _engine!.Disassemble(native, index, at, !fromAddress, max, offset, maxTokens, choice, progress, cancellationToken);
             if (OutputCall.Current is { } call)
             {
                 call.Record = new DisassemblyPage("", offset, null, 0) { Image = native.Id, Address = NativeAddress.Va(index.Image, at), Engine = choice.Engine };
@@ -212,13 +212,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         }
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var rva = Address(index, address);
-        var fn = function ? index.FunctionAt(rva) : null;
+        var fn = fromAddress ? null : index.FunctionAt(rva);
         var text = pager.GetOrCreate($"disasm|{index.Image.Sha256}|{(fn != null ? "f" + fn.Start : "r")}{rva}|{max}|{index.Sourced.Version}", () =>
         {
             var sb = new StringBuilder();
             var classifier = new AddressClassifier(index);
             var warnings = new List<string>();
-            if (StartWarning(classifier, rva, cancellationToken) is { } start && !(function && fn == null && start.StartsWith("note:", StringComparison.Ordinal)))
+            if (StartWarning(classifier, rva, cancellationToken) is { } start && (fromAddress || fn != null || !start.StartsWith("note:", StringComparison.Ordinal)))
             {
                 sb.AppendLine("; " + start);
                 if (start.StartsWith("warning:", StringComparison.Ordinal)) warnings.Add(start);
@@ -235,7 +235,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             }
             else
             {
-                sb.AppendLine($"; {Plural(max, "instruction")} from {NativeAddress.Va(index.Image, rva)}" + (function ? " (no function contains it)" : ""));
+                sb.AppendLine($"; {Plural(max, "instruction")} from {NativeAddress.Va(index.Image, rva)}" + (fromAddress ? "" : " (no function contains it)"));
                 AppendLinear(sb, index, classifier, rva, max, warnings, cancellationToken);
             }
             if (warnings.Count > 0) sb.Append("; warnings:\n").AppendJoin("", warnings.Select(w => $";   {w}\n"));
