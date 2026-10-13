@@ -65,11 +65,10 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     private const int MaxBatch = 16;
 
     [McpServerTool(Name = "analyze_native_function", Title = "Native function dossier", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDossier))]
-    [Description("Everything known about one native function, in sections bounded by maxItems with totals: identity (names, sources, ranges, flags, " +
-                 "prototypes, vftable slots), signature (parameters read at entry, this class, result use), frame (unwind, saved registers, " +
-                 "address-taken locals, EH), callers (edge kinds, other images, roots), callees (targets, basis, arguments), data (strings, globals, " +
-                 "import slots), flow (blocks, loops, switches, complexity), annotations. Optional: constants, params (values callers pass), " +
-                 "pseudocode. Several addresses: a dossier each, or with component=true how they work together.")]
+    [Description("Everything known about one native function, in sections bounded by maxItems with totals: identity (names, ranges, flags, " +
+                 "prototypes, vftable slots), signature (parameters, this class, result use), frame (unwind, saved registers, locals, EH), callers, " +
+                 "callees (targets, basis, arguments), data (strings, globals, import slots), flow (blocks, loops, switches), annotations. Optional: " +
+                 "constants, params (values callers pass), pseudocode. Several addresses: a dossier each, or component=true for how they interact.")]
     public Task<string> AnalyzeNativeFunction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An address inside the function, or up to 16 comma-separated: " + NativeTools.AddressDescription)] string address,

@@ -36,11 +36,10 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
     }
 
     [McpServerTool(Name = "get_native_type", Title = "Native type layout", UseStructuredContent = true, OutputSchemaType = typeof(NativeTypeReport))]
-    [Description("A native type's layout (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI (bases, " +
-                 "vftables with named slots), Il2Cpp layouts (after apply_il2cpp_names), Mach-O ObjC classes and Swift types or the engine's types (source=engine opens IDA or Ghidra; auto " +
-                 "reads an analyzed one for names the others lack). By name (exact, case-insensitive, then substring candidates), id, or typed address " +
-                 "(a PDB global gives the field path, e.g. g.players[3].pos.y; also vftables and Il2Cpp metadata slots). read=true adds each field's " +
-                 "value from the image's bytes (pointers named, strings, enumerators, bit fields); no engine needed.")]
+    [Description("A native type's layout (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI " +
+                 "(vftables with named slots), Il2Cpp, ObjC and Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, " +
+                 "substring candidates, or a glob listing matches), id, or typed address (a PDB global gives the field path, e.g. g.players[3].pos.y). " +
+                 "read=true adds each field's value from the image's bytes.")]
     public Task<string> GetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Type name (Packet, ns::Widget, Ns.Type for Il2Cpp), or a glob listing the matches (_IMAGE_*, *Widget*).")] string? name = null,

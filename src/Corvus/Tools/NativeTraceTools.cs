@@ -85,12 +85,10 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                                         "op1 / op2 (an operand of the instruction) or result (the value the call at address returns)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
-    [Description("Traces a value through native code (x86 / x64 / ARM) across functions. Backward (where it comes from): constants, strings, function " +
-                 "pointers, API results, through copies, stack slots, merges and loops; parameters bind to every caller's argument, call results to " +
-                 "the callee's returns, writable globals to their writers and initial contents. Forward (where it goes): API arguments (decoded), " +
-                 "callees' parameters, globals and their readers, returns, compares, switch indexes, dereferences. Crosses loaded images through " +
-                 "imports and exports, struct fields through parameter types. What the budgets leave out is a frontier entry with the follow-up call; " +
-                 "pages reuse the built graph.")]
+    [Description("Traces a value through native code (x86 / x64 / ARM) across functions. Backward: constants, strings, function pointers, API " +
+                 "results, through copies, stack slots, merges and loops; parameters bind to every caller's argument, call results to the callee's " +
+                 "returns, globals to their writers. Forward: API arguments, callees' parameters, globals and their readers, returns, compares, " +
+                 "switch indexes, dereferences. Crosses loaded images; what the budgets leave out is a frontier entry with the follow-up call.")]
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An instruction, a call, a function start (with argument) or a writable global. " + NativeTools.AddressDescription)] string address,

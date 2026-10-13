@@ -49,11 +49,10 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [property: Description("Coverage notes.")] IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_virtual_calls", Title = "Native virtual calls", UseStructuredContent = true, OutputSchemaType = typeof(VirtualCallReport))]
-    [Description("Virtual call sites resolved through RTTI (MSVC or Itanium) or NativeAOT MethodTables: calls through a vftable slot, also through stack spills, this " +
-                 "adjustments and CFG dispatch. The receiver's class comes from a vftable stored into the object (also by its constructor), this of " +
-                 "a virtual method, or decorated names; the slot's implementations in it and its derived classes are the targets: one is exact, " +
-                 "several possible, else unresolved with the reason. The edges feed the call graph tools. crossCheck=true compares a sample with " +
-                 "IDA (else Ghidra) and reports the agreement rate.")]
+    [Description("Virtual call sites resolved through RTTI (MSVC or Itanium) or NativeAOT MethodTables: calls through a vftable slot, also through " +
+                 "stack spills, this adjustments and CFG dispatch. The receiver's class comes from a vftable stored into the object, this of a virtual " +
+                 "method, or decorated names; the slot's implementations are the targets: one is exact, several possible, else unresolved with the " +
+                 "reason. crossCheck=true compares a sample with IDA (else Ghidra).")]
     public async Task<string> FindVirtualCalls(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only sites in this function: " + NativeTools.AddressDescription)] string? function = null,

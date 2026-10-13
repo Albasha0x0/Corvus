@@ -31,7 +31,6 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private EngineChoice Choose((EngineMode Mode, bool Named) mode, LoadedNative native, NativeCodeIndex index) =>
         NativeEngineCode.Choose(mode.Mode, mode.Named, engines, native, index);
 
-    private const string IndexNote ="The first call on an image waits for its code index (seconds; minutes for a very large image).";
 
     /// <summary>Loads the image if given by path, waits for its index, and resolves the address (names include functions).</summary>
     private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, RequestContext<CallToolRequestParams>? context,
@@ -108,7 +107,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
     [Description("Functions of a native image (x86 / x64 / ARM): address, size, name (user, PDB, Il2Cpp, export, module!import thunk or sub_<rva>), " +
                  "flags (thunk, arm (A32), noreturn, unresolved jumps, invalid code, funclets and exception chunks), how it was found and its caller " +
-                 "count; an exact name filter adds an open engine's function record. " + IndexNote)]
+                 "count; an exact name filter adds an open engine's function record.")]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
@@ -168,9 +167,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code")]
     [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +
-                 "when it is in no function or function=false. References are named, strings shown as comments, calls commented with their recovered " +
-                 "arguments (see get_call_arguments); NativeAOT string loads and vtable slots are named too. Data in the way (strings, pointers, IAT " +
-                 "slots, switch tables, gaps between blocks) is rendered as data; warnings (mid-instruction, data, bss) repeat in a footer. " + IndexNote)]
+                 "when it is in no function or function=false. References and NativeAOT loads are named, strings shown as comments, calls commented " +
+                 "with their recovered arguments. Data in the way (strings, pointers, IAT slots, switch tables, gaps) is rendered as data; warnings " +
+                 "(mid-instruction, data, bss) repeat in a footer.")]
     public Task<string> Disassemble(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -244,7 +243,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph", UseStructuredContent = true, OutputSchemaType = typeof(CfgReport))]
     [Description("Basic blocks of the native function containing an address: range, instruction count, how each ends and its successors; switch " +
-                 "tables with values per target; unresolved indirect jumps with the reason. " + IndexNote)]
+                 "tables with values per target; unresolved indirect jumps with the reason.")]
     public Task<string> GetCfg(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -299,7 +298,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                  "Callers of module!import: the functions calling through it. Imports continue into loaded providers' exports; callers span " +
                  "loaded images. Callees include GetProcAddress pointers ([dynamic]) and RTTI virtual targets " +
                  "([virtual], [virtual?: one of n]). Repeats are not expanded; frontier lists nodes cut by depth or maxNodes. " +
-                 "direction=both: one level each way by call site. " + IndexNote)]
+                 "direction=both: one level each way by call site.")]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
@@ -411,7 +410,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]
     [Description("Strings (ASCII and UTF-16) a native image's code or data references, with address, reference count and first referencing " +
                  "function. Also Il2Cpp literals (after apply_il2cpp_names) and NativeAOT frozen strings, by the slot or object code loads; with an " +
-                 "engine, its unreferenced strings in other encodings too. " + IndexNote)]
+                 "engine, its unreferenced strings in other encodings too.")]
     public Task<string> SearchNativeStrings(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Case-insensitive substring, or a regex with regex=true; omit to list all.")] string? query = null,

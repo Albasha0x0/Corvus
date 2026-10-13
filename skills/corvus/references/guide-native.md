@@ -3,6 +3,7 @@
 <!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
 Native files (PE .exe/.dll/.sys without .NET metadata, ELF, Mach-O; x86, x64, ARM64 and 32-bit ARM / Thumb): load_assembly the file, or pass its path as image.
+The first code tool call on an image waits for its code index (seconds; minutes for a very large image); progress reports the phase.
 Overview: get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed; capability groups;
 code statistics once the index is built), list_imports
 (includeDynamic=true adds GetProcAddress imports; bind=true shows each binding), list_exports (MSVC names demangled),

@@ -102,10 +102,9 @@ public sealed partial class NativeCodeTools
 
     [McpServerTool(Name = "inspect_instruction", Title = "Inspect native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionReport))]
     [Description("What is at an address of a native image, instruction by instruction: decoded, mid_instruction (with the covering one), data " +
-                 "(string, IAT / GOT slot, switch table, pointer, literal; with its extent), not_in_function, unmapped, outside_image or invalid. " +
-                 "For an instruction: bytes, prefixes, encoding, CPU features; operands (kind, size, access, registers, memory parts, effective " +
-                 "address named); registers and flags read and written; memory accesses; stack change; flow; references from and to; a call's " +
-                 "arguments; a switch's table. count > 1 walks forward. Other instruction sets through IDA or Ghidra (fields they lack are null). " + IndexNote)]
+                 "(string, IAT / GOT slot, switch table, pointer, literal), not_in_function, unmapped, outside_image or invalid. An instruction: " +
+                 "bytes, prefixes, encoding; operands (kind, size, access, registers, memory parts); registers and flags read and written; memory " +
+                 "accesses; stack change; flow; references; a call's arguments; a switch's table. count > 1 walks forward.")]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,

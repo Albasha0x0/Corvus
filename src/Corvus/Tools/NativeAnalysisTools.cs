@@ -156,12 +156,10 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", UseStructuredContent = true)]
-    [Description("Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of their libraries, with the " +
-                 "runtime's lookup rules: DLL search order, API sets, A/W suffixes, stdcall decoration, ordinals and forwarders; for Linux/macOS/" +
-                 "Android/iOS targets (platform=, or detected) .so/.dylib probing along the RID chain and __Internal in an Il2Cpp binary. Verdict " +
-                 "per declaration with a reason code: verified, contradicted (e.g. missing_export, arch_mismatch), unresolved (e.g. dll_not_found " +
-                 "with places searched), dynamic_only (loaded by the assembly itself), not_checked (runtime-internal). Run-time loading " +
-                 "found in the IL is listed too.")]
+    [Description("Check a .NET assembly's P/Invoke declarations against the exports of their libraries, with the runtime's lookup rules (search " +
+                 "order, API sets, A/W suffixes, stdcall decoration, ordinals, forwarders; .so/.dylib probing along the RID chain, __Internal in " +
+                 "Il2Cpp). Verdict per declaration with a reason: verified, contradicted (missing_export, arch_mismatch), unresolved (dll_not_found " +
+                 "with places searched), dynamic_only, not_checked. Run-time loading found in the IL is listed too.")]
     public Task<NativeImportReport> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only declarations with this status or reason code (e.g. contradicted, missing_export).")] string? status = null,

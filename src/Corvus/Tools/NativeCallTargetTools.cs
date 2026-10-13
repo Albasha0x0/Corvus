@@ -52,11 +52,10 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "resolve_call_targets", Title = "Native call targets", UseStructuredContent = true, OutputSchemaType = typeof(CallTargetsReport))]
-    [Description("Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with its basis and confidence: direct branches, import and " +
-                 "GOT slots, thunks, constant pointers (also through CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT dispatch cells, " +
-                 "global function pointers' writers, relocated pointer tables, and with deep=true pointers callers pass in. Several targets are listed, " +
-                 "never collapsed; unresolved sites carry the reason and the trace_native_values call to follow. engine=ida or ghidra merges that " +
-                 "engine's targets (a disagreement is ambiguous).")]
+    [Description("Targets of call and tail-jump sites in native code (x86 / x64 / ARM) with basis and confidence: direct branches, import and GOT " +
+                 "slots, thunks, constant pointers (also through CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT dispatch cells, " +
+                 "global function pointers' writers, pointer tables; deep=true: pointers callers pass in. Unresolved sites carry the reason and the " +
+                 "trace_native_values call to follow. engine=ida or ghidra merges that engine's targets.")]
     public Task<string> ResolveCallTargets(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call instruction, or an address in a function (its sites): " + NativeTools.AddressDescription)] string? address = null,

@@ -36,11 +36,10 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
     }
 
     [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols")]
-    [Description("Load the PDB of a native image: function and data names (publics, globals, procedures, thunks), checked against the image's GUID " +
-                 "and age. Searched: path, the image's folder, its recorded path, _NT_SYMBOL_PATH, the Visual Studio / WinDbg / IDA caches and " +
-                 "C:\\symbols; download=true fetches it from a symbol server into a per-user cache. Names show as source 'pdb' everywhere (user " +
-                 "names win); missed functions become function starts; decompile_native loads its types. A matching local PDB is read automatically " +
-                 "anyway. The names are saved with the image's annotations and reapplied when the file loads again; clear=true removes them.")]
+    [Description("Load the PDB of a native image: function and data names (publics, globals, procedures, thunks), checked against its GUID and " +
+                 "age. Searched: path, the image's folder, its recorded path, _NT_SYMBOL_PATH, the debugger caches and C:\\symbols; download=true " +
+                 "fetches it from a symbol server. Names show as source 'pdb' (user names win); missed functions become function starts. A matching " +
+                 "local PDB is read automatically. Names are saved and reapplied when the file loads again; clear=true removes them.")]
     public Task<string> LoadPdb(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("PDB file, or a directory (or symbol store) to look in first.")] string? path = null,

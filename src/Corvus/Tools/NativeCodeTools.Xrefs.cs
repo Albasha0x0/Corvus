@@ -24,10 +24,9 @@ public sealed partial class NativeCodeTools
 
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
     [Description("What references a native address: calls (also via import slots and thunks), jumps, data reads/writes, address-taken uses, " +
-                 "switch tables, relocated pointers, each with its function and, for calls, recovered arguments; for a virtual method, RTTI " +
-                 "virtual call sites. An import (module!name): call sites and binding; an export: also callers in other loaded images; a " +
-                 "GetProcAddress import: where it is resolved. direction=from: what the address (or function) references. A struct member " +
-                 "(Type::member, Type+0x18): its uses in the pseudocode of functions whose prototype names the type, via IDA or Ghidra. " + IndexNote)]
+                 "switch tables, relocated pointers, each with its function and, for calls, recovered arguments; RTTI virtual call sites. An " +
+                 "import (module!name): call sites and binding; an export: also callers in other loaded images. direction=from: what it " +
+                 "references. A struct member (Type::member, Type+0x18): its uses in typed pseudocode, via IDA or Ghidra.")]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Or a struct member: Type::member, Type.member, Type+0xOFFSET.")] string? address = null,
