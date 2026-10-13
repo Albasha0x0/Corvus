@@ -41,26 +41,55 @@
       "items": {
         "type": "object",
         "properties": {
-          "pattern": {
+          "target": {
             "type": "string"
           },
-          "total": {
-            "type": "integer"
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/properties/items/items"
-            }
+          "value": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/properties/items/items"
+                }
+              }
+            },
+            "required": [
+              "total",
+              "items"
+            ]
           },
           "error": {
-            "type": "string"
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "next"
+            ]
           }
         },
         "required": [
-          "pattern"
+          "target"
         ]
       }
+    },
+    "failed": {
+      "description": "With patterns: how many failed.",
+      "type": "integer"
     },
     "limit": {
       "type": "integer"

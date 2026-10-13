@@ -108,6 +108,7 @@ public sealed partial class NativeCodeTools
                 engineTo[rva] = new XrefPart(via.Title, via.Rows, via.Target, null);
         var sb = new System.Text.StringBuilder(choice.Line + "\n");
         var items = new List<XrefEntry>();
+        var targets = new List<BatchItem<XrefTargetCount>>();
         int total = 0;
         for (int i = 0; i < inputs.Length; i++)
         {
@@ -127,14 +128,27 @@ public sealed partial class NativeCodeTools
                 foreach (var row in page) sb.Append("  ").AppendLine(row);
                 total += rows.Count;
                 if (page.Count > 0) items.AddRange(Xrefs(native.Id, filtered[0].Target, page, 0, page.Count, null, choice).Items.Select(e => e with { Of = inputs[i] }));
+                targets.Add(new(inputs[i], new XrefTargetCount(filtered[0].Target, rows.Count), null));
             }
             catch (ToolError e)
             {
-                sb.AppendLine($"error {ToolError.CodeName(e.Code)}: {e.Message}");
-                items.Add(new XrefEntry(null, null, "error", null, e.Message) { Of = inputs[i] });
+                var error = BatchError.From(e, "find_xrefs");
+                sb.AppendLine($"error {error.Code}: {error.Message}");
+                targets.Add(new(inputs[i], null, error));
+            }
+            catch (Exception e) when (e is not OperationCanceledException and not McpException)
+            {
+                var error = BatchError.Internal(e);
+                sb.AppendLine($"error {error.Code}: {error.Message}");
+                targets.Add(new(inputs[i], null, error));
             }
         }
-        return ToolOutput.With(pager.Page(sb.ToString()), new XrefList(native.Id, $"{inputs.Length} targets", items, offset, total, items.Count < total, null, choice.Engine, choice.Note));
+        var batch = new BatchResult<XrefTargetCount>(targets).ThrowIfAllFailed();
+        if (batch.Failed > 0) sb.AppendLine($"{batch.Failed} of {inputs.Length} failed");
+        return ToolOutput.With(pager.Page(sb.ToString()), new XrefList(native.Id, $"{inputs.Length} targets", items, offset, total, items.Count < total, null, choice.Engine, choice.Note)
+        {
+            Targets = batch.Items, Failed = batch.Failed,
+        });
     }
 
     /// <summary>The kind column of a row in the tool's format, or null for a row of another form.</summary>

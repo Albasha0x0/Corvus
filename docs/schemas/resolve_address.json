@@ -39,13 +39,6 @@
       "description": "The export at the address, or the nearest before it as name+0xN.",
       "type": "string"
     },
-    "lines": {
-      "description": "Everything the text says, line by line.",
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
     "function": {
       "description": "Containing function as name+0xN (code index built).",
       "type": "string"
@@ -72,12 +65,121 @@
         "type": "integer"
       }
     },
-    "more": {
-      "description": "With addresses: the records of the others, in order; a failed one has empty Rva and its error as Lines.",
+    "results": {
+      "description": "With addresses: one item per address, in order, with its record or its error.",
       "type": "array",
       "items": {
-        "$ref": "#"
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object",
+            "properties": {
+              "image": {
+                "type": "string"
+              },
+              "rva": {
+                "type": "string"
+              },
+              "va": {
+                "type": "string"
+              },
+              "fileOffset": {
+                "description": "File offset; null in zero fill or outside the file.",
+                "type": "string"
+              },
+              "section": {
+                "type": "string"
+              },
+              "access": {
+                "description": "rwx of the section.",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "nameSource": {
+                "description": "user, pdb, il2cpp, ...",
+                "type": "string"
+              },
+              "import": {
+                "description": "An IAT slot: module!name.",
+                "type": "string"
+              },
+              "boundTo": {
+                "type": "string"
+              },
+              "export": {
+                "description": "The export at the address, or the nearest before it as name+0xN.",
+                "type": "string"
+              },
+              "function": {
+                "description": "Containing function as name+0xN (code index built).",
+                "type": "string"
+              },
+              "status": {
+                "description": "decoded, mid_instruction, data, not_in_function, unmapped, outside_image or invalid (x86 / x64, code index built).",
+                "type": "string"
+              },
+              "containingInstruction": {
+                "description": "mid_instruction: the instruction covering the address.",
+                "type": "string"
+              },
+              "dataItem": {
+                "description": "The data item covering the address, as kind: text.",
+                "type": "string"
+              },
+              "comment": {
+                "type": "string"
+              },
+              "referencesTo": {
+                "description": "Cross-references to the address by kind.",
+                "$ref": "#/properties/referencesTo"
+              },
+              "results": {
+                "description": "With addresses: one item per address, in order, with its record or its error.",
+                "$ref": "#/properties/results",
+                "items": {}
+              },
+              "failed": {
+                "description": "With addresses: how many failed.",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "image"
+            ]
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "next"
+            ]
+          }
+        },
+        "required": [
+          "target"
+        ]
       }
+    },
+    "failed": {
+      "description": "With addresses: how many failed.",
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -99,9 +201,6 @@
     }
   },
   "required": [
-    "image",
-    "rva",
-    "va",
-    "lines"
+    "image"
   ]
 }

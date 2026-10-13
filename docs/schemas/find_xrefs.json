@@ -61,6 +61,59 @@
       "description": "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).",
       "type": "string"
     },
+    "targets": {
+      "description": "With addresses: one item per target, in order, with its reference count or its error.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object",
+            "properties": {
+              "resolved": {
+                "type": "string"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "resolved",
+              "total"
+            ]
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "next"
+            ]
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    "failed": {
+      "description": "With addresses: how many targets failed.",
+      "type": "integer"
+    },
     "limit": {
       "type": "integer"
     },

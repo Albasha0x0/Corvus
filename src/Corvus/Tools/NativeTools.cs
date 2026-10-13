@@ -378,24 +378,22 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             return ToolOutput.With(single, record);
         }
         if (addresses.Length > 100) throw new ToolError(ErrorCode.InvalidArgument, $"{addresses.Length} addresses; at most 100 per call.", "split the addresses");
-        var text = new StringBuilder();
-        var records = new List<AddressInfo>();
-        foreach (var a in addresses)
+        var texts = new List<string>();
+        var batch = BatchResult.Run(addresses, a =>
         {
-            try
-            {
-                var (one, info) = Resolve(native, a, cancellationToken);
-                text.Append(one);
-                records.Add(info);
-            }
-            catch (ToolError e)
-            {
-                var line = $"{a.Trim()}: error {ToolError.CodeName(e.Code)}: {e.Message}";
-                text.AppendLine(line);
-                records.Add(new AddressInfo(native.Id, "", "", null, null, null, null, null, null, null, null, [line]));
-            }
-        }
-        return ToolOutput.With(text.ToString(), records[0] with { More = records.Skip(1).ToList() });
+            var (one, info) = Resolve(native, a, cancellationToken);
+            texts.Add(one);
+            return info;
+        }, "resolve_address").ThrowIfAllFailed();
+        var text = new StringBuilder();
+        int next = 0;
+        foreach (var item in batch.Items)
+            text.Append(item.Error is { } e ? $"{item.Target.Trim()}: error {e.Code}: {e.Message}\n" : texts[next++]);
+        if (batch.Failed > 0) text.AppendLine($"{batch.Failed} of {batch.Items.Count} failed");
+        return ToolOutput.With(text.ToString(), new AddressInfo(native.Id, null, null, null, null, null, null, null, null, null, null)
+        {
+            Results = batch.Items, Failed = batch.Failed,
+        });
     }, cancellationToken);
 
     /// <summary>resolve_address for one address.</summary>
@@ -430,8 +428,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         return (text, new AddressInfo(native.Id, $"0x{rva:X}", NativeAddress.Va(pe, rva),
             pe.TryRvaToFileOffset(rva, out var fileOffset) ? $"0x{fileOffset:X}" : null, section?.Name, section != null ? Access(section.Access) : null,
             named?.Name, named?.Source.Id(), slot != null ? $"{slot.Module}!{slot.Name ?? "#" + slot.Ordinal}" : null, boundTo,
-            export == null ? null : export.Rva == rva ? export.Name ?? "#" + export.Ordinal : $"{export.Name ?? "#" + export.Ordinal}+0x{rva - export.Rva:X}",
-            text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList())
+            export == null ? null : export.Rva == rva ? export.Name ?? "#" + export.Ordinal : $"{export.Name ?? "#" + export.Ordinal}+0x{rva - export.Rva:X}")
         {
             Function = facets?.Function, Status = facets?.Status, ContainingInstruction = facets?.ContainingInstruction, DataItem = facets?.DataItem,
             Comment = facets?.Comment, ReferencesTo = facets?.References,
@@ -528,27 +525,29 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             return ToolOutput.With(page, new ByteSearch(native.Id, hits.Take(fit).ToList(), offset, total, null));
         }
         if (patterns.Length > 50) throw new ToolError(ErrorCode.InvalidArgument, $"{patterns.Length} patterns; at most 50 per call.", "split the patterns");
-        var report = new StringBuilder();
-        var each = new List<ByteSearchPattern>();
-        for (int i = 0; i < patterns.Length; i++)
+        var batch = BatchResult.Run(patterns, p =>
         {
-            report.Append($"[{i + 1}/{patterns.Length}] {patterns[i]}: ");
-            try
+            var (hits, total) = SearchOne(native, p, text, section, limit, offset, cancellationToken);
+            return new ByteSearchPattern(total, hits);
+        }, "search_bytes").ThrowIfAllFailed();
+        var report = new StringBuilder();
+        for (int i = 0; i < batch.Items.Count; i++)
+        {
+            var item = batch.Items[i];
+            report.Append($"[{i + 1}/{patterns.Length}] {item.Target}: ");
+            if (item.Error is { } e)
             {
-                var (hits, total) = SearchOne(native, patterns[i], text, section, limit, offset, cancellationToken);
-                report.Append(HitHeader(total, offset, hits.Count)).Append('\n');
-                foreach (var h in hits) report.Append("  ").Append(HitRow(h)).Append('\n');
-                if (offset + hits.Count < total) report.Append($"  (more: offset={offset + hits.Count} with this pattern alone)\n");
-                each.Add(new ByteSearchPattern(patterns[i], total, hits, null));
+                report.Append($"error {e.Code}: {e.Message}\n");
+                continue;
             }
-            catch (ToolError e) when (e.Code is ErrorCode.InvalidArgument)
-            {
-                report.Append($"error {ToolError.CodeName(e.Code)}: {e.Message}\n");
-                each.Add(new ByteSearchPattern(patterns[i], null, null, $"{ToolError.CodeName(e.Code)}: {e.Message}"));
-            }
+            var (total, hits) = (item.Value!.Total, item.Value.Items);
+            report.Append(HitHeader(total, offset, hits.Count)).Append('\n');
+            foreach (var h in hits) report.Append("  ").Append(HitRow(h)).Append('\n');
+            if (offset + hits.Count < total) report.Append($"  (more: offset={offset + hits.Count} with this pattern alone)\n");
         }
+        if (batch.Failed > 0) report.AppendLine($"{batch.Failed} of {batch.Items.Count} failed");
         // Past the budget the head is sent and the whole result kept (no single row order to continue).
-        return ToolOutput.With(report.ToString(), new ByteSearch(native.Id, null, null, null, each));
+        return ToolOutput.With(report.ToString(), new ByteSearch(native.Id, null, null, null, batch.Items) { Failed = batch.Failed });
     }, cancellationToken);
 
     /// <summary>One hit of search_bytes.</summary>
@@ -556,11 +555,14 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [property: Description("ASCII or UTF-16, for a text pattern.")] string? Encoding,
         [property: Description("Absent for zero fill, which is not in the file.")] string? FileOffset);
 
-    /// <summary>One pattern of a patterns= call.</summary>
-    public sealed record ByteSearchPattern(string Pattern, long? Total, IReadOnlyList<ByteHit>? Items, string? Error);
+    /// <summary>One pattern of a patterns= call: its hit count and the hits from offset.</summary>
+    public sealed record ByteSearchPattern(long Total, IReadOnlyList<ByteHit> Items);
 
-    /// <summary>search_bytes: the hits of pattern (items), or of each of patterns (patterns, their first hits).</summary>
-    public sealed record ByteSearch(string Image, IReadOnlyList<ByteHit>? Items, int? Offset, long? Total, IReadOnlyList<ByteSearchPattern>? Patterns);
+    /// <summary>search_bytes: the hits of pattern (items), or of each of patterns in order (patterns, with their hits or error).</summary>
+    public sealed record ByteSearch(string Image, IReadOnlyList<ByteHit>? Items, int? Offset, long? Total, IReadOnlyList<BatchItem<ByteSearchPattern>>? Patterns)
+    {
+        [Description("With patterns: how many failed.")] public int? Failed { get; init; }
+    }
 
     private static string HitRow(ByteHit h) =>
         $"{h.Address}  {h.Section}{(h.Encoding != null ? "  " + h.Encoding : "")}{(h.FileOffset != null ? $"  file {h.FileOffset}" : "  (zero fill, not in the file)")}";

@@ -81,7 +81,17 @@ public sealed record XrefEntry(
 public sealed record XrefList(string Image, string Target, IReadOnlyList<XrefEntry> Items, int Offset, int Total, bool Truncated,
     [property: Description("An import slot: the export it is bound to.")] string? BoundTo,
     [property: Description(EngineDoc.Engine)] string Engine,
-    [property: Description(EngineDoc.Note)] string? EngineNote);
+    [property: Description(EngineDoc.Note)] string? EngineNote)
+{
+    [Description("With addresses: one item per target, in order, with its reference count or its error.")]
+    public IReadOnlyList<BatchItem<XrefTargetCount>>? Targets { get; init; }
+
+    [Description("With addresses: how many targets failed.")]
+    public int? Failed { get; init; }
+}
+
+/// <summary>A find_xrefs batch target: the target as resolved and its reference count.</summary>
+public sealed record XrefTargetCount(string Resolved, int Total);
 
 /// <summary>
 /// The record of a text tool (code or a long text paged by characters): the page and where the next one starts (D3).
@@ -115,8 +125,8 @@ public sealed record NativeStringList(string Image, IReadOnlyList<NativeStringEn
 
 public sealed record AddressInfo(
     string Image,
-    string Rva,
-    string Va,
+    string? Rva,
+    string? Va,
     [property: Description("File offset; null in zero fill or outside the file.")] string? FileOffset,
     string? Section,
     [property: Description("rwx of the section.")] string? Access,
@@ -124,8 +134,7 @@ public sealed record AddressInfo(
     [property: Description("user, pdb, il2cpp, ...")] string? NameSource,
     [property: Description("An IAT slot: module!name.")] string? Import,
     string? BoundTo,
-    [property: Description("The export at the address, or the nearest before it as name+0xN.")] string? Export,
-    [property: Description("Everything the text says, line by line.")] IReadOnlyList<string> Lines)
+    [property: Description("The export at the address, or the nearest before it as name+0xN.")] string? Export)
 {
     [Description("Containing function as name+0xN (code index built).")] public string? Function { get; init; }
     [Description("decoded, mid_instruction, data, not_in_function, unmapped, outside_image or invalid (x86 / x64, code index built).")] public string? Status { get; init; }
@@ -133,7 +142,8 @@ public sealed record AddressInfo(
     [Description("The data item covering the address, as kind: text.")] public string? DataItem { get; init; }
     public string? Comment { get; init; }
     [Description("Cross-references to the address by kind.")] public IReadOnlyDictionary<string, int>? ReferencesTo { get; init; }
-    [Description("With addresses: the records of the others, in order; a failed one has empty Rva and its error as Lines.")] public IReadOnlyList<AddressInfo>? More { get; init; }
+    [Description("With addresses: one item per address, in order, with its record or its error.")] public IReadOnlyList<BatchItem<AddressInfo>>? Results { get; init; }
+    [Description("With addresses: how many failed.")] public int? Failed { get; init; }
 }
 
 public sealed record SectionEntry(string Name, string Rva, string VirtualSize, string RawOffset, string RawSize, string Access, double Entropy, IReadOnlyList<string> Characteristics);

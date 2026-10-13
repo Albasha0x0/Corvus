@@ -3,12 +3,18 @@ namespace Corvus.Core;
 /// <summary>The error of one failed batch item (STANDARDS S6.5): code, message and next step, escaped as in error results.</summary>
 public sealed record BatchError(string Code, string Message, string Next)
 {
+    /// <summary>Longest item message in characters: one item's error never crowds out the other items.</summary>
+    public const int MaxMessageChars = 8_000;
+
     public static BatchError From(ToolError error, string? tool = null) =>
-        new(ToolError.CodeName(error.Code), Format.EscapeMarkers(error.Message), Format.EscapeMarkers(error.NextFor(tool)));
+        new(ToolError.CodeName(error.Code), Cap(Format.EscapeMarkers(error.Message)), Format.EscapeMarkers(error.NextFor(tool)));
 
     /// <summary>An exception the item's work did not classify.</summary>
     public static BatchError Internal(Exception ex) =>
-        new("internal", Format.EscapeMarkers($"{ex.GetType().Name}: {ex.Message}"), ToolError.InternalNext);
+        new("internal", Cap(Format.EscapeMarkers($"{ex.GetType().Name}: {ex.Message}")), ToolError.InternalNext);
+
+    private static string Cap(string message) =>
+        message.Length <= MaxMessageChars ? message : message[..(MaxMessageChars - 40)] + $" ... ({message.Length:N0} chars, cut)";
 }
 
 /// <summary>One item of a batch call: the target as given, and its value or its error.</summary>

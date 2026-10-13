@@ -1003,7 +1003,7 @@ What a native address is: RVA, VA, file offset, section and access, nearest expo
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
 
-Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `lines`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `more`.
+Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `results`, `failed`.
 
 ### search_bytes
 
@@ -1021,7 +1021,7 @@ Find a byte pattern in a native image's mapped sections (hex with ?? wildcards, 
 | `offset` | integer |  | `0` | Rows to skip. |
 | `patterns` | string[] |  |  | Instead of pattern: up to 50 patterns. |
 
-Structured output: `image`, `items`, `offset`, `total`, `patterns`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `items`, `offset`, `total`, `patterns`, `failed`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### read_bytes
 
@@ -1180,7 +1180,7 @@ What references a native address: calls (also via import slots and thunks), jump
 | `kind` | string |  |  | any (default); code: calls, jumps; data: reads, writes, pointers, address-taken. Values: any, code, data. |
 | `scope` | string |  |  | Struct member: typed (default) or all (every function; call again to continue). Values: typed, all. |
 
-Structured output: `image`, `target`, `items`, `offset`, `total`, `boundTo`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `target`, `items`, `offset`, `total`, `boundTo`, `engine`, `engineNote`, `targets`, `failed`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### native_call_tree
 
