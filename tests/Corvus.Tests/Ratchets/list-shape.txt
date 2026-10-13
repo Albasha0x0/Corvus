@@ -4,4 +4,3 @@ convert_number
 decompile_native
 inspect_instruction
 list_android_devices
-map_java_dotnet

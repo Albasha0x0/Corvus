@@ -5,6 +5,7 @@
       "type": "string"
     },
     "direction": {
+      "description": "java_to_dotnet, dotnet_to_java, or pattern (a * / ? query matched against both sides).",
       "type": "string"
     },
     "items": {
@@ -45,11 +46,29 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
     "notes": {
       "type": "array",
       "items": {
         "type": "string"
       }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -74,6 +93,8 @@
     "query",
     "direction",
     "items",
+    "offset",
+    "total",
     "notes"
   ]
 }

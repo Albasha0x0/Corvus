@@ -17,7 +17,9 @@ public sealed record JavaDotNetPair(
                            "Get / Set by name), unity_new (AndroidJavaClass / AndroidJavaObject), unity_proxy (an AndroidJavaProxy of the interface), unity_jni (AndroidJNI).")] string Basis,
     [property: Description("Unity pairs: descriptor (a JNI signature), name_and_arity (the only Java method of that name and argument count), or name_match.")] string? Confidence = null);
 
-public sealed record JavaDotNetResult(string Query, string Direction, IReadOnlyList<JavaDotNetPair> Items, IReadOnlyList<string> Notes);
+public sealed record JavaDotNetResult(string Query,
+    [property: Description("java_to_dotnet, dotnet_to_java, or pattern (a * / ? query matched against both sides).")] string Direction,
+    IReadOnlyList<JavaDotNetPair> Items, int Offset, int Total, IReadOnlyList<string> Notes);
 
 /// <summary>
 /// The Java / .NET binding of Xamarin and .NET for Android apps: Java callable wrappers (crc64 package names computed exactly as the
@@ -66,13 +68,14 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
                 try { return dex.Index(path, ct); }
                 catch (ToolError ex) { index.Notes.Add($"The package's DEX code is not read ({ex.Message})."); return null; }
             });
+        if (Wildcard.IsPattern(symbol)) return Matching(index, symbol);
         bool java = symbol.StartsWith('L') && (symbol.EndsWith(';') || symbol.Contains(";->", StringComparison.Ordinal)) || symbol.Contains('/', StringComparison.Ordinal)
                     || symbol.Contains("->", StringComparison.Ordinal);
         var sep = symbol.IndexOf("::", StringComparison.Ordinal);
         var typeName = (sep > 0 ? symbol[..sep] : symbol).Replace('+', '/');
         var type = java ? null : FindType(index, typeName);
-        // The manifest's dotted Java name (com.example.app.MainActivity) when no .NET type has that name.
-        if (type == null && sep < 0 && index.ByJava.ContainsKey(symbol.Replace('.', '/'))) java = true;
+        // A dotted Java name (the manifest's com.example.app.MainActivity, a crc64 wrapper, a class Unity C# names) when no .NET type has it.
+        if (type == null && sep < 0 && KnownJava(index, symbol.Replace('.', '/'))) java = true;
         var items = new List<JavaDotNetPair>();
         if (java)
         {
@@ -80,7 +83,7 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             var cls = arrow > 0 ? symbol[..arrow] : symbol;
             var javaName = cls.StartsWith('L') && cls.EndsWith(';') ? cls[1..^1] : cls.Replace('.', '/');
             if (!index.ByJava.TryGetValue(javaName, out var hit) && UnityToDotNet(index, javaName, arrow > 0 ? symbol[(arrow + 2)..] : null) is { Count: > 0 } unity)
-                return new JavaDotNetResult(symbol, "java_to_dotnet", unity, index.Notes);
+                return Result(symbol, "java_to_dotnet", unity, index);
             if (hit.Type == null)
                 throw new ToolError(ErrorCode.NotFound,
                     index.IsUnity ? $"no C# in {Describe(path)} reaches {javaName} by name (AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI)."
@@ -98,11 +101,13 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
                         $"map_java_dotnet symbol={TypeLabel(hit.Type)}{(path != null ? $" path={path}" : "")} lists its registered methods; " +
                         (hit.Source.Loaded ? $"get_type_info on {TypeLabel(hit.Type)}" : $"unpack_container path={path} loads {hit.Source.Label} for get_type_info"));
             }
-            return new JavaDotNetResult(symbol, "java_to_dotnet", items, index.Notes);
+            return Result(symbol, "java_to_dotnet", items, index);
         }
-        if (type == null) throw new ToolError(ErrorCode.NotFound, $"no type {typeName} among the assemblies of {Describe(path)}.");
+        if (type == null)
+            throw new ToolError(ErrorCode.NotFound, $"no type {typeName} among the assemblies of {Describe(path)}.",
+                "a Java class takes its descriptor (Lpkg/C;) or dotted name; a * / ? pattern lists the pairs it matches (crc64*, MyApp.*)");
         if (!index.ByType.TryGetValue(type, out var bound) && DotNetToUnity(index, type, sep > 0 ? symbol[(sep + 2)..] : null, path, ct) is { Count: > 0 } calls)
-            return new JavaDotNetResult(symbol, "dotnet_to_java", calls, index.Notes);
+            return Result(symbol, "dotnet_to_java", calls, index);
         if (bound.Java == null)
             throw new ToolError(ErrorCode.NotFound, index.IsUnity
                 ? $"{TypeLabel(type)}{(sep > 0 ? symbol[sep..] : "")} reaches no Java class or member: no AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI use names one."
@@ -121,7 +126,31 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
                 throw new ToolError(ErrorCode.NotFound, $"{TypeLabel(type)}::{name} is not registered with Java and overrides no registered method.",
                     path == null ? "pass path=the package: release builds strip [Register] from Mono.Android, and the Java callable wrapper in the DEX names the overrides" : null);
         }
-        return new JavaDotNetResult(symbol, "dotnet_to_java", items, index.Notes);
+        return Result(symbol, "dotnet_to_java", items, index);
+    }
+
+    private static JavaDotNetResult Result(string query, string direction, List<JavaDotNetPair> items, Index index) =>
+        new(query, direction, items, 0, items.Count, index.Notes);
+
+    /// <summary>A Java class the package binds, Unity C# names, or the DEX code defines.</summary>
+    private static bool KnownJava(Index index, string slashed) =>
+        index.ByJava.ContainsKey(slashed) || index.Unity.Any(u => u.Call.Class == slashed) || index.Dex?.Value?.Classes.ContainsKey($"L{slashed};") == true;
+
+    /// <summary>Every pair whose Java name (slashed or dotted) or .NET side matches <paramref name="pattern"/>.</summary>
+    private static JavaDotNetResult Matching(Index index, string pattern)
+    {
+        bool Hit(string java, string dotnet) => Wildcard.Matches(java, pattern) || Wildcard.Matches(java.Replace('/', '.'), pattern) || Wildcard.Matches(dotnet, pattern);
+        var items = index.ByJava.Where(p => Hit(p.Key, TypeLabel(p.Value.Type))).OrderBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => new JavaDotNetPair($"L{p.Key};", TypeLabel(p.Value.Type), p.Value.Source.Label, p.Value.Source.Loaded, p.Value.Basis)).ToList();
+        foreach (var (call, source) in index.Unity)
+        {
+            if (call.Class == null) continue;
+            var java = call.Member == null || call.Kind == "proxy" ? $"L{call.Class};" : $"L{call.Class};->{call.Member}{call.Signature}";
+            var label = call.Kind == "proxy" ? TypeLabel(call.Caller.DeclaringType) : Format.MemberLabel(call.Caller);
+            if ((Hit(call.Class, label) || Wildcard.Matches(TypeLabel(call.Caller.DeclaringType), pattern)) && !items.Any(i => i.Java == java && i.DotNet == label))
+                items.Add(new(java, label, source.Label, source.Loaded, UnityBasis(call.Kind), call.Signature != null ? "descriptor" : "name_match"));
+        }
+        return Result(pattern, "pattern", items, index);
     }
 
     /// <summary>The .NET type behind each Java class name of a package's assemblies (for manifest components); empty without .NET code.</summary>
@@ -302,8 +331,9 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
 
     private static bool IsBinding(TypeDef t) => Register(t) is { DoNotGenerateAcw: true };
 
+    /// <summary>The base type's definition; a generic base (AsyncTask`3 of some arguments) by its generic type.</summary>
     private static TypeDef? Base(Index index, TypeDef t) =>
-        t.BaseType is { } b ? b.ResolveTypeDef() ?? index.ByName.GetValueOrDefault(b.FullName) : null;
+        (t.BaseType is TypeSpec spec ? spec.ScopeType : t.BaseType) is { } b ? b.ResolveTypeDef() ?? index.ByName.GetValueOrDefault(b.FullName) : null;
 
     private Index Build(string? path, CancellationToken ct)
     {
@@ -335,7 +365,7 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
                     try { fromPackage.Add(new Source(ModuleDefMD.Load(a.Bytes, context), a.Path, false)); }
                     catch (Exception) { notes.Add($"{a.Path} is not readable .NET metadata."); } // dnlib throws several types on malformed images
                 }
-                if (fromPackage.Count == 0) throw new ToolError(ErrorCode.NotFound, $"{full} has no .NET assemblies: a Java-only package has no .NET side.");
+                if (fromPackage.Count == 0) throw NoAssemblies(full);
                 lock (_lock) _packageCache = (key, fromPackage);
             }
             // A loaded copy of an assembly wins: its id is what decompile_member takes.
@@ -344,6 +374,25 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         }
         if (sources.Count == 0) throw new ToolError(ErrorCode.NotLoaded, "no assemblies are loaded.", "pass path=the .apk, or load its assemblies with unpack_container");
         return BuildIndex(sources, notes, ct);
+    }
+
+    /// <summary>A package without assemblies: an Il2Cpp build compiled its C# to native code, else it is Java only.</summary>
+    private static ToolError NoAssemblies(string full)
+    {
+        IReadOnlyList<AndroidRuntimeFamily> runtimes;
+        try
+        {
+            using var package = AndroidPackage.Open(full, AnalysisLimits.Default);
+            runtimes = AndroidRuntime.Detect(package);
+        }
+        catch (ToolError) { runtimes = []; }
+        if (runtimes.FirstOrDefault(r => r.Family == "unity-il2cpp") is { } il2cpp)
+            return new ToolError(ErrorCode.Unsupported,
+                $"{full} is a Unity Il2Cpp build ({string.Join(", ", il2cpp.Evidence.Take(2))}): its C# is compiled to native code, so there are no .NET assemblies to map.",
+                $"load_assembly path={full} reads the C# types from the Il2Cpp metadata and search_strings finds the Java class names passed to AndroidJavaClass; get_dex_class path={full} shows the Java side")
+            { Details = new { reason = "il2cpp" } };
+        return new ToolError(ErrorCode.NotFound, $"{full} has no .NET assemblies: a Java-only package has no .NET side.",
+            $"get_dex_class path={full} and decompile_java read its Java classes");
     }
 
     private static Index BuildIndex(List<Source> sources, List<string> notes, CancellationToken ct)

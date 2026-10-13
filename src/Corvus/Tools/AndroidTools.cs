@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Core.Mobile;
+using Corvus.Mcp;
 using Corvus.Services.Mobile;
 using static Corvus.Tools.ToolSupport;
 
@@ -10,8 +11,8 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class AndroidTools(AndroidPackageService packages, DexService dex, JavaDecompilerService java, JavaDotNetMap map, JniBindings jni, OutputPager pager)
 {
-    public const string PackageDescription = "An .apk, .aab (base module) or split set (.apks, .xapk, .apkm).";
-    public const string CodeDescription = "An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex, or a jar / zip with classes*.dex.";
+    public const string PackageDescription = "An .apk, .aab or split set (.apks, .xapk, .apkm).";
+    public const string CodeDescription = "An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex.";
 
     [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true)]
     [Description("AndroidManifest.xml of an Android package, decoded: package, versions, SDKs; used and declared permissions; application " +
@@ -104,16 +105,24 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         return pager.Page(text, offset, maxTokens);
     }
 
-    [McpServerTool(Name = "map_java_dotnet", Title = "Map Java and .NET", UseStructuredContent = true)]
-    [Description("The other side of a Java / .NET bridge, ready for decompile_member or get_dex_class. .NET for Android (Xamarin / MAUI): a " +
-                 "Java wrapper class or method gives its .NET type or method and back ([Register] names and crc64 wrapper names). Unity Mono: the C# " +
+    [McpServerTool(Name = "map_java_dotnet", Title = "Map Java and .NET", UseStructuredContent = true, OutputSchemaType = typeof(JavaDotNetResult))]
+    [Description("The other side of a Java / .NET bridge, for decompile_member or get_dex_class. .NET for Android (Xamarin / MAUI): a Java " +
+                 "wrapper class or method to its .NET type or method and back ([Register] and crc64 names). Unity Mono: the C# " +
                  "reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a " +
-                 "confidence. Reads the loaded assemblies, and the package's with path.")]
-    public Task<JavaDotNetResult> MapJavaDotNet(
-        [Description("A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->m(I)V), or a .NET type or member.")] string symbol,
+                 "confidence. A * / ? pattern lists the pairs it matches. Reads loaded assemblies, and the package's with path.")]
+    public Task<string> MapJavaDotNet(
+        [Description("A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->m(I)V), a .NET type or member, or a pattern (crc64*).")] string symbol,
         [Description("The .apk / .aab whose assemblies to read without loading; optional when they are loaded.")] string? path = null,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => map.Map(symbol, path, cancellationToken), cancellationToken);
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description("Most pairs.")] int limit = 100,
+        CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        var r = map.Map(symbol, path, cancellationToken);
+        return ToolOutput.List(r.Items, offset, ClampLimit(limit),
+            p => $"{p.Java}  <->  {p.DotNet}  [{p.Basis}{(p.Confidence != null ? ", " + p.Confidence : "")}; {p.Assembly}{(p.Loaded ? "" : ", not loaded")}]",
+            rows => r with { Items = rows, Offset = Math.Max(0, offset) }, "pair",
+            $"{r.Query} ({r.Direction.Replace('_', ' ')}){string.Concat(r.Notes.Take(5).Select(n => "\nNote: " + n))}\n");
+    }, cancellationToken);
 
     [McpServerTool(Name = "list_jni_bindings", Title = "List JNI bindings", UseStructuredContent = true)]
     [Description("Java native methods of an Android package paired with their code in lib/<abi>/*.so: Java_ exports by JNI name mangling " +

@@ -42,6 +42,9 @@ internal static class XamarinSample
         bundle.CustomAttributes.Add(Bind("android/os/Bundle"));
         var activity = Type(mono, "Android.App", "Activity", javaObject);
         activity.CustomAttributes.Add(Bind("android/app/Activity"));
+        var asyncTask = Type(mono, "Android.OS", "AsyncTask`3", javaObject);
+        foreach (var p in new[] { "TParams", "TProgress", "TResult" }) asyncTask.GenericParameters.Add(new GenericParamUser((ushort)asyncTask.GenericParameters.Count, GenericParamAttributes.NonVariant, p));
+        asyncTask.CustomAttributes.Add(Bind("android/os/AsyncTask"));
         var onCreate = Method(activity, "OnCreate", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig, bundle.ToTypeSig());
         var onResume = Method(activity, "OnResume", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig);
         if (!trimmed)
@@ -74,6 +77,10 @@ internal static class XamarinSample
         var inner = new TypeDefUser("", "Inner", importer.Import(javaObject)) { Attributes = TypeAttributes.NestedPublic | TypeAttributes.Class };
         outer.NestedTypes.Add(inner);
         Type(app, "MyApp", "PlainClass", app.CorLibTypes.Object.TypeDefOrRef);
+        // A generic peer over a generic binding (LoadingDialog`3 : AsyncTask`3 of its parameters): the wrapper is crc64.../Loader_1.
+        var loader = Type(app, "MyApp", "Loader`1", new TypeSpecUser(new GenericInstSig(new ClassSig(importer.Import(asyncTask)),
+            app.CorLibTypes.Object, app.CorLibTypes.Object, new GenericVar(0))));
+        loader.GenericParameters.Add(new GenericParamUser(0, GenericParamAttributes.NonVariant, "T"));
         return (Write(mono), Write(app));
     }
 
@@ -137,6 +144,29 @@ public sealed class JavaDotNetMapTests : IDisposable
         Assert.Equal(("MyApp.MainActivity", "Lcom/example/app/Main;"), map.Map("com.example.app.Main", apk, default).Items.Select(i => (i.DotNet, i.Java)).Single());
         Assert.Equal("MyApp.LinkActivity", map.Map(AndroidSamples.LinkPackage + ".LinkActivity", apk, default).Items.Single().DotNet);
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => map.Map("Lcom/example/app/Helper;", apk, default)).Code);
+        // a generic peer, in the dotted form too
+        Assert.Equal("MyApp.Loader`1", map.Map($"{AndroidSamples.LinkPackage}.Loader_1", apk, default).Items.Single().DotNet);
+        Assert.Equal($"L{AndroidSamples.LinkPackage}/Loader_1;", map.Map("MyApp.Loader`1", apk, default).Items.Single().Java);
+        // a pattern lists the pairs on either side
+        var listed = map.Map(AndroidSamples.LinkPackage + ".*", apk, default);
+        Assert.Equal(("pattern", listed.Items.Count), (listed.Direction, listed.Total));
+        Assert.Contains(listed.Items, i => i.DotNet == "MyApp.LinkActivity");
+        Assert.Equal(["Lcom/example/app/Main;"], map.Map("MyApp.Main*", apk, default).Items.Select(i => i.Java));
+    }
+
+    /// <summary>Unity Il2Cpp compiles its C# to native code: the answer says so and names the Il2Cpp route.</summary>
+    [Fact]
+    public void Il2CppPackage_IsUnsupportedWithTheIl2CppRoute()
+    {
+        var apk = AndroidSamples.Save(_dir, "il2cpp.apk", AndroidSamples.Apk(30, ("lib/arm64-v8a/libil2cpp.so", [0x7f, (byte)'E', (byte)'L', (byte)'F']),
+            ("assets/bin/Data/Managed/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA])));
+        var e = Assert.Throws<ToolError>(() => new JavaDotNetMap(_workspace).Map("Lcom/unity3d/player/UnityPlayer;", apk, default));
+        Assert.Equal(ErrorCode.Unsupported, e.Code);
+        Assert.Contains("Unity Il2Cpp build", e.Message);
+        Assert.Contains($"load_assembly path={apk}", e.Remediation);
+        var java = Assert.Throws<ToolError>(() => new JavaDotNetMap(_workspace).Map("Lcom/example/A;", AndroidSamples.Save(_dir, "java.apk", AndroidSamples.Apk()), default));
+        Assert.Equal(ErrorCode.NotFound, java.Code);
+        Assert.Contains("get_dex_class", java.Remediation);
     }
 
     /// <summary>Release builds strip [Register] from Mono.Android's methods: the Java callable wrapper's registration in the DEX names the overrides.</summary>
@@ -277,6 +307,7 @@ public sealed class JavaDotNetMapTests : IDisposable
         Assert.Equal("Game.Listener::onResult(string) unity_proxy name_and_arity", Pairs("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V"));
         Assert.Equal("Game.Listener unity_proxy name_match", Pairs("Lcom/example/plugin/Bridge$Callback;"));
         Assert.Contains("Game.Bridge::Init() unity_new", Pairs("Lcom/example/plugin/Bridge;"));
+        Assert.Equal(Pairs("Lcom/unity3d/player/UnityPlayer;"), Pairs("com.unity3d.player.UnityPlayer")); // the dotted form
         Assert.Equal("assets/bin/Data/Managed/Assembly-CSharp.dll", map.Map("Lcom/example/plugin/Bridge;", apk, default).Items[0].Assembly);
     }
 

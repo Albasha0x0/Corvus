@@ -2224,7 +2224,7 @@ AndroidManifest.xml of an Android package, decoded: package, versions, SDKs; use
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab (base module) or split set (.apks, .xapk, .apkm). |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
 
 Structured output: `package`, `versionCode`, `versionName`, `minSdk`, `targetSdk`, `maxSdk`, `compileSdk`, `split`, `permissions`, `declaredPermissions`, `application`, `components`, `queries`, `features`, `libraries`, `metaData`, `highlights`, `issues`.
 
@@ -2236,7 +2236,7 @@ Compiled resources of an Android package (resources.arsc or a bundle's resources
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab (base module) or split set (.apks, .xapk, .apkm). |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
 | `type` | string |  |  | Only this type (string, layout, xml, ...). |
 | `name` | string |  |  | Only names matching this (* and ? wildcards). |
 | `config` | string |  |  | Only this configuration: qualifiers as in a directory name (pt-rBR), or default. |
@@ -2253,7 +2253,7 @@ One file or resource of an Android package: an entry path is read with binary XM
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab (base module) or split set (.apks, .xapk, .apkm). |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
 | `name` | string | yes |  | An entry path (res/xml/x.xml, assets/...), @type/name or a resource id 0x7f... |
 | `savePath` | string |  |  | Write the entry's bytes to this file. |
 | `overwrite` | boolean |  | `false` | Replace savePath if it exists. |
@@ -2268,7 +2268,7 @@ Classes defined in the DEX code of an Android package (every classes*.dex): desc
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex, or a jar / zip with classes*.dex. |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
 | `query` | string |  |  | Only classes whose Java name or descriptor contains this, or matches it (* and ? wildcards). |
 | `package` | string |  |  | Only this package and its subpackages. |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -2284,7 +2284,7 @@ One DEX class in full: superclass, interfaces, generic signature, enclosing and 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex, or a jar / zip with classes*.dex. |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
 | `class` | string | yes |  | Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner. |
 
 Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`, `code`, `offset`, `nextOffset`, `totalChars`.
@@ -2297,7 +2297,7 @@ Smali of a method or class of an Android package's DEX code, in baksmali's layou
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex, or a jar / zip with classes*.dex. |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
 | `symbol` | string | yes |  | A method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)) or a class (pkg.C, Lpkg/C;). |
 | `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
@@ -2311,7 +2311,7 @@ Java source of a class or one method of an Android package through JADX (CORVUS_
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex, or a jar / zip with classes*.dex. |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
 | `symbol` | string | yes |  | A class (pkg.C, Lpkg/C;) or a method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)). |
 | `smaliFallback` | boolean |  | `true` | Return smali where JADX fails. |
 | `engine` | string |  |  | Decompiler. Values: jadx. |
@@ -2326,7 +2326,7 @@ Search the DEX code of an Android package. kind=string: string literals with the
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex, or a jar / zip with classes*.dex. |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
 | `kind` | string | yes |  | What to search. Values: string, type, method, field, const, opcode. |
 | `query` | string | yes |  | Case-insensitive substring or * / ? pattern; for const a number. |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -2342,7 +2342,7 @@ Cross-references in DEX code with the method and code offset of each instruction
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex, or a jar / zip with classes*.dex. |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
 | `target` | string | yes |  | A class, a method (Lpkg/C;->m(I)V, or pkg.C::m with optional parameters (int, String)), a field (Lpkg/C;->f:I or pkg.C::f), or a string in double quotes. |
 | `direction` | string |  |  | to (default: who refers to the target) or from (what it refers to). Values: to, from. |
 | `kind` | string |  |  | How to read target (default auto; string: taken literally). Values: auto, class, method, field, string. |
@@ -2355,14 +2355,16 @@ Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `tota
 
 **Map Java and .NET** (read-only, idempotent)
 
-The other side of a Java / .NET bridge, ready for decompile_member or get_dex_class. .NET for Android (Xamarin / MAUI): a Java wrapper class or method gives its .NET type or method and back ([Register] names and crc64 wrapper names). Unity Mono: the C# reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a confidence. Reads the loaded assemblies, and the package's with path.
+The other side of a Java / .NET bridge, for decompile_member or get_dex_class. .NET for Android (Xamarin / MAUI): a Java wrapper class or method to its .NET type or method and back ([Register] and crc64 names). Unity Mono: the C# reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a confidence. A * / ? pattern lists the pairs it matches. Reads loaded assemblies, and the package's with path.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->m(I)V), or a .NET type or member. |
+| `symbol` | string | yes |  | A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->m(I)V), a .NET type or member, or a pattern (crc64*). |
 | `path` | string |  |  | The .apk / .aab whose assemblies to read without loading; optional when they are loaded. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Most pairs. |
 
-Structured output: `query`, `direction`, `items`, `notes`.
+Structured output: `query`, `direction`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### list_jni_bindings
 
@@ -2372,7 +2374,7 @@ Java native methods of an Android package paired with their code in lib/<abi>/*.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab (base module) or split set (.apks, .xapk, .apkm). |
+| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
 | `abi` | string |  |  | ABI to read, or all; default arm64-v8a, else the first. |
 | `class` | string |  |  | Only rows naming this class (pkg.C or pkg/C). |
 | `kind` | string |  |  | Only this kind. Values: static_export, registered, unresolved, export_only. |
@@ -2399,7 +2401,7 @@ A device's properties (getprop), paged and filterable, with a summary: SDK, rele
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
+| `serial` | string |  |  | Device serial; optional with one device ready. |
 | `query` | string |  |  | Only properties whose name or value contains this. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Most properties to return. |
@@ -2414,7 +2416,7 @@ Packages installed on a device (pm list packages -f -U -i): name, APK path, uid 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
+| `serial` | string |  |  | Device serial; optional with one device ready. |
 | `query` | string |  |  | Only package names containing this. |
 | `user` | integer |  |  | Android user id (default: the current one). |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -2431,7 +2433,7 @@ One installed package (dumpsys package): versions, SDKs, paths, ABI, flags, inst
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `package` | string | yes |  | Package name, e.g. com.example.app. |
-| `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
+| `serial` | string |  |  | Device serial; optional with one device ready. |
 
 Structured output: `serial`, `package`, `versionName`, `versionCode`, `minSdk`, `targetSdk`, `codePath`, `dataDir`, `primaryCpuAbi`, `flags`, `firstInstallTime`, `lastUpdateTime`, `installer`, `uid`, `permissions`, `users`.
 
@@ -2445,7 +2447,7 @@ Copies every APK of an installed package (base and splits) into a new or empty d
 |---|---|---|---|---|
 | `package` | string | yes |  | Package name, e.g. com.example.app. |
 | `outputDirectory` | string | yes |  | A new or empty directory to write the APKs to. |
-| `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
+| `serial` | string |  |  | Device serial; optional with one device ready. |
 
 Structured output: `serial`, `package`, `files`, `summary`.
 
@@ -2460,7 +2462,7 @@ Copies one file from a device (directories are refused) to outputPath, with its 
 | `remotePath` | string | yes |  | The file's path on the device. |
 | `outputPath` | string | yes |  | The local file to write. |
 | `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
-| `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
+| `serial` | string |  |  | Device serial; optional with one device ready. |
 
 Structured output: `remote`, `local`, `size`, `sha256`.
 
@@ -2472,7 +2474,7 @@ The device log so far (logcat -d), narrowed by process, tag, priority and start 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
+| `serial` | string |  |  | Device serial; optional with one device ready. |
 | `pid` | integer |  |  | Only this process id. |
 | `tag` | string |  |  | Only this log tag. |
 | `priority` | string |  |  | Lowest priority. Values: V, D, I, W, E, F. |
@@ -2491,7 +2493,7 @@ Installs an APK, a split set or a directory of APKs on a device in one session; 
 | `replace` | boolean |  | `true` | Replace an installed app. |
 | `downgrade` | boolean |  | `false` | Allow a lower version code. |
 | `grantPermissions` | boolean |  | `false` | Grant every runtime permission the manifest requests. |
-| `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
+| `serial` | string |  |  | Device serial; optional with one device ready. |
 
 ### uninstall_android_package
 
@@ -2503,7 +2505,7 @@ Removes an app from a device, with its data unless keepData. Changes the device:
 |---|---|---|---|---|
 | `package` | string | yes |  | Package name, e.g. com.example.app. |
 | `keepData` | boolean |  | `false` | Keep the app's data and cache. |
-| `serial` | string |  |  | Device serial (list_android_devices); optional with one ready device. |
+| `serial` | string |  |  | Device serial; optional with one device ready. |
 
 ## dumps
 
