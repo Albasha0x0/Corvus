@@ -384,6 +384,30 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.All(ambiguous.Items, r => Assert.NotEmpty(r.Candidates!));
     }
 
+    /// <summary>map_address_between_builds: a batch with a bad address succeeds with failed=1; every address bad is an error.</summary>
+    [Fact]
+    public async Task Address_batch_reports_a_bad_address_per_item()
+    {
+        using var h = new Harness();
+        var (oldN, _) = await h.Load(Image(false, 0), "old.dll", OldStarts);
+        var (newN, _) = await h.Load(Image(true, Shift), "new.dll", NewStarts(Shift));
+        var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
+        var (r, text) = await BuildToolCalls.Collected<NativeDiffTools.AddressMappings>(() =>
+            tools.MapAddressBetweenBuilds(oldN.Id, newN.Id, addresses: [Va(F1), "no_such_name", Va(F5)]));
+        Assert.Equal(1, r.Failed);
+        Assert.Equal([Va(F1), "no_such_name", Va(F5)], r.Results.Select(x => x.Target));
+        Assert.Equal((Va(F1 + Shift), "function_start"), (r.Results[0].NewAddress, r.Results[0].Reason));
+        Assert.Equal("not_found", r.Results[1].Error!.Code);
+        Assert.Null(r.Results[2].NewAddress);
+        Assert.StartsWith("3 addresses, 1 failed.", text);
+        Assert.Contains("no_such_name: error not_found", text);
+        var all = await Assert.ThrowsAsync<ToolError>(() => tools.MapAddressBetweenBuilds(oldN.Id, newN.Id, addresses: ["nope1", "nope2"]));
+        Assert.Equal(ErrorCode.NotFound, all.Code);
+        await Assert.ThrowsAsync<ToolError>(() => tools.MapAddressBetweenBuilds(oldN.Id, newN.Id, Va(F1), [Va(F2)]));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() =>
+            tools.MapAddressBetweenBuilds(oldN.Id, newN.Id, addresses: [.. Enumerable.Repeat(Va(F1), 101)]))).Code);
+    }
+
     [Fact]
     public async Task User_types_carry_by_function_match_and_never_replace_the_new_builds()
     {

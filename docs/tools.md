@@ -1842,16 +1842,17 @@ Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAdd
 
 **Map an address to a new build** (read-only, idempotent, long-running)
 
-Where an address of the old build is in the new build: a function start to the matched function, an address inside one to the aligned instruction, a string to the same string, other data through the references of matched instructions. Returns the new address with confidence and reason, or null with why and nearby candidates.
+Where addresses of the old build are in the new build: a function start to the matched function, an address inside one to the aligned instruction, a string to the same string, other data through the references of matched instructions. Each result has the new address with confidence and reason, or why not and nearby candidates.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
 | `newImage` | string | yes |  | The newer build: native image id or path. |
-| `address` | string | yes |  | Address in the old build: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `useNames` | boolean |  | `true` | Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only. |
+| `address` | string |  |  | Address in the old build: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
+| `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
 
-Structured output: `oldImage`, `newImage`, `oldAddress`, `newAddress`, `confidence`, `reason`, `detail`, `oldFunction`, `newFunction`, `tier`, `candidates`.
+Structured output: `oldImage`, `newImage`, `results`, `failed`.
 
 ### make_code_pattern
 

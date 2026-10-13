@@ -7,39 +7,79 @@
     "newImage": {
       "type": "string"
     },
-    "oldAddress": {
-      "type": "string"
-    },
-    "newAddress": {
-      "description": "The address in the new build, or null when it could not be mapped.",
-      "type": "string"
-    },
-    "confidence": {
-      "description": "0-1: the function match's trust times how exactly the instruction aligned.",
-      "type": "number"
-    },
-    "reason": {
-      "description": "function_start, aligned_instruction, replaced_instruction, same_string, followed_references; or why not: function_not_matched, ambiguous, instruction_removed, changed_region, conflicting_references, no_reference_to_follow, not_an_instruction.",
-      "type": "string"
-    },
-    "detail": {
-      "type": "string"
-    },
-    "oldFunction": {
-      "type": "string"
-    },
-    "newFunction": {
-      "type": "string"
-    },
-    "tier": {
-      "type": "integer"
-    },
-    "candidates": {
-      "description": "Candidate or nearby new addresses when not mapped.",
+    "results": {
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "object",
+        "properties": {
+          "target": {
+            "description": "The address as given.",
+            "type": "string"
+          },
+          "oldAddress": {
+            "type": "string"
+          },
+          "newAddress": {
+            "description": "The address in the new build; absent when not mapped.",
+            "type": "string"
+          },
+          "confidence": {
+            "description": "0-1: the function match's trust times how exactly the instruction aligned.",
+            "type": "number"
+          },
+          "reason": {
+            "description": "How it was mapped or why not (docs/migration-reasons.md).",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "oldFunction": {
+            "type": "string"
+          },
+          "newFunction": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "integer"
+          },
+          "candidates": {
+            "description": "Candidate or nearby new addresses when not mapped.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "error": {
+            "description": "Why this address could not be read; the others are still mapped.",
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "next"
+            ]
+          }
+        },
+        "required": [
+          "target",
+          "confidence"
+        ]
       }
+    },
+    "failed": {
+      "description": "Addresses with an error.",
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -63,10 +103,7 @@
   "required": [
     "oldImage",
     "newImage",
-    "oldAddress",
-    "confidence",
-    "reason",
-    "detail",
-    "candidates"
+    "results",
+    "failed"
   ]
 }

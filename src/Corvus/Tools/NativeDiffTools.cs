@@ -63,14 +63,17 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes);
 
     public sealed record AddressMapping(
-        string OldImage, string NewImage, string OldAddress,
-        [property: Description("The address in the new build, or null when it could not be mapped.")] string? NewAddress,
+        [property: Description("The address as given.")] string Target,
+        string? OldAddress,
+        [property: Description("The address in the new build; absent when not mapped.")] string? NewAddress,
         [property: Description("0-1: the function match's trust times how exactly the instruction aligned.")] double Confidence,
-        [property: Description("function_start, aligned_instruction, replaced_instruction, same_string, followed_references; or why not: " +
-                               "function_not_matched, ambiguous, instruction_removed, changed_region, conflicting_references, no_reference_to_follow, not_an_instruction.")]
-        string Reason,
-        string Detail, string? OldFunction, string? NewFunction, int? Tier,
-        [property: Description("Candidate or nearby new addresses when not mapped.")] IReadOnlyList<string> Candidates);
+        [property: Description("How it was mapped or why not (docs/migration-reasons.md).")] string? Reason,
+        string? Detail, string? OldFunction, string? NewFunction, int? Tier,
+        [property: Description("Candidate or nearby new addresses when not mapped.")] IReadOnlyList<string>? Candidates,
+        [property: Description("Why this address could not be read; the others are still mapped.")] BatchError? Error);
+
+    public sealed record AddressMappings(string OldImage, string NewImage, IReadOnlyList<AddressMapping> Results,
+        [property: Description("Addresses with an error.")] int Failed);
 
     public sealed record MigrationEntry(
         [property: Description("name, comment, pseudo_comment, or a user type: declarations, type_edit, enum_member, field, analysis, operand, type, local, stack_var.")] string Kind,
@@ -209,28 +212,52 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                (r.Candidates is { Count: > 0 } c ? ": " + string.Join(", ", c.Select(x => $"{x.Address} {x.Name} {x.Score:0.##}")) : "");
     }
 
-    [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true)]
-    [Description("Where an address of the old build is in the new build: a function start to the matched function, an address inside one " +
-                 "to the aligned instruction, a string to the same string, other data through the references of matched instructions. Returns the " +
-                 "new address with confidence and reason, or null with why and nearby candidates.")]
-    public async Task<AddressMapping> MapAddressBetweenBuilds(
+    /// <summary>Most addresses in one map_address_between_builds call; the match is computed once for all.</summary>
+    private const int MaxMapAddresses = 100;
+
+    [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true, OutputSchemaType = typeof(AddressMappings))]
+    [Description("Where addresses of the old build are in the new build: a function start to the matched function, an address inside one " +
+                 "to the aligned instruction, a string to the same string, other data through the references of matched instructions. Each " +
+                 "result has the new address with confidence and reason, or why not and nearby candidates.")]
+    public Task<string> MapAddressBetweenBuilds(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
-        [Description("Address in the old build: " + NativeTools.AddressDescription)] string address,
-        [Description(UseNamesDescription)] bool useNames = true,
+        [Description("Address in the old build: " + NativeTools.AddressDescription)] string? address = null,
+        [Description("Instead of address: up to 100 addresses.")] string[]? addresses = null,
+        [Description(CodeOnlyDescription)] bool codeOnly = false,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (oldNative, newNative, match) = await Match(oldImage, newImage, useNames, 0.7, context, cancellationToken);
-        var o = match.Old.Index;
-        var n = match.New.Index;
-        uint rva = NativeCodeTools.Address(o, address);
-        var mapped = await Task.Run(() => new AddressMapper(match).Map(rva, cancellationToken), cancellationToken);
-        var oldFn = o.FunctionAt(rva);
-        var newFn = mapped.NewRva is { } nr ? n.FunctionAt(nr) : mapped.Pair is { } p ? match.New.Functions[p.New].Function : null;
-        return new AddressMapping(oldNative.Id, newNative.Id, Va(o, rva), mapped.NewRva is { } at ? Va(n, at) : null, mapped.Confidence, mapped.Reason, mapped.Detail,
-            oldFn != null ? Name(o, oldFn) : null, newFn != null ? Name(n, newFn) : null, mapped.Pair?.Tier, mapped.Candidates.Select(c => Va(n, c)).ToList());
-    }
+        if ((addresses is { Length: > 0 }) == !string.IsNullOrWhiteSpace(address))
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass address or addresses (one of them).", "address=<one>, or addresses=[...] for several");
+        if (addresses?.Length > MaxMapAddresses)
+            throw new ToolError(ErrorCode.InvalidArgument, $"{addresses.Length} addresses; at most {MaxMapAddresses} per call.", "split the addresses");
+        var pair = await pairs.Match(oldImage, newImage, new MatchOptions { UseNames = !codeOnly }, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        var match = pair.Match;
+        var (o, n) = (match.Old.Index, match.New.Index);
+        var mapper = new AddressMapper(match);
+        var batch = await Task.Run(() => BatchResult.Run(addresses ?? [address!], target =>
+        {
+            uint rva = NativeCodeTools.Address(o, target);
+            var mapped = mapper.Map(rva, cancellationToken);
+            var oldFn = o.FunctionAt(rva);
+            var newFn = mapped.NewRva is { } nr ? n.FunctionAt(nr) : mapped.Pair is { } p ? match.New.Functions[p.New].Function : null;
+            return new AddressMapping(target.Trim(), Va(o, rva), mapped.NewRva is { } at ? Va(n, at) : null, mapped.Confidence, mapped.Reason, mapped.Detail,
+                oldFn != null ? Name(o, oldFn) : null, newFn != null ? Name(n, newFn) : null, mapped.Pair?.Tier,
+                mapped.Candidates.Count > 0 ? [.. mapped.Candidates.Select(c => Va(n, c))] : null, null);
+        }, "map_address_between_builds"), cancellationToken);
+        batch.ThrowIfAllFailed();
+        var results = batch.Items.Select(i => i.Value ?? new AddressMapping(i.Target.Trim(), null, null, 0, null, null, null, null, null, null, i.Error)).ToList();
+        var text = new System.Text.StringBuilder();
+        if (batch.Failed > 0) text.Append($"{results.Count} addresses, {batch.Failed} failed.\n");
+        foreach (var r in results)
+            text.Append(r.Error is { } e ? $"{r.Target}: error {e.Code}: {e.Message}"
+                : r.NewAddress is { } to ? $"{r.Target} ({r.OldAddress}) -> {to}: {r.Reason}, confidence {r.Confidence:0.##}" +
+                  (r.OldFunction != null ? $" ({r.OldFunction}{(r.Tier is { } t ? $", tier {t}" : "")})" : "")
+                : $"{r.Target} ({r.OldAddress}) -> not mapped: {r.Reason} ({r.Detail})" + (r.Candidates is { } c ? "; candidates " + string.Join(", ", c) : ""))
+                .Append('\n');
+        return ToolOutput.Report(text.ToString(), new AddressMappings(pair.Old.Id, pair.New.Id, results, batch.Failed));
+    });
 
     [McpServerTool(Name = "diff_function", Title = "Diff a function between builds", UseStructuredContent = true)]
     [Description("What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists " +
