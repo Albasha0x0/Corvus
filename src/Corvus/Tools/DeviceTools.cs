@@ -92,7 +92,7 @@ public sealed class DeviceTools(DeviceService devices)
 
     [McpServerTool(Name = "install_android_package", Title = "Install package on device")]
     [Description("Installs an APK, a split set or a directory of APKs on a device in one session; failures come back by their " +
-                 "INSTALL_FAILED_ code. Changes the device: off unless the server runs with --allow-device-changes.")]
+                 "INSTALL_FAILED_ code. Changes the device: needs the server option --allow-device-changes.")]
     public Task<string> InstallAndroidPackage(
         [Description("An .apk, a split set (.apks, .xapk, .apkm) or a directory of APKs.")] string path,
         [Description("Replace an installed app.")] bool replace = true,

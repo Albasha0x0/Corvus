@@ -44,6 +44,14 @@ public sealed class AndroidListTests : IDisposable
         var compute = await server.Client.CallToolAsync("get_dex_class", new Dictionary<string, object?> { ["path"] = apk, ["class"] = Main, ["query"] = "compute" });
         Assert.Equal([ComputeInt, ComputeString], compute.StructuredContent!.Value.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetString()));
 
+        // the manifest summary names the exported components; view=components pages them all
+        var summary = await server.Client.CallToolAsync("get_android_manifest", new Dictionary<string, object?> { ["path"] = apk });
+        Assert.Contains("exported (", Text(summary));
+        Assert.True(summary.StructuredContent!.Value.GetProperty("exportedTotal").GetInt32() > 0);
+        var components = await server.Client.CallToolAsync("get_android_manifest", new Dictionary<string, object?> { ["path"] = apk, ["view"] = "components", ["limit"] = 1 });
+        Assert.Contains("components (showing 1-1):", Text(components));
+        Assert.Equal(1, components.StructuredContent!.Value.GetProperty("nextOffset").GetInt32());
+
         // a resource written to outputPath names it, its size and hash
         var written = await server.Client.CallToolAsync("get_android_resource", new Dictionary<string, object?> { ["path"] = apk, ["name"] = "@layout/main", ["outputPath"] = _dir.File("main.xml") });
         var file = written.StructuredContent!.Value;

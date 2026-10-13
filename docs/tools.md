@@ -2220,19 +2220,22 @@ Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET
 
 **Android manifest** (read-only, idempotent)
 
-AndroidManifest.xml of an Android package, decoded: package, versions, SDKs; permissions; application flags (debuggable, allowBackup, cleartext traffic, network security config); each component's effective exported state and why, permissions, intent filters, deep links, meta-data; queries, features, libraries; highlights. Raw XML: get_android_resource.
+AndroidManifest.xml of an Android package, decoded. view=summary (default): package, versions, SDKs, permissions, application flags (debuggable, allowBackup, cleartext, network security config), component counts, exported components and why, queries, features, libraries, highlights. view=components: each component with intent filters, deep links, meta-data. Raw XML: get_android_resource.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
+| `view` | string |  |  | summary (default) or components. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `50` | Most components. |
 
-Structured output: `package`, `versionCode`, `versionName`, `minSdk`, `targetSdk`, `maxSdk`, `compileSdk`, `split`, `permissions`, `declaredPermissions`, `application`, `components`, `queries`, `features`, `libraries`, `metaData`, `highlights`, `issues`.
+Structured output: `package`, `versionCode`, `versionName`, `minSdk`, `targetSdk`, `maxSdk`, `compileSdk`, `split`, `application`, `permissions`, `declaredPermissions`, `componentCounts`, `exported`, `exportedTotal`, `queries`, `features`, `libraries`, `metaData`, `highlights`, `issues`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### list_android_resources
 
 **List Android resources** (read-only, idempotent)
 
-Compiled resources of an Android package (resources.arsc or a bundle's resources.pb): a row per resource and configuration with id, type, name, qualifiers ('' is the default), value type and value (references by name); types counts each type.
+Compiled resources of an Android package (resources.arsc, or a bundle's resources.pb): a row per resource and configuration with id, type, name, qualifiers, value type and value (cut at 200 characters); counts per type.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2249,7 +2252,7 @@ Structured output: `items`, `offset`, `total`, `types`, `limit`, `totalExact`, `
 
 **Get Android resource** (destructive, idempotent)
 
-One file or resource of an Android package: an entry path is read with binary XML decoded and references named, text as text, other data as a hex preview; @type/name or 0x7f... gives the resource's value in every configuration. outputPath writes the raw bytes.
+One entry or resource of an Android package: an entry path (binary XML decoded, references named; text; else a hex preview), or @type/name / 0x7f... for its value in every configuration. outputPath writes the raw bytes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2270,7 +2273,7 @@ Classes defined in the DEX code of an Android package (every classes*.dex): desc
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
+| `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
 | `query` | string |  |  | Only classes whose name contains or matches (* ?) this. |
 | `package` | string |  |  | Only this package and its subpackages. |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -2286,7 +2289,7 @@ One DEX class: superclass, interfaces, generic signature, enclosing and inner cl
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
+| `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
 | `class` | string | yes |  | Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner. |
 | `members` | string |  |  | all (default), fields or methods. |
 | `query` | string |  |  | Only members whose name contains this. |
@@ -2303,7 +2306,7 @@ Smali (baksmali layout) of a DEX method or class; a class starts with its method
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
+| `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
 | `symbol` | string | yes |  | A method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)) or a class (pkg.C, Lpkg/C;). |
 | `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
@@ -2315,7 +2318,7 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Decompile Java** (read-only, idempotent, open-world, long-running)
 
-Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+). A member, anonymous or lambda class comes from the code JADX writes it in. Without JADX: provider_unavailable; disassemble_dex gives smali.
+Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+). A member, anonymous or lambda class comes from the code JADX writes it in. Without JADX, disassemble_dex gives smali.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2336,7 +2339,7 @@ Search DEX code. kind=string: literals with the method and offset of each use; t
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
+| `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
 | `kind` | string | yes |  | What to search. Values: string, type, method, field, const, opcode. |
 | `query` | string | yes |  | Case-insensitive substring or * / ? pattern; for const a number. |
 | `offset` | integer |  | `0` | Rows to skip. |
@@ -2352,7 +2355,7 @@ Cross-references in DEX code, with the method and code offset of each instructio
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex. |
+| `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
 | `target` | string | yes |  | A class, method (Lpkg/C;->m(I)V or pkg.C::m(int)), field (Lpkg/C;->f:I or pkg.C::f) or a "quoted" string. |
 | `direction` | string |  |  | to (default; who refers to target) or from. Values: to, from. |
 | `kind` | string |  |  | How to read target (default auto; string: taken literally). Values: auto, class, method, field, string. |
@@ -2365,7 +2368,7 @@ Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `tota
 
 **Map Java and .NET** (read-only, idempotent)
 
-The other side of a Java / .NET bridge, for decompile_member or get_dex_class. .NET for Android (Xamarin / MAUI): a Java wrapper class or method to its .NET type or method and back ([Register] and crc64 names). Unity Mono: the C# reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a confidence. A * / ? pattern lists the pairs it matches. Reads loaded assemblies, and the package's with path.
+The other side of a Java / .NET bridge. .NET for Android (Xamarin / MAUI): a Java wrapper class or method to its .NET type or method and back ([Register] and crc64 names). Unity Mono: the C# reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a confidence. A * / ? pattern lists matching pairs. Reads loaded assemblies, and the package's with path.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2495,7 +2498,7 @@ The device log so far (logcat -d), narrowed by process, tag, priority and start 
 
 **Install package on device** (destructive, open-world, long-running)
 
-Installs an APK, a split set or a directory of APKs on a device in one session; failures come back by their INSTALL_FAILED_ code. Changes the device: off unless the server runs with --allow-device-changes.
+Installs an APK, a split set or a directory of APKs on a device in one session; failures come back by their INSTALL_FAILED_ code. Changes the device: needs the server option --allow-device-changes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

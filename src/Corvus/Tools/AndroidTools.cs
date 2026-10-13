@@ -21,20 +21,90 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [property: Description("The entry's size in bytes.")] long? Bytes,
         [property: Description("SHA-256 of the bytes written.")] string? Sha256);
 
-    public const string CodeDescription = "An .apk, .aab or split set (.apks, .xapk, .apkm), a .dex, or a jar with classes*.dex.";
+    public const string CodeDescription = "An Android package, a .dex, or a jar with classes*.dex.";
 
-    [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true)]
-    [Description("AndroidManifest.xml of an Android package, decoded: package, versions, SDKs; permissions; application flags (debuggable, " +
-                 "allowBackup, cleartext traffic, network security config); each component's effective exported state and why, permissions, intent " +
-                 "filters, deep links, meta-data; queries, features, libraries; highlights. Raw XML: get_android_resource.")]
-    public Task<AndroidManifestSummary> GetAndroidManifest(
+    [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true, OutputSchemaType = typeof(AndroidManifestView))]
+    [Description("AndroidManifest.xml of an Android package, decoded. view=summary (default): package, versions, SDKs, permissions, application " +
+                 "flags (debuggable, allowBackup, cleartext, network security config), component counts, exported components and why, " +
+                 "queries, features, libraries, highlights. view=components: each component with intent filters, deep links, meta-data. " +
+                 "Raw XML: get_android_resource.")]
+    public Task<string> GetAndroidManifest(
         [Description(PackageDescription)] string path,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => packages.Manifest(path, cancellationToken), cancellationToken);
+        [Description("summary (default) or components.")] string? view = null,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description("Most components.")] int limit = 50,
+        CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        bool components = (view ?? "summary").Trim().ToLowerInvariant() switch
+        {
+            "summary" or "" => false,
+            "components" => true,
+            var v => throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{v}'; use summary or components."),
+        };
+        var m = packages.Manifest(path, cancellationToken);
+        static string Row(AndroidComponent c) => $"{c.Kind} {c.Name}  {(c.EffectiveExported ? "exported" : "not exported")} ({c.ExportedReason})"
+            + string.Concat(new[]
+            {
+                c.Launcher ? "launcher" : null, c.Permission != null ? "permission " + c.Permission : null, c.Authorities != null ? "authorities " + c.Authorities : null,
+                c.TargetActivity != null ? "target " + c.TargetActivity : null, c.DeepLinks.Count > 0 ? "deep links " + string.Join(", ", c.DeepLinks) : null,
+                c.IntentFilters.Count > 0 ? $"{c.IntentFilters.Count} intent filters: " + string.Join("; ", c.IntentFilters.Select(f => string.Join(" ", f.Actions.Concat(f.Categories)))) : null,
+                c.MetaData.Count > 0 ? "meta-data " + string.Join(", ", c.MetaData.Select(d => d.Name)) : null, c.DotNetType != null ? ".NET " + c.DotNetType : null,
+            }.OfType<string>().Select(s => "; " + s));
+        if (components)
+        {
+            var page = m.Components.Skip(Math.Max(0, offset)).Take(ClampLimit(limit)).ToList();
+            var list = new AndroidManifestView(m.Package, m.VersionCode, m.VersionName, m.MinSdk, m.TargetSdk, m.MaxSdk, m.CompileSdk, m.Split, null, null, null, null,
+                null, null, null, null, null, null, null, null, page, Math.Max(0, offset), m.Components.Count);
+            return ToolOutput.List(page, Math.Max(0, offset), ClampLimit(limit), m.Components.Count, Row, rows => list with { Items = rows }, "component", $"{m.Package}\n");
+        }
+        var exported = m.Components.Where(c => c.EffectiveExported).ToList();
+        var counts = m.Components.GroupBy(c => c.Kind).ToDictionary(g => g.Key, g => $"{g.Count()} ({g.Count(c => c.EffectiveExported)} exported)");
+        var record = new AndroidManifestView(m.Package, m.VersionCode, m.VersionName, m.MinSdk, m.TargetSdk, m.MaxSdk, m.CompileSdk, m.Split, m.Application,
+            [.. m.Permissions.Select(p => p.Name + (p.MaxSdkVersion is { } x ? $" (maxSdk {x})" : "") + (p.Sdk23Only ? " (sdk 23+)" : ""))], m.DeclaredPermissions, counts,
+            [.. exported.Take(MaxExportedShown).Select(c => new AndroidExportedComponent(c.Kind, c.Name, c.ExportedReason, c.Permission, c.Launcher ? true : null,
+                c.DeepLinks.Count > 0 ? c.DeepLinks : null))], exported.Count, m.Queries, m.Features, m.Libraries, m.MetaData, m.Highlights, m.Issues, null, null, null);
+        var sb = new System.Text.StringBuilder($"{m.Package} {m.VersionName} ({m.VersionCode}); SDK min {m.MinSdk}, target {m.TargetSdk}{(m.CompileSdk is { } cs ? $", compile {cs}" : "")}{(m.Split != null ? $"; split {m.Split}" : "")}\n");
+        var a = m.Application;
+        sb.Append($"application {a.Name}{(a.Label != null ? $" \"{a.Label}\"" : "")}: debuggable={a.Debuggable?.ToString() ?? "-"}, allowBackup={a.AllowBackup?.ToString() ?? "-"}, " +
+                  $"usesCleartextTraffic={a.UsesCleartextTraffic?.ToString() ?? "-"}{(a.NetworkSecurityConfig != null ? ", networkSecurityConfig " + a.NetworkSecurityConfig : "")}\n");
+        foreach (var h in m.Highlights) sb.Append("! ").Append(h).Append('\n');
+        sb.Append($"permissions ({record.Permissions!.Count}): {string.Join(", ", record.Permissions)}\n");
+        if (m.DeclaredPermissions.Count > 0) sb.Append($"declared: {string.Join(", ", m.DeclaredPermissions.Select(p => $"{p.Name} ({p.ProtectionLevel})"))}\n");
+        sb.Append($"components: {string.Join(", ", counts.Select(c => $"{c.Key} {c.Value}"))}\n");
+        sb.Append($"exported ({exported.Count}{(exported.Count > MaxExportedShown ? $", first {MaxExportedShown}; view=components lists all" : "")}):\n");
+        foreach (var c in exported.Take(MaxExportedShown))
+            sb.Append($"  {c.Kind} {c.Name}  ({c.ExportedReason}){(c.Permission != null ? "; permission " + c.Permission : "")}{(c.Launcher ? "; launcher" : "")}" +
+                      $"{(c.DeepLinks.Count > 0 ? "; deep links " + string.Join(", ", c.DeepLinks) : "")}\n");
+        if (m.Features.Count > 0) sb.Append($"features: {string.Join(", ", m.Features)}\n");
+        if (m.Libraries.Count > 0) sb.Append($"libraries: {string.Join(", ", m.Libraries)}\n");
+        if (m.Queries.Packages.Count + m.Queries.Intents.Count + m.Queries.Providers.Count > 0)
+            sb.Append($"queries: {string.Join(", ", m.Queries.Packages.Concat(m.Queries.Intents).Concat(m.Queries.Providers))}\n");
+        if (m.MetaData.Count > 0) sb.Append($"meta-data: {string.Join(", ", m.MetaData.Select(d => $"{d.Name}={d.Value ?? d.Resource}"))}\n");
+        foreach (var i in m.Issues) sb.Append("issue: ").Append(i).Append('\n');
+        return ToolOutput.Report(sb.ToString(), record);
+    }, cancellationToken);
+
+    /// <summary>Exported components the summary names; view=components pages all.</summary>
+    private const int MaxExportedShown = 30;
+
+    public sealed record AndroidExportedComponent(string Kind, string Name, string Reason, string? Permission, bool? Launcher, IReadOnlyList<string>? DeepLinks);
+
+    /// <summary>get_android_manifest: the summary (view=summary) or a page of components (view=components).</summary>
+    public sealed record AndroidManifestView(string Package, string? VersionCode, string? VersionName, int? MinSdk, int? TargetSdk, int? MaxSdk, int? CompileSdk,
+        [property: Description("Set on a split APK: its split name.")] string? Split,
+        AndroidApplicationFlags? Application,
+        [property: Description("Used permissions, with maxSdk and sdk-23-only marks.")] IReadOnlyList<string>? Permissions,
+        IReadOnlyList<AndroidDeclaredPermission>? DeclaredPermissions,
+        [property: Description("Components per kind, with how many are exported.")] IReadOnlyDictionary<string, string>? ComponentCounts,
+        [property: Description("The first 30 exported components with why they are exported.")] IReadOnlyList<AndroidExportedComponent>? Exported,
+        int? ExportedTotal, AndroidQueries? Queries, IReadOnlyList<string>? Features, IReadOnlyList<string>? Libraries, IReadOnlyList<AndroidMetaData>? MetaData,
+        [property: Description("Notable facts: debuggable, cleartext traffic, backups, exported components without permission, deep links.")] IReadOnlyList<string>? Highlights,
+        IReadOnlyList<string>? Issues,
+        [property: Description("view=components: the page of components.")] IReadOnlyList<AndroidComponent>? Items, int? Offset, int? Total);
 
     [McpServerTool(Name = "list_android_resources", Title = "List Android resources", UseStructuredContent = true, OutputSchemaType = typeof(AndroidResourceList))]
-    [Description("Compiled resources of an Android package (resources.arsc or a bundle's resources.pb): a row per resource and " +
-                 "configuration with id, type, name, qualifiers ('' is the default), value type and value (references by name); types counts each type.")]
+    [Description("Compiled resources of an Android package (resources.arsc, or a bundle's resources.pb): a row per resource and " +
+                 "configuration with id, type, name, qualifiers, value type and value (cut at 200 characters); counts per type.")]
     public Task<string> ListAndroidResources(
         [Description(PackageDescription)] string path,
         [Description("Only this type (string, layout, xml, ...).")] string? type = null,
@@ -51,8 +121,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "get_android_resource", Title = "Get Android resource", UseStructuredContent = true, OutputSchemaType = typeof(AndroidResourceFile))]
-    [Description("One file or resource of an Android package: an entry path is read with binary XML decoded and references named, text as " +
-                 "text, other data as a hex preview; @type/name or 0x7f... gives the resource's value in every configuration. outputPath writes the raw bytes.")]
+    [Description("One entry or resource of an Android package: an entry path (binary XML decoded, references named; text; else a hex preview), " +
+                 "or @type/name / 0x7f... for its value in every configuration. outputPath writes the raw bytes.")]
     public Task<string> GetAndroidResource(
         [Description(PackageDescription)] string path,
         [Description("An entry path (res/xml/x.xml, assets/...), @type/name or a resource id 0x7f...")] string name,
@@ -157,7 +227,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
     [Description("Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+). A member, " +
-                 "anonymous or lambda class comes from the code JADX writes it in. Without JADX: provider_unavailable; disassemble_dex gives smali.")]
+                 "anonymous or lambda class comes from the code JADX writes it in. Without JADX, disassemble_dex gives smali.")]
     public async Task<string> DecompileJava(
         [Description("An .apk, .aab or split set, a .dex, or a jar (DEX or .class files).")] string path,
         [Description("A class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)).")] string symbol,
@@ -174,10 +244,10 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }
 
     [McpServerTool(Name = "map_java_dotnet", Title = "Map Java and .NET", UseStructuredContent = true, OutputSchemaType = typeof(JavaDotNetResult))]
-    [Description("The other side of a Java / .NET bridge, for decompile_member or get_dex_class. .NET for Android (Xamarin / MAUI): a Java " +
+    [Description("The other side of a Java / .NET bridge. .NET for Android (Xamarin / MAUI): a Java " +
                  "wrapper class or method to its .NET type or method and back ([Register] and crc64 names). Unity Mono: the C# " +
                  "reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a " +
-                 "confidence. A * / ? pattern lists the pairs it matches. Reads loaded assemblies, and the package's with path.")]
+                 "confidence. A * / ? pattern lists matching pairs. Reads loaded assemblies, and the package's with path.")]
     public Task<string> MapJavaDotNet(
         [Description("A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->m(I)V), a .NET type or member, or a pattern (crc64*).")] string symbol,
         [Description("The package whose assemblies to read; optional when they are loaded.")] string? path = null,

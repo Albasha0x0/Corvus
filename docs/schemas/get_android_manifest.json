@@ -26,48 +26,6 @@
       "description": "Set on a split APK: its split name.",
       "type": "string"
     },
-    "permissions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "maxSdkVersion": {
-            "type": "integer"
-          },
-          "sdk23Only": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "name",
-          "sdk23Only"
-        ]
-      }
-    },
-    "declaredPermissions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "protectionLevel": {
-            "type": "string"
-          },
-          "group": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "protectionLevel"
-        ]
-      }
-    },
     "application": {
       "type": "object",
       "properties": {
@@ -113,7 +71,154 @@
         }
       }
     },
-    "components": {
+    "permissions": {
+      "description": "Used permissions, with maxSdk and sdk-23-only marks.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "declaredPermissions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "protectionLevel": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "protectionLevel"
+        ]
+      }
+    },
+    "componentCounts": {
+      "description": "Components per kind, with how many are exported.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "exported": {
+      "description": "The first 30 exported components with why they are exported.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "string"
+          },
+          "launcher": {
+            "type": "boolean"
+          },
+          "deepLinks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "reason"
+        ]
+      }
+    },
+    "exportedTotal": {
+      "type": "integer"
+    },
+    "queries": {
+      "type": "object",
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "intents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "packages",
+        "intents",
+        "providers"
+      ]
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "libraries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metaData": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "highlights": {
+      "description": "Notable facts: debuggable, cleartext traffic, backups, exported components without permission, deep links.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "items": {
+      "description": "view=components: the page of components.",
       "type": "array",
       "items": {
         "type": "object",
@@ -233,21 +338,7 @@
           "metaData": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string"
-                },
-                "value": {
-                  "type": "string"
-                },
-                "resource": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "name"
-              ]
+              "$ref": "#/properties/metaData/items"
             }
           },
           "dotNetType": {
@@ -267,64 +358,23 @@
         ]
       }
     },
-    "queries": {
-      "type": "object",
-      "properties": {
-        "packages": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "intents": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "providers": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "required": [
-        "packages",
-        "intents",
-        "providers"
-      ]
+    "offset": {
+      "type": "integer"
     },
-    "features": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
+    "total": {
+      "type": "integer"
     },
-    "libraries": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
+    "limit": {
+      "type": "integer"
     },
-    "metaData": {
-      "type": "array",
-      "items": {
-        "$ref": "#/properties/components/items/properties/metaData/items"
-      }
+    "totalExact": {
+      "type": "boolean"
     },
-    "highlights": {
-      "description": "Notable facts: debuggable, cleartext traffic, backups, exported components without permission, deep links.",
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
+    "hasMore": {
+      "type": "boolean"
     },
-    "issues": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -346,16 +396,6 @@
     }
   },
   "required": [
-    "package",
-    "permissions",
-    "declaredPermissions",
-    "application",
-    "components",
-    "queries",
-    "features",
-    "libraries",
-    "metaData",
-    "highlights",
-    "issues"
+    "package"
   ]
 }
