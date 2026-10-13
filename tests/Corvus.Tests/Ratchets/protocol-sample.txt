@@ -1,32 +1,32 @@
 # Exemptions from: every tool has a recorded request/response in tests/Corvus.Tests/ProtocolSamples (S12.2)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-declare_native_types
-decompile_java
-decompile_native
-define_native
-dump_heap
-dump_object
-emulate_native
-export_engine_database
-get_android_device_info
-get_android_package_info
-get_engine_status
-get_native_frame
-ghidra_script
-ida_python
-inspect_process
-install_android_package
-list_android_devices
-list_android_packages
-list_native_types
-pull_android_file
-pull_android_package
-read_android_log
-reanalyze_native
-search_decompiled
-server_status
-set_native_local
-set_native_operand
-set_native_stack_var
-set_native_type
-uninstall_android_package
+declare_native_types # permanent: edits an engine database (IDA); no engine in the quick set
+decompile_java # permanent: needs the JADX server (CORVUS_JAVA_DECOMPILER, a JDK)
+decompile_native # permanent: needs a decompiler engine (IDA or Ghidra)
+define_native # permanent: edits an engine database (IDA); no engine in the quick set
+dump_heap # permanent: needs a dump of a live .NET process (the CLR's DAC), which no fixture reproduces
+dump_object # permanent: needs a dump of a live .NET process (the CLR's DAC), which no fixture reproduces
+emulate_native # permanent: needs the Ghidra emulator
+export_engine_database # permanent: writes an engine database (IDA or Ghidra)
+get_android_device_info # permanent: needs an adb device
+get_android_package_info # permanent: needs an adb device
+get_engine_status # permanent: reports the engines this machine has and their cached analyses
+get_native_frame # permanent: reads an engine database (IDA); no engine in the quick set
+ghidra_script # permanent: runs a script in Ghidra (--ghidra-scripting)
+ida_python # permanent: runs a script in IDA (--ida-scripting)
+inspect_process # permanent: reads a live process
+install_android_package # permanent: needs an adb device (and --allow-device-changes)
+list_android_devices # permanent: needs adb
+list_android_packages # permanent: needs an adb device
+list_native_types # permanent: reads an engine database (IDA); no engine in the quick set
+pull_android_file # permanent: needs an adb device
+pull_android_package # permanent: needs an adb device
+read_android_log # permanent: needs an adb device
+reanalyze_native # permanent: needs a decompiler engine (IDA or Ghidra)
+search_decompiled # permanent: needs a decompiler engine (IDA or Ghidra)
+server_status # permanent: reports this machine's runtime and engines, and the catalog digest that changes with every catalog edit
+set_native_local # permanent: edits an engine database (IDA); no engine in the quick set
+set_native_operand # permanent: edits an engine database (IDA); no engine in the quick set
+set_native_stack_var # permanent: edits an engine database (IDA); no engine in the quick set
+set_native_type # permanent: edits an engine database (IDA); no engine in the quick set
+uninstall_android_package # permanent: needs an adb device (and --allow-device-changes)
