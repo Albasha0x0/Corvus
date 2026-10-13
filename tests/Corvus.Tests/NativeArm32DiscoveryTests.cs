@@ -101,6 +101,37 @@ public class NativeArm32DiscoveryTests
         Assert.DoesNotContain(index.Functions, f => f.Start > Text && f.Start < cmp);
     }
 
+    /// <summary>
+    /// In an image of Thumb functions, an A32 function forms the address of another (ldr r0, =handler - pc; add r0, pc, r0):
+    /// the handler (cmp r0, #0; bxeq lr; bx r0, crtbegin's atexit wrapper) is an A32 function with a reference from the add.
+    /// </summary>
+    [Fact]
+    public void An_a32_pic_pair_seeds_an_a32_function_in_a_thumb_image()
+    {
+        var a = new A32Code(Text);
+        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true };
+        for (int k = 0; k < 16; k++)
+        {
+            w.Symbols.Add(new ElfWriter.Symbol($"t{k}", a.Here | 1, Type: 2));
+            a.H(A32Code.BxLr).H(A32Code.Nop);
+        }
+        uint main = a.Here, lit = 0, handler = 0;
+        a.Later(4, at => 0xE59F0000 | (lit - (at + 8)));     // ldr r0, [pc, #x]
+        uint add = a.Here;
+        a.W(0xE08F0000).W(A32Code.ArmBxLr);                   // add r0, pc, r0; bx lr
+        lit = a.Here;
+        a.Later(4, _ => handler - (add + 8));
+        handler = a.Here;
+        a.W(0xE3500000).W(0x012FFF1E).W(0xE12FFF10);          // cmp r0, #0; bxeq lr; bx r0
+        w.Text = a.Bytes();
+        w.Symbols.Add(new ElfWriter.Symbol("main", main, Type: 2));
+        var index = NativeCodeIndex.Build(ElfFile.FromBytes(w.Build(), "pic.so"));
+
+        Assert.NotNull(index.FunctionByStart(handler));
+        Assert.False(index.CreateDisassembler().ThumbAt(handler));
+        Assert.Contains(index.RefsTo(handler), x => x.From == add);
+    }
+
     /// <summary>A start whose bytes read in both states takes the state of the code decoded right before it.</summary>
     [Fact]
     public void A_start_next_to_decoded_code_takes_its_state()

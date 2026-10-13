@@ -249,7 +249,7 @@ public class NativeArm32Tests
     {
         // an ARM function and a Thumb function reached only through relocated pointers in data (the Thumb one odd)
         var a = new A32Code(Text);
-        a.W(A32Code.ArmCmp(0, 0)).W(A32Code.ArmBxLr);
+        a.W(A32Code.ArmCmp(0, 1)).W(A32Code.ArmBxLr);
         uint thumb = a.Here;
         a.H(A32Code.MovImm(0, 2)).H(A32Code.BxLr);
         var image = Elf(a.Bytes(), w =>
@@ -265,7 +265,7 @@ public class NativeArm32Tests
         // an odd address asks for Thumb decoding at the address below it
         Assert.Equal("movs   r0, #2", index.Disassemble(thumb | 1, 1)[0].Text);
         Assert.Contains(index.RefsTo(thumb), x => x.Kind == XrefKind.Pointer);
-        // the even pointer gives no state: cmp; bx lr also reads as Thumb (movs; b), so ARM is a guess
+        // the even pointer gives no state: cmp r0, #1; bx lr also reads as Thumb (movs r1, r0; b), so ARM is a guess
         Assert.Equal((FunctionFlags.StateGuessed, FunctionFlags.None),
             (index.FunctionByStart(Text)!.Flags & FunctionFlags.StateGuessed, index.FunctionByStart(thumb)!.Flags & FunctionFlags.StateGuessed));
     }
@@ -343,7 +343,9 @@ public class NativeArm32Tests
     [InlineData("B000 2DE9 0C70 9FE5 DC40 CDE1 0000 00EF B000 BDE8 FEFF FFEA", false, true)] // push {r4, r5, r7}; ldr r7, [pc, #12]; ldrd; svc #0; pop; b
     [InlineData("80B5 DDE9 02CE CDE9 02CE BDE8 8040 1BF0 0000 0000 0000 0000", true, true)]  // push {r7, lr}; ldrd; strd; pop.w {r7, lr}; b.w
     [InlineData("82B0 8DED 000B DDE9 0032 C2F3 0A50 40B1 0000 0000 0000 0000", true, true)]  // sub sp, #8; vstr d0, [sp]; ldrd; ubfx; cbz
-    [InlineData("0000 A0E3 1EFF 2FE1 0000 0000 0000 0000 0000 0000 0000 0000", false, false)] // mov r0, #0; bx lr (Thumb: movs r0, r0; b)
+    [InlineData("0100 A0E3 1EFF 2FE1 0000 0000 0000 0000 0000 0000 0000 0000", false, false)] // mov r0, #1; bx lr (Thumb: movs r1, r0; b)
+    [InlineData("0000 A0E3 1EFF 2FE1 0000 0000 0000 0000 0000 0000 0000 0000", false, true)]  // mov r0, #0; bx lr: no Thumb function starts with movs r0, r0
+    [InlineData("1EFF 2FE1 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000", false, true)]  // bx lr (Thumb: a NEON op on d31)
     public void State_of_code_without_a_fact_is_guessed(string hex, bool thumb, bool sure)
     {
         var image = Elf(Convert.FromHexString(hex.Replace(" ", "")));

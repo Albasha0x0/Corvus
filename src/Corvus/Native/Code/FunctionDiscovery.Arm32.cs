@@ -23,11 +23,14 @@ internal sealed partial class FunctionDiscovery
             for (uint a = insn.MemTarget & ~1u; a < insn.MemTarget + (uint)size; a += 2) _literals.Add(a);
     }
 
-    /// <summary>A word-aligned start right after decoded code whose bytes read in both states takes that code's state.</summary>
+    /// <summary>A word-aligned start right after decoded code (and its literal pool) whose bytes read in both states takes that code's state.</summary>
     private void HintFromNeighbor(uint rva)
     {
-        if (_armInsns == null || (rva & 3) != 0 || _ctx.Code.RegionAt(rva) is not { } region || rva - region.Rva < 4) return;
-        long bit = region.BitBase + (rva - region.Rva);
+        if (_armInsns == null || (rva & 3) != 0 || _ctx.Code.RegionAt(rva) is not { } region) return;
+        uint at = rva;
+        for (int n = 0; n < 16 && at - region.Rva >= 4 && (IsLiteral(at - 4, 4) || _dataInCode.Contains(at - 4)); n++) at -= 4;
+        if (at - region.Rva < 4) return;
+        long bit = region.BitBase + (at - region.Rva);
         if (_starts[bit - 4] && _armInsns[bit - 4]) _ctx.ArmModes!.HintNeighbor(rva, false);
         else if (_starts[bit - 2] || _starts[bit - 4]) _ctx.ArmModes!.HintNeighbor(rva, true);
     }

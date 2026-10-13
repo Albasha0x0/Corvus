@@ -199,6 +199,8 @@ internal sealed class Arm32Modes
         if (arm != thumb) return (thumb, true);
         if (!arm) return (true, false);
         uint w = BinaryPrimitives.ReadUInt32LittleEndian(b);
+        // A32 bx lr reads in Thumb as a NEON op on d31; no Thumb function starts with movs r0, r0 (an A32 word with a zero low half)
+        if (w == 0xE12FFF1E || (w & 0xFFFF) == 0) return (false, true);
         // a stack probe (mov ip, #n) may come first
         bool armPrologue = ArmPrologue(w) || (w & 0xFFFFF000) == 0xE3A0C000 && b.Length >= 8 && ArmPrologue(BinaryPrimitives.ReadUInt32LittleEndian(b[4..]));
         bool thumbPrologue = ThumbPrologue(b);
