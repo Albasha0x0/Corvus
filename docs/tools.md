@@ -1368,6 +1368,8 @@ Exception handling of the native function containing an address. ELF / Mach-O: F
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
+Structured output: `image`, `function`, `address`, `format`, `scheme`, `parent`, `handlers`, `ranges`, `counts`.
+
 ### list_cpp_classes
 
 **C++ classes from RTTI** (read-only, idempotent, open-world)

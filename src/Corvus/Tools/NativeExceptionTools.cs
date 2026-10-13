@@ -4,6 +4,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Code;
 using Corvus.Native.Msvc;
@@ -12,13 +13,36 @@ using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
+/// <summary>A handler, funclet or landing pad of a function's exception metadata.</summary>
+public sealed record EhHandler(
+    [property: Description("catch, unwind, destructor, filter, except, finally, landing_pad, or a chunk kind.")] string Kind,
+    string Address,
+    [property: Description("The function name at the address, when it has one.")] string? Name,
+    [property: Description("catch: the caught type (... for all); landing_pad: the actions.")] string? Detail);
+
+/// <summary>A protected range: an SEH __try scope or an Itanium call site.</summary>
+public sealed record EhRange(string Start, string End,
+    [property: Description("The handler (__except / __finally block or landing pad); absent when it unwinds through.")] string? Handler,
+    [property: Description("finally, except (with its filter) or call_site.")] string Kind,
+    string? Filter);
+
+/// <summary>get_exception_info's record: one function's handlers and ranges, or the image's counts.</summary>
+public sealed record ExceptionReport(string Image,
+    [property: Description("The function; absent for the image summary.")] string? Function,
+    string? Address,
+    [property: Description("msvc or itanium.")] string Format,
+    [property: Description("The handler scheme (MSVC) or personality routine (Itanium).")] string? Scheme,
+    [property: Description("The function this funclet or fragment belongs to.")] string? Parent,
+    IReadOnlyList<EhHandler> Handlers, IReadOnlyList<EhRange> Ranges,
+    [property: Description("Image summary: frames, FDEs and the like by kind.")] IReadOnlyDictionary<string, int>? Counts);
+
 /// <summary>MSVC exception handling metadata of native functions (x86 / x64).</summary>
 [McpServerToolType]
 public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager)
 {
     private const int MaxIpStates = 64;
 
-    [McpServerTool(Name = "get_exception_info", Title = "Native exception handling")]
+    [McpServerTool(Name = "get_exception_info", Title = "Native exception handling", UseStructuredContent = true, OutputSchemaType = typeof(ExceptionReport))]
     [Description("Exception handling of the native function containing an address. ELF / Mach-O: FDE, compact unwind or ARM EHABI entry, personality, LSDA call " +
                  "sites with landing pads and caught types. MSVC: the handler, try blocks with caught types, unwind map, SEH scopes, IP-to-state " +
                  "map, and the catch blocks, funclets, filters and chained fragments it reaches. Without an address: image counts and the metadata " +
@@ -32,9 +56,22 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, index) = await Open(image, progress, cancellationToken);
-        if (index.Image.Format != ImageFormat.Pe) return pager.Page(Itanium(native.Id, index, address), offset, maxTokens);
+        if (index.Image.Format != ImageFormat.Pe)
+        {
+            var (itext, irecord) = Itanium(native.Id, index, address);
+            return ToolOutput.Report(pager.Page(itext, offset, maxTokens), irecord);
+        }
         var eh = index.ExceptionInfo;
-        if (string.IsNullOrWhiteSpace(address)) return pager.Page(Summary(native.Id, index, eh), offset, maxTokens);
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            var s = eh.Stats;
+            return ToolOutput.Report(pager.Page(Summary(native.Id, index, eh), offset, maxTokens), new ExceptionReport(native.Id, null, null, "msvc", null, null, [], [],
+                new Dictionary<string, int>
+                {
+                    ["frames"] = s.Frames, ["cxx3"] = s.Cxx3, ["cxx4"] = s.Cxx4, ["cSpecific"] = s.CSpecific, ["seh4"] = s.Seh4, ["seh3"] = s.Seh3,
+                    ["gsOnly"] = s.GsOnly, ["unknown"] = s.Unknown, ["children"] = s.Children, ["fragments"] = s.Fragments, ["rejected"] = eh.RejectCount,
+                }));
+        }
 
         uint rva = NativeCodeTools.Address(index, address);
         var fn = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
@@ -56,8 +93,37 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         if (fn.Parent != null && eh.FrameOf(fn.Parent.Start) is { } parentFrame) frames.Add(parentFrame);
         if (frames.Count == 0) sb.AppendLine("No exception handling metadata.");
         foreach (var frame in frames) AppendFrame(sb, index, frame, Name);
-        return pager.Page(sb.ToString(), offset, maxTokens);
+        var (handlers, ranges) = Facts(index, fn, frames);
+        var report = new ExceptionReport(native.Id, fn.Name, NativeAddress.Va(index.Image, fn.Start), "msvc", frames.Count > 0 ? Scheme(frames[0].Scheme) : null,
+            fn.Parent?.Name ?? (eh.Fragments.TryGetValue(fn.Start, out uint owner) ? index.NameAt(owner) ?? NativeAddress.Va(index.Image, owner) : null), handlers, ranges, null);
+        return ToolOutput.Report(pager.Page(sb.ToString(), offset, maxTokens), report);
     });
+
+    /// <summary>The handlers and protected ranges of an MSVC function's frames, and its chunks.</summary>
+    private static (List<EhHandler>, List<EhRange>) Facts(NativeCodeIndex index, NativeFunction fn, List<MsvcEhFrame> frames)
+    {
+        string Va(uint r) => NativeAddress.Va(index.Image, r);
+        var handlers = new List<EhHandler>();
+        var ranges = new List<EhRange>();
+        foreach (var c in fn.Chunks) handlers.Add(new EhHandler(Describe(c.Kind).Replace(' ', '_'), Va(c.Start), null, null));
+        foreach (var f in frames)
+        {
+            foreach (var t in f.TryBlocks)
+                foreach (var c in t.Catches)
+                    handlers.Add(new EhHandler("catch", Va(c.HandlerRva), index.NameAt(c.HandlerRva),
+                        c.TypeName ?? (c.TypeDescriptorRva == null ? "..." : c.DecoratedTypeName ?? Va(c.TypeDescriptorRva.Value))));
+            foreach (var u in f.Unwind)
+                if (u.ActionRva is { } a)
+                    handlers.Add(new EhHandler(u.Kind == MsvcEhUnwindKind.Funclet ? "unwind" : "destructor", Va(a), index.NameAt(a), $"state {u.State} -> {u.ToState}"));
+            foreach (var s in f.Scopes)
+            {
+                string? filter = s.IsFinally ? null : s.FilterRva is { } fr ? Va(fr) : $"constant {s.FilterConstant}";
+                if (s.BeginRva is { } b) ranges.Add(new EhRange(Va(b), Va(s.EndRva!.Value), Va(s.HandlerRva), s.IsFinally ? "finally" : "except", filter));
+                else handlers.Add(new EhHandler(s.IsFinally ? "finally" : "except", Va(s.HandlerRva), index.NameAt(s.HandlerRva), $"level {s.Index}"));
+            }
+        }
+        return (handlers.DistinctBy(h => (h.Kind, h.Address, h.Detail)).ToList(), ranges);
+    }
 
     private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
@@ -73,7 +139,7 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
     }
 
     /// <summary>ELF and Mach-O: the Itanium tables (FDE or compact unwind, personality, LSDA call sites) of one function or the image.</summary>
-    private static string Itanium(string id, NativeCodeIndex index, string? address)
+    private static (string Text, ExceptionReport Record) Itanium(string id, NativeCodeIndex index, string? address)
     {
         var image = index.Image;
         var table = Native.Itanium.ItaniumEh.Of(image);
@@ -95,16 +161,21 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
             if (attached > 0) sb.AppendLine($"Landing pads no flow reaches, attached to their functions as chunks: {attached}");
             foreach (var note in table.Notes) sb.AppendLine($"Note: {note}");
             sb.AppendLine("Pass an address for one function's call sites and landing pads.");
-            return sb.ToString();
+            return (sb.ToString(), new ExceptionReport(id, null, null, "itanium", null, null, [], [], new Dictionary<string, int>
+            {
+                ["fdes"] = table.Fdes, ["compactEntries"] = table.CompactEntries, ["exidxEntries"] = table.ExidxEntries, ["withLsda"] = withLsda.Count,
+                ["callSites"] = withLsda.Sum(f => f.CallSites.Count), ["landingPads"] = withLsda.Sum(f => f.CallSites.Count(c => c.LandingPad != null)),
+            }));
         }
         uint rva = NativeCodeTools.Address(index, address);
         var fn = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(rva)}.", "list_functions shows the functions");
         sb.AppendLine($"{fn.Name} at {Va(fn.Start)}");
         if (fn.Chunks.Any(c => c.Start == rva)) sb.AppendLine($"{Va(rva)} is a landing pad of {fn.Name} (a chunk of its code)");
+        var empty = new ExceptionReport(id, fn.Name, Va(fn.Start), "itanium", null, null, [], [], null);
         if (table.At(fn.Start) is not { } eh)
         {
             sb.AppendLine("No exception handling metadata (no FDE, compact unwind or .ARM.exidx entry).");
-            return sb.ToString();
+            return (sb.ToString(), empty);
         }
         sb.AppendLine($"{eh.Source} {Va(eh.Begin)}-{Va(eh.End)}" + (eh.Personality != null ? $", personality {eh.Personality}" : "") + (eh.Lsda is { } l ? $", {(ArmPersonality(eh) ? "scope descriptors" : "LSDA")} {Va(l)}" : ", no LSDA"));
         foreach (var note in eh.Notes) sb.AppendLine($"Note: {note}");
@@ -112,7 +183,10 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         string Name(uint r) => index.NameAt(r) is { } n ? $"{n} ({Va(r)})" : Va(r);
         foreach (var c in eh.CallSites)
             sb.AppendLine($"  {Va(c.Start)}-{Va(c.End)}: " + (c.LandingPad is { } pad ? $"landing pad {Name(pad)}" + (c.Actions.Count > 0 ? ": " + string.Join(", ", c.Actions) : "") : c.Actions.Count > 0 ? string.Join(", ", c.Actions) : "no landing pad (unwinds through)"));
-        return sb.ToString();
+        var pads = eh.CallSites.Where(c => c.LandingPad != null).GroupBy(c => c.LandingPad!.Value)
+            .Select(g => new EhHandler("landing_pad", Va(g.Key), index.NameAt(g.Key), g.SelectMany(c => c.Actions).Distinct() is var a && a.Any() ? string.Join(", ", a) : null)).ToList();
+        var sites = eh.CallSites.Select(c => new EhRange(Va(c.Start), Va(c.End), c.LandingPad is { } p ? Va(p) : null, "call_site", null)).ToList();
+        return (sb.ToString(), empty with { Scheme = eh.Personality, Handlers = pads, Ranges = sites });
     }
 
     /// <summary>__aeabi_unwind_cpp_pr1 / pr2: the entry's data are scope descriptors, not an LSDA.</summary>

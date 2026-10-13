@@ -216,7 +216,12 @@ public class ItaniumEhTests
 
         var image = NativeImageLoader.Open(path);
         var fn = ItaniumEh.Of(image).Functions.First(f => f.CallSites.Any(c => c.Actions.Contains("catch (std::exception)")));
+        var collector = Corvus.Mcp.ToolOutput.Collect();
         var text = await tools.GetExceptionInfo(path, $"rva:0x{fn.Begin:X}");
+        var record = Assert.IsType<ExceptionReport>(collector.Value);
+        Assert.Equal(("itanium", "__gxx_personality_v0"), (record.Format, record.Scheme));
+        Assert.Contains(record.Handlers, h => h.Kind == "landing_pad" && h.Detail!.Contains("catch (std::exception)"));
+        Assert.Contains(record.Ranges, r => r.Kind == "call_site" && r.Handler == null);
         Assert.Contains("DWARF CFI", text);
         Assert.Contains(": catch (std::exception), cleanup", text);
         Assert.Contains("no landing pad (unwinds through)", text);

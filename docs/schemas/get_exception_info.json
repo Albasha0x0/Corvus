@@ -1,0 +1,115 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "function": {
+      "description": "The function; absent for the image summary.",
+      "type": "string"
+    },
+    "address": {
+      "type": "string"
+    },
+    "format": {
+      "description": "msvc or itanium.",
+      "type": "string"
+    },
+    "scheme": {
+      "description": "The handler scheme (MSVC) or personality routine (Itanium).",
+      "type": "string"
+    },
+    "parent": {
+      "description": "The function this funclet or fragment belongs to.",
+      "type": "string"
+    },
+    "handlers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "catch, unwind, destructor, filter, except, finally, landing_pad, or a chunk kind.",
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "description": "The function name at the address, when it has one.",
+            "type": "string"
+          },
+          "detail": {
+            "description": "catch: the caught type (... for all); landing_pad: the actions.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "address"
+        ]
+      }
+    },
+    "ranges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "handler": {
+            "description": "The handler (__except / __finally block or landing pad); absent when it unwinds through.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "finally, except (with its filter) or call_site.",
+            "type": "string"
+          },
+          "filter": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "kind"
+        ]
+      }
+    },
+    "counts": {
+      "description": "Image summary: frames, FDEs and the like by kind.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "format",
+    "handlers",
+    "ranges"
+  ]
+}
