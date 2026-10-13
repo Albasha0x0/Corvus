@@ -8,21 +8,25 @@
       "type": "string"
     },
     "source": {
-      "description": "Where the patches came from: in_memory or the json file path.",
+      "description": "in_memory, json or the patch set's path.",
       "type": "string"
     },
     "dryRun": {
       "type": "boolean"
     },
+    "applied": {
+      "type": "boolean"
+    },
+    "editIds": {
+      "description": "The applied patches' edits (undo_native_edit).",
+      "type": "array",
+      "items": {}
+    },
     "patches": {
       "type": "integer"
     },
-    "applied": {
-      "description": "Patches applied (0 when dryRun).",
-      "type": "integer"
-    },
-    "wouldApply": {
-      "description": "Patches that would apply (dryRun).",
+    "carried": {
+      "description": "Patches that apply (or would, in a dry run).",
       "type": "integer"
     },
     "refused": {
@@ -46,13 +50,7 @@
         ]
       }
     },
-    "offset": {
-      "type": "integer"
-    },
-    "total": {
-      "type": "integer"
-    },
-    "entries": {
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
@@ -64,7 +62,6 @@
             "type": "string"
           },
           "newAddress": {
-            "description": "The mapped address in the new build, or null when it did not map.",
             "type": "string"
           },
           "origin": {
@@ -75,26 +72,24 @@
             "type": "string"
           },
           "status": {
-            "description": "applied, would_apply (dryRun) or refused.",
+            "description": "applied, would_apply (dry run) or refused.",
             "type": "string"
           },
           "reason": {
-            "description": "Why refused: function_not_matched, ambiguous, changed_region, original_bytes_differ, assemble_failed, relocation_slot_unavailable, mid_instruction, past_function_end, conflicts_with_existing_patch, not_mapped, extended_patch, cannot_prepare; 'mapped' when applied.",
+            "description": "How it was carried or why not (docs/migration-reasons.md).",
             "type": "string"
           },
           "detail": {
             "type": "string"
           },
           "confidence": {
-            "description": "Mapping confidence 0-1.",
             "type": "number"
           },
           "tier": {
-            "description": "The function-match tier that carried the address (1 best .. 5 fuzzy), or null.",
             "type": "integer"
           },
           "replacementBytes": {
-            "description": "The replacement bytes at the new address (re-assembled for patch_asm), hex; null when refused.",
+            "description": "The replacement bytes at the new address, hex (re-assembled for patch_asm).",
             "type": "string"
           }
         },
@@ -110,8 +105,13 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
     "notes": {
-      "description": "What was not covered (functions that did not decode, capped work).",
       "type": "array",
       "items": {
         "type": "string"
@@ -153,14 +153,15 @@
     "newImage",
     "source",
     "dryRun",
-    "patches",
     "applied",
-    "wouldApply",
+    "editIds",
+    "patches",
+    "carried",
     "refused",
     "refusedBy",
+    "items",
     "offset",
     "total",
-    "entries",
     "notes"
   ]
 }

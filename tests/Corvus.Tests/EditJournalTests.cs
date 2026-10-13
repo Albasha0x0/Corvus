@@ -159,14 +159,14 @@ public sealed class EditJournalTests : IDisposable
         journal.Sync();
         Assert.False(File.Exists(file));
 
-        var replay = await tools.MigrateNativePatches(native.Id, native.Id, patchSet: kept, dryRun: false);
-        Assert.Equal((1, 0), (replay.Applied, replay.Refused));
+        var replay = await tools.CarryPatches(native.Id, native.Id, patchSet: kept, dryRun: false);
+        Assert.Equal((1, 0), (replay.Carried, replay.Refused));
         var imm = new byte[1];
         native.Image.Read(0x1041, imm);
         Assert.Equal(0x02, imm[0]);
-        var again = await tools.MigrateNativePatches(native.Id, native.Id, patchSet: kept, dryRun: true);
-        Assert.Equal("already_present", Assert.Single(again.Entries).Reason);
-        await Assert.ThrowsAsync<ToolError>(() => tools.MigrateNativePatches(native.Id, native.Id));
+        var again = await tools.CarryPatches(native.Id, native.Id, patchSet: kept, dryRun: true);
+        Assert.Equal("already_present", Assert.Single(again.Items).Reason);
+        await Assert.ThrowsAsync<ToolError>(() => tools.CarryPatches(native.Id, native.Id));
     }
 
     [Fact]
@@ -188,7 +188,7 @@ public sealed class EditJournalTests : IDisposable
         edits.ApplyPatch(native, index, edits.PreparePatch(index, ElfWriter.TextRva, [0xB8, 2, 0, 0, 0], false, "patch_bytes 5 bytes"), dryRun: false);
         journal.Sync();
         Assert.Single(Directory.GetFiles(journal.Root, "*" + EditJournal.PatchesSuffix));
-        var report = await tools.ExportNativePatches(native.Id, _dir.File("tool.dif"), "dif");
+        var report = await tools.Export(native.Id, _dir.File("tool.dif"), "dif");
         Assert.Equal(1, report.Patches);
         Assert.False(report.ChecksumUpdated);
     }

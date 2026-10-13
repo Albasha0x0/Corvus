@@ -1912,19 +1912,20 @@ Structured output: `oldImage`, `newImage`, `dryRun`, `applied`, `editIds`, `set`
 
 **Migrate patches to a new build** (destructive, long-running)
 
-Carry byte patches from an old build to a new one through the build matcher (compare_native_images). A patch is reapplied only where the new build's original bytes at the mapped address match what it expected (patch_asm patches ignore relocated and displacement bytes and are re-assembled there), through the normal patch path; each is reported applied or refused with a reason code. The same image as old and new with patchSet replays a patch set on its own build (an export, or an unsaved session's journal).
+Carry byte patches from an old build to a new one through the build matcher (compare_native_images). A patch is reapplied only where the new build's original bytes at the mapped address match what it expected (patch_asm patches are re-assembled there), each applied or refused with a reason code. The same image as old and new with patchSet replays a patch set on its own build.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | The old build: native image id or path (its in-memory patches are the source unless patchSet). |
 | `newImage` | string | yes |  | The new build: native image id or path (load both; the second gets an id like name#2). |
 | `patchSet` | string |  |  | A JSON patch set (export_native_patches format=json): path or text. |
-| `dryRun` | boolean |  | `true` | Preview the change without applying it. |
-| `useNames` | boolean |  | `true` | Match functions by export, PDB, Il2Cpp and user names first; false: code only. |
-| `offset` | integer |  | `0` | Entries to skip in the report. |
-| `limit` | integer |  | `200` | Entries to return (max 5000). |
+| `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
+| `codeOnly` | boolean |  | `false` | Match functions by code only, not by export, PDB, Il2Cpp or user names. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `patches`, `applied`, `wouldApply`, `refused`, `refusedBy`, `offset`, `total`, `entries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `applied`, `editIds`, `patches`, `carried`, `refused`, `refusedBy`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### update_to_new_build
 

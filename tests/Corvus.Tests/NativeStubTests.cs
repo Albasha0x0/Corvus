@@ -205,17 +205,17 @@ public class NativeStubTests(ITestOutputHelper output)
         foreach (var fmt in new[] { "ips", "ips32", "json" })
         {
             var p = h.Dir.File($"grow.{fmt}");
-            var r = await tools.ExportNativePatches(native.Id, p, fmt);
+            var r = await tools.Export(native.Id, p, fmt);
             byte[] applied = fmt == "json"
                 ? NativePatchExportTests.ApplyJson(originalBytes, File.ReadAllText(p))
                 : NativePatchExportTests.ApplyIps(originalBytes, File.ReadAllBytes(p));
             Assert.True(expected.AsSpan().SequenceEqual(applied), $"{fmt} did not reproduce save_native's grown file");
         }
-        await Assert.ThrowsAsync<ToolError>(() => tools.ExportNativePatches(native.Id, h.Dir.File("grow.dif"), "dif"));
+        await Assert.ThrowsAsync<ToolError>(() => tools.Export(native.Id, h.Dir.File("grow.dif"), "dif"));
 
         // The IDAPython script creates the segment for the appended section.
         var idaPath = h.Dir.File("grow.ida");
-        await tools.ExportNativePatches(native.Id, idaPath, "ida");
+        await tools.Export(native.Id, idaPath, "ida");
         var script = File.ReadAllText(idaPath);
         Assert.Contains("ida_segment", script);
         Assert.Contains("add_segments()", script);

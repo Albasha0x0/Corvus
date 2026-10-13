@@ -167,7 +167,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         foreach (var format in new[] { "dif", "ips", "ips32", "json", "ida" })
         {
             var path = h.Dir.File($"{label}.{format}");
-            var r = await h.Tools.ExportNativePatches(native.Id, path, format);
+            var r = await h.Tools.Export(native.Id, path, format);
             reports[format] = r;
             Assert.Equal(format, r.Format);
             Assert.Equal(new FileInfo(path).Length, r.Bytes);
@@ -494,7 +494,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         var saved = h.Dir.File("grown-saved.bin");
         Assert.Contains("Verified", h.Edits.Save(native, saved, overwrite: true, stripSignature: false));
         var script = h.Dir.File("grown.ida");
-        await h.Tools.ExportNativePatches(native.Id, script, "ida");
+        await h.Tools.Export(native.Id, script, "ida");
 
         var log = new List<string>();
         var python = PythonLocator.Find([], log);

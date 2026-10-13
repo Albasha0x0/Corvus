@@ -235,8 +235,8 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
                 }
                 try
                 {
-                    var report = await new NativePatchTools(workspace, code, nativeEdits, journal).MigrateNativePatches(from, to, json, dryRun, limit: 1, cancellationToken: ct);
-                    int ok = dryRun ? report.WouldApply : report.Applied;
+                    var report = await new NativePatchTools(workspace, code, nativeEdits, journal).CarryPatches(from, to, json, dryRun, cancellationToken: ct);
+                    int ok = report.Carried;
                     Add("patches", n.Id, ok > 0 ? dryRun ? WouldApply : Applied : report.RefusedBy.All(r => r.Reason == "already_present") && report.Refused > 0 ? AlreadyPresent : Refused,
                         carried ? "other_build" : "same_build", ok, $"{ok} of {report.Patches} patch(es) on {to}" +
                         (report.Refused > 0 ? "; not applied: " + string.Join(", ", report.RefusedBy.Select(r => $"{r.Reason} {r.Count}")) : ""));

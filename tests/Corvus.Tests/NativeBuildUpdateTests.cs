@@ -304,7 +304,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         var (newN, _) = await h.Load(Image(true, Shift), "new.dll", NewStarts(Shift));
         h.Edits.ApplyPatch(oldN, oldIdx, h.Edits.PrepareExtendedPatch(oldIdx, F3, [0x90], null, StubMode.Before, "stub", null), dryRun: false);
         var json = h.Dir.File("set.json");
-        await new NativePatchTools(h.Env.Workspace, h.Code, h.Edits).ExportNativePatches(oldN.Id, json, "json");
+        await new NativePatchTools(h.Env.Workspace, h.Code, h.Edits).Export(oldN.Id, json, "json");
         // a patch set exported before the stub's new code was recorded
         File.WriteAllText(json, System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(json), "\"newCode\":\\s*\"[0-9A-F]*\"", "\"newCode\": null"));
         var r = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "patches", patchSet: json);

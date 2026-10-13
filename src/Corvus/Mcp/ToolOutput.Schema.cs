@@ -33,7 +33,6 @@ public static partial class ToolOutput
         ["symbolize_stack_text"] = ["frames"],
         ["bucket_minidumps"] = ["buckets"],
         ["get_android_device_info"] = ["properties"],
-        ["migrate_native_patches"] = ["entries"],
         ["compare_folders"] = ["entries"],
         ["search_container"] = ["matches"],
     };

@@ -111,21 +111,21 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
         oldIdx = await h.Code.Index(oldN, null, default);
         h.Edits.ApplyPatch(oldN, oldIdx, h.Edits.PreparePatch(oldIdx, 0x1040, [0xB8, 0x02, 0, 0, 0], false, "patch_bytes 5 bytes"), dryRun: false);
 
-        var dry = await h.Tools.MigrateNativePatches(oldN.Id, newN.Id, dryRun: true);
+        var dry = await h.Tools.CarryPatches(oldN.Id, newN.Id, dryRun: true);
         Assert.Equal("in_memory", dry.Source);
         Assert.Equal(2, dry.Patches);
-        Assert.Equal(2, dry.WouldApply);
-        Assert.Equal(0, dry.Applied);
-        var f1Entry = dry.Entries.Single(e => e.OldAddress.EndsWith("1006"));
+        Assert.Equal(2, dry.Carried);
+        Assert.False(dry.Applied);
+        var f1Entry = dry.Items.Single(e => e.OldAddress.EndsWith("1006"));
         Assert.Equal("would_apply", f1Entry.Status);
         Assert.Equal("0x180001016", f1Entry.NewAddress);   // 0x1006 -> 0x1016 after the 0x10 shift
-        var f2Entry = dry.Entries.Single(e => e.OldAddress.EndsWith("1040"));
+        var f2Entry = dry.Items.Single(e => e.OldAddress.EndsWith("1040"));
         Assert.Equal("0x180001050", f2Entry.NewAddress);
         Assert.Equal("B802000000", f2Entry.ReplacementBytes);
 
         // Apply for real: both land, and the new image shows them.
-        var applied = await h.Tools.MigrateNativePatches(oldN.Id, newN.Id, dryRun: false);
-        Assert.Equal(2, applied.Applied);
+        var applied = await h.Tools.CarryPatches(oldN.Id, newN.Id, dryRun: false);
+        Assert.Equal((2, 2), (applied.Carried, applied.EditIds.Count));
         Assert.Equal(0, applied.Refused);
         var img = newN.Image;
         var nop = new byte[1]; img.Read(0x1016, nop); Assert.Equal(0x90, nop[0]);
@@ -143,11 +143,11 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
 
         // raw patch over f2's whole body (B8 01 00 00 00): the new build's original differs (B8 07 ...).
         h.Edits.ApplyPatch(oldN, oldIdx, h.Edits.PreparePatch(oldIdx, 0x1040, [0xB8, 0x02, 0, 0, 0], false, "patch_bytes 5 bytes"), dryRun: false);
-        var dry = await h.Tools.MigrateNativePatches(oldN.Id, newN.Id, dryRun: true);
-        var entry = Assert.Single(dry.Entries);
+        var dry = await h.Tools.CarryPatches(oldN.Id, newN.Id, dryRun: true);
+        var entry = Assert.Single(dry.Items);
         Assert.True(entry is { Status: "refused", Reason: "original_bytes_differ" }, $"{entry.Status} {entry.Reason}: {entry.Detail}");
         Assert.Contains("B8010000", entry.Detail.Replace(" ", ""));  // expected (old) bytes in the evidence
-        Assert.Equal(0, dry.WouldApply);
+        Assert.Equal(0, dry.Carried);
         Assert.Contains(dry.RefusedBy, r => r is { Reason: "original_bytes_differ", Count: 1 });
     }
 
@@ -163,8 +163,8 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
         var (newN, _) = await h.Load(newBuild, "new.dll", [0x1000]);
 
         h.Edits.ApplyPatch(oldN, oldIdx, h.Edits.PreparePatch(oldIdx, 0x1040, [0x90], false, "patch_bytes 1 bytes"), dryRun: false);
-        var dry = await h.Tools.MigrateNativePatches(oldN.Id, newN.Id, dryRun: true, useNames: false);
-        var entry = Assert.Single(dry.Entries);
+        var dry = await h.Tools.CarryPatches(oldN.Id, newN.Id, dryRun: true, codeOnly: true);
+        var entry = Assert.Single(dry.Items);
         Assert.Equal("refused", entry.Status);
         Assert.Contains(entry.Reason, new[] { "function_not_matched", "ambiguous", "changed_region", "not_an_instruction", "original_bytes_differ" });
     }
@@ -180,14 +180,21 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
         h.Edits.ApplyPatch(oldN, oldIdx, h.Asm(oldIdx, 0x1006, "nop"), dryRun: false);
 
         var jsonPath = h.Dir.File("set.json");
-        await h.Tools.ExportNativePatches(oldN.Id, jsonPath, "json");
+        var (export, exportText) = await BuildToolCalls.Collected<NativePatchTools.PatchExportReport>(() => h.Tools.ExportNativePatches(oldN.Id, jsonPath, "json"));
+        Assert.Equal(1, export.Patches);
+        Assert.StartsWith($"Wrote 1 patch of {oldN.Id} as json to {jsonPath} (1 record, ", exportText);
+        Assert.True(exportText.TrimEnd('\n').Split('\n').Length <= 2, exportText);
         // undo the in-memory patch so the only source is the JSON
         h.Edits.Undo(oldN, null);
         Assert.False(oldN.Patches.IsDirty);
 
-        var report = await h.Tools.MigrateNativePatches(oldN.Id, newN.Id, patchSet: jsonPath, dryRun: false);
+        var (preview, previewText) = await BuildToolCalls.Collected<NativePatchTools.MigrationPatchReport>(() => h.Tools.MigrateNativePatches(oldN.Id, newN.Id, patchSet: jsonPath));
+        Assert.Equal((true, 1, "would_apply"), (preview.DryRun, preview.Carried, Assert.Single(preview.Items).Status));
+        Assert.StartsWith($"Dry run: 1 of 1 patch ({jsonPath}) would apply to {newN.Id}. Nothing recorded", previewText);
+        Assert.Contains("#1 0x180001006 -> 0x180001016 ", previewText);
+        var report = await h.Tools.CarryPatches(oldN.Id, newN.Id, patchSet: jsonPath, dryRun: false);
         Assert.StartsWith(h.Dir.Path, report.Source);   // the json file path
-        Assert.Equal(1, report.Applied);
+        Assert.Equal(1, report.Carried);
         var nop = new byte[1]; newN.Image.Read(0x1016, nop); Assert.Equal(0x90, nop[0]);
     }
 
@@ -241,12 +248,12 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
             }
             if (asmSite == null || rawSite == null) { output.WriteLine($"{label}: no usable sites"); continue; }
 
-            var report = await h.Tools.MigrateNativePatches(oldN.Id, newN.Id, dryRun: false);
+            var report = await h.Tools.CarryPatches(oldN.Id, newN.Id, dryRun: false);
             pairs++;
-            appliedTotal += report.Applied;
+            appliedTotal += report.Carried;
             refusedTotal += report.Refused;
-            output.WriteLine($"{label}: {report.Applied} applied, {report.Refused} refused ({string.Join(", ", report.RefusedBy.Select(r => $"{r.Reason}×{r.Count}"))})");
-            foreach (var e in report.Entries.Where(e => e.Status == "applied"))
+            output.WriteLine($"{label}: {report.Carried} applied, {report.Refused} refused ({string.Join(", ", report.RefusedBy.Select(r => $"{r.Reason}×{r.Count}"))})");
+            foreach (var e in report.Items.Where(e => e.Status == "applied"))
             {
                 Assert.NotNull(e.NewAddress);
                 // the applied bytes are present at the mapped address
@@ -256,7 +263,7 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
                 Assert.Equal(e.ReplacementBytes, Convert.ToHexString(got));
             }
             // every entry is accounted for
-            Assert.Equal(report.Patches, report.Entries.Count(e => e.Status is "applied" or "refused"));
+            Assert.Equal(report.Patches, report.Items.Count(e => e.Status is "applied" or "refused"));
             if (appliedTotal > 0 && pairs >= 2) break;
             if (pairs >= 4) break;
         }
