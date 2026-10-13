@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native.Dump.Managed;
 using Corvus.Services;
 
@@ -11,25 +13,50 @@ public sealed class MinidumpTools(MinidumpService dumps)
 {
     private const string DumpDescription = "A .dmp path or the id open_minidump returned.";
     private const string ImageDirectoriesDescription =
-        "Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; kept for later calls on the dump. The dump's folder is always searched.";
+        "Folders (';'-separated) with the program's binaries, for modules not at their recorded path; kept for the dump. Its own folder is always searched.";
 
-    [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true)]
-    [Description("Summary of a Windows minidump (.dmp): OS, CPU, process; the exception (code, faulting thread, module!function, instruction, " +
-                 "registers, a C++ exception's thrown type); the .NET state (managed exception with stack and inner chain, threads, heap); modules " +
-                 "(version, PDB identity, whether a matching image is here) and threads, paged; unloaded modules, captured memory, parse issues. " +
-                 "Gives the id the other dump tools take. Nothing from the dump runs; .NET decoding loads Microsoft's signature-checked DAC for that runtime build.")]
-    public Task<MinidumpService.DumpSummary> OpenMinidump(
+    [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpReport))]
+    [Description("Reads a Windows minidump (.dmp). view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, " +
+                 "a C++ exception's thrown type), faulting module and thread, the .NET state (managed exception with stack and inner chain, heap), " +
+                 "counts. modules (version, PDB, whether a matching image is here), threads, memory, unloaded: paged rows. Gives the id the other " +
+                 "dump tools take. Nothing from the dump runs; .NET decoding loads Microsoft's signature-checked DAC for that runtime build.")]
+    public Task<string> OpenMinidump(
         [Description("The .dmp path (or an open dump's id).")] string path,
+        [Description("summary, modules, threads, memory or unloaded.")] string view = "summary",
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
+        [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
-        [Description("First module listed.")] int modulesOffset = 0,
-        [Description("Max modules listed.")] int modulesLimit = MinidumpService.DefaultListLimit,
-        [Description("First thread listed.")] int threadsOffset = 0,
-        [Description("Max threads listed.")] int threadsLimit = MinidumpService.DefaultListLimit,
         [Description("The dumped runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that runtime build is not installed here.")] string? dacPath = null,
         [Description("Download the DAC from a symbol server when no local copy matches (network; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => dumps.Summarize(path, imageDirectories, modulesOffset, modulesLimit, threadsOffset, threadsLimit,
-            new DacRequest(string.IsNullOrWhiteSpace(dacPath) ? null : dacPath, downloadDac), cancellationToken), cancellationToken);
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
+    {
+        var v = (view ?? "summary").Trim().ToLowerInvariant();
+        switch (v)
+        {
+            case "summary":
+                var report = await dumps.Summarize(path, imageDirectories, new DacRequest(string.IsNullOrWhiteSpace(dacPath) ? null : dacPath, downloadDac), cancellationToken);
+                return ToolOutput.Report(DumpText.Summary(report), report);
+            case "modules":
+                var (mId, modules, mTotal) = dumps.Modules(path, imageDirectories, offset, limit);
+                return Rows(mId, v, modules, offset, limit, mTotal, DumpText.Module, "module");
+            case "threads":
+                var (tId, threads, tTotal) = await dumps.Threads(path, imageDirectories, offset, limit, cancellationToken);
+                return Rows(tId, v, threads, offset, limit, tTotal, DumpText.Thread, "thread");
+            case "memory":
+                var (rId, memory, rTotal) = dumps.Memory(path, offset, limit);
+                return Rows(rId, v, memory, offset, limit, rTotal, DumpText.Memory, "region");
+            case "unloaded":
+                var (uId, unloaded, uTotal) = dumps.Unloaded(path, offset, limit);
+                return Rows(uId, v, unloaded, offset, limit, uTotal, u => $"{u.Base}  {u.Name}  size {u.Size}  stamp {u.TimeDateStamp}", "unloaded module");
+            default:
+                throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));
+        }
+    }, cancellationToken);
+
+    private static string Rows<T>(string id, string view, IReadOnlyList<T> rows, int offset, int limit, int total, Func<T, string> render, string noun) where T : notnull =>
+        ToolOutput.List(rows, offset, limit, total, render,
+            page => new MinidumpService.DumpReport(id, view) { Items = page.Cast<object>().ToList(), Offset = offset, Total = total }, noun);
 
     [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true)]
     [Description("Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP chain; JIT code without unwind data adds " +

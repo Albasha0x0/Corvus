@@ -15,14 +15,16 @@ public sealed partial class MinidumpService
     public const int MaxListLimit = 1000;
     public const int MaxReadLength = 64 * 1024;
 
+    /// <summary>open_minidump views: the summary report, then the paged lists.</summary>
+    public static readonly string[] Views = ["summary", "modules", "threads", "memory", "unloaded"];
+
     public sealed record SystemSummary(
         [property: Description("x64, x86, ARM64...")] string Architecture,
-        string Os, uint MajorVersion, uint MinorVersion, uint BuildNumber,
-        [property: Description("workstation, domain_controller or server.")] string ProductType,
-        int Processors, ushort ProcessorLevel, string? CpuVendor, string? ServicePack, string? BuildString);
+        [property: Description("Windows major.minor.build and product type (workstation, server, domain_controller).")] string Os,
+        int Processors, string? BuildString);
 
     public sealed record ProcessSummary(
-        uint? ProcessId, string? MainModule, string? CreateTimeUtc, uint? UserSeconds, uint? KernelSeconds,
+        uint? ProcessId, string? MainModule, string? CreateTimeUtc,
         [property: Description("Integrity level name (low, medium, high, system...) when recorded.")] string? Integrity,
         [property: Description("A 32-bit process dumped by a 64-bit tool: the 32-bit stacks are not walked.")] bool Wow64,
         [property: Description("Managed runtime loaded in the process (CoreCLR, CLR, Mono) or Il2Cpp; null for none.")] string? Runtime);
@@ -31,21 +33,20 @@ public sealed partial class MinidumpService
         string Code,
         [property: Description("Symbolic name, e.g. EXCEPTION_ACCESS_VIOLATION; null when unknown.")] string? Name,
         [property: Description("What happened, from the parameters: e.g. 'access violation writing 0x0000000000000000 (a null or near-null pointer)'.")] string Description,
-        string Address, uint ThreadId, string? ThreadName,
-        string? Module, string? ModuleOffset,
+        string Address, uint ThreadId,
+        string? Module,
         [property: Description("module!function+0xoffset of the exception address.")] string? Symbol,
         [property: Description("Where the name came from: user, pdb, il2cpp, discovered, export, nearest_export, none.")] string? SymbolSource,
-        [property: Description("The instruction at the exception address, disassembled.")] string? Instruction,
-        string? InstructionBytes,
+        [property: Description("The instruction at the exception address, disassembled, then its bytes in parentheses.")] string? Instruction,
         [property: Description("dump_memory, module_image (disk) or module_image (dump_memory); null when the bytes are not available.")] string? InstructionSource,
         IReadOnlyList<string> Parameters,
         [property: Description("Registers of the exception context.")] string? Registers,
-        [property: Description("C++ exceptions: the thrown type and its catchable base types, from the ThrowInfo.")] IReadOnlyList<string> ThrownTypes,
-        bool Continuable, string? NestedRecord);
+        [property: Description("C++ exceptions: the thrown type and its catchable base types, from the ThrowInfo.")] IReadOnlyList<string>? ThrownTypes,
+        bool Continuable);
 
     public sealed record ModuleSummary(
-        string Name, string Path, string Base, string End, string Size,
-        string TimeDateStamp, string? Built, string CheckSum, string? FileVersion,
+        string Name, string Path, string Base, string Size,
+        string TimeDateStamp, string? Built, string? FileVersion,
         string? PdbName, string? PdbGuid, uint? PdbAge,
         [property: Description("matches (a file with this timestamp and size was found), mismatch (a different build) or missing.")] string LocalImage,
         string? LocalPath, string LocalDetail,
@@ -55,34 +56,53 @@ public sealed partial class MinidumpService
         uint Id, string? Name, bool Faulting, uint SuspendCount, uint Priority, string Teb,
         [property: Description("Lowest captured stack address.")] string StackStart,
         [property: Description("End of the captured stack.")] string StackEnd,
-        uint StackBytes, string? InstructionPointer, string? StackPointer,
+        string? InstructionPointer, string? StackPointer,
         [property: Description("module!function+0xoffset of the instruction pointer.")] string? Location,
         string? StartAddress);
 
     public sealed record UnloadedModuleSummary(string Name, string Base, string Size, string TimeDateStamp);
 
-    public sealed record MemorySummary(
-        [property: Description("Captured memory ranges.")] int Ranges, ulong CapturedBytes,
+    /// <summary>A region of the address space (VirtualQuery view), or a captured range when the dump has no region list.</summary>
+    public sealed record MemoryRow(string Base, string End, string Size,
+        [property: Description("commit, reserve or free; null for a captured range without region information.")] string? State,
+        string? Protection,
+        [property: Description("image, mapped or private.")] string? Type,
+        [property: Description("The module whose image holds it.")] string? Module,
+        [property: Description("Bytes of it the dump holds; null for a live process.")] ulong? Captured);
+
+    public sealed record DumpTotals(int Modules, int Threads, int UnloadedModules,
+        [property: Description("Captured memory ranges.")] int MemoryRanges,
+        [property: Description("Regions in the memory info list (VirtualQuery view); 0 when not recorded.")] int MemoryRegions,
+        ulong CapturedBytes,
         [property: Description("A full-memory dump (Memory64List).")] bool FullMemory,
-        [property: Description("Regions in the memory info list (VirtualQuery view); 0 when not recorded.")] int Regions);
+        int Handles);
 
-    public sealed record HandleTypeCount(string Type, int Count);
-
-    public sealed record StreamSummary(int Index, string Type, uint Size, string Rva);
-
-    public sealed record DumpSummary(
-        [property: Description("Id for dump_stack and read_dump_memory (the path works too).")] string Id,
-        string Path, long FileSize, string TimeUtc,
-        [property: Description("MINIDUMP_TYPE flags the dump was written with.")] IReadOnlyList<string> DumpType,
-        SystemSummary? System, ProcessSummary Process, ExceptionSummary? Exception,
-        [property: Description(".NET runtime state through its DAC (exception with inner chain, threads, heap); null when no managed runtime is loaded.")] ManagedSummary? Managed,
-        int ModuleCount, int ModulesOffset, bool ModulesTruncated, IReadOnlyList<ModuleSummary> Modules,
-        int ThreadCount, int ThreadsOffset, bool ThreadsTruncated, IReadOnlyList<ThreadSummary> Threads,
-        int UnloadedModuleCount, IReadOnlyList<UnloadedModuleSummary> UnloadedModules,
-        MemorySummary Memory, int HandleCount, IReadOnlyList<HandleTypeCount> HandleTypes,
-        IReadOnlyList<StreamSummary> Streams, IReadOnlyList<string> Comments,
-        [property: Description("What the parser could not read (truncation, bad counts, overlapping streams).")] IReadOnlyList<string> Issues,
-        IReadOnlyList<string> Notes);
+    /// <summary>
+    /// open_minidump: view=summary fills the report fields; a list view fills items (module, thread, memory or unloaded rows)
+    /// with offset and total.
+    /// </summary>
+    public sealed record DumpReport(
+        [property: Description("Id for the other dump tools (the path works too).")] string Id,
+        string View)
+    {
+        public string? Path { get; init; }
+        public long? FileSize { get; init; }
+        public string? TimeUtc { get; init; }
+        [Description("MINIDUMP_TYPE flags the dump was written with.")] public IReadOnlyList<string>? DumpType { get; init; }
+        public SystemSummary? System { get; init; }
+        public ProcessSummary? Process { get; init; }
+        public ExceptionSummary? Exception { get; init; }
+        [Description(".NET runtime state through its DAC (exception with inner chain, threads, heap); absent without a managed runtime.")] public ManagedSummary? Managed { get; init; }
+        [Description("Rows each list view holds.")] public DumpTotals? Counts { get; init; }
+        [Description("The module holding the exception address.")] public ModuleSummary? FaultingModule { get; init; }
+        public ThreadSummary? FaultingThread { get; init; }
+        [Description("Handles per type, most first (up to 10).")] public IReadOnlyList<string>? HandleTypes { get; init; }
+        [Description("What the parser could not read (truncation, bad counts, overlapping streams).")] public IReadOnlyList<string>? Issues { get; init; }
+        public IReadOnlyList<string>? Notes { get; init; }
+        [Description("List views: module, thread, memory or unloaded module rows.")] public IReadOnlyList<object>? Items { get; init; }
+        public int? Offset { get; init; }
+        public int? Total { get; init; }
+    }
 
     public sealed record StackFrame(
         int Index, string Address, string StackPointer, string? Module, string? ModuleOffset,
@@ -117,31 +137,26 @@ public sealed partial class MinidumpService
         [property: Description("Hex dump: address, 16 bytes, ASCII.")] string Hex,
         string Bytes, string? Note);
 
-    public Task<DumpSummary> Summarize(string path, string? imageDirectories, int modulesOffset, int modulesLimit, int threadsOffset, int threadsLimit, CancellationToken ct) =>
-        Summarize(path, imageDirectories, modulesOffset, modulesLimit, threadsOffset, threadsLimit, new DacRequest(), ct);
 
-    public async Task<DumpSummary> Summarize(string path, string? imageDirectories, int modulesOffset, int modulesLimit, int threadsOffset, int threadsLimit, DacRequest dac,
-        CancellationToken ct)
+    public Task<DumpReport> Summarize(string path, string? imageDirectories, CancellationToken ct) => Summarize(path, imageDirectories, new DacRequest(), ct);
+
+    /// <summary>The summary view: exception, faulting module and thread, .NET state, counts; the lists are the other views.</summary>
+    public async Task<DumpReport> Summarize(string path, string? imageDirectories, DacRequest dac, CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
         var d = s.Dump;
-        modulesOffset = Math.Max(0, modulesOffset);
-        threadsOffset = Math.Max(0, threadsOffset);
-        modulesLimit = Math.Clamp(modulesLimit, 1, MaxListLimit);
-        threadsLimit = Math.Clamp(threadsLimit, 1, MaxListLimit);
         var notes = new List<string>();
 
         SystemSummary? system = d.SystemInfo is { } si
-            ? new SystemSummary(ArchName(d.Arch, si.ProcessorArchitecture), $"Windows {si.MajorVersion}.{si.MinorVersion}.{si.BuildNumber}" + (si.PlatformId != 2 ? $" (platform {si.PlatformId})" : ""),
-                si.MajorVersion, si.MinorVersion, si.BuildNumber, si.ProductType switch { 1 => "workstation", 2 => "domain_controller", 3 => "server", _ => $"type {si.ProductType}" },
-                si.Processors, si.ProcessorLevel, si.VendorId, string.IsNullOrEmpty(si.CsdVersion) ? null : si.CsdVersion, d.MiscInfo?.BuildString)
+            ? new SystemSummary(ArchName(d.Arch, si.ProcessorArchitecture), $"Windows {si.MajorVersion}.{si.MinorVersion}.{si.BuildNumber}" + (si.PlatformId != 2 ? $" (platform {si.PlatformId})" : "") + " " +
+                (si.ProductType switch { 1 => "workstation", 2 => "domain_controller", 3 => "server", _ => $"type {si.ProductType}" }),
+                si.Processors, d.MiscInfo?.BuildString)
             : null;
-        bool wow64 = d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("wow64.dll", StringComparison.OrdinalIgnoreCase));
-        int sides32 = 0;
+        bool wow64 = IsWow64Process(d);
         HostsClr(d, out var runtime);
         if (runtime == null && d.Modules.Any(m => m.FileName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))) runtime = "Il2Cpp (Unity)";
         var misc = d.MiscInfo;
-        var process = new ProcessSummary(misc?.ProcessId, d.MainModule?.Path, misc?.ProcessCreateTime?.ToString("u"), misc?.ProcessUserSeconds, misc?.ProcessKernelSeconds,
+        var process = new ProcessSummary(misc?.ProcessId, d.MainModule?.Path, misc?.ProcessCreateTime?.ToString("u"),
             misc?.ProcessIntegrityLevel is { } il ? IntegrityName(il) : null, wow64, runtime);
 
         ExceptionSummary? exception = d.Exception != null ? await DescribeException(s, ct) : null;
@@ -149,10 +164,70 @@ public sealed partial class MinidumpService
         if (exception != null && d.Exception!.Code == ExceptionCodes.ClrException && managed?.Exception is { } thrown)
             exception = exception with { Description = $"CLR exception {thrown.Type}: {Format.Clip(thrown.Message ?? "", 200)} (managed.exception)" };
 
-        var modules = d.Modules.Skip(modulesOffset).Take(modulesLimit).Select(m => ModuleRow(m, s.Directories, d.Arch, s.LoadedImages)).ToList();
-        var exceptionThread = d.Exception?.ThreadId;
-        var threads = new List<ThreadSummary>();
-        foreach (var t in d.Threads.Skip(threadsOffset).Take(threadsLimit))
+        ModuleSummary? faultingModule = d.Exception is { } ex && d.ModuleAt(ex.Address) is { } fm ? ModuleRow(fm, s.Directories, d.Arch, s.LoadedImages) : null;
+        ThreadSummary? faultingThread = null;
+        int sides32 = 0;
+        if (d.Exception is { } e2 && d.ThreadById(e2.ThreadId) is { } ft)
+        {
+            var (rows, sides) = await ThreadRows(s, [ft], wow64, ct);
+            (faultingThread, sides32) = (rows[0], sides);
+        }
+        if (wow64)
+            notes.Add(sides32 > 0 || d.Threads.Take(8).Any(t => Wow64.Thread(d, t.Teb) != null)
+                ? "WoW64 process dumped by a 64-bit tool: thread locations are the 32-bit side, from the x86 context WoW64 saved; dump_stack walks both sides."
+                : "WoW64 process dumped by a 64-bit tool: the 32-bit thread contexts (WoW64's CPU area) are not in the dump, so threads show the 64-bit side (wow64cpu). " +
+                  "A full-memory dump, or one written by a 32-bit tool (procdump -x86), holds them.");
+        if (d.Exception == null) notes.Add("No exception stream: the dump was written without an exception (a hang or on-demand dump). dump_stack walks any thread.");
+        notes.AddRange(d.Comments.Select(c => "comment: " + Format.Clip(c, 2000)));
+        if (!d.HasMemory64 && d.Modules.Count > 0) notes.Add("Not a full-memory dump: module code is read from the image files on disk when a matching build is found.");
+        var handleTypes = d.Handles.GroupBy(h => h.TypeName ?? "(unknown)").Select(g => (Type: g.Key, Count: g.Count()))
+            .OrderByDescending(h => h.Count).ThenBy(h => h.Type, StringComparer.Ordinal).Take(10).Select(h => $"{h.Type} {h.Count}").ToList();
+        return new DumpReport(s.Id, "summary")
+        {
+            Path = d.Path,
+            FileSize = d.FileSize,
+            TimeUtc = d.Time.ToString("u"),
+            DumpType = d.FlagNames,
+            System = system,
+            Process = process,
+            Exception = exception,
+            Managed = managed,
+            Counts = new DumpTotals(d.Modules.Count, d.Threads.Count, d.UnloadedModules.Count, d.MemoryRanges.Count, d.MemoryRegions.Count, d.CapturedBytes, d.HasMemory64, d.Handles.Count),
+            FaultingModule = faultingModule,
+            FaultingThread = faultingThread,
+            HandleTypes = handleTypes,
+
+            Issues = d.Issues.Select(i => $"{i.Area}: {i.Message}").ToList(),
+            Notes = notes,
+        };
+    }
+
+    private static bool IsWow64Process(MinidumpFile d) =>
+        d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("wow64.dll", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Modules from <paramref name="offset"/>, with whether a matching image is here.</summary>
+    public (string Id, IReadOnlyList<ModuleSummary> Rows, int Total) Modules(string path, string? imageDirectories, int offset, int limit)
+    {
+        using var s = Open(path, imageDirectories);
+        var d = s.Dump;
+        return (s.Id, d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).Select(m => ModuleRow(m, s.Directories, d.Arch, s.LoadedImages)).ToList(), d.Modules.Count);
+    }
+
+    /// <summary>Threads from <paramref name="offset"/>, each instruction pointer named; for WoW64 the 32-bit side where the dump holds it.</summary>
+    public async Task<(string Id, IReadOnlyList<ThreadSummary> Rows, int Total)> Threads(string path, string? imageDirectories, int offset, int limit, CancellationToken ct)
+    {
+        using var s = Open(path, imageDirectories);
+        var d = s.Dump;
+        var (rows, _) = await ThreadRows(s, d.Threads.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList(), IsWow64Process(d), ct);
+        return (s.Id, rows, d.Threads.Count);
+    }
+
+    private async Task<(List<ThreadSummary> Rows, int Sides32)> ThreadRows(Session s, IReadOnlyList<DumpThread> threads, bool wow64, CancellationToken ct)
+    {
+        var d = s.Dump;
+        var rows = new List<ThreadSummary>();
+        int sides32 = 0;
+        foreach (var t in threads)
         {
             ct.ThrowIfCancellationRequested();
             var ctx = d.ReadContext(t.Context);
@@ -161,28 +236,69 @@ public sealed partial class MinidumpService
                 ctx = side.Context;
                 sides32++;
             }
-            string? where = null;
-            if (ctx != null) where = (await Locate(s, ctx.Ip, false, ct)).Symbol;
-            threads.Add(new ThreadSummary(t.Id, t.Name, t.Id == exceptionThread, t.SuspendCount, t.Priority, Hex(d, t.Teb), Hex(d, t.StackStart), Hex(d, t.StackStart + t.StackSize),
-                t.StackSize, ctx != null ? Hex(d, ctx.Ip) : null, ctx != null ? Hex(d, ctx.Sp) : null, where, t.StartAddress is { } sa ? Hex(d, sa) : null));
+            string? where = ctx != null ? (await Locate(s, ctx.Ip, false, ct)).Symbol : null;
+            rows.Add(new ThreadSummary(t.Id, t.Name, t.Id == d.Exception?.ThreadId, t.SuspendCount, t.Priority, Hex(d, t.Teb), Hex(d, t.StackStart), Hex(d, t.StackStart + t.StackSize),
+                ctx != null ? Hex(d, ctx.Ip) : null, ctx != null ? Hex(d, ctx.Sp) : null, where, t.StartAddress is { } sa ? Hex(d, sa) : null));
         }
-        if (wow64)
-            notes.Add(sides32 > 0 ? "WoW64 process dumped by a 64-bit tool: thread instruction pointers and locations are the 32-bit side, from the x86 context WoW64 saved; dump_stack walks both sides."
-                : "WoW64 process dumped by a 64-bit tool: the 32-bit thread contexts (WoW64's CPU area) are not in the dump, so threads show the 64-bit side (wow64cpu). " +
-                  "A full-memory dump, or one written by a 32-bit tool (procdump -x86), holds them.");
-        if (d.Exception == null) notes.Add("No exception stream: the dump was written without an exception (a hang or on-demand dump). dump_stack walks any thread.");
-        if (!d.HasMemory64 && d.Modules.Count > 0) notes.Add("Not a full-memory dump: module code is read from the image files on disk when a matching build is found.");
-        var handleTypes = d.Handles.GroupBy(h => h.TypeName ?? "(unknown)").Select(g => new HandleTypeCount(g.Key, g.Count()))
-            .OrderByDescending(h => h.Count).ThenBy(h => h.Type, StringComparer.Ordinal).Take(30).ToList();
-        return new DumpSummary(s.Id, d.Path, d.FileSize, d.Time.ToString("u"), d.FlagNames, system, process, exception, managed,
-            d.Modules.Count, modulesOffset, modulesOffset + modules.Count < d.Modules.Count, modules,
-            d.Threads.Count, threadsOffset, threadsOffset + threads.Count < d.Threads.Count, threads,
-            d.UnloadedModules.Count, d.UnloadedModules.Take(50).Select(u => new UnloadedModuleSummary(Path.GetFileName(u.Path), Hex(d, u.Base), $"0x{u.Size:X}", $"0x{u.TimeDateStamp:X8}")).ToList(),
-            new MemorySummary(d.MemoryRanges.Count, d.CapturedBytes, d.HasMemory64, d.MemoryRegions.Count), d.Handles.Count, handleTypes,
-            d.Streams.Where(st => st.Type != 0).Take(64).Select(st => new StreamSummary(st.Index, st.TypeName, st.Size, $"0x{st.Rva:X}")).ToList(),
-            d.Comments.Select(c => Format.Clip(c, 2000)).ToList(),
-            d.Issues.Select(i => $"{i.Area}: {i.Message}").ToList(), notes);
+        return (rows, sides32);
     }
+
+    /// <summary>Memory regions (VirtualQuery view) with the bytes the dump holds of each; captured ranges when no region list was recorded.</summary>
+    public (string Id, IReadOnlyList<MemoryRow> Rows, int Total) Memory(string path, int offset, int limit)
+    {
+        using var s = Open(path, null);
+        var d = s.Dump;
+        offset = Math.Max(0, offset);
+        limit = Math.Clamp(limit, 1, MaxListLimit);
+        if (d.MemoryRegions.Count > 0)
+            return (s.Id, d.MemoryRegions.Skip(offset).Take(limit).Select(r => RegionRow(d, r, Captured(d.MemoryRanges, r.Base, r.Base + r.Size))).ToList(), d.MemoryRegions.Count);
+        return (s.Id, d.MemoryRanges.Skip(offset).Take(limit).Select(r => new MemoryRow(Hex(d, r.Start), Hex(d, r.End), $"0x{r.Size:X}", null, null, null, d.ModuleAt(r.Start)?.FileName, r.Size)).ToList(),
+            d.MemoryRanges.Count);
+    }
+
+    internal static MemoryRow RegionRow(IProcessMemory p, DumpMemoryRegion r, ulong? captured) =>
+        new(Hex(p, r.Base), Hex(p, r.Base + r.Size), $"0x{r.Size:X}", StateName(r.State), r.State == 0x1000 ? ProtectName(r.Protect) : null, TypeName(r.Type),
+            r.State == 0x10000 ? null : p.ModuleAt(r.Base)?.FileName, captured);
+
+    /// <summary>Bytes of [start, end) inside the sorted, non-overlapping captured ranges.</summary>
+    private static ulong Captured(IReadOnlyList<DumpMemoryRange> ranges, ulong start, ulong end)
+    {
+        int lo = 0, hi = ranges.Count;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (ranges[mid].End <= start) lo = mid + 1; else hi = mid;
+        }
+        ulong bytes = 0;
+        for (int i = lo; i < ranges.Count && ranges[i].Start < end; i++)
+            bytes += Math.Min(end, ranges[i].End) - Math.Max(start, ranges[i].Start);
+        return bytes;
+    }
+
+    public (string Id, IReadOnlyList<UnloadedModuleSummary> Rows, int Total) Unloaded(string path, int offset, int limit)
+    {
+        using var s = Open(path, null);
+        var d = s.Dump;
+        return (s.Id, d.UnloadedModules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit))
+            .Select(u => new UnloadedModuleSummary(System.IO.Path.GetFileName(u.Path), Hex(d, u.Base), $"0x{u.Size:X}", $"0x{u.TimeDateStamp:X8}")).ToList(), d.UnloadedModules.Count);
+    }
+
+    internal static string StateName(uint state) => state switch
+    {
+        0x1000 => "commit",
+        0x2000 => "reserve",
+        0x10000 => "free",
+        _ => $"0x{state:X}",
+    };
+
+    internal static string? TypeName(uint type) => type switch
+    {
+        0x1000000 => "image",
+        0x40000 => "mapped",
+        0x20000 => "private",
+        0 => null,
+        _ => $"0x{type:X}",
+    };
 
     internal static ModuleSummary ModuleRow(DumpModule m, IReadOnlyList<string> directories, NativeArch arch, IReadOnlyList<string>? loaded = null)
     {
@@ -190,7 +306,7 @@ public sealed partial class MinidumpService
         string state = local.Matches ? "matches" : local.Exists ? "mismatch" : "missing";
         string? built = m.TimeDateStamp is > 0x30000000 and < 0x80000000 ? DateTimeOffset.FromUnixTimeSeconds(m.TimeDateStamp).UtcDateTime.ToString("u") : null;
         var cv = m.CodeView;
-        return new ModuleSummary(m.FileName, m.Path, $"0x{m.Base:X}", $"0x{m.End:X}", $"0x{m.Size:X}", $"0x{m.TimeDateStamp:X8}", built, $"0x{m.CheckSum:X8}", m.FileVersion,
+        return new ModuleSummary(m.FileName, m.Path, $"0x{m.Base:X}", $"0x{m.Size:X}", $"0x{m.TimeDateStamp:X8}", built, m.FileVersion,
             cv?.PdbPath is { Length: > 0 } p ? p : null, cv is { Format: "RSDS" } ? cv.Guid.ToString("D") : null, cv?.Age,
             state, local.Path, local.Detail, local.Matches ? local.IsDotNet : null);
     }
@@ -199,14 +315,13 @@ public sealed partial class MinidumpService
     {
         var d = s.Dump;
         var e = d.Exception!;
-        var thread = d.ThreadById(e.ThreadId);
         var location = await Locate(s, e.Address, false, ct);
         var (insn, bytes, source) = Instruction(s, e.Address);
         var ctx = d.ReadContext(e.Context);
         return new ExceptionSummary($"0x{e.Code:X8}", ExceptionCodes.Name(e.Code), ExceptionCodes.Describe(e.Code, e.Parameters, d.Is64Bit), Hex(d, e.Address),
-            e.ThreadId, thread?.Name, location.Module?.FileName, location.Rva is { } r ? $"0x{r:X}" : null, location.Symbol, location.Source,
-            insn, bytes, source, e.Parameters.Select(p => $"0x{p:X}").ToList(), ctx?.Format(),
-            e.Code == ExceptionCodes.CxxException ? ThrownTypes(s, e.Parameters) : [], (e.Flags & 1) == 0, e.NestedRecord != 0 ? Hex(d, e.NestedRecord) : null);
+            e.ThreadId, location.Module?.FileName, location.Symbol, location.Source,
+            insn != null ? $"{insn} ({bytes})" : null, source, e.Parameters.Select(p => $"0x{p:X}").ToList(), ctx?.Format(),
+            e.Code == ExceptionCodes.CxxException ? ThrownTypes(s, e.Parameters) : null, (e.Flags & 1) == 0);
     }
 
     /// <summary>The instruction at <paramref name="address"/>: bytes from dump memory, else from the module image.</summary>

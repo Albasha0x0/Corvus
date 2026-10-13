@@ -43,8 +43,8 @@ public sealed class DumpImageIdentityTests : IDisposable
 
     private static async Task<(MinidumpService.ModuleSummary Module, MinidumpService.StackReport Stack)> Open(MinidumpService service, string dump, string? dirs)
     {
-        var summary = await service.Summarize(dump, dirs, 0, 50, 0, 50, default);
-        return (Assert.Single(summary.Modules), await service.Stack(dump, null, true, 64, 0, 64, dirs, default));
+        var summary = await service.Summarize(dump, dirs, default);
+        return (Assert.Single(service.Modules(dump, dirs, 0, 50).Rows), await service.Stack(dump, null, true, 64, 0, 64, dirs, default));
     }
 
     [Fact]
@@ -61,8 +61,8 @@ public sealed class DumpImageIdentityTests : IDisposable
         Assert.Equal("synth!Crash+0x5", stack.Frames[0].Symbol);
         Assert.Contains(stack.Notes, n => n.StartsWith("synth.dll: image disk", StringComparison.Ordinal));
 
-        var missing = await new MinidumpService().Summarize(Dump(), null, 0, 50, 0, 50, default); // no folder given: not found
-        Assert.Equal("missing", missing.Modules[0].LocalImage);
+        var missing = new MinidumpService().Modules(Dump(), null, 0, 50).Rows; // no folder given: not found
+        Assert.Equal("missing", missing[0].LocalImage);
     }
 
     /// <summary>dump_stack after open_minidump with imageDirectories: the dump's folders are kept, so the stack is named without passing them again.</summary>
@@ -73,8 +73,8 @@ public sealed class DumpImageIdentityTests : IDisposable
         var folder = Directory.CreateDirectory(_dir.File("bin")).FullName;
         System.IO.File.WriteAllBytes(Path.Combine(folder, "synth_1.2.3.dll"), File());
         using var service = new MinidumpService();
-        var summary = await service.Summarize(dump, folder, 0, 50, 0, 50, default);
-        Assert.Equal("matches", summary.Modules[0].LocalImage);
+        var summary = await service.Summarize(dump, folder, default);
+        Assert.Equal("matches", service.Modules(summary.Id, null, 0, 50).Rows[0].LocalImage);
         Assert.Equal("synth!Crash+0x5", (await service.Stack(summary.Id, null, true, 64, 0, 64, null, default)).Frames[0].Symbol);
         Assert.Equal("synth!Crash+0x5", (await service.Stack(dump, null, true, 64, 0, 64, null, default)).Frames[0].Symbol);
     }

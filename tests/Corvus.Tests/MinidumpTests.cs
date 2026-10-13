@@ -350,9 +350,9 @@ public sealed class MinidumpTests
         Assert.Equal("x86 (WoW64)", stack.Architecture);
         Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], stack.Frames.Take(3).Select(f => f.Symbol));
         Assert.Contains(stack.Notes, n => n.StartsWith("WoW64 thread: frames 0-2 are its 32-bit side", StringComparison.Ordinal));
-        var summary = await service.Summarize(path, null, 0, 50, 0, 50, default);
-        Assert.Equal("synth32!Leaf", summary.Threads.Single().Location);
-        Assert.True(summary.Process.Wow64);
+        var summary = await service.Summarize(path, null, default);
+        Assert.Equal("synth32!Leaf", (await service.Threads(path, null, 0, 50, default)).Rows.Single().Location);
+        Assert.True(summary.Process!.Wow64);
         Assert.Equal("hang | synth32!Leaf > synth32!Mid > synth32!Top", Assert.Single((await service.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Buckets).Signature);
     }
 
@@ -389,27 +389,61 @@ public sealed class MinidumpTests
         Assert.Equal((2, "0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top"), (bucket.Count, bucket.Signature));
     }
 
+    /// <summary>open_minidump: the summary names the faulting module and thread; each list view pages its rows with one offset.</summary>
+    [Fact]
+    public async Task OpenMinidumpViewsPageTheirRows()
+    {
+        using var dir = new TempDir();
+        var path = SyntheticCrash.Write(dir);
+        using var service = new MinidumpService();
+        var tools = new Corvus.Tools.MinidumpTools(service);
+
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await tools.OpenMinidump(path);
+        var summary = Assert.IsType<MinidumpService.DumpReport>(collector.Value);
+        Assert.Equal(("summary", "synth.dll", 1), (summary.View, summary.FaultingModule!.Name, summary.Counts!.Modules));
+        Assert.True(summary.FaultingThread!.Faulting);
+        Assert.Null(summary.Items);
+        Assert.Contains("Exception 0xC0000005 (EXCEPTION_ACCESS_VIOLATION)", text);
+        Assert.Contains("Faulting module: 0x7FF610000000 synth.dll", text);
+
+        foreach (var (view, noun) in new[] { ("modules", "module"), ("threads", "thread"), ("memory", "region") })
+        {
+            collector = Corvus.Mcp.ToolOutput.Collect();
+            text = await tools.OpenMinidump(path, view: view);
+            var list = Assert.IsType<MinidumpService.DumpReport>(collector.Value);
+            Assert.Equal((view, 0), (list.View, list.Offset));
+            Assert.Equal(list.Total, list.Items!.Count);
+            Assert.Null(list.Exception);
+            Assert.Contains($" {noun}", text);
+        }
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.OpenMinidump(path, view: "threads", offset: summary.Counts.Threads);
+        Assert.Empty(Assert.IsType<MinidumpService.DumpReport>(collector.Value).Items!);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.OpenMinidump(path, view: "stacks"))).Code);
+    }
+
     [Fact]
     public async Task SyntheticCrashIsSummarizedAndUnwound()
     {
         using var dir = new TempDir();
         var path = SyntheticCrash.Write(dir);
         using var service = new MinidumpService();
-        var summary = await service.Summarize(path, null, 0, 50, 0, 50, default);
+        var summary = await service.Summarize(path, null, default);
         Assert.Equal("synth.dmp", summary.Id);
         Assert.Equal("x64", summary.System!.Architecture);
-        Assert.Equal(4242u, summary.Process.ProcessId);
+        Assert.Equal(4242u, summary.Process!.ProcessId);
         var e = summary.Exception!;
         Assert.Equal("EXCEPTION_ACCESS_VIOLATION", e.Name);
         Assert.Equal("access violation writing 0x0000000000000000 (a null or near-null pointer)", e.Description);
         Assert.Equal("synth!Crash+0x5", e.Symbol);
         Assert.Equal("export", e.SymbolSource);
-        Assert.Equal("mov    dword ptr [rax], ecx", e.Instruction);
+        Assert.Equal("mov    dword ptr [rax], ecx (8908)", e.Instruction);
         Assert.Equal("dump_memory", e.InstructionSource);
-        Assert.Equal("main", e.ThreadName);
-        var module = Assert.Single(summary.Modules);
+        Assert.Equal("main", summary.FaultingThread!.Name);
+        var module = Assert.Single(service.Modules(path, null, 0, 50).Rows);
         Assert.Equal("missing", module.LocalImage);
-        Assert.Empty(summary.Issues);
+        Assert.Empty(summary.Issues!);
 
         var stack = await service.Stack(summary.Id, null, true, 64, 0, 64, null, default);
         Assert.Equal("exception", stack.Context);

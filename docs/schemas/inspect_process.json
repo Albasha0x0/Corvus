@@ -54,9 +54,6 @@
           "base": {
             "type": "string"
           },
-          "end": {
-            "type": "string"
-          },
           "size": {
             "type": "string"
           },
@@ -64,9 +61,6 @@
             "type": "string"
           },
           "built": {
-            "type": "string"
-          },
-          "checkSum": {
             "type": "string"
           },
           "fileVersion": {
@@ -100,10 +94,8 @@
           "name",
           "path",
           "base",
-          "end",
           "size",
           "timeDateStamp",
-          "checkSum",
           "localImage",
           "localDetail"
         ]

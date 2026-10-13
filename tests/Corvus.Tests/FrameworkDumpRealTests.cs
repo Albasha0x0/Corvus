@@ -107,7 +107,7 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
         var probe = ws.Load(exe);
         using var service = new MinidumpService(ws);
 
-        var summary = await service.Summarize(dump, null, 0, 50, 0, 50, default);
+        var summary = await service.Summarize(dump, null, default);
         Assert.Equal(arch, summary.System!.Architecture);
         var m = summary.Managed!;
         output.WriteLine($"{m.Runtime}: DAC {m.Dac.Status} {m.Dac.Path} ({m.Dac.Detail}); heap {m.Heap}");

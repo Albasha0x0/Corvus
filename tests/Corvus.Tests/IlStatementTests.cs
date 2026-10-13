@@ -127,7 +127,7 @@ public sealed class IlStatementTests : IDisposable
             """);
         using var service = new MinidumpService(_ws, decompiler: _decompiler, stacks: new StackTextService(_ws, decompiler: _decompiler));
 
-        var m = (await service.Summarize(dump, null, 0, 50, 0, 50, default)).Managed!;
+        var m = (await service.Summarize(dump, null, default)).Managed!;
         Assert.Equal("Mono", m.Runtime);
         Assert.Equal("unsupported_runtime", m.Dac.Status);
         Assert.Equal(("InvalidOperationException", "dead 6"), (m.Exception!.Type, m.Exception.Message));

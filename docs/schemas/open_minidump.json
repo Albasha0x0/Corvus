@@ -2,7 +2,10 @@
   "type": "object",
   "properties": {
     "id": {
-      "description": "Id for dump_stack and read_dump_memory (the path works too).",
+      "description": "Id for the other dump tools (the path works too).",
+      "type": "string"
+    },
+    "view": {
       "type": "string"
     },
     "path": {
@@ -29,32 +32,11 @@
           "type": "string"
         },
         "os": {
-          "type": "string"
-        },
-        "majorVersion": {
-          "type": "integer"
-        },
-        "minorVersion": {
-          "type": "integer"
-        },
-        "buildNumber": {
-          "type": "integer"
-        },
-        "productType": {
-          "description": "workstation, domain_controller or server.",
+          "description": "Windows major.minor.build and product type (workstation, server, domain_controller).",
           "type": "string"
         },
         "processors": {
           "type": "integer"
-        },
-        "processorLevel": {
-          "type": "integer"
-        },
-        "cpuVendor": {
-          "type": "string"
-        },
-        "servicePack": {
-          "type": "string"
         },
         "buildString": {
           "type": "string"
@@ -63,12 +45,7 @@
       "required": [
         "architecture",
         "os",
-        "majorVersion",
-        "minorVersion",
-        "buildNumber",
-        "productType",
-        "processors",
-        "processorLevel"
+        "processors"
       ]
     },
     "process": {
@@ -82,12 +59,6 @@
         },
         "createTimeUtc": {
           "type": "string"
-        },
-        "userSeconds": {
-          "type": "integer"
-        },
-        "kernelSeconds": {
-          "type": "integer"
         },
         "integrity": {
           "description": "Integrity level name (low, medium, high, system...) when recorded.",
@@ -126,13 +97,7 @@
         "threadId": {
           "type": "integer"
         },
-        "threadName": {
-          "type": "string"
-        },
         "module": {
-          "type": "string"
-        },
-        "moduleOffset": {
           "type": "string"
         },
         "symbol": {
@@ -144,10 +109,7 @@
           "type": "string"
         },
         "instruction": {
-          "description": "The instruction at the exception address, disassembled.",
-          "type": "string"
-        },
-        "instructionBytes": {
+          "description": "The instruction at the exception address, disassembled, then its bytes in parentheses.",
           "type": "string"
         },
         "instructionSource": {
@@ -173,9 +135,6 @@
         },
         "continuable": {
           "type": "boolean"
-        },
-        "nestedRecord": {
-          "type": "string"
         }
       },
       "required": [
@@ -184,12 +143,11 @@
         "address",
         "threadId",
         "parameters",
-        "thrownTypes",
         "continuable"
       ]
     },
     "managed": {
-      "description": ".NET runtime state through its DAC (exception with inner chain, threads, heap); null when no managed runtime is loaded.",
+      "description": ".NET runtime state through its DAC (exception with inner chain, threads, heap); absent without a managed runtime.",
       "type": "object",
       "properties": {
         "runtime": {
@@ -372,187 +330,25 @@
         "notes"
       ]
     },
-    "moduleCount": {
-      "type": "integer"
-    },
-    "modulesOffset": {
-      "type": "integer"
-    },
-    "modulesTruncated": {
-      "type": "boolean"
-    },
-    "modules": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "base": {
-            "type": "string"
-          },
-          "end": {
-            "type": "string"
-          },
-          "size": {
-            "type": "string"
-          },
-          "timeDateStamp": {
-            "type": "string"
-          },
-          "built": {
-            "type": "string"
-          },
-          "checkSum": {
-            "type": "string"
-          },
-          "fileVersion": {
-            "type": "string"
-          },
-          "pdbName": {
-            "type": "string"
-          },
-          "pdbGuid": {
-            "type": "string"
-          },
-          "pdbAge": {
-            "type": "integer"
-          },
-          "localImage": {
-            "description": "matches (a file with this timestamp and size was found), mismatch (a different build) or missing.",
-            "type": "string"
-          },
-          "localPath": {
-            "type": "string"
-          },
-          "localDetail": {
-            "type": "string"
-          },
-          "managed": {
-            "description": "A .NET assembly (from the local file's header); null when unknown.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "name",
-          "path",
-          "base",
-          "end",
-          "size",
-          "timeDateStamp",
-          "checkSum",
-          "localImage",
-          "localDetail"
-        ]
-      }
-    },
-    "threadCount": {
-      "type": "integer"
-    },
-    "threadsOffset": {
-      "type": "integer"
-    },
-    "threadsTruncated": {
-      "type": "boolean"
-    },
-    "threads": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "name": {
-            "type": "string"
-          },
-          "faulting": {
-            "type": "boolean"
-          },
-          "suspendCount": {
-            "type": "integer"
-          },
-          "priority": {
-            "type": "integer"
-          },
-          "teb": {
-            "type": "string"
-          },
-          "stackStart": {
-            "description": "Lowest captured stack address.",
-            "type": "string"
-          },
-          "stackEnd": {
-            "description": "End of the captured stack.",
-            "type": "string"
-          },
-          "stackBytes": {
-            "type": "integer"
-          },
-          "instructionPointer": {
-            "type": "string"
-          },
-          "stackPointer": {
-            "type": "string"
-          },
-          "location": {
-            "description": "module!function+0xoffset of the instruction pointer.",
-            "type": "string"
-          },
-          "startAddress": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "faulting",
-          "suspendCount",
-          "priority",
-          "teb",
-          "stackStart",
-          "stackEnd",
-          "stackBytes"
-        ]
-      }
-    },
-    "unloadedModuleCount": {
-      "type": "integer"
-    },
-    "unloadedModules": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "base": {
-            "type": "string"
-          },
-          "size": {
-            "type": "string"
-          },
-          "timeDateStamp": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "base",
-          "size",
-          "timeDateStamp"
-        ]
-      }
-    },
-    "memory": {
+    "counts": {
+      "description": "Rows each list view holds.",
       "type": "object",
       "properties": {
-        "ranges": {
+        "modules": {
+          "type": "integer"
+        },
+        "threads": {
+          "type": "integer"
+        },
+        "unloadedModules": {
+          "type": "integer"
+        },
+        "memoryRanges": {
           "description": "Captured memory ranges.",
+          "type": "integer"
+        },
+        "memoryRegions": {
+          "description": "Regions in the memory info list (VirtualQuery view); 0 when not recorded.",
           "type": "integer"
         },
         "capturedBytes": {
@@ -562,66 +358,135 @@
           "description": "A full-memory dump (Memory64List).",
           "type": "boolean"
         },
-        "regions": {
-          "description": "Regions in the memory info list (VirtualQuery view); 0 when not recorded.",
+        "handles": {
           "type": "integer"
         }
       },
       "required": [
-        "ranges",
+        "modules",
+        "threads",
+        "unloadedModules",
+        "memoryRanges",
+        "memoryRegions",
         "capturedBytes",
         "fullMemory",
-        "regions"
+        "handles"
       ]
     },
-    "handleCount": {
-      "type": "integer"
+    "faultingModule": {
+      "description": "The module holding the exception address.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string"
+        },
+        "timeDateStamp": {
+          "type": "string"
+        },
+        "built": {
+          "type": "string"
+        },
+        "fileVersion": {
+          "type": "string"
+        },
+        "pdbName": {
+          "type": "string"
+        },
+        "pdbGuid": {
+          "type": "string"
+        },
+        "pdbAge": {
+          "type": "integer"
+        },
+        "localImage": {
+          "description": "matches (a file with this timestamp and size was found), mismatch (a different build) or missing.",
+          "type": "string"
+        },
+        "localPath": {
+          "type": "string"
+        },
+        "localDetail": {
+          "type": "string"
+        },
+        "managed": {
+          "description": "A .NET assembly (from the local file's header); null when unknown.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "base",
+        "size",
+        "timeDateStamp",
+        "localImage",
+        "localDetail"
+      ]
+    },
+    "faultingThread": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "faulting": {
+          "type": "boolean"
+        },
+        "suspendCount": {
+          "type": "integer"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "teb": {
+          "type": "string"
+        },
+        "stackStart": {
+          "description": "Lowest captured stack address.",
+          "type": "string"
+        },
+        "stackEnd": {
+          "description": "End of the captured stack.",
+          "type": "string"
+        },
+        "instructionPointer": {
+          "type": "string"
+        },
+        "stackPointer": {
+          "type": "string"
+        },
+        "location": {
+          "description": "module!function+0xoffset of the instruction pointer.",
+          "type": "string"
+        },
+        "startAddress": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "faulting",
+        "suspendCount",
+        "priority",
+        "teb",
+        "stackStart",
+        "stackEnd"
+      ]
     },
     "handleTypes": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "type",
-          "count"
-        ]
-      }
-    },
-    "streams": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "index": {
-            "type": "integer"
-          },
-          "type": {
-            "type": "string"
-          },
-          "size": {
-            "type": "integer"
-          },
-          "rva": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "index",
-          "type",
-          "size",
-          "rva"
-        ]
-      }
-    },
-    "comments": {
+      "description": "Handles per type, most first (up to 10).",
       "type": "array",
       "items": {
         "type": "string"
@@ -639,6 +504,29 @@
       "items": {
         "type": "string"
       }
+    },
+    "items": {
+      "description": "List views: module, thread, memory or unloaded module rows.",
+      "type": "array",
+      "items": {}
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -661,27 +549,6 @@
   },
   "required": [
     "id",
-    "path",
-    "fileSize",
-    "timeUtc",
-    "dumpType",
-    "process",
-    "moduleCount",
-    "modulesOffset",
-    "modulesTruncated",
-    "modules",
-    "threadCount",
-    "threadsOffset",
-    "threadsTruncated",
-    "threads",
-    "unloadedModuleCount",
-    "unloadedModules",
-    "memory",
-    "handleCount",
-    "handleTypes",
-    "streams",
-    "comments",
-    "issues",
-    "notes"
+    "view"
   ]
 }

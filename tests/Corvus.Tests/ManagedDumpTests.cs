@@ -186,7 +186,7 @@ public sealed class ManagedDumpTests
         var path = dir.File("native.dmp");
         File.WriteAllBytes(path, Dump(pe).Build());
         using var service = new MinidumpService();
-        Assert.Null((await service.Summarize(path, null, 0, 50, 0, 50, default)).Managed);
+        Assert.Null((await service.Summarize(path, null, default)).Managed);
         Assert.Null((await service.Stack(path, null, true, 16, 0, 16, null, default)).Managed);
         var error = await Assert.ThrowsAsync<ToolError>(() => service.Object(path, "0x1000", 1, 10, 10, default));
         Assert.Contains("no .NET runtime", error.Message);
@@ -213,7 +213,7 @@ public sealed class ManagedDumpTests
         File.WriteAllBytes(path, Dump(pe, module: @"Z:\nowhere\coreclr.dll").Build());
         using var service = new MinidumpService();
 
-        var summary = await service.Summarize(path, null, 0, 50, 0, 50, default);
+        var summary = await service.Summarize(path, null, default);
         var managed = Assert.IsType<MinidumpService.ManagedSummary>(summary.Managed);
         Assert.Equal("not_found", managed.Dac.Status);
         Assert.Contains("downloadDac=true", managed.Dac.Detail);
@@ -225,12 +225,12 @@ public sealed class ManagedDumpTests
 
         var unsigned = dir.File("mscordaccore.dll");
         File.WriteAllBytes(unsigned, pe.FileBytes.ToArray());
-        summary = await service.Summarize(path, null, 0, 50, 0, 50, new DacRequest(unsigned), default);
+        summary = await service.Summarize(path, null, new DacRequest(unsigned), default);
         Assert.Equal("signature_invalid", summary.Managed!.Dac.Status);
         Assert.Contains("no embedded signature", summary.Managed.Dac.Detail);
-        summary = await service.Summarize(path, null, 0, 50, 0, 50, new DacRequest(dir.Path), default); // the folder works too
+        summary = await service.Summarize(path, null, new DacRequest(dir.Path), default); // the folder works too
         Assert.Equal("signature_invalid", summary.Managed!.Dac.Status);
-        await Assert.ThrowsAsync<ToolError>(() => service.Summarize(path, null, 0, 50, 0, 50, new DacRequest(dir.File("missing.dll")), default));
+        await Assert.ThrowsAsync<ToolError>(() => service.Summarize(path, null, new DacRequest(dir.File("missing.dll")), default));
 
         var noDac = await Assert.ThrowsAsync<ToolError>(() => service.Heap(path, "stats", null, 0, 0, 50, 100, default));
         Assert.Equal(ErrorCode.Unsupported, noDac.Code);
@@ -242,7 +242,7 @@ public sealed class ManagedDumpTests
         Environment.SetEnvironmentVariable("CORVUS_OFFLINE", "1");
         try
         {
-            summary = await service.Summarize(path, null, 0, 50, 0, 50, new DacRequest(Download: true), default);
+            summary = await service.Summarize(path, null, new DacRequest(Download: true), default);
             Assert.Equal("download_refused_offline", summary.Managed!.Dac.Status);
         }
         finally { Environment.SetEnvironmentVariable("CORVUS_OFFLINE", previous); }

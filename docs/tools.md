@@ -2586,20 +2586,20 @@ Crash dumps and crash text.
 
 **Open a crash dump** (read-only, idempotent, open-world, long-running)
 
-Summary of a Windows minidump (.dmp): OS, CPU, process; the exception (code, faulting thread, module!function, instruction, registers, a C++ exception's thrown type); the .NET state (managed exception with stack and inner chain, threads, heap); modules (version, PDB identity, whether a matching image is here) and threads, paged; unloaded modules, captured memory, parse issues. Gives the id the other dump tools take. Nothing from the dump runs; .NET decoding loads Microsoft's signature-checked DAC for that runtime build.
+Reads a Windows minidump (.dmp). view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, a C++ exception's thrown type), faulting module and thread, the .NET state (managed exception with stack and inner chain, heap), counts. modules (version, PDB, whether a matching image is here), threads, memory, unloaded: paged rows. Gives the id the other dump tools take. Nothing from the dump runs; .NET decoding loads Microsoft's signature-checked DAC for that runtime build.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | The .dmp path (or an open dump's id). |
-| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; kept for later calls on the dump. The dump's folder is always searched. |
-| `modulesOffset` | integer |  | `0` | First module listed. |
-| `modulesLimit` | integer |  | `50` | Max modules listed. |
-| `threadsOffset` | integer |  | `0` | First thread listed. |
-| `threadsLimit` | integer |  | `50` | Max threads listed. |
+| `view` | string |  | `summary` | summary, modules, threads, memory or unloaded. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `50` | Max rows. |
+| `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries, for modules not at their recorded path; kept for the dump. Its own folder is always searched. |
 | `dacPath` | string |  |  | The dumped runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that runtime build is not installed here. |
 | `downloadDac` | boolean |  | `false` | Download the DAC from a symbol server when no local copy matches (network; refused under CORVUS_OFFLINE=1). |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `id`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `moduleCount`, `modulesOffset`, `modulesTruncated`, `modules`, `threadCount`, `threadsOffset`, `threadsTruncated`, `threads`, `unloadedModuleCount`, `unloadedModules`, `memory`, `handleCount`, `handleTypes`, `streams`, `comments`, `issues`, `notes`.
+Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `notes`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### dump_stack
 
@@ -2615,7 +2615,7 @@ Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP c
 | `maxFrames` | integer |  | `256` | Max frames walked (up to 1024). |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Max frames returned. |
-| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for modules whose recorded path is missing or holds another build; kept for later calls on the dump. The dump's folder is always searched. |
+| `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries, for modules not at their recorded path; kept for the dump. Its own folder is always searched. |
 | `managed` | string |  | `auto` | auto: .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only. Values: auto, off. |
 
 Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.

@@ -35,8 +35,8 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
         var sw = Stopwatch.StartNew();
         foreach (var path in Dumps())
         {
-            MinidumpService.DumpSummary summary;
-            try { summary = await service.Summarize(path, null, 0, 1000, 0, 1000, default); }
+            MinidumpService.DumpReport summary;
+            try { summary = await service.Summarize(path, null, default); }
             catch (ToolError e) when (e.Code is ErrorCode.MalformedInput or ErrorCode.Unsupported or ErrorCode.IoError)
             {
                 rejected++;
@@ -49,8 +49,8 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
                 withException++;
                 output.WriteLine($"{Path.GetFileName(path)}: {summary.System?.Architecture} {e2.Name ?? e2.Code} {e2.Description} at {e2.Symbol} [{e2.SymbolSource}] {e2.Instruction}");
             }
-            foreach (var issue in summary.Issues) output.WriteLine($"  issue: {issue}");
-            for (int i = 0; i < Math.Min(summary.ThreadCount, 64); i++)
+            foreach (var issue in summary.Issues!) output.WriteLine($"  issue: {issue}");
+            for (int i = 0; i < Math.Min(summary.Counts!.Threads, 64); i++)
             {
                 var stack = await service.Stack(path, $"#{i}", true, 256, 0, 256, null, default);
                 threads++;

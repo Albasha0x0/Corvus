@@ -202,8 +202,8 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         var dump = CrashAndDump(exe, dir.File("av.dmp"), Normal);
         using var service = new MinidumpService();
         var sw = Stopwatch.StartNew();
-        var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
-        output.WriteLine($"summary in {sw.ElapsedMilliseconds} ms: {summary.Modules.Count} modules, {summary.Threads.Count} threads");
+        var summary = await service.Summarize(dump, null, default);
+        output.WriteLine($"summary in {sw.ElapsedMilliseconds} ms: {summary.Counts!.Modules} modules, {summary.Counts.Threads} threads");
         var e = summary.Exception!;
         output.WriteLine($"{e.Name}: {e.Description} at {e.Symbol} [{e.SymbolSource}]: {e.Instruction} ({e.InstructionSource})");
         Assert.Equal("EXCEPTION_ACCESS_VIOLATION", e.Name);
@@ -213,12 +213,13 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         Assert.Equal("pdb", e.SymbolSource);
         Assert.StartsWith("mov", e.Instruction);
         Assert.Contains("[r", e.Instruction);
-        var main = summary.Modules.Single(m => m.Name == "crash.exe");
+        var modules = service.Modules(dump, null, 0, 1000).Rows;
+        var main = modules.Single(m => m.Name == "crash.exe");
         Assert.Equal("matches", main.LocalImage);
         Assert.EndsWith("crash.pdb", main.PdbName);
-        Assert.Contains(summary.Modules, m => m.Name.Equals("ntdll.dll", StringComparison.OrdinalIgnoreCase) && m.LocalImage == "matches");
-        Assert.Contains(summary.Threads, t => t.Faulting);
-        Assert.Empty(summary.Issues);
+        Assert.Contains(modules, m => m.Name.Equals("ntdll.dll", StringComparison.OrdinalIgnoreCase) && m.LocalImage == "matches");
+        Assert.True(summary.FaultingThread!.Faulting);
+        Assert.Empty(summary.Issues!);
 
         sw.Restart();
         var stack = await service.Stack(dump, null, true, 256, 0, 256, null, default);
@@ -233,7 +234,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
 
         var memory = await service.ReadMemory(dump, e.Address, 16, true, default);
         Assert.Equal(16, memory.Length);
-        Assert.StartsWith(e.InstructionBytes!, memory.Bytes);
+        Assert.StartsWith(e.Instruction![(e.Instruction!.LastIndexOf('(') + 1)..^1], memory.Bytes);
 
         CompareWithCdb(dump, dir.Path, summary, stack);
     }
@@ -246,9 +247,9 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         var dump = CrashAndDump(exe, dir.File("full.dmp"), Full);
         File.Move(exe, dir.File("renamed.bin"));
         using var service = new MinidumpService();
-        var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
-        Assert.Equal("missing", summary.Modules.Single(m => m.Name == "crash.exe").LocalImage);
-        Assert.True(summary.Memory.FullMemory);
+        var summary = await service.Summarize(dump, null, default);
+        Assert.Equal("missing", service.Modules(dump, null, 0, 1000).Rows.Single(m => m.Name == "crash.exe").LocalImage);
+        Assert.True(summary.Counts!.FullMemory);
         var stack = await service.Stack(dump, null, true, 256, 0, 256, null, default);
         Print(stack);
         Assert.Equal(CrashFrames, Functions(stack).Take(4));
@@ -263,9 +264,9 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         if (Build(dir, "x86") is not { } exe) return;
         var dump = SelfDump(exe, "av", dir.File("x86.dmp"));
         using var service = new MinidumpService();
-        var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
+        var summary = await service.Summarize(dump, null, default);
         Assert.Equal("x86", summary.System!.Architecture);
-        Assert.All(summary.Modules, m => Assert.Equal("matches", m.LocalImage));
+        Assert.All(service.Modules(dump, null, 0, 1000).Rows, m => Assert.Equal("matches", m.LocalImage));
         Assert.Equal("access violation writing 0x00000000 (a null or near-null pointer)", summary.Exception!.Description);
         Assert.StartsWith("crash!crash_here", summary.Exception.Symbol);
         var stack = await service.Stack(dump, null, true, 128, 0, 128, null, default);
@@ -283,12 +284,12 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         if (Build(dir, "x64") is not { } exe) return;
         var dump = SelfDump(exe, "cpp", dir.File("cpp.dmp"));
         using var service = new MinidumpService();
-        var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
+        var summary = await service.Summarize(dump, null, default);
         var e = summary.Exception!;
-        output.WriteLine($"{e.Name}: {e.Description}; types {string.Join(", ", e.ThrownTypes)}; at {e.Symbol}");
+        output.WriteLine($"{e.Name}: {e.Description}; types {string.Join(", ", e.ThrownTypes!)}; at {e.Symbol}");
         Assert.Equal("0xE06D7363", e.Code);
-        Assert.Equal("std::runtime_error", e.ThrownTypes.FirstOrDefault());
-        Assert.Contains("std::exception", e.ThrownTypes);
+        Assert.Equal("std::runtime_error", e.ThrownTypes!.FirstOrDefault());
+        Assert.Contains("std::exception", e.ThrownTypes!);
         var stack = await service.Stack(dump, null, true, 128, 0, 128, null, default);
         Print(stack);
         AssertSubsequence(Functions(stack), ["RaiseException", "thrower", "main"]);
@@ -309,9 +310,9 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         }
         finally { Kill(p); }
         using var service = new MinidumpService();
-        var summary = await service.Summarize(dump, null, 0, 500, 0, 50, default);
+        var summary = await service.Summarize(dump, null, default);
         Assert.Null(summary.Exception);
-        Assert.Contains(summary.Notes, n => n.StartsWith("No exception stream", StringComparison.Ordinal));
+        Assert.Contains(summary.Notes!, n => n.StartsWith("No exception stream", StringComparison.Ordinal));
         var stack = await service.Stack(dump, null, true, 128, 0, 128, null, default);
         Print(stack);
         AssertSubsequence(Functions(stack), ["wait_forever", "main", "BaseThreadInitThunk", "RtlUserThreadStart"]);
@@ -334,12 +335,12 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         }
         finally { Kill(p); }
         using var service = new MinidumpService();
-        var summary = await service.Summarize(dump, null, 0, 500, 0, 200, default);
-        Assert.Equal(".NET (CoreCLR)", summary.Process.Runtime);
+        var summary = await service.Summarize(dump, null, default);
+        Assert.Equal(".NET (CoreCLR)", summary.Process!.Runtime);
         output.WriteLine($"DAC {summary.Managed!.Dac.Status}: {summary.Managed.Dac.Detail}; heap {summary.Managed.Heap}");
         int managed = 0, frames = 0, heuristic = 0, decoded = 0;
         var sw = Stopwatch.StartNew();
-        for (int i = 0; i < summary.ThreadCount; i++)
+        for (int i = 0; i < summary.Counts!.Threads; i++)
         {
             var stack = await service.Stack(dump, $"#{i}", true, 128, 0, 128, null, default);
             frames += stack.Frames.Count;
@@ -348,7 +349,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
             decoded += stack.Frames.Count(f => f.SymbolSource == "clr" && f.Token != null);
             if (i == 0) Print(stack);
         }
-        output.WriteLine($"{summary.ThreadCount} threads, {frames} frames ({heuristic} heuristic, {managed} managed, {decoded} decoded) in {sw.ElapsedMilliseconds} ms");
+        output.WriteLine($"{summary.Counts!.Threads} threads, {frames} frames ({heuristic} heuristic, {managed} managed, {decoded} decoded) in {sw.ElapsedMilliseconds} ms");
         Assert.True(managed > 0, "no managed frame identified");
         if (summary.Managed.Dac.Status == "loaded") Assert.True(decoded > 0, "the DAC loaded but no managed frame was decoded");
     }
@@ -410,7 +411,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
     }
 
     /// <summary>cdb's faulting frames (.ecxr; kc) and module list (lm) against ours.</summary>
-    private void CompareWithCdb(string dump, string symbols, MinidumpService.DumpSummary summary, MinidumpService.StackReport stack)
+    private void CompareWithCdb(string dump, string symbols, MinidumpService.DumpReport summary, MinidumpService.StackReport stack)
     {
         if (Cdb() is not { } cdb) { output.WriteLine("cdb not installed: oracle skipped"); return; }
         var psi = new ProcessStartInfo(cdb) { UseShellExecute = false };
@@ -429,9 +430,9 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         int lm = log.IndexOf("start ", site, StringComparison.Ordinal);
         var modules = Regex.Matches(log[Math.Max(lm, 0)..], @"^([0-9a-f]{8}(?:`[0-9a-f]{8})?) [0-9a-f]{8}(?:`[0-9a-f]{8})?\s+(\S+)", RegexOptions.Multiline)
             .Select(m => (Base: Convert.ToUInt64(m.Groups[1].Value.Replace("`", ""), 16), Name: m.Groups[2].Value)).ToList();
-        output.WriteLine($"cdb lm: {modules.Count} modules, ours: {summary.ModuleCount}");
-        Assert.Equal(summary.ModuleCount, modules.Count);
-        var ours = summary.Modules.ToDictionary(m => Convert.ToUInt64(m.Base[2..], 16));
+        output.WriteLine($"cdb lm: {modules.Count} modules, ours: {summary.Counts!.Modules}");
+        Assert.Equal(summary.Counts!.Modules, modules.Count);
+        var ours = new MinidumpService().Modules(dump, null, 0, 1000).Rows.ToDictionary(m => Convert.ToUInt64(m.Base[2..], 16));
         foreach (var (b, name) in modules)
         {
             Assert.True(ours.TryGetValue(b, out var m), $"cdb lists {name} at {b:X}, we do not");

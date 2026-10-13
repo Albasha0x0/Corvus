@@ -60,7 +60,7 @@ public sealed class DumpBucketTests : IDisposable
         Assert.StartsWith("hang | synth!Crash", hang.Signature);
 
         // the representatives open by id
-        var opened = await _service.Summarize(av.Representative, null, 0, 10, 0, 10, default);
+        var opened = await _service.Summarize(av.Representative, null, default);
         Assert.Equal(av.Representative, opened.Id);
     }
 

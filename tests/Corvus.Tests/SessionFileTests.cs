@@ -130,7 +130,7 @@ public sealed class SessionFileTests : IDisposable
         {
             a.Workspace.Load(dummy);
             a.Workspace.LoadAny(binary);
-            await a.Dumps.Summarize(dump, null, 0, 1, 0, 1, default);
+            await a.Dumps.Summarize(dump, null, default);
             await a.Tools.SaveSession(session);
         }
         var doc = SessionService.Read(session);
