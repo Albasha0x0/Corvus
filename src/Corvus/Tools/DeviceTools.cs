@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using Corvus.Mcp;
 using Corvus.Services.Mobile;
 
 namespace Corvus.Tools;
@@ -14,27 +15,39 @@ public sealed class DeviceTools(DeviceService devices)
     public Task<AndroidDeviceList> ListAndroidDevices(CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.Devices(cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true)]
+    [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true, OutputSchemaType = typeof(AndroidDeviceInfo))]
     [Description("A device's properties (getprop), paged and filterable, with a summary: SDK, release, model, ABIs, fingerprint, security " +
                  "patch, build type, ro.debuggable, ro.secure, and whether it is an emulator.")]
-    public Task<AndroidDeviceInfo> GetAndroidDeviceInfo(
+    public Task<string> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
         [Description("Only properties whose name or value contains this.")] string? query = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Most properties to return.")] int limit = 200,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => devices.DeviceInfo(serial, query, offset, limit, cancellationToken), cancellationToken);
+        [Description("Most properties.")] int limit = 100,
+        CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        var r = devices.DeviceInfo(serial, query, offset, ToolSupport.ClampLimit(limit), cancellationToken);
+        var s = r.Summary;
+        var header = $"{r.Serial}: Android {s.Release} (SDK {s.Sdk}), {s.Manufacturer} {s.Model}, ABIs {string.Join(", ", s.Abis)}; {s.BuildType}"
+                     + $"{(s.Debuggable == true ? ", ro.debuggable=1" : "")}{(s.Secure == false ? ", ro.secure=0" : "")}; patch {s.SecurityPatch}"
+                     + $"{(s.Emulator ? $"; emulator ({string.Join(", ", s.EmulatorEvidence)})" : "")}\nfingerprint {s.Fingerprint}\n";
+        return ToolOutput.List(r.Properties, r.Offset, ToolSupport.ClampLimit(limit), r.Total, p => $"{p.Name} = {p.Value}", rows => r with { Properties = rows }, "property", header);
+    }, cancellationToken);
 
-    [McpServerTool(Name = "list_android_packages", Title = "List installed packages", UseStructuredContent = true)]
+    [McpServerTool(Name = "list_android_packages", Title = "List installed packages", UseStructuredContent = true, OutputSchemaType = typeof(AndroidPackageList))]
     [Description("Packages installed on a device (pm list packages -f -U -i): name, APK path, uid and installer.")]
-    public Task<AndroidPackageList> ListAndroidPackages(
+    public Task<string> ListAndroidPackages(
         [Description(SerialDescription)] string? serial = null,
         [Description("Only package names containing this.")] string? query = null,
         [Description("Android user id (default: the current one).")] int? user = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Most packages to return.")] int limit = 500,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => devices.Packages(serial, query, user, offset, limit, cancellationToken), cancellationToken);
+        [Description("Most packages.")] int limit = 150,
+        CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        var r = devices.Packages(serial, query, user, offset, ToolSupport.ClampLimit(limit), cancellationToken);
+        return ToolOutput.List(r.Items, r.Offset, ToolSupport.ClampLimit(limit), r.Total,
+            p => $"{p.Package}  {p.Path}{(p.Uid is { } u ? $"  uid {u}" : "")}{(p.Installer != null ? $"  installer {p.Installer}" : "")}",
+            rows => r with { Items = rows }, "package", $"{r.Serial}\n");
+    }, cancellationToken);
 
     [McpServerTool(Name = "get_android_package_info", Title = "Installed package info", UseStructuredContent = true)]
     [Description("One installed package (dumpsys package): versions, SDKs, paths, ABI, flags, install times, installer, uid, requested " +

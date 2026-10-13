@@ -9,9 +9,6 @@
           "descriptor": {
             "type": "string"
           },
-          "javaName": {
-            "type": "string"
-          },
           "dexFile": {
             "type": "string"
           },
@@ -22,10 +19,15 @@
             "type": "string"
           },
           "interfaces": {
+            "description": "The first 3 interfaces.",
             "type": "array",
             "items": {
               "type": "string"
             }
+          },
+          "interfacesTotal": {
+            "description": "How many interfaces in all, when more than 3.",
+            "type": "integer"
           },
           "methods": {
             "type": "integer"
@@ -39,7 +41,6 @@
         },
         "required": [
           "descriptor",
-          "javaName",
           "dexFile",
           "access",
           "interfaces",
@@ -58,6 +59,25 @@
       "type": "array",
       "items": {
         "type": "string"
+      }
+    },
+    "packages": {
+      "description": "Without a filter, on the first page: the packages with the most classes, to narrow with package.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "classes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "package",
+          "classes"
+        ]
       }
     },
     "limit": {

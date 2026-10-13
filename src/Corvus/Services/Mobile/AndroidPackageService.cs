@@ -6,7 +6,14 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Mobile;
 
-public sealed record AndroidResourceList(IReadOnlyList<ResourceRow> Items, int Offset, int Total, bool Truncated,
+public sealed record AndroidResource(
+    [property: Description("Resource id, 0x7f010000.")] string Id, string Type, string Name,
+    [property: Description("Qualifiers as in a directory name; empty for the default.")] string Config, string ValueType,
+    [property: Description("The value, cut at 200 characters (the whole value: get_android_resource @type/name).")] string Value,
+    [property: Description("True when the value is cut.")] bool? ValueTruncated,
+    [property: Description("True for a public resource (public.xml).")] bool? Public);
+
+public sealed record AndroidResourceList(IReadOnlyList<AndroidResource> Items, int Offset, int Total,
     [property: Description("Resource types with their entry counts, for narrowing with type.")] IReadOnlyDictionary<string, int> Types);
 
 /// <summary>An Android package at a glance, for summarize_file.</summary>
@@ -50,9 +57,13 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
             .OrderBy(r => r.Id).ThenBy(r => r.Config, StringComparer.Ordinal).ToList();
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
-        var page = rows.Skip(offset).Take(limit).ToList();
-        return new AndroidResourceList(page, offset, rows.Count, offset + page.Count < rows.Count, types);
+        var page = rows.Skip(offset).Take(limit).Select(r => new AndroidResource($"0x{r.Id:x8}", r.Type, r.Name, r.Config, r.ValueType,
+            r.Value.Length > MaxValueChars ? r.Value[..MaxValueChars] : r.Value, r.Value.Length > MaxValueChars ? true : null, r.IsPublic ? true : null)).ToList();
+        return new AndroidResourceList(page, offset, rows.Count, types);
     }
+
+    /// <summary>Longer values (strings, arrays) are cut in a list; get_android_resource gives them whole.</summary>
+    public const int MaxValueChars = 200;
 
     private static Regex Wildcard(string pattern) =>
         new("^" + Regex.Escape(pattern.Trim()).Replace(@"\*", ".*", StringComparison.Ordinal).Replace(@"\?", ".", StringComparison.Ordinal) + "$",

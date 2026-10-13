@@ -2241,7 +2241,7 @@ Compiled resources of an Android package (resources.arsc or a bundle's resources
 | `name` | string |  |  | Only names matching this (* and ? wildcards). |
 | `config` | string |  |  | Only this configuration: qualifiers as in a directory name (pt-rBR), or default. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `500` | Most rows to return. |
+| `limit` | integer |  | `100` | Most rows. |
 
 Structured output: `items`, `offset`, `total`, `types`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2264,7 +2264,7 @@ One file or resource of an Android package: an entry path is read with binary XM
 
 **List DEX classes** (read-only, idempotent)
 
-Classes defined in the DEX code of an Android package (every classes*.dex): descriptor, Java name, DEX file, access, superclass, interfaces, member counts, source file. No Java tools needed.
+Classes defined in the DEX code of an Android package (every classes*.dex): descriptor, DEX file, access, superclass, interfaces, member counts, source file; unfiltered, the packages with most classes. No Java tools needed.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2272,9 +2272,9 @@ Classes defined in the DEX code of an Android package (every classes*.dex): desc
 | `query` | string |  |  | Only classes whose Java name or descriptor contains this, or matches it (* and ? wildcards). |
 | `package` | string |  |  | Only this package and its subpackages. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `500` | Most classes to return. |
+| `limit` | integer |  | `100` | Most classes. |
 
-Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `items`, `offset`, `total`, `notes`, `packages`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### get_dex_class
 
@@ -2330,7 +2330,7 @@ Search the DEX code of an Android package. kind=string: string literals with the
 | `kind` | string | yes |  | What to search. Values: string, type, method, field, const, opcode. |
 | `query` | string | yes |  | Case-insensitive substring or * / ? pattern; for const a number. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `200` | Most hits to return. |
+| `limit` | integer |  | `100` | Most hits. |
 
 Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2347,7 +2347,7 @@ Cross-references in DEX code with the method and code offset of each instruction
 | `direction` | string |  |  | to (default: who refers to the target) or from (what it refers to). Values: to, from. |
 | `kind` | string |  |  | How to read target (default auto; string: taken literally). Values: auto, class, method, field, string. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `500` | Most references to return. |
+| `limit` | integer |  | `100` | Most references. |
 
 Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2379,7 +2379,7 @@ Java native methods of an Android package paired with their code in lib/<abi>/*.
 | `class` | string |  |  | Only rows naming this class (pkg.C or pkg/C). |
 | `kind` | string |  |  | Only this kind. Values: static_export, registered, unresolved, export_only. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `200` | Most rows. |
+| `limit` | integer |  | `75` | Most rows. |
 
 Structured output: `items`, `offset`, `total`, `libraries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2404,7 +2404,7 @@ A device's properties (getprop), paged and filterable, with a summary: SDK, rele
 | `serial` | string |  |  | Device serial; optional with one device ready. |
 | `query` | string |  |  | Only properties whose name or value contains this. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `200` | Most properties to return. |
+| `limit` | integer |  | `100` | Most properties. |
 
 Structured output: `serial`, `summary`, `properties`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2420,7 +2420,7 @@ Packages installed on a device (pm list packages -f -U -i): name, APK path, uid 
 | `query` | string |  |  | Only package names containing this. |
 | `user` | integer |  |  | Android user id (default: the current one). |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `500` | Most packages to return. |
+| `limit` | integer |  | `150` | Most packages. |
 
 Structured output: `serial`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

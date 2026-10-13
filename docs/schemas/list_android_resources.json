@@ -7,7 +7,8 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "integer"
+            "description": "Resource id, 0x7f010000.",
+            "type": "string"
           },
           "type": {
             "type": "string"
@@ -16,15 +17,22 @@
             "type": "string"
           },
           "config": {
+            "description": "Qualifiers as in a directory name; empty for the default.",
             "type": "string"
           },
           "valueType": {
             "type": "string"
           },
           "value": {
+            "description": "The value, cut at 200 characters (the whole value: get_android_resource @type/name).",
             "type": "string"
           },
-          "isPublic": {
+          "valueTruncated": {
+            "description": "True when the value is cut.",
+            "type": "boolean"
+          },
+          "public": {
+            "description": "True for a public resource (public.xml).",
             "type": "boolean"
           }
         },
@@ -34,8 +42,7 @@
           "name",
           "config",
           "valueType",
-          "value",
-          "isPublic"
+          "value"
         ]
       }
     },

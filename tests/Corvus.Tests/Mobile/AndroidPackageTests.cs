@@ -78,7 +78,7 @@ public sealed class AndroidPackageTests : IDisposable
             _service.Resources(path, "xml", null, null, 0, 500).Items.Single().Value));
         Assert.Equal("[0]=@string/app_name; [1]=7", _service.Resources(path, "array", null, null, 0, 500).Items.Single().Value);
         var page = _service.Resources(path, null, null, null, 2, 3);
-        Assert.Equal((3, 2, 8, true), (page.Items.Count, page.Offset, page.Total, page.Truncated));
+        Assert.Equal((3, 2, 8), (page.Items.Count, page.Offset, page.Total));
     }
 
     [Fact]

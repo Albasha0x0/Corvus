@@ -73,7 +73,7 @@ public sealed class DexTests : IDisposable
     {
         var list = _dex.ListClasses(_apk, null, null, 0, 100, default);
         Assert.Equal(4, list.Total);
-        Assert.Equal(["com.example.app.Main$Inner", "com.example.app.Main"], _dex.ListClasses(_apk, "Main", "com.example", 0, 100, default).Items.Select(c => c.JavaName));
+        Assert.Equal(["Lcom/example/app/Main$Inner;", Main], _dex.ListClasses(_apk, "Main", "com.example", 0, 100, default).Items.Select(c => c.Descriptor));
         Assert.Equal([Link], _dex.ListClasses(_apk, "crc64*.Link*", null, 0, 100, default).Items.Select(c => c.Descriptor));
 
         var main = _dex.GetClass(_apk, "com.example.app.Main", default);

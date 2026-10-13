@@ -23,7 +23,7 @@ public sealed record JniBinding(
 
 public sealed record JniLibrary(string Library, string Abi, int JavaExports, bool HasJniOnLoad, int RegisterNativesTables, int RegisteredMethods);
 
-public sealed record JniBindingList(IReadOnlyList<JniBinding> Items, int Offset, int Total, bool Truncated,
+public sealed record JniBindingList(IReadOnlyList<JniBinding> Items, int Offset, int Total,
     [property: Description("The libraries read that have Java_ exports, JNI_OnLoad or RegisterNatives tables, with their counts.")] IReadOnlyList<JniLibrary> Libraries,
     IReadOnlyList<string> Notes);
 
@@ -35,7 +35,7 @@ public sealed record JniBindingList(IReadOnlyList<JniBinding> Items, int Offset,
 /// </summary>
 public sealed partial class JniBindings(DexService dex)
 {
-    public const int DefaultLimit = 200;
+    public const int DefaultLimit = 75;
     private const int MaxNameLength = 256, MaxSignatureLength = 1024;
     private const uint AccNative = 0x100;
 
@@ -154,7 +154,7 @@ public sealed partial class JniBindings(DexService dex)
         var listed = libraries.Where(l => l.JavaExports > 0 || l.HasJniOnLoad || l.RegisterNativesTables > 0).ToList();
         if (listed.Count < libraries.Count)
             notes.Add($"{libraries.Count - listed.Count} of {libraries.Count} libraries have no Java_ export, JNI_OnLoad or RegisterNatives table and are not listed.");
-        return new JniBindingList(page, offset, all.Count, offset + page.Count < all.Count, listed, notes);
+        return new JniBindingList(page, offset, all.Count, listed, notes);
     }
 
     private static string Va(INativeImage image, uint rva) => $"0x{image.ImageBase + rva:X}";

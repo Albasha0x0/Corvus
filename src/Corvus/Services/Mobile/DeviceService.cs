@@ -19,11 +19,11 @@ public sealed record AndroidDeviceSummary(string? Sdk, string? Release, string? 
 
 public sealed record AndroidProperty(string Name, string Value);
 
-public sealed record AndroidDeviceInfo(string Serial, AndroidDeviceSummary Summary, IReadOnlyList<AndroidProperty> Properties, int Offset, int Total, bool Truncated);
+public sealed record AndroidDeviceInfo(string Serial, AndroidDeviceSummary Summary, IReadOnlyList<AndroidProperty> Properties, int Offset, int Total);
 
 public sealed record AndroidInstalledPackage(string Package, string? Path, int? Uid, string? Installer);
 
-public sealed record AndroidPackageList(string Serial, IReadOnlyList<AndroidInstalledPackage> Items, int Offset, int Total, bool Truncated);
+public sealed record AndroidPackageList(string Serial, IReadOnlyList<AndroidInstalledPackage> Items, int Offset, int Total);
 
 public sealed record AndroidPermissionState(string Name, bool? Granted, string Kind, string? Flags);
 
@@ -141,7 +141,7 @@ public sealed partial class DeviceService(ServerOptions options)
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
         var page = filtered.Skip(offset).Take(limit).ToList();
-        return new AndroidDeviceInfo(s, summary, page, offset, filtered.Count, offset + page.Count < filtered.Count);
+        return new AndroidDeviceInfo(s, summary, page, offset, filtered.Count);
     }
 
     [GeneratedRegex(@"^\[([^\]]+)\]: \[(.*)\]\s*$", RegexOptions.Multiline)]
@@ -173,7 +173,7 @@ public sealed partial class DeviceService(ServerOptions options)
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
         var page = filtered.Skip(offset).Take(limit).ToList();
-        return new AndroidPackageList(s, page, offset, filtered.Count, offset + page.Count < filtered.Count);
+        return new AndroidPackageList(s, page, offset, filtered.Count);
     }
 
     public AndroidPackageDetails PackageInfo(string package, string? serial, CancellationToken ct)

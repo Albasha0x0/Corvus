@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Core.Mobile;
@@ -23,18 +25,23 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => packages.Manifest(path, cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "list_android_resources", Title = "List Android resources", UseStructuredContent = true)]
+    [McpServerTool(Name = "list_android_resources", Title = "List Android resources", UseStructuredContent = true, OutputSchemaType = typeof(AndroidResourceList))]
     [Description("Compiled resources of an Android package (resources.arsc or a bundle's resources.pb): a row per resource and " +
                  "configuration with id, type, name, qualifiers ('' is the default), value type and value (references by name); types counts each type.")]
-    public Task<AndroidResourceList> ListAndroidResources(
+    public Task<string> ListAndroidResources(
         [Description(PackageDescription)] string path,
         [Description("Only this type (string, layout, xml, ...).")] string? type = null,
         [Description("Only names matching this (* and ? wildcards).")] string? name = null,
         [Description("Only this configuration: qualifiers as in a directory name (pt-rBR), or default.")] string? config = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Most rows to return.")] int limit = 500,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => packages.Resources(path, type, name, config, offset, limit), cancellationToken);
+        [Description("Most rows.")] int limit = 100,
+        CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        var r = packages.Resources(path, type, name, config, offset, ClampLimit(limit));
+        return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit), r.Total,
+            x => $"{x.Id} @{x.Type}/{x.Name}{(x.Config.Length > 0 ? $" [{x.Config}]" : "")}  {x.ValueType}: {x.Value}{(x.ValueTruncated == true ? " ..." : "")}",
+            rows => r with { Items = rows }, "resource", $"Types: {string.Join(", ", r.Types.Select(t => $"{t.Key} {t.Value}"))}\n");
+    }, cancellationToken);
 
     [McpServerTool(Name = "get_android_resource", Title = "Get Android resource")]
     [Description("One file or resource of an Android package: an entry path is read with binary XML decoded and references named, text as " +
@@ -49,17 +56,29 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => packages.Resource(path, name, savePath, overwrite, offset, maxTokens), cancellationToken);
 
-    [McpServerTool(Name = "list_dex_classes", Title = "List DEX classes", UseStructuredContent = true)]
-    [Description("Classes defined in the DEX code of an Android package (every classes*.dex): descriptor, Java name, DEX file, access, " +
-                 "superclass, interfaces, member counts, source file. No Java tools needed.")]
-    public Task<DexClassList> ListDexClasses(
+    [McpServerTool(Name = "list_dex_classes", Title = "List DEX classes", UseStructuredContent = true, OutputSchemaType = typeof(DexClassList))]
+    [Description("Classes defined in the DEX code of an Android package (every classes*.dex): descriptor, DEX file, access, " +
+                 "superclass, interfaces, member counts, source file; unfiltered, the packages with most classes. No Java tools needed.")]
+    public Task<string> ListDexClasses(
         [Description(CodeDescription)] string path,
         [Description("Only classes whose Java name or descriptor contains this, or matches it (* and ? wildcards).")] string? query = null,
         [Description("Only this package and its subpackages.")] string? package = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Most classes to return.")] int limit = 500,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => dex.ListClasses(path, query, package, offset, limit, cancellationToken), cancellationToken);
+        [Description("Most classes.")] int limit = 100,
+        CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        var r = dex.ListClasses(path, query, package, offset, ClampLimit(limit), cancellationToken);
+        static string Row(DexClassRow c) => $"{c.Descriptor}  [{string.Join("; ", new[]
+        {
+            c.Access.Length > 0 ? c.Access : null,
+            c.Super is { } s && s != "Ljava/lang/Object;" ? "extends " + s : null,
+            c.Interfaces.Count > 0 ? "implements " + string.Join(", ", c.Interfaces) + (c.InterfacesTotal is { } t ? $" (+{t - c.Interfaces.Count})" : "") : null,
+            c.Methods + c.Fields > 0 ? $"{c.Methods} methods, {c.Fields} fields" : null, c.DexFile, c.SourceFile,
+        }.OfType<string>())}]";
+        var header = string.Concat(r.Notes.Take(5).Select(n => $"Note: {n}\n"))
+                     + (r.Packages is { Count: > 0 } p ? $"Packages with most classes: {string.Join(", ", p.Select(x => $"{x.Package} {x.Classes}"))}\n" : "");
+        return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit), r.Total, Row, rows => r with { Items = rows }, "class", header);
+    }, cancellationToken);
 
     [McpServerTool(Name = "get_dex_class", Title = "DEX class", UseStructuredContent = true)]
     [Description("One DEX class in full: superclass, interfaces, generic signature, enclosing and inner classes, Kotlin @Metadata, annotations; " +
@@ -124,44 +143,66 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
             $"{r.Query} ({r.Direction.Replace('_', ' ')}){string.Concat(r.Notes.Take(5).Select(n => "\nNote: " + n))}\n");
     }, cancellationToken);
 
-    [McpServerTool(Name = "list_jni_bindings", Title = "List JNI bindings", UseStructuredContent = true)]
+    [McpServerTool(Name = "list_jni_bindings", Title = "List JNI bindings", UseStructuredContent = true, OutputSchemaType = typeof(JniBindingList))]
     [Description("Java native methods of an Android package paired with their code in lib/<abi>/*.so: Java_ exports by JNI name mangling " +
                  "and RegisterNatives tables in the libraries' data; also unbound methods and stray Java_ exports.")]
-    public Task<JniBindingList> ListJniBindings(
+    public Task<string> ListJniBindings(
         [Description(PackageDescription)] string path,
         [Description("ABI to read, or all; default arm64-v8a, else the first.")] string? abi = null,
         [Description("Only rows naming this class (pkg.C or pkg/C).")] string? @class = null,
         [Description("Only this kind.")] string? kind = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most rows.")] int limit = JniBindings.DefaultLimit,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => jni.List(path, abi, @class, kind, offset, limit, cancellationToken), cancellationToken);
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
+    {
+        progress.Report(new ProgressNotificationValue { Progress = 0, Message = "reading the DEX code and native libraries" });
+        var r = jni.List(path, abi, @class, kind, offset, ClampLimit(limit, 2_000), cancellationToken);
+        static string Row(JniBinding b) => $"{b.Kind}  {b.JavaMethod ?? "(no native method)"}" + (b.Library != null ? $"  ->  {b.Library} {b.Symbol ?? ""}{(b.Address != null ? " @" + b.Address : "")}" : "")
+                                          + (b.Confidence != null ? $"  [{b.Confidence}{(b.Table != null ? ", table " + b.Table : "")}]" : "");
+        var header = string.Concat(r.Libraries.Select(l => $"{l.Library}: {l.JavaExports} Java_ exports, {l.RegisteredMethods} registered in {l.RegisterNativesTables} tables{(l.HasJniOnLoad ? ", JNI_OnLoad" : "")}\n"))
+                     + string.Concat(r.Notes.Select(n => $"Note: {n}\n"));
+        return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit, 2_000), r.Total, Row, rows => r with { Items = rows }, "binding", header);
+    }, cancellationToken));
 
-    [McpServerTool(Name = "search_dex", Title = "Search DEX code", UseStructuredContent = true)]
+    [McpServerTool(Name = "search_dex", Title = "Search DEX code", UseStructuredContent = true, OutputSchemaType = typeof(DexHitList))]
     [Description("Search the DEX code of an Android package. kind=string: string literals with the method and offset of each use; type: " +
                  "defined classes and type uses; method / field: defined and referenced members with use counts; const: numeric constants; opcode: " +
                  "instructions by mnemonic (invoke-static).")]
-    public Task<DexHitList> SearchDex(
+    public Task<string> SearchDex(
         [Description(CodeDescription)] string path,
         [Description("What to search.")] string kind,
         [Description("Case-insensitive substring or * / ? pattern; for const a number.")] string query,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Most hits to return.")] int limit = 200,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => dex.Search(path, kind, query, offset, limit, cancellationToken), cancellationToken);
+        [Description("Most hits.")] int limit = 100,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
+    {
+        progress.Report(new ProgressNotificationValue { Progress = 0, Message = "indexing the DEX code (once per package)" });
+        var r = dex.Search(path, kind, query, offset, ClampLimit(limit), cancellationToken);
+        static string Row(DexHit h) => $"{h.Kind} {h.Value}" + (h.Method != null ? $"  in {h.Method} @{h.Offset} {h.Opcode}" : "") + (h.Uses is { } u ? $"  ({u} uses)" : "");
+        return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit), r.Total, Row, rows => r with { Items = rows }, "hit", string.Concat(r.Notes.Select(n => $"Note: {n}\n")));
+    }, cancellationToken));
 
-    [McpServerTool(Name = "find_dex_references", Title = "Find DEX references", UseStructuredContent = true)]
+    [McpServerTool(Name = "find_dex_references", Title = "Find DEX references", UseStructuredContent = true, OutputSchemaType = typeof(DexReferenceList))]
     [Description("Cross-references in DEX code with the method and code offset of each instruction. direction=to: callers of a method, readers and " +
                  "writers of a field, uses of a class or a string literal. direction=from: what a method (or every method of a class) calls, reads, " +
                  "writes and loads. Methods match by exact id, never another overload.")]
-    public Task<DexReferenceList> FindDexReferences(
+    public Task<string> FindDexReferences(
         [Description(CodeDescription)] string path,
         [Description("A class, a method (Lpkg/C;->m(I)V, or pkg.C::m with optional parameters (int, String)), a field (Lpkg/C;->f:I or pkg.C::f), " +
                      "or a string in double quotes.")] string target,
         [Description("to (default: who refers to the target) or from (what it refers to).")] string? direction = null,
         [Description("How to read target (default auto; string: taken literally).")] string? kind = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Most references to return.")] int limit = 500,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => dex.References(path, target, kind, direction, offset, limit, cancellationToken), cancellationToken);
+        [Description("Most references.")] int limit = 100,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
+    {
+        progress.Report(new ProgressNotificationValue { Progress = 0, Message = "indexing the DEX code (once per package)" });
+        var r = dex.References(path, target, kind, direction, offset, ClampLimit(limit), cancellationToken);
+        static string Row(DexReference x) => $"{x.Method} @{x.Offset}  {x.Opcode} {x.Target}";
+        var header = $"{(r.Direction == "from" ? "From" : "To")} {r.TargetKind} {r.Target}\n" + string.Concat(r.Notes.Select(n => $"Note: {n}\n"));
+        return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit), r.Total, Row, rows => r with { Items = rows }, "reference", header);
+    }, cancellationToken));
 }

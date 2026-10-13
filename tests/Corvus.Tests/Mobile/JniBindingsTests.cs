@@ -145,7 +145,7 @@ public class JniBindingsTests
         Assert.All(jni.List(path, null, "com.example.jni.Native", "static_export", 0, 100, default).Items, i => Assert.StartsWith(Native, i.JavaMethod));
         Assert.Equal(3, jni.List(path, null, "com.example.jni.Native", "static_export", 0, 100, default).Total);
         var page = jni.List(path, null, null, null, 2, 3, default);
-        Assert.Equal((3, true), (page.Items.Count, page.Truncated));
+        Assert.Equal((3, 9), (page.Items.Count, page.Total));
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => jni.List(path, "mips", null, null, 0, 10, default)).Code);
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => jni.List(path, null, null, "dynamic", 0, 10, default)).Code);
     }

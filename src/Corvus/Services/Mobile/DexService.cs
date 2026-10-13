@@ -6,10 +6,15 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Mobile;
 
-public sealed record DexClassRow(string Descriptor, string JavaName, string DexFile, string Access, string? Super, IReadOnlyList<string> Interfaces,
+public sealed record DexClassRow(string Descriptor, string DexFile, string Access, string? Super,
+    [property: Description("The first 3 interfaces.")] IReadOnlyList<string> Interfaces,
+    [property: Description("How many interfaces in all, when more than 3.")] int? InterfacesTotal,
     int Methods, int Fields, string? SourceFile);
 
-public sealed record DexClassList(IReadOnlyList<DexClassRow> Items, int Offset, int Total, bool Truncated, IReadOnlyList<string> Notes);
+public sealed record DexPackageCount(string Package, int Classes);
+
+public sealed record DexClassList(IReadOnlyList<DexClassRow> Items, int Offset, int Total, IReadOnlyList<string> Notes,
+    [property: Description("Without a filter, on the first page: the packages with the most classes, to narrow with package.")] IReadOnlyList<DexPackageCount>? Packages);
 
 public sealed record DexFieldInfo(
     [property: Description("Exact field id: Lpkg/C;->name:type.")] string Id, string Name, string Type, string Access,
@@ -33,7 +38,7 @@ public sealed record DexHit(
     [property: Description("Code offset in 16-bit units.")] int? Offset, string? Opcode,
     [property: Description("Uses in code (method and field hits).")] int? Uses);
 
-public sealed record DexHitList(IReadOnlyList<DexHit> Items, int Offset, int Total, bool Truncated, IReadOnlyList<string> Notes);
+public sealed record DexHitList(IReadOnlyList<DexHit> Items, int Offset, int Total, IReadOnlyList<string> Notes);
 
 public sealed record DexReference(
     [property: Description("call, read, write, string or type.")] string Kind,
@@ -41,7 +46,7 @@ public sealed record DexReference(
     [property: Description("Code offset in 16-bit units.")] int Offset,
     [property: Description("What the instruction refers to (exact id or the string).")] string Target, string Opcode);
 
-public sealed record DexReferenceList(string Target, string TargetKind, string Direction, IReadOnlyList<DexReference> Items, int Offset, int Total, bool Truncated,
+public sealed record DexReferenceList(string Target, string TargetKind, string Direction, IReadOnlyList<DexReference> Items, int Offset, int Total,
     IReadOnlyList<string> Notes);
 
 /// <summary>DEX classes, members, search and cross-references of Android packages; indexes are kept per file while it is unchanged.</summary>
@@ -94,13 +99,24 @@ public sealed class DexService
             .OrderBy(e => e.Class.Descriptor, StringComparer.Ordinal).ToList();
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
+        var r8 = new HashSet<string>(StringComparer.Ordinal);
         var page = rows.Skip(offset).Take(limit).Select(e =>
         {
             var (fields, methods) = e.File.ClassData(e.Class);
-            return new DexClassRow(e.Class.Descriptor, DexFile.JavaName(e.Class.Descriptor), e.File.Name, DexFile.Access(e.Class.Access, 0), e.Class.SuperClass,
-                e.Class.Interfaces, methods.Count, fields.Count, e.Class.SourceFile);
+            var interfaces = e.Class.Interfaces;
+            // R8 writes its map id as every class's source file: said once in a note instead of on each row.
+            var source = e.Class.SourceFile;
+            if (source?.StartsWith("r8-map-id-", StringComparison.Ordinal) == true) { r8.Add(source); source = null; }
+            return new DexClassRow(e.Class.Descriptor, e.File.Name, DexFile.Access(e.Class.Access, 0), e.Class.SuperClass,
+                [.. interfaces.Take(3)], interfaces.Count > 3 ? interfaces.Count : null, methods.Count, fields.Count, source);
         }).ToList();
-        return new DexClassList(page, offset, rows.Count, offset + page.Count < rows.Count, offset == 0 ? index.Notes : []);
+        List<DexPackageCount>? packages = null;
+        if (offset == 0 && pattern == null && prefix == null)
+            packages = [.. rows.GroupBy(e => e.Class.Descriptor.LastIndexOf('/') is var slash and > 0 ? DexFile.JavaName(e.Class.Descriptor[..slash] + ";") : "(default)")
+                .Select(g => new DexPackageCount(g.Key, g.Count())).OrderByDescending(p => p.Classes).ThenBy(p => p.Package, StringComparer.Ordinal).Take(20)];
+        var notes = offset == 0 ? index.Notes.ToList() : [];
+        if (r8.Count > 0) notes.Add($"Source file attributes {string.Join(", ", r8)} are R8 map ids, left out of the rows.");
+        return new DexClassList(page, offset, rows.Count, notes, packages);
     }
 
     public DexClassDetail GetClass(string path, string name, CancellationToken ct)
@@ -236,7 +252,7 @@ public sealed class DexService
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
         var page = hits.Skip(offset).Take(limit).ToList();
-        return new DexHitList(page, offset, hits.Count, offset + page.Count < hits.Count, notes);
+        return new DexHitList(page, offset, hits.Count, notes);
     }
 
     /// <summary>The raw values a const instruction would hold for <paramref name="text"/>: integers, and float / double bit patterns.</summary>
@@ -300,7 +316,7 @@ public sealed class DexService
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
         var page = rows.Skip(offset).Take(limit).ToList();
-        return new DexReferenceList(label, targetKind, from ? "from" : "to", page, offset, rows.Count, offset + page.Count < rows.Count, notes);
+        return new DexReferenceList(label, targetKind, from ? "from" : "to", page, offset, rows.Count, notes);
     }
 
     private static (string Kind, HashSet<int> Keys, string Label) ResolveTarget(DexIndex index, string target, string kind, bool from)
