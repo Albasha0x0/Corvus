@@ -43,7 +43,9 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         string? Function, string? Address,
         [property: Description("Functions scanned (similar) or candidate pairs scored (clusters).")] int Compared,
         int Offset, int Total, bool Truncated,
-        IReadOnlyList<SimilarMatch> Items, IReadOnlyList<FunctionGroup> Groups, IReadOnlyList<string> Notes);
+        [property: Description("view=similar: SimilarMatch rows (image, address, name, score, kind, code, containment, instructions, blocks, cfg, shared*); " +
+                               "duplicates and clusters: FunctionGroup rows (id, kind, members, redundantBytes, functions).")] IReadOnlyList<object> Items,
+        IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_similar_functions", Title = "Find similar functions", UseStructuredContent = true, OutputSchemaType = typeof(SimilarityReport))]
     [Description("Functions like a given one in a native image, ranked by score with evidence: instruction-shape similarity (registers, " +
@@ -120,7 +122,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
             var head = $"Functions like {Name(index, fn)} at {Va(index, fn.Start)} [{native.Id}], {Plural(compared, "function")} compared\n" + Notes(notes);
             return ToolOutput.List(page, offset, limit, hits.Count, MatchRow,
                 rows => new SimilarityReport(native.Id, v, Name(index, fn), Va(index, fn.Start), compared, offset, hits.Count, offset + rows.Count < hits.Count,
-                    rows, [], notes), "similar function", head);
+                    rows, notes), "similar function", head);
         }
 
         int pairs = 0;
@@ -133,7 +135,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         var title = $"{(v == "clusters" ? "Near-duplicate clusters" : "Duplicate groups")} in {native.Id}, " +
                     $"{(v == "clusters" ? Plural(scanned, "candidate pair") + " scored" : Plural(scanned, "function") + " compared")}\n" + Notes(notes);
         return ToolOutput.List(shown, offset, limit, groups.Count, GroupRow,
-            rows => new SimilarityReport(native.Id, v, null, null, scanned, offset, groups.Count, offset + rows.Count < groups.Count, [], rows, notes), "group", title);
+            rows => new SimilarityReport(native.Id, v, null, null, scanned, offset, groups.Count, offset + rows.Count < groups.Count, rows, notes), "group", title);
     });
 
     private static string Notes(List<string> notes) => string.Concat(notes.Select(n => $"Note: {n}\n"));

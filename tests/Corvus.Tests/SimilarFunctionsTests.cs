@@ -273,7 +273,7 @@ public class SimilarFunctionsTests
         Assert.True(similar.Compared > 0);
         Assert.True(similar.Items.Count <= 2);
         Assert.Equal(similar.Total > 2, similar.Truncated);
-        Assert.All(similar.Items, m => Assert.Equal("a.dll", m.Image));
+        Assert.All(similar.Items, m => Assert.Equal("a.dll", Assert.IsType<Corvus.Tools.NativeSimilarityTools.SimilarMatch>(m).Image));
         // pages of one query share one candidate pool: a walk sees every match once
         var all = await Find("First", minScore: 0, minInstructions: 1, limit: 500);
         var walked = new List<string>();
@@ -281,9 +281,9 @@ public class SimilarFunctionsTests
         {
             var page = await Find("First", minScore: 0, minInstructions: 1, offset: at, limit: 2);
             Assert.Equal(all.Total, page.Total);
-            walked.AddRange(page.Items.Select(m => m.Address));
+            walked.AddRange(page.Items.Cast<Corvus.Tools.NativeSimilarityTools.SimilarMatch>().Select(m => m.Address));
         }
-        Assert.Equal(all.Items.Select(m => m.Address), walked);
+        Assert.Equal(all.Items.Cast<Corvus.Tools.NativeSimilarityTools.SimilarMatch>().Select(m => m.Address), walked);
         var clusters = await Find(minInstructions: 1);
         Assert.Equal("clusters", clusters.View);
         Assert.Equal("duplicates", (await Find(view: "duplicates")).View);

@@ -25,148 +25,9 @@
       "type": "integer"
     },
     "items": {
+      "description": "view=similar: SimilarMatch rows (image, address, name, score, kind, code, containment, instructions, blocks, cfg, shared*); duplicates and clusters: FunctionGroup rows (id, kind, members, redundantBytes, functions).",
       "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "image": {
-            "type": "string"
-          },
-          "address": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "score": {
-            "type": "number"
-          },
-          "kind": {
-            "description": "identical (same bytes, addresses masked), same_shape (same graph and instruction shapes; registers, offsets or constants differ), contains (holds most of the query's code) or similar.",
-            "type": "string"
-          },
-          "code": {
-            "description": "Jaccard of the instruction-shape 3-grams (registers, addresses and immediates ignored).",
-            "type": "number"
-          },
-          "containment": {
-            "description": "Share of the query's 3-grams found in this function.",
-            "type": "number"
-          },
-          "instructions": {
-            "type": "integer"
-          },
-          "blocks": {
-            "type": "integer"
-          },
-          "cfg": {
-            "description": "Blocks and edges, query -> this function; same_graph when the CFG shapes match.",
-            "type": "string"
-          },
-          "sharedStrings": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "sharedConstants": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "sharedImports": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "sharedCallees": {
-            "description": "Called by both (same image only).",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "image",
-          "address",
-          "name",
-          "score",
-          "kind",
-          "code",
-          "containment",
-          "instructions",
-          "blocks",
-          "cfg",
-          "sharedStrings",
-          "sharedConstants",
-          "sharedImports",
-          "sharedCallees"
-        ]
-      }
-    },
-    "groups": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "kind": {
-            "description": "identical, same_shape or similar (near-duplicates linked by score).",
-            "type": "string"
-          },
-          "members": {
-            "type": "integer"
-          },
-          "redundantBytes": {
-            "description": "Bytes of the members after the first.",
-            "type": "integer"
-          },
-          "functions": {
-            "description": "The first 50, by address.",
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "address": {
-                  "type": "string"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "instructions": {
-                  "type": "integer"
-                },
-                "size": {
-                  "type": "integer"
-                },
-                "score": {
-                  "description": "Score against the group's first member (clusters: sketch estimate).",
-                  "type": "number"
-                }
-              },
-              "required": [
-                "address",
-                "name",
-                "instructions",
-                "size",
-                "score"
-              ]
-            }
-          }
-        },
-        "required": [
-          "id",
-          "kind",
-          "members",
-          "redundantBytes",
-          "functions"
-        ]
-      }
+      "items": {}
     },
     "notes": {
       "type": "array",
@@ -212,7 +73,6 @@
     "offset",
     "total",
     "items",
-    "groups",
     "notes"
   ]
 }

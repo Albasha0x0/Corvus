@@ -67,6 +67,44 @@ public sealed class ToolRealDataTests : IDisposable
         Assert.True(unity.IsError == true && Text(unity).Contains("not_a_unity_title", StringComparison.Ordinal), Text(unity)); // a real native library is no Unity title
     }
 
+    /// <summary>Every find_similar_functions view keeps its rows in items: a walk by nextOffset sees each of total once.</summary>
+    [Theory]
+    [InlineData("similar")]
+    [InlineData("duplicates")]
+    [InlineData("clusters")]
+    public async Task Similar_function_views_page_their_rows_in_items(string view)
+    {
+        var image = Sqlite("win-x64", "e_sqlite3.dll");
+        await using var server = await InProcessServer.StartAsync();
+        // view=similar asks about the first duplicate group's first member, which has look-alikes
+        string? address = null;
+        if (view == "similar")
+            address = (await Call(server.Client, "find_similar_functions", new() { ["image"] = image, ["view"] = "duplicates", ["limit"] = 1 }))
+                .Record.GetProperty("items")[0].GetProperty("functions")[0].GetProperty("address").GetString();
+        int limit = address != null ? 1 : 5;
+        var rows = new List<string>();
+        int? total = null, offset = 0;
+        for (int calls = 0; offset is int at; calls++)
+        {
+            Assert.True(calls < 200, "nextOffset does not end");
+            var args = new Dictionary<string, object?> { ["image"] = image, ["view"] = view, ["offset"] = at, ["limit"] = limit };
+            if (address != null) (args["address"], args["minScore"]) = (address, 0.3);
+            var (_, record) = await Call(server.Client, "find_similar_functions", args);
+            Assert.False(record.TryGetProperty("groups", out _));
+            Assert.Equal(at, record.GetProperty("offset").GetInt32());
+            total ??= record.GetProperty("total").GetInt32();
+            Assert.Equal(total, record.GetProperty("total").GetInt32());
+            var items = record.GetProperty("items").EnumerateArray().Select(e => e.GetRawText()).ToList();
+            rows.AddRange(items);
+            offset = record.TryGetProperty("nextOffset", out var next) ? next.GetInt32() : null;
+            Assert.Equal(offset != null, record.GetProperty("hasMore").GetBoolean());
+            Assert.True(offset == null || offset == at + items.Count, $"nextOffset {offset} after {items.Count} rows at {at}");
+        }
+        Assert.True(total > limit, $"{view}: {total} rows, too few to page");
+        Assert.Equal(total, rows.Count);
+        Assert.Equal(rows.Count, rows.Distinct().Count());
+    }
+
     /// <summary>The runtime's compression assembly: its declarations bind to a runtime native library, which the runtime itself resolves.</summary>
     [Fact]
     public async Task Verify_native_imports_classifies_a_runtime_assembly()

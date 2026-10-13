@@ -1401,7 +1401,7 @@ Functions like a given one in a native image, ranked by score with evidence: ins
 | `limit` | integer |  | `20` | Items to return (max 500). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `items`, `groups`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### get_exception_info
 
