@@ -266,20 +266,22 @@ public sealed partial class ElfFile
                     chains = ReadWords(rest, 0, (uint)(count - symOffset));
                 }
                 d.Gnu = new GnuHash(symOffset, bloom, shift, buckets, chains);
-                if (d.Sysv == null || count > d.Sysv.Chains.Length) return count;
-                return d.Sysv.Chains.Length;
+                if (d.Sysv != null) return Math.Max(count, d.Sysv.Chains.Length);
+                // no bucket names a symbol (GNU ld for an executable that exports nothing): the table does not tell the count
+                if (last >= symOffset) return count;
             }
-            log.Add($"DT_GNU_HASH header (buckets {nbuckets}, symbol offset {symOffset}, bloom {bloomSize}) is not usable");
+            else log.Add($"DT_GNU_HASH header (buckets {nbuckets}, symbol offset {symOffset}, bloom {bloomSize}) is not usable");
         }
         if (d.Sysv != null) return d.Sysv.Chains.Length;
         if (sectionHeaders.FirstOrDefault(s => s.Type == 11 && s.Address == symVa) is { EntrySize: > 0 } section)
             return (int)Math.Min(section.Size / section.EntrySize, MaxSymbols);
-        // No hash table: the symbol table usually ends where the string table starts.
+        // No usable hash table: the symbol table usually ends where the string table starts.
         if (d.Tag(5) is { } strVa && strVa > symVa)
         {
-            log.Add("no DT_HASH or DT_GNU_HASH: the symbol count is estimated from the string table address");
+            if (d.Gnu == null) log.Add("no DT_HASH or DT_GNU_HASH: the symbol count is estimated from the string table address");
             return (int)Math.Min((strVa - symVa) / symEnt, MaxSymbols);
         }
+        if (d.Gnu != null) return (int)d.Gnu.SymOffset;
         log.Add("no DT_HASH or DT_GNU_HASH and no section header: dynamic symbols are not read");
         return 0;
     }

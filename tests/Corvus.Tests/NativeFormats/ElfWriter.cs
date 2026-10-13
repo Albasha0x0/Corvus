@@ -21,7 +21,8 @@ internal sealed class ElfWriter
     /// <summary>A dynamic symbol; <c>Version</c> on a defined one is a version it defines (DT_VERDEF), <c>Hidden</c> for name@VERSION.</summary>
     public sealed record Symbol(string Name, uint Value = 0, uint Size = 0, byte Type = 2, byte Bind = 1, bool Defined = true, string? Version = null, bool Hidden = false, ushort? Section = null);
     public sealed record Reloc(uint Offset, uint Type, string? Symbol = null, long Addend = 0);
-    public enum HashKind { None, Sysv, Gnu, Both }
+    /// <summary><c>GnuEmpty</c>: the DT_GNU_HASH GNU ld writes for an executable that exports nothing (one empty bucket, symbol offset 1).</summary>
+    public enum HashKind { None, Sysv, Gnu, Both, GnuEmpty }
 
     public bool Is64 { get; set; } = true;
     public bool BigEndian { get; set; }
@@ -157,6 +158,8 @@ internal sealed class ElfWriter
             hash = Table(".hash", 5, 2, () => WriteSysvHash(w, dynsym), 4);
         if (Hash is HashKind.Gnu or HashKind.Both)
             gnuHash = Table(".gnu.hash", 0x6FFFFFF6, 2, () => WriteGnuHash(w, dynsym, symOffset, gnuBuckets));
+        if (Hash is HashKind.GnuEmpty)
+            gnuHash = Table(".gnu.hash", 0x6FFFFFF6, 2, () => { w.U32(1); w.U32(1); w.U32(1); w.U32(0); w.Word(0, Is64); w.U32(0); });
         var libs = Versions.Values.Select(v => v.Library).Distinct().ToList();
         var versionIndex = Versions.Values.Distinct().Select((v, i) => (v, i)).ToDictionary(p => p.v, p => (ushort)(2 + p.i));
         // defined versions take the indexes after the needed ones

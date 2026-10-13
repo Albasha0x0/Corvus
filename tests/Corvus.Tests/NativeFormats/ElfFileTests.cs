@@ -127,6 +127,17 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         if (hash == ElfWriter.HashKind.None) Assert.Contains(elf.Issues, i => i.Message.Contains("estimated", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SymbolCount_EmptyGnuHashFallsBackToTheSymbolTable(bool sectionHeaders)
+    {
+        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Hash = ElfWriter.HashKind.GnuEmpty, SectionHeaders = sectionHeaders, PltImports = ["abort", "malloc", "free"] };
+        var elf = Parse(w);
+        Assert.Equal(4, elf.DynamicSymbols.Count);
+        Assert.Equal(["abort", "malloc", "free"], elf.Imports.Select(i => i.Name));
+    }
+
     [Fact]
     public void Arm32_RelTablesExidxAndThumb()
     {
