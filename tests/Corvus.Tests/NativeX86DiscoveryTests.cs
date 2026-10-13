@@ -74,6 +74,72 @@ public class NativeX86DiscoveryTests
     }
 
     [Theory]
+    [InlineData(0)] // lea r15, [rip+table] hoisted before a loop; movsxd rax, [r15 + rcx*4]; add rax, r15; jmp rax
+    [InlineData(1)] // lea rax, [rip+table]; movsxd rdx, [rax + rdi*4]; add rax, rdx; jmp rax (the base is the jump register)
+    [InlineData(2)] // the bound compares the memory the index is reloaded from: cmp dword [rdi], 2; ja; mov edx, [rdi]
+    public void X64_relative_switch_tables_with_a_hoisted_base_or_an_indirect_bound(int form)
+    {
+        const uint Table = Data + 0x40;
+        Label dflt = default, loop = default;
+        var cases = new Label[3];
+        var lea = (Register reg) => Instruction.Create(Iced.Intel.Code.Lea_r64_m, reg, new MemoryOperand(Register.RIP, (long)(0x140000000UL + Table), 8));
+        var (code, rva) = Assemble(64, a =>
+        {
+            dflt = a.CreateLabel(); loop = a.CreateLabel();
+            for (int i = 0; i < 3; i++) cases[i] = a.CreateLabel();
+            switch (form)
+            {
+                case 0:
+                    a.AddInstruction(lea(Register.R15));
+                    a.Label(ref loop);
+                    a.movzx(eax, __byte_ptr[r14]);
+                    a.lea(ecx, __[rax - 0x61]);
+                    a.cmp(ecx, 2);
+                    a.ja(dflt);
+                    a.movsxd(rax, __dword_ptr[r15 + rcx * 4]);
+                    a.add(rax, r15);
+                    a.jmp(rax);
+                    break;
+                case 1:
+                    a.cmp(edi, 2);
+                    a.ja(dflt);
+                    a.AddInstruction(lea(Register.RAX));
+                    a.mov(edi, edi);
+                    a.movsxd(rdx, __dword_ptr[rax + rdi * 4]);
+                    a.add(rax, rdx);
+                    a.jmp(rax);
+                    break;
+                default:
+                    a.cmp(__dword_ptr[rdi], 2);
+                    a.mov(eax, -1);
+                    a.ja(dflt);
+                    a.mov(edx, __dword_ptr[rdi]);
+                    a.AddInstruction(lea(Register.RAX));
+                    a.movsxd(rdx, __dword_ptr[rax + rdx * 4]);
+                    a.add(rax, rdx);
+                    a.jmp(rax);
+                    break;
+            }
+            for (int i = 0; i < 3; i++)
+            {
+                a.Label(ref cases[i]);
+                a.inc(r14);
+                if (form == 0) a.jmp(loop); else a.ret();
+            }
+            a.Label(ref dflt);
+            a.xor(eax, eax);
+            a.ret();
+        });
+        var data = new byte[0x100];
+        for (int i = 0; i < 3; i++) BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x40 + i * 4), (int)(rva(cases[i]) - Table));
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, data, entry: Code, format: ImageFormat.Elf));
+        var sw = Assert.Single(index.GetGraph(index.FunctionByStart(Code)!).Switches);
+        Assert.Equal(Table, sw.TableRva);
+        Assert.Equal(cases.Select(rva), sw.Targets);
+        Assert.Equal(rva(dflt), sw.Default);
+    }
+
+    [Theory]
     [InlineData(0)] // get_pc_thunk.bx; mov eax, [ebx + eax*4 + k]; add eax, ebx; jmp eax
     [InlineData(1)] // get_pc_thunk.dx; add edx, [edx + eax*4 + k]; jmp edx
     [InlineData(2)] // call $+5; pop ebp; mov eax, [ebp + eax*4 + k]; lea eax, [eax + ebp]; jmp eax, bound before the GOT setup

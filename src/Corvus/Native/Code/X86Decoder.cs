@@ -47,7 +47,7 @@ internal sealed class X86Decoder : ICodeDecoder
         _relocs = sortedRelocations;
         _is64 = is64 ?? image.Arch == NativeArch.X64;
         _hltEnds = image.Format != ImageFormat.Pe;
-        if (_hltEnds && !_is64) _known = new uint[16];
+        if (_hltEnds || _is64) _known = new uint[16];
         _decoder = Decoder.Create(_is64 ? 64 : 32, _reader, _imageBase, DecoderOptions.None);
     }
 
@@ -219,8 +219,8 @@ internal sealed class X86Decoder : ICodeDecoder
     }
 
     // Register (rax..r15) -> the RVA it holds, 0 = unknown, in the function being walked; a block starts from the state of the
-    // branch that first reached it.
-    // i386 position-independent code outside PE: the GOT pointer from "call __x86.get_pc_thunk.reg" or "call $+5; pop reg", then "add reg, imm".
+    // branch that first reached it. i386 position-independent code outside PE: the GOT pointer from "call __x86.get_pc_thunk.reg"
+    // or "call $+5; pop reg", then "add reg, imm"; x64: "lea reg, [rip+x]" (switch table bases the compiler hoists out of loops).
     private readonly uint[]? _known;
     private readonly Dictionary<uint, int> _pcThunks = [];
     // after "call $+5": the address a "pop reg" there loads
@@ -268,7 +268,13 @@ internal sealed class X86Decoder : ICodeDecoder
         if (insn.Flow is FlowKind.Call or FlowKind.IndirectCall)
         {
             known[0] = known[1] = known[2] = 0; // eax, ecx, edx do not survive a call
-            if (insn.Flow == FlowKind.Call && insn.HasTarget && PcThunkRegister(insn.Target) is var r and >= 0) known[r] = insn.Next;
+            if (_is64)
+            {
+                // nor rsi, rdi (System V) and r8-r11
+                known[6] = known[7] = 0;
+                Array.Clear(known, 8, 4);
+            }
+            else if (insn.Flow == FlowKind.Call && insn.HasTarget && PcThunkRegister(insn.Target) is var r and >= 0) known[r] = insn.Next;
             else if (i.Code == Iced.Intel.Code.Call_rel32_32 && i.NearBranchTarget == i.NextIP) _popPc = insn.Next;
             return;
         }
@@ -289,6 +295,9 @@ internal sealed class X86Decoder : ICodeDecoder
                 return;
             case Mnemonic.Add when i.Op1Kind is OpKind.Immediate32 or OpKind.Immediate8to32:
                 if (known[reg] != 0) known[reg] += (uint)i.GetImmediate(1);
+                return;
+            case Mnemonic.Lea when _is64 && i.IsIPRelativeMemoryOperand && IsFull(i.Op0Register):
+                known[reg] = TryRva(i.IPRelativeMemoryAddress, out uint address) ? address : 0;
                 return;
             case Mnemonic.Mov when i.Op1Kind == OpKind.Register && IsFull(i.Op0Register) && IsFull(i.Op1Register):
                 known[reg] = Known(i.Op1Register);
@@ -795,7 +804,8 @@ internal sealed class X86Decoder : ICodeDecoder
     /// <summary>
     /// A dispatch whose table and entry base are registers with values the walk knows (<see cref="_known"/>): i386 PIC
     /// "mov eT, [eG + eI*4 - k]; add eT, eG" (or lea eT, [eT + eG], or "add eG, [eG + eI*4 - k]" into the jump register),
-    /// entries signed offsets from the GOT pointer eG. <paramref name="k"/> is the step writing the jump register <paramref name="t"/>.
+    /// entries signed offsets from the GOT pointer eG; x64 "movsxd rT, [rB + rI*4]; add rT, rB" (either order) with rB set
+    /// before the run. <paramref name="k"/> is the step writing the jump register <paramref name="t"/>.
     /// </summary>
     private SwitchMatch? MatchKnownBase(int k, Register t, out string reason)
     {
