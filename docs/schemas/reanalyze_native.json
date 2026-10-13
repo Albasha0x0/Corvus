@@ -1,0 +1,93 @@
+{
+  "description": "A reanalysis run, or with analyzers=true the analyzer options (items).",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "engine": {
+      "type": "string"
+    },
+    "scope": {
+      "description": "The range reanalyzed (VAs), or the whole image.",
+      "type": "string"
+    },
+    "complete": {
+      "description": "The analysis queue ran empty; false: the time ran out and the rest runs on the next reanalysis.",
+      "type": "boolean"
+    },
+    "functionsBefore": {
+      "type": "integer"
+    },
+    "functionsAfter": {
+      "type": "integer"
+    },
+    "options": {
+      "description": "name=value set for this run only.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "items": {
+      "description": "analyzers=true: the options matching filter.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value",
+          "type"
+        ]
+      }
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "engine"
+  ]
+}

@@ -55,8 +55,13 @@ public sealed class ReanalyzeNativeTests : IDisposable
         await search.SearchDecompiled(native.Id, "return");
         Assert.Equal(1, engine.Decompiles);
         engine.ReanalysisResult = () => new NativeReanalysis(false, 10, 14, TimeSpan.FromSeconds(2), ["unknown analysis option 'Bogus'"]);
-        var text = await control.ReanalyzeNative(native.Id, options: ["AF_FLIRT=false", "Decompiler Parameter ID = true", "Bogus=1"], start: "rva:0x1000",
-            end: "rva:0x1100", seconds: 30);
+        var (text, call) = await EngineMeta.Run(() => control.ReanalyzeNative(native.Id, options: ["AF_FLIRT=false", "Decompiler Parameter ID = true", "Bogus=1"],
+            start: "rva:0x1000", end: "rva:0x1100", timeoutSeconds: 30));
+        var report = Assert.IsType<NativeEngineControlTools.ReanalysisReport>(call.Record);
+        Assert.Equal((false, 10, 14, "0x140001000-0x140001100"), (report.Complete, report.FunctionsBefore, report.FunctionsAfter, report.Scope));
+        Assert.Equal(2.0, report.ElapsedSeconds);
+        Assert.DoesNotContain(" s; database saved", text); // the time taken is in _meta
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => control.ReanalyzeNative(native.Id, timeoutSeconds: 3601))).Code);
         var run = Assert.Single(engine.Reanalyses);
         Assert.Equal([new("AF_FLIRT", "false"), new("Decompiler Parameter ID", "true"), new("Bogus", "1")], run.Options);
         Assert.Equal((0x1000u, 0x1100u, 30.0), (run.Start!.Value, run.End!.Value, run.Seconds));

@@ -133,10 +133,11 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         Assert.Equal("hits", report.StoppedBy);
         collector = ToolOutput.Collect();
         clock.Restart();
-        await rig.Search.SearchDecompiled(id, @"\breturn\b", engine: engine, cursor: report.Cursor!.Value, maxFunctions: 40, limit: 2000);
+        await rig.Search.SearchDecompiled(id, @"\breturn\b", engine: engine, offset: report.NextOffset!.Value, maxFunctions: 40, limit: 2000);
         var next = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
-        output.WriteLine($"{engine} 40 functions from cursor {report.Cursor}: {next.Hits.Count} hits in {clock.Elapsed.TotalSeconds:0.0} s");
-        Assert.Equal(report.Cursor, next.From);
+        output.WriteLine($"{engine} 40 functions from offset {report.NextOffset}: {next.Hits.Count} hits in {clock.Elapsed.TotalSeconds:0.0} s");
+        Assert.Equal(report.NextOffset, next.Offset);
+        Assert.False(report.TotalExact);
         Assert.True(string.CompareOrdinal(next.Hits[0].Function, report.Hits[^1].Function) > 0);
 
         // callersOf: a function with callers inside the image
@@ -178,7 +179,7 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         var analyzers = await rig.Control.ReanalyzeNative(id, engine: engine, analyzers: true);
         Assert.Contains(engine == "ida" ? "AF_FLIRT = " : "Decompiler Parameter ID = ", analyzers);
         clock.Restart();
-        var run = await rig.Control.ReanalyzeNative(id, engine: engine, start: $"rva:0x{callee:X}", end: $"rva:0x{callee + 0x40:X}", seconds: 120,
+        var run = await rig.Control.ReanalyzeNative(id, engine: engine, start: $"rva:0x{callee:X}", end: $"rva:0x{callee + 0x40:X}", timeoutSeconds: 120,
             options: [engine == "ida" ? "AF_FLIRT=false" : "Decompiler Parameter ID=false"]);
         output.WriteLine($"{engine} reanalysis {clock.Elapsed.TotalSeconds:0.0} s:\n{run}");
         Assert.Contains("Complete: the analysis queue ran empty.", run);

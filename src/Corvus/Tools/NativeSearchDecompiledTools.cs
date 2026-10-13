@@ -32,27 +32,33 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         [property: Description("ida or ghidra.")] string Engine,
         string Pattern,
         IReadOnlyList<DecompiledHit> Hits,
-        [property: Description("Functions in scope (after filter; thunks left out).")] int Functions,
-        [property: Description("Index of the first function searched.")] int From,
-        [property: Description("Functions searched by this call.")] int Searched,
+        [property: Description("Functions in scope (after filter; thunks left out).")] int FunctionsTotal,
+        [property: Description("Index of the first function searched (offset counts functions, not hits).")] int Offset,
+        [property: Description("Functions searched by this call.")] int FunctionsSearched,
         [property: Description("Functions that did not decompile (their error and the rest in the text).")] int Failed,
-        [property: Description("cursor= for the next call; null when every function in scope was searched.")] int? Cursor,
-        [property: Description("Why the call stopped before the end: hits (limit), functions (maxFunctions) or time (seconds).")] string? StoppedBy);
+        [property: Description("offset= for the next call; absent when every function in scope was searched.")] int? NextOffset,
+        bool HasMore,
+        [property: Description("False when functions were left: the hits are those of the functions searched.")] bool TotalExact,
+        [property: Description("Why the call stopped before the end: hits (limit), functions (maxFunctions) or time (timeoutSeconds).")] string? StoppedBy)
+    {
+        [Description("Seconds the search took (moved to _meta).")] public double? ElapsedSeconds { get; init; }
+        [Description("Why this engine answered.")] public string? EngineNote { get; init; }
+    }
 
     /// <summary>Functions asked of the engine per request: small enough to stop near the budget, large enough to amortize the round trip.</summary>
     private const int Chunk = 8;
 
     [McpServerTool(Name = "search_decompiled", Title = "Search native pseudocode", UseStructuredContent = true, OutputSchemaType = typeof(SearchDecompiledReport))]
     [Description("Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), " +
-                 "in address order; parallel where the engine allows, cached. Stops at maxFunctions, seconds or limit hits; cursor= continues.")]
+                 "in address order; parallel where the engine allows, cached. Stops at maxFunctions, timeoutSeconds or limit hits; offset continues.")]
     public Task<string> SearchDecompiled(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Regex.")] string pattern,
-        [Description("auto, ida or ghidra.")] string? engine = null,
+        [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
         [Description("Function name filter: " + NameFilter.Description + ".")] string? filter = null,
         [Description("Max 20000.")] int maxFunctions = 500,
-        [Description("Max 600.")] int seconds = 60,
-        [Description("From the previous result.")] int cursor = 0,
+        [Description("Max 600.")] int timeoutSeconds = 60,
+        [Description("First function to search: nextOffset of the previous result.")] int offset = 0,
         [Description("Max hits (max 2000).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -62,14 +68,18 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         try { regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200)); }
         catch (ArgumentException e) { throw new ToolError(ErrorCode.InvalidArgument, $"pattern is not a valid regular expression: {e.Message}"); }
         var nameFilter = NameFilter.Parse(filter);
-        if (cursor < 0) throw new ToolError(ErrorCode.InvalidArgument, $"cursor must be 0 or more, not {cursor}.");
+        int cursor = offset;
+        if (cursor < 0) throw new ToolError(ErrorCode.InvalidArgument, $"offset must be 0 or more, not {cursor}.");
         int max = Math.Clamp(maxFunctions, 1, 20_000), hitLimit = Math.Clamp(limit, 1, 2000);
-        var budget = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 600));
+        var budget = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 1, 600));
         long started = _time.GetTimestamp();
 
+        EngineChoice.Mode(engine, engines);
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
-        var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+        var choice = EngineChoice.EngineOnly(engine, engines, native);
+        var session = await engines.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
+        EngineReport.Answered(choice, engines, session);
         if (!session.DecompilerAvailable)
             throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.",
                 "search_instructions searches the disassembly instead");
@@ -83,7 +93,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         var scope = (await session.ListFunctionsAsync(cancellationToken)).Where(f => (f.Flags & NativeFunctionFlags.Thunk) == 0)
             .GroupBy(f => f.StartRva).Select(g => g.First()).OrderBy(f => f.StartRva)
             .Where(f => nameFilter == null || nameFilter.IsMatch(Display(f)) || nameFilter.IsMatch(f.Name)).ToList();
-        if (cursor > scope.Count) throw new ToolError(ErrorCode.InvalidArgument, $"cursor {cursor} is past the {scope.Count} functions in scope.", "start again with cursor=0");
+        if (cursor > scope.Count) throw new ToolError(ErrorCode.InvalidArgument, $"offset {cursor} is past the {scope.Count} functions in scope.", "start again with offset=0");
         var window = scope.Skip(cursor).Take(max).ToList();
 
         var texts = new string?[window.Count];
@@ -154,26 +164,29 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         if (stoppedBy == null && end < scope.Count) stoppedBy = "functions";
         int? nextCursor = end < scope.Count ? end : null;
 
+        // the time taken is in _meta: the text is the same in every run that searched the same functions
         var sb = new StringBuilder($"// {native.Id}: /{pattern}/ over the {session.ProviderId} pseudocode of {Plural(scope.Count, "function")}" +
                                    (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + $"; searched {cursor + (searched > 0 ? 1 : 0)}-{end} " +
-                                   $"in {_time.GetElapsedTime(started).TotalSeconds:0.0} s (requests of {chunk} over a decompiler pool of {lanes})\n");
-        sb.AppendLine($"{Plural(hits.Count, "hit")} in {Plural(hits.Select(h => h.Function).Distinct().Count(), "function")}:");
+                                   $"(requests of {chunk} over a decompiler pool of {lanes})\n");
+        sb.Append($"{Plural(hits.Count, "hit")} in {Plural(hits.Select(h => h.Function).Distinct().Count(), "function")}:\n");
         var rows = hits.Select(h => $"  {h.Function}  {h.Name}:{h.Line}  {h.Text}").ToList();
         int fit = pager.FitRows(rows, 2_000);
-        foreach (var row in rows.Take(fit)) sb.AppendLine(row);
-        if (fit < rows.Count) sb.AppendLine($"[{fit} of {rows.Count} hits fit in the output limit; the structured result has all]");
+        foreach (var row in rows.Take(fit)) sb.Append(row).Append('\n');
+        if (fit < rows.Count) sb.Append($"[{fit} of {rows.Count} hits fit in the output limit; the structured result has all]\n");
         if (failures.Count > 0)
         {
-            sb.AppendLine($"{Plural(failures.Count, "function")} did not decompile:");
-            foreach (var f in failures.Take(10)) sb.AppendLine("  " + f);
-            if (failures.Count > 10) sb.AppendLine($"  ... {failures.Count - 10} more");
+            sb.Append($"{Plural(failures.Count, "function")} did not decompile:\n");
+            foreach (var f in failures.Take(10)) sb.Append("  " + f + "\n");
+            if (failures.Count > 10) sb.Append($"  ... {failures.Count - 10} more\n");
         }
         if (nextCursor is { } nc)
-            sb.AppendLine($"Stopped ({stoppedBy switch { "hits" => $"limit={hitLimit} hits", "time" => $"seconds={(int)budget.TotalSeconds} used", _ => $"maxFunctions={max}" }}); " +
-                          $"next: search_decompiled image={native.Id} pattern=\"{pattern}\" cursor={nc}" + (filter != null ? $" filter=\"{filter}\"" : ""));
-        else sb.AppendLine("Every function in scope was searched.");
+            sb.Append($"Stopped ({stoppedBy switch { "hits" => $"limit={hitLimit} hits", "time" => $"timeoutSeconds={(int)budget.TotalSeconds} used", _ => $"maxFunctions={max}" }}); " +
+                      $"[More: offset={nc}]\n");
+        else sb.Append("Every function in scope was searched.\n");
+        if (nextCursor != null) ToolOutput.Coverage("partial", $"{end - cursor} of the {scope.Count - cursor} functions from offset {cursor} were searched", Limitations.Id(stoppedBy == "time" ? Limitation.TimeLimit : Limitation.RowCap));
         return ToolOutput.With(sb.ToString(), new SearchDecompiledReport(native.Id, session.ProviderId, pattern, hits, scope.Count, cursor, searched,
-            failures.Count, nextCursor, nextCursor != null ? stoppedBy : null));
+            failures.Count, nextCursor, nextCursor != null, nextCursor == null, nextCursor != null ? stoppedBy : null)
+            { ElapsedSeconds = Math.Round(_time.GetElapsedTime(started).TotalSeconds, 1), EngineNote = choice.Note });
     });
 
     private static int CountHits(Regex regex, string text, int cap)

@@ -29,7 +29,6 @@ patch_method_csharp
 patch_method_il
 read_android_log
 read_bytes
-reanalyze_native
 reload_assembly
 rename_namespace
 rename_symbol

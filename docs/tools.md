@@ -1403,20 +1403,20 @@ Structured output: `image`, `engine`, `items`, `inputs`, `succeeded`, `failed`, 
 
 **Search native pseudocode** (read-only, idempotent, open-world, long-running)
 
-Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), in address order; parallel where the engine allows, cached. Stops at maxFunctions, seconds or limit hits; cursor= continues.
+Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), in address order; parallel where the engine allows, cached. Stops at maxFunctions, timeoutSeconds or limit hits; offset continues.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `pattern` | string | yes |  | Regex. |
-| `engine` | string |  |  | auto, ida or ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 | `filter` | string |  |  | Function name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
 | `maxFunctions` | integer |  | `500` | Max 20000. |
-| `seconds` | integer |  | `60` | Max 600. |
-| `cursor` | integer |  | `0` | From the previous result. |
+| `timeoutSeconds` | integer |  | `60` | Max 600. |
+| `offset` | integer |  | `0` | First function to search: nextOffset of the previous result. |
 | `limit` | integer |  | `100` | Max hits (max 2000). |
 
-Structured output: `image`, `engine`, `pattern`, `hits`, `functions`, `from`, `searched`, `failed`, `cursor`, `stoppedBy`.
+Structured output: `image`, `engine`, `pattern`, `hits`, `functionsTotal`, `offset`, `functionsSearched`, `failed`, `nextOffset`, `hasMore`, `totalExact`, `stoppedBy`, `engineNote`.
 
 ### emulate_native
 
@@ -2086,13 +2086,15 @@ Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
-| `engine` | string |  |  | Default: the engine with this image open, else IDA, else Ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 | `analyzers` | boolean |  | `false` | List the analyzer options and values instead of running. |
 | `filter` | string |  |  | With analyzers: name filter. |
 | `options` | string[] |  |  | name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true'). |
 | `start` | string |  |  | Range start (default: the whole image). |
 | `end` | string |  |  | Range end (exclusive). |
-| `seconds` | integer |  | `600` | Seconds (max 3600); what is left runs on the next run. |
+| `timeoutSeconds` | integer |  | `600` | Seconds (1-3600); what is left runs on the next run. |
+
+Structured output: `image`, `engine`, `scope`, `complete`, `functionsBefore`, `functionsAfter`, `options`, `items`, `total`, `limit`, `totalExact`, `hasMore`.
 
 ### set_native_operand
 

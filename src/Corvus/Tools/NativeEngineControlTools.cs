@@ -4,6 +4,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Providers;
 using Corvus.Services;
@@ -15,21 +16,38 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeCodeService? code = null)
 {
-    [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis")]
+    public sealed record AnalyzerEntry(string Name, string Value, string Type, string? Description);
+
+    [Description("A reanalysis run, or with analyzers=true the analyzer options (items).")]
+    public sealed record ReanalysisReport(string Image, string Engine,
+        [property: Description("The range reanalyzed (VAs), or the whole image.")] string? Scope,
+        [property: Description("The analysis queue ran empty; false: the time ran out and the rest runs on the next reanalysis.")] bool? Complete,
+        int? FunctionsBefore, int? FunctionsAfter,
+        [property: Description("name=value set for this run only.")] IReadOnlyList<string>? Options,
+        IReadOnlyList<string>? Warnings,
+        [property: Description("analyzers=true: the options matching filter.")] IReadOnlyList<AnalyzerEntry>? Items,
+        int? Total)
+    {
+        [Description("Seconds the run took (moved to _meta).")] public double? ElapsedSeconds { get; init; }
+    }
+
+    [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis", UseStructuredContent = true, OutputSchemaType = typeof(ReanalysisReport))]
     [Description("Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a full run also completes a Ghidra " +
                  "analysis the open's budget cut short. options= sets analyzers for this run; analyzers=true lists them.")]
     public Task<string> ReanalyzeNative(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Default: the engine with this image open, else IDA, else Ghidra.")] string? engine = null,
+        [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
         [Description("List the analyzer options and values instead of running.")] bool analyzers = false,
         [Description("With analyzers: name filter.")] string? filter = null,
         [Description("name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true').")] string[]? options = null,
         [Description("Range start (default: the whole image).")] string? start = null,
         [Description("Range end (exclusive).")] string? end = null,
-        [Description("Seconds (max 3600); what is left runs on the next run.")] int seconds = 600,
+        [Description("Seconds (1-3600); what is left runs on the next run.")] int timeoutSeconds = 600,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        if (timeoutSeconds is < 1 or > 3600)
+            throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {timeoutSeconds} is outside 1-3600.", "timeoutSeconds=600; what is left runs on the next reanalysis");
         var nameFilter = NameFilter.Parse(filter);
         var pairs = new List<KeyValuePair<string, string>>();
         foreach (var o in options ?? [])
@@ -41,37 +59,41 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         if (analyzers && (pairs.Count > 0 || start != null || end != null))
             throw new ToolError(ErrorCode.InvalidArgument, "analyzers=true lists the options; it takes no options, start or end.");
         if (end != null && start == null) throw new ToolError(ErrorCode.InvalidArgument, "end needs start.");
+        EngineChoice.Mode(engine, engines);
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
         var index = code?.Ready(native);
         uint? Address(string? text) => string.IsNullOrWhiteSpace(text) ? null : NativeAddress.Parse(native.Image, text, index != null ? index.AddressesOfName : null);
         uint? from = Address(start), to = Address(end);
         if (from is { } f && to is { } t && t <= f) throw new ToolError(ErrorCode.InvalidArgument, "end is not after start.");
-        var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+        var choice = EngineChoice.EngineOnly(engine, engines, native);
+        var session = await engines.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
+        EngineReport.Answered(choice, engines, session);
         var control = EngineControl.Require(session, "analysis control");
 
         if (analyzers)
         {
-            var all = await control.AnalyzersAsync(cancellationToken);
-            var rows = all.Where(a => nameFilter == null || nameFilter.IsMatch(a.Name))
-                .Select(a => $"{a.Name} = {a.Value}  ({a.Type}){(string.IsNullOrWhiteSpace(a.Description) ? "" : "  " + Format.Clip(a.Description.ReplaceLineEndings(" "), 160))}")
+            var all = (await control.AnalyzersAsync(cancellationToken)).Where(a => nameFilter == null || nameFilter.IsMatch(a.Name))
+                .Select(a => new AnalyzerEntry(a.Name, a.Value, a.Type, string.IsNullOrWhiteSpace(a.Description) ? null : Format.Clip(a.Description.ReplaceLineEndings(" "), 160)))
                 .ToList();
             // No offset: the whole list; past the page the call filter keeps it for read_result.
-            return $"// {native.Id}: {session.ProviderId} analysis options" + (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + "\n" +
-                   $"{Plural(rows.Count, "option")}:\n" + string.Concat(rows.Select(r => "  " + r + "\n")) + (nameFilter?.Note("option name") ?? "");
+            var text = $"// {native.Id}: {session.ProviderId} analysis options" + (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + "\n" +
+                       $"{Plural(all.Count, "option")}:\n" + string.Concat(all.Select(a => $"  {a.Name} = {a.Value}  ({a.Type}){(a.Description != null ? "  " + a.Description : "")}\n")) +
+                       (nameFilter?.Note("option name") ?? "");
+            return ToolOutput.Report(text, new ReanalysisReport(native.Id, session.ProviderId, null, null, null, null, null, null, all, all.Count));
         }
 
-        progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"{session.ProviderId} reanalysis" });
-        var r = await control.ReanalyzeAsync(pairs, from, from is { } s ? to ?? s + 1 : null, Math.Clamp(seconds, 1, 3600), cancellationToken);
+        var r = await control.ReanalyzeAsync(pairs, from, from is { } s ? to ?? s + 1 : null, timeoutSeconds, cancellationToken);
         EngineControl.Advance(session);
-        var sb = new StringBuilder($"// {native.Id}: {session.ProviderId} reanalysis of " +
-                                   (from is { } a ? $"{NativeAddress.Va(native.Image, a)}-{NativeAddress.Va(native.Image, to ?? a + 1)}" : "the whole image") +
-                                   $" in {r.Elapsed.TotalSeconds:0.0} s; database saved\n");
-        sb.AppendLine(r.Complete ? "Complete: the analysis queue ran empty." : $"Partial: the {Math.Clamp(seconds, 1, 3600)} s budget ran out; run again to continue.");
-        sb.AppendLine($"Functions: {r.FunctionsBefore:N0} before, {r.FunctionsAfter:N0} after ({r.FunctionsAfter - r.FunctionsBefore:+#;-#;0})");
-        if (pairs.Count > 0) sb.AppendLine($"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)");
-        foreach (var w in r.Warnings) sb.AppendLine("Warning: " + w);
-        sb.AppendLine("Cached pseudocode of this image is discarded; list_functions engine=" + session.ProviderId + " shows the functions now.");
-        return sb.ToString();
+        var scope = from is { } a ? $"{NativeAddress.Va(native.Image, a)}-{NativeAddress.Va(native.Image, to ?? a + 1)}" : null;
+        var sb = new StringBuilder($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"}; database saved\n");
+        sb.Append(r.Complete ? "Complete: the analysis queue ran empty.\n" : $"Partial: the {timeoutSeconds} s budget ran out; run again to continue.\n");
+        sb.Append($"Functions: {r.FunctionsBefore:N0} before, {r.FunctionsAfter:N0} after ({r.FunctionsAfter - r.FunctionsBefore:+#;-#;0})\n");
+        if (pairs.Count > 0) sb.Append($"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)\n");
+        foreach (var w in r.Warnings) sb.Append("Warning: " + w + "\n");
+        sb.Append("Cached pseudocode of this image is discarded; list_functions engine=" + session.ProviderId + " shows the functions now.\n");
+        return ToolOutput.Report(sb.ToString(), new ReanalysisReport(native.Id, session.ProviderId, scope, r.Complete, r.FunctionsBefore, r.FunctionsAfter,
+            pairs.Count > 0 ? [.. pairs.Select(p => $"{p.Key}={p.Value}")] : null, r.Warnings.Count > 0 ? r.Warnings : null, null, null)
+            { ElapsedSeconds = Math.Round(r.Elapsed.TotalSeconds, 1) });
     });
 }

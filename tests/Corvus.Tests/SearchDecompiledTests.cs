@@ -55,8 +55,8 @@ public sealed class SearchDecompiledTests : IDisposable
         var collector = ToolOutput.Collect();
         var text = await tools.SearchDecompiled(native.Id, "memcpy\\(");
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
-        Assert.Equal(39, report.Functions); // the thunk is left out
-        Assert.Null(report.Cursor);
+        Assert.Equal(39, report.FunctionsTotal); // the thunk is left out
+        Assert.Null(report.NextOffset);
         Assert.Equal(1, report.Failed);
         Assert.Contains("1 function did not decompile", text);
         Assert.Contains("f_20: failed: decompilation failed", text);
@@ -76,7 +76,7 @@ public sealed class SearchDecompiledTests : IDisposable
         var collector = ToolOutput.Collect();
         await tools.SearchDecompiled(native.Id, "(?-i)MemCpy", filter: "/^f_[0-9]$/");
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
-        Assert.Equal(10, report.Functions);
+        Assert.Equal(10, report.FunctionsTotal);
         Assert.Equal(["f_0", "f_9"], report.Hits.Select(h => h.Name));
     }
 
@@ -90,16 +90,16 @@ public sealed class SearchDecompiledTests : IDisposable
         while (cursor is { } c)
         {
             var collector = ToolOutput.Collect();
-            var text = await tools.SearchDecompiled(native.Id, "memcpy", cursor: c, limit: 4);
+            var text = await tools.SearchDecompiled(native.Id, "memcpy", offset: c, limit: 4);
             var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
             Assert.True(report.Hits.Count <= 5, text); // the last function's hits are kept whole
-            if (report.Cursor != null)
+            if (report.NextOffset != null)
             {
                 Assert.Equal("hits", report.StoppedBy);
-                Assert.Contains($"cursor={report.Cursor}", text);
+                Assert.Contains($"offset={report.NextOffset}", text);
             }
             all.AddRange(report.Hits);
-            cursor = report.Cursor;
+            cursor = report.NextOffset;
             Assert.True(++calls < 20);
         }
         var collectorAll = ToolOutput.Collect();
@@ -119,15 +119,15 @@ public sealed class SearchDecompiledTests : IDisposable
         var collector = ToolOutput.Collect();
         await tools.SearchDecompiled(native.Id, "memcpy", maxFunctions: 10);
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
-        Assert.Equal((10, 10, "functions"), (report.Searched, report.Cursor!.Value, report.StoppedBy));
+        Assert.Equal((10, 10, "functions"), (report.FunctionsSearched, report.NextOffset!.Value, report.StoppedBy));
 
         collector = ToolOutput.Collect();
-        var text = await tools.SearchDecompiled(native.Id, "memcpy", cursor: 10, seconds: 1);
+        var text = await tools.SearchDecompiled(native.Id, "memcpy", offset: 10, timeoutSeconds: 1);
         report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
         Assert.Equal("time", report.StoppedBy);
-        Assert.Equal(30, report.Cursor!.Value); // f_30 used the whole second and is a timeout failure; f_31 (index 30, after the thunk) is next
+        Assert.Equal(30, report.NextOffset!.Value); // f_30 used the whole second and is a timeout failure; f_31 (index 30, after the thunk) is next
         Assert.Contains("f_30: timeout", text);
-        Assert.Contains("seconds=1 used", text);
+        Assert.Contains("timeoutSeconds=1 used", text);
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public sealed class SearchDecompiledTests : IDisposable
     {
         var (tools, engine, native) = Setup(Forty);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.SearchDecompiled(native.Id, "("))).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.SearchDecompiled(native.Id, "x", cursor: 500))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.SearchDecompiled(native.Id, "x", offset: 500))).Code);
         Assert.Equal(0, engine.Decompiles);
     }
 }

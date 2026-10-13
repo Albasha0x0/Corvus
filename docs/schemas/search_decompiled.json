@@ -39,15 +39,15 @@
         ]
       }
     },
-    "functions": {
+    "functionsTotal": {
       "description": "Functions in scope (after filter; thunks left out).",
       "type": "integer"
     },
-    "from": {
-      "description": "Index of the first function searched.",
+    "offset": {
+      "description": "Index of the first function searched (offset counts functions, not hits).",
       "type": "integer"
     },
-    "searched": {
+    "functionsSearched": {
       "description": "Functions searched by this call.",
       "type": "integer"
     },
@@ -55,12 +55,23 @@
       "description": "Functions that did not decompile (their error and the rest in the text).",
       "type": "integer"
     },
-    "cursor": {
-      "description": "cursor= for the next call; null when every function in scope was searched.",
+    "nextOffset": {
+      "description": "offset= for the next call; absent when every function in scope was searched.",
       "type": "integer"
     },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "totalExact": {
+      "description": "False when functions were left: the hits are those of the functions searched.",
+      "type": "boolean"
+    },
     "stoppedBy": {
-      "description": "Why the call stopped before the end: hits (limit), functions (maxFunctions) or time (seconds).",
+      "description": "Why the call stopped before the end: hits (limit), functions (maxFunctions) or time (timeoutSeconds).",
+      "type": "string"
+    },
+    "engineNote": {
+      "description": "Why this engine answered.",
       "type": "string"
     },
     "notices": {
@@ -87,9 +98,11 @@
     "engine",
     "pattern",
     "hits",
-    "functions",
-    "from",
-    "searched",
-    "failed"
+    "functionsTotal",
+    "offset",
+    "functionsSearched",
+    "failed",
+    "hasMore",
+    "totalExact"
   ]
 }
