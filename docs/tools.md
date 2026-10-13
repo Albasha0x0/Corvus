@@ -1395,7 +1395,7 @@ A native type's layout (fields with offset, size and bit fields, bases, padding;
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
-| `name` | string |  |  | Type name (Packet, ns::Widget, Ns.Type for Il2Cpp). |
+| `name` | string |  |  | Type name (Packet, ns::Widget, Ns.Type for Il2Cpp), or a glob listing the matches (_IMAGE_*, *Widget*). |
 | `id` | string |  |  | Type id from a result (pdb:0x1A2B, rtti:0x140012000, il2cpp:Ns.Type). |
 | `address` | string |  |  | A typed address: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `at` | string |  |  | Hex offset of a field to name (all union members); 0x48.0x10 reads through the pointer at 0x48. |

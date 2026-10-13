@@ -163,6 +163,14 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
     public async Task<(Func<NativeTypeView>? View, IReadOnlyList<NativeTypeCandidate> Candidates, int Total)> Find(Context c, string name, int offset, int limit,
         CancellationToken ct)
     {
+        // a glob (* and ?) lists every match, never one type
+        if (Wildcard.IsPattern(name))
+        {
+            var literal = name.Split('*', '?').MaxBy(p => p.Length) ?? "";
+            var globbed = await Collect(c, n => Wildcard.Matches(n, name), literal, null, ct).ConfigureAwait(false);
+            var all = Ordered(globbed);
+            return (null, all.Skip(offset).Take(limit).ToList(), all.Count);
+        }
         foreach (var comparison in new[] { StringComparison.Ordinal, StringComparison.OrdinalIgnoreCase })
         {
             var hits = await Collect(c, n => string.Equals(n, name, comparison), name, comparison, ct).ConfigureAwait(false);
@@ -174,9 +182,12 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
                     "pass id= with one of these ids");
         }
         var found = await Collect(c, n => n.Contains(name, StringComparison.OrdinalIgnoreCase), name, null, ct).ConfigureAwait(false);
-        var ordered = found.Select(h => h.Candidate).OrderBy(x => x.Name.Length).ThenBy(x => x.Name, StringComparer.Ordinal).ThenBy(x => x.Id, StringComparer.Ordinal).ToList();
+        var ordered = Ordered(found);
         return (null, ordered.Skip(offset).Take(limit).ToList(), ordered.Count);
     }
+
+    private static List<NativeTypeCandidate> Ordered(List<Hit> hits) =>
+        hits.Select(h => h.Candidate).OrderBy(x => x.Name.Length).ThenBy(x => x.Name, StringComparer.Ordinal).ThenBy(x => x.Id, StringComparer.Ordinal).ToList();
 
     private static string SizeText(long size) => size >= 0 ? $", {size} bytes" : "";
 

@@ -43,7 +43,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
                  "value from the image's bytes (pointers named, strings, enumerators, bit fields); no engine needed.")]
     public Task<string> GetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Type name (Packet, ns::Widget, Ns.Type for Il2Cpp).")] string? name = null,
+        [Description("Type name (Packet, ns::Widget, Ns.Type for Il2Cpp), or a glob listing the matches (_IMAGE_*, *Widget*).")] string? name = null,
         [Description("Type id from a result (pdb:0x1A2B, rtti:0x140012000, il2cpp:Ns.Type).")] string? id = null,
         [Description("A typed address: " + NativeTools.AddressDescription)] string? address = null,
         [Description("Hex offset of a field to name (all union members); 0x48.0x10 reads through the pointer at 0x48.")] string? at = null,
@@ -143,7 +143,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
             var found = await catalog.Find(ctx, name.Trim(), offset, limit, cancellationToken);
             if (found.View != null) view = await Task.Run(found.View, cancellationToken);
             else if (found.Total == 0)
-                throw new ToolError(ErrorCode.NotFound, $"No type named or containing '{name.Trim()}' in {native.Id} ({string.Join(", ", Describe(ctx))}).",
+                throw new ToolError(ErrorCode.NotFound, $"No type {(Wildcard.IsPattern(name) ? "matching" : "named or containing")} '{name.Trim()}' in {native.Id} ({string.Join(", ", Describe(ctx))}).",
                     ctx.PdbFile == null && native.Image.Format == ImageFormat.Pe ? "load_pdb adds the PDB's types; list_native_types lists the engine's" : "list_native_types lists the engine's types; source=engine reads them");
             else (candidates, totalCandidates) = (found.Candidates, found.Total);
         }
@@ -228,7 +228,9 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         var sb = new StringBuilder();
         if (r.Type is not { } t)
         {
-            sb.AppendLine($"{r.TotalCandidates} type(s) contain '{r.Query["name ".Length..]}' in {r.Image}; none is named so exactly" +
+            var pattern = r.Query["name ".Length..];
+            sb.AppendLine((Wildcard.IsPattern(pattern) ? $"{r.TotalCandidates} type(s) match '{pattern}' in {r.Image}"
+                              : $"{r.TotalCandidates} type(s) contain '{pattern}' in {r.Image}; none is named so exactly") +
                           (r.Candidates.Count < r.TotalCandidates ? $" (showing {r.Offset + 1}-{r.Offset + r.Candidates.Count})" : "") + ":");
             foreach (var x in r.Candidates) sb.AppendLine($"  {x.Id}  {x.Kind} {x.Name}{(x.Size >= 0 ? $"  {x.Size} bytes" : "")}  [{x.Source}]");
             if (r.Truncated) sb.AppendLine($"More: offset={r.Offset + r.Candidates.Count}");

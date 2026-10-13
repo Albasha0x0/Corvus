@@ -71,6 +71,15 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.Equal(["pdb:PPlayer", r.Candidates.Single(c => c.Name == "Player").Id], r.Candidates.Select(c => c.Id).Order().Reverse());
         Assert.Contains("2 type(s) contain 'lay'", text);
 
+        // a glob lists every match, also an exact name's type
+        var (globText, glob) = await Get("Pl*");
+        Assert.Null(glob.Type);
+        Assert.Contains(glob.Candidates, c => c.Name == "Player");
+        Assert.DoesNotContain(glob.Candidates, c => c.Name == "PPlayer");
+        Assert.Contains("type(s) match 'Pl*'", globText);
+        Assert.Single((await Get("Pl*", limit: 1)).Report.Candidates);
+        await Assert.ThrowsAsync<ToolError>(() => Get("Zz*q"));
+
         var e = await Assert.ThrowsAsync<ToolError>(() => Get("Dup"));
         Assert.Equal(ErrorCode.Ambiguous, e.Code);
         Assert.Matches(@"2 types are named 'Dup': pdb:0x[0-9A-F]+ \(struct, 4 bytes, pdb\); pdb:0x[0-9A-F]+ \(struct, 8 bytes, pdb\)", e.Message);
