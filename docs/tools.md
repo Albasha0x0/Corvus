@@ -596,8 +596,9 @@ Find types and members by name in every managed assembly inside a container (bun
 | `query` | string | yes |  | Name or part of a name. |
 | `kind` | string |  |  | Restrict to this kind; omit for all (events included). Values: type, method, field, property. |
 | `limit` | integer |  | `200` | Max matches (max 5000). |
+| `offset` | integer |  | `0` | Rows to skip. |
 
-Structured output: `source`, `container`, `assembliesSearched`, `matches`, `total`, `truncated`, `notes`.
+Structured output: `source`, `container`, `assembliesSearched`, `matches`, `total`, `notes`, `offset`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### unpack_container
 

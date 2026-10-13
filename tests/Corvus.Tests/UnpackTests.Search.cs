@@ -136,6 +136,14 @@ public partial class UnpackTests
         var all = Search(zip, "hit", limit: 5000);
         Assert.Equal(601, all.Matches.Count);
         Assert.False(all.Truncated);
+
+        // offset pages the same ranked order (G1: the continuation is a row offset in the record).
+        var next = Unpacker.Search(zip, "hit", SymbolKind.Any, 50, AnalysisLimits.Default, default, offset: 50);
+        Assert.Equal(50, next.Offset);
+        Assert.Equal(all.Matches.Skip(50).Take(50), next.Matches);
+        var last = Unpacker.Search(zip, "hit", SymbolKind.Any, 50, AnalysisLimits.Default, default, offset: 600);
+        Assert.Single(last.Matches);
+        Assert.False(last.Truncated);
     }
 
     [Fact]
@@ -196,8 +204,16 @@ public partial class UnpackTests
         Assert.NotEqual(true, ok.IsError);
         await McpProtocolTests.AssertMatchesOutputSchema(client, "search_container", ok);
         var json = JsonDocument.Parse(ok.StructuredContent!.ToString()!).RootElement;
-        Assert.False(Prop(json, "truncated").GetBoolean());
+        Assert.False(Prop(json, "hasMore").GetBoolean());
         var match = Assert.Single(Prop(json, "matches").EnumerateArray());
+        // A page carries its continuation in the record (S4.1), as a row offset.
+        var page = await client.CallToolAsync("search_container", new Dictionary<string, object?>
+        {
+            ["path"] = _dir.File("ok.apk"), ["query"] = "a", ["limit"] = 1,
+        });
+        var paged = JsonDocument.Parse(page.StructuredContent!.ToString()!).RootElement;
+        Assert.Equal(1, Prop(paged, "nextOffset").GetInt32());
+        Assert.Contains("[More: offset=1]", page.Content.OfType<TextContentBlock>().First().Text);
         Assert.Equal("assemblies/TestFixture.dll", Prop(match, "path").GetString());
         Assert.Equal("TestFixture", Prop(match, "assembly").GetString());
         Assert.Equal("Fixture.Model.Account::Balance", Prop(match, "name").GetString());

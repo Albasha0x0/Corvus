@@ -37,6 +37,7 @@ public static partial class ToolOutput
         ["migrate_native_patches"] = ["entries"],
         ["migrate_native_names"] = ["entries"],
         ["compare_folders"] = ["entries"],
+        ["search_container"] = ["matches"],
     };
 
     internal static void Envelope(JsonObject root, OutputClass output, string? tool = null)

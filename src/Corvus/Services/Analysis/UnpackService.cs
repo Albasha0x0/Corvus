@@ -134,7 +134,10 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     public sealed record ContainerSymbol(string Path, string Assembly, string Name, string Kind);
 
     public sealed record ContainerSearch(string Source, string Container, int AssembliesSearched, List<ContainerSymbol> Matches, int Total,
-        bool Truncated, List<string> Notes);
+        bool Truncated, List<string> Notes)
+    {
+        public int Offset { get; init; }
+    }
 
     /// <summary>Null or "any" selects all kinds, events included.</summary>
     public static SymbolKind ParseSearchKind(string? kind) => kind?.Trim().ToLowerInvariant() switch
@@ -151,13 +154,15 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// Searches symbol names in every contained assembly in memory, with search_symbols matching. Results are ranked
     /// exact, prefix, substring; Total counts all matches.
     /// </summary>
-    public ContainerSearch Search(string path, string query, SymbolKind kind, int limit, AnalysisLimits limits, CancellationToken ct)
+    public ContainerSearch Search(string path, string query, SymbolKind kind, int limit, AnalysisLimits limits, CancellationToken ct, int offset = 0)
     {
+        offset = Math.Max(0, offset);
         var matcher = SearchService.CreateMatcher(query, regex: false);
         bool matchFullName = query.Contains('.') || query.Contains(':');
         var managed = Managed(path, limits, ct);
         var notes = managed.Notes;
-        // One bucket per rank, each capped at the limit, to keep the best matches with bounded memory.
+        // One bucket per rank, each capped at the page end, to keep the best matches with bounded memory.
+        int end = (int)Math.Min(int.MaxValue, (long)offset + limit);
         var buckets = Enumerable.Range(0, 4).Select(_ => new List<ContainerSymbol>()).ToArray();
         int total = 0, searched = 0;
         foreach (var a in managed.Assemblies)
@@ -180,7 +185,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                             if (!matcher(name) && !(matchFullName && matcher(Format.MemberLabel(member)))) continue;
                             total++;
                             var bucket = buckets[SearchService.Rank(name, query)];
-                            if (bucket.Count < limit) bucket.Add(new ContainerSymbol(a.Path, assemblyName, Format.MemberLabel(member), KindName(member)));
+                            if (bucket.Count < end) bucket.Add(new ContainerSymbol(a.Path, assemblyName, Format.MemberLabel(member), KindName(member)));
                         }
                     }
                     searched++;
@@ -191,8 +196,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 }
             }
         }
-        var matches = buckets.SelectMany(b => b).Take(limit).ToList();
-        return new ContainerSearch(managed.Source, managed.Container, searched, matches, total, total > matches.Count, notes);
+        var matches = buckets.SelectMany(b => b).Skip(offset).Take(limit).ToList();
+        return new ContainerSearch(managed.Source, managed.Container, searched, matches, total, offset + matches.Count < total, notes) { Offset = offset };
     }
 
     private static string KindName(IMemberDef m) => m switch

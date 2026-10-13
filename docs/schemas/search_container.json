@@ -39,14 +39,26 @@
     "total": {
       "type": "integer"
     },
-    "truncated": {
-      "type": "boolean"
-    },
     "notes": {
       "type": "array",
       "items": {
         "type": "string"
       }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -73,7 +85,6 @@
     "assembliesSearched",
     "matches",
     "total",
-    "truncated",
     "notes"
   ]
 }

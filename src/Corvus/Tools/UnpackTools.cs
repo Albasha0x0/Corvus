@@ -29,7 +29,8 @@ public sealed class UnpackTools(UnpackService unpacker)
         [Description("Name or part of a name.")] string query,
         [Description("Restrict to this kind; omit for all (events included).")] string? kind = null,
         [Description("Max matches (max 5000).")] int limit = 200,
+        [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() => unpacker.Search(path, query, UnpackService.ParseSearchKind(kind), ClampLimit(limit), AnalysisLimits.Default, cancellationToken),
+        Task.Run(() => unpacker.Search(path, query, UnpackService.ParseSearchKind(kind), ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset),
             cancellationToken);
 }
