@@ -1,0 +1,150 @@
+{
+  "tool": "analyze_native_function",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First"
+  },
+  "isError": false,
+  "content": [
+    "First at 0x140001000 [sample-build-a.dll]: 1 bytes, ends at 0x140001001 (ends are exclusive throughout)\n\n== identity (5) ==\n  0x140001000  name First (export or import)\n  0x140001000  range 0x140001000-0x140001001 (1 bytes)\n  1 block, 1 instruction\n  xrefs: 1 reference to it (0 call sites in 0 callers), 0 calls out\n  found by: Pdata, Export, EntryPoint, TlsCallback, DataPointer, GuardCf\n\n== signature (1) ==\n  no argument register is read before written (no register arguments, or they are only passed on)\n\n== frame (4) ==\n  0x140001000  unwind data (x64 UNWIND_INFO, 0x140001000-0x140001004): allocates 0x0 bytes, prolog 204 bytes\n  unwind data saves: rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax\n  unwind data frame pointer: r12 = rsp + 0xC0\n  no frame pointer\n\n== callers (5) ==\n  0x140001000  the image entry point\n  0x140001000  exported as First\n  0x140001000  a TLS callback\n  0x140002170  pointer in data at 0x140002170\n  0x140001000  reachable only through its address (and as an entry point or export): a callback or a stored pointer (pointer in data at 0x140002170)\n\n== callees ==\n  (none)\n\n== data ==\n  (none)\n\n== flow (1) ==\n  1 block, cyclomatic complexity 1\n\n== annotations ==\n  (none)\n\nNext:\n  disassemble image=sample-build-a.dll address=0x140001000\n  get_cfg image=sample-build-a.dll address=0x140001000\n  trace_native_values image=sample-build-a.dll address=0x140001000 argument=1 direction=forward\n  resolve_call_targets image=sample-build-a.dll address=0x140001000 scope=function\n  decompile_native image=sample-build-a.dll address=0x140001000\n",
+    "[workspace] loaded sample-build-a.dll from <fixtures>/sample-build-a.dll"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "address": "0x140001000",
+    "name": "First",
+    "size": 1,
+    "end": "0x140001001",
+    "sections": [
+      {
+        "name": "identity",
+        "total": 5,
+        "items": [
+          {
+            "address": "0x140001000",
+            "text": "name First (export or import)",
+            "kind": "name"
+          },
+          {
+            "address": "0x140001000",
+            "text": "range 0x140001000-0x140001001 (1 bytes)",
+            "kind": "range"
+          },
+          {
+            "text": "1 block, 1 instruction",
+            "kind": "size"
+          },
+          {
+            "text": "xrefs: 1 reference to it (0 call sites in 0 callers), 0 calls out",
+            "kind": "xrefs"
+          },
+          {
+            "text": "found by: Pdata, Export, EntryPoint, TlsCallback, DataPointer, GuardCf",
+            "kind": "discovery"
+          }
+        ]
+      },
+      {
+        "name": "signature",
+        "total": 1,
+        "items": [
+          {
+            "text": "no argument register is read before written (no register arguments, or they are only passed on)",
+            "kind": "registers"
+          }
+        ]
+      },
+      {
+        "name": "frame",
+        "total": 4,
+        "items": [
+          {
+            "address": "0x140001000",
+            "text": "unwind data (x64 UNWIND_INFO, 0x140001000-0x140001004): allocates 0x0 bytes, prolog 204 bytes",
+            "kind": "unwind"
+          },
+          {
+            "text": "unwind data saves: rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax, rax",
+            "kind": "saved"
+          },
+          {
+            "text": "unwind data frame pointer: r12 = rsp + 0xC0",
+            "kind": "frame_pointer"
+          },
+          {
+            "text": "no frame pointer",
+            "kind": "frame_pointer"
+          }
+        ]
+      },
+      {
+        "name": "callers",
+        "total": 5,
+        "items": [
+          {
+            "address": "0x140001000",
+            "text": "the image entry point",
+            "kind": "root"
+          },
+          {
+            "address": "0x140001000",
+            "text": "exported as First",
+            "kind": "root"
+          },
+          {
+            "address": "0x140001000",
+            "text": "a TLS callback",
+            "kind": "root"
+          },
+          {
+            "address": "0x140002170",
+            "text": "pointer in data at 0x140002170",
+            "kind": "reference"
+          },
+          {
+            "address": "0x140001000",
+            "text": "reachable only through its address (and as an entry point or export): a callback or a stored pointer (pointer in data at 0x140002170)",
+            "kind": "reachability"
+          }
+        ]
+      },
+      {
+        "name": "callees",
+        "total": 0,
+        "items": []
+      },
+      {
+        "name": "data",
+        "total": 0,
+        "items": []
+      },
+      {
+        "name": "flow",
+        "total": 1,
+        "items": [
+          {
+            "text": "1 block, cyclomatic complexity 1",
+            "kind": "blocks"
+          }
+        ]
+      },
+      {
+        "name": "annotations",
+        "total": 0,
+        "items": []
+      }
+    ],
+    "next": [
+      "disassemble image=sample-build-a.dll address=0x140001000",
+      "get_cfg image=sample-build-a.dll address=0x140001000",
+      "trace_native_values image=sample-build-a.dll address=0x140001000 argument=1 direction=forward",
+      "resolve_call_targets image=sample-build-a.dll address=0x140001000 scope=function",
+      "decompile_native image=sample-build-a.dll address=0x140001000"
+    ],
+    "offset": 0,
+    "totalChars": 2542,
+    "notices": [
+      "loaded sample-build-a.dll from <fixtures>/sample-build-a.dll"
+    ]
+  }
+}

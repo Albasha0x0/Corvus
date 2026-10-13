@@ -1,0 +1,88 @@
+{
+  "tool": "open_minidump",
+  "arguments": {
+    "path": "samples/synth.dmp"
+  },
+  "isError": false,
+  "content": [
+    "synth.dmp#2: full-memory, written 2023-09-12 06:06:56Z, 29,224 bytes\n  path: <fixtures>/samples/synth.dmp\n  type: WithFullMemory, WithHandleData, WithFullMemoryInfo, WithThreadInfo\nSystem: x64, Windows 10.0.26100 workstation, 8 processors\nProcess 4242: Z:\\nowhere\\synth.dll, started 2023-09-12 06:06:56Z\nException 0xC0000005 (EXCEPTION_ACCESS_VIOLATION) on thread 100: access violation writing 0x0000000000000000 (a null or near-null pointer)\n  at 0x7FF610001005 synth!Crash+0x5 [export]\n  instruction: mov    dword ptr [rax], ecx (8908), from dump_memory\n  parameters: 0x1, 0x0\n  registers: rax=0000000000000000 rbx=0000000000000000 rcx=000000000000002a rdx=0000000000000000 rsi=0000000000000000 rdi=0000000000000000 rsp=000000e000010000 rbp=000000e000010050 r8=0000000000000000 r9=0000000000000000 r10=0000000000000000 r11=0000000000000000 r12=0000000000000000 r13=0000000000000000 r14=0000000000000000 r15=0000000000000000 rip=00007ff610001005 efl=00000000\nFaulting module: 0x7FF610000000 synth.dll size 0x4000 v1.2.3.4 stamp 0x00000000; local missing (not found on this machine)\nZ:\\nowhere\\synth.dll\nFaulting thread: 100 \"main\" [faulting]: synth!Crash+0x5 (ip 0x7FF610001005, sp 0xE000010000, stack 0xE000010000-0xE000011100, teb 0x7FF0000C8000, priority 0)\nCounts: 1 module, 5 threads, 0 unloaded modules, 3 memory regions, 3 captured ranges (20,800 bytes), 0 handles (view=modules, threads, memory, unloaded list them)\n"
+  ],
+  "structuredContent": {
+    "id": "synth.dmp#2",
+    "view": "summary",
+    "path": "<fixtures>/samples/synth.dmp",
+    "fileSize": 29224,
+    "timeUtc": "2023-09-12 06:06:56Z",
+    "dumpType": [
+      "WithFullMemory",
+      "WithHandleData",
+      "WithFullMemoryInfo",
+      "WithThreadInfo"
+    ],
+    "system": {
+      "architecture": "x64",
+      "os": "Windows 10.0.26100 workstation",
+      "processors": 8
+    },
+    "process": {
+      "processId": 4242,
+      "mainModule": "Z:\\nowhere\\synth.dll",
+      "createTimeUtc": "2023-09-12 06:06:56Z",
+      "wow64": false
+    },
+    "exception": {
+      "code": "0xC0000005",
+      "name": "EXCEPTION_ACCESS_VIOLATION",
+      "description": "access violation writing 0x0000000000000000 (a null or near-null pointer)",
+      "address": "0x7FF610001005",
+      "threadId": 100,
+      "module": "synth.dll",
+      "symbol": "synth!Crash+0x5",
+      "symbolSource": "export",
+      "instruction": "mov    dword ptr [rax], ecx (8908)",
+      "instructionSource": "dump_memory",
+      "parameters": [
+        "0x1",
+        "0x0"
+      ],
+      "registers": "rax=0000000000000000 rbx=0000000000000000 rcx=000000000000002a rdx=0000000000000000 rsi=0000000000000000 rdi=0000000000000000 rsp=000000e000010000 rbp=000000e000010050 r8=0000000000000000 r9=0000000000000000 r10=0000000000000000 r11=0000000000000000 r12=0000000000000000 r13=0000000000000000 r14=0000000000000000 r15=0000000000000000 rip=00007ff610001005 efl=00000000",
+      "continuable": true
+    },
+    "counts": {
+      "modules": 1,
+      "threads": 5,
+      "unloadedModules": 0,
+      "memoryRanges": 3,
+      "memoryRegions": 3,
+      "capturedBytes": 20800,
+      "fullMemory": true,
+      "handles": 0
+    },
+    "faultingModule": {
+      "name": "synth.dll",
+      "path": "Z:\\nowhere\\synth.dll",
+      "base": "0x7FF610000000",
+      "size": "0x4000",
+      "timeDateStamp": "0x00000000",
+      "fileVersion": "1.2.3.4",
+      "localImage": "missing",
+      "localDetail": "not found on this machine"
+    },
+    "faultingThread": {
+      "id": 100,
+      "name": "main",
+      "faulting": true,
+      "suspendCount": 0,
+      "priority": 0,
+      "teb": "0x7FF0000C8000",
+      "stackStart": "0xE000010000",
+      "stackEnd": "0xE000011100",
+      "instructionPointer": "0x7FF610001005",
+      "stackPointer": "0xE000010000",
+      "location": "synth!Crash+0x5"
+    },
+    "handleTypes": [],
+    "issues": [],
+    "notes": []
+  }
+}

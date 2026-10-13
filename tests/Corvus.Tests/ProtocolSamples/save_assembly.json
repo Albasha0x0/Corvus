@@ -1,0 +1,17 @@
+{
+  "tool": "save_assembly",
+  "arguments": {
+    "assembly": "TestFixture",
+    "outputPath": "samples/saved.dll"
+  },
+  "isError": false,
+  "content": [
+    "Wrote <fixtures>/samples/saved.dll (13,312 bytes, 0 edit(s); no edits: the original bytes)."
+  ],
+  "structuredContent": {
+    "outputPath": "<fixtures>/samples/saved.dll",
+    "bytes": 13312,
+    "sha256": "<id>",
+    "edits": 0
+  }
+}

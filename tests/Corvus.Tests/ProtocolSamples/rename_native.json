@@ -1,0 +1,28 @@
+{
+  "tool": "rename_native",
+  "arguments": {
+    "image": "samples/edit.dll",
+    "address": "First",
+    "name": "SampleEntry",
+    "dryRun": false
+  },
+  "isError": false,
+  "content": [
+    "Named function 0x140001000 'SampleEntry' (was First).\nRecorded as edit.dll#3 (undo_native_edit editId=edit.dll#3); engines take it at their next use.\n"
+  ],
+  "structuredContent": {
+    "applied": true,
+    "dryRun": false,
+    "changes": [
+      {
+        "kind": "name",
+        "target": "0x140001000",
+        "before": "First",
+        "after": "SampleEntry"
+      }
+    ],
+    "editIds": [
+      "edit.dll#3"
+    ]
+  }
+}

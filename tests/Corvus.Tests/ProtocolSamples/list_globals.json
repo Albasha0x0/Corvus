@@ -1,0 +1,21 @@
+{
+  "tool": "list_globals",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "limit": 5
+  },
+  "isError": false,
+  "content": [
+    "sample-build-a.dll: 0 named globals\nEngine: ours (server default auto: no engine has analyzed these bytes)\n0 globals (showing 0-0):\n[End: 0 globals]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "engine": "ours",
+    "limit": 5,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

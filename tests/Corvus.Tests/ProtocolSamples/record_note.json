@@ -1,0 +1,34 @@
+{
+  "tool": "record_note",
+  "arguments": {
+    "text": "the first export returns at once",
+    "anchor": "edit.dll@First",
+    "tags": [
+      "flow"
+    ]
+  },
+  "isError": false,
+  "content": [
+    "id: <note>\nkind: finding\nstatus: open\ntext: the first export returns at once\ntags: flow\nanchor:\n  kind: native\n  sha256: <id>\n  rva: 4096\n  label: edit.dll@0x140001000\nrevision: 1\ncreated: <time>\nupdated: <time>\nauthor: testhost\n"
+  ],
+  "structuredContent": {
+    "id": "<note>",
+    "kind": "finding",
+    "status": "open",
+    "text": "the first export returns at once",
+    "tags": [
+      "flow"
+    ],
+    "evidence": [],
+    "anchor": {
+      "kind": "native",
+      "sha256": "<id>",
+      "rva": 4096,
+      "label": "edit.dll@0x140001000"
+    },
+    "revision": 1,
+    "created": "<time>",
+    "updated": "<time>",
+    "author": "testhost"
+  }
+}

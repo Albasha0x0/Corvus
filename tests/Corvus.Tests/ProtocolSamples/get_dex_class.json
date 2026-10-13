@@ -1,0 +1,111 @@
+{
+  "tool": "get_dex_class",
+  "arguments": {
+    "path": "samples/app.apk",
+    "class": "com.example.app.Main"
+  },
+  "isError": false,
+  "content": [
+    "Lcom/example/app/Main; (classes.dex) public extends Landroid/app/Activity;\nsource: Main.java\ninner classes: Lcom/example/app/Main$Inner;\n2 fields, 8 methods\n10 members (showing 1-10):\n  field Lcom/example/app/Main;->COUNT:I  int COUNT = 0x7\n  field Lcom/example/app/Main;->name:Ljava/lang/String;  java.lang.String name\n  method Lcom/example/app/Main;-><init>()V  public com.example.app.Main()  [4 units, 1 registers]\n  method Lcom/example/app/Main;->data()V  public static void data()  [14 units, 1 registers]\n  method Lcom/example/app/Main;->guarded()V  public static void guarded()  [6 units, 1 registers]\n  method Lcom/example/app/Main;->pick(I)I  public static int pick(int)  [16 units, 2 registers]\n  method Lcom/example/app/Main;->abstractLike()V  public native void abstractLike()\n  method Lcom/example/app/Main;->compute(I)I  public int compute(int)  [9 units, 3 registers]\n  method Lcom/example/app/Main;->compute(Ljava/lang/String;)I  public int compute(java.lang.String)  [5 units, 3 registers]\n  method Lcom/example/app/Main;->onCreate(Landroid/os/Bundle;)V  protected void onCreate(android.os.Bundle)  [11 units, 3 registers; params savedInstanceState]\n[End: 10 members]\n"
+  ],
+  "structuredContent": {
+    "descriptor": "Lcom/example/app/Main;",
+    "javaName": "com.example.app.Main",
+    "dexFile": "classes.dex",
+    "access": "public",
+    "super": "Landroid/app/Activity;",
+    "interfaces": [],
+    "sourceFile": "Main.java",
+    "innerClasses": [
+      "Lcom/example/app/Main$Inner;"
+    ],
+    "annotations": [],
+    "fields": 2,
+    "methods": 8,
+    "items": [
+      {
+        "kind": "field",
+        "id": "Lcom/example/app/Main;->COUNT:I",
+        "access": "public static final",
+        "declaration": "int COUNT",
+        "value": "0x7"
+      },
+      {
+        "kind": "field",
+        "id": "Lcom/example/app/Main;->name:Ljava/lang/String;",
+        "access": "private",
+        "declaration": "java.lang.String name"
+      },
+      {
+        "kind": "method",
+        "id": "Lcom/example/app/Main;-><init>()V",
+        "access": "public constructor",
+        "declaration": "public com.example.app.Main()",
+        "codeUnits": 4,
+        "registers": 1
+      },
+      {
+        "kind": "method",
+        "id": "Lcom/example/app/Main;->data()V",
+        "access": "public static",
+        "declaration": "public static void data()",
+        "codeUnits": 14,
+        "registers": 1
+      },
+      {
+        "kind": "method",
+        "id": "Lcom/example/app/Main;->guarded()V",
+        "access": "public static",
+        "declaration": "public static void guarded()",
+        "codeUnits": 6,
+        "registers": 1
+      },
+      {
+        "kind": "method",
+        "id": "Lcom/example/app/Main;->pick(I)I",
+        "access": "public static",
+        "declaration": "public static int pick(int)",
+        "codeUnits": 16,
+        "registers": 2
+      },
+      {
+        "kind": "method",
+        "id": "Lcom/example/app/Main;->abstractLike()V",
+        "access": "public native",
+        "declaration": "public native void abstractLike()"
+      },
+      {
+        "kind": "method",
+        "id": "Lcom/example/app/Main;->compute(I)I",
+        "access": "public",
+        "declaration": "public int compute(int)",
+        "codeUnits": 9,
+        "registers": 3
+      },
+      {
+        "kind": "method",
+        "id": "Lcom/example/app/Main;->compute(Ljava/lang/String;)I",
+        "access": "public",
+        "declaration": "public int compute(java.lang.String)",
+        "codeUnits": 5,
+        "registers": 3
+      },
+      {
+        "kind": "method",
+        "id": "Lcom/example/app/Main;->onCreate(Landroid/os/Bundle;)V",
+        "access": "protected",
+        "declaration": "protected void onCreate(android.os.Bundle)",
+        "codeUnits": 11,
+        "registers": 3,
+        "parameterNames": [
+          "savedInstanceState"
+        ]
+      }
+    ],
+    "offset": 0,
+    "total": 10,
+    "limit": 150,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

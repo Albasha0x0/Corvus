@@ -1,0 +1,174 @@
+{
+  "tool": "compare_assemblies",
+  "arguments": {
+    "oldAssembly": "samples/v1.dll",
+    "newAssembly": "samples/v2.dll"
+  },
+  "isError": false,
+  "content": [
+    "Comparing Sample.Meter (<fixtures>/samples/v1.dll; SHA-256 <id>, MVID <id>)\n       -> Sample.Meter#2 (<fixtures>/samples/v2.dll; SHA-256 <id>, MVID <id>)\nTypes: 0 renamed, 1 with member changes, 0 removed, 1 added (1 matched of 1 old).\nMembers (each change of a member counted): 1 renamed, 0 moved, 0 signature, 1 body, 0 metadata, 0 type, 0 offset, 0 address, 0 added, 0 removed, 0 ambiguous, 0 unknown\nMember matches: 2 exact, 1 strong, 0 structural, 0 ambiguous (by tier: full name + signature 2, IL hash 1).\n\n3 changes (showing 1-3):\n  Sample.Meter.Gauge\n      renamed   method Read(int) -> ReadValue(int)  (identical body (renamed); tier: IL hash, strong)\n      body      method Scale(int): 4 -> 4 instructions\n  Added types (1):\n      Sample.Meter.Dial\n[End: 3 changes]\n",
+    "[workspace] loaded Sample.Meter from <fixtures>/samples/v1.dll\n[workspace] loaded Sample.Meter#2 from <fixtures>/samples/v2.dll"
+  ],
+  "structuredContent": {
+    "old": {
+      "assembly": "Sample.Meter",
+      "file": "<fixtures>/samples/v1.dll",
+      "sha256": "<id>",
+      "mvid": "<id>"
+    },
+    "new": {
+      "assembly": "Sample.Meter#2",
+      "file": "<fixtures>/samples/v2.dll",
+      "sha256": "<id>",
+      "mvid": "<id>"
+    },
+    "oldTypes": 1,
+    "matchedTypes": 1,
+    "typeChanges": [
+      {
+        "kind": "renamed",
+        "count": 0
+      },
+      {
+        "kind": "changed",
+        "count": 1
+      },
+      {
+        "kind": "ambiguous",
+        "count": 0
+      },
+      {
+        "kind": "removed",
+        "count": 0
+      },
+      {
+        "kind": "added",
+        "count": 1
+      }
+    ],
+    "memberChanges": [
+      {
+        "kind": "renamed",
+        "count": 1
+      },
+      {
+        "kind": "moved",
+        "count": 0
+      },
+      {
+        "kind": "signature",
+        "count": 0
+      },
+      {
+        "kind": "body",
+        "count": 1
+      },
+      {
+        "kind": "metadata",
+        "count": 0
+      },
+      {
+        "kind": "type",
+        "count": 0
+      },
+      {
+        "kind": "offset",
+        "count": 0
+      },
+      {
+        "kind": "address",
+        "count": 0
+      },
+      {
+        "kind": "added",
+        "count": 0
+      },
+      {
+        "kind": "removed",
+        "count": 0
+      },
+      {
+        "kind": "ambiguous",
+        "count": 0
+      },
+      {
+        "kind": "unknown",
+        "count": 0
+      }
+    ],
+    "memberMatches": [
+      {
+        "kind": "exact",
+        "count": 2
+      },
+      {
+        "kind": "strong",
+        "count": 1
+      },
+      {
+        "kind": "structural",
+        "count": 0
+      }
+    ],
+    "ambiguousMembers": 0,
+    "oldSkippedBodies": 0,
+    "newSkippedBodies": 0,
+    "hiddenCompilerGenerated": 0,
+    "items": [
+      {
+        "kind": "method",
+        "change": "renamed",
+        "old": "Sample.Meter.Gauge::Read(int)",
+        "oldToken": "0x06000001",
+        "new": "Sample.Meter.Gauge::ReadValue(int)",
+        "newToken": "0x06000001",
+        "changes": [
+          {
+            "kind": "renamed",
+            "detail": "identical body (renamed)"
+          }
+        ],
+        "tier": "IL hash",
+        "confidence": "strong"
+      },
+      {
+        "kind": "method",
+        "change": "body",
+        "old": "Sample.Meter.Gauge::Scale(int)",
+        "oldToken": "0x06000002",
+        "new": "Sample.Meter.Gauge::Scale(int)",
+        "newToken": "0x06000002",
+        "changes": [
+          {
+            "kind": "body",
+            "detail": "4 -> 4 instructions"
+          }
+        ],
+        "tier": "full name + signature",
+        "confidence": "exact"
+      },
+      {
+        "kind": "type",
+        "change": "added",
+        "new": "Sample.Meter.Dial",
+        "newToken": "0x02000003",
+        "changes": [
+          {
+            "kind": "added",
+            "detail": ""
+          }
+        ]
+      }
+    ],
+    "offset": 0,
+    "total": 3,
+    "tokenMapEntries": 0,
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false,
+    "notices": [
+      "loaded Sample.Meter from <fixtures>/samples/v1.dll",
+      "loaded Sample.Meter#2 from <fixtures>/samples/v2.dll"
+    ]
+  }
+}

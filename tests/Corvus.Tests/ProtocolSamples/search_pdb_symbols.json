@@ -1,0 +1,34 @@
+{
+  "tool": "search_pdb_symbols",
+  "arguments": {
+    "image": "samples/tiny.dll",
+    "query": "Foo"
+  },
+  "isError": false,
+  "content": [
+    "tiny.dll (tiny.pdb): 2 symbols (showing 1-2):\n  0x140001010  public           Bar::Foo  [public: int __cdecl Bar::Foo(int)]\n  0x140001010  function     32  Bar::Foo  (bar.obj)\n[End: 2 symbols]\n"
+  ],
+  "structuredContent": {
+    "image": "tiny.dll",
+    "items": [
+      {
+        "address": "0x140001010",
+        "kind": "public",
+        "name": "Bar::Foo",
+        "signature": "public: int __cdecl Bar::Foo(int)"
+      },
+      {
+        "address": "0x140001010",
+        "kind": "function",
+        "size": 32,
+        "name": "Bar::Foo",
+        "module": "bar.obj"
+      }
+    ],
+    "offset": 0,
+    "total": 2,
+    "limit": 150,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

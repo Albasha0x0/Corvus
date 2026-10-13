@@ -1,0 +1,11 @@
+{
+  "tool": "add_search_directory",
+  "arguments": {
+    "directory": "samples"
+  },
+  "isError": false,
+  "content": [
+    "Added <fixtures>/samples. Search directories:\n  <fixtures>\n  <fixtures>/samples"
+  ],
+  "structuredContent": null
+}

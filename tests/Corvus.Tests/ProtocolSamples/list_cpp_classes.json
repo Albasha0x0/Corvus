@@ -1,0 +1,21 @@
+{
+  "tool": "list_cpp_classes",
+  "arguments": {
+    "image": "sample-build-a.dll"
+  },
+  "isError": false,
+  "content": [
+    "sample-build-a.dll: 0 classes with RTTI, 0 vftables, 0 type descriptors\n0 classes:\n[End: 0 classes]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "source": "rtti",
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "notes": [],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

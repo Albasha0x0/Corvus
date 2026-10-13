@@ -1,0 +1,22 @@
+{
+  "tool": "save_native",
+  "arguments": {
+    "image": "samples/edit.dll",
+    "outputPath": "samples/patched.dll"
+  },
+  "isError": false,
+  "content": [
+    "Wrote <fixtures>/samples/patched.dll (4,112 bytes, 1 patch(es)).\nVerified: every byte outside the patched ranges (and the checksum field) matches the original.\nRelocations verified: the table re-parses (1 entries) and every patched range holds exactly its kept/added entries (0 across 1 patch(es))."
+  ],
+  "structuredContent": {
+    "outputPath": "<fixtures>/samples/patched.dll",
+    "bytes": 4112,
+    "patches": 1,
+    "sha256": "<id>",
+    "verified": true,
+    "notes": [
+      "Verified: every byte outside the patched ranges (and the checksum field) matches the original.",
+      "Relocations verified: the table re-parses (1 entries) and every patched range holds exactly its kept/added entries (0 across 1 patch(es))."
+    ]
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "tool": "compare_folders",
+  "arguments": {
+    "oldPath": "samples/folders-old",
+    "newPath": "samples/folders-new",
+    "caseSensitive": true
+  },
+  "isError": false,
+  "content": [
+    "old:\n  path: <fixtures>/samples/folders-old\n  kind: folder\n  entries: 2\n  bytes: 18\n  complete: true\n  hashed: 2\n  reused: 0\n  entryReads: 0\nnew:\n  path: <fixtures>/samples/folders-new\n  kind: folder\n  entries: 2\n  bytes: 18\n  complete: true\n  hashed: 2\n  reused: 0\n  entryReads: 0\nhashBasis: sha256\ncaseSensitive: true\ncounts:\n  unchanged: 1\n  modified: 1\n  added: 0\n  removed: 0\n  moved: 0\n  movedAmbiguous: 0\n  renamed: 0\n  unreadable: 0\n  unverified: 0\n  unmatched: 0\n  links: 0\n  unchangedAtLeast: false\nview: changed\n1 rows (showing 1-1):\n  change    oldPath   newPath   kind  oldSize  newSize  diff\n  modified  app.json  app.json  text  13       13       --- old/app.json\\n+++ new/app.json\\n@@ -1,1 +1,1 @@\\n-{\"level\": 1}\\n+{\"level\": 2}\\n\n[End: 1 row]\n"
+  ],
+  "structuredContent": {
+    "old": {
+      "path": "<fixtures>/samples/folders-old",
+      "kind": "folder",
+      "entries": 2,
+      "bytes": 18,
+      "complete": true,
+      "hashed": 2,
+      "reused": 0,
+      "entryReads": 0,
+      "problems": []
+    },
+    "new": {
+      "path": "<fixtures>/samples/folders-new",
+      "kind": "folder",
+      "entries": 2,
+      "bytes": 18,
+      "complete": true,
+      "hashed": 2,
+      "reused": 0,
+      "entryReads": 0,
+      "problems": []
+    },
+    "hashBasis": "sha256",
+    "caseSensitive": true,
+    "counts": {
+      "unchanged": 1,
+      "modified": 1,
+      "added": 0,
+      "removed": 0,
+      "moved": 0,
+      "movedAmbiguous": 0,
+      "renamed": 0,
+      "unreadable": 0,
+      "unverified": 0,
+      "unmatched": 0,
+      "links": 0,
+      "unchangedAtLeast": false
+    },
+    "view": "changed",
+    "offset": 0,
+    "total": 1,
+    "entries": [
+      {
+        "change": "modified",
+        "oldPath": "app.json",
+        "newPath": "app.json",
+        "kind": "text",
+        "oldSize": 13,
+        "newSize": 13,
+        "diff": "--- old/app.json\n+++ new/app.json\n@@ -1,1 +1,1 @@\n-{\"level\": 1}\n+{\"level\": 2}\n"
+      }
+    ],
+    "notes": [],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

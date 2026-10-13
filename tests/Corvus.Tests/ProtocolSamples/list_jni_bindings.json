@@ -1,0 +1,31 @@
+{
+  "tool": "list_jni_bindings",
+  "arguments": {
+    "path": "samples/app.apk"
+  },
+  "isError": false,
+  "content": [
+    "Note: The package has no native libraries (lib/<abi>/*.so).\n2 bindings (showing 1-2):\n  unresolved  Lcom/example/app/Main;->abstractLike()V\n  unresolved  Lcrc649e6e32e78efd8fae/LinkActivity;->n_onCreate(Landroid/os/Bundle;)V\n[End: 2 bindings]\n"
+  ],
+  "structuredContent": {
+    "items": [
+      {
+        "javaMethod": "Lcom/example/app/Main;->abstractLike()V",
+        "kind": "unresolved"
+      },
+      {
+        "javaMethod": "Lcrc649e6e32e78efd8fae/LinkActivity;->n_onCreate(Landroid/os/Bundle;)V",
+        "kind": "unresolved"
+      }
+    ],
+    "offset": 0,
+    "total": 2,
+    "libraries": [],
+    "notes": [
+      "The package has no native libraries (lib/<abi>/*.so)."
+    ],
+    "limit": 75,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

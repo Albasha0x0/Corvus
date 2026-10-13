@@ -1,0 +1,42 @@
+{
+  "tool": "list_functions",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "limit": 5
+  },
+  "isError": false,
+  "content": [
+    "sample-build-a.dll: 2 functions (0 thunks, 1 noreturn), 2 instructions, 1 references, 0 strings\nEngine: ours (server default auto: no engine has analyzed these bytes)\n2 functions (showing 1-2):\n  0x140001000        1  First  (Pdata, Export, EntryPoint, TlsCallback, DataPointer, GuardCf; 1 refs)\n  0x140001001        1  Second  [noreturn]  (Export, GuardCf; 0 refs)\n[End: 2 functions]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "functions": 2,
+    "items": [
+      {
+        "address": "0x140001000",
+        "size": 1,
+        "name": "First",
+        "flags": [],
+        "sources": "Pdata, Export, EntryPoint, TlsCallback, DataPointer, GuardCf",
+        "references": 1
+      },
+      {
+        "address": "0x140001001",
+        "size": 1,
+        "name": "Second",
+        "flags": [
+          "noreturn"
+        ],
+        "sources": "Export, GuardCf",
+        "references": 0
+      }
+    ],
+    "offset": 0,
+    "total": 2,
+    "engine": "ours",
+    "engineNote": "server default auto: no engine has analyzed these bytes",
+    "limit": 5,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

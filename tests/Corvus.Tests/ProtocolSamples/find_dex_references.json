@@ -1,0 +1,40 @@
+{
+  "tool": "find_dex_references",
+  "arguments": {
+    "path": "samples/app.apk",
+    "target": "Lcom/example/app/Helper;->log(Ljava/lang/String;)V"
+  },
+  "isError": false,
+  "content": [
+    "To method Lcom/example/app/Helper;->log(Ljava/lang/String;)V\nNote: Calls name the method through the receiver's static type: a call on a subclass or interface descriptor is listed under that descriptor.\n2 references (showing 1-2):\n  Lcom/example/app/Main;->guarded()V @0  invoke-static Lcom/example/app/Helper;->log(Ljava/lang/String;)V\n  Lcom/example/app/Main;->onCreate(Landroid/os/Bundle;)V @7  invoke-static Lcom/example/app/Helper;->log(Ljava/lang/String;)V\n[End: 2 references]\n"
+  ],
+  "structuredContent": {
+    "target": "Lcom/example/app/Helper;->log(Ljava/lang/String;)V",
+    "targetKind": "method",
+    "direction": "to",
+    "items": [
+      {
+        "kind": "call",
+        "method": "Lcom/example/app/Main;->guarded()V",
+        "offset": 0,
+        "target": "Lcom/example/app/Helper;->log(Ljava/lang/String;)V",
+        "opcode": "invoke-static"
+      },
+      {
+        "kind": "call",
+        "method": "Lcom/example/app/Main;->onCreate(Landroid/os/Bundle;)V",
+        "offset": 7,
+        "target": "Lcom/example/app/Helper;->log(Ljava/lang/String;)V",
+        "opcode": "invoke-static"
+      }
+    ],
+    "offset": 0,
+    "total": 2,
+    "notes": [
+      "Calls name the method through the receiver's static type: a call on a subclass or interface descriptor is listed under that descriptor."
+    ],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

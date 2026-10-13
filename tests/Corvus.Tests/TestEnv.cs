@@ -81,6 +81,13 @@ public sealed class TempDir : IDisposable
 
     public TempDir() => Directory.CreateDirectory(Path);
 
+    /// <summary>A directory at <paramref name="path"/> (fixtures written beside the test binaries).</summary>
+    public TempDir(string path)
+    {
+        Path = path;
+        Directory.CreateDirectory(path);
+    }
+
     public string File(string name) => System.IO.Path.Combine(Path, name);
 
     public void Dispose()

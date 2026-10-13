@@ -1,0 +1,69 @@
+{
+  "tool": "dump_stack",
+  "arguments": {
+    "dump": "samples/synth.dmp"
+  },
+  "isError": false,
+  "content": [
+    "synth.dmp#2 thread 100 \"main\", x64, from the exception context; walk ended: end_of_stack\nregisters: rax=0000000000000000 rbx=0000000000000000 rcx=000000000000002a rdx=0000000000000000 rsi=0000000000000000 rdi=0000000000000000 rsp=000000e000010000 rbp=000000e000010050 r8=0000000000000000 r9=0000000000000000 r10=0000000000000000 r11=0000000000000000 r12=0000000000000000 r13=0000000000000000 r14=0000000000000000 r15=0000000000000000 rip=00007ff610001005 efl=00000000\nnote: synth.dll: image dump_memory; names from exports (no matching local PDB); rebuilt from dump memory (100% captured); local file: not found on this machine\n3 frames (showing 1-3):\n  #0 0x7FF610001005 synth!Crash+0x5 [export]  native, context, sp 0xE000010000\n  #1 0x7FF610001055 synth!Outer+0x35 [export]  native, unwind_info, sp 0xE000010030\n  #2 0x7FF610001094 synth!Big+0x14 [export]  native, unwind_info, sp 0xE000010078\n[End: 3 frames]\n"
+  ],
+  "structuredContent": {
+    "dump": "synth.dmp#2",
+    "threadId": 100,
+    "threadName": "main",
+    "context": "exception",
+    "architecture": "x64",
+    "registers": "rax=0000000000000000 rbx=0000000000000000 rcx=000000000000002a rdx=0000000000000000 rsi=0000000000000000 rdi=0000000000000000 rsp=000000e000010000 rbp=000000e000010050 r8=0000000000000000 r9=0000000000000000 r10=0000000000000000 r11=0000000000000000 r12=0000000000000000 r13=0000000000000000 r14=0000000000000000 r15=0000000000000000 rip=00007ff610001005 efl=00000000",
+    "items": [
+      {
+        "index": 0,
+        "address": "0x7FF610001005",
+        "stackPointer": "0xE000010000",
+        "module": "synth.dll",
+        "moduleOffset": "0x1005",
+        "symbol": "synth!Crash+0x5",
+        "function": "Crash",
+        "symbolSource": "export",
+        "functionAddress": "0x7FF610001000",
+        "kind": "native",
+        "method": "context"
+      },
+      {
+        "index": 1,
+        "address": "0x7FF610001055",
+        "stackPointer": "0xE000010030",
+        "module": "synth.dll",
+        "moduleOffset": "0x1055",
+        "symbol": "synth!Outer+0x35",
+        "function": "Outer",
+        "symbolSource": "export",
+        "functionAddress": "0x7FF610001020",
+        "kind": "native",
+        "method": "unwind_info"
+      },
+      {
+        "index": 2,
+        "address": "0x7FF610001094",
+        "stackPointer": "0xE000010078",
+        "module": "synth.dll",
+        "moduleOffset": "0x1094",
+        "symbol": "synth!Big+0x14",
+        "function": "Big",
+        "symbolSource": "export",
+        "functionAddress": "0x7FF610001080",
+        "kind": "native",
+        "method": "unwind_info"
+      }
+    ],
+    "offset": 0,
+    "total": 3,
+    "stop": "end_of_stack",
+    "scannedFrames": 0,
+    "notes": [
+      "synth.dll: image dump_memory; names from exports (no matching local PDB); rebuilt from dump memory (100% captured); local file: not found on this machine"
+    ],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

@@ -72,6 +72,85 @@ public partial class ProtocolSampleTests
         ["migrate_native_patches"] = new() { ["oldImage"] = BuildA, ["newImage"] = BuildB },
         ["update_to_new_build"] = new() { ["oldImage"] = BuildA, ["newImage"] = BuildB, ["include"] = new[] { "names", "patches" } },
         ["export_native_patches"] = new() { ["image"] = BuildA, ["outputPath"] = "sample-patches.json", ["overwrite"] = true },
+        // Session, results and notes ($name: a value from SetupAsync).
+        ["add_search_directory"] = new() { ["directory"] = "samples" },
+        ["load_assembly"] = new() { ["path"] = In + "loaded.dll" },
+        ["reload_assembly"] = new() { ["assembly"] = "loaded.dll" },
+        ["unload_assembly"] = new() { ["assembly"] = "loaded.dll" },
+        ["read_result"] = new() { ["id"] = "$kept" },
+        ["save_assembly"] = new() { ["assembly"] = "TestFixture", ["outputPath"] = In + "saved.dll" },
+        ["save_session"] = new() { ["outputPath"] = In + "work.session.json" },
+        ["load_session"] = new() { ["path"] = In + "setup.session.json" },
+        ["record_note"] = new() { ["text"] = "the first export returns at once", ["anchor"] = "edit.dll@First", ["tags"] = new[] { "flow" } },
+        ["update_note"] = new() { ["id"] = "$note", ["expectedRevision"] = 1, ["status"] = "answered", ["appendText"] = "It does." },
+        ["list_notes"] = new() { ["anchor"] = "edit.dll", ["status"] = "all" },
+        ["convert_number"] = new() { ["numbers"] = new[] { "0x41424344", "-1" } },
+        // .NET edit scripts and builds
+        ["export_edits"] = new() { ["assembly"] = In + "v1.dll", ["outputPath"] = In + "edits.json" },
+        ["apply_edits"] = new() { ["path"] = In + "setup-edits.json" },
+        ["revert_edits"] = new() { ["assembly"] = In + "v1.dll" },
+        ["compare_assemblies"] = new() { ["oldAssembly"] = In + "v1.dll", ["newAssembly"] = In + "v2.dll" },
+        ["find_counterpart"] = new() { ["symbol"] = "Gauge::Read", ["oldAssembly"] = In + "v1.dll", ["newAssembly"] = In + "v2.dll", ["diff"] = true },
+        ["compare_folders"] = new() { ["oldPath"] = In + "folders-old", ["newPath"] = In + "folders-new", ["caseSensitive"] = true },
+        // Containers and Android packages
+        ["search_container"] = new() { ["path"] = In + "lz4.nupkg", ["query"] = "LZ4Codec", ["kind"] = "type" },
+        ["unpack_container"] = new() { ["path"] = In + "lz4.nupkg", ["outputDirectory"] = In + "unpack", ["load"] = false, ["limit"] = 5 },
+        ["unity_overview"] = new() { ["path"] = In + "MonoGame" },
+        ["get_android_manifest"] = new() { ["path"] = In + "app.apk" },
+        ["list_android_resources"] = new() { ["path"] = In + "app.apk", ["type"] = "string" },
+        ["get_android_resource"] = new() { ["path"] = In + "app.apk", ["name"] = "@xml/network_security_config" },
+        ["list_dex_classes"] = new() { ["path"] = In + "app.apk", ["query"] = "Main" },
+        ["get_dex_class"] = new() { ["path"] = In + "app.apk", ["class"] = "com.example.app.Main" },
+        ["disassemble_dex"] = new() { ["path"] = In + "app.apk", ["symbol"] = AndroidSamples.ComputeInt },
+        ["search_dex"] = new() { ["path"] = In + "app.apk", ["kind"] = "string", ["query"] = "api.example" },
+        ["find_dex_references"] = new() { ["path"] = In + "app.apk", ["target"] = AndroidSamples.Log },
+        ["list_jni_bindings"] = new() { ["path"] = In + "app.apk" },
+        ["map_java_dotnet"] = new() { ["symbol"] = AndroidSamples.Link, ["path"] = In + "xamarin.apk" },
+        // Minidumps
+        ["open_minidump"] = new() { ["path"] = In + "synth.dmp" },
+        ["dump_stack"] = new() { ["dump"] = In + "synth.dmp" },
+        ["read_dump_memory"] = new() { ["dump"] = In + "synth.dmp", ["address"] = "synth+0x1000", ["length"] = 32 },
+        ["bucket_minidumps"] = new() { ["folder"] = In + "dumps" },
+        // Native reading (build A is never edited)
+        ["get_pe_info"] = new() { ["image"] = BuildA },
+        ["get_nativeaot_info"] = new() { ["image"] = In + "aot.dll" },
+        ["list_imports"] = new() { ["image"] = BuildA },
+        ["list_exports"] = new() { ["image"] = BuildA },
+        ["list_functions"] = new() { ["image"] = BuildA, ["limit"] = 5 },
+        ["list_globals"] = new() { ["image"] = BuildA, ["limit"] = 5 },
+        ["list_cpp_classes"] = new() { ["image"] = BuildA },
+        ["get_exception_info"] = new() { ["image"] = BuildA },
+        ["resolve_address"] = new() { ["image"] = BuildA, ["address"] = "First" },
+        ["read_bytes"] = new() { ["image"] = BuildA, ["address"] = "First", ["length"] = 32 },
+        ["search_bytes"] = new() { ["image"] = BuildA, ["pattern"] = "ExitProcess", ["text"] = true },
+        ["search_native_strings"] = new() { ["image"] = BuildA, ["limit"] = 5 },
+        ["disassemble"] = new() { ["image"] = BuildA, ["address"] = "First" },
+        ["inspect_instruction"] = new() { ["image"] = BuildA, ["address"] = "First", ["limit"] = 2 },
+        ["search_instructions"] = new() { ["image"] = BuildA, ["mnemonic"] = "^ret$", ["limit"] = 5 },
+        ["get_cfg"] = new() { ["image"] = BuildA, ["address"] = "First" },
+        ["find_xrefs"] = new() { ["image"] = BuildA, ["address"] = "First" },
+        ["get_call_arguments"] = new() { ["image"] = BuildA, ["address"] = "First" },
+        ["resolve_call_targets"] = new() { ["image"] = BuildA, ["address"] = "First", ["scope"] = "function" },
+        ["trace_native_values"] = new() { ["image"] = BuildA, ["address"] = "First", ["location"] = "rcx" },
+        ["native_call_tree"] = new() { ["image"] = BuildA, ["function"] = "First" },
+        ["analyze_native_function"] = new() { ["image"] = BuildA, ["address"] = "First" },
+        ["trace_native_feature"] = new() { ["image"] = BuildA, ["query"] = "First" },
+        ["find_similar_functions"] = new() { ["image"] = BuildA, ["address"] = "First", ["minScore"] = 0, ["limit"] = 3 },
+        ["find_virtual_calls"] = new() { ["image"] = BuildA },
+        ["verify_native_imports"] = new() { ["assembly"] = "TestFixture", ["platform"] = "windows" },
+        ["load_pdb"] = new() { ["image"] = In + "tiny.dll" },
+        ["search_pdb_symbols"] = new() { ["image"] = In + "tiny.dll", ["query"] = "Foo" },
+        ["get_native_type"] = new() { ["image"] = In + "typed.dll", ["name"] = "Game", ["at"] = "0xD8" },
+        ["apply_il2cpp_names"] = new() { ["image"] = In + "il2cpp.dll", ["assembly"] = "TestFixture" },
+        // Native edits (edit.dll has a fresh hash every run, so its sidecar starts empty)
+        ["comment_native"] = new() { ["image"] = In + "edit.dll", ["address"] = "First", ["text"] = "entry", ["dryRun"] = false },
+        ["export_native_annotations"] = new() { ["image"] = In + "edit.dll", ["outputPath"] = In + "annotations.py", ["format"] = "ida" },
+        ["list_native_edits"] = new() { ["image"] = In + "edit.dll" },
+        ["patch_asm"] = new() { ["image"] = In + "edit.dll", ["address"] = "First", ["assembly"] = "nop" },
+        ["patch_bytes"] = new() { ["image"] = In + "edit.dll", ["address"] = "First", ["hex"] = "90", ["dryRun"] = false },
+        ["rename_native"] = new() { ["image"] = In + "edit.dll", ["address"] = "First", ["name"] = "SampleEntry", ["dryRun"] = false },
+        ["save_native"] = new() { ["image"] = In + "edit.dll", ["outputPath"] = In + "patched.dll" },
+        ["undo_native_edit"] = new() { ["image"] = In + "edit.dll" },
     };
 
     /// <summary>Two builds of a synthetic native image beside the fixtures (trailing bytes give each its own hash, so no other test's annotations apply).</summary>
@@ -96,20 +175,36 @@ public partial class ProtocolSampleTests
             foreach (var (tool, args) in Seed) calls.TryAdd(tool, args);
 
         WriteBuilds();
+        WriteInputs();
+        try
+        {
+            await RecordAsync(calls, update);
+        }
+        finally
+        {
+            DeleteFreshSidecars();
+        }
+    }
+
+    private static async Task RecordAsync(Dictionary<string, Dictionary<string, object?>> calls, bool update)
+    {
         await using var server = await InProcessServer.StartAsync();
+        var values = await SetupAsync(server.Client);
         var stale = new List<string>();
         foreach (var (tool, args) in calls.OrderBy(c => c.Key, StringComparer.Ordinal))
         {
             // An export starts from no directory, so every run records the same outcome.
             if (args.GetValueOrDefault("outputDirectory") is { } output && Directory.Exists(output.ToString())) Directory.Delete(output.ToString()!, recursive: true);
-            var result = await server.Client.CallToolAsync(tool, args);
+            foreach (var (before, beforeArgs) in Before.GetValueOrDefault(tool, [])) await CallAsync(server.Client, before, beforeArgs);
+            var result = await server.Client.CallToolAsync(tool, Bind(args, values));
+            foreach (var (cleanup, cleanupArgs) in After.GetValueOrDefault(tool, [])) await CallAsync(server.Client, cleanup, cleanupArgs);
             var sample = new JsonObject
             {
                 ["tool"] = tool,
                 ["arguments"] = JsonSerializer.SerializeToNode(args),
                 ["isError"] = result.IsError == true,
                 ["content"] = new JsonArray([.. result.Content.OfType<TextContentBlock>().Select(b => (JsonNode)Normalize(b.Text, tool))]),
-                ["structuredContent"] = result.StructuredContent is { } s ? JsonNode.Parse(Normalize(s.GetRawText(), tool)) : null,
+                ["structuredContent"] = result.StructuredContent is { } s ? JsonNode.Parse(Normalize(s.GetRawText(), tool, json: true)) : null,
             };
             var text = sample.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping, NewLine = "\n" }) + "\n";
             var file = SampleFile(tool);
@@ -123,7 +218,8 @@ public partial class ProtocolSampleTests
         Assert.True(stale.Count == 0, "protocol samples changed (check the diff, then CORVUS_UPDATE_DOCS=1 records them): " + string.Join(", ", stale));
     }
 
-    [GeneratedRegex("[0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|r-[0-9a-f]{12}")]
+    // Never from inside a \uXXXX escape (JSON kept as a JSON string escapes its quotes).
+    [GeneratedRegex(@"(?<!\\u[0-9a-fA-F]{0,3})(?:[0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|r-[0-9a-f]{12})")]
     private static partial Regex Volatile();
 
     /// <summary>Tools whose written file holds the machine's image path, so its size differs per checkout.</summary>
@@ -137,14 +233,35 @@ public partial class ProtocolSampleTests
     [GeneratedRegex(@"(entropy |""entropy"":\s*)\d+(\.\d+)?")]
     private static partial Regex Entropy();
 
+    /// <summary>A note's random id (NotesService.NewId) and its creation and update times.</summary>
+    [GeneratedRegex(@"\bn[a-z2-7]{8}\b")]
+    private static partial Regex NoteId();
+
+    [GeneratedRegex(@"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z")]
+    private static partial Regex Timestamp();
+
+    /// <summary>A path under the fixtures or the repo, up to a quote, whitespace or a separator of a list; text may quote JSON (\\).</summary>
+    [GeneratedRegex(@"<(fixtures|repo)>(?:\\+|/)(?:\\+|[^\s""'`,;|<>()\\])*")]
+    private static partial Regex FixturePath();
+
+    /// <summary>The same in JSON text, where a backslash is "\\" and a lone one starts an escape.</summary>
+    [GeneratedRegex(@"<(fixtures|repo)>(?:\\\\|/)(?:\\\\|[^\s""'`,;|<>()\\])*")]
+    private static partial Regex FixturePathJson();
+
+    [GeneratedRegex(@"\\+")]
+    private static partial Regex Backslashes();
+
     /// <summary>Machine paths, hashes and entropy (a built fixture's bytes differ per checkout), GUIDs and result ids become labels.</summary>
-    private static string Normalize(string text, string tool)
+    private static string Normalize(string text, string tool, bool json = false)
     {
         foreach (var (path, label) in new[] { (Path.GetDirectoryName(Env.FixturePath)!, "<fixtures>"), (DocsTests.RepoRoot(), "<repo>") })
             foreach (var form in new[] { path, path.Replace('\\', '/'), JsonEncodedText.Encode(path).ToString() })
                 text = text.Replace(form, label, StringComparison.OrdinalIgnoreCase);
-        text = text.Replace(@"<fixtures>\\", "<fixtures>/").Replace(@"<fixtures>\", "<fixtures>/");
+        // Separators inside a fixture path are '/' on every OS (JSON text escapes a backslash as two).
+        text = (json ? FixturePathJson() : FixturePath()).Replace(text, m => Backslashes().Replace(m.Value, "/"));
         text = Entropy().Replace(text, m => m.Groups[1].Value[0] == '"' ? m.Groups[1].Value + "\"<entropy>\"" : m.Groups[1].Value + "<entropy>");
+        if (tool is "record_note" or "update_note" or "list_notes")
+            text = Timestamp().Replace(NoteId().Replace(text, "<note>"), "<time>");
         if (PathSized.Contains(tool))
             text = WrittenBytes().Replace(text, m => m.Groups[1].Success ? m.Groups[1].Value + "<bytes>" : m.Groups[2].Value + "\"<bytes>\"");
         return Volatile().Replace(text, "<id>").ReplaceLineEndings("\n");

@@ -1,0 +1,27 @@
+{
+  "tool": "comment_native",
+  "arguments": {
+    "image": "samples/edit.dll",
+    "address": "First",
+    "text": "entry",
+    "dryRun": false
+  },
+  "isError": false,
+  "content": [
+    "0x140001000: function First comment set.\nRecorded as edit.dll#1 (undo_native_edit editId=edit.dll#1); engines take it at their next use.\n"
+  ],
+  "structuredContent": {
+    "applied": true,
+    "dryRun": false,
+    "changes": [
+      {
+        "kind": "comment",
+        "target": "0x140001000",
+        "after": "entry"
+      }
+    ],
+    "editIds": [
+      "edit.dll#1"
+    ]
+  }
+}

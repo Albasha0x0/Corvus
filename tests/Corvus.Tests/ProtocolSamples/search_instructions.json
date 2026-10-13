@@ -1,0 +1,30 @@
+{
+  "tool": "search_instructions",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "mnemonic": "^ret$",
+    "limit": 5
+  },
+  "isError": false,
+  "content": [
+    "; Engine: ours (server default auto: no engine has analyzed these bytes)\n2 instructions scanned\n1 matching instruction (showing 1-1):\n  0x140001000  First+0x0  ret\n[End: 1 matching instruction]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "items": [
+      {
+        "address": "0x140001000",
+        "function": "First+0x0",
+        "text": "ret"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "scanned": 2,
+    "engine": "ours",
+    "engineNote": "server default auto: no engine has analyzed these bytes",
+    "limit": 5,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "tool": "search_dex",
+  "arguments": {
+    "path": "samples/app.apk",
+    "kind": "string",
+    "query": "api.example"
+  },
+  "isError": false,
+  "content": [
+    "1 hit (showing 1-1):\n  string https://api.example.com/v1  in Lcom/example/app/Main;->onCreate(Landroid/os/Bundle;)V @3 const-string\n[End: 1 hit]\n"
+  ],
+  "structuredContent": {
+    "items": [
+      {
+        "kind": "string",
+        "value": "https://api.example.com/v1",
+        "method": "Lcom/example/app/Main;->onCreate(Landroid/os/Bundle;)V",
+        "offset": 3,
+        "opcode": "const-string"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "notes": [],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

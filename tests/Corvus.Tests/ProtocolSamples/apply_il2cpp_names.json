@@ -1,0 +1,32 @@
+{
+  "tool": "apply_il2cpp_names",
+  "arguments": {
+    "image": "samples/il2cpp.dll",
+    "assembly": "TestFixture"
+  },
+  "isError": false,
+  "content": [
+    "il2cpp.dll: il2cpp names from TestFixture\n  functions named: 2 (1 at addresses the code index did not find as function starts: named as labels)\n  string literals: 0; metadata slots: 0; MethodInfo slots: 0 (no script.json beside the dummy assemblies: only the dummy methods' addresses are known)\n  conflicts: 0 user name(s) kept over il2cpp names; 0 repeated name(s) suffixed with the RVA\n  misses: 0 function start(s) without a method, 0 address(es) outside the image's sections\nSaved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them).\nPriority: user > pdb > il2cpp > discovered. find_method_by_address goes from an address back to the managed method.\n",
+    "[workspace] loaded il2cpp.dll from <fixtures>/samples/il2cpp.dll"
+  ],
+  "structuredContent": {
+    "image": "il2cpp.dll",
+    "applied": true,
+    "assemblies": "TestFixture",
+    "functions": 2,
+    "labels": 1,
+    "sharedFunctions": 0,
+    "strings": 0,
+    "metadataSlots": 0,
+    "methodInfoSlots": 0,
+    "userNamesKept": 0,
+    "suffixed": 0,
+    "misses": 0,
+    "saved": true,
+    "removed": 0,
+    "notes": [],
+    "notices": [
+      "loaded il2cpp.dll from <fixtures>/samples/il2cpp.dll"
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "tool": "resolve_address",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First"
+  },
+  "isError": false,
+  "content": [
+    "First: rva 0x1000, va 0x140001000, file 0x400\n  section .text (r-x), +0x0 into it\n  export First\n  inside the unwind range 0x140001000-0x140001004\n  in function First\n  an instruction start\n  referenced 1 time: 1 Pointer; find_xrefs lists them\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "rva": "0x1000",
+    "va": "0x140001000",
+    "fileOffset": "0x400",
+    "section": ".text",
+    "access": "r-x",
+    "export": "First",
+    "function": "First",
+    "status": "decoded",
+    "referencesTo": {
+      "Pointer": 1
+    }
+  }
+}

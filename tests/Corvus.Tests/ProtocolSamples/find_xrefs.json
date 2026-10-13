@@ -1,0 +1,29 @@
+{
+  "tool": "find_xrefs",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First"
+  },
+  "isError": false,
+  "content": [
+    "References to 0x140001000 (First):\n+3 metadata references (.pdata, CFG or export tables; kind=metadata lists them)\nEngine: ours (server default auto: no engine has analyzed these bytes)\n1 reference (showing 1-1):\n  0x140002170  Pointer    (no function)\n[End: 1 reference]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "target": "0x140001000 (First)",
+    "items": [
+      {
+        "address": "0x140002170",
+        "kind": "Pointer",
+        "function": "(no function)"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "engine": "ours",
+    "engineNote": "server default auto: no engine has analyzed these bytes",
+    "limit": 200,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

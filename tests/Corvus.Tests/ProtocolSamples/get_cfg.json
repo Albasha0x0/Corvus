@@ -1,0 +1,42 @@
+{
+  "tool": "get_cfg",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First"
+  },
+  "isError": false,
+  "content": [
+    "Engine: ours (server default auto: no engine has analyzed these bytes)\nFirst at 0x140001000: 1 block, 0 edges, 0 switches, 0 unresolved indirect jumps, cyclomatic 1\n1 block (showing 1-1):\n  0x140001000-0x140001001     1 insn  Return\n[End: 1 block]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "function": "First",
+    "address": "0x140001000",
+    "engine": "ours",
+    "items": [
+      {
+        "start": "0x140001000",
+        "end": "0x140001001",
+        "instructions": 1,
+        "endKind": "Return",
+        "successors": []
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "switches": [],
+    "unresolvedJumps": [],
+    "tailCalls": [],
+    "cut": false,
+    "summary": {
+      "blocks": 1,
+      "edges": 0,
+      "switches": 0,
+      "unresolvedJumps": 0,
+      "cyclomatic": 1
+    },
+    "limit": 150,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

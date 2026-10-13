@@ -1,0 +1,115 @@
+{
+  "tool": "get_pe_info",
+  "arguments": {
+    "image": "sample-build-a.dll"
+  },
+  "isError": false,
+  "content": [
+    "sample-build-a.dll: AMD64 executable (PE32+), WINDOWS_CUI\n  <fixtures>/sample-build-a.dll\n  4,098 bytes, sha256 <id>\n  image base 0x140000000, size 0x5000, entry point rva 0x1000, va 0x140001000, file 0x400\n  linker 0.0, OS 6.0, subsystem 6.0, timestamp 0x00000000 (not a date: reproducible build hash or zeroed)\n  characteristics: EXECUTABLE_IMAGE, LARGE_ADDRESS_AWARE\n  DLL characteristics: HIGH_ENTROPY_VA, DYNAMIC_BASE, NX_COMPAT, TERMINAL_SERVER_AWARE\nMitigations: on: ASLR, high-entropy VA, DEP, GS cookie; off: CFG, SafeSEH, CET, XFG, EH continuation, force integrity\nSections (4):\n  .text    rva 0x00001000 vsize 0x00000004 raw 0x00000400+0x200 r-x entropy <entropy>  [CNT_CODE, MEM_EXECUTE, MEM_READ]\n  .rdata   rva 0x00002000 vsize 0x00000318 raw 0x00000600+0x400 r-- entropy <entropy>  [CNT_INITIALIZED_DATA, MEM_READ]\n  .reloc   rva 0x00003000 vsize 0x0000000C raw 0x00000A00+0x200 r-- entropy <entropy>  [CNT_INITIALIZED_DATA, MEM_DISCARDABLE, MEM_READ]\n  .rsrc    rva 0x00004000 vsize 0x000002AC raw 0x00000C00+0x400 r-- entropy <entropy>  [CNT_INITIALIZED_DATA, MEM_READ]\nImports: 1 module, 1 function; delay-loaded: 1 module, 1 function (list_imports)\nExports: 2 entries (name seed.dll, 0 forwarders) (list_exports)\nException directory: 1 function range\nTLS callbacks (run before the entry point): 0x140001000\nDebug: CODEVIEW\n  PDB: seed.pdb (RSDS, GUID <id>, age 1)\n  PDB not found locally (6 places searched); load_pdb with a path, or download=true\nLoad config: version 0.0, size 320, security cookie at 0x140002188, 2 CFG targets; guard flags: CF_INSTRUMENTED, CF_FUNCTION_TABLE_PRESENT, CF_FUNCTION_TABLE_SIZE_1\nVersion: file 1.2.3.4, product 5.6.7.8\n  CompanyName: Example Corp\n  FileVersion: 1.2.3.4\nManifest: 11 chars (get_resource for the text)\nResources: 4 entries by type: VERSION 1, MANIFEST 1, STRING 1, ICON 1 (list_resources)\nChecksum: not set (computed 0x0000A732)\nOverlay: 2 bytes at file 0x1000 (data appended after the image)\nSignature: none\nCapabilities (from static imports):\n  ui                  1  MessageBox\nCode: view=code gives the function statistics, late-bound imports and modules loaded by name\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "path": "<fixtures>/sample-build-a.dll",
+    "machine": "AMD64",
+    "kind": "exe",
+    "format": "PE32+",
+    "subsystem": "WINDOWS_CUI",
+    "fileSize": 4098,
+    "sha256": "<id>",
+    "imageBase": "0x140000000",
+    "entryPoint": "0x140001000",
+    "timestamp": "0x00000000",
+    "dotNet": false,
+    "mitigationsOn": [
+      "ASLR",
+      "high-entropy VA",
+      "DEP",
+      "GS cookie"
+    ],
+    "mitigationsOff": [
+      "CFG",
+      "SafeSEH",
+      "CET",
+      "XFG",
+      "EH continuation",
+      "force integrity"
+    ],
+    "sections": [
+      {
+        "name": ".text",
+        "rva": "0x1000",
+        "virtualSize": "0x4",
+        "rawOffset": "0x400",
+        "rawSize": "0x200",
+        "access": "r-x",
+        "entropy": "<entropy>",
+        "characteristics": [
+          "CNT_CODE",
+          "MEM_EXECUTE",
+          "MEM_READ"
+        ]
+      },
+      {
+        "name": ".rdata",
+        "rva": "0x2000",
+        "virtualSize": "0x318",
+        "rawOffset": "0x600",
+        "rawSize": "0x400",
+        "access": "r--",
+        "entropy": "<entropy>",
+        "characteristics": [
+          "CNT_INITIALIZED_DATA",
+          "MEM_READ"
+        ]
+      },
+      {
+        "name": ".reloc",
+        "rva": "0x3000",
+        "virtualSize": "0xC",
+        "rawOffset": "0xA00",
+        "rawSize": "0x200",
+        "access": "r--",
+        "entropy": "<entropy>",
+        "characteristics": [
+          "CNT_INITIALIZED_DATA",
+          "MEM_DISCARDABLE",
+          "MEM_READ"
+        ]
+      },
+      {
+        "name": ".rsrc",
+        "rva": "0x4000",
+        "virtualSize": "0x2AC",
+        "rawOffset": "0xC00",
+        "rawSize": "0x400",
+        "access": "r--",
+        "entropy": "<entropy>",
+        "characteristics": [
+          "CNT_INITIALIZED_DATA",
+          "MEM_READ"
+        ]
+      }
+    ],
+    "importModules": 1,
+    "importFunctions": 1,
+    "delayImportModules": 1,
+    "exports": 2,
+    "tlsCallbacks": 1,
+    "pdbPath": "seed.pdb",
+    "pdbGuid": "<id>",
+    "pdbAge": 1,
+    "overlaySize": 2,
+    "issues": 0,
+    "capabilities": [
+      {
+        "group": "ui",
+        "count": 1,
+        "apis": [
+          "MessageBox"
+        ]
+      }
+    ],
+    "offset": 0,
+    "totalChars": 2325
+  }
+}

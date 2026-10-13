@@ -1,0 +1,30 @@
+{
+  "tool": "list_exports",
+  "arguments": {
+    "image": "sample-build-a.dll"
+  },
+  "isError": false,
+  "content": [
+    "2 exports (showing 1-2):\n  #1     0x140001000        First\n  #2     0x140001001        Second\n[End: 2 exports]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "items": [
+      {
+        "ordinal": 1,
+        "address": "0x140001000",
+        "name": "First"
+      },
+      {
+        "ordinal": 2,
+        "address": "0x140001001",
+        "name": "Second"
+      }
+    ],
+    "offset": 0,
+    "total": 2,
+    "limit": 300,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

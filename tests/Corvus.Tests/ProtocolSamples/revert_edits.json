@@ -1,0 +1,24 @@
+{
+  "tool": "revert_edits",
+  "arguments": {
+    "assembly": "samples/v1.dll"
+  },
+  "isError": false,
+  "content": [
+    "[Sample.Meter] Reverted Sample.Meter to its loaded state (1 edit(s) discarded).\nThe discarded edits are kept as an edit script: read_result id=<id> outputPath=<file>.json, then apply_edits path=<file>.json dryRun=false."
+  ],
+  "structuredContent": {
+    "applied": true,
+    "dryRun": false,
+    "changes": [
+      {
+        "kind": "undo",
+        "target": "Sample.Meter#1"
+      }
+    ],
+    "editIds": [
+      "Sample.Meter#1"
+    ],
+    "resultId": "<id>"
+  }
+}

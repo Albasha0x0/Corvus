@@ -1,0 +1,30 @@
+{
+  "tool": "update_note",
+  "arguments": {
+    "id": "$note",
+    "expectedRevision": 1,
+    "status": "answered",
+    "appendText": "It does."
+  },
+  "isError": false,
+  "content": [
+    "id: <note>\nkind: question\nstatus: answered\ntext: checks the license\\nIt does.\nanchor:\n  kind: file\n  sha256: <id>\n  label: edit.dll\nrevision: 2\ncreated: <time>\nupdated: <time>\nauthor: testhost\n"
+  ],
+  "structuredContent": {
+    "id": "<note>",
+    "kind": "question",
+    "status": "answered",
+    "text": "checks the license\nIt does.",
+    "tags": [],
+    "evidence": [],
+    "anchor": {
+      "kind": "file",
+      "sha256": "<id>",
+      "label": "edit.dll"
+    },
+    "revision": 2,
+    "created": "<time>",
+    "updated": "<time>",
+    "author": "testhost"
+  }
+}

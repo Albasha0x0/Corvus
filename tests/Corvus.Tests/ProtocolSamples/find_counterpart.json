@@ -1,0 +1,43 @@
+{
+  "tool": "find_counterpart",
+  "arguments": {
+    "symbol": "Gauge::Read",
+    "oldAssembly": "samples/v1.dll",
+    "newAssembly": "samples/v2.dll",
+    "diff": true
+  },
+  "isError": false,
+  "content": [
+    "Old: Sample.Meter (SHA-256 <id>, MVID <id>)\nNew: Sample.Meter#2 (SHA-256 <id>, MVID <id>)\n1 symbol (showing 1-1):\n  method Sample.Meter.Gauge::Read(int)  [Sample.Meter] 0x06000001\n      -> Sample.Meter.Gauge::ReadValue(int)  [Sample.Meter#2] 0x06000001  (identical body (renamed); tier: IL hash, strong)\n         changes: renamed\n         body: unchanged (IL hash bfb106881e85dec7)\n         C# diff: none needed (the same normalized IL)\n[End: 1 symbol]\n",
+    "[workspace] loaded Sample.Meter from <fixtures>/samples/v1.dll\n[workspace] loaded Sample.Meter#2 from <fixtures>/samples/v2.dll"
+  ],
+  "structuredContent": {
+    "old": "Sample.Meter",
+    "new": "Sample.Meter#2",
+    "items": [
+      {
+        "kind": "method",
+        "old": "Sample.Meter.Gauge::Read(int)",
+        "oldToken": "0x06000001",
+        "new": "Sample.Meter.Gauge::ReadValue(int)",
+        "newToken": "0x06000001",
+        "how": "identical body (renamed)",
+        "tier": "IL hash",
+        "confidence": "strong",
+        "changes": [
+          "renamed"
+        ],
+        "bodyChanged": false
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "limit": 25,
+    "totalExact": true,
+    "hasMore": false,
+    "notices": [
+      "loaded Sample.Meter from <fixtures>/samples/v1.dll",
+      "loaded Sample.Meter#2 from <fixtures>/samples/v2.dll"
+    ]
+  }
+}

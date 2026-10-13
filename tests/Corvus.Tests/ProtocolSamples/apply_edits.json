@@ -1,0 +1,29 @@
+{
+  "tool": "apply_edits",
+  "arguments": {
+    "path": "samples/setup-edits.json"
+  },
+  "isError": false,
+  "content": [
+    "Dry run of 1 edit(s) from setup-edits.json to Sample.Meter (same build: using recorded tokens):\nBuild check: same build (sha256 568ee5ebadec8ec9… matches)\n  #1 ok      stub Sample.Meter.Gauge::Scale(int) => return 0;\n1 would apply, 0 would fail (dry run: every edit was applied and compiled, then rolled back; nothing changed).\n"
+  ],
+  "structuredContent": {
+    "applied": false,
+    "dryRun": true,
+    "changes": [
+      {
+        "kind": "replay",
+        "target": "stub Sample.Meter.Gauge::Scale(int) => return 0;"
+      }
+    ],
+    "editIds": [],
+    "failed": 0,
+    "items": [
+      {
+        "index": 1,
+        "description": "stub Sample.Meter.Gauge::Scale(int) => return 0;",
+        "basis": "observed"
+      }
+    ]
+  }
+}

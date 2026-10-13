@@ -7,14 +7,14 @@
   },
   "isError": false,
   "content": [
-    "Exported 2 functions and 3 struct layouts:\n  <fixtures>/sample-il2cpp\\il2cpp.h\nIDA: File > Script file... on the _ida.py. Ghidra: run the _ghidra.py from the Script Manager; import the .h with File > Parse C Source."
+    "Exported 2 functions and 3 struct layouts:\n  <fixtures>/sample-il2cpp/il2cpp.h\nIDA: File > Script file... on the _ida.py. Ghidra: run the _ghidra.py from the Script Manager; import the .h with File > Parse C Source."
   ],
   "structuredContent": {
     "functions": 2,
     "structs": 3,
     "files": [
       {
-        "path": "<fixtures>/sample-il2cpp\\il2cpp.h",
+        "path": "<fixtures>/sample-il2cpp/il2cpp.h",
         "bytes": 1147,
         "sha256": "<id>"
       }

@@ -1,0 +1,55 @@
+{
+  "tool": "search_container",
+  "arguments": {
+    "path": "samples/lz4.nupkg",
+    "query": "LZ4Codec",
+    "kind": "type"
+  },
+  "isError": false,
+  "content": [
+    "lz4.nupkg (NuGet package): 5 searched.\n5 matches (showing 1-5):\n  type K4os.Compression.LZ4.LZ4Codec in lib/net462/K4os.Compression.LZ4.dll\n  type K4os.Compression.LZ4.LZ4Codec in lib/net5.0/K4os.Compression.LZ4.dll\n  type K4os.Compression.LZ4.LZ4Codec in lib/net6.0/K4os.Compression.LZ4.dll\n  type K4os.Compression.LZ4.LZ4Codec in lib/netstandard2.0/K4os.Compression.LZ4.dll\n  type K4os.Compression.LZ4.LZ4Codec in lib/netstandard2.1/K4os.Compression.LZ4.dll\n[End: 5 matches]\n"
+  ],
+  "structuredContent": {
+    "source": "<fixtures>/samples/lz4.nupkg",
+    "container": "NuGet package",
+    "searched": 5,
+    "items": [
+      {
+        "path": "lib/net462/K4os.Compression.LZ4.dll",
+        "name": "K4os.Compression.LZ4.LZ4Codec",
+        "kind": "type",
+        "assembly": "K4os.Compression.LZ4"
+      },
+      {
+        "path": "lib/net5.0/K4os.Compression.LZ4.dll",
+        "name": "K4os.Compression.LZ4.LZ4Codec",
+        "kind": "type",
+        "assembly": "K4os.Compression.LZ4"
+      },
+      {
+        "path": "lib/net6.0/K4os.Compression.LZ4.dll",
+        "name": "K4os.Compression.LZ4.LZ4Codec",
+        "kind": "type",
+        "assembly": "K4os.Compression.LZ4"
+      },
+      {
+        "path": "lib/netstandard2.0/K4os.Compression.LZ4.dll",
+        "name": "K4os.Compression.LZ4.LZ4Codec",
+        "kind": "type",
+        "assembly": "K4os.Compression.LZ4"
+      },
+      {
+        "path": "lib/netstandard2.1/K4os.Compression.LZ4.dll",
+        "name": "K4os.Compression.LZ4.LZ4Codec",
+        "kind": "type",
+        "assembly": "K4os.Compression.LZ4"
+      }
+    ],
+    "offset": 0,
+    "total": 5,
+    "notes": [],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

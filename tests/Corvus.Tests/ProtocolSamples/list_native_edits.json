@@ -1,0 +1,31 @@
+{
+  "tool": "list_native_edits",
+  "arguments": {
+    "image": "samples/edit.dll"
+  },
+  "isError": false,
+  "content": [
+    "edit.dll: native edits in the order made (undo_native_edit editId=...)\nNames (priority user > pdb > nativeaot > il2cpp > objc > swift > ida > ghidra > discovered):\n  user: 0 name(s), 1 comment(s), saved per file hash\n1 edit (showing 1-1):\n  edit.dll#1  annotation 0x140001000        comment_native: comment (none) -> entry\n[End: 1 edit]\n"
+  ],
+  "structuredContent": {
+    "image": "edit.dll",
+    "items": [
+      {
+        "editId": "edit.dll#1",
+        "kind": "annotation",
+        "address": "0x140001000",
+        "text": "comment_native: comment (none) -> entry",
+        "source": "comment_native",
+        "changes": 1
+      }
+    ],
+    "total": 1,
+    "layers": [
+      "user: 0 name(s), 1 comment(s), saved per file hash"
+    ],
+    "offset": 0,
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

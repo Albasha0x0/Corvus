@@ -1,0 +1,111 @@
+{
+  "tool": "inspect_instruction",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First",
+    "limit": 2
+  },
+  "isError": false,
+  "content": [
+    "Engine: ours (server default auto: no engine has analyzed these bytes)\n0x140001000  decoded  in First  block 0x140001000  section .text\n  C3                       ret\n  ret, legacy encoding, cpuid x64\n  registers read rsp; written rsp\n  memory read 8 bytes at [rsp]\n  stack pointer +8\n  flow return, no fallthrough\n  references to: 1 (Pointer from 0x140002170)\n0x140001001  decoded  in Second  block 0x140001001  section .text\n  CC                       int    3\n  int3, legacy encoding, cpuid intel8086\n  flow trap, no fallthrough\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "engine": "ours",
+    "engineNote": "server default auto: no engine has analyzed these bytes",
+    "items": [
+      {
+        "status": "decoded",
+        "address": "0x140001000",
+        "rva": "0x1000",
+        "function": "First",
+        "block": "0x140001000",
+        "section": ".text",
+        "instruction": {
+          "bytes": "C3",
+          "length": 1,
+          "text": "ret",
+          "mnemonic": "ret",
+          "encoding": "legacy",
+          "prefixes": [],
+          "cpuid": [
+            "x64"
+          ],
+          "privileged": false,
+          "operands": [],
+          "registersRead": [
+            "rsp"
+          ],
+          "registersWritten": [
+            "rsp"
+          ],
+          "memoryAccesses": [
+            {
+              "segment": "ss",
+              "base": "rsp",
+              "scale": 1,
+              "displacement": 0,
+              "size": 8,
+              "access": "read"
+            }
+          ],
+          "flagsRead": [],
+          "flagsWritten": [],
+          "flagsUndefined": [],
+          "stackPointerDelta": 8,
+          "flow": {
+            "kind": "return"
+          },
+          "referencesFrom": [],
+          "referencesToCount": 1,
+          "referencesTo": [
+            {
+              "from": "0x140002170",
+              "to": "0x140001000",
+              "kind": "Pointer",
+              "name": "0x140002170"
+            }
+          ]
+        }
+      },
+      {
+        "status": "decoded",
+        "address": "0x140001001",
+        "rva": "0x1001",
+        "function": "Second",
+        "block": "0x140001001",
+        "section": ".text",
+        "instruction": {
+          "bytes": "CC",
+          "length": 1,
+          "text": "int    3",
+          "mnemonic": "int3",
+          "encoding": "legacy",
+          "prefixes": [],
+          "cpuid": [
+            "intel8086"
+          ],
+          "privileged": false,
+          "operands": [],
+          "registersRead": [],
+          "registersWritten": [],
+          "memoryAccesses": [],
+          "flagsRead": [],
+          "flagsWritten": [],
+          "flagsUndefined": [],
+          "stackPointerDelta": 0,
+          "flow": {
+            "kind": "trap"
+          },
+          "referencesFrom": [],
+          "referencesToCount": 0,
+          "referencesTo": []
+        }
+      }
+    ],
+    "notes": [],
+    "offset": 0,
+    "totalChars": 461,
+    "code": "0x140001000  decoded  in First  block 0x140001000  section .text\n  C3                       ret\n  ret, legacy encoding, cpuid x64\n  registers read rsp; written rsp\n  memory read 8 bytes at [rsp]\n  stack pointer +8\n  flow return, no fallthrough\n  references to: 1 (Pointer from 0x140002170)\n0x140001001  decoded  in Second  block 0x140001001  section .text\n  CC                       int    3\n  int3, legacy encoding, cpuid intel8086\n  flow trap, no fallthrough\n"
+  }
+}

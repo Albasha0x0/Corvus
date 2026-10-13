@@ -1,0 +1,63 @@
+{
+  "tool": "get_android_manifest",
+  "arguments": {
+    "path": "samples/app.apk"
+  },
+  "isError": false,
+  "content": [
+    "com.example.app 1.2 (42); SDK min 24, target 30, compile 34\napplication com.example.app.App \"Example\": debuggable=True, allowBackup=-, usesCleartextTraffic=True, networkSecurityConfig @xml/network_security_config = res/xml/network_security_config.xml\n! android:debuggable=true: a debugger can attach and run-as works on any device.\n! Cleartext (HTTP) traffic allowed by android:usesCleartextTraffic.\n! App data can be backed up (android:allowBackup not false, no backup rules).\n! 2 exported component(s) without a permission: activity crc649e6e32e78efd8fae.LinkActivity, receiver com.example.app.Boot.\n! Deep links: https://example.com/open.\npermissions (3): android.permission.INTERNET, android.permission.CAMERA (sdk 23+), android.permission.READ_EXTERNAL_STORAGE (maxSdk 28)\ndeclared: com.example.app.PRIVATE (signature|privileged)\ncomponents: activity 2 (2 exported), activity-alias 1 (0 exported), service 1 (1 exported), receiver 1 (1 exported), provider 1 (0 exported)\nexported (4):\n  activity com.example.app.Main  (explicit); launcher\n  activity crc649e6e32e78efd8fae.LinkActivity  (implied by an intent filter (targetSdk below 31)); deep links https://example.com/open\n  service com.example.app.Sync  (explicit); permission com.example.app.PRIVATE\n  receiver com.example.app.Boot  (implied by an intent filter (targetSdk below 31))\nqueries: com.other.app\nmeta-data: com.example.KEY=abc\n"
+  ],
+  "structuredContent": {
+    "package": "com.example.app",
+    "versionCode": "42",
+    "versionName": "1.2",
+    "minSdk": 24,
+    "targetSdk": 30,
+    "compileSdk": 34,
+    "application": {
+      "name": "com.example.app.App",
+      "label": "Example",
+      "debuggable": true,
+      "usesCleartextTraffic": true,
+      "networkSecurityConfig": "@xml/network_security_config = res/xml/network_security_config.xml"
+    },
+    "permissions": [
+      "android.permission.INTERNET",
+      "android.permission.CAMERA (sdk 23+)",
+      "android.permission.READ_EXTERNAL_STORAGE (maxSdk 28)"
+    ],
+    "declaredPermissions": [
+      "com.example.app.PRIVATE (signature|privileged)"
+    ],
+    "componentCounts": {
+      "activity": "2 (2 exported)",
+      "activity-alias": "1 (0 exported)",
+      "service": "1 (1 exported)",
+      "receiver": "1 (1 exported)",
+      "provider": "1 (0 exported)"
+    },
+    "exported": [
+      "activity com.example.app.Main  (explicit); launcher",
+      "activity crc649e6e32e78efd8fae.LinkActivity  (implied by an intent filter (targetSdk below 31)); deep links https://example.com/open",
+      "service com.example.app.Sync  (explicit); permission com.example.app.PRIVATE",
+      "receiver com.example.app.Boot  (implied by an intent filter (targetSdk below 31))"
+    ],
+    "exportedTotal": 4,
+    "queries": [
+      "com.other.app"
+    ],
+    "features": [],
+    "libraries": [],
+    "metaData": [
+      "com.example.KEY=abc"
+    ],
+    "highlights": [
+      "android:debuggable=true: a debugger can attach and run-as works on any device.",
+      "Cleartext (HTTP) traffic allowed by android:usesCleartextTraffic.",
+      "App data can be backed up (android:allowBackup not false, no backup rules).",
+      "2 exported component(s) without a permission: activity crc649e6e32e78efd8fae.LinkActivity, receiver com.example.app.Boot.",
+      "Deep links: https://example.com/open."
+    ],
+    "issues": []
+  }
+}

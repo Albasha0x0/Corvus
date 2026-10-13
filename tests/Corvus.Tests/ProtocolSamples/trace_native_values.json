@@ -1,0 +1,66 @@
+{
+  "tool": "trace_native_values",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First",
+    "location": "rcx"
+  },
+  "isError": false,
+  "content": [
+    "Engine: ours (server default auto: no engine has analyzed these bytes)\nValue trace (backward) of rcx at 0x140001000 (First+0x0: ret); engine ours\nValues reached: none recovered\nGraph: 2 nodes, 1 edge, 1 function, 0 frontier items; nodes 0-1:\n  #0 seed: rcx at 0x140001000 (First+0x0: ret)\n    #1 <- parameter: parameter 1 (rcx) of First  @First+0x0\nDerivations and edges are in the structured output.\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "engine": "ours",
+    "seed": {
+      "kind": "location",
+      "address": "0x140001000",
+      "function": "First+0x0",
+      "location": "rcx",
+      "description": "rcx at 0x140001000 (First+0x0: ret)"
+    },
+    "direction": "backward",
+    "values": [],
+    "nodes": [
+      {
+        "id": 0,
+        "kind": "seed",
+        "address": "0x140001000",
+        "function": "First+0x0",
+        "location": "rcx",
+        "text": "rcx at 0x140001000 (First+0x0: ret)",
+        "depth": 0,
+        "parent": -1,
+        "direction": "backward",
+        "derivation": ""
+      },
+      {
+        "id": 1,
+        "kind": "parameter",
+        "address": "0x140001000",
+        "function": "First+0x0",
+        "location": "rcx",
+        "text": "parameter 1 (rcx) of First",
+        "depth": 0,
+        "parent": 0,
+        "direction": "backward",
+        "derivation": "incoming rcx; no known callers (an export, a callback or a pointer call)"
+      }
+    ],
+    "edges": [
+      {
+        "from": 1,
+        "to": 0,
+        "kind": "copy",
+        "site": "0x140001000"
+      }
+    ],
+    "frontier": [],
+    "totalNodes": 2,
+    "totalEdges": 1,
+    "functions": 1,
+    "offset": 0,
+    "truncated": false,
+    "notes": []
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "tool": "list_imports",
+  "arguments": {
+    "image": "sample-build-a.dll"
+  },
+  "isError": false,
+  "content": [
+    "2 imports (showing 1-2):\n  0x140002058  KERNEL32.dll!ExitProcess\n  0x1400020D8  USER32.dll!MessageBoxW  [delay]\n[End: 2 imports]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "items": [
+      {
+        "address": "0x140002058",
+        "module": "KERNEL32.dll",
+        "name": "ExitProcess",
+        "delay": false,
+        "dynamic": false
+      },
+      {
+        "address": "0x1400020D8",
+        "module": "USER32.dll",
+        "name": "MessageBoxW",
+        "delay": true,
+        "dynamic": false
+      }
+    ],
+    "offset": 0,
+    "total": 2,
+    "limit": 200,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

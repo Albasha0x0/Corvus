@@ -1,0 +1,31 @@
+{
+  "tool": "get_exception_info",
+  "arguments": {
+    "image": "sample-build-a.dll"
+  },
+  "isError": false,
+  "content": [
+    "sample-build-a.dll: 0 frames with exception metadata (C++ FuncInfo 0, C++ FuncInfo4 0, __C_specific_handler 0, SEH4 0, SEH3 0, GS only 0, unknown 0); 0 handler or funclets, 0 chained fragments\nPass an address for one function's handlers.\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "format": "msvc",
+    "handlers": [],
+    "ranges": [],
+    "counts": {
+      "frames": 0,
+      "cxx3": 0,
+      "cxx4": 0,
+      "cSpecific": 0,
+      "seh4": 0,
+      "seh3": 0,
+      "gsOnly": 0,
+      "unknown": 0,
+      "children": 0,
+      "fragments": 0,
+      "rejected": 0
+    },
+    "offset": 0,
+    "totalChars": 238
+  }
+}

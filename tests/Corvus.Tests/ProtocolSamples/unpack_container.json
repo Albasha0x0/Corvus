@@ -1,0 +1,65 @@
+{
+  "tool": "unpack_container",
+  "arguments": {
+    "path": "samples/lz4.nupkg",
+    "outputDirectory": "samples/unpack",
+    "load": false,
+    "limit": 5
+  },
+  "isError": false,
+  "content": [
+    "<fixtures>/samples/lz4.nupkg (NuGet package): 5 file(s) written to <fixtures>/samples/unpack.\n5 files (showing 1-5):\n  .NET assembly lib/net462/K4os.Compression.LZ4.dll 75,264 bytes [NuGet package entry]\n  .NET assembly lib/net5.0/K4os.Compression.LZ4.dll 71,168 bytes [NuGet package entry]\n  .NET assembly lib/net6.0/K4os.Compression.LZ4.dll 70,656 bytes [NuGet package entry]\n  .NET assembly lib/netstandard2.0/K4os.Compression.LZ4.dll 76,288 bytes [NuGet package entry]\n  .NET assembly lib/netstandard2.1/K4os.Compression.LZ4.dll 72,704 bytes [NuGet package entry]\n[End: 5 files]\n"
+  ],
+  "structuredContent": {
+    "source": "<fixtures>/samples/lz4.nupkg",
+    "container": "NuGet package",
+    "outputDirectory": "<fixtures>/samples/unpack",
+    "items": [
+      {
+        "path": "lib/net462/K4os.Compression.LZ4.dll",
+        "kind": ".NET assembly",
+        "size": 75264,
+        "sha256": "<id>",
+        "origin": "NuGet package entry",
+        "readyToRun": false
+      },
+      {
+        "path": "lib/net5.0/K4os.Compression.LZ4.dll",
+        "kind": ".NET assembly",
+        "size": 71168,
+        "sha256": "<id>",
+        "origin": "NuGet package entry",
+        "readyToRun": false
+      },
+      {
+        "path": "lib/net6.0/K4os.Compression.LZ4.dll",
+        "kind": ".NET assembly",
+        "size": 70656,
+        "sha256": "<id>",
+        "origin": "NuGet package entry",
+        "readyToRun": false
+      },
+      {
+        "path": "lib/netstandard2.0/K4os.Compression.LZ4.dll",
+        "kind": ".NET assembly",
+        "size": 76288,
+        "sha256": "<id>",
+        "origin": "NuGet package entry",
+        "readyToRun": false
+      },
+      {
+        "path": "lib/netstandard2.1/K4os.Compression.LZ4.dll",
+        "kind": ".NET assembly",
+        "size": 72704,
+        "sha256": "<id>",
+        "origin": "NuGet package entry",
+        "readyToRun": false
+      }
+    ],
+    "offset": 0,
+    "total": 5,
+    "limit": 5,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

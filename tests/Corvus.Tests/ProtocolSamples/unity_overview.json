@@ -1,0 +1,116 @@
+{
+  "tool": "unity_overview",
+  "arguments": {
+    "path": "samples/MonoGame"
+  },
+  "isError": false,
+  "content": [
+    "Mono Game by Studio: Unity 2022.3.62f1 (single_source), windows x64 (from <fixtures>/samples/MonoGame/Game.exe)\nGame: <fixtures>/samples/MonoGame\nData: <fixtures>/samples/MonoGame/Game_Data\nExecutable: <fixtures>/samples/MonoGame/Game.exe\n  version 2022.3.62f1 from serialized_file: <fixtures>/samples/MonoGame/Game_Data/globalgamemanagers\nBackend: mono, 2 assemblies (readable) in <fixtures>/samples/MonoGame/Game_Data/Managed, mono-2.0-bdwgc (MonoBleedingEdge, .NET 4.x profile), 0% unreadable names of 56\n  evidence: Managed folder: 2 DLL(s) including Assembly-CSharp / UnityEngine\n  evidence: Mono runtime: <fixtures>/samples/MonoGame/MonoBleedingEdge/EmbedRuntime/mono-2.0-bdwgc.dll\nMarkers:\n  anti_cheat Easy Anti-Cheat: <fixtures>/samples/MonoGame/EasyAntiCheat (layout)\n  build Burst: <fixtures>/samples/MonoGame/Game_Data/Plugins/x86_64/lib_burst_generated.dll (layout)\n  build Addressables: assembly Unity.Addressables (layout)\nFolders:\n  managed <fixtures>/samples/MonoGame/Game_Data/Managed (2 entries)\n  streaming_assets <fixtures>/samples/MonoGame/Game_Data/StreamingAssets (1 entries)\n  addressables <fixtures>/samples/MonoGame/Game_Data/StreamingAssets/aa (1 entries) catalog: catalog.json\n  plugins <fixtures>/samples/MonoGame/Game_Data/Plugins (1 entries)\n  mono_runtime <fixtures>/samples/MonoGame/MonoBleedingEdge (1 entries)\nNext:\n  load_assembly path=<fixtures>/samples/MonoGame/Game_Data/Managed: Mono build: the game's C# is IL in the Managed folder; loading it decompiles directly.\n  list_namespaces assembly=Assembly-CSharp: The game's own code is in Assembly-CSharp (and Assembly-CSharp-firstpass).\n"
+  ],
+  "structuredContent": {
+    "input": "samples/MonoGame",
+    "gameDirectory": "<fixtures>/samples/MonoGame",
+    "dataDirectory": "<fixtures>/samples/MonoGame/Game_Data",
+    "executable": "<fixtures>/samples/MonoGame/Game.exe",
+    "company": "Studio",
+    "product": "Mono Game",
+    "platform": "windows",
+    "architecture": "x64",
+    "architectureSource": "<fixtures>/samples/MonoGame/Game.exe",
+    "engine": {
+      "version": "2022.3.62f1",
+      "normalized": "2022.3.62f1",
+      "agreement": "single_source",
+      "claims": [
+        {
+          "source": "serialized_file",
+          "file": "<fixtures>/samples/MonoGame/Game_Data/globalgamemanagers",
+          "version": "2022.3.62f1",
+          "normalized": "2022.3.62f1"
+        }
+      ],
+      "metadataCheck": "not_checked"
+    },
+    "backend": {
+      "kind": "mono",
+      "evidence": [
+        "Managed folder: 2 DLL(s) including Assembly-CSharp / UnityEngine",
+        "Mono runtime: <fixtures>/samples/MonoGame/MonoBleedingEdge/EmbedRuntime/mono-2.0-bdwgc.dll"
+      ],
+      "managedDirectory": "<fixtures>/samples/MonoGame/Game_Data/Managed",
+      "managedAssemblies": 2,
+      "managedState": "readable",
+      "monoRuntime": "mono-2.0-bdwgc (MonoBleedingEdge, .NET 4.x profile)",
+      "metadataState": "not_applicable",
+      "unreadableNameRatio": 0,
+      "namesRead": 56
+    },
+    "markers": [
+      {
+        "category": "anti_cheat",
+        "name": "Easy Anti-Cheat",
+        "evidence": "<fixtures>/samples/MonoGame/EasyAntiCheat",
+        "source": "layout"
+      },
+      {
+        "category": "build",
+        "name": "Burst",
+        "evidence": "<fixtures>/samples/MonoGame/Game_Data/Plugins/x86_64/lib_burst_generated.dll",
+        "source": "layout"
+      },
+      {
+        "category": "build",
+        "name": "Addressables",
+        "evidence": "assembly Unity.Addressables",
+        "source": "layout"
+      }
+    ],
+    "folders": [
+      {
+        "kind": "managed",
+        "path": "<fixtures>/samples/MonoGame/Game_Data/Managed",
+        "entries": 2
+      },
+      {
+        "kind": "streaming_assets",
+        "path": "<fixtures>/samples/MonoGame/Game_Data/StreamingAssets",
+        "entries": 1
+      },
+      {
+        "kind": "addressables",
+        "path": "<fixtures>/samples/MonoGame/Game_Data/StreamingAssets/aa",
+        "entries": 1,
+        "note": "catalog: catalog.json"
+      },
+      {
+        "kind": "plugins",
+        "path": "<fixtures>/samples/MonoGame/Game_Data/Plugins",
+        "entries": 1
+      },
+      {
+        "kind": "mono_runtime",
+        "path": "<fixtures>/samples/MonoGame/MonoBleedingEdge",
+        "entries": 1
+      }
+    ],
+    "nextSteps": [
+      {
+        "action": "load_assembly",
+        "tool": "load_assembly",
+        "arguments": {
+          "path": "<fixtures>/samples/MonoGame/Game_Data/Managed"
+        },
+        "reason": "Mono build: the game's C# is IL in the Managed folder; loading it decompiles directly."
+      },
+      {
+        "action": "list_namespaces",
+        "tool": "list_namespaces",
+        "arguments": {
+          "assembly": "Assembly-CSharp"
+        },
+        "reason": "The game's own code is in Assembly-CSharp (and Assembly-CSharp-firstpass)."
+      }
+    ],
+    "notes": []
+  }
+}

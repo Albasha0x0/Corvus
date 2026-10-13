@@ -3,7 +3,7 @@
   "arguments": {},
   "isError": false,
   "content": [
-    "Search directories: <fixtures>\nBackground indexing: idle\n3 images (showing 1-3):\n  TestFixture  1.0.0.0, 24 types, Il2Cpp dummy  <fixtures>/TestFixture.dll\n  sample-build-a.dll  native AMD64 exe, 4,098 bytes  <fixtures>/sample-build-a.dll\n  sample-build-b.dll  native AMD64 exe, 4,099 bytes  <fixtures>/sample-build-b.dll\n[End: 3 images]\n"
+    "Search directories: <fixtures>; <fixtures>/samples\nBackground indexing: idle\n7 images (showing 1-7):\n  TestFixture  1.0.0.0, 24 types, Il2Cpp dummy  <fixtures>/TestFixture.dll\n  edit.dll  native AMD64 exe, 4,112 bytes  <fixtures>/samples/edit.dll\n  sample-build-a.dll  native AMD64 exe, 4,098 bytes  <fixtures>/sample-build-a.dll\n  il2cpp.dll  native AMD64 exe, 4,112 bytes  <fixtures>/samples/il2cpp.dll\n  sample-build-b.dll  native AMD64 exe, 4,099 bytes  <fixtures>/sample-build-b.dll\n  typed.dll  native AMD64 exe, 3,088 bytes  <fixtures>/samples/typed.dll\n  aot.dll  native AMD64 exe, 3,072 bytes  <fixtures>/samples/aot.dll\n[End: 7 images]\n"
   ],
   "structuredContent": {
     "items": [
@@ -18,11 +18,29 @@
       },
       {
         "kind": "native",
+        "id": "edit.dll",
+        "path": "<fixtures>/samples/edit.dll",
+        "machine": "AMD64",
+        "fileKind": "exe",
+        "size": 4112,
+        "sha256": "<id>"
+      },
+      {
+        "kind": "native",
         "id": "sample-build-a.dll",
         "path": "<fixtures>/sample-build-a.dll",
         "machine": "AMD64",
         "fileKind": "exe",
         "size": 4098,
+        "sha256": "<id>"
+      },
+      {
+        "kind": "native",
+        "id": "il2cpp.dll",
+        "path": "<fixtures>/samples/il2cpp.dll",
+        "machine": "AMD64",
+        "fileKind": "exe",
+        "size": 4112,
         "sha256": "<id>"
       },
       {
@@ -33,12 +51,31 @@
         "fileKind": "exe",
         "size": 4099,
         "sha256": "<id>"
+      },
+      {
+        "kind": "native",
+        "id": "typed.dll",
+        "path": "<fixtures>/samples/typed.dll",
+        "machine": "AMD64",
+        "fileKind": "exe",
+        "size": 3088,
+        "sha256": "<id>"
+      },
+      {
+        "kind": "native",
+        "id": "aot.dll",
+        "path": "<fixtures>/samples/aot.dll",
+        "machine": "AMD64",
+        "fileKind": "exe",
+        "size": 3072,
+        "sha256": "<id>"
       }
     ],
     "offset": 0,
-    "total": 3,
+    "total": 7,
     "searchDirectories": [
-      "<fixtures>"
+      "<fixtures>",
+      "<fixtures>/samples"
     ],
     "backgroundIndexing": "idle",
     "limit": 100,

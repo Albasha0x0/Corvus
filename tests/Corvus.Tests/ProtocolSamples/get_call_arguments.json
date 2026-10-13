@@ -1,0 +1,22 @@
+{
+  "tool": "get_call_arguments",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First"
+  },
+  "isError": false,
+  "content": [
+    "sample-build-a.dll: calls in First at 0x140001000\n0 call sites:\n[End: 0 call sites]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "scope": "calls in First at 0x140001000",
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "notes": [],
+    "limit": 50,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

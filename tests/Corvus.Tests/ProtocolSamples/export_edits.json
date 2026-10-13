@@ -1,0 +1,18 @@
+{
+  "tool": "export_edits",
+  "arguments": {
+    "assembly": "samples/v1.dll",
+    "outputPath": "samples/edits.json"
+  },
+  "isError": false,
+  "content": [
+    "Exported 1 edit(s) of Sample.Meter to <fixtures>/samples/edits.json.\nBound to the build: sha256 <id>, MVID <id>, Sample.Meter, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null. apply_edits refuses other builds unless targetBuild=other."
+  ],
+  "structuredContent": {
+    "outputPath": "<fixtures>/samples/edits.json",
+    "edits": 1,
+    "sha256": "<id>",
+    "mvid": "<id>",
+    "identity": "Sample.Meter, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "tool": "list_notes",
+  "arguments": {
+    "anchor": "edit.dll",
+    "status": "all"
+  },
+  "isError": false,
+  "content": [
+    "1 note (showing 1-1):\n  <note> r1  question/open  edit.dll  checks the license\n[End: 1 note]\n"
+  ],
+  "structuredContent": {
+    "items": [
+      {
+        "id": "<note>",
+        "kind": "question",
+        "status": "open",
+        "text": "checks the license",
+        "tags": [],
+        "evidence": [],
+        "anchor": {
+          "kind": "file",
+          "sha256": "<id>",
+          "label": "edit.dll"
+        },
+        "revision": 1,
+        "created": "<time>",
+        "updated": "<time>",
+        "author": "testhost"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "notes": [],
+    "limit": 50,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

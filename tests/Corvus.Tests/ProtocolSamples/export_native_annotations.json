@@ -1,0 +1,23 @@
+{
+  "tool": "export_native_annotations",
+  "arguments": {
+    "image": "samples/edit.dll",
+    "outputPath": "samples/annotations.py",
+    "format": "ida"
+  },
+  "isError": false,
+  "content": [
+    "Exported 0 name(s), 1 comment(s), 0 pseudocode comment(s) and 0 user type(s) to <fixtures>/samples/annotations.py (ida format)."
+  ],
+  "structuredContent": {
+    "outputPath": "<fixtures>/samples/annotations.py",
+    "format": "ida",
+    "names": 0,
+    "comments": 1,
+    "pseudoComments": 0,
+    "types": 0,
+    "imported": 0,
+    "bytes": 450,
+    "sha256": "<id>"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "tool": "convert_number",
+  "arguments": {
+    "numbers": [
+      "0x41424344",
+      "-1"
+    ]
+  },
+  "isError": false,
+  "content": [
+    "0x41424344 (4 bytes)\n  unsigned  1094861636\n  signed    1094861636\n  hex       0x41424344\n  binary    0100 0001 0100 0010 0100 0011 0100 0100\n  octal     0o10120441504\n  bytes LE  44 43 42 41\n  bytes BE  41 42 43 44\n  ascii     LE \"DCBA\", BE \"ABCD\"\n  float     12.141422\n-1 (1 byte)\n  unsigned  255\n  signed    -1\n  hex       0xFF\n  binary    1111 1111\n  octal     0o377\n  bytes LE  FF\n  bytes BE  FF\n"
+  ],
+  "structuredContent": {
+    "items": [
+      {
+        "input": "0x41424344",
+        "size": 4,
+        "unsigned": "1094861636",
+        "signed": "1094861636",
+        "hex": "0x41424344",
+        "binary": "0100 0001 0100 0010 0100 0011 0100 0100",
+        "octal": "0o10120441504",
+        "bytesLe": "44 43 42 41",
+        "bytesBe": "41 42 43 44",
+        "asciiLe": "\"DCBA\"",
+        "asciiBe": "\"ABCD\"",
+        "float": "12.141422"
+      },
+      {
+        "input": "-1",
+        "size": 1,
+        "unsigned": "255",
+        "signed": "-1",
+        "hex": "0xFF",
+        "binary": "1111 1111",
+        "octal": "0o377",
+        "bytesLe": "FF",
+        "bytesBe": "FF"
+      }
+    ]
+  }
+}

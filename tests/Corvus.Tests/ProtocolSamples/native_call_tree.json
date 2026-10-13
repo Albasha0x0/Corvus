@@ -1,0 +1,31 @@
+{
+  "tool": "native_call_tree",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "function": "First"
+  },
+  "isError": false,
+  "content": [
+    "Engine: ours (server default auto: no engine has analyzed these bytes)\n1 node (showing 1-1):\n  First  0x140001000\n[End: 1 node]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "root": "First",
+    "direction": "callees",
+    "items": [
+      {
+        "id": 0,
+        "depth": 0,
+        "name": "First",
+        "address": "0x140001000"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "engine": "ours",
+    "engineNote": "server default auto: no engine has analyzed these bytes",
+    "limit": 200,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

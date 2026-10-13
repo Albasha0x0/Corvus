@@ -1,0 +1,19 @@
+{
+  "tool": "read_bytes",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First",
+    "length": 32
+  },
+  "isError": false,
+  "content": [
+    "rva 0x1000, va 0x140001000, file 0x400, 32 bytes\n140001000  C3 CC CC CC 00 00 00 00 00 00 00 00 00 00 00 00  ................\n140001010  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................\n[End: 32 bytes]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "address": "0x140001000",
+    "length": 32,
+    "code": "140001000  C3 CC CC CC 00 00 00 00 00 00 00 00 00 00 00 00  ................\n140001010  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................\n",
+    "totalBytes": 32
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "tool": "disassemble_dex",
+  "arguments": {
+    "path": "samples/app.apk",
+    "symbol": "Lcom/example/app/Main;->compute(I)I"
+  },
+  "isError": false,
+  "content": [
+    "# Lcom/example/app/Main;->compute(I)I in classes.dex\n.method public compute(I)I\n    .registers 3\n\n    sget v0, Lcom/example/app/Main;->COUNT:I\n\n    add-int/lit8 v0, p1, 0x2a\n\n    if-eqz v0, :cond_8\n\n    iget-object v0, p0, Lcom/example/app/Main;->name:Ljava/lang/String;\n\n    :cond_8\n    return p1\n.end method\n"
+  ],
+  "structuredContent": {
+    "offset": 0,
+    "totalChars": 310,
+    "code": "# Lcom/example/app/Main;->compute(I)I in classes.dex\n.method public compute(I)I\n    .registers 3\n\n    sget v0, Lcom/example/app/Main;->COUNT:I\n\n    add-int/lit8 v0, p1, 0x2a\n\n    if-eqz v0, :cond_8\n\n    iget-object v0, p0, Lcom/example/app/Main;->name:Ljava/lang/String;\n\n    :cond_8\n    return p1\n.end method\n"
+  }
+}

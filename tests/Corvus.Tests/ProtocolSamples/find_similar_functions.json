@@ -1,0 +1,28 @@
+{
+  "tool": "find_similar_functions",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First",
+    "minScore": 0,
+    "limit": 3
+  },
+  "isError": false,
+  "content": [
+    "Functions like First at 0x140001000 [sample-build-a.dll], 0 functions compared\n0 similar functions:\n[End: 0 similar functions]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "view": "similar",
+    "function": "First",
+    "address": "0x140001000",
+    "compared": 0,
+    "offset": 0,
+    "total": 0,
+    "matches": [],
+    "groups": [],
+    "notes": [],
+    "limit": 3,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

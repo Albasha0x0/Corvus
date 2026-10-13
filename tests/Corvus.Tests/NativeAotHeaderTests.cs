@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 
 public class NativeAotHeaderTests
 {
-    private static NativeAotBuilder Sample(ushort major = 16)
+    internal static NativeAotBuilder Sample(ushort major = 16)
     {
         var b = new NativeAotBuilder { Major = major };
         b.Blob(BlobId.EmbeddedMetadata, [0xFD, 0xDF, 0xAD, 0xDE, 0]);

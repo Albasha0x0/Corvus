@@ -1,0 +1,28 @@
+{
+  "tool": "patch_bytes",
+  "arguments": {
+    "image": "samples/edit.dll",
+    "address": "First",
+    "hex": "90",
+    "dryRun": false
+  },
+  "isError": false,
+  "content": [
+    "Patched 1 byte(s) at 0x140001000:\nBefore:\n  140001000  C3                       ret\nAfter:\n  140001000  90                       nop\nRecorded as edit.dll#2. undo_native_edit reverts it; save_native writes the file.\n"
+  ],
+  "structuredContent": {
+    "applied": true,
+    "dryRun": false,
+    "changes": [
+      {
+        "kind": "bytes",
+        "target": "0x140001000",
+        "before": "C3",
+        "after": "90"
+      }
+    ],
+    "editIds": [
+      "edit.dll#2"
+    ]
+  }
+}

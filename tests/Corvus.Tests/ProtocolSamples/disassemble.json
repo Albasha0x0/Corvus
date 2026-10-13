@@ -1,0 +1,20 @@
+{
+  "tool": "disassemble",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "address": "First"
+  },
+  "isError": false,
+  "content": [
+    "; Engine: ours (server default auto: no engine has analyzed these bytes)\n; First at 0x140001000, 1 bytes, 1 block\nFirst:\n  140001000  C3                       ret\n"
+  ],
+  "structuredContent": {
+    "code": "; First at 0x140001000, 1 bytes, 1 block\nFirst:\n  140001000  C3                       ret\n",
+    "offset": 0,
+    "totalChars": 90,
+    "image": "sample-build-a.dll",
+    "function": "First",
+    "address": "0x140001000",
+    "engine": "ours"
+  }
+}

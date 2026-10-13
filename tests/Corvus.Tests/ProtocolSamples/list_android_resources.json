@@ -1,0 +1,51 @@
+{
+  "tool": "list_android_resources",
+  "arguments": {
+    "path": "samples/app.apk",
+    "type": "string"
+  },
+  "isError": false,
+  "content": [
+    "Types: array 1, bool 2, layout 1, string 3, xml 1\n3 resources (showing 1-3):\n  0x7f010000 @string/app_name  string: Example\n  0x7f010000 @string/app_name [pt-rBR]  string: Exemplo\n  0x7f010001 @string/host  string: api.example.com\n[End: 3 resources]\n"
+  ],
+  "structuredContent": {
+    "items": [
+      {
+        "id": "0x7f010000",
+        "type": "string",
+        "name": "app_name",
+        "config": "",
+        "valueType": "string",
+        "value": "Example"
+      },
+      {
+        "id": "0x7f010000",
+        "type": "string",
+        "name": "app_name",
+        "config": "pt-rBR",
+        "valueType": "string",
+        "value": "Exemplo"
+      },
+      {
+        "id": "0x7f010001",
+        "type": "string",
+        "name": "host",
+        "config": "",
+        "valueType": "string",
+        "value": "api.example.com"
+      }
+    ],
+    "offset": 0,
+    "total": 3,
+    "types": {
+      "array": 1,
+      "bool": 2,
+      "layout": 1,
+      "string": 3,
+      "xml": 1
+    },
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

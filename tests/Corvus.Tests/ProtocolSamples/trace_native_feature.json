@@ -1,0 +1,57 @@
+{
+  "tool": "trace_native_feature",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "query": "First"
+  },
+  "isError": false,
+  "content": [
+    "Engine: ours (server default auto: no engine has analyzed these bytes)\nFeature trace of \"First\" in sample-build-a.dll: 2 matches, 1 seed followed, 1 function, 0 hubs\n\nSeeds:\n  [0] name    0x140001000  First  (1 reference)\n\nFunctions (ranked; 1-1 of 1):\n  0x140001000  First  score 5, seeds 0  [entry or export]\n      0x140001000  named: named First\nNote: 2 matches; the first 1 were followed (maxSeeds)\n\nNext:\n  analyze_native_function image=sample-build-a.dll address=0x140001000\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "query": "First",
+    "seeds": [
+      {
+        "id": 0,
+        "kind": "name",
+        "address": "0x140001000",
+        "text": "First",
+        "references": 1
+      }
+    ],
+    "totalSeeds": 2,
+    "functions": [
+      {
+        "address": "0x140001000",
+        "name": "First",
+        "score": 5,
+        "seeds": [
+          0
+        ],
+        "evidence": [
+          {
+            "site": "0x140001000",
+            "kind": "named",
+            "detail": "named First",
+            "seed": 0
+          }
+        ],
+        "evidenceTotal": 1,
+        "flags": [
+          "entry or export"
+        ]
+      }
+    ],
+    "totalFunctions": 1,
+    "offset": 0,
+    "truncated": false,
+    "hubs": [],
+    "notes": [
+      "2 matches; the first 1 were followed (maxSeeds)"
+    ],
+    "totalChars": 410,
+    "engine": "ours",
+    "engineNote": "server default auto: no engine has analyzed these bytes"
+  }
+}

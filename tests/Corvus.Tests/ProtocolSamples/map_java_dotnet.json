@@ -1,0 +1,30 @@
+{
+  "tool": "map_java_dotnet",
+  "arguments": {
+    "symbol": "Lcrc649e6e32e78efd8fae/LinkActivity;",
+    "path": "samples/xamarin.apk"
+  },
+  "isError": false,
+  "content": [
+    "Lcrc649e6e32e78efd8fae/LinkActivity; (java to dotnet)\n1 pair (showing 1-1):\n  Lcrc649e6e32e78efd8fae/LinkActivity;  <->  MyApp.LinkActivity  [crc64_package; assemblies/MyApp.dll, not loaded]\n[End: 1 pair]\n"
+  ],
+  "structuredContent": {
+    "query": "Lcrc649e6e32e78efd8fae/LinkActivity;",
+    "direction": "java_to_dotnet",
+    "items": [
+      {
+        "java": "Lcrc649e6e32e78efd8fae/LinkActivity;",
+        "dotNet": "MyApp.LinkActivity",
+        "assembly": "assemblies/MyApp.dll",
+        "loaded": false,
+        "basis": "crc64_package"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "notes": [],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

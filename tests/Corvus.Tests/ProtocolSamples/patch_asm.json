@@ -1,0 +1,25 @@
+{
+  "tool": "patch_asm",
+  "arguments": {
+    "image": "samples/edit.dll",
+    "address": "First",
+    "assembly": "nop"
+  },
+  "isError": false,
+  "content": [
+    "Dry run: would patch 1 byte(s) at 0x140001000:\nBefore:\n  140001000  C3                       ret\nAfter:\n  140001000  90                       nop\nNothing recorded; dryRun=false applies it.\n"
+  ],
+  "structuredContent": {
+    "applied": false,
+    "dryRun": true,
+    "changes": [
+      {
+        "kind": "bytes",
+        "target": "0x140001000",
+        "before": "C3",
+        "after": "90"
+      }
+    ],
+    "editIds": []
+  }
+}

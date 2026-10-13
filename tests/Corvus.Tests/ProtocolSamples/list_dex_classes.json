@@ -1,0 +1,41 @@
+{
+  "tool": "list_dex_classes",
+  "arguments": {
+    "path": "samples/app.apk",
+    "query": "Main"
+  },
+  "isError": false,
+  "content": [
+    "2 classes (showing 1-2):\n  Lcom/example/app/Main$Inner;  [final; classes.dex; Main.java]\n  Lcom/example/app/Main;  [public; extends Landroid/app/Activity;; 8 methods, 2 fields; classes.dex; Main.java]\n[End: 2 classes]\n"
+  ],
+  "structuredContent": {
+    "items": [
+      {
+        "descriptor": "Lcom/example/app/Main$Inner;",
+        "dexFile": "classes.dex",
+        "access": "final",
+        "super": "Ljava/lang/Object;",
+        "interfaces": [],
+        "methods": 0,
+        "fields": 0,
+        "sourceFile": "Main.java"
+      },
+      {
+        "descriptor": "Lcom/example/app/Main;",
+        "dexFile": "classes.dex",
+        "access": "public",
+        "super": "Landroid/app/Activity;",
+        "interfaces": [],
+        "methods": 8,
+        "fields": 2,
+        "sourceFile": "Main.java"
+      }
+    ],
+    "offset": 0,
+    "total": 2,
+    "notes": [],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

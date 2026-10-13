@@ -1,0 +1,11 @@
+{
+  "tool": "unload_assembly",
+  "arguments": {
+    "assembly": "loaded.dll"
+  },
+  "isError": false,
+  "content": [
+    "Unloaded loaded.dll."
+  ],
+  "structuredContent": null
+}

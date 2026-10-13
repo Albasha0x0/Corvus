@@ -1,0 +1,24 @@
+{
+  "tool": "undo_native_edit",
+  "arguments": {
+    "image": "samples/edit.dll"
+  },
+  "isError": false,
+  "content": [
+    "Undid edit.dll#3 (rename_native rva 0x1000): name at 0x140001000 back to (none).\n2 native edit(s) remain."
+  ],
+  "structuredContent": {
+    "applied": true,
+    "dryRun": false,
+    "changes": [
+      {
+        "kind": "name",
+        "target": "0x140001000",
+        "before": "SampleEntry"
+      }
+    ],
+    "editIds": [
+      "edit.dll#3"
+    ]
+  }
+}

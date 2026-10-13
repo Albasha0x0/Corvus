@@ -1,0 +1,29 @@
+{
+  "tool": "find_virtual_calls",
+  "arguments": {
+    "image": "sample-build-a.dll"
+  },
+  "isError": false,
+  "content": [
+    "sample-build-a.dll: 0 virtual call sites (0 exact, 0 possible, 0 unresolved); 0 virtual edges beside 0 direct call edges; 0 RTTI classes with vftables\nNo site matches.\nNote: no RTTI classes with vftables: virtual calls are not resolved\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "sites": 0,
+    "exact": 0,
+    "possible": 0,
+    "unresolved": 0,
+    "edges": 0,
+    "directEdges": 0,
+    "rttiClasses": 0,
+    "total": 0,
+    "offset": 0,
+    "items": [],
+    "notes": [
+      "no RTTI classes with vftables: virtual calls are not resolved"
+    ],
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "tool": "search_bytes",
+  "arguments": {
+    "image": "sample-build-a.dll",
+    "pattern": "ExitProcess",
+    "text": true
+  },
+  "isError": false,
+  "content": [
+    "1 hit (showing 1-1):\n  0x140002038  .rdata  ASCII  file 0x638\n[End: 1 hit]\n"
+  ],
+  "structuredContent": {
+    "image": "sample-build-a.dll",
+    "items": [
+      {
+        "address": "0x140002038",
+        "section": ".rdata",
+        "encoding": "ASCII",
+        "fileOffset": "0x638"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "limit": 200,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

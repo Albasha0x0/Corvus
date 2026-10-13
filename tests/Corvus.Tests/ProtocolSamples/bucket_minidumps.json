@@ -1,0 +1,46 @@
+{
+  "tool": "bucket_minidumps",
+  "arguments": {
+    "folder": "samples/dumps"
+  },
+  "isError": false,
+  "content": [
+    "<fixtures>/samples/dumps: 1 dump (1 parsed, 0 cached, 0 failed)\n1 bucket (showing 1-1):\n  1 x 0xC0000005 | synth!Crash | synth!Outer > synth!Big  [exception] 2023-09-12 06:06:56Z .. 2023-09-12 06:06:56Z; representative synth.dmp; versions 1.2.3.4 x1\n[End: 1 bucket]\n"
+  ],
+  "structuredContent": {
+    "folder": "<fixtures>/samples/dumps",
+    "dumps": {
+      "seen": 1,
+      "parsed": 1,
+      "cached": 0,
+      "failed": 0,
+      "limitReached": false
+    },
+    "items": [
+      {
+        "signature": "0xC0000005 | synth!Crash | synth!Outer > synth!Big",
+        "kind": "exception",
+        "count": 1,
+        "firstTime": "2023-09-12 06:06:56Z",
+        "lastTime": "2023-09-12 06:06:56Z",
+        "moduleVersions": {
+          "1.2.3.4": 1
+        },
+        "offsets": {
+          "+0x5": 1
+        },
+        "sample": [
+          "synth.dmp"
+        ],
+        "representative": "synth.dmp"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "failed": [],
+    "notes": [],
+    "limit": 50,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

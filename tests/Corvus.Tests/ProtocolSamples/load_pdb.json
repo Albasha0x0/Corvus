@@ -1,0 +1,25 @@
+{
+  "tool": "load_pdb",
+  "arguments": {
+    "image": "samples/tiny.dll"
+  },
+  "isError": false,
+  "content": [
+    "tiny.dll: <fixtures>/samples/tiny.pdb\n  GUID <id>, age 3 (info stream age 3): matches the image\n  read in 0.0 s: 5,120 bytes, 1 module, 5 symbols (2 public, 2 procedures, 1 data)\n  3 addresses named (2 functions); 3 applied as 'pdb' names\n  saved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them)\n",
+    "[workspace] loaded tiny.dll from <fixtures>/samples/tiny.dll"
+  ],
+  "structuredContent": {
+    "applied": true,
+    "dryRun": false,
+    "changes": [
+      {
+        "kind": "names",
+        "target": "tiny.dll: 3 pdb names from tiny.pdb"
+      }
+    ],
+    "editIds": [],
+    "notices": [
+      "loaded tiny.dll from <fixtures>/samples/tiny.dll"
+    ]
+  }
+}

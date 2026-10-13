@@ -1,0 +1,125 @@
+{
+  "tool": "get_nativeaot_info",
+  "arguments": {
+    "image": "samples/aot.dll"
+  },
+  "isError": false,
+  "content": [
+    "aot.dll: NativeAOT, .NET 10, ReadyToRun 16.0; module header at 0x140002010\nStages:\n  header: complete (ReadyToRun 16.0)\n  metadata: complete (0 scope(s), 0 type definitions, 5 bytes (Net10 dialect))\n  rehydration: absent (not dehydrated: MethodTables are in the file, pointers from base relocations)\n  stack-trace map: complete (0 methods named (0 hidden from stack traces))\n  type map: absent (no TypeMap blob)\n  invoke map: absent (no InvokeMap blob)\n  method tables: complete (0 found (); seeds: 0 type map, 0 fixups, 0 System.Object)\n  frozen objects: complete (0 objects, 0 strings, 64 bytes)\n  statics: absent (no statics found)\n  dispatch cells: absent (no interface dispatch cells found)\nCounts: namedMethods 0, namedCodeAddresses 0, typeMapMethodTables 0, methodTables 0, namedMethodTables 0, frozenObjects 0, frozenStrings 0, statics 0, staticsWithType 0, dispatchCells 0\n  nativeaot name layer: applied when the code index is built (any code tool builds it)\n",
+    "[workspace] loaded aot.dll from <fixtures>/samples/aot.dll"
+  ],
+  "structuredContent": {
+    "image": "aot.dll",
+    "view": "summary",
+    "summary": {
+      "runtime": ".NET 10",
+      "readyToRunVersion": "16.0",
+      "dehydrated": false,
+      "headerRva": 8208,
+      "modules": 1,
+      "sections": [
+        {
+          "id": 313,
+          "name": "EmbeddedMetadata",
+          "rva": 8192,
+          "size": 5
+        },
+        {
+          "id": 327,
+          "name": "StackTraceMethodRvaToTokenMapping",
+          "rva": 8200,
+          "size": 8
+        },
+        {
+          "id": 206,
+          "name": "FrozenObjectRegion",
+          "rva": 65536,
+          "size": 64
+        },
+        {
+          "id": 204,
+          "name": "TypeManagerIndirection",
+          "rva": 65600,
+          "size": 0
+        }
+      ],
+      "stages": [
+        {
+          "name": "header",
+          "status": "complete",
+          "detail": "ReadyToRun 16.0"
+        },
+        {
+          "name": "metadata",
+          "status": "complete",
+          "detail": "0 scope(s), 0 type definitions, 5 bytes (Net10 dialect)"
+        },
+        {
+          "name": "rehydration",
+          "status": "absent",
+          "detail": "not dehydrated: MethodTables are in the file, pointers from base relocations"
+        },
+        {
+          "name": "stack-trace map",
+          "status": "complete",
+          "detail": "0 methods named (0 hidden from stack traces)"
+        },
+        {
+          "name": "type map",
+          "status": "absent",
+          "detail": "no TypeMap blob"
+        },
+        {
+          "name": "invoke map",
+          "status": "absent",
+          "detail": "no InvokeMap blob"
+        },
+        {
+          "name": "method tables",
+          "status": "complete",
+          "detail": "0 found (); seeds: 0 type map, 0 fixups, 0 System.Object"
+        },
+        {
+          "name": "frozen objects",
+          "status": "complete",
+          "detail": "0 objects, 0 strings, 64 bytes"
+        },
+        {
+          "name": "statics",
+          "status": "absent",
+          "detail": "no statics found"
+        },
+        {
+          "name": "dispatch cells",
+          "status": "absent",
+          "detail": "no interface dispatch cells found"
+        }
+      ],
+      "counts": {
+        "namedMethods": 0,
+        "namedCodeAddresses": 0,
+        "typeMapMethodTables": 0,
+        "methodTables": 0,
+        "namedMethodTables": 0,
+        "frozenObjects": 0,
+        "frozenStrings": 0,
+        "statics": 0,
+        "staticsWithType": 0,
+        "dispatchCells": 0
+      }
+    },
+    "coverage": {
+      "functionStarts": 0,
+      "functionStartsNamed": 0
+    },
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "limit": 75,
+    "totalExact": true,
+    "hasMore": false,
+    "notices": [
+      "loaded aot.dll from <fixtures>/samples/aot.dll"
+    ]
+  }
+}

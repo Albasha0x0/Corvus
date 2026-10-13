@@ -1,0 +1,11 @@
+{
+  "tool": "reload_assembly",
+  "arguments": {
+    "assembly": "loaded.dll"
+  },
+  "isError": false,
+  "content": [
+    "Reloaded loaded.dll from <fixtures>/samples/loaded.dll (sha256 bde7d94c07e13285)."
+  ],
+  "structuredContent": null
+}
