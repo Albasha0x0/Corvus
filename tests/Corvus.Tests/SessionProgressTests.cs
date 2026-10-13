@@ -31,9 +31,10 @@ public sealed class SessionProgressTests : IDisposable
         var result = await server.Client.CallToolAsync("load_session", new Dictionary<string, object?> { ["path"] = session }, new Progress());
         Assert.NotEqual(true, result.IsError);
         for (int i = 0; i < 250 && !updates.Any(u => u.Value.Progress.Progress == u.Value.Progress.Total); i++) await Task.Delay(20);
-        Assert.True(updates.TryPeek(out var first), "no progress");
+        // Handlers may run concurrently, so arrival order is not send order: the first step is the lowest progress.
+        var first = updates.OrderBy(u => u.Value.Progress.Progress).ThenBy(u => u.Ms).FirstOrDefault();
+        Assert.Equal("Reading work.session.json", first.Value?.Progress.Message);
         Assert.InRange(first.Ms, 0, 5_000);
-        Assert.StartsWith("Reading work.session.json", first.Value.Progress.Message);
 
         var text = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text));
         Assert.StartsWith($"Session {session}, targetBuild=same: already_loaded 1\nNote: items on files", text);
