@@ -7,7 +7,7 @@
   },
   "isError": false,
   "content": [
-    "old:\n  path: <fixtures>/samples/folders-old\n  kind: folder\n  entries: 2\n  bytes: 18\n  complete: true\n  hashed: 2\n  reused: 0\n  entryReads: 0\nnew:\n  path: <fixtures>/samples/folders-new\n  kind: folder\n  entries: 2\n  bytes: 18\n  complete: true\n  hashed: 2\n  reused: 0\n  entryReads: 0\nhashBasis: sha256\ncaseSensitive: true\ncounts:\n  unchanged: 1\n  modified: 1\n  added: 0\n  removed: 0\n  moved: 0\n  movedAmbiguous: 0\n  renamed: 0\n  unreadable: 0\n  unverified: 0\n  unmatched: 0\n  links: 0\n  unchangedAtLeast: false\nview: changed\n1 rows (showing 1-1):\n  change    oldPath   newPath   kind  oldSize  newSize  diff\n  modified  app.json  app.json  text  13       13       --- old/app.json\\n+++ new/app.json\\n@@ -1,1 +1,1 @@\\n-{\"level\": 1}\\n+{\"level\": 2}\\n\n[End: 1 row]\n"
+    "old:\n  path: <fixtures>/samples/folders-old\n  kind: folder\n  entries: 2\n  bytes: 18\n  complete: true\n  hashed: 2\n  reused: 0\n  entryReads: 0\nnew:\n  path: <fixtures>/samples/folders-new\n  kind: folder\n  entries: 2\n  bytes: 18\n  complete: true\n  hashed: 2\n  reused: 0\n  entryReads: 0\nhashBasis: sha256\ncaseSensitive: true\ncounts:\n  unchanged: 1\n  modified: 1\n  added: 0\n  removed: 0\n  moved: 0\n  movedAmbiguous: 0\n  renamed: 0\n  unreadable: 0\n  unverified: 0\n  unmatched: 0\n  links: 0\n  unchangedAtLeast: false\nview: changed\n1 row (showing 1-1):\n  change    oldPath   newPath   kind  oldSize  newSize  diff\n  modified  app.json  app.json  text  13       13       --- old/app.json\\n+++ new/app.json\\n@@ -1,1 +1,1 @@\\n-{\"level\": 1}\\n+{\"level\": 2}\\n\n[End: 1 row]\n"
   ],
   "structuredContent": {
     "old": {

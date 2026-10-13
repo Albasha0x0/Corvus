@@ -464,6 +464,8 @@ public class ToolOutputTests
         var record = JsonNode.Parse("""{"image":"a.dll","items":[{"name":"x","size":1},{"name":"Error (oops)","size":22}],"offset":0,"total":2}""")!.AsObject();
         var text = RecordText.Render(record, (0, 2, 2, false, 2));
         Assert.Equal("image: a.dll\n2 rows (showing 1-2):\n  name                size\n  x                   1\n  \\u2063Error (oops)  22\n[End: 2 rows]\n", text);
+        var one = JsonNode.Parse("""{"items":[{"name":"x"}],"offset":0,"total":1}""")!.AsObject();
+        Assert.StartsWith("1 row (showing 1-1):", RecordText.Render(one, (0, 1, 1, false, 1)));
     }
 
     /// <summary>Fields past the column cap (dump_stack's token, ilOffset) stay in the text as one key=value cell.</summary>

@@ -31,7 +31,7 @@ internal static class RecordText
         if (list is { } l)
         {
             bool exact = !(l.Truncated && l.Offset + l.Count >= l.Total);
-            sb.Append($"{(exact ? "" : "≥")}{l.Total} rows")
+            sb.Append($"{(exact ? "" : "≥")}{l.Total} {OutputPager.Noun(l.Total, "row")}")
               .Append(l.Shown == 0 ? (l.Offset > 0 ? $" (none from offset {l.Offset})" : "") : $" (showing {l.Offset + 1}-{l.Offset + l.Shown})").Append(":\n");
             if (record[rows] is JsonArray items) Table(sb, items, 1);
             bool more = l.Offset + l.Shown < l.Total || !exact && l.Shown == l.Count && l.Shown > 0;
