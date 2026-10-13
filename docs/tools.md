@@ -1028,7 +1028,7 @@ Functions of a native image (x86 / x64 / ARM): address, size, name (user, PDB, I
 | `sort` | string |  |  | address (default), name, size (largest first) or callers (most called first). Values: address, name, size, callers. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `300` | Max rows. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `minSize` | integer |  |  | Smallest size in bytes. |
 | `maxSize` | integer |  |  | Largest size in bytes. |
 | `from` | string |  |  | Lowest start address. |
@@ -1052,7 +1052,7 @@ Named data items of a native image outside code, from every name source (PDB wit
 | `section` | string |  |  | Only this section, e.g. .data. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `300` | Max rows. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `items`, `offset`, `total`, `engine`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1070,7 +1070,7 @@ MASM-syntax disassembly of the native function containing an address (with block
 | `maxInstructions` | integer |  | `2000` | Max instructions. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 ### inspect_instruction
 
@@ -1108,7 +1108,7 @@ Find instructions by mnemonic, operand or whole-line regex (case-insensitive) an
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Max matches (max 2000). |
 | `maxInstructions` | integer |  | `500000` | Max instructions scanned (max 5000000). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 ### get_cfg
 
@@ -1122,7 +1122,7 @@ Basic blocks of the native function containing an address: range, instruction co
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `function`, `address`, `engine`, `blocks`, `switches`, `unresolvedJumps`, `tailCalls`, `truncated`, `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -1139,7 +1139,7 @@ What references a native address: calls (also via import slots and thunks), jump
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `500` | Max rows. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 targets. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Adds the RTTI virtual calls an engine lacks. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Adds the RTTI virtual calls an engine lacks. Values: auto, ours, ida, ghidra. |
 | `direction` | string |  |  | to (default), from or both. Values: to, from, both. |
 | `kind` | string |  |  | any (default); code: calls, jumps; data: reads, writes, pointers, address-taken. Values: any, code, data. |
 | `scope` | string |  |  | Struct member: typed (default) or all (every function; call again to continue). Values: typed, all. |
@@ -1162,7 +1162,7 @@ Callers or callees of a native function, several levels deep, through thunks and
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 | `calls` | string |  |  | Call edges to follow: all (default), direct (no virtual edges) or virtual (only virtual edges). Values: all, direct, virtual. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. An engine's edges get the RTTI virtual calls it lacks; other images use the built-in index. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. An engine's edges get the RTTI virtual calls it lacks; other images use the built-in index. Values: auto, ours, ida, ghidra. |
 
 ### find_virtual_calls
 
@@ -1196,7 +1196,7 @@ Strings (ASCII and UTF-16) a native image's code or data references, with addres
 | `regex` | boolean |  | `false` | Treat query as a regular expression. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `300` | Max rows (default 300). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1254,7 +1254,7 @@ Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with 
 | `scope` | string |  |  | Default: site at a call, else function; image (every indirect site) without address. Values: site, function, image. |
 | `status` | string |  |  | Default all; indirect: all but direct branches. Values: all, resolved, possible, ambiguous, unresolved, indirect. |
 | `deep` | boolean |  | `false` | Trace pointers that arrive as parameters back into the callers (slower). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `100` | Max sites (max 1000). |
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
@@ -1737,7 +1737,7 @@ What changed in one function between two builds (paired through compare_native_i
 | `context` | integer |  | `4` | Unchanged rows or lines around each change (0-50). |
 | `maxLines` | integer |  | `300` | Most rows or lines returned (max 5000). |
 | `useNames` | boolean |  | `true` | Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only. |
-| `engine` | string |  |  | view=pseudocode: auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | view=pseudocode: auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ida, ghidra. |
 
 Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `rows`, `unified`, `candidates`, `truncated`, `notes`, `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -1769,7 +1769,7 @@ A byte pattern for an address that survives rebuilds: instruction bytes with dis
 | `anchor` | string |  |  | auto (default): the address, else a reference to it; xrefs: one per reference. Values: auto, address, reference, xrefs, range. |
 | `maxBytes` | integer |  | `64` | Longest pattern in bytes (8-512). |
 | `maxPatterns` | integer |  | `8` | anchor=xrefs: most signatures (1-32). |
-| `engine` | string |  |  | anchor=xrefs: auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (the built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | anchor=xrefs: auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `format` | string |  |  | Syntax: ida (default), x64dbg, mask (\x48\x00 x?) or bitmask (0x48, 0x00 0b01). Values: ida, x64dbg, mask, bitmask. |
 | `end` | string |  |  | anchor=range: exclusive end, an address or +length. |
 

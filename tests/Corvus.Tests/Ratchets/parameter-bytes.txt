@@ -2,13 +2,9 @@
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
 compare_assemblies.changes
 diff_function.engine
-disassemble.engine
 dump_stack.imageDirectories
 find_xrefs.engine
-get_cfg.engine
 get_il2cpp_info.symbol
-list_functions.engine
-list_globals.engine
 make_code_pattern.engine
 native_call_tree.engine
 open_minidump.imageDirectories
@@ -16,9 +12,6 @@ patch_asm.extend
 patch_asm.relocations
 patch_bytes.extend
 patch_bytes.relocations
-resolve_call_targets.engine
-search_instructions.engine
-search_native_strings.engine
 simplify_methods.deterministicEnvironment
 simplify_methods.symbol
 trace_native_values.engine
