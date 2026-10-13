@@ -4,10 +4,11 @@ using System.Text.Json.Nodes;
 namespace Corvus.Mcp;
 
 /// <summary>
-/// The output-schema policy (SC-11): what tools/list sends is <see cref="Compact"/> (no descriptions or titles, required
-/// lists only at the root, objects below <see cref="MaxDepth"/> left open, the shared optional envelope fields left to their
-/// one declaration in docs/schemas); docs/schemas carries the <see cref="Described"/> form, which tests validate results against too. Both make a nullable property optional, since
-/// results are written without nulls (<see cref="Catalog.ToolSerializerOptions"/>).
+/// The output-schema policy (SC-11): what tools/list sends is <see cref="Compact"/>, the record's fields and their types (no
+/// descriptions, titles or required lists, objects below <see cref="MaxDepth"/> left open, the shared optional envelope
+/// fields left to their one declaration in docs/schemas). docs/schemas carries the <see cref="Described"/> form, the full
+/// promise that tests validate results against. Both make a nullable property optional, since results are written
+/// without nulls (<see cref="Catalog.ToolSerializerOptions"/>).
 /// </summary>
 public static class OutputSchemas
 {
@@ -34,6 +35,7 @@ public static class OutputSchemas
         if (strip && root["properties"] is JsonObject properties)
             foreach (var name in SharedEnvelope)
                 if (root["required"] is not JsonArray required || required.All(r => (string?)r != name)) properties.Remove(name);
+        if (strip && root is JsonObject top) top.Remove("required");
         DropDanglingReferences(root, root);
         return JsonSerializer.SerializeToElement(root);
     }
@@ -59,7 +61,7 @@ public static class OutputSchemas
                     if (required != null) Remove(required, name);
                 }
             }
-            if (required is { Count: 0 } || (strip && level > 1)) o.Remove("required");
+            if (required is { Count: 0 } || (strip && level > 1)) o.Remove("required"); // the root's goes after the envelope step reads it
         }
         foreach (var (key, child) in o.ToList())
         {
