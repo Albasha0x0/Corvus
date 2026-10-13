@@ -166,6 +166,8 @@ internal sealed class Arm32Decoder : ICodeDecoder
 
         insn = new Insn { Rva = rva, Length = length };
         bool conditional = _last.IsConditional;
+        // bx lr / mov pc, lr after the run computed lr (adr; add lr, lr, index, lsl #2): a jump table dispatch, not a return
+        if (_last.Flow == ArmFlow.Return && _last.Mnemonic is "bx" or "mov" && ComputedLr()) _last.Flow = ArmFlow.IndirectJump;
         switch (_last.Flow)
         {
             case ArmFlow.Jump:
@@ -586,6 +588,26 @@ internal sealed class Arm32Decoder : ICodeDecoder
         return null;
     }
 
+    /// <summary>The shift n when <paramref name="reg"/> was set by lsr(s) reg, <paramref name="index"/>, #n at or before step <paramref name="k"/>, the index unchanged since; else null.</summary>
+    private int? ShiftedFrom(int k, int reg, int index)
+    {
+        int w = Writer(k, reg);
+        if (w < 0) return null;
+        ref var x = ref Back(w);
+        if (x.Mnemonic != "lsr" || x.OperandCount != 3 || x.Op(1).Kind != ArmOperandKind.Register || x.Op(1).Reg != index || x.Op(2).Kind != ArmOperandKind.Immediate) return null;
+        for (int j = k; j < w; j++) if ((Back(j).Writes & (1 << index)) != 0) return null;
+        return (int)x.Op(2).Value;
+    }
+
+    /// <summary>The instruction writing lr last in the run (the current one excluded) adds to an address: lr holds a computed target.</summary>
+    private bool ComputedLr()
+    {
+        int w = Writer(1, Lr);
+        if (w < 0) return false;
+        ref var x = ref Back(w);
+        return x.Mnemonic is "add" or "addw" && x.OperandCount == 3 && x.Op(1).Kind == ArmOperandKind.Register && Constant(w + 1, x.Op(1).Reg) is { } a && TryRva(a & ~1u, out uint rva) && _code?.IsCode(rva) == true;
+    }
+
     private static bool IsCompare(in ArmInstruction i) => i.Mnemonic is "cmp" or "cmn" or "tst" or "teq" || i.WritesFlags;
 
     /// <summary>"cmp reg, #imm" (or against a register set by mov #imm) at step <paramref name="k"/>.</summary>
@@ -711,8 +733,21 @@ internal sealed class Arm32Decoder : ICodeDecoder
                 var m = Bound(lw, index, 4, table, out reason);
                 return m == null ? null : m with { Absolute = true };
             }
-            // adr rB, run; add rT, rB, index, lsl #2; mov pc, rT: a run of branches
             var x = Back(lw);
+            // adr rB, table; ldr rE, [rB, index, lsl #2]; add rT, rB, rE; bx rT: entries relative to a base
+            if (x.Mnemonic == "add" && x.OperandCount is 2 or 3 && x.Op(x.OperandCount - 1).Kind == ArmOperandKind.Register && x.Op(x.OperandCount - 2).Kind == ArmOperandKind.Register)
+            {
+                int ra = x.Op(x.OperandCount - 2).Reg, rb = x.Op(x.OperandCount - 1).Reg;
+                foreach (var (baseReg, entryReg) in new[] { (ra, rb), (rb, ra) })
+                {
+                    int ew = Writer(lw + 1, entryReg);
+                    if (ew < 0 || TableLoad(ew, out uint rel, out int relIndex) is not true) continue;
+                    if (Constant(lw + 1, baseReg) is not { } bv || !TryRva(bv & ~1u, out uint baseRva)) continue;
+                    var m = Bound(ew, relIndex, 4, rel, out reason);
+                    return m == null ? null : m with { Base = baseRva, Shift = 0, Signed = true };
+                }
+            }
+            // adr rB, run; add rT, rB, index, lsl #2; mov pc, rT: a run of branches
             if (x.Mnemonic != "add" || x.OperandCount != 3 || x.Op(1).Kind != ArmOperandKind.Register || x.Op(2).Kind != ArmOperandKind.ShiftedRegister
                 || x.Op(2).Shift != ArmShift.Lsl || x.Op(2).Amount != 2 || x.Op(2).ShiftReg != ArmOperand.NoReg) return null;
             uint? runVa = x.Op(1).Reg == Pc ? PcValue(in x, literal: false) : Constant(lw + 1, x.Op(1).Reg);
@@ -769,6 +804,12 @@ internal sealed class Arm32Decoder : ICodeDecoder
                 if (Compare(k, out int reg, out ulong imm) && reg == current && imm < uint.MaxValue)
                 {
                     uint? count = p switch { Hi or Ls => (uint)imm + 1, Hs or Lo => (uint)imm, _ => null };
+                    if (count != null) return Match(count.Value) with { Default = pendingDefault, Bias = BiasBefore(k + 1, current) };
+                }
+                // cmp of the index shifted right (lsrs rC, index, #n; cmp rC, #imm): the bound scales by 2^n
+                else if (reg >= 0 && imm < 0x10000 && ShiftedFrom(k + 1, reg, current) is { } shift and > 0 and < 16)
+                {
+                    uint? count = p switch { Hi or Ls => (uint)(imm + 1) << shift, Hs or Lo => (uint)imm << shift, _ => null };
                     if (count != null) return Match(count.Value) with { Default = pendingDefault, Bias = BiasBefore(k + 1, current) };
                 }
                 pending = null;

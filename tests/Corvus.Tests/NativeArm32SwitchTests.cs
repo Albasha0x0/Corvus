@@ -124,6 +124,63 @@ public class NativeArm32SwitchTests
         Assert.Contains(g.Blocks, b => b.Start == run + 4 && b.Successors.Any(e => e.To == cases[1]));
     }
 
+    /// <summary>
+    /// Thumb runs of branches the compiler dispatches through lr (adr.w lr, run; add.w lr, lr, r1, lsl #2; mov pc, lr: not a
+    /// return), or bounds by a shifted index (lsrs r3, r1, #1; cmp r3, #1; bhi: four entries).
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Thumb_run_of_branches_through_lr_or_a_shifted_bound(bool shifted)
+    {
+        var a = new A32Code(Text);
+        int n = shifted ? 4 : 3;
+        var cases = new uint[n];
+        uint dflt = 0, run = 0;
+        if (shifted) a.H(0x084B).H(A32Code.CmpImm(3, 1));             // lsrs r3, r1, #1; cmp r3, #1
+        else a.H(A32Code.CmpImm(1, 2));
+        a.Later(2, at => A32Code.BCond(at, dflt, Hi));
+        a.Later(-4, at => 0xF20F0E00 | (run - ((at + 4) & ~3u)));   // adr.w lr, run
+        a.T(0xEB0E0E81).H(0x46F7).H(A32Code.Nop);                     // add.w lr, lr, r1, lsl #2; mov pc, lr
+        run = a.Here;
+        for (int k = 0; k < n; k++) { int c = k; a.Later(-4, at => A32Code.Bl(at, cases[c]) & 0xFFFFBFFF | 0x1000); }
+        for (int k = 0; k < n; k++) { cases[k] = a.Here; a.H(A32Code.MovImm(0, k + 10)).H(A32Code.BxLr); }
+        dflt = a.Here;
+        a.H(A32Code.MovImm(0, 0)).H(A32Code.BxLr);
+        var (g, index) = Build(a, thumb: true);
+
+        var s = Assert.Single(g.Switches);
+        Assert.Equal((SwitchTableKind.Indexed, n, dflt), (s.Kind, s.EntryCount, s.Default));
+        Assert.Equal(Enumerable.Range(0, n).Select(k => run + 4 * (uint)k), s.Cases.Select(c => c.Target));
+        Assert.Equal([Text], index.Functions.Select(f => f.Start));
+        Assert.Empty(g.UnresolvedJumps);
+    }
+
+    /// <summary>Thumb, position independent, biased: subs r3, r0, #1; cmp r3, #2; bhi; adr r2, table; ldr.w r3, [r2, r3, lsl #2]; add r2, r3; bx r2.</summary>
+    [Fact]
+    public void Thumb_base_relative_entries_added_before_bx()
+    {
+        var a = new A32Code(Text);
+        var cases = new uint[3];
+        uint dflt = 0, table = 0;
+        a.H(0x1E43).H(A32Code.CmpImm(3, 2)).Later(2, at => A32Code.BCond(at, dflt, Hi));
+        a.Later(2, at => (0xA200 | (table - ((at + 4) & ~3u)) / 4));
+        a.T(0xF8523023).H(0x441A).H(0x4710);
+        a.Align4();
+        table = a.Here;
+        for (int k = 0; k < 3; k++) { int c = k; a.Later(4, _ => (cases[c] | 1) - table); }
+        for (int k = 0; k < 3; k++) { cases[k] = a.Here; a.H(A32Code.MovImm(0, k + 10)).H(A32Code.BxLr); }
+        dflt = a.Here;
+        a.H(A32Code.MovImm(0, 0)).H(A32Code.BxLr);
+        var (g, index) = Build(a, thumb: true);
+
+        var s = Assert.Single(g.Switches);
+        Assert.Equal((table, SwitchTableKind.BaseRelative, table, 1L), (s.TableRva, s.Kind, s.Base, s.Bias));
+        Assert.Equal(cases, s.Cases.Select(c => c.Target));
+        Assert.Equal(dflt, s.Default);
+        Assert.Equal([Text], index.Functions.Select(f => f.Start));
+    }
+
     /// <summary>ARM, position independent: cmp; bhi default; adr r1, table; ldr r0, [r1, r0, lsl #2]; add pc, r0, r1.</summary>
     [Fact]
     public void Arm_table_relative_entries()
