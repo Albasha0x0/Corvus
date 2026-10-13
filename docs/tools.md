@@ -758,7 +758,7 @@ Clean transformed method bodies: fold (string decoders with constant inputs run 
 |---|---|---|---|---|
 | `symbol` | string |  |  | A method, or a type (nested types included). Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). Omit for the whole assembly. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. Required when symbol is omitted. |
-| `passes` | string[] |  |  | Passes to run (default: all). |
+| `passes` | string[] |  |  | Passes to run; omit for all three. |
 | `maxDepth` | integer |  | `8` | Max evaluation call depth. |
 | `budget` | integer |  | `100000` | Max IL instructions per evaluated call, nested calls included. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |

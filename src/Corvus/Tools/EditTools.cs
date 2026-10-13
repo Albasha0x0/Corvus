@@ -231,7 +231,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> SimplifyMethods(
         [Description("A method, or a type (nested types included). " + SymbolDescription + " Omit for the whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
-        [Description("Passes to run (default: all).")] string[]? passes = null,
+        [Description("Passes to run; omit for all three.")] string[]? passes = null,
         [Description("Max evaluation call depth.")] int maxDepth = 8,
         [Description("Max IL instructions per evaluated call, nested calls included.")] int budget = 100_000,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,

@@ -17,6 +17,15 @@ public class ParameterDomainTests
     private static Dictionary<string, JsonElement> Args(params (string Name, object? Value)[] args) =>
         args.ToDictionary(a => a.Name, a => JsonSerializer.SerializeToElement(a.Value));
 
+    /// <summary>D6: simplify_methods' passes lists the passes and names no default outside them (omitted means all three).</summary>
+    [Fact]
+    public void SimplifyPassesDescriptionMatchesItsValues()
+    {
+        var passes = Schemas["simplify_methods"]["properties"]!["passes"]!;
+        Assert.Equal(["fold", "cfg", "inline"], passes["items"]!["enum"]!.AsArray().Select(v => (string?)v));
+        Assert.DoesNotContain("default", (string?)passes["description"] ?? "", StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void EveryDomainIsAdvertisedOnAStringParameter()
     {
