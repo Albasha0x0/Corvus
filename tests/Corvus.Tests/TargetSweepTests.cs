@@ -45,6 +45,13 @@ public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output
     private static List<string> Parameters(McpClientTool tool) =>
         tool.ProtocolTool.InputSchema.TryGetProperty("properties", out var p) ? [.. p.EnumerateObject().Select(q => q.Name)] : [];
 
+    /// <summary>The path as the parameter takes it: a one-element array for an array parameter (search_code_pattern images).</summary>
+    private static object PathValue(McpClientTool tool, string parameter, string path) =>
+        tool.ProtocolTool.InputSchema.GetProperty("properties").GetProperty(parameter) is var p
+        && p.TryGetProperty("type", out var type)
+        && (type.ValueKind == JsonValueKind.Array ? type.EnumerateArray().Any(t => t.GetString() == "array") : type.GetString() == "array")
+            ? new[] { path } : path;
+
     private static bool IsTarget(string tool, string parameter) =>
         Targets.Parameters.Contains(parameter) && tool is not ("unload_assembly" or "reload_assembly" or "patch_asm");
 
@@ -74,7 +81,7 @@ public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output
             foreach (var parameter in Parameters(tool).Where(p => IsTarget(tool.Name, p)))
             {
                 var args = Base(tool, plausible[tool.Name], parameter);
-                args[parameter] = Fresh(AssemblyParameters.Contains(parameter));
+                args[parameter] = PathValue(tool, parameter, Fresh(AssemblyParameters.Contains(parameter)));
                 var result = await ContractSweep.CheckAsync(client, new ContractSweep.Case(tool.Name, $"{parameter}: unloaded path", args), tool.ProtocolTool.OutputSchema);
                 outcomes.Add(result.Outcome);
                 if (result.Outcome != "ok") output.WriteLine($"{tool.Name} [{parameter}]: {result.Outcome}");
@@ -110,7 +117,7 @@ public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output
                          || p == "path" && !ContractSweep.IsOutputPath(tool.Name, p) && !NotInputFiles.Contains((tool.Name, p))))
             {
                 var args = Base(tool, plausible[tool.Name], parameter);
-                args[parameter] = missing;
+                args[parameter] = PathValue(tool, parameter, missing);
                 calls++;
                 using var cts = new CancellationTokenSource(ContractSweep.CallLimit);
                 var result = await client.CallToolAsync(tool.Name, args, cancellationToken: cts.Token);
