@@ -38,8 +38,38 @@ public sealed record EmbeddedPage(string Assembly, IReadOnlyList<EmbeddedContent
     public IReadOnlyList<string>? Notes { get; init; }
 }
 
+/// <summary>unpack_container: one page of the files (every file is written); next when nothing was extracted.</summary>
+public sealed record UnpackPage(string Source, string Container, string OutputDirectory, IReadOnlyList<UnpackService.UnpackedFile> Items, int Offset, int Total)
+{
+    public UnpackService.NextCall? Next { get; init; }
+    public IReadOnlyList<string>? Notes { get; init; }
+}
+
 internal static class ContainerText
 {
+    public static string Unpack(UnpackService.UnpackReport r, int offset, int limit)
+    {
+        int written = r.Files.Count(f => f.Extracted != false);
+        var header = new StringBuilder($"{Escape(r.Source)} ({r.Container}): {written} file(s) written to {r.OutputDirectory}.\n");
+        if (r.Next is { } next)
+            header.Append($"Next: {next.Tool} {string.Join(" ", next.Arguments.Select(a => $"{a.Key}={a.Value}"))} ({next.Reason}).\n");
+        foreach (var n in r.Notes) header.Append("Note: ").Append(Escape(n)).Append('\n');
+        string Row(UnpackService.UnpackedFile f)
+        {
+            var at = f.Path.StartsWith(r.OutputDirectory, StringComparison.OrdinalIgnoreCase) ? Path.GetRelativePath(r.OutputDirectory, f.Path).Replace('\\', '/') : f.Path;
+            var sb = new StringBuilder($"{f.Kind} {Escape(at)} {f.Size:N0} bytes");
+            if (f.ReadyToRun == true) sb.Append(", ReadyToRun");
+            if (f.Merged != null) sb.Append(", ").Append(Escape(f.Merged));
+            if (f.LoadedAs != null) sb.Append($", loaded as {f.LoadedAs}");
+            if (f.Extracted == false) sb.Append($" (not extracted: {f.Origin})");
+            else if (f.Origin.Length > 0) sb.Append($" [{Escape(f.Origin)}]");
+            return sb.ToString();
+        }
+        return ToolOutput.List(r.Files, offset, limit, Row,
+            rows => new UnpackPage(r.Source, r.Container, r.OutputDirectory, rows, offset, r.Files.Count) { Next = r.Next, Notes = r.Notes.Count > 0 ? r.Notes : null },
+            "file", header.ToString());
+    }
+
     public static string Search(UnpackService.ContainerSearch s, int limit)
     {
         var header = new StringBuilder($"{Escape(Path.GetFileName(s.Source))} ({s.Container}): {s.Searched} searched.\n");

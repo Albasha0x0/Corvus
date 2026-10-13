@@ -15,12 +15,24 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     private const string DotNet = ".NET assembly";
     internal const string HostOrigin = "the file itself (container host)";
 
-    /// <summary>ReadyToRun and Merged are set for .NET assemblies only.</summary>
+    /// <summary>ReadyToRun and Merged are set for .NET assemblies only; Extracted is false for a file listed where it already is (host, apphost app).</summary>
     public sealed record UnpackedFile(string Path, string Kind, long Size, string Sha256, string Origin, string? LoadedAs,
         bool? ReadyToRun = null,
-        string? Merged = null);
+        string? Merged = null)
+    {
+        public bool? Extracted { get; init; }
+    }
 
-    public sealed record UnpackReport(string Source, string Container, string OutputDirectory, List<UnpackedFile> Files, List<string> Notes);
+    /// <summary>The call that continues from a result with nothing extracted.</summary>
+    public sealed record NextCall(string Tool, IReadOnlyDictionary<string, string> Arguments, string Reason);
+
+    /// <summary>Every file, the app's assemblies first, translations and other files last.</summary>
+    public sealed record UnpackReport(string Source, string Container, string OutputDirectory, List<UnpackedFile> Files, List<string> Notes)
+    {
+        public NextCall? Next { get; init; }
+    }
+
+    private static readonly string[] NativeKinds = ["native PE", "NativeAOT executable", "elf", "mach-o"];
 
     /// <summary>Path is relative to the container; nested items are under "x_unpacked/".</summary>
     public sealed record ContainedAssembly(string Path, string? Name, string? Version, long Size, string Sha256, string Origin, bool ReadyToRun,
@@ -45,23 +57,31 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         public List<ContainerEntry>? Entries { get; init; }
     }
 
-    public UnpackReport Unpack(string path, string? outputDirectory, bool load, AnalysisLimits limits, CancellationToken ct)
+    /// <param name="progress">Phase messages: reading, entries found, files written, assemblies loaded.</param>
+    public UnpackReport Unpack(string path, string? outputDirectory, bool load, AnalysisLimits limits, CancellationToken ct, Action<string>? progress = null)
     {
         string source, sha;
         byte[]? data = null;
         Walked walked;
+        progress?.Invoke($"reading {Path.GetFileName(path)}");
         if (WebcilFolder(path, limits, ct) is { } folder) (source, sha, walked) = folder;
         else
         {
             (source, data, sha) = ReadSource(path, limits);
-            walked = Walk(data, sha, source, limits, ct, allFiles: true);
+            walked = Walk(data, sha, source, limits, ct, allFiles: true, progress);
         }
+        var kind = data != null ? Blob.Identify(data) : DotNet;
+        if (walked.Container == "none" && walked.Items.Count == 0 && kind != DotNet && !NativeKinds.Contains(kind))
+            throw new ToolError(ErrorCode.Unsupported, $"{source} is not a known container ({kind}): nothing to unpack.",
+                $"summarize_file path={source} describes the file; tar, gzip and xz archives are not read yet");
         var root = PrepareOutput(outputDirectory ?? DefaultOutput(source, sha), source, sha);
         var notes = walked.Notes;
         var files = new List<UnpackedFile>();
+        int index = 0;
         foreach (var item in walked.Items)
         {
             ct.ThrowIfCancellationRequested();
+            if (++index % 200 == 0) progress?.Invoke($"{index} of {walked.Items.Count} files written");
             string written;
             try { written = Blob.WriteUnique(root, item.Relative, item.Bytes); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) // e.g. "a.dll" and "a.dll/b.dll" in one archive
@@ -76,23 +96,33 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         }
 
         // A managed host contains the app's own code; include it.
-        if (data != null && Blob.Identify(data) == DotNet && walked.Container != "none")
-            files.Insert(0, new UnpackedFile(source, DotNet, data.Length, sha, HostOrigin, null, AssemblyTraits.IsReadyToRun(data), Inspect(data)?.Merged));
+        if (data != null && kind == DotNet && walked.Container != "none")
+            files.Insert(0, new UnpackedFile(source, DotNet, data.Length, sha, HostOrigin, null, AssemblyTraits.IsReadyToRun(data), Inspect(data)?.Merged) { Extracted = false });
         // For an apphost launcher, the application is the adjacent .dll.
         if (AppNextToApphost(source, walked.Container, limits) is { } app)
             files.Insert(0, new UnpackedFile(app.Path, DotNet, app.Bytes.Length, Blob.Sha256(app.Bytes), ApphostAppOrigin, null,
-                AssemblyTraits.IsReadyToRun(app.Bytes), Inspect(app.Bytes)?.Merged));
-        if (load) LoadAssemblies(files, notes);
-        if (files.Count > MaxListed)
-        {
-            int total = files.Count;
-            files = files.OrderBy(f => ListOrder(f.Origin, f.Path, f.Kind == DotNet)).Take(MaxListed).ToList();
-            notes.Add($"{total} files written to {root}; {MaxListed} listed (the app's assemblies first, translations and other files last).");
-        }
-        return new UnpackReport(source, walked.Container, root, files, notes);
+                AssemblyTraits.IsReadyToRun(app.Bytes), Inspect(app.Bytes)?.Merged) { Extracted = false });
+        if (load) LoadAssemblies(files, notes, progress);
+        files = [.. files.OrderBy(f => ListOrder(f.Origin, f.Path, f.Kind == DotNet))];
+        return new UnpackReport(source, walked.Container, root, files, notes) { Next = NextOf(source, walked.Container, kind, files) };
     }
 
-    /// <summary>Maximum entries listed; the rest are counted in notes.</summary>
+    /// <summary>Where to go when nothing was extracted: the apphost's app, the native image, or the file's summary.</summary>
+    private static NextCall? NextOf(string source, string container, string kind, List<UnpackedFile> files)
+    {
+        if (files.Any(f => f.Extracted != false)) return null;
+        if (files.FirstOrDefault(f => f.Origin == ApphostAppOrigin) is { } app)
+            return new NextCall("load_assembly", new Dictionary<string, string> { ["path"] = app.Path }, "an apphost launcher: the application is the .dll beside it");
+        if (container == "NativeAOT executable")
+            return new NextCall("get_nativeaot_info", new Dictionary<string, string> { ["image"] = source }, "NativeAOT: compiled to native code, no IL to extract");
+        if (kind == DotNet)
+            return new NextCall("load_assembly", new Dictionary<string, string> { ["path"] = source }, "a plain .NET assembly: nothing is bundled in it");
+        if (NativeKinds.Contains(kind))
+            return new NextCall("load_assembly", new Dictionary<string, string> { ["path"] = source }, "a native image without .NET assemblies: analyze it as native code");
+        return new NextCall("summarize_file", new Dictionary<string, string> { ["path"] = source }, "no assemblies or nested packages inside");
+    }
+
+    /// <summary>Largest page of list_assemblies.</summary>
     internal const int MaxListed = 100;
 
     /// <summary>Order: host / apphost app, assemblies, satellite assemblies, other files.</summary>
@@ -424,7 +454,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// Breadth-first walk of nested containers; duplicate content (same hash) appears once, except files of an archive
     /// container (ASAR, UnityWebData, HAR, flows), which keep their own paths. allFiles extracts every archive file.
     /// </summary>
-    private static Walked Walk(byte[] data, string sha, string source, AnalysisLimits limits, CancellationToken ct, bool allFiles = false)
+    private static Walked Walk(byte[] data, string sha, string source, AnalysisLimits limits, CancellationToken ct, bool allFiles = false, Action<string>? progress = null)
     {
         var notes = new List<string>();
         var found = new List<Found>();
@@ -452,6 +482,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             if (kind == DotNet && !relative.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && !relative.EndsWith(".exe.bin", StringComparison.OrdinalIgnoreCase))
                 relative += ".dll"; // so carved assemblies resolve by name
             found.Add(new Found(relative, item.Bytes, kind, itemSha, item.Origin));
+            if (found.Count % 200 == 0) progress?.Invoke($"{found.Count} entries read ({total / (1024 * 1024):N0} MB)");
 
             bool opens = MayContainMore(kind) && !(archived && kind == "data") || Containers.ReaderFor(item.Bytes, item.Name) != null;
             if (depth >= limits.MaxDepth || !opens) continue;
@@ -478,11 +509,13 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     private static bool MayContainMore(string kind) =>
         kind is "zip" or ".NET assembly" or "native PE" or "data" or "asar" || kind.StartsWith("xa", StringComparison.Ordinal);
 
-    private void LoadAssemblies(List<UnpackedFile> files, List<string> notes)
+    private void LoadAssemblies(List<UnpackedFile> files, List<string> notes, Action<string>? progress)
     {
+        int assemblies = files.Count(f => f.Kind == DotNet), loaded = 0;
         for (int i = 0; i < files.Count; i++)
         {
             if (files[i].Kind != DotNet) continue;
+            if (++loaded % 20 == 0) progress?.Invoke($"{loaded} of {assemblies} assemblies loaded");
             try
             {
                 var asm = workspace.Load(files[i].Path);

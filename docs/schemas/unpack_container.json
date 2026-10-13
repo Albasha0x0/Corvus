@@ -10,7 +10,7 @@
     "outputDirectory": {
       "type": "string"
     },
-    "files": {
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
@@ -38,6 +38,9 @@
           },
           "merged": {
             "type": "string"
+          },
+          "extracted": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -49,11 +52,51 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "next": {
+      "type": "object",
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "arguments",
+        "reason"
+      ]
+    },
     "notes": {
       "type": "array",
       "items": {
         "type": "string"
       }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -78,7 +121,8 @@
     "source",
     "container",
     "outputDirectory",
-    "files",
-    "notes"
+    "items",
+    "offset",
+    "total"
   ]
 }

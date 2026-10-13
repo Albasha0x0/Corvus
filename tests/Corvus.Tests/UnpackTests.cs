@@ -473,13 +473,13 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         var lfanew = System.IO.File.ReadAllBytes(Env.FixturePath);
         BinaryPrimitives.WriteInt32LittleEndian(lfanew.AsSpan(0x3C), int.MaxValue);
         Assert.Null(PeImage.TryParse(lfanew));
-        Assert.Equal("none", Unpack(Save("lfanew.dll", lfanew)).Container);
+        Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => Unpack(Save("lfanew.dll", lfanew))).Code); // not a container: nothing to unpack
 
         var sections = System.IO.File.ReadAllBytes(Env.FixturePath);
         int pe = BinaryPrimitives.ReadInt32LittleEndian(sections.AsSpan(0x3C));
         BinaryPrimitives.WriteUInt16LittleEndian(sections.AsSpan(pe + 6), 0xFFFF);
         Assert.Null(PeImage.TryParse(sections));
-        Assert.Equal("none", Unpack(Save("sections.dll", sections)).Container);
+        Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => Unpack(Save("sections.dll", sections))).Code);
     }
 
     [Fact]

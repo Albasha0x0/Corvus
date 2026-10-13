@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Services.Analysis;
@@ -9,17 +11,24 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class UnpackTools(UnpackService unpacker)
 {
-    [McpServerTool(Name = "unpack_container", Title = "Unpack container", UseStructuredContent = true)]
+    [McpServerTool(Name = "unpack_container", Title = "Unpack container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
     [Description("Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, NuGet packages, Xamarin / MAUI .apk / .aab " +
-                 "(compressed assemblies and assembly stores, per ABI), zips, and .NET images embedded elsewhere; nested containers too. An Electron .asar (.unpacked files too), " +
-                 "Unity WebGL .data or HAR / mitmproxy capture (decoded response bodies) gives every file. Nothing is executed; " +
-                 "names cannot escape the output directory and runnable extensions get .bin. NativeAOT executables (no IL) are reported.")]
-    public Task<UnpackService.UnpackReport> UnpackContainer(
-        [Description("Absolute path to the container file, or a Blazor _framework folder (its Webcil .wasm assemblies).")] string path,
-        [Description("New or empty directory, or an earlier unpack of the same file; default under temp.")] string? outputDirectory = null,
+                 "(assembly stores per ABI), zips, embedded .NET images, nested containers. Electron .asar, Unity WebGL .data and HAR / mitmproxy captures " +
+                 "give every file. Nothing is executed; names stay in the output directory, runnable extensions get .bin. Nothing to extract: next names the call.")]
+    public Task<string> UnpackContainer(
+        [Description("Container file, or a Blazor _framework folder.")] string path,
+        [Description("New or empty directory, or an earlier unpack of this file; default under temp.")] string? outputDirectory = null,
         [Description("Load the extracted assemblies (ids in loadedAs).")] bool load = true,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => unpacker.Unpack(path, outputDirectory, load, AnalysisLimits.Default, cancellationToken), cancellationToken);
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description(LimitDescription)] int limit = 100,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+        {
+            int step = 0;
+            var report = await Task.Run(() => unpacker.Unpack(path, outputDirectory, load, AnalysisLimits.Default, cancellationToken,
+                message => progress.Report(new ProgressNotificationValue { Progress = ++step, Message = message })), cancellationToken);
+            return ContainerText.Unpack(report, offset, ClampLimit(limit));
+        });
 
     [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
     [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, " +

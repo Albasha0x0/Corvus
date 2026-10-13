@@ -92,7 +92,11 @@ public class InspectionEdgeTests : IDisposable
         Assert.StartsWith(".NET apphost", s.Container);
         Assert.Equal("TestFixture", Assert.Single(s.Assemblies).Identity.Name);
         Assert.Contains("Using the application next to the launcher: TestFixture.dll.", s.Notes);
-        Assert.Equal(UnpackService.ApphostAppOrigin, new UnpackService(_workspace).Unpack(exe, _dir.File("app-out"), false, AnalysisLimits.Default, default).Files[0].Origin);
+        var unpacked = new UnpackService(_workspace).Unpack(exe, _dir.File("app-out"), false, AnalysisLimits.Default, default);
+        var app = Assert.Single(unpacked.Files);
+        Assert.Equal((UnpackService.ApphostAppOrigin, false), (app.Origin, app.Extracted));
+        Assert.Equal(new Dictionary<string, string> { ["path"] = app.Path }, unpacked.Next!.Arguments);
+        Assert.Equal("load_assembly", unpacked.Next.Tool);
     }
 
     [Fact]
@@ -114,8 +118,8 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(["lib/A120.dll", "lib/A121.dll", "lib/A122.dll"], few.Assemblies.Select(a => a.Path));
         Assert.Equal(10, few.Total);
         var unpacked = new UnpackService(_workspace).Unpack(zip, _dir.File("big-out"), false, AnalysisLimits.Default, default);
-        Assert.Equal(UnpackService.MaxListed, unpacked.Files.Count);
-        Assert.Contains(unpacked.Notes, n => n.StartsWith("140 files written to"));
+        Assert.Equal(140, unpacked.Files.Count); // the tool pages them
+        Assert.True(unpacked.Files.Select(f => f.Path.Contains(".resources")).SkipWhile(r => !r).All(r => r)); // translations last
         Assert.Equal(140, Directory.EnumerateFiles(_dir.File("big-out"), "*.dll", SearchOption.AllDirectories).Count());
     }
 

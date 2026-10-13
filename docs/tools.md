@@ -611,15 +611,17 @@ Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`
 
 **Unpack container** (edit, idempotent, long-running)
 
-Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, NuGet packages, Xamarin / MAUI .apk / .aab (compressed assemblies and assembly stores, per ABI), zips, and .NET images embedded elsewhere; nested containers too. An Electron .asar (.unpacked files too), Unity WebGL .data or HAR / mitmproxy capture (decoded response bodies) gives every file. Nothing is executed; names cannot escape the output directory and runnable extensions get .bin. NativeAOT executables (no IL) are reported.
+Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, NuGet packages, Xamarin / MAUI .apk / .aab (assembly stores per ABI), zips, embedded .NET images, nested containers. Electron .asar, Unity WebGL .data and HAR / mitmproxy captures give every file. Nothing is executed; names stay in the output directory, runnable extensions get .bin. Nothing to extract: next names the call.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | Absolute path to the container file, or a Blazor _framework folder (its Webcil .wasm assemblies). |
-| `outputDirectory` | string |  |  | New or empty directory, or an earlier unpack of the same file; default under temp. |
+| `path` | string | yes |  | Container file, or a Blazor _framework folder. |
+| `outputDirectory` | string |  |  | New or empty directory, or an earlier unpack of this file; default under temp. |
 | `load` | boolean |  | `true` | Load the extracted assemblies (ids in loadedAs). |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Max rows. |
 
-Structured output: `source`, `container`, `outputDirectory`, `files`, `notes`.
+Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, `total`, `next`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### unity_overview
 
