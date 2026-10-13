@@ -109,7 +109,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         // a new database gets them from the sidecar
         Restart();
         var fresh = Setup("ida-b");
-        output.WriteLine(await fresh.Types.GetNativeFrame(path, Function));
+        output.WriteLine(await fresh.Types.GetNativeFrame(path, Function, locals: true));
         var again = await fresh.Session("ida");
         Assert.Equal((16L, false), await IdaItem(again, data));
         Assert.Equal((8L, false), await IdaItem(again, data + 0x60));
@@ -148,7 +148,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
 
         Restart();
         var fresh = Setup("ida-p");
-        await fresh.Types.GetNativeFrame(path, Function);
+        await fresh.Types.GetNativeFrame(path, Function, locals: true);
         var again = await fresh.Session("ida");
         Assert.Contains("SampleHdr.Magic", await TextAt(again, fn, load));
         // default clears it, in the database and the sidecar
@@ -193,7 +193,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
 
         Restart();
         var fresh = Setup("ida-f");
-        await fresh.Types.GetNativeFrame(path, Function);
+        await fresh.Types.GetNativeFrame(path, Function, locals: true);
         var again = await fresh.Session("ida");
         Assert.Contains("SampleFast = 0x10", (await again.GetTypeAsync("SampleMode")).Declaration);
         Assert.DoesNotContain((await again.GetFrameAsync(fn)).Members, m => m.Offset == member.Offset && m.Name == member.Name);
@@ -273,7 +273,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
 
         Restart();
         var fresh = Setup("ghidra-p");
-        await fresh.Types.GetNativeFrame(path, Function, engine: "ghidra");
+        await fresh.Types.GetNativeFrame(path, Function, engine: "ghidra", locals: true);
         Assert.Contains("CORVUS_PE32", await TextAt(await fresh.Session("ghidra"), fn, magic));
     }
 
@@ -298,7 +298,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
 
         Restart();
         var fresh = Setup("ghidra-b");
-        output.WriteLine(await fresh.Types.GetNativeFrame(path, Function, engine: "ghidra"));
+        output.WriteLine(await fresh.Types.GetNativeFrame(path, Function, engine: "ghidra", locals: true));
         var range = await (await fresh.Session("ghidra")).DisassembleRangeAsync(data, 1);
         output.WriteLine(range.Instructions[0].Text);
         Assert.Equal(16, range.Instructions[0].Bytes.Length);

@@ -442,8 +442,10 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             journal: !save, saves: save).ConfigureAwait(false));
     }
 
-    public async Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) =>
-        WorkerRows.Frame(await FunctionCallAsync("frame", WorkerRows.Args(("rva", rva)), rva, cancellationToken).ConfigureAwait(false));
+    public Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) => GetFrameAsync(rva, true, cancellationToken);
+
+    public async Task<NativeFrame> GetFrameAsync(uint rva, bool locals, CancellationToken cancellationToken = default) =>
+        WorkerRows.Frame(await FunctionCallAsync("frame", WorkerRows.Args(("rva", rva), ("locals", locals)), rva, cancellationToken).ConfigureAwait(false));
 
     public async Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default) =>
         WorkerRows.TypeList(await CallAsync("types", WorkerRows.Args(("filter", filter), ("kind", kind), ("offset", offset), ("limit", limit)), cancellationToken)

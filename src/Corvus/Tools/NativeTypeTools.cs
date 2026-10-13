@@ -3,6 +3,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Annotations;
 using Corvus.Native.Providers;
@@ -17,9 +18,9 @@ namespace Corvus.Tools;
 /// </summary>
 [McpServerToolType]
 public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeUserTypePush userTypes, NativeCodeService? code = null,
-    NativeNamePush? names = null, NativeTypePush? types = null, OutputPager? pager = null)
+    NativeNamePush? names = null, NativeTypePush? types = null, NativeEditJournal? journal = null)
 {
-    private const string EngineDescription = "auto (default): the engine with this image open, else IDA when installed, else Ghidra.";
+    private const string EngineDescription = EngineChoice.EngineOnlyDescription;
 
     private const string KeptNote = " Kept with the image's annotations.";
 
@@ -27,48 +28,92 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private async Task<(LoadedNative Native, uint Rva, INativeDecompilerSession Session)> Open(string image, string address, string? engine,
         IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        engines.Provider(engine); // an unknown engine fails before the image is opened
+        EngineChoice.Mode(engine, engines); // an unknown engine fails before the image is opened
         var (native, rva) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, code, image, address), ct);
-        var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+        var choice = EngineChoice.EngineOnly(engine, engines, native);
+        var session = await engines.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), ct);
+        EngineReport.Answered(choice, engines, session);
         if (names != null) await names.EnsureAsync(native, session, ct);
         if (types != null) await types.EnsureAsync(native, session, ct);
         await userTypes.EnsureAsync(native, session, ct);
         return (native, rva, session);
     }
 
-    [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals")]
+    /// <summary>An engine edit kept in the image's user types and recorded in the native edit journal (its id, or null when nothing changed).</summary>
+    private async Task<(UserTypeResult Result, EditId? Id)> Apply(LoadedNative native, INativeDecompilerSession session, string tool, NativeUserTypeBatch batch,
+        Func<UserTypeResult, UserTypeLayer, UserTypeLayer?> record, CancellationToken ct, NativeUserTypeBatch? inverse = null) =>
+        journal != null ? await journal.ApplyUserTypesAsync(native, session, tool, batch, record, ct, inverse: inverse)
+            : (await userTypes.ApplyAsync(native, session, batch, record, ct), null);
+
+    /// <summary>The outcome of an engine edit in both parts: the text, then the edit id an undo takes.</summary>
+    private static string Edited(string text, EditId? id, params EditChange[] changes) => Edited(text, id, changes, null);
+
+    private static string Edited(string text, EditId? id, IReadOnlyList<EditChange> changes, int? failed)
+    {
+        text = text.TrimEnd('\n') + (id is { } e ? $"\nEdit {e} (undo_native_edit editId={e} takes it back)" : "") + "\n";
+        return ToolOutput.Edit(new EditOutcome(changes.Count > 0, false, changes, id is { } i ? [i] : []) { Failed = failed is > 0 ? failed : null }, text);
+    }
+
+    [Description("A stack frame member or a decompiler local of get_native_frame.")]
+    public sealed record FrameRow(
+        [property: Description("member (the engine's frame) or local (the decompiler's variables).")] string Kind,
+        string Name,
+        string Type,
+        [property: Description("member: offset from the frame's lowest address; local: its stack offset, when on the stack.")] int? Offset,
+        [property: Description("member: offset from the return address (IDA's var_/arg_).")] int? BaseOffset,
+        int? Size,
+        [property: Description("member: local, arg or special (return address, saved registers).")] string? Slot,
+        [property: Description("local: register name, or stack.")] string? Location,
+        bool? Argument,
+        bool? UserName,
+        bool? UserType);
+
+    public sealed record FrameReport(string Image, string Engine, [property: Description("VA of the function start.")] string Function, string Name,
+        int LocalSize, int SavedRegisters, int ReturnAddressOffset, int Members, int Locals,
+        [property: Description("Why there are no decompiler locals (decompiler error, or locals not asked).")] string? LocalsNote,
+        IReadOnlyList<FrameRow> Items, int Offset, int Total);
+
+    [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals", UseStructuredContent = true, OutputSchemaType = typeof(FrameReport))]
     [Description("A native function's stack frame as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as " +
-                 "locals) and its decompiler locals (name, type, register or stack offset, user edits). Offsets count from the frame's lowest " +
-                 "address; brackets give the offset from the return address (IDA's var_/arg_).")]
+                 "locals) and, with locals=true, its decompiler locals (name, type, register or stack offset, user edits). Offsets count from the frame's lowest " +
+                 "address; brackets give the offset from the return address.")]
     public Task<string> GetNativeFrame(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
         [Description(EngineDescription)] string? engine = null,
+        [Description("Add the decompiler's locals (decompiles the function).")] bool locals = false,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
+        [Description("Max rows, members then locals (max 5000).")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
-        var f = await session.GetFrameAsync(rva, cancellationToken);
+        var f = await session.GetFrameAsync(rva, locals, cancellationToken);
         var (display, symbol) = NativeTools.Named(f.Name, native.Image.Format);
-        var sb = new System.Text.StringBuilder($"Frame of {display} at {Va(native, f.StartRva)}{(symbol.Length > 0 ? $" ({symbol[2..]})" : "")}: {f.LocalSize} bytes of " +
-                                               $"locals, {f.SavedRegisters} of saved registers; return address at +0x{f.ReturnAddressOffset:X}\n");
-        sb.AppendLine(f.Members.Count == 0 ? "No stack members." : "Stack members (offset [base-relative]  name  type  size  kind):");
+        var rows = new List<FrameRow>();
         foreach (var m in f.Members)
-        {
-            int rel = m.Offset - f.ReturnAddressOffset;
-            sb.AppendLine($"  +0x{m.Offset:X} [{(rel < 0 ? "-" : "+")}0x{Math.Abs(rel):X}]  {m.Name}  {m.Type}  {m.Size}  {m.Kind}");
-        }
-        if (f.DecompilerError != null) sb.AppendLine($"Decompiler locals: none ({f.DecompilerError})");
-        else
-        {
-            sb.AppendLine("Decompiler locals (name  type  location):");
-            foreach (var l in f.Locals.Where(l => l.Name.Length > 0))
-                sb.AppendLine($"  {l.Name}  {l.Type}  {(l.Stack is { } s ? $"stack:0x{s:X}" : l.Location)}" +
-                              (l.IsArgument ? "  argument" : "") + (l.UserName ? "  user name" : "") + (l.UserType ? "  user type" : ""));
-        }
-        return sb.ToString();
+            rows.Add(new FrameRow("member", m.Name, m.Type, m.Offset, m.Offset - f.ReturnAddressOffset, m.Size, m.Kind, null, null, null, null));
+        var named = f.Locals.Where(l => l.Name.Length > 0).ToList();
+        foreach (var l in named)
+            rows.Add(new FrameRow("local", l.Name, l.Type, l.Stack, null, null, null, l.Stack is { } ? "stack" : l.Location, l.IsArgument ? true : null,
+                l.UserName ? true : null, l.UserType ? true : null));
+        string? localsNote = !locals ? "not asked (locals=true adds them)" : f.DecompilerError;
+        var header = $"Frame of {display} at {Va(native, f.StartRva)}{(symbol.Length > 0 ? $" ({symbol[2..]})" : "")} ({session.ProviderId}): {f.LocalSize} bytes of " +
+                     $"locals, {f.SavedRegisters} of saved registers; return address at +0x{f.ReturnAddressOffset:X}; {Plural(f.Members.Count, "member")}, " +
+                     (localsNote != null ? $"no decompiler locals ({localsNote})" : Plural(named.Count, "decompiler local")) + "\n";
+        offset = Math.Max(0, offset);
+        return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, Row,
+            page => new FrameReport(native.Id, session.ProviderId, Va(native, f.StartRva), display, f.LocalSize, f.SavedRegisters, f.ReturnAddressOffset,
+                f.Members.Count, named.Count, localsNote, page, offset, rows.Count), "row", header);
     });
+
+    private static string Row(FrameRow r) => r.Kind == "member"
+        ? $"member +0x{r.Offset:X} [{(r.BaseOffset < 0 ? "-" : "+")}0x{Math.Abs(r.BaseOffset ?? 0):X}]  {r.Name}  {r.Type}  {r.Size}  {r.Slot}"
+        : $"local  {r.Name}  {r.Type}  {(r.Offset is { } s ? $"stack:0x{s:X}" : r.Location)}" +
+          (r.Argument == true ? "  argument" : "") + (r.UserName == true ? "  user name" : "") + (r.UserType == true ? "  user type" : "");
+
+    private static string Plural(int n, string noun) => ToolSupport.Plural(n, noun);
 
     [McpServerTool(Name = "set_native_stack_var", Title = "Rename, retype or delete a stack variable")]
     [Description("Rename and/or retype a stack frame member, by its get_native_frame name (var_28) or frame offset (0x20, from the lowest " +
@@ -98,20 +143,23 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
         return await WithDecompile(show, session, rva, async () =>
         {
-        var frame = await session.GetFrameAsync(rva, cancellationToken);
+        var frame = await session.GetFrameAsync(rva, false, cancellationToken);
         var v = (variable ?? "").Trim();
         int offset = frame.Members.FirstOrDefault(m => m.Name == v) is { } byName ? byName.Offset
             : NativeAddress.Number(v.TrimStart('+')) is { } n && n <= int.MaxValue ? (int)n
             : throw new ToolError(ErrorCode.InvalidArgument, $"The frame of {frame.Name} has no member '{v}'.",
-                $"members: {string.Join(", ", frame.Members.Select(m => m.Name).Take(40))}; or pass a frame offset such as 0x20");
+                frame.Members.Count == 0 ? $"the frame has no members; pass a frame offset such as 0x{Math.Max(0, frame.ReturnAddressOffset - 8):X} (get_native_frame shows the frame)"
+                    : $"members: {string.Join(", ", frame.Members.Select(m => m.Name).Take(40))}; or pass a frame offset such as 0x{frame.Members[0].Offset:X}");
         var edit = new NativeStackVarEdit(frame.StartRva, offset, name, decl) { Delete = delete, Clear = clear };
-        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [edit], []),
+        var (result, id) = await Apply(native, session, "set_native_stack_var", new NativeUserTypeBatch([], [], [edit], []),
             (r, layer) => r.Items is not [{ Applied: true } item] ? null
                 : clear ? layer.WithoutStackVar(item.Rva, offset) : layer.WithStackVar(edit with { Function = item.Rva }), cancellationToken);
-        var done = Outcome(result);
-        if (clear) return $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}: the user edit is cleared; now {done.Text}";
-        return delete ? $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}: {(done.Resolved != null ? $"{done.Resolved} " : "")}{done.Text}"
-            : $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}{(done.Resolved != null ? $" (was {done.Resolved})" : "")} is now: {done.Text}";
+        var done = Outcome(result, session.ProviderId, frame);
+        var where = $"{Va(native, done.Rva)}+0x{offset:X}";
+        var change = new EditChange("stack_var", where, done.Resolved, clear ? "(engine's)" : delete ? null : done.Text);
+        if (clear) return Edited($"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}: the user edit is cleared; now {done.Text}", id, change);
+        return Edited(delete ? $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}: {(done.Resolved != null ? $"{done.Resolved} " : "")}{done.Text}"
+            : $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}{(done.Resolved != null ? $" (was {done.Resolved})" : "")} is now: {done.Text}", id, change);
         }, cancellationToken);
     });
 
@@ -131,13 +179,13 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type")]
     [Description("Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or the type of a global ('Handler *[8]') " +
                  "in the engine. Named types must exist there (pushed PDB, RTTI and Il2Cpp types, or declare_native_types). User types win over " +
-                 "recovered ones; empty clears. A prototype's name renames the function unless rename=false." + KeptNote)]
+                 "recovered ones; empty clears. rename=true also names the function as its prototype does." + KeptNote)]
     public Task<string> SetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A function start or a global: " + NativeTools.AddressDescription)] string? address = null,
         [Description("C prototype for a function, C type for a global; empty to clear the user type.")] string? type = null,
         [Description("Instead of address and type: lines 'address = type'.")] string? items = null,
-        [Description("Name the function as its prototype does.")] bool rename = true,
+        [Description("Name the function as its prototype does.")] bool rename = false,
         [Description("Report the engine's guess at address without applying it.")] bool guess = false,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
@@ -165,12 +213,14 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var decl = type.Trim();
         return await WithDecompile(show, session, rva, async () =>
         {
-            var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [new NativePrototype(rva, decl)], [], []),
+            var (result, id) = await Apply(native, session, "set_native_type", new NativeUserTypeBatch([], [new NativePrototype(rva, decl)], [], []),
                 (r, layer) => r.Items is [{ Applied: true }] ? layer.WithType(rva, decl) : null, cancellationToken);
-            var item = Outcome(result);
-            if (decl.Length == 0) return $"Cleared the user type at {Va(native, rva)}.";
+            var item = Outcome(result, session.ProviderId);
+            if (decl.Length == 0) return Edited($"Cleared the user type at {Va(native, rva)}.", id, new EditChange("type", Va(native, rva), null, null));
             var renamed = rename ? await RenameFromPrototype(native, session, rva, decl, cancellationToken) : null;
-            return $"Type at {Va(native, rva)}: {item.Text ?? decl}" + (renamed != null ? $"; the function is now named {renamed} (rename=false keeps its name)" : "");
+            var changes = new List<EditChange> { new("type", Va(native, rva), null, item.Text ?? decl) };
+            if (renamed != null) changes.Add(new("name", Va(native, rva), null, renamed));
+            return Edited($"Type at {Va(native, rva)}: {item.Text ?? decl}" + (renamed != null ? $"; the function is now named {renamed}" : ""), id, changes, null);
         }, cancellationToken);
     });
 
@@ -228,13 +278,18 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             }
             catch (ToolError e) { problems.Add($"'{line[..eq].Trim()}': {e.Message}"); }
         }
-        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], wanted, [], []),
+        var (result, id) = await Apply(native, session, "set_native_type", new NativeUserTypeBatch([], wanted, [], []),
             (r, layer) => r.Items.Where(i => i.Applied).Aggregate(layer, (l, i) => l.WithType(i.Rva, i.Target)), ct);
-        var sb = new System.Text.StringBuilder($"{result.Items.Count(i => i.Applied)} of {lines.Length} type(s) applied\n");
+        int applied = result.Items.Count(i => i.Applied);
+        if (applied == 0 && lines.Length > 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"None of the {lines.Length} type(s) was applied: " +
+                string.Join("; ", result.Items.Select(i => $"{Va(native, i.Rva)}: {i.Error}").Concat(problems).Take(5)), Refusal(result.Items.FirstOrDefault()?.Error, session.ProviderId));
+        var sb = new System.Text.StringBuilder($"{applied} of {lines.Length} type(s) applied\n");
         foreach (var i in result.Items)
-            sb.AppendLine($"  {Va(native, i.Rva)}  {(i.Applied ? (i.Target.Length == 0 ? "cleared" : i.Text ?? i.Target) : "not applied: " + i.Error)}");
-        foreach (var p in problems) sb.AppendLine($"  not applied: {p}");
-        return sb.ToString();
+            sb.Append($"  {Va(native, i.Rva)}  {(i.Applied ? (i.Target.Length == 0 ? "cleared" : i.Text ?? i.Target) : "not applied: " + i.Error)}\n");
+        foreach (var p in problems) sb.Append($"  not applied: {p}\n");
+        return Edited(sb.ToString(), id, [.. result.Items.Where(i => i.Applied).Select(i => new EditChange("type", Va(native, i.Rva), null, i.Target.Length == 0 ? null : i.Text ?? i.Target))],
+            lines.Length - applied);
     }
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local")]
@@ -265,11 +320,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return await WithDecompile(show, session, rva, async () =>
         {
         var edits = LocalEdits(native, rva, [request]);
-        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [], edits), (r, layer) => RecordLocals(r, layer, edits), cancellationToken);
-        if (result.Items.FirstOrDefault(i => !i.Applied) is { } failed) Outcome(result with { Items = [failed] });
+        var (result, id) = await Apply(native, session, "set_native_local", new NativeUserTypeBatch([], [], [], edits), (r, layer) => RecordLocals(r, layer, edits), cancellationToken);
+        if (result.Items.FirstOrDefault(i => !i.Applied) is { } failed) Outcome(result with { Items = [failed] }, session.ProviderId);
         var done = result.Items.Count > 0 ? result.Items[^1] : throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
-        return $"Local {done.Resolved} of the function at {Va(native, done.Rva)}{(done.Stack is { } k ? $" (stack 0x{k:X})" : "")} " +
-               (done.Kind == "local_clear" ? $"is cleared; now {done.Text}" : $"is now: {done.Text}");
+        return Edited($"Local {done.Resolved} of the function at {Va(native, done.Rva)}{(done.Stack is { } k ? $" (stack 0x{k:X})" : "")} " +
+               (done.Kind == "local_clear" ? $"is cleared; now {done.Text}" : $"is now: {done.Text}"), id,
+            new EditChange("local", $"{Va(native, done.Rva)}:{done.Resolved}", done.Resolved, done.Text));
         }, cancellationToken);
     });
 
@@ -304,14 +360,19 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return await WithDecompile(show, session, rva, async () =>
         {
         var edits = LocalEdits(native, rva, requests);
-        var result = edits.Count == 0 ? null
-            : await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [], edits), (r, layer) => RecordLocals(r, layer, edits), ct);
+        var (result, id) = edits.Count == 0 ? (null, null)
+            : await Apply(native, session, "set_native_local", new NativeUserTypeBatch([], [], [], edits), (r, layer) => RecordLocals(r, layer, edits), ct);
         var outcomes = result?.Items ?? [];
-        var sb = new System.Text.StringBuilder($"{outcomes.Count(i => i.Applied)} of {outcomes.Count + problems.Count} local edit(s) applied\n");
+        int applied = outcomes.Count(i => i.Applied), total = outcomes.Count + problems.Count;
+        if (applied == 0 && total > 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"None of the {total} local edit(s) was applied: " +
+                string.Join("; ", outcomes.Select(i => $"{i.Resolved ?? i.Target}: {i.Error}").Concat(problems).Take(5)), Refusal(outcomes.FirstOrDefault()?.Error, session.ProviderId));
+        var sb = new System.Text.StringBuilder($"{applied} of {total} local edit(s) applied\n");
         foreach (var i in outcomes)
-            sb.AppendLine($"  {i.Resolved ?? i.Target}  " + (!i.Applied ? "not applied: " + i.Error : i.Kind == "local_clear" ? "cleared; now " + i.Text : i.Text));
-        foreach (var p in problems) sb.AppendLine($"  not applied: {p}");
-        return sb.ToString();
+            sb.Append($"  {i.Resolved ?? i.Target}  " + (!i.Applied ? "not applied: " + i.Error : i.Kind == "local_clear" ? "cleared; now " + i.Text : i.Text)).Append('\n');
+        foreach (var p in problems) sb.Append($"  not applied: {p}\n");
+        return Edited(sb.ToString(), id, [.. outcomes.Where(i => i.Applied).Select(i => new EditChange("local", $"{Va(native, i.Rva)}:{i.Resolved ?? i.Target}", i.Resolved, i.Text))],
+            total - applied);
         }, ct);
     }
 
@@ -415,10 +476,23 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             throw new ToolError(ErrorCode.InvalidArgument, "Nothing to declare.", "pass C declarations such as 'struct S { int a; };', or typeName with members or fields");
         var (native, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
         var edits = userTypes.Layer(native).TypeEdits;
-        var result = await userTypes.ApplyAsync(native, session,
+        // the engine replaces a type of the same name: the undo puts back the earlier declarations and deletes the new types
+        NativeUserTypeBatch? inverse = null;
+        if (text.Length > 0 && enumMembers.Count == 0 && fieldEdits.Count == 0)
+        {
+            var before = new List<string>();
+            var added = new List<NativeTypeEdit>();
+            foreach (var declared in DeclaredNames(text))
+            {
+                try { before.Add((await session.GetTypeAsync(declared, cancellationToken)).Declaration); }
+                catch (ToolError e) when (e.Code == ErrorCode.NotFound) { added.Add(new NativeTypeEdit(declared, null)); }
+            }
+            inverse = new NativeUserTypeBatch(before.Count > 0 ? [string.Join("\n", before)] : [], [], [], []) { TypeEdits = added.Count > 0 ? [.. edits, .. added] : null };
+        }
+        var (result, id) = await Apply(native, session, "declare_native_types",
             new NativeUserTypeBatch(text.Length > 0 ? [text] : [], [], [], []) { EnumMembers = enumMembers, Fields = fieldEdits },
             (r, layer) => r.DeclarationErrors > 0 ? null : RecordMembers(r, text.Length > 0 ? layer.WithDeclarations(text, r.DeclaredTypes) : layer, enumMembers, fieldEdits),
-            cancellationToken);
+            cancellationToken, inverse);
         if (result.DeclarationErrors > 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"{result.DeclarationErrors} error(s) in the declarations" +
                 (result.DeclarationMessages.Count > 0 ? ": " + string.Join("; ", result.DeclarationMessages) : "."), "fix the declarations and declare them again");
@@ -427,13 +501,32 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { TypeEdits = kept }, (_, _) => null, cancellationToken);
         var sb = new System.Text.StringBuilder();
         if (text.Length > 0)
-            sb.AppendLine(result.DeclaredTypes.Count == 0 ? "Declared (the engine reported no type names)."
-                : $"Declared {result.DeclaredTypes.Count} type(s): {string.Join(", ", result.DeclaredTypes.Distinct())}");
-        foreach (var i in result.Items.Where(i => i.Kind is "enum" or "field")) sb.AppendLine(i.Applied ? $"  {i.Text}" : $"  {i.Target} not applied: {i.Error}");
+            sb.Append(result.DeclaredTypes.Count == 0 ? "Declared (the engine reported no type names)."
+                : $"Declared {result.DeclaredTypes.Count} type(s): {string.Join(", ", result.DeclaredTypes.Distinct())}").Append('\n');
+        foreach (var i in result.Items.Where(i => i.Kind is "enum" or "field")) sb.Append(i.Applied ? $"  {i.Text}" : $"  {i.Target} not applied: {i.Error}").Append('\n');
         if (enumMembers.Count + fieldEdits.Count > 0 && result.Items.All(i => !i.Applied))
             throw new ToolError(ErrorCode.InvalidArgument, "No member was applied:\n" + sb, "check the type's name and the member names; list_native_types name= shows them");
-        return sb.ToString().TrimEnd();
+        var changes = result.DeclaredTypes.Distinct().Select(t => new EditChange("declaration", t, null, t))
+            .Concat(result.Items.Where(i => i.Kind is "enum" or "field" && i.Applied).Select(i => new EditChange(i.Kind, i.Target, null, i.Text))).ToList();
+        return Edited(sb.ToString(), id, changes, result.Items.Count(i => i.Kind is "enum" or "field" && !i.Applied));
     });
+
+    /// <summary>The type names C declarations define (struct/union/enum tags with a body, typedef names), in order.</summary>
+    internal static IReadOnlyList<string> DeclaredNames(string text)
+    {
+        var names = new List<string>();
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text, @"\b(?:struct|union|enum)\s+([A-Za-z_]\w*)\s*(?::[^{;]*)?\{"))
+            names.Add(m.Groups[1].Value);
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text, @"\btypedef\b([^;{]*(?:\{[^}]*\}[^;]*)?);"))
+        {
+            var body = m.Groups[1].Value;
+            // a function pointer names itself after "(*"; else the last identifier, past array bounds
+            var pointer = System.Text.RegularExpressions.Regex.Match(body, @"\(\s*\*\s*([A-Za-z_]\w*)\s*\)");
+            var last = System.Text.RegularExpressions.Regex.Match(System.Text.RegularExpressions.Regex.Replace(body, @"\[[^\]]*\]", ""), @"([A-Za-z_]\w*)\s*$");
+            if ((pointer.Success ? pointer : last) is { Success: true } n) names.Add(n.Groups[1].Value);
+        }
+        return names.Distinct().ToList();
+    }
 
     /// <summary>The applied enum members and fields (field outcomes in the order sent) recorded in the layer.</summary>
     private static UserTypeLayer RecordMembers(UserTypeResult result, UserTypeLayer layer, List<NativeEnumMemberEdit> enums, List<NativeFieldEdit> fields)
@@ -490,7 +583,10 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private async Task<string> EditType(string image, NativeTypeEdit edit, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var (native, _, session) = await Open(image, "rva:0", engine, progress, ct);
-        await session.GetTypeAsync(edit.Name, ct);
+        var old = await session.GetTypeAsync(edit.Name, ct);
+        var kept = userTypes.Layer(native).TypeEdits;
+        // a deleted type comes back from its declaration; a rename is undone by the generic inverse
+        var inverse = edit.NewName == null ? new NativeUserTypeBatch([old.Declaration], [], [], []) { TypeEdits = kept } : null;
         if (edit.NewName is { } to)
         {
             bool taken;
@@ -498,12 +594,13 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             catch (ToolError e) when (e.Code == ErrorCode.NotFound) { taken = false; }
             if (taken) throw new ToolError(ErrorCode.InvalidArgument, $"A type named {to} exists.", $"delete it first (delete={to}), or pick another name");
         }
-        var result = await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { TypeEdits = userTypes.Layer(native).WithTypeEdit(edit).TypeEdits },
-            (r, layer) => r.Items.LastOrDefault(i => i.Kind == "type_edit" && i.Target == edit.Name) is { Applied: true } ? layer.WithTypeEdit(edit) : null, ct);
+        var (result, id) = await Apply(native, session, "declare_native_types", NativeUserTypeBatch.Empty with { TypeEdits = userTypes.Layer(native).WithTypeEdit(edit).TypeEdits },
+            (r, layer) => r.Items.LastOrDefault(i => i.Kind == "type_edit" && i.Target == edit.Name) is { Applied: true } ? layer.WithTypeEdit(edit) : null, ct, inverse);
         var done = result.Items.LastOrDefault(i => i.Kind == "type_edit" && i.Target == edit.Name)
             ?? throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
-        if (!done.Applied) throw new ToolError(ErrorCode.InvalidArgument, done.Error ?? "The engine did not apply the edit.");
-        return edit.NewName == null ? $"Deleted type {edit.Name}." : $"Renamed type {edit.Name} to {edit.NewName}; the kept edits that named it now name {edit.NewName}.";
+        if (!done.Applied) throw new ToolError(ErrorCode.InvalidArgument, done.Error ?? "The engine did not apply the edit.", Refusal(done.Error, session.ProviderId));
+        return Edited(edit.NewName == null ? $"Deleted type {edit.Name}." : $"Renamed type {edit.Name} to {edit.NewName}; the kept edits that named it now name {edit.NewName}.",
+            id, new EditChange("type_edit", edit.Name, edit.Name, edit.NewName));
     }
 
     /// <summary>"A=1, B=0x10, C=" for an enum: members to set, an empty value removing one.</summary>
@@ -568,11 +665,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             if (stop <= rva) throw new ToolError(ErrorCode.InvalidArgument, $"end {Va(native, stop.Value)} is not after {Va(native, rva)}.", "pass an end above the start");
         }
         var edit = new NativeAnalysisEdit(rva, k, stop, t);
-        var result = await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { Analysis = [edit] },
+        var (result, id) = await Apply(native, session, "define_native", NativeUserTypeBatch.Empty with { Analysis = [edit] },
             (r, layer) => r.Items is [{ Applied: true }] ? layer.WithAnalysis(edit) : null, cancellationToken);
-        var done = Outcome(result);
+        var done = Outcome(result, session.ProviderId);
         if (k != NativeAnalysisEdit.Data) _ = GhidraNames.Refresh(native, session, code);
-        return $"{k} at {Va(native, rva)}{(stop is { } s ? $"-{Va(native, s)}" : "")}: {done.Text}";
+        var where = $"{Va(native, rva)}{(stop is { } s ? $"-{Va(native, s)}" : "")}";
+        return Edited($"{k} at {where} ({session.ProviderId}): {done.Text}", id, new EditChange(k, where, null, done.Text));
     });
 
     [McpServerTool(Name = "set_native_operand", Title = "Set how an operand displays")]
@@ -598,13 +696,14 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         if (d is not ("enum" or "struct") && t != null) throw new ToolError(ErrorCode.InvalidArgument, $"type applies to display=enum or struct, not {d}.", "drop type");
         var (native, rva, session) = await Open(image, address, engine, progress, cancellationToken);
         var edit = new NativeOperandEdit(rva, operand, d, t);
-        var result = await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { Operands = [edit] },
+        var (result, id) = await Apply(native, session, "set_native_operand", NativeUserTypeBatch.Empty with { Operands = [edit] },
             (r, layer) => r.Items is [{ Applied: true }] ? layer.WithOperand(edit) : null, cancellationToken);
-        var done = Outcome(result);
-        return $"Operand {operand} at {Va(native, rva)} shows as {d}{(t != null ? " " + t : "")}: {done.Text}";
+        var done = Outcome(result, session.ProviderId);
+        return Edited($"Operand {operand} at {Va(native, rva)} shows as {d}{(t != null ? " " + t : "")} ({session.ProviderId}): {done.Text}", id,
+            new EditChange("operand", $"{Va(native, rva)}#{operand}", null, d + (t != null ? " " + t : "")));
     });
 
-    [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types")]
+    [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types", UseStructuredContent = true, OutputSchemaType = typeof(TypeListReport))]
     [Description("The named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member " +
                  "count; name= shows one type as a C declaration with member offsets.")]
     public Task<string> ListNativeTypes(
@@ -615,7 +714,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max rows (max 5000).")] int limit = 200,
         [Description(EngineDescription)] string? engine = null,
-        [Description("Default: the engine's order.")] string? sort = null,
+        [Description("name (default), size, or ordinal (the engine's order).")] string? sort = null,
         [Description("Reverse the order.")] bool descending = false,
         [Description("List each type's first 32 members (enums: name = value).")] bool members = false,
         [Description("Add the types each one refers to.")] bool related = false,
@@ -625,20 +724,23 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var k = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim().ToLowerInvariant();
         if (k is not (null or "struct" or "union" or "udt" or "enum" or "typedef" or "func" or "ptr"))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", "use struct, union, udt, enum, typedef, func or ptr");
-        var order = string.IsNullOrWhiteSpace(sort) ? "ordinal" : sort.Trim().ToLowerInvariant();
+        var order = string.IsNullOrWhiteSpace(sort) ? "name" : sort.Trim().ToLowerInvariant();
         if (order is not ("ordinal" or "name" or "size")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown sort '{sort}'.", "use name or size");
         var nameFilter = NameFilter.Parse(filter);
         var (_, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
         if (!string.IsNullOrWhiteSpace(name))
         {
             var t = await session.GetTypeAsync(name.Trim(), cancellationToken);
-            var sb = new System.Text.StringBuilder($"{t.Kind} {t.Name}" + (t.Size >= 0 ? $", {t.Size} bytes" : "") + "\n" + t.Declaration.TrimEnd() + "\n");
+            var sb = new System.Text.StringBuilder($"{t.Kind} {t.Name}" + (t.Size >= 0 ? $", {t.Size} bytes" : "") + $" ({session.ProviderId})\n" + t.Declaration.TrimEnd() + "\n");
             if (t.Members.Count > 0)
             {
-                sb.AppendLine("Members (offset  name  type  size):");
-                foreach (var m in t.Members) sb.AppendLine($"  +0x{m.Offset:X}  {m.Name}  {m.Type}  {m.Size}");
+                sb.Append("Members (offset  name  type  size):\n");
+                foreach (var m in t.Members) sb.Append($"  +0x{m.Offset:X}  {m.Name}  {m.Type}  {m.Size}\n");
             }
-            return sb.ToString();
+            var entry = new TypeEntry(t.Name, t.Kind, t.Size >= 0 ? t.Size : null, t.Members.Count,
+                [.. t.Members.Select(m => new TypeMemberEntry(m.Name, t.Kind == "enum" ? null : m.Type, m.Offset, t.Kind == "enum" ? null : m.Size))], null)
+                { Declaration = t.Declaration.TrimEnd() };
+            return ToolOutput.Report(sb.ToString(), new TypeListReport(session.ProviderId, [entry], 0, 1));
         }
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, 5000);
@@ -657,25 +759,36 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                 relatedNames[t.Name] = RelatedTypes(texts, t.Name);
             }
         }
-        var blocks = rows.Select(t =>
-        {
-            var b = new System.Text.StringBuilder($"  {t.Kind} {t.Name}" + (t.Size >= 0 ? $"  {t.Size} bytes" : "") + (t.MemberCount > 0 ? $"  {t.MemberCount} members" : ""));
-            var shown = members ? t.Members?.Take(MemberRows).ToList() : null;
-            foreach (var m in shown ?? [])
-                b.AppendLine().Append(t.Kind == "enum" ? $"      {m.Name} = {m.Offset}" : $"      +0x{m.Offset:X}  {m.Name}  {m.Type}  {m.Size}");
-            if (shown != null && t.MemberCount > shown.Count) b.AppendLine().Append($"      ... {t.MemberCount - shown.Count} more (name={t.Name} lists them)");
-            if (relatedNames.TryGetValue(t.Name, out var refs) && refs.Count > 0) b.AppendLine().Append("      related: " + string.Join(", ", refs));
-            return b.ToString();
-        }).ToList();
-        int fit = (pager ?? new OutputPager(new ServerOptions())).FitRows(blocks, 400);
-        var text = new System.Text.StringBuilder($"{total} type(s)" + (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + (k != null ? $" of kind {k}" : "") +
-                                                 (order != "ordinal" ? $" by {order}{(descending ? " descending" : "")}" : "") +
-                                                 (fit < total ? $"; rows {offset + 1}-{offset + fit}" : "") + "\n");
-        foreach (var block in blocks.Take(fit)) text.AppendLine(block);
-        if (fit < blocks.Count) text.AppendLine(OutputPager.CapNote(fit, blocks.Count, offset + fit));
-        else if (offset + rows.Count < total) text.AppendLine($"More: offset={offset + rows.Count}");
-        return text.ToString();
+        var entries = rows.Select(t => new TypeEntry(t.Name, t.Kind, t.Size >= 0 ? t.Size : null, t.MemberCount,
+            members ? t.Members?.Take(MemberRows).Select(m => new TypeMemberEntry(m.Name, t.Kind == "enum" ? null : m.Type, m.Offset, t.Kind == "enum" ? null : m.Size)).ToList() : null,
+            relatedNames.TryGetValue(t.Name, out var refs) && refs.Count > 0 ? refs : null)).ToList();
+        var header = (nameFilter != null ? $"matching '{nameFilter.Text}'" : "") + (k != null ? $" of kind {k}" : "") + $" by {order}{(descending ? " descending" : "")} " +
+                     $"({session.ProviderId})\n";
+        return ToolOutput.List(entries, offset, limit, total, TypeLine,
+            page => new TypeListReport(session.ProviderId, page, offset, total), "type", header.TrimStart());
     });
+
+    public sealed record TypeMemberEntry(string Name, string? Type,
+        [property: Description("Struct or union: byte offset; enum: the member's value.")] long Offset, long? Size);
+
+    public sealed record TypeEntry(string Name, [property: Description("struct, union, enum, typedef, func or ptr.")] string Kind, long? Size, int MemberCount,
+        [property: Description("members=true: the first 32.")] IReadOnlyList<TypeMemberEntry>? Members,
+        [property: Description("related=true: the types it refers to.")] IReadOnlyList<string>? Related)
+    {
+        [Description("name=: the type as a C declaration.")] public string? Declaration { get; init; }
+    }
+
+    public sealed record TypeListReport(string Engine, IReadOnlyList<TypeEntry> Items, int Offset, int Total);
+
+    private static string TypeLine(TypeEntry t)
+    {
+        var b = new System.Text.StringBuilder($"{t.Kind} {t.Name}" + (t.Size is { } size ? $"  {size} bytes" : "") + (t.MemberCount > 0 ? $"  {t.MemberCount} members" : ""));
+        foreach (var m in t.Members ?? [])
+            b.Append('\n').Append(t.Kind == "enum" ? $"  {m.Name} = {m.Offset}" : $"  +0x{m.Offset:X}  {m.Name}  {m.Type}  {m.Size}");
+        if (t.Members != null && t.MemberCount > t.Members.Count) b.Append('\n').Append($"  ... {t.MemberCount - t.Members.Count} more (name={t.Name} lists them)");
+        if (t.Related != null) b.Append('\n').Append("  related: " + string.Join(", ", t.Related));
+        return b.ToString();
+    }
 
     /// <summary>Members listed per type with members=true (the parameter text says 32).</summary>
     private const int MemberRows = 32;
@@ -723,19 +836,47 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private static bool Identifier(string s) =>
         s.Length is > 0 and <= 255 && (char.IsAsciiLetter(s[0]) || s[0] == '_') && s.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
 
-    /// <summary>The single item of a one-edit batch, or the engine's reason as an invalid_argument error.</summary>
-    /// <summary>How the engine workers word an edit they verified had no effect.</summary>
-    private const string NoEffect = "not take";
+    /// <summary>
+    /// Why an engine refused an edit (EL-7), from the worker's message: no_frame, reserved_slot, name_in_use, no_local,
+    /// no_storage, no_effect, parse_error, no_function; null for a reason without its own guidance.
+    /// </summary>
+    internal static string? RefusalCode(string? error) => error switch
+    {
+        null => null,
+        _ when error.Contains("has no stack frame", StringComparison.Ordinal) => "no_frame",
+        _ when error.Contains("return address", StringComparison.Ordinal) || error.Contains("saved registers", StringComparison.Ordinal) => "reserved_slot",
+        _ when error.Contains("already has a local named", StringComparison.Ordinal) => "name_in_use",
+        _ when error.Contains("has no local", StringComparison.Ordinal) => "no_local",
+        _ when error.Contains("no storage", StringComparison.Ordinal) => "no_storage",
+        _ when error.Contains("not take", StringComparison.Ordinal) => "no_effect",
+        _ when error.Contains("does not parse", StringComparison.Ordinal) => "parse_error",
+        _ when error.Contains("no function contains", StringComparison.Ordinal) => "no_function",
+        _ => null,
+    };
 
-    private static NativeUserTypeOutcome Outcome(UserTypeResult result)
+    /// <summary>The Next of an engine refusal, by its code; <paramref name="frame"/> names a valid offset for frame refusals.</summary>
+    internal static string Refusal(string? error, string engine, NativeFrame? frame = null) => RefusalCode(error) switch
+    {
+        "no_frame" => $"the function has no stack frame in {NativeEngineService.DisplayName(engine)}; set_native_local edits its register variables, or try " +
+                      $"engine={(engine == "ida" ? "ghidra" : "ida")}",
+        "reserved_slot" => frame is { ReturnAddressOffset: > 0 } f ? $"pick a frame offset below +0x{f.ReturnAddressOffset:X} (locals) or past the saved registers (arguments); get_native_frame shows the frame"
+            : "pick another frame offset; get_native_frame shows the frame",
+        "name_in_use" => "pick another name, or clear=true on the local that holds it (a kept edit may have named it; get_native_frame shows user names)",
+        "no_local" => "use a name decompile_native shows for this function, or stack:<offset> (get_native_frame lists the locals)",
+        "no_storage" or "no_effect" => "rename a local that decompile_native shows, or the variable this one is copied from",
+        "parse_error" => "declare the types it names first (declare_native_types), and spell the calling convention as the engine does (__cdecl, __stdcall, __fastcall)",
+        "no_function" => "define_native kind=function at the start first, or list_functions for a valid address",
+        _ => "check the spelling; list_native_types shows the engine's types and declare_native_types adds missing ones",
+    };
+
+    /// <summary>The single item of a one-edit batch, or the engine's refusal with a Next by its reason.</summary>
+    private static NativeUserTypeOutcome Outcome(UserTypeResult result, string engine, NativeFrame? frame = null)
     {
         var item = result.Items.Count == 1 ? result.Items[0] : throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
-        // The engine took the request but its state did not change: not a spelling problem.
-        if (!item.Applied && item.Error is { } noEffect && noEffect.Contains(NoEffect, StringComparison.Ordinal))
-            throw new ToolError(ErrorCode.Failed, noEffect, "rename a local that decompile_native shows, or the variable this one is copied from");
-        if (!item.Applied)
-            throw new ToolError(ErrorCode.InvalidArgument, item.Error ?? "The engine did not apply the edit.",
-                "check the spelling; list_native_types shows the engine's types and declare_native_types adds missing ones");
-        return item;
+        if (item.Applied) return item;
+        var code = RefusalCode(item.Error);
+        // the engine took the request but its state did not change: not a spelling problem
+        throw new ToolError(code is "no_effect" or "no_storage" ? ErrorCode.Failed : ErrorCode.InvalidArgument, item.Error ?? "The engine did not apply the edit.",
+            Refusal(item.Error, engine, frame)) { Details = code != null ? new { reason = code } : null };
     }
 }

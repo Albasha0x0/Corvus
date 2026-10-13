@@ -11,7 +11,6 @@ get_call_arguments
 list_assemblies
 list_cpp_classes
 list_edits
-list_native_types
 native_call_tree
 read_result
 search_code_pattern

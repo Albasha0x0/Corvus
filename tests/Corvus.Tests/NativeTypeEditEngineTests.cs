@@ -83,7 +83,7 @@ public sealed class NativeTypeEditEngineTests(ITestOutputHelper output) : IDispo
 
         Restart();
         var fresh = Setup(freshCache);
-        output.WriteLine(await fresh.Types.GetNativeFrame(path, Function, engine: engine));
+        output.WriteLine(await fresh.Types.GetNativeFrame(path, Function, engine: engine, locals: true));
         var again = await fresh.Session(engine);
         Assert.Equal(8, (await again.GetTypeAsync("SampleMsg")).Size);
         await Missing(again, "SamplePkt");
@@ -125,7 +125,7 @@ public sealed class NativeTypeEditEngineTests(ITestOutputHelper output) : IDispo
 
         Restart();
         var fresh = Setup(freshCache);
-        output.WriteLine(await fresh.Types.GetNativeFrame(path, Function, engine: engine));
+        output.WriteLine(await fresh.Types.GetNativeFrame(path, Function, engine: engine, locals: true));
         var again = await fresh.Session(engine);
         Assert.Equal("b@4:8 a@14:4", await Members(again, "SampleRec"));
         Assert.Equal("x@0:4 z@0:8", await Members(again, "SampleU"));
@@ -142,7 +142,7 @@ public sealed class NativeTypeEditEngineTests(ITestOutputHelper output) : IDispo
     {
         var rig = Setup("ghidra-g");
         var path = Image();
-        output.WriteLine(await rig.Types.GetNativeFrame(path, Function, engine: "ghidra"));
+        output.WriteLine(await rig.Types.GetNativeFrame(path, Function, engine: "ghidra", locals: true));
         Assert.True(await rig.Engines.GhidraNameLayer(rig.Native)! > 0);
         var index = await rig.Code.Index(rig.Native, null, default);
         NativeNameLayers.Of(rig.Native).Remove(NativeNameSource.Ghidra, index);

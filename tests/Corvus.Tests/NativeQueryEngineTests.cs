@@ -61,7 +61,7 @@ public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposab
         output.WriteLine(text.Split('\n')[0]);
         Assert.Contains("// Widget::Run at ", text);
         Assert.Contains("; symbol ?Run@Widget@@QEAAXXZ)", text);
-        var frame = await rig.Types.GetNativeFrame(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida");
+        var frame = await rig.Types.GetNativeFrame(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida", locals: true);
         output.WriteLine(frame.Split('\n')[0]);
         Assert.StartsWith("Frame of Widget::Run at ", frame);
         Assert.Contains("(symbol ?Run@Widget@@QEAAXXZ)", frame);

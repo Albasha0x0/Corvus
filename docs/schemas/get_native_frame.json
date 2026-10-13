@@ -1,0 +1,139 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "engine": {
+      "type": "string"
+    },
+    "function": {
+      "description": "VA of the function start.",
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "localSize": {
+      "type": "integer"
+    },
+    "savedRegisters": {
+      "type": "integer"
+    },
+    "returnAddressOffset": {
+      "type": "integer"
+    },
+    "members": {
+      "type": "integer"
+    },
+    "locals": {
+      "type": "integer"
+    },
+    "localsNote": {
+      "description": "Why there are no decompiler locals (decompiler error, or locals not asked).",
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "description": "A stack frame member or a decompiler local of get_native_frame.",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "member (the engine's frame) or local (the decompiler's variables).",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "offset": {
+            "description": "member: offset from the frame's lowest address; local: its stack offset, when on the stack.",
+            "type": "integer"
+          },
+          "baseOffset": {
+            "description": "member: offset from the return address (IDA's var_/arg_).",
+            "type": "integer"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "slot": {
+            "description": "member: local, arg or special (return address, saved registers).",
+            "type": "string"
+          },
+          "location": {
+            "description": "local: register name, or stack.",
+            "type": "string"
+          },
+          "argument": {
+            "type": "boolean"
+          },
+          "userName": {
+            "type": "boolean"
+          },
+          "userType": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "type"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "engine",
+    "function",
+    "name",
+    "localSize",
+    "savedRegisters",
+    "returnAddressOffset",
+    "members",
+    "locals",
+    "items",
+    "offset",
+    "total"
+  ]
+}

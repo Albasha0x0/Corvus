@@ -181,6 +181,9 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report stack frames.");
 
+    /// <summary>The frame, with the decompiler's locals only when <paramref name="locals"/> (without them nothing is decompiled).</summary>
+    Task<NativeFrame> GetFrameAsync(uint rva, bool locals, CancellationToken cancellationToken = default) => GetFrameAsync(rva, cancellationToken);
+
     /// <summary>Named types whose name contains <paramref name="filter"/> (case-insensitive), of <paramref name="kind"/> when given, paged.</summary>
     Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list types.");

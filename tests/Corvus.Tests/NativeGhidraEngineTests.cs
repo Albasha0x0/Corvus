@@ -170,7 +170,7 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         output.WriteLine(set);
         Assert.Contains("SampleHeader * base", set);
         Assert.Contains("struct SampleHeader, 8 bytes", await types.ListNativeTypes(path, name: "SampleHeader", engine: "ghidra"));
-        var frame = await types.GetNativeFrame(path, Export, engine: "ghidra");
+        var frame = await types.GetNativeFrame(path, Export, engine: "ghidra", locals: true);
         output.WriteLine(frame);
         Assert.Contains("base  SampleHeader *", frame);
         Assert.Contains("SampleHeader *base", await rig.Analysis.DecompileNative(path, Export, engine: "ghidra"));

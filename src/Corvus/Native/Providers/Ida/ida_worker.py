@@ -1136,6 +1136,8 @@ def op_frame(args):
            "retaddr": ida_frame.frame_off_retaddr(f) if frame is not None else 0, "members": [], "locals": [], "decompile_error": None}
     for u in members:
         out["members"].append([u.offset, u.name, str(u.type), u.size, frame_kind(f, frame, u.index, u.offset)])
+    if args.get("locals", True) is False:
+        return out
     cf, why = decompile_function(m, f.start_ea)
     if cf is None:
         out["decompile_error"] = why

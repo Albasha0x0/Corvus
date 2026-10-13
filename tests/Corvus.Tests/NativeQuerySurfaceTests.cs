@@ -67,10 +67,10 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Contains("// [1/2] Widget::Run at", batch);
         var text = await rig.Analysis.DecompileNative(rig.Native.Id, "First");
         Assert.Matches(@"// Widget::Run at 0x[0-9A-F]+ \(ida; symbol \?Run@Widget@@QEAAXXZ\)", text);
-        var frame = await rig.Types.GetNativeFrame(rig.Native.Id, "First");
+        var frame = await rig.Types.GetNativeFrame(rig.Native.Id, "First", locals: true);
         Assert.StartsWith("Frame of Widget::Run at ", frame);
         Assert.Contains("(symbol ?Run@Widget@@QEAAXXZ)", frame);
-        Assert.StartsWith("Frame of Second at ", await rig.Types.GetNativeFrame(rig.Native.Id, "Second"));
+        Assert.StartsWith("Frame of Second at ", await rig.Types.GetNativeFrame(rig.Native.Id, "Second", locals: true));
     }
 
     /// <summary>Code tools over a small image whose 0x1000 reads the slot 0x5040 and calls 0x1100 (see <see cref="Il2CppNativeNamesTests.GameAssembly"/>).</summary>
@@ -312,7 +312,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Equal(["Packet", "PPacket"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/packet$/")));
         Assert.Empty(Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^packet/s")));
         Assert.Equal(["Packet", "PPacket"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "pack"))); // substring
-        Assert.Equal(["Packet", "Header"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, kind: "udt")));
+        Assert.Equal(["Header", "Packet"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, kind: "udt")));
         var bySize = await rig.Types.ListNativeTypes(rig.Native.Id, sort: "size", descending: true);
         Assert.Equal(["Packet", "PPacket", "Header", "Color", "Callback"], Names(bySize));
         Assert.Contains("by size descending", bySize);

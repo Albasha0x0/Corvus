@@ -19,12 +19,10 @@ find_method_by_address
 get_android_resource
 get_exception_info
 get_il2cpp_info
-get_native_frame
 ghidra_script
 ida_python
 install_android_package
 list_edits
-list_native_types
 load_assembly
 load_pdb
 native_call_tree

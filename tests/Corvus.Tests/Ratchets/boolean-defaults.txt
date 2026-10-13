@@ -13,7 +13,6 @@ migrate_native_names.comments
 migrate_native_names.useNames
 migrate_native_patches.useNames
 read_dump_memory.imageFallback
-set_native_type.rename
 trace_native_values.followGlobals
 unpack_container.load
 update_to_new_build.useNames

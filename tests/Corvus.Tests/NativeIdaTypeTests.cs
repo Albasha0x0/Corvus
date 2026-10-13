@@ -130,7 +130,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     public async Task Stack_frame_lists_members_and_locals_and_stack_edits_persist()
     {
         var rig = Setup("cache-s");
-        var view = await rig.Types.GetNativeFrame(Image, Function);
+        var view = await rig.Types.GetNativeFrame(Image, Function, locals: true);
         output.WriteLine(view);
         Assert.Contains("__return_address", view);
         Assert.Contains("special", view);
@@ -158,7 +158,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         foreach (var d in _owned) d.Dispose();
         _owned.Clear();
         var fresh = Setup("cache-t");
-        Assert.Contains("sample_slot2  int  4", await fresh.Types.GetNativeFrame(Image, Function));
+        Assert.Contains("sample_slot2  int  4", await fresh.Types.GetNativeFrame(Image, Function, locals: true));
     }
 
     [IdaFact]

@@ -451,9 +451,11 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     private static string? Text(JsonElement e) => e.ValueKind == JsonValueKind.String ? e.GetString() : null;
 
-    public async Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default)
+    public Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) => GetFrameAsync(rva, true, cancellationToken);
+
+    public async Task<NativeFrame> GetFrameAsync(uint rva, bool withLocals, CancellationToken cancellationToken = default)
     {
-        var r = await CallAsync("frame", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false);
+        var r = await CallAsync("frame", IdaProvider.Args(("rva", rva), ("locals", withLocals)), cancellationToken).ConfigureAwait(false);
         var members = r.GetProperty("members").EnumerateArray()
             .Select(x => new NativeFrameMember(x[0].GetInt32(), x[1].GetString() ?? "", x[2].GetString() ?? "", x[3].GetInt32(), x[4].GetString() ?? "local")).ToList();
         var locals = r.GetProperty("locals").EnumerateArray()

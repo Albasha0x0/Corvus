@@ -1955,7 +1955,7 @@ Structured output: `image`, `engines`.
 
 **Set a native prototype or global type** (destructive, idempotent, open-world, long-running)
 
-Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or the type of a global ('Handler *[8]') in the engine. Named types must exist there (pushed PDB, RTTI and Il2Cpp types, or declare_native_types). User types win over recovered ones; empty clears. A prototype's name renames the function unless rename=false. Kept with the image's annotations.
+Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or the type of a global ('Handler *[8]') in the engine. Named types must exist there (pushed PDB, RTTI and Il2Cpp types, or declare_native_types). User types win over recovered ones; empty clears. rename=true also names the function as its prototype does. Kept with the image's annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1963,10 +1963,10 @@ Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len
 | `address` | string |  |  | A function start or a global: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `type` | string |  |  | C prototype for a function, C type for a global; empty to clear the user type. |
 | `items` | string |  |  | Instead of address and type: lines 'address = type'. |
-| `rename` | boolean |  | `true` | Name the function as its prototype does. |
+| `rename` | boolean |  | `false` | Name the function as its prototype does. |
 | `guess` | boolean |  | `false` | Report the engine's guess at address without applying it. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
-| `engine` | string |  |  | auto (default): the engine with this image open, else IDA when installed, else Ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 
 ### set_native_local
 
@@ -1984,7 +1984,7 @@ Rename and/or retype a local or argument in a native function's pseudocode, name
 | `clear` | boolean |  | `false` | Drop the user's name and type of the variable. |
 | `items` | string |  |  | Instead of local: lines 'local = newName', or JSON [{local, newName?, type?, clear?}]. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
-| `engine` | string |  |  | auto (default): the engine with this image open, else IDA when installed, else Ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 
 ### set_native_stack_var
 
@@ -2002,19 +2002,24 @@ Rename and/or retype a stack frame member, by its get_native_frame name (var_28)
 | `delete` | boolean |  | `false` | Delete the member. |
 | `clear` | boolean |  | `false` | Drop the user's edit, restoring the engine's member. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
-| `engine` | string |  |  | auto (default): the engine with this image open, else IDA when installed, else Ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 
 ### get_native_frame
 
 **Native stack frame and locals** (read-only, idempotent, open-world, long-running)
 
-A native function's stack frame as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as locals) and its decompiler locals (name, type, register or stack offset, user edits). Offsets count from the frame's lowest address; brackets give the offset from the return address (IDA's var_/arg_).
+A native function's stack frame as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as locals) and, with locals=true, its decompiler locals (name, type, register or stack offset, user edits). Offsets count from the frame's lowest address; brackets give the offset from the return address.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `engine` | string |  |  | auto (default): the engine with this image open, else IDA when installed, else Ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `locals` | boolean |  | `false` | Add the decompiler's locals (decompiles the function). |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `200` | Max rows, members then locals (max 5000). |
+
+Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedRegisters`, `returnAddressOffset`, `members`, `locals`, `localsNote`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### declare_native_types
 
@@ -2031,7 +2036,7 @@ Declare C types (structs, unions, enums, typedefs, function types) in the engine
 | `fields` | string |  |  | Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes. |
 | `delete` | string |  |  | A type to delete. |
 | `rename` | string |  |  | 'Old=New'; kept edits naming it follow. |
-| `engine` | string |  |  | auto (default): the engine with this image open, else IDA when installed, else Ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 
 ### list_native_types
 
@@ -2047,11 +2052,13 @@ The named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, dec
 | `name` | string |  |  | Show this one type in full instead of a list. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Max rows (max 5000). |
-| `engine` | string |  |  | auto (default): the engine with this image open, else IDA when installed, else Ghidra. Values: auto, ida, ghidra. |
-| `sort` | string |  |  | Default: the engine's order. Values: name, size. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `sort` | string |  |  | name (default), size, or ordinal (the engine's order). Values: name, size. |
 | `descending` | boolean |  | `false` | Reverse the order. |
 | `members` | boolean |  | `false` | List each type's first 32 members (enums: name = value). |
 | `related` | boolean |  | `false` | Add the types each one refers to. |
+
+Structured output: `engine`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### define_native
 
@@ -2066,7 +2073,7 @@ Change the engine's analysis at an address. code decodes instructions (to end, e
 | `kind` | string | yes |  | What to make. Values: code, function, undefine, data. |
 | `end` | string |  |  | Exclusive end address (same forms as address). |
 | `type` | string |  |  | kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16) or a C type, with an optional [count] (dword[8]). |
-| `engine` | string |  |  | auto (default): the engine with this image open, else IDA when installed, else Ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 
 ### reanalyze_native
 
@@ -2098,7 +2105,7 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 | `operand` | integer | yes |  | Operand index, 0 for the first. |
 | `display` | string | yes |  | How to display it (see the description). Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
 | `type` | string |  |  | display=enum or struct: the type's name (struct: optionally +delta). |
-| `engine` | string |  |  | auto (default): the engine with this image open, else IDA when installed, else Ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
 
 ### ida_python
 

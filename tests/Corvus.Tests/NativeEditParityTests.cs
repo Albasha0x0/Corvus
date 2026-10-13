@@ -198,7 +198,7 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         Assert.Matches(@"(?m)^\+.*sample_target", renamed);
 
         // the prototype's name becomes the function's name in our layer and the engine; rename=false keeps it
-        var proto = await rig.Types.SetNativeType(path, Rva(callee), "int __fastcall sample_proto_name(void *a, void *b, unsigned int n)", engine: engine);
+        var proto = await rig.Types.SetNativeType(path, Rva(callee), "int __fastcall sample_proto_name(void *a, void *b, unsigned int n)", rename: true, engine: engine);
         output.WriteLine(proto);
         Assert.Contains("now named sample_proto_name", proto);
         Assert.Equal("sample_proto_name", rig.Code.Annotations(rig.Native).NameAt(callee));

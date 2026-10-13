@@ -79,6 +79,7 @@ final class FrameOps {
         JsonArray locals = new JsonArray();
         o.add("locals", locals);
         o.add("decompile_error", JsonNull.INSTANCE);
+        if (r.args.has("locals") && !r.args.get("locals").getAsBoolean()) return o;
         HighFunction hf;
         try {
             hf = high(w, f, r);
