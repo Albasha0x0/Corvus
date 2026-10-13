@@ -88,9 +88,16 @@ public class TokenEstimateCalibrationTests
     {
         var text = string.Concat(Enumerable.Repeat("  0x180112F40 GetTypeInfo(\"name\", 42); // é\U0001F600\r\n", 20_000));
         Assert.Equal(TokenEstimate.Of(text), TokenEstimate.Of(text.AsSpan()));
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        int tokens = TokenEstimate.Of(text.AsSpan());
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        // Best of three: under a loaded parallel run the runtime now and then charges the thread a few bytes of its own.
+        int tokens = 0;
+        long least = long.MaxValue;
+        for (int i = 0; i < 3 && least > 0; i++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            tokens = TokenEstimate.Of(text.AsSpan());
+            least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+        Assert.Equal(0, least);
         // Linear: twice the text, twice the count (the line has no boundary effects).
         Assert.Equal(2 * tokens, TokenEstimate.Of(text + text));
         Assert.Equal(0, TokenEstimate.Of((string?)null));

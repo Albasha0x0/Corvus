@@ -7,6 +7,13 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- Quick-set time on 20 threads: one workstation GC heap made it 43 s instead of 33 s; tiered PGO's instrumented code
+       costs about 2 s more in a run this short. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.Server" Value="true" />
+    <RuntimeHostConfigurationOption Include="System.Runtime.TieredPGO" Value="false" />
+  </ItemGroup>
+
   <!-- dotnet test runs the quick set; CORVUS_ALL_TESTS=1 (environment or -p:) also runs the tests marked Speed=Slow. -->
   <PropertyGroup Condition="'$(CORVUS_ALL_TESTS)' != '1'">
     <RunSettingsFilePath>$(MSBuildThisFileDirectory)quick.runsettings</RunSettingsFilePath>
