@@ -57,7 +57,7 @@ public sealed class NativeIntrospectionRealTests(ITestOutputHelper output) : IDi
 
     /// <summary>
     /// The ARM64 single-file host calls GetProcAddress over 200 times from two functions nothing calls, with names it does not
-    /// pass in: finding the late-bound imports costs about what indexing does, not minutes of slicing those functions.
+    /// pass in: finding the late-bound imports costs less than indexing, not a slice or a whole-function analysis per call.
     /// </summary>
     [Trait("Speed", "Slow")]
     [Fact]
@@ -72,7 +72,7 @@ public sealed class NativeIntrospectionRealTests(ITestOutputHelper output) : IDi
         var late = clock.Elapsed;
         output.WriteLine($"index {build.TotalSeconds:0.0} s, late-bound imports {late.TotalSeconds:0.0} s: {set.GetProcAddressSites} resolver calls, {set.Imports.Count} named");
         Assert.True(set.GetProcAddressSites > 200 && set.Imports.Count > 20);
-        Assert.True(late < build * 2 + TimeSpan.FromSeconds(1), $"late-bound imports took {late.TotalSeconds:0.0} s, the index {build.TotalSeconds:0.0} s");
+        Assert.True(late < build + TimeSpan.FromSeconds(0.5), $"late-bound imports took {late.TotalSeconds:0.0} s, the index {build.TotalSeconds:0.0} s");
     }
 
     [Trait("Speed", "Slow")]

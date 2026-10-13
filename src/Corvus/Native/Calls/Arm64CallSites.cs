@@ -67,8 +67,15 @@ internal sealed partial class Arm64CallSites : ICallSites
     public IReadOnlyList<CallSiteInfo> CallsIn(NativeFunction f, CancellationToken ct = default)
     {
         EnsureDynamic(ct);
-        // while the late-bound imports are being found, sites are computed without them and not kept
-        return _dynamic == null ? Analyze(f, ct) : _sites.GetOrAdd(f.Start, _ => Analyze(f, ct));
+        if (_dynamic != null) return _sites.GetOrAdd(f.Start, _ => Analyze(f, ct));
+        // while the late-bound imports are being found, sites are computed without them and kept only for that search
+        // (one function can hold hundreds of resolver calls, each asking for its call site)
+        if (_building != null && Monitor.IsEntered(_dynamicGate))
+        {
+            if (!_building.TryGetValue(f.Start, out var sites)) _building[f.Start] = sites = Analyze(f, ct);
+            return sites;
+        }
+        return Analyze(f, ct);
     }
 
     private List<CallSiteInfo> Analyze(NativeFunction f, CancellationToken ct)
