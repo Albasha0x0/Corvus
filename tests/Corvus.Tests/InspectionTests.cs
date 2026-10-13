@@ -365,6 +365,27 @@ public class InspectionTests : IDisposable
         Assert.DoesNotContain(report.Contents, p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal));
     }
 
+    /// <summary>A container path searches every assembly inside; rows page with the list envelope and save writes them all.</summary>
+    [Fact]
+    public async Task Embedded_OfAContainerSearchesItsAssembliesAndPages()
+    {
+        var single = Inspection.ExtractEmbedded(null, Save("Encoded.dll", EncodedFixture()), false, null, false, default);
+        var zip = Save("app.zip", ContainerFixtures.Zip(("lib/Encoded.dll", File.ReadAllBytes(_dir.File("Encoded.dll"))), ("readme.txt", "x"u8.ToArray())));
+        var inZip = Inspection.ExtractEmbedded(null, zip, false, null, false, default);
+        Assert.Equal(single.Contents.Select(c => "lib/Encoded.dll: " + c.Source), inZip.Contents.Select(c => c.Source));
+        Assert.Equal("app.zip", inZip.Assembly);
+
+        var tools = new Corvus.Tools.InspectionTools(Inspection, _workspace);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await tools.ExtractEmbedded(path: zip, offset: 2, limit: 3, save: true, outputDirectory: _dir.File("zip-out"));
+        var page = Assert.IsType<Corvus.Tools.EmbeddedPage>(collector.Value);
+        Assert.Equal((2, inZip.Contents.Count, 3), (page.Offset, page.Total, page.Items.Count));
+        Assert.Equal(inZip.Contents.Skip(2).Take(3).Select(c => c.Source), page.Items.Select(c => c.Source));
+        Assert.Equal(inZip.Contents.Count, Directory.GetFiles(_dir.File("zip-out"), "embedded_*").Length);
+        Assert.Contains("(showing 3-5)", text);
+        Assert.Contains("[More: offset=5]", text);
+    }
+
     [Fact]
     public void Embedded_SaveWritesDefangedFiles_AndValuesComeFromDecodedText()
     {
@@ -407,6 +428,8 @@ public class InspectionTests : IDisposable
         Assert.Equal("text", recovered.Kind);
         Assert.Equal(["xor key 5a (brute-forced)"], recovered.Encoding);
         Assert.Equal(Encoding.UTF8.GetBytes(SecretText), recovered.Bytes);
+        Assert.Equal("inferred", recovered.Basis);
+        Assert.All(on.Contents.Where(p => p != recovered && !p.Kind.StartsWith("high-entropy", StringComparison.Ordinal)), p => Assert.Null(p.Basis));
         // Default results are unchanged.
         var off = Inspection.ExtractEmbedded(null, path, false, null, false, default);
         Assert.Equal(off.Contents.Select(p => (p.Source, string.Join(">", p.Encoding))).Order(),

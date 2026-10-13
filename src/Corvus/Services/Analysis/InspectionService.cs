@@ -252,8 +252,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     public EmbeddedReport ExtractEmbedded(string? assembly, string? path, bool save, string? outputDirectory, bool load, CancellationToken ct,
         bool xorText = false, bool includeMedia = false)
     {
-        var (label, source, sha, contents, notes) = WithAssembly(assembly, path, s =>
-            (s.Label, assembly != null ? workspace.Get(assembly).FilePath : Path.GetFullPath(path!), Blob.Sha256(s.Image), Embedded.Find(s.Scan, Limits, ct, xorText), s.Scan.Notes), ct);
+        var (label, source, sha, contents, notes) = assembly == null && ContainerInput(path) is { } container
+            ? EmbeddedInContainer(container, xorText, ct)
+            : WithAssembly(assembly, path, s =>
+                (s.Label, assembly != null ? workspace.Get(assembly).FilePath : Path.GetFullPath(path!), Blob.Sha256(s.Image), Embedded.Find(s.Scan, Limits, ct, xorText), s.Scan.Notes), ct);
         if (!includeMedia && contents.Any(c => Blob.IsMedia(c.Kind)))
         {
             // Images are common and rarely relevant; only counted unless requested.
@@ -278,6 +280,42 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             written.Add(p with { SavedTo = file, LoadedAs = loadedAs });
         }
         return new EmbeddedReport(label, written, root, notes);
+    }
+
+    /// <summary>The managed assemblies of a container file (not itself an assembly), or null for any other input.</summary>
+    private static (string Full, string Sha, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes)? ContainerInput(string? path)
+    {
+        if (path == null || Directory.Exists(Path.GetFullPath(path)) || !File.Exists(path)) return null;
+        var (full, bytes) = ReadFile(path);
+        if (Blob.Identify(bytes) == ".NET assembly") return null;
+        var managed = UnpackService.Managed(full, Limits, CancellationToken.None);
+        return managed.Assemblies.Count == 0 ? null : (full, Blob.Sha256(bytes), managed.Assemblies, managed.Notes);
+    }
+
+    /// <summary>Embedded content of every managed assembly in a container; each source starts with the assembly's inner path.</summary>
+    private static (string, string, string, List<EmbeddedContent>, List<string>) EmbeddedInContainer(
+        (string Full, string Sha, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes) container, bool xorText, CancellationToken ct)
+    {
+        var contents = new List<EmbeddedContent>();
+        var notes = new List<string>(container.Notes);
+        foreach (var a in container.Assemblies)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                using var module = LoadModule(a.Bytes, a.Path);
+                Guard(a.Path, () =>
+                {
+                    var scan = ModuleScan.Of(module, Limits, ct);
+                    contents.AddRange(Embedded.Find(scan, Limits, ct, xorText).Select(c => c with { Source = $"{a.Path}: {c.Source}" }));
+                    notes.AddRange(scan.Notes.Select(n => $"{a.Path}: {n}"));
+                    return 0;
+                });
+            }
+            catch (ToolError ex) { notes.Add(ex.Message); }
+        }
+        notes.Insert(0, $"{container.Assemblies.Count} assemblies in the container searched.");
+        return (Path.GetFileName(container.Full), container.Full, container.Sha, contents, notes);
     }
 
     private static string Extension(EmbeddedContent p) => p.Kind switch

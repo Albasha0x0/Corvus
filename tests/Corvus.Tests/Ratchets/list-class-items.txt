@@ -3,7 +3,6 @@
 bucket_minidumps
 dump_heap
 dump_stack
-extract_embedded
 find_method_by_address
 find_similar_functions
 get_call_arguments

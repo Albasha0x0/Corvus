@@ -21,6 +21,9 @@ public sealed record EmbeddedContent(
     /// <summary>The decoded bytes (not serialized).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public byte[] Bytes { get; init; } = [];
+
+    /// <summary>"inferred" for a brute-forced XOR key or a high-entropy guess; null when the decode chain is exact.</summary>
+    public string? Basis => Kind.StartsWith("high-entropy", StringComparison.Ordinal) || Encoding.Any(e => e.Contains("brute-forced", StringComparison.Ordinal)) ? "inferred" : null;
 }
 
 /// <summary>

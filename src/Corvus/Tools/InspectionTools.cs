@@ -87,18 +87,23 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         return ContainerText.Values(report, offset, ToolSupport.ClampLimit(limit), kept);
     }
 
-    [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true)]
-    [Description("Embedded content of an assembly (resources, static byte arrays, long string literals) decoded through hex, base64, compression and XOR " +
-                 "(key from a known header) until a PE, archive, ELF / Mach-O or text appears, plus high-entropy blobs; each with its source and encoding chain. " +
-                 "save=true writes them (defanged names), load=true also loads the .NET ones. Nothing is executed.")]
-    public Task<InspectionService.EmbeddedReport> ExtractEmbedded(
+    [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true, OutputSchemaType = typeof(EmbeddedPage))]
+    [Description("Embedded content of an assembly, or of every assembly in a container (resources, static byte arrays, long string literals) decoded through hex, " +
+                 "base64, compression and XOR (key from a known header) until a PE, archive, ELF / Mach-O or text appears, plus high-entropy blobs; each with " +
+                 "its source and encoding chain. save=true writes them all (defanged names), load=true also loads the .NET ones. Nothing is executed.")]
+    public async Task<string> ExtractEmbedded(
         [Description(AssemblyParam)] string? assembly = null,
-        [Description(PathParam)] string? path = null,
+        [Description("An assembly or container file, read without loading; pass this or assembly.")] string? path = null,
         [Description("Write the items to disk.")] bool save = false,
         [Description("New or empty directory (or an earlier extraction of the same file); default under temp.")] string? outputDirectory = null,
-        [Description("Load the .NET assemblies found into the workspace (implies save).")] bool load = false,
-        [Description("Also recover 1-16 byte XOR keys over unreadable data, keeping clearly natural text or configuration (heuristic, slower).")] bool xorText = false,
-        [Description("Also list and save images (else only counted).")] bool includeMedia = false,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText, includeMedia), cancellationToken);
+        [Description("Load the .NET assemblies found (implies save).")] bool load = false,
+        [Description("Also brute-force 1-16 byte XOR keys over unreadable data, keeping natural text or configuration (slower).")] bool xorText = false,
+        [Description("Also list and save images (else counted).")] bool includeMedia = false,
+        [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
+        [Description(ToolSupport.LimitDescription)] int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        var report = await Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText, includeMedia), cancellationToken);
+        return ContainerText.Embedded(report, offset, ToolSupport.ClampLimit(limit));
+    }
 }

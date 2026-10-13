@@ -4,7 +4,7 @@
     "assembly": {
       "type": "string"
     },
-    "contents": {
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
@@ -38,6 +38,9 @@
           },
           "loadedAs": {
             "type": "string"
+          },
+          "basis": {
+            "type": "string"
           }
         },
         "required": [
@@ -50,6 +53,12 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
     "outputDirectory": {
       "type": "string"
     },
@@ -58,6 +67,18 @@
       "items": {
         "type": "string"
       }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -80,7 +101,8 @@
   },
   "required": [
     "assembly",
-    "contents",
-    "notes"
+    "items",
+    "offset",
+    "total"
   ]
 }

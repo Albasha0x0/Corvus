@@ -36,7 +36,7 @@ public sealed partial record ToolContract
         ["summarize_file"] = Row(O.Report, L.Interactive, lean: true, core: true),
         ["survey_features"] = Row(O.Report, L.Interactive, core: true),
         ["extract_strings"] = Row(O.List, L.Interactive, core: true, sort: "type, count descending, value"),
-        ["extract_embedded"] = Row(O.List, L.Interactive, core: true, sort: "discovery order", noDryRun: "writes new names only, never over a different file"),
+        ["extract_embedded"] = Row(O.List, L.Interactive, core: true, sort: "assembly, then resources, static data, strings", noDryRun: "writes new names only, never over a different file"),
         ["search_container"] = Row(O.List, L.Interactive, core: true, sort: "container entry, metadata order"),
         ["unpack_container"] = Row(O.Edit, L.Long, lean: true, core: true, noDryRun: "extracts only into an empty directory or its own earlier unpack"),
         ["unity_overview"] = Row(O.Report, L.Interactive, core: true),

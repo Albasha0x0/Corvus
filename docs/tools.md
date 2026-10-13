@@ -575,19 +575,21 @@ Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResu
 
 **Extract embedded content** (edit, idempotent)
 
-Embedded content of an assembly (resources, static byte arrays, long string literals) decoded through hex, base64, compression and XOR (key from a known header) until a PE, archive, ELF / Mach-O or text appears, plus high-entropy blobs; each with its source and encoding chain. save=true writes them (defanged names), load=true also loads the .NET ones. Nothing is executed.
+Embedded content of an assembly, or of every assembly in a container (resources, static byte arrays, long string literals) decoded through hex, base64, compression and XOR (key from a known header) until a PE, archive, ELF / Mach-O or text appears, plus high-entropy blobs; each with its source and encoding chain. save=true writes them all (defanged names), load=true also loads the .NET ones. Nothing is executed.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `path` | string |  |  | A .NET assembly file to analyze without loading it; pass this or assembly. |
+| `path` | string |  |  | An assembly or container file, read without loading; pass this or assembly. |
 | `save` | boolean |  | `false` | Write the items to disk. |
 | `outputDirectory` | string |  |  | New or empty directory (or an earlier extraction of the same file); default under temp. |
-| `load` | boolean |  | `false` | Load the .NET assemblies found into the workspace (implies save). |
-| `xorText` | boolean |  | `false` | Also recover 1-16 byte XOR keys over unreadable data, keeping clearly natural text or configuration (heuristic, slower). |
-| `includeMedia` | boolean |  | `false` | Also list and save images (else only counted). |
+| `load` | boolean |  | `false` | Load the .NET assemblies found (implies save). |
+| `xorText` | boolean |  | `false` | Also brute-force 1-16 byte XOR keys over unreadable data, keeping natural text or configuration (slower). |
+| `includeMedia` | boolean |  | `false` | Also list and save images (else counted). |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Max rows. |
 
-Structured output: `assembly`, `contents`, `outputDirectory`, `notes`.
+Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### search_container
 

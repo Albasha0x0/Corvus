@@ -31,8 +31,40 @@ public sealed record ValuePage(string Assembly, IReadOnlyList<ExtractedValue> It
     public IReadOnlyList<string>? Notes { get; init; }
 }
 
+/// <summary>extract_embedded: one page of the items found (all are written with save=true).</summary>
+public sealed record EmbeddedPage(string Assembly, IReadOnlyList<EmbeddedContent> Items, int Offset, int Total)
+{
+    public string? OutputDirectory { get; init; }
+    public IReadOnlyList<string>? Notes { get; init; }
+}
+
 internal static class ContainerText
 {
+    public static string Embedded(InspectionService.EmbeddedReport report, int offset, int limit)
+    {
+        var header = new StringBuilder($"{Escape(report.Assembly)}: ");
+        header.Append(report.Contents.Count == 0 ? "no embedded content" : string.Join(", ", report.Contents.GroupBy(c => c.Kind).Select(g => $"{g.Count()} {g.Key}"))).Append(".\n");
+        if (report.OutputDirectory != null) header.Append($"Written to {report.OutputDirectory}.\n");
+        foreach (var n in report.Notes) header.Append("Note: ").Append(Escape(n)).Append('\n');
+        return ToolOutput.List(report.Contents, offset, limit, EmbeddedRow,
+            rows => new EmbeddedPage(report.Assembly, rows, offset, report.Contents.Count)
+            {
+                OutputDirectory = report.OutputDirectory, Notes = report.Notes.Count > 0 ? report.Notes : null,
+            }, "item", header.ToString());
+    }
+
+    private static string EmbeddedRow(EmbeddedContent c)
+    {
+        var sb = new StringBuilder($"{c.Kind} {c.Size:N0} bytes in {Escape(c.Source)}");
+        if (c.Encoding.Count > 0) sb.Append(" via ").Append(Escape(string.Join(" > ", c.Encoding)));
+        if (c.Basis != null) sb.Append($" ({c.Basis})");
+        if (c.Detail != null) sb.Append(": ").Append(Escape(c.Detail.Length > 120 ? c.Detail[..120] + "…" : c.Detail));
+        sb.Append($", sha256 {c.Sha256[..16]}…");
+        if (c.SavedTo != null) sb.Append(" -> ").Append(c.SavedTo);
+        if (c.LoadedAs != null) sb.Append($" (loaded as {c.LoadedAs})");
+        return sb.ToString();
+    }
+
     public static string Values(InspectionService.ValueReport report, int offset, int limit, string? kept)
     {
         var byType = report.Values.GroupBy(v => v.Type).ToDictionary(g => g.Key, g => g.Count());
