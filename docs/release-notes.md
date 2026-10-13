@@ -435,6 +435,9 @@ paging units and record shapes changed across every family; the checklist below 
 - `export_project` on an .apk failed before the tool ran.
 - `find_method_by_address` and `get_il2cpp_info` printed a negative `[More: offset=]` when `offset + limit` overflowed.
 - `pull_android_file` reported a missing remote file as `failed`.
+- On Linux and macOS, percentages printed as "0 %" (culture-dependent); every host now prints "0%". PDB object names
+  recorded as Windows paths kept their folders on Linux and macOS.
+- `server_status` on a server without IDA or Ghidra was cut to fit; an engine value missing on many tools is now one entry.
 - `patch_asm` on an image it cannot assemble named the architecture "Other" (s390x); it now names the machine and
   carries `details.arch`.
 - C# edits: enclosing namespaces' types bind first again (CS0115 / CS1503), and a reference newer than the runtime's
