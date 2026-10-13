@@ -1,10 +1,5 @@
 # Exemptions from: parameters use the canonical names of S7.1
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
 extract_strings.savePath
-find_virtual_calls.seconds
 ida_python.file
-inspect_instruction.count
-list_imports.module
-load_pdb.force
 reanalyze_native.start
-search_instructions.start

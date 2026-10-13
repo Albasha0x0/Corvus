@@ -1,20 +1,9 @@
 # Exemptions from: a description is at most 600 bytes (S8.1)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-analyze_native_function
 apply_il2cpp_names
 compare_native_images
-disassemble
-find_virtual_calls
-find_xrefs
 generate_cpp_binding
-get_native_type
-inspect_instruction
 load_assembly
-load_pdb
 make_code_pattern
-native_call_tree
-resolve_call_targets
 summarize_file
-trace_native_values
 update_to_new_build
-verify_native_imports
