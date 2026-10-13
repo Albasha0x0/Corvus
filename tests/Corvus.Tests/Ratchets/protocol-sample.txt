@@ -23,6 +23,7 @@ export_edits
 export_engine_database
 export_il2cpp_symbols
 export_native_annotations
+export_native_patches
 extract_embedded
 extract_strings
 find_counterpart
@@ -100,8 +101,6 @@ set_native_local
 set_native_operand
 set_native_stack_var
 set_native_type
-summarize_file
-survey_features
 symbolize_stack_text
 trace_native_feature
 trace_native_values

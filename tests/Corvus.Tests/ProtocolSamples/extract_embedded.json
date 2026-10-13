@@ -1,0 +1,19 @@
+{
+  "tool": "extract_embedded",
+  "arguments": {
+    "assembly": "TestFixture"
+  },
+  "isError": false,
+  "content": [
+    "TestFixture: no embedded content.\n0 items:\n[End: 0 items]\n"
+  ],
+  "structuredContent": {
+    "assembly": "TestFixture",
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

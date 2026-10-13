@@ -1,0 +1,20 @@
+{
+  "tool": "extract_strings",
+  "arguments": {
+    "assembly": "TestFixture",
+    "limit": 5
+  },
+  "isError": false,
+  "content": [
+    "TestFixture: no typed values.\n0 values:\n[End: 0 values]\n"
+  ],
+  "structuredContent": {
+    "assembly": "TestFixture",
+    "items": [],
+    "offset": 0,
+    "total": 0,
+    "limit": 5,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

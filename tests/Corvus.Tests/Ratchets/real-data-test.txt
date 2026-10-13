@@ -14,8 +14,6 @@ dump_stack
 emulate_native
 export_engine_database
 export_il2cpp_symbols
-extract_embedded
-extract_strings
 find_method_by_address
 find_similar_functions
 find_virtual_calls
@@ -59,7 +57,6 @@ pull_android_package
 read_android_log
 read_bytes
 read_dump_memory
-read_result
 reanalyze_native
 record_note
 reload_assembly
@@ -67,6 +64,7 @@ resolve_address
 resolve_call_targets
 save_session
 search_bytes
+search_code_pattern
 search_container
 search_decompiled
 search_instructions
@@ -77,14 +75,11 @@ set_native_local
 set_native_operand
 set_native_stack_var
 set_native_type
-summarize_file
-survey_features
 symbolize_stack_text
 trace_native_feature
 trace_native_values
 uninstall_android_package
 unity_overview
 unload_assembly
-unpack_container
 update_note
 verify_native_imports

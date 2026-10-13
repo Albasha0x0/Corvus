@@ -1,0 +1,32 @@
+{
+  "tool": "survey_features",
+  "arguments": {
+    "assembly": "TestFixture",
+    "category": "all"
+  },
+  "isError": false,
+  "content": [
+    "TestFixture: 1 feature(s), 76 methods or functions scanned.\ncode loading\n  invoke code through reflection, 1 match\n    api:System.Activator::CreateInstance x1\n      Fixture.Model.Singleton`1::get_Instance() @IL_000E\n"
+  ],
+  "structuredContent": {
+    "assembly": "TestFixture",
+    "methodsScanned": 76,
+    "features": [
+      {
+        "name": "invoke code through reflection",
+        "category": "code loading",
+        "matches": 1,
+        "evidence": [
+          {
+            "feature": "api:System.Activator::CreateInstance",
+            "count": 1,
+            "locations": [
+              "Fixture.Model.Singleton`1::get_Instance() @IL_000E"
+            ]
+          }
+        ]
+      }
+    ],
+    "category": "all"
+  }
+}

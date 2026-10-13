@@ -42,6 +42,10 @@ public partial class ProtocolSampleTests
         ["export_project"] = new() { ["assembly"] = "TestFixture", ["outputDirectory"] = "sample-export" },
         ["get_r2r_code"] = new() { ["method"] = "Account::Charge(int)" },
         ["find_r2r_method"] = new() { ["assembly"] = "TestFixture", ["address"] = "rva:0x2050" },
+        ["summarize_file"] = new() { ["assembly"] = "TestFixture" },
+        ["survey_features"] = new() { ["assembly"] = "TestFixture", ["category"] = "all" },
+        ["extract_strings"] = new() { ["assembly"] = "TestFixture", ["limit"] = 5 },
+        ["extract_embedded"] = new() { ["assembly"] = "TestFixture" },
         // Edits preview by default; stub_method applies, so undo_edit (recorded after it) has an edit to undo.
         ["add_members_csharp"] = new() { ["type"] = "Account", ["code"] = "public int Twice(int x) { return x * 2; }" },
         ["add_types_csharp"] = new() { ["assembly"] = "TestFixture", ["code"] = "namespace Mods { public static class M { public static int One() { return 1; } } }" },
