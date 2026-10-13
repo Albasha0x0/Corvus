@@ -315,4 +315,7 @@ public sealed record EditList(string Assembly, IReadOnlyList<EditListItem> Items
 public sealed record EditResult(bool Applied, bool DryRun, IReadOnlyList<EditResult.Change> Changes, IReadOnlyList<string> EditIds)
 {
     public sealed record Change(string Kind, string Target);
+
+    /// <summary>Batch items that failed (engine declarations); absent otherwise.</summary>
+    public int? Failed { get; init; }
 }

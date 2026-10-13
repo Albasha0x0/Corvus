@@ -651,7 +651,7 @@ Rename a type, method, field, property (with its accessors) or event in memory. 
 | `kind` | string |  |  | Restrict symbol resolution to this kind. Values: type, method, field, property, event. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### rename_namespace
 
@@ -667,7 +667,7 @@ Move every type of a namespace (optionally its sub-namespaces) to a new namespac
 | `includeSubNamespaces` | boolean |  | `false` | Also rewrite namespaces that start with oldNamespace + '.'. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### stub_method
 
@@ -682,7 +682,7 @@ Replace a method's body with 'return <value>;' (or 'return;' for void) in memory
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### patch_method_csharp
 
@@ -697,7 +697,7 @@ Replace a method's body (methods, constructors, accessors) with C# compiled agai
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview the IL that would be written; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### patch_method_il
 
@@ -713,7 +713,7 @@ Rewrite a method body from IL text (stack-validated): edit get_il's lines and pa
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### add_members_csharp
 
@@ -728,7 +728,7 @@ Add C# members (methods, fields, properties, events, constructors, nested types)
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### add_types_csharp
 
@@ -742,7 +742,7 @@ Add C# types (with their namespace) to an assembly; they can use its internal ty
 | `code` | string | yes |  | C# source declaring the new types. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### simplify_methods
 
@@ -760,7 +760,7 @@ Clean transformed method bodies: fold (string decoders with constant inputs run 
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 | `deterministicEnvironment` | boolean |  | `false` | Fold machine reads (paths, environment, names) against fixed stand-ins (docs/simplify.md). |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### list_edits
 
@@ -803,7 +803,7 @@ Undo the last edit or one by number: the others are replayed on the original ima
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 | `number` | integer |  |  | Edit number from list_edits (the #n of its editId); omit for the last. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### revert_edits
 
@@ -815,7 +815,7 @@ Discard every unsaved edit of an assembly; resultId keeps them as a script (read
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 ### export_edits
 

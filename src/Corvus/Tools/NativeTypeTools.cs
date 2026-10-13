@@ -52,16 +52,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private static string Edited(string text, EditId? id, IReadOnlyList<EditChange> changes, int? failed)
     {
         text = text.TrimEnd('\n') + (id is { } e ? $"\nEdit {e} (undo_native_edit editId={e} takes it back)" : "") + "\n";
-        return ToolOutput.With(text, new EditResult(changes.Count > 0, false, [.. changes.Select(c => new EditTarget(c.Kind, c.Target))], id is { } i ? [i] : [])
+        return ToolOutput.With(text, new EditResult(changes.Count > 0, false, [.. changes.Select(c => new EditResult.Change(c.Kind, c.Target))], id is { } i ? [i.ToString()] : [])
             { Failed = failed is > 0 ? failed : null });
-    }
-
-    // the compact single-edit outcome (the shape of the .NET edit tools'): before and after are in the text
-    public sealed record EditTarget(string Kind, string Target);
-
-    public sealed record EditResult(bool Applied, bool DryRun, IReadOnlyList<EditTarget> Changes, IReadOnlyList<EditId> EditIds)
-    {
-        public int? Failed { get; init; }
     }
 
     public sealed record FrameRow(

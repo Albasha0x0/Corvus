@@ -174,7 +174,9 @@ public class ToolCliTests
         Assert.Equal(2, code);
         Assert.Contains("member", error);
 
-        (code, _, error) = await Run(["export_edits", "--structured"]);
+        // any tool still without an output schema (the S4 ratchet shrinks, so the name is not fixed)
+        var textOnly = (string)Corvus.Setup.ToolCli.CatalogTools.First(t => t["outputSchema"] == null)["name"]!;
+        (code, _, error) = await Run([textOnly, "--structured"]);
         Assert.Equal(2, code);
         Assert.Contains("no structured output", error);
     }
