@@ -293,11 +293,11 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         var corelib = Entry(r, "System.Private.CoreLib.dll");
         Assert.Equal(".NET assembly", corelib.Kind);
         Assert.Contains("deflate", corelib.Origin);
-        // The whole runtime is extracted; the report lists MaxListed, app first.
-        Assert.True(Directory.EnumerateFiles(r.OutputDirectory, "*.dll", SearchOption.AllDirectories).Count() > 100);
-        Assert.Equal(UnpackService.MaxListed, r.Files.Count);
+        // The whole runtime is extracted and every file is listed, app first (unpack_container pages them).
+        var written = Directory.EnumerateFiles(r.OutputDirectory, "*", SearchOption.AllDirectories).Count(f => !f.EndsWith(".corvus-unpack", StringComparison.Ordinal));
+        Assert.True(written > 100);
+        Assert.Equal(written, r.Files.Count);
         Assert.Equal("Hello.dll", Path.GetFileName(r.Files.First(f => f.Kind == ".NET assembly").Path));
-        Assert.Contains(r.Notes, n => n.Contains($"; {UnpackService.MaxListed} listed (the app's assemblies first"));
         Assert.DoesNotContain(r.Notes, n => n.StartsWith("Skipped"));
     }
 
