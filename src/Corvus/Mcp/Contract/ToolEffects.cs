@@ -33,7 +33,7 @@ public static partial class ToolEffects
         new(false, destructive, idempotent, openWorld, longRunning);
 
     public const string LongRunningMetaKey = "corvus/longRunning";
-    public const string LongRunningSuffix = " [Long-running: can exceed 10 s.]";
+    public const string LongRunningSuffix = " [Long-running.]"; // the guide (errors) says what it means: over 10 s
 
     /// <summary>Every tool's row, by family; the rows are in the per-family files beside this one.</summary>
     internal static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, Effects>> ByFamily = new Dictionary<string, IReadOnlyDictionary<string, Effects>>(StringComparer.Ordinal)

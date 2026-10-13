@@ -18,7 +18,7 @@ public static partial class Guide
         nextOffset (the text ends [More: offset=N]), or pass its resultId (a content id, r- and 12 hex digits, kept on disk for days) to
         read_result, which pages it by maxTokens, searches it with query and writes it whole with outputPath. List, search and info
         tools also return structured content (items, offset, limit, total, hasMore, nextOffset); any record may carry notices,
-        warnings, coverage and resultId (docs/schemas/envelope.json). Tools marked [Long-running ...] can take more than 10 s.
+        warnings, coverage and resultId (docs/schemas/envelope.json). Tools marked [Long-running.] can take more than 10 s.
         Symbols: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method', 'Ns.Type::Method(int, string)', a generic one 'Method<T>(string)', 'Ns.Type::.ctor', short names, or
         tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.
         server_status: version and commit, program path, install kind, client, limits, engines, toolsets, and the tools or modes that
