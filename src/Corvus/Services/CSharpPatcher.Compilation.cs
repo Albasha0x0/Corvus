@@ -360,7 +360,10 @@ public sealed partial class CSharpPatcher
         if (string.Equals(images[keep].Name, "System.Private.CoreLib", StringComparison.OrdinalIgnoreCase))
             for (int i = 1; i < images.Count; i++) // 0 is the target
                 if (i != keep && !replaced.ContainsKey(i) && !string.Equals(Path.GetDirectoryName(images[i].Path), dir, StringComparison.OrdinalIgnoreCase)
-                    && Sibling(images[i].Name) is { } runtime)
+                    && Sibling(images[i].Name) is { } runtime
+                    // An out-of-band package is never newer than the runtime's own copy; a newer image is another framework's
+                    // (WPF's WindowsBase 9.0 beside the runtime's 4.0 facade, CS1705 / CS7069).
+                    && AssemblyVersion(runtime) >= AssemblyVersion(images[i].Image))
                     replaced[i] = runtime;
         if (replaced.Count == 0) return references;
         var result = new List<MetadataReference>(references);
@@ -387,6 +390,17 @@ public sealed partial class CSharpPatcher
             return bytes;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    private static Version AssemblyVersion(byte[] image)
+    {
+        try
+        {
+            using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(image, writable: false));
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            return md.IsAssembly ? md.GetAssemblyDefinition().Version : new Version(0, 0, 0, 0);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException) { return new Version(0, 0, 0, 0); }
     }
 
     /// <summary>Whether an image references no other assembly and defines System.Object.</summary>
