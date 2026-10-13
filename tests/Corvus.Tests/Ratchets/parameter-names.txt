@@ -1,4 +1,2 @@
 # Exemptions from: parameters use the canonical names of S7.1
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-ida_python.file
-reanalyze_native.start

@@ -2189,7 +2189,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 **Re-run native auto-analysis** (destructive, open-world, long-running)
 
-Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a full run also completes a Ghidra analysis the open's budget cut short. options= sets analyzers for this run; analyzers=true lists them.
+Re-run IDA's or Ghidra's auto-analysis over an image (or from-to) and save; a full run also completes a Ghidra analysis the open's budget cut short. options= sets analyzers for this run; analyzers=true lists them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2198,8 +2198,8 @@ Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a 
 | `analyzers` | boolean |  |  | List the analyzer options and values instead of running. |
 | `filter` | string |  |  | With analyzers: name filter. |
 | `options` | string[] |  |  | name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true'). |
-| `start` | string |  |  | Range start (default: the whole image). |
-| `end` | string |  |  | Range end (exclusive). |
+| `from` | string |  |  | Range start (default: the whole image). |
+| `to` | string |  |  | Range end (exclusive). |
 | `timeoutSeconds` | integer |  | `600` | Seconds (1-3600); what is left runs on the next run. |
 | `offset` | integer |  |  | With analyzers: rows to skip. |
 | `limit` | integer |  | `200` | With analyzers: max rows. |
@@ -2232,10 +2232,10 @@ Run Python in the IDA worker holding a native image's database (idalib): IDAPyth
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
-| `code` | string |  |  | Python source (or pass file). |
+| `code` | string |  |  | Python source (or pass scriptPath). |
 | `reset` | boolean |  |  | Clear the globals earlier calls left. |
 | `engine` | string |  |  | Default auto. Values: auto, ida. |
-| `file` | string |  |  | A .py file to run instead of code. |
+| `scriptPath` | string |  |  | A .py file to run instead of code. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 | `persist` | boolean |  |  | Save the database after the script. |
 | `allowError` | boolean |  |  | Return an exception as the result instead of an error. |

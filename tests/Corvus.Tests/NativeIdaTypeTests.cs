@@ -283,7 +283,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         // a script file, the database saved afterwards
         var script = _dir.File("script.py");
         File.WriteAllText(script, "print('y' * 500)\n7 * 6");
-        var printedFile = await rig.Scripts.IdaPython(Image, file: script);
+        var printedFile = await rig.Scripts.IdaPython(Image, scriptPath: script);
         Assert.Contains("Result: 42", printedFile);
         Assert.Contains(new string('y', 500), printedFile);
         var database = Directory.EnumerateFiles(_dir.File("cache-q"), "*.i64", SearchOption.AllDirectories).Single();

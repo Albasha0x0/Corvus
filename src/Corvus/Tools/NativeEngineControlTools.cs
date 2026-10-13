@@ -33,7 +33,7 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
     }
 
     [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis", UseStructuredContent = true, OutputSchemaType = typeof(ReanalysisReport))]
-    [Description("Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a full run also completes a Ghidra " +
+    [Description("Re-run IDA's or Ghidra's auto-analysis over an image (or from-to) and save; a full run also completes a Ghidra " +
                  "analysis the open's budget cut short. options= sets analyzers for this run; analyzers=true lists them.")]
     public Task<string> ReanalyzeNative(
         [Description(NativeTools.ImageDescription)] string image,
@@ -41,8 +41,8 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         [Description("List the analyzer options and values instead of running.")] bool analyzers = false,
         [Description("With analyzers: name filter.")] string? filter = null,
         [Description("name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true').")] string[]? options = null,
-        [Description("Range start (default: the whole image).")] string? start = null,
-        [Description("Range end (exclusive).")] string? end = null,
+        [Description("Range start (default: the whole image).")] string? from = null,
+        [Description("Range end (exclusive).")] string? to = null,
         [Description("Seconds (1-3600); what is left runs on the next run.")] int timeoutSeconds = 600,
         [Description("With analyzers: rows to skip.")] int offset = 0,
         [Description("With analyzers: max rows.")] int limit = 200,
@@ -59,15 +59,15 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
             if (eq <= 0) throw new ToolError(ErrorCode.InvalidArgument, $"option '{o}' is not name=value.", "options=[\"AF_FLIRT=false\"]");
             pairs.Add(new(o[..eq].Trim(), o[(eq + 1)..].Trim()));
         }
-        if (analyzers && (pairs.Count > 0 || start != null || end != null))
-            throw new ToolError(ErrorCode.InvalidArgument, "analyzers=true lists the options; it takes no options, start or end.");
-        if (end != null && start == null) throw new ToolError(ErrorCode.InvalidArgument, "end needs start.");
+        if (analyzers && (pairs.Count > 0 || from != null || to != null))
+            throw new ToolError(ErrorCode.InvalidArgument, "analyzers=true lists the options; it takes no options, from or to.");
+        if (to != null && from == null) throw new ToolError(ErrorCode.InvalidArgument, "to needs from.");
         EngineChoice.Mode(engine, engines);
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
         var index = code?.Ready(native);
         uint? Address(string? text) => string.IsNullOrWhiteSpace(text) ? null : NativeAddress.Parse(native.Image, text, index != null ? index.AddressesOfName : null);
-        uint? from = Address(start), to = Address(end);
-        if (from is { } f && to is { } t && t <= f) throw new ToolError(ErrorCode.InvalidArgument, "end is not after start.");
+        uint? start = Address(from), end = Address(to);
+        if (start is { } f && end is { } t && t <= f) throw new ToolError(ErrorCode.InvalidArgument, "to is not after from.");
         var choice = EngineChoice.EngineOnly(engine, engines, native);
         var session = await engines.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
@@ -87,9 +87,9 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
                     [.. page.Select(a => new AnalyzerEntry(a.Name, a.Value, a.Type))], offset, all.Count), "option", header);
         }
 
-        var r = await control.ReanalyzeAsync(pairs, from, from is { } s ? to ?? s + 1 : null, timeoutSeconds, cancellationToken);
+        var r = await control.ReanalyzeAsync(pairs, start, start is { } s ? end ?? s + 1 : null, timeoutSeconds, cancellationToken);
         EngineControl.Advance(session);
-        var scope = from is { } a ? $"{NativeAddress.Va(native.Image, a)}-{NativeAddress.Va(native.Image, to ?? a + 1)}" : null;
+        var scope = start is { } a ? $"{NativeAddress.Va(native.Image, a)}-{NativeAddress.Va(native.Image, end ?? a + 1)}" : null;
         var sb = new StringBuilder($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"}; database saved\n");
         sb.Append(r.Complete ? "Complete: the analysis queue ran empty.\n" : $"Partial: the {timeoutSeconds} s budget ran out; run again to continue.\n");
         sb.Append($"Functions: {r.FunctionsBefore:N0} before, {r.FunctionsAfter:N0} after ({r.FunctionsAfter - r.FunctionsBefore:+#;-#;0})\n");

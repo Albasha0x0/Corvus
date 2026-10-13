@@ -28,10 +28,10 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
                  "Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights. Not journaled: persist=true saves.")]
     public Task<string> IdaPython(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Python source (or pass file).")] string? code = null,
+        [Description("Python source (or pass scriptPath).")] string? code = null,
         [Description("Clear the globals earlier calls left.")] bool reset = false,
         [Description("Default auto.")] string? engine = null,
-        [Description("A .py file to run instead of code.")] string? file = null,
+        [Description("A .py file to run instead of code.")] string? scriptPath = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description("Save the database after the script.")] bool persist = false,
         [Description("Return an exception as the result instead of an error.")] bool allowError = false,
@@ -39,14 +39,14 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         bool hasCode = !string.IsNullOrEmpty(code);
-        if (hasCode == !string.IsNullOrWhiteSpace(file))
-            throw new ToolError(ErrorCode.InvalidArgument, hasCode ? "Pass code or file, not both." : "Pass code or file.");
+        if (hasCode == !string.IsNullOrWhiteSpace(scriptPath))
+            throw new ToolError(ErrorCode.InvalidArgument, hasCode ? "Pass code or scriptPath, not both." : "Pass code or scriptPath.");
         if (!options.IdaScripting)
             throw new ToolError(ErrorCode.Unsupported, "ida_python is disabled on this server.",
                 $"start the server with --ida-scripting or set {ServerOptions.IdaScriptingVariable}=1 to allow scripts");
-        if (file != null)
+        if (scriptPath != null)
         {
-            var path = Path.GetFullPath(file.Trim());
+            var path = Path.GetFullPath(scriptPath.Trim());
             if (!File.Exists(path)) throw Targets.FileNotFound(path);
             if (new FileInfo(path).Length > MaxScriptBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{path} is over {MaxScriptBytes / 1024} KB.");
             code = await File.ReadAllTextAsync(path, cancellationToken);
