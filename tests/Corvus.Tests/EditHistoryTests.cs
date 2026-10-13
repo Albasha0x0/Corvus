@@ -52,22 +52,21 @@ public class EditHistoryTests : IDisposable
         Assert.Contains("StartsWith", _env.Decompile("Secret::Validate"));
     }
 
-    /// <summary>
-    /// diff_edits decompiled every touched member twice before paging (a whole-assembly simplify: thousands of members,
-    /// 27 s for one page); now it stops past the page and keeps the members it diffed for the next page.
-    /// </summary>
+    /// <summary>A whole-assembly simplify touches thousands of members, each decompiled twice: the diff stops at a member cap, the same on every page.</summary>
     [Fact]
-    public void DiffStopsPastThePageAndTheRestFollows()
+    public void DiffCapsTheMembersItDecompiles()
     {
         foreach (var m in new[] { "Account::Score", "Shop::Describe", "Secret::Validate" })
             _env.Edit(() => _env.Edits.StubMethod(_env.One(m), null));
-        var whole = _env.Workspace.Read(() => _env.History.Diff(_env.Fixture, null, default));
-        var (first, complete) = _env.Workspace.Read(() => _env.History.Diff(_env.Fixture, null, whole.IndexOf("=== #2", StringComparison.Ordinal), default));
-        Assert.False(complete);
-        Assert.Single(System.Text.RegularExpressions.Regex.Matches(first, "^--- ", System.Text.RegularExpressions.RegexOptions.Multiline));
-        Assert.StartsWith(first, whole);
-        Assert.Matches(@"\[More: offset=\d+\] \(chars 0-\d+ of 3000\+\)$", new OutputPager(new ServerOptions()).Page(string.Concat(Enumerable.Repeat("a, ", 1_000)), 0, 500, complete: false));
-        Assert.Equal((whole, true), _env.Workspace.Read(() => _env.History.Diff(_env.Fixture, null, whole.Length, default)));
+        var capped = _env.Workspace.Read(() => _env.History.Diff(_env.Fixture, null, default, maxMembers: 2));
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Count(capped, "^--- ", System.Text.RegularExpressions.RegexOptions.Multiline));
+        Assert.Contains("=== #3", capped);
+        Assert.Contains("(1 more member(s) not diffed past the first 2;", capped);
+        Assert.StartsWith(capped[..capped.IndexOf("=== #3", StringComparison.Ordinal)], _env.Workspace.Read(() => _env.History.Diff(_env.Fixture, null, default)));
+        // CRLF text: the bound check and the total count the same normalized characters
+        var pager = new OutputPager(new ServerOptions());
+        Assert.EndsWith("of 3000)", pager.Page(string.Concat(Enumerable.Repeat("a,\r\n", 1_000)), 0, 500));
+        Assert.Throws<ToolError>(() => pager.Page(string.Concat(Enumerable.Repeat("a,\r\n", 1_000)), 3_500));
     }
 
     [Trait("Speed", "Slow")]

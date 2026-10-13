@@ -52,6 +52,39 @@ public sealed class DotnetToolTests : IAsyncLifetime
         throw new InvalidOperationException("no last page");
     }
 
+    /// <summary>diff_edits pages by characters: one totalChars on every page, the text it walks, and nothing past it.</summary>
+    [Fact]
+    public async Task DiffEditsPagesKeepOneTotal()
+    {
+        // Unloading at the end drops the unsaved-edit journal, which would otherwise reach later servers of this process.
+        try
+        {
+            foreach (var m in new[] { "Fixture.Model.Account::Score", "Fixture.Model.Shop::Describe", "Fixture.Model.Secret::Validate" })
+                await Call("stub_method", new() { ["method"] = m, ["dryRun"] = false });
+            var sb = new System.Text.StringBuilder();
+            var totals = new HashSet<int>();
+            int pages = 0;
+            int? offset = 0;
+            while (offset is { } at)
+            {
+                var (_, record) = await Call("diff_edits", new() { ["assembly"] = "TestFixture", ["offset"] = at, ["maxTokens"] = 500 });
+                pages++;
+                Assert.Equal(sb.Length, record.GetProperty("offset").GetInt32());
+                sb.Append(record.GetProperty("code").GetString());
+                totals.Add(record.GetProperty("totalChars").GetInt32());
+                offset = record.TryGetProperty("nextOffset", out var n) ? n.GetInt32() : null;
+            }
+            Assert.Equal(sb.Length, Assert.Single(totals));
+            Assert.True(pages > 1, $"{pages} page(s), {sb.Length} chars");
+            var past = await _server.Client.CallToolAsync("diff_edits", new Dictionary<string, object?> { ["assembly"] = "TestFixture", ["offset"] = sb.Length });
+            Assert.True(past.IsError);
+        }
+        finally
+        {
+            await _server.Client.CallToolAsync("unload_assembly", new Dictionary<string, object?> { ["assembly"] = "TestFixture" });
+        }
+    }
+
     [Fact]
     public async Task TypeInfoSectionsPageOneKind()
     {

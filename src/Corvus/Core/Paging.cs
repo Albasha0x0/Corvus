@@ -76,7 +76,7 @@ public sealed class OutputCall
 }
 
 /// <summary>A character page: <see cref="Slice"/> is text[Offset..End] of <see cref="Total"/> characters.</summary>
-public sealed record TextPageState(int Offset, int End, int Total, bool Complete, string Slice)
+public sealed record TextPageState(int Offset, int End, int Total, string Slice)
 {
     /// <summary>The page as the tool returned it (header, slice, footer).</summary>
     public string Rendered { get; init; } = Slice;
@@ -226,12 +226,12 @@ public sealed class OutputPager(ServerOptions options)
     /// [More: offset=N] to continue, [End: N chars] on a last page past the first.
     /// </summary>
     /// <param name="complete">False when <paramref name="text"/> was produced only past the page: the total is not known.</param>
-    public string Page(string text, int offset = 0, int? maxTokens = null, bool complete = true)
+    public string Page(string text, int offset = 0, int? maxTokens = null)
     {
         if (offset < 0) throw new ToolError(ErrorCode.InvalidArgument, $"offset must be 0 or more, not {offset}.");
+        text = text.Replace("\r\n", "\n"); // before the bound check: offsets and totalChars count the normalized text
         if (offset >= text.Length && text.Length > 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"offset {offset} is past the end of the output ({text.Length} chars).");
-        text = text.Replace("\r\n", "\n");
         offset = Math.Min(offset, text.Length);
         var call = OutputCall.Budgeted;
         int end = PageEnd(text, offset, call, maxTokens);
@@ -239,13 +239,13 @@ public sealed class OutputPager(ServerOptions options)
         {
             if (offset == 0 && to == text.Length) return text;
             var footer = to < text.Length
-                ? $"\n{More(to)} (chars {offset}-{to} of {text.Length}{(complete ? "" : "+")})"
+                ? $"\n{More(to)} (chars {offset}-{to} of {text.Length})"
                 : $"\n[End: {text.Length} chars]";
             var header = offset > 0 ? $"[Continuing from offset {offset}]\n" : "";
             return header + text[offset..to] + footer;
         }
         var page = Render(end);
-        call?.TextPage = new TextPageState(offset, end, text.Length, complete, text[offset..end]) { Rendered = page, Render = to => (Render(to), text[offset..to]) };
+        call?.TextPage = new TextPageState(offset, end, text.Length, text[offset..end]) { Rendered = page, Render = to => (Render(to), text[offset..to]) };
         return page;
     }
 

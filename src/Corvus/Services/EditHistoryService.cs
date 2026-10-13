@@ -270,41 +270,44 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
 
     private static string Short(string sha256) => sha256.Length > 16 ? sha256[..16] + "…" : sha256;
 
-    /// <summary>Unified diffs of the decompiled C# of every member an edit touched, original vs current.</summary>
-    public string Diff(LoadedAssembly asm, int? number, CancellationToken ct) => Diff(asm, number, int.MaxValue, ct).Text;
-
     /// <summary>
-    /// <see cref="Diff(LoadedAssembly, int?, CancellationToken)"/> up to the first member that takes the text past
-    /// <paramref name="stopAfter"/> characters: a whole-assembly simplify touches thousands of members, each decompiled
-    /// twice, and a page shows a few. Complete is false when members were left out.
+    /// Unified diffs of the decompiled C# of every member an edit touched, original vs current. The text is the same whatever
+    /// page is read, so every page reports one total; member diffs are cached for the next page.
     /// </summary>
-    public (string Text, bool Complete) Diff(LoadedAssembly asm, int? number, int stopAfter, CancellationToken ct)
+    /// <param name="maxMembers">Members diffed at most: a whole-assembly simplify touches thousands, each decompiled twice.</param>
+    public string Diff(LoadedAssembly asm, int? number, CancellationToken ct, int maxMembers = MaxDiffMembers)
     {
         if (asm.Edits.Count == 0)
-            return ($"{asm.Id} has no edits.", true);
+            return $"{asm.Id} has no edits.";
         var selected = number != null ? [(number.Value, EditService.Find(asm, number))] : asm.Edits.Select(e => (e.Number, e)).ToList();
 
         var originalView = asm.GetOriginalView(workspace.DnlibContext);
         var sb = new StringBuilder();
         var done = new HashSet<string>(StringComparer.Ordinal);
+        int diffed = 0;
         foreach (var (num, edit) in selected)
         {
-            if (sb.Length > stopAfter) return (sb.ToString(), false);
             sb.AppendLine($"=== #{num} {edit.Kind}: {edit.Description}");
             if (edit.Touched.Count == 0)
             {
                 sb.AppendLine("(no member-level diff for this edit)");
                 continue;
             }
+            int skipped = 0;
             foreach (var label in edit.Touched)
             {
                 if (number == null && !done.Add(label)) continue; // already shown for an earlier edit
-                if (sb.Length > stopAfter) return (sb.ToString(), false);
+                if (diffed == maxMembers) { skipped++; continue; }
+                diffed++;
                 sb.Append(CachedDiffMember(asm, originalView, label, ct));
             }
+            if (skipped > 0)
+                sb.AppendLine($"({skipped} more member(s) not diffed past the first {maxMembers}; save_assembly, then compare_assemblies with the original, shows every change)");
         }
-        return (sb.ToString(), true);
+        return sb.ToString();
     }
+
+    internal const int MaxDiffMembers = 200;
 
     private sealed class MemberDiffs(long key)
     {
