@@ -14,16 +14,17 @@ namespace Corvus.Tools;
 public sealed partial class NativeTools
 {
     [McpServerTool(Name = "get_nativeaot_info", Title = "NativeAOT metadata", UseStructuredContent = true, OutputSchemaType = typeof(NativeAotInfo))]
-    [Description("What a NativeAOT image's own metadata recovers (.NET 7-10; PE, ELF, Mach-O). view=summary: versions, header, each recovery " +
-                 "stage's status and counts. sections: module sections. types: MethodTables (name, origin, kind, base). type: one MethodTable's " +
+    [Description("What a NativeAOT image's own metadata recovers (.NET 7-10; PE, ELF, Mach-O). view=summary: versions, header, recovery stages " +
+                 "and counts. sections: module sections. types: MethodTables (name, origin, kind, base). type: one MethodTable's " +
                  "flags, bases, interfaces and slots. methods: named method bodies. strings: frozen strings with references. statics: statics " +
                  "bases with known fields. Its names apply on load as the nativeaot layer.")]
     public Task<string> GetNativeAotInfo(
         [Description(ImageDescription)] string image,
         [Description("What to show (default summary).")] string? view = null,
         [Description("view=type: a type name or MethodTable address; list views: substring filter.")] string? query = null,
-        [Description("First row for the list views; character offset for summary and type.")] int offset = 0,
-        [Description("Max rows for the list views.")] int limit = 200,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description(LimitDescription)] int limit = DefaultAotLimit,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var aot = NativeAotNames.View(native, cancellationToken)
@@ -34,10 +35,10 @@ public sealed partial class NativeTools
         var mode = string.IsNullOrWhiteSpace(view) ? "summary" : view.Trim().ToLowerInvariant();
         return mode switch
         {
-            "summary" => AotSummary(native, aot, index, offset),
+            "summary" => AotSummary(native, aot, index),
             "sections" => AotSections(native, aot, offset, limit),
             "types" => AotTypes(native, aot, query, offset, limit, cancellationToken),
-            "type" => AotType(native, aot, index, query, offset),
+            "type" => AotType(native, aot, index, query, offset, limit),
             "methods" => AotMethods(native, aot, query, offset, limit, cancellationToken),
             "strings" => AotStrings(native, aot, index, query, offset, limit, cancellationToken),
             "statics" => AotStatics(native, aot, query, offset, limit, cancellationToken),
@@ -45,7 +46,9 @@ public sealed partial class NativeTools
         };
     }, cancellationToken);
 
-    private string AotSummary(LoadedNative native, NativeAotImage aot, NativeCodeIndex? index, int offset)
+    private const int DefaultAotLimit = 75;
+
+    private static string AotSummary(LoadedNative native, NativeAotImage aot, NativeCodeIndex? index)
     {
         var s = aot.Summary();
         var image = native.Image;
@@ -75,18 +78,17 @@ public sealed partial class NativeTools
             : Environment.GetEnvironmentVariable(NativeAotNames.AutoVariable) == "0"
                 ? $"  nativeaot name layer: off ({NativeAotNames.AutoVariable}=0)"
                 : "  nativeaot name layer: applied when the code index is built (any code tool builds it)");
-        var text = sb.ToString();
-        return ToolOutput.With(pager.Page(text, offset), new NativeAotInfo(native.Id, "summary", s, coverage, [], 0, 0, false));
+        return ToolOutput.Report(sb.ToString(), new NativeAotInfo(native.Id, "summary", s, coverage, [], 0, 0));
     }
 
-    private string AotSections(LoadedNative native, NativeAotImage aot, int offset, int limit)
+    private static string AotSections(LoadedNative native, NativeAotImage aot, int offset, int limit)
     {
         var rows = aot.Header.Sections.Select(x => new NativeAotRow(NativeAddress.Va(native.Image, x.StartRva), x.Name, "section",
             $"id {x.Id}, {(x.HasEnd ? $"{x.Length:N0} bytes" : "no end")}")).ToList();
         return Rows(native, "sections", rows, offset, limit, "section");
     }
 
-    private string AotTypes(LoadedNative native, NativeAotImage aot, string? query, int offset, int limit, CancellationToken ct)
+    private static string AotTypes(LoadedNative native, NativeAotImage aot, string? query, int offset, int limit, CancellationToken ct)
     {
         var types = aot.Types.ByRva;
         var rows = new List<NativeAotRow>();
@@ -102,7 +104,7 @@ public sealed partial class NativeTools
         return Rows(native, "types", rows, offset, limit, "MethodTable");
     }
 
-    private string AotMethods(LoadedNative native, NativeAotImage aot, string? query, int offset, int limit, CancellationToken ct)
+    private static string AotMethods(LoadedNative native, NativeAotImage aot, string? query, int offset, int limit, CancellationToken ct)
     {
         var rows = new List<NativeAotRow>();
         foreach (var m in aot.Names.Methods.OrderBy(m => m.Rva).ThenBy(m => m.Name.Full, StringComparer.Ordinal))
@@ -114,7 +116,7 @@ public sealed partial class NativeTools
         return Rows(native, "methods", rows, offset, limit, "method");
     }
 
-    private string AotStrings(LoadedNative native, NativeAotImage aot, NativeCodeIndex? index, string? query, int offset, int limit, CancellationToken ct)
+    private static string AotStrings(LoadedNative native, NativeAotImage aot, NativeCodeIndex? index, string? query, int offset, int limit, CancellationToken ct)
     {
         var rows = new List<NativeAotRow>();
         foreach (var o in aot.Frozen.Objects)
@@ -127,7 +129,7 @@ public sealed partial class NativeTools
         return Rows(native, "strings", rows, offset, limit, "string");
     }
 
-    private string AotStatics(LoadedNative native, NativeAotImage aot, string? query, int offset, int limit, CancellationToken ct)
+    private static string AotStatics(LoadedNative native, NativeAotImage aot, string? query, int offset, int limit, CancellationToken ct)
     {
         var rows = new List<NativeAotRow>();
         foreach (var b in aot.Statics.Bases)
@@ -141,14 +143,11 @@ public sealed partial class NativeTools
         return Rows(native, "statics", rows, offset, limit, "statics base");
     }
 
-    private string Rows(LoadedNative native, string view, List<NativeAotRow> rows, int offset, int limit, string noun)
-    {
-        var text = rows.Select(r => $"{r.Address}  {r.Name}  [{r.Kind}]{(r.Detail != null ? "  " + r.Detail : "")}").ToList();
-        return ToolOutput.With(pager.PageRows(text, offset, limit, noun),
-            Paged(rows, offset, limit, (page, o, total, more) => new NativeAotInfo(native.Id, view, null, null, page, o, total, more)));
-    }
+    private static string Rows(LoadedNative native, string view, List<NativeAotRow> rows, int offset, int limit, string noun, string? header = null) =>
+        ToolOutput.List(rows, offset, limit, r => $"{r.Address}  {r.Name}  [{r.Kind}]{(r.Detail != null ? "  " + r.Detail : "")}",
+            page => new NativeAotInfo(native.Id, view, null, null, page, offset, rows.Count), noun, header);
 
-    private string AotType(LoadedNative native, NativeAotImage aot, NativeCodeIndex? index, string? query, int offset)
+    private static string AotType(LoadedNative native, NativeAotImage aot, NativeCodeIndex? index, string? query, int offset, int limit)
     {
         if (string.IsNullOrWhiteSpace(query))
             throw new ToolError(ErrorCode.InvalidArgument, "view=type needs query: a type name or a MethodTable address.", "view=types lists them");
@@ -168,7 +167,7 @@ public sealed partial class NativeTools
             mt = types.At(rva) ?? throw NoType(q);
         }
         string Name(uint rva) => rva == 0 ? "null" : types.At(rva)?.Name ?? $"MT_{rva:X}";
-        string Code(uint rva) => rva == 0 ? "null" : $"{NativeAddress.Va(image, rva)} {index?.NameAt(rva) ?? (aot.Names.MethodAt.TryGetValue(rva, out var m) ? m.Name.Short : "")}".TrimEnd();
+        string Code(uint rva) => rva == 0 ? "null" : index?.NameAt(rva) ?? (aot.Names.MethodAt.TryGetValue(rva, out var m) ? m.Name.Short : "(no name)");
 
         var sb = new StringBuilder();
         sb.AppendLine($"{mt.Name} at {NativeAddress.Va(image, mt.Rva)}: {mt.Kind}, element type {mt.ElementType}, name from {mt.NameOrigin}" +
@@ -182,28 +181,20 @@ public sealed partial class NativeTools
         if (mt.GenericDefinition != 0)
             sb.AppendLine($"  generic definition {Name(mt.GenericDefinition)}" + (mt.GenericArguments.Count > 0 ? $", arguments {string.Join(", ", mt.GenericArguments.Select(Name))}" : ""));
         sb.AppendLine($"  interfaces ({mt.Interfaces.Count}): {(mt.Interfaces.Count > 0 ? string.Join(", ", mt.Interfaces.Select(Name)) : "none")}");
-        sb.AppendLine($"  vtable ({mt.Vtable.Count} slots):");
         var parent = mt.Kind is "class" or "struct" ? types.At(mt.RelatedType) : null;
         var slots = new List<NativeAotRow>();
         for (int k = 0; k < mt.Vtable.Count; k++)
         {
             uint target = mt.Vtable[k];
             bool inherited = parent != null && k < parent.Vtable.Count && parent.Vtable[k] == target;
-            sb.AppendLine($"    [{k}] {Code(target)}{(inherited ? "  (inherited)" : "")}");
             slots.Add(new NativeAotRow(target == 0 ? "null" : NativeAddress.Va(image, target), Code(target), "slot", $"slot {k}{(inherited ? ", inherited" : "")}"));
         }
         var impls = types.Implementations(mt);
-        if (impls.Count > 0)
-        {
-            sb.AppendLine($"  interface methods implemented here ({impls.Count}, from the dispatch map):");
-            foreach (var impl in impls)
-            {
-                sb.AppendLine($"    {Name(impl.Interface)} slot {impl.InterfaceSlot} -> [{impl.ImplSlot}{(impl.ImplSlot >= mt.Vtable.Count ? ", sealed" : "")}] {Code(impl.Code)}");
-                slots.Add(new NativeAotRow(impl.Code == 0 ? "null" : NativeAddress.Va(image, impl.Code), Code(impl.Code), "interface",
-                    $"{Name(impl.Interface)} slot {impl.InterfaceSlot}, vtable slot {impl.ImplSlot}"));
-            }
-        }
-        return ToolOutput.With(pager.Page(sb.ToString(), offset), new NativeAotInfo(native.Id, "type", null, null, slots, 0, slots.Count, false));
+        foreach (var impl in impls)
+            slots.Add(new NativeAotRow(impl.Code == 0 ? "null" : NativeAddress.Va(image, impl.Code), Code(impl.Code), "interface",
+                $"{Name(impl.Interface)} slot {impl.InterfaceSlot}, vtable slot {impl.ImplSlot}{(impl.ImplSlot >= mt.Vtable.Count ? ", sealed" : "")}"));
+        sb.AppendLine($"  {mt.Vtable.Count} vtable slots, then {impls.Count} interface methods implemented here (from the dispatch map):");
+        return Rows(native, "type", slots, offset, limit, "slot", sb.ToString());
     }
 
     private static ToolError NoType(string query) =>
@@ -217,4 +208,4 @@ public sealed record NativeAotRow(string Address, string Name, [property: Descri
 public sealed record NativeAotInfo(string Image, string View,
     [property: Description("view=summary: versions, sections, stages and counts.")] NativeAotSummary? Summary,
     [property: Description("view=summary: function starts (unwind table) and those named; with the code index, its functions and those named.")] IReadOnlyDictionary<string, int>? Coverage,
-    IReadOnlyList<NativeAotRow> Items, int Offset, int Total, bool Truncated);
+    [property: Description("List views: their rows; view=type: its vtable slots, then the interface methods it implements.")] IReadOnlyList<NativeAotRow> Items, int Offset, int Total);

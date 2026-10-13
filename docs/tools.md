@@ -1574,15 +1574,16 @@ Structured output: `image`, `items`, `offset`, `total`, `limit`, `totalExact`, `
 
 **NativeAOT metadata** (read-only, idempotent, long-running)
 
-What a NativeAOT image's own metadata recovers (.NET 7-10; PE, ELF, Mach-O). view=summary: versions, header, each recovery stage's status and counts. sections: module sections. types: MethodTables (name, origin, kind, base). type: one MethodTable's flags, bases, interfaces and slots. methods: named method bodies. strings: frozen strings with references. statics: statics bases with known fields. Its names apply on load as the nativeaot layer.
+What a NativeAOT image's own metadata recovers (.NET 7-10; PE, ELF, Mach-O). view=summary: versions, header, recovery stages and counts. sections: module sections. types: MethodTables (name, origin, kind, base). type: one MethodTable's flags, bases, interfaces and slots. methods: named method bodies. strings: frozen strings with references. statics: statics bases with known fields. Its names apply on load as the nativeaot layer.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `view` | string |  |  | What to show (default summary). Values: summary, sections, types, type, methods, strings, statics. |
 | `query` | string |  |  | view=type: a type name or MethodTable address; list views: substring filter. |
-| `offset` | integer |  | `0` | First row for the list views; character offset for summary and type. |
-| `limit` | integer |  | `200` | Max rows for the list views. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `75` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `image`, `view`, `summary`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

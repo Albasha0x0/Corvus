@@ -207,16 +207,21 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Contains("Sample.Zoo.Dog  [class]  name from vtable, base System.Object, 3 slots, 1 interfaces", types);
         Assert.Contains("Sample.Zoo.Dog[]  [array]  name from element, element Sample.Zoo.Dog", types);
 
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.GetNativeAotInfo(native.Id, "type", $"0x{w.Dog:X}", offset: 1, limit: 2);
+        var page = Assert.IsType<Corvus.Tools.NativeAotInfo>(collector.Value);
+        Assert.Equal((1, 5, 2), (page.Offset, page.Total, page.Items.Count)); // 3 vtable slots, 2 interface methods: one row unit
+
         var obj = await tools.GetNativeAotInfo(native.Id, "type", "MT_System_Object");
         output.WriteLine(obj);
-        Assert.Contains("[1] 0x140001070 System_Object__vslot1", obj);
+        Assert.Contains("0x140001070  System_Object__vslot1  [slot]  slot 1", obj);
         var dog = await tools.GetNativeAotInfo(native.Id, "type", $"0x{w.Dog:X}");
         Assert.Contains("base chain: System.Object", dog);
-        Assert.Contains("[0] 0x140001010 Sample_Zoo_Dog__Speak", dog);
-        Assert.Contains("[2] 0x140001080 System_Object__vslot2  (inherited)", dog);
+        Assert.Contains("0x140001010  Sample_Zoo_Dog__Speak  [slot]  slot 0", dog);
+        Assert.Contains("0x140001080  System_Object__vslot2  [slot]  slot 2, inherited", dog);
         Assert.Contains($"interfaces (1): MT_{w.Speaker:X}", dog);
-        Assert.Contains("interface methods implemented here (2, from the dispatch map):", dog);
-        Assert.Contains($"MT_{w.Speaker:X} slot 1 -> [3, sealed] 0x140001090 Sample_Zoo_Dog__MT_{w.Speaker:X}_slot1", dog);
+        Assert.Contains("3 vtable slots, then 2 interface methods implemented here (from the dispatch map):", dog);
+        Assert.Contains($"0x140001090  Sample_Zoo_Dog__MT_{w.Speaker:X}_slot1  [interface]  MT_{w.Speaker:X} slot 1, vtable slot 3, sealed", dog);
 
         Assert.Contains("Sample.Zoo.Dog::Speak", await tools.GetNativeAotInfo(native.Id, "methods", "speak"));
         Assert.Contains("hi  [string]  1 refs", await tools.GetNativeAotInfo(native.Id, "strings", "h"));

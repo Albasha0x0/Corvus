@@ -102,6 +102,7 @@
       }
     },
     "items": {
+      "description": "List views: their rows; view=type: its vtable slots, then the interface methods it implements.",
       "type": "array",
       "items": {
         "type": "object",
