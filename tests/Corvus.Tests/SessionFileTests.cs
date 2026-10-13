@@ -53,6 +53,17 @@ public sealed class SessionFileTests : IDisposable
             NativeEdits.Comment(native, index, 0x1000, "reads g");
         }
 
+        /// <summary>load_session's record; its text in <see cref="Text"/>.</summary>
+        public async Task<SessionFileTools.SessionLoadReport> LoadSession(string session, bool dryRun = true, string? targetBuild = null, string? searchRoots = null,
+            string? include = null)
+        {
+            var collector = Corvus.Mcp.ToolOutput.Collect();
+            Text = await Tools.LoadSession(session, dryRun, targetBuild, searchRoots, include);
+            return Assert.IsType<SessionFileTools.SessionLoadReport>(collector.Value);
+        }
+
+        public string Text = "";
+
         public void Dispose() => Workspace.Dispose();
     }
 
@@ -131,15 +142,15 @@ public sealed class SessionFileTests : IDisposable
         Assert.Equal("synth.dmp", Assert.Single(doc.Dumps!).File.Id);
 
         using var b = new Stack(_dir.File("store-b"));
-        var dry = await b.Tools.LoadSession(session);
+        var dry = await b.LoadSession(session);
         Assert.Equal((SessionFileTools.WouldLoad, "recorded_path"), (Item(dry, "il2cpp").Outcome, Item(dry, "il2cpp").Reason));
         Assert.Equal(SessionFileTools.WouldLoad, Item(dry, "dump").Outcome);
-        var applied = await b.Tools.LoadSession(session, dryRun: false);
+        var applied = await b.LoadSession(session, dryRun: false);
         Assert.Equal(SessionFileTools.Refused, Item(applied, "il2cpp").Outcome); // the stand-in metadata cannot be read
         Assert.Contains("Tried: Unity", Item(applied, "il2cpp").Detail);
         Assert.Equal(SessionFileTools.Loaded, Item(applied, "dump").Outcome);
         Assert.Equal(["synth.dmp"], b.Dumps.OpenIds);
-        Assert.Equal(SessionFileTools.AlreadyLoaded, Item(await b.Tools.LoadSession(session, dryRun: false), "dump").Outcome);
+        Assert.Equal(SessionFileTools.AlreadyLoaded, Item(await b.LoadSession(session, dryRun: false), "dump").Outcome);
     }
 
     /// <summary>A real game (CORVUS_IL2CPP_GAME: game folder or global-metadata.dat): saved after load_assembly, read again by load_session.</summary>
@@ -161,7 +172,7 @@ public sealed class SessionFileTests : IDisposable
         }
         Assert.Equal(binarySha, Assert.Single(SessionService.Read(session).Il2Cpp!).BinarySha256);
         using var b = new Stack(_dir.File("store-b"));
-        var item = Item(await b.Tools.LoadSession(session, dryRun: false), "il2cpp");
+        var item = Item(await b.LoadSession(session, dryRun: false), "il2cpp");
         Assert.Equal(SessionFileTools.Loaded, item.Outcome);
         Assert.NotEqual("other_binary", item.Reason);
         Assert.True(item.Count > 0 && b.Workspace.Assemblies.Count == item.Count);
@@ -197,12 +208,12 @@ public sealed class SessionFileTests : IDisposable
         session = _dir.File("work.session.json");
 
         using var b = new Stack(_dir.File("store-b"));
-        var dry = await b.Tools.LoadSession(session, searchRoots: _dir.File("moved"));
+        var dry = await b.LoadSession(session, searchRoots: _dir.File("moved"));
         Assert.All(dry.Items.Where(i => i.Kind == "file"), i => Assert.Equal(("would_load", "search_root"), (i.Outcome, i.Reason)));
         Assert.Equal((SessionFileTools.WouldApply, "not_loaded"), (Item(dry, "edits").Outcome, Item(dry, "edits").Reason)); // was refused, not_found
         Assert.Empty(b.Workspace.Assemblies);
 
-        var run = await b.Tools.LoadSession(session, dryRun: false, searchRoots: _dir.File("moved"));
+        var run = await b.LoadSession(session, dryRun: false, searchRoots: _dir.File("moved"));
         Assert.Equal(2, run.Items.Count(i => i is { Kind: "file", Outcome: "loaded" }));
         Assert.Equal(("applied", 1), (Item(run, "edits").Outcome, Item(run, "edits").Count));
         Assert.Equal(("applied", 1), (Item(run, "patches").Outcome, Item(run, "patches").Count));
@@ -222,7 +233,7 @@ public sealed class SessionFileTests : IDisposable
         b.NativeEdits.Rename(native, b.Code.Ready(native) ?? await b.Code.Index(native, null, default), 0x1040, "make_two", allowDuplicate: false);
 
         // again: everything is there already
-        var again = await b.Tools.LoadSession(session, dryRun: false, include: "patches,annotations,notes", searchRoots: _dir.File("moved"));
+        var again = await b.LoadSession(session, dryRun: false, include: "patches,annotations,notes", searchRoots: _dir.File("moved"));
         Assert.All(again.Items, i => Assert.Contains(i.Outcome, new[] { "already_loaded", "already_present" }));
     }
 
@@ -235,11 +246,11 @@ public sealed class SessionFileTests : IDisposable
         Place("a", "native.dll", NewImage);
 
         using var b = new Stack(_dir.File("store-b"));
-        var same = await b.Tools.LoadSession(session, dryRun: false, include: "patches,annotations");
+        var same = await b.LoadSession(session, dryRun: false, include: "patches,annotations");
         Assert.Contains(same.Items, i => i is { Kind: "file", Outcome: "refused", Reason: "sha_mismatch" });
 
         using var c = new Stack(_dir.File("store-c"));
-        var other = await c.Tools.LoadSession(session, dryRun: false, targetBuild: "other", include: "patches,annotations", searchRoots: _dir.File("old"));
+        var other = await c.LoadSession(session, dryRun: false, targetBuild: "other", include: "patches,annotations", searchRoots: _dir.File("old"));
         Assert.Contains(other.Items, i => i is { Kind: "file", Outcome: "loaded", Reason: "other_build" });
         var patches = Item(other, "patches");
         Assert.True(patches is { Outcome: "applied", Reason: "other_build", Count: 1 }, $"{patches.Outcome} {patches.Reason}: {patches.Detail}");

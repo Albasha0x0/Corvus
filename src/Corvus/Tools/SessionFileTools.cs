@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
@@ -31,7 +32,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     public sealed record OutcomeCount(string Outcome, int Count);
 
     public sealed record SessionLoadReport(string Path, bool DryRun, string TargetBuild, IReadOnlyList<OutcomeCount> Outcomes,
-        int Offset, int Total, bool Truncated, IReadOnlyList<SessionItem> Items, IReadOnlyList<string> Notes);
+        int Offset, int Total, IReadOnlyList<SessionItem> Items, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "save_session", Title = "Save the session", UseStructuredContent = true, OutputSchemaType = typeof(SessionSaved))]
     [Description("Write this session's work to one JSON file: every loaded file (path, relative path, SHA-256), .NET edits, native patches, names and comments, " +
@@ -54,12 +55,12 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
             $"{Plural(saved.Notes, "note")}. load_session path={full} restores it.", saved);
     }, cancellationToken);
 
-    [McpServerTool(Name = "load_session", Title = "Load a session", UseStructuredContent = true)]
+    [McpServerTool(Name = "load_session", Title = "Load a session", UseStructuredContent = true, OutputSchemaType = typeof(SessionLoadReport))]
     [Description("Restore a save_session file: find each file (recorded path, relative path, else by SHA-256 under searchRoots), load it, then apply names and " +
                  "comments (never replacing a different user name), patches and edits, and import notes; one outcome per item with a reason. " +
                  "A changed file is refused unless targetBuild=other, which carries the work to the build now at the recorded path (edits by name, " +
                  "native work through the function match, which needs the old build found under searchRoots).")]
-    public async Task<SessionLoadReport> LoadSession(
+    public Task<string> LoadSession(
         [Description("The session file.")] string path,
         [Description("Report only.")] bool dryRun = true,
         [Description("same (default) or other.")] string? targetBuild = null,
@@ -68,12 +69,19 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Items to return (max 2000).")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        OrderedProgress.Run(context, progress => Load(path, dryRun, targetBuild, searchRoots, include, offset, limit, progress, cancellationToken));
+
+    private async Task<string> Load(string path, bool dryRun, string? targetBuild, string? searchRoots, string? include, int offset, int limit,
+        IProgress<ProgressNotificationValue>? progress, CancellationToken ct)
     {
-        var ct = cancellationToken;
         var parts = SessionService.ParseInclude(include);
         var target = EditHistoryService.ParseTargetBuild(targetBuild);
+        Report(progress, 0, 1, $"Reading {Path.GetFileName(path)}");
         var doc = await Task.Run(() => SessionService.Read(path), ct);
+        // One step per recorded item: locating a moved file under searchRoots hashes files and can take long.
+        int step = 1, steps = 2 + (doc.Il2Cpp?.Count ?? 0) + (doc.Dumps?.Count ?? 0) + doc.Files.Count + doc.Native.Count + (parts.Contains("edits") ? doc.DotNet.Count : 0);
+        void Step(string message) => Report(progress, step++, steps, message);
         var sessionDir = Path.GetDirectoryName(Path.GetFullPath(path))!;
         var roots = (searchRoots ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
         var items = new List<SessionItem>();
@@ -87,6 +95,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         foreach (var g in doc.Il2Cpp ?? [])
         {
             ct.ThrowIfCancellationRequested();
+            Step($"Il2Cpp game {Path.GetFileName(g.Input.Path)}");
             if (LoadedId(g.BinarySha256) is { } binaryId)
             {
                 Add("il2cpp", g.Input.Path, AlreadyLoaded, "same_build", 1, binaryId);
@@ -124,6 +133,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         foreach (var d in doc.Dumps ?? [])
         {
             ct.ThrowIfCancellationRequested();
+            Step($"minidump {d.File.Id}");
             if (dumps == null) { notesOut.Add("minidumps are not available in this server"); break; }
             if (dumps.OpenIds.FirstOrDefault(id => dumps.PathOf(id) is { } p && File.Exists(p) && SessionService.Locate(d.File with { Path = p, RelativePath = null }, sessionDir, [], ct).Path != null) is { } open)
             {
@@ -152,6 +162,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         foreach (var f in doc.Files)
         {
             ct.ThrowIfCancellationRequested();
+            Step($"file {f.Id}");
             if (LoadedId(f.Sha256) is { } loadedId)
             {
                 current[f.Sha256] = loadedId;
@@ -188,6 +199,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         foreach (var n in doc.Native)
         {
             ct.ThrowIfCancellationRequested();
+            Step($"names and patches of {n.Id}");
             bool carried = old.ContainsKey(n.Sha256) || (target == EditHistoryService.TargetBuild.Other && !SameBuildLoaded(n.Sha256, current));
             if (parts.Contains("annotations") && n.Annotations is { } ann)
             {
@@ -238,6 +250,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
             foreach (var e in doc.DotNet)
             {
                 ct.ThrowIfCancellationRequested();
+                Step($"edits of {e.Id}");
                 var to = current.GetValueOrDefault(e.Sha256);
                 if (to == null || !IsLoaded(to))
                 {
@@ -267,13 +280,19 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
                 Add("notes", "*", added + updated > 0 ? Applied : AlreadyPresent, "import", added + updated, $"{added} added, {updated} updated, {unchanged} already present");
             }
         }
-        if (dryRun) notesOut.Add("dry run: nothing was loaded or changed; items on files that are not loaded yet report would_apply without checking them");
+        if (dryRun) notesOut.Add("items on files that are not loaded yet report would_apply without checking them");
+        Report(progress, steps, steps, "Done");
 
         offset = Math.Max(0, offset);
-        limit = Math.Clamp(limit, 1, 2000);
-        var counts = items.GroupBy(i => i.Outcome).Select(g => new OutcomeCount(g.Key, g.Count())).OrderByDescending(c => c.Count).ToList();
-        return new SessionLoadReport(Path.GetFullPath(path), dryRun, target == EditHistoryService.TargetBuild.Same ? "same" : "other", counts, offset, items.Count,
-            offset + limit < items.Count, items.Skip(offset).Take(limit).ToList(), notesOut);
+        limit = ClampLimit(limit, 2000);
+        var counts = items.GroupBy(i => i.Outcome).Select(g => new OutcomeCount(g.Key, g.Count())).OrderByDescending(c => c.Count).ThenBy(c => c.Outcome, StringComparer.Ordinal).ToList();
+        var full = Path.GetFullPath(path);
+        var build = target == EditHistoryService.TargetBuild.Same ? "same" : "other";
+        var header = $"Session {full}, targetBuild={build}: {(counts.Count == 0 ? "nothing recorded" : string.Join(", ", counts.Select(c => $"{c.Outcome} {c.Count}")))}\n" +
+                     string.Concat(notesOut.Select(n => $"Note: {n}\n")) + (dryRun ? "Nothing changed (dry run); pass dryRun=false to apply.\n" : "");
+        return ToolOutput.List(items.Skip(offset).Take(limit).ToList(), offset, limit, items.Count,
+            i => $"{i.Kind,-8} {i.Id}  {i.Outcome} ({i.Reason}), {i.Count}: {i.Detail}",
+            page => new SessionLoadReport(full, dryRun, build, counts, offset, items.Count, page, notesOut), "item", header);
     }
 
     private string? LoadedId(string sha256) => workspace.Read(() =>
