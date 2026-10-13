@@ -1,18 +1,101 @@
 {
   "type": "object",
   "properties": {
-    "code": {
-      "description": "The page of text.",
+    "image": {
       "type": "string"
+    },
+    "source": {
+      "description": "rtti, ida or ghidra.",
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "class or struct (RTTI), an engine's kind, or objc / swift lines on Mach-O.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "bases": {
+            "description": "Direct bases: virtual, name, @+offset.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "vftables": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "offset": {
+                  "description": "Subobject offset.",
+                  "type": "integer"
+                },
+                "slots": {
+                  "type": "integer"
+                },
+                "targets": {
+                  "description": "slots=true: the slot targets (VA; 0 for an import).",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "address",
+                "offset",
+                "slots"
+              ]
+            }
+          },
+          "functions": {
+            "description": "Engine: functions in the class namespace.",
+            "type": "integer"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ]
+      }
     },
     "offset": {
       "type": "integer"
     },
-    "nextOffset": {
-      "description": "Character offset of the next page; absent on the last.",
+    "total": {
       "type": "integer"
     },
-    "totalChars": {
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
       "type": "integer"
     },
     "notices": {
@@ -35,8 +118,11 @@
     }
   },
   "required": [
-    "code",
+    "image",
+    "source",
+    "items",
     "offset",
-    "totalChars"
+    "total",
+    "notes"
   ]
 }

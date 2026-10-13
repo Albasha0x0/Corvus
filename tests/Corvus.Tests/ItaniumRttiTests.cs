@@ -162,7 +162,13 @@ public class ItaniumRttiTests
         using var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(dir.File("ann")));
         var engines = new NativeEngineService();
+        var collector = Corvus.Mcp.ToolOutput.Collect();
         var classes = await new NativeAnalysisTools(workspace, engines, new OutputPager(options), code: code).ListCppClasses(path, slots: true);
+        var list = Assert.IsType<NativeAnalysisTools.CppClassList>(collector.Value);
+        Assert.Equal(3, list.Total);
+        var c = list.Items.Single(x => x.Name == "C");
+        Assert.Equal(["virtual A", "B @+0x8"], c.Bases);
+        Assert.Contains(list.Items.SelectMany(x => x.Vftables ?? []).SelectMany(v => v.Targets!), t => t == "0");
         Assert.Contains("3 classes with RTTI, 3 vftables, 3 typeinfos", classes);
         // slot targets carry their function names
         Assert.Matches(@"\[0\] 0x[0-9A-F]+  \S+", classes);
