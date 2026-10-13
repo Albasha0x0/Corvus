@@ -64,25 +64,47 @@ public class NativeX86DiscoveryTests
         Assert.False(index.FunctionByStart(Code)!.Flags.HasFlag(FunctionFlags.NoReturn));
     }
 
-    [Fact]
-    public void I386_pic_plt_stubs_are_import_thunks_and_carry_no_return()
+    private const uint PicText = NativeFormats.ElfWriter.TextRva, PicPlt = PicText + 0x20;
+
+    /// <summary>
+    /// An i386 PIC shared object: f calls puts@plt and abort@plt, then code nothing reaches; at +0x10 a get_pc_thunk.bx
+    /// and at +0x18 a call to it.
+    /// </summary>
+    private static (Native.Elf.ElfFile Image, NativeFormats.ElfWriter Writer) PicPltImage()
     {
-        const uint Text = NativeFormats.ElfWriter.TextRva, Plt = Text + 0x20;
-        // f: call puts@plt; call abort@plt; then code nothing reaches
         var text = new byte[0x20];
         text.AsSpan().Fill(0xCC);
         byte[] f = [0xE8, 0, 0, 0, 0, 0xE8, 0, 0, 0, 0, 0xB8, 1, 0, 0, 0, 0xC3];
-        BinaryPrimitives.WriteInt32LittleEndian(f.AsSpan(1), (int)(Plt + 16 - (Text + 5)));
-        BinaryPrimitives.WriteInt32LittleEndian(f.AsSpan(6), (int)(Plt + 32 - (Text + 10)));
+        BinaryPrimitives.WriteInt32LittleEndian(f.AsSpan(1), (int)(PicPlt + 16 - (PicText + 5)));
+        BinaryPrimitives.WriteInt32LittleEndian(f.AsSpan(6), (int)(PicPlt + 32 - (PicText + 10)));
         f.CopyTo(text, 0);
-        var w = new NativeFormats.ElfWriter { Is64 = false, Machine = NativeFormats.ElfWriter.EmX86, Entry = Text, Text = text, PltImports = ["puts", "abort"] };
-        var index = NativeCodeIndex.Build(Native.Elf.ElfFile.FromBytes(w.Build(), "pic.so"));
-        Assert.Equal(Plt, w.PltRva);
-        var abort = index.FunctionByStart(Plt + 32)!;
+        byte[] thunk = [0x8B, 0x1C, 0x24, 0xC3, 0xCC, 0xCC, 0xCC, 0xCC, 0xE8, 0xF3, 0xFF, 0xFF, 0xFF];
+        thunk.CopyTo(text, 0x10);
+        var w = new NativeFormats.ElfWriter { Is64 = false, Machine = NativeFormats.ElfWriter.EmX86, Entry = PicText, Text = text, PltImports = ["puts", "abort"] };
+        return (Native.Elf.ElfFile.FromBytes(w.Build(), "pic.so"), w);
+    }
+
+    [Fact]
+    public void I386_pic_plt_stubs_are_import_thunks_and_carry_no_return()
+    {
+        var (image, w) = PicPltImage();
+        var index = NativeCodeIndex.Build(image);
+        Assert.Equal(PicPlt, w.PltRva);
+        var abort = index.FunctionByStart(PicPlt + 32)!;
         Assert.Equal("abort", abort.ThunkImport?.Name);
         Assert.True(abort.Flags.HasFlag(FunctionFlags.NoReturn));
-        Assert.Equal("puts", index.FunctionByStart(Plt + 16)!.ThunkImport?.Name);
-        Assert.Equal(Text + 10, index.FunctionByStart(Text)!.End);
+        Assert.Equal("puts", index.FunctionByStart(PicPlt + 16)!.ThunkImport?.Name);
+        Assert.Equal(PicText + 10, index.FunctionByStart(PicText)!.End);
+    }
+
+    [Fact]
+    public void A_thunk_query_ignores_register_values_an_earlier_walk_left()
+    {
+        var (image, w) = PicPltImage();
+        var dec = new X86Decoder(image, new ImageCode(image), []);
+        dec.BeginFunction();
+        Assert.True(dec.Decode(PicText + 0x18, out _)); // call get_pc_thunk.bx: ebx known from here on
+        Assert.Equal(w.PltSlotRva(0), dec.ThunkSlot(PicPlt + 16, _ => true));
     }
 
     [Fact]

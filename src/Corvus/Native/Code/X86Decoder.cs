@@ -185,10 +185,10 @@ internal sealed class X86Decoder : ICodeDecoder
             if (kind == OpKind.Memory) hasMemory = true;
             else if (kind is OpKind.Immediate32 or OpKind.Immediate64 or OpKind.Immediate32to64) hasImmediate = true;
         }
-        if (_runStart && _known != null) RestoreState(rva);
+        if (_runStart && _walking) RestoreState(rva);
         if (hasMemory) ResolveMemory(in i, ref insn);
         if (hasImmediate) ResolveImmediate(in i, ref insn);
-        if (_known != null) TrackKnown(in i, in insn);
+        if (_walking) TrackKnown(in i, in insn);
     }
 
     /// <summary>
@@ -228,9 +228,13 @@ internal sealed class X86Decoder : ICodeDecoder
     // per ring slot: what the registers of operand 0, operand 1, the memory base and the memory index held before the instruction ran
     private readonly uint[] _ringOp0 = new uint[RingSize], _ringOp1 = new uint[RingSize], _ringBase = new uint[RingSize], _ringIndex = new uint[RingSize];
 
+    // register values are tracked between BeginFunction and the next single-instruction query (ThunkSlot)
+    private bool _walking;
+
     /// <summary>Starts a function: register values known from its own code only.</summary>
     public void BeginFunction()
     {
+        _walking = _known != null;
         if (_known != null) Array.Clear(_known);
         _popPc = 0;
         _spills = 0;
@@ -459,8 +463,13 @@ internal sealed class X86Decoder : ICodeDecoder
 
     private static bool IsNear(OpKind kind) => kind is OpKind.NearBranch16 or OpKind.NearBranch32 or OpKind.NearBranch64;
 
-    public uint? ThunkSlot(uint rva, Func<uint, bool> isImportSlot) =>
-        Decode(rva, out var insn) && insn.Flow == FlowKind.IndirectJump && insn.HasMem && isImportSlot(insn.MemTarget) ? insn.MemTarget : null;
+    public uint? ThunkSlot(uint rva, Func<uint, bool> isImportSlot)
+    {
+        // one instruction on its own: no register value from earlier queries applies
+        if (_known != null) Array.Clear(_known);
+        _walking = false;
+        return Decode(rva, out var insn) && insn.Flow == FlowKind.IndirectJump && insn.HasMem && isImportSlot(insn.MemTarget) ? insn.MemTarget : null;
+    }
 
     /// <summary>int3, nop and zero fill between functions.</summary>
     public bool IsPadding(ImageCode.Region region, uint rva) => region.Bytes[rva - region.Rva] is 0xCC or 0x90 or 0x00;
@@ -488,12 +497,12 @@ internal sealed class X86Decoder : ICodeDecoder
             if (!TryRva(i.IPRelativeMemoryAddress, out target)) return;
             insn.MemRip = true;
         }
+        else if (i.FlowControl == FlowControl.IndirectBranch && PltSlots.TryGetValue(insn.Rva, out target)) { }
         else if (!_is64 && i.MemoryIndex == Register.None && Known(i.MemoryBase) is var b and not 0)
         {
             target = b + (uint)i.MemoryDisplacement64;
             if (target >= _sizeOfImage) return;
         }
-        else if (i.FlowControl == FlowControl.IndirectBranch && PltSlots.TryGetValue(insn.Rva, out target)) { }
         else
         {
             if (i.MemoryDisplSize < 4) return;
