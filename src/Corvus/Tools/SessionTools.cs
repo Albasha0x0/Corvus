@@ -175,7 +175,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [Description("Only lines containing this text (/regex/ for a pattern), with their offsets.")] string? query = null,
         [Description("text; json: the structured record; jsonl: its items, one per line.")] string format = "text",
         [Description("Write the whole result to this file; returns path, bytes and SHA-256.")] string? outputPath = null,
-        bool overwrite = false)
+        [Description("Replace outputPath if it exists.")] bool overwrite = false)
     {
         if (offset < 0) throw new ToolError(ErrorCode.InvalidArgument, $"offset must be 0 or more, not {offset}.", "pass a nextOffset from an earlier page");
         if (maxTokens is < 1) throw new ToolError(ErrorCode.InvalidArgument, $"maxTokens must be 1 or more, not {maxTokens}.", "omit maxTokens for the default page");

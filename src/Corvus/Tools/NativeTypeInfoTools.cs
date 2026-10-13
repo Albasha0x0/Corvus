@@ -36,7 +36,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
     }
 
     [McpServerTool(Name = "get_native_type", Title = "Native type layout", UseStructuredContent = true, OutputSchemaType = typeof(NativeTypeReport))]
-    [Description("A native type's layout (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI " +
+    [Description("Layout of a native type (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI " +
                  "(vftables with named slots), Il2Cpp, ObjC and Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, " +
                  "substring candidates, or a glob listing matches), id, or typed address (a PDB global gives the field path, e.g. g.players[3].pos.y). " +
                  "read=true adds each field's value from the image's bytes.")]

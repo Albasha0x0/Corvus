@@ -111,7 +111,7 @@ Read a kept result (resultId; kept on disk 7 days): page it, search it with quer
 | `query` | string |  |  | Only lines containing this text (/regex/ for a pattern), with their offsets. |
 | `format` | string |  | `text` | text; json: the structured record; jsonl: its items, one per line. Values: text, json, jsonl. |
 | `outputPath` | string |  |  | Write the whole result to this file; returns path, bytes and SHA-256. |
-| `overwrite` | boolean |  |  |  |
+| `overwrite` | boolean |  |  | Replace outputPath if it exists. |
 
 Structured output: `id`, `tool`, `format`, `totalChars`, `offset`, `nextOffset`, `code`, `matches`, `path`, `bytes`, `sha256`.
 
@@ -995,7 +995,7 @@ Structured output: `image`, `items`, `offset`, `total`, `bindings`, `limit`, `to
 
 **List native exports** (read-only, idempotent)
 
-A native image's exported functions and data: ordinal, VA, name (demangled C++ form, ELF symbol version), forwarders and re-exports.
+Exported functions and data of a native image: ordinal, VA, name (demangled C++ form, ELF symbol version), forwarders and re-exports.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1433,7 +1433,7 @@ Structured output: `image`, `source`, `items`, `offset`, `total`, `notes`, `limi
 
 **Native type layout** (read-only, idempotent, open-world, long-running)
 
-A native type's layout (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI (vftables with named slots), Il2Cpp, ObjC and Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, substring candidates, or a glob listing matches), id, or typed address (a PDB global gives the field path, e.g. g.players[3].pos.y). read=true adds each field's value from the image's bytes.
+Layout of a native type (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI (vftables with named slots), Il2Cpp, ObjC and Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, substring candidates, or a glob listing matches), id, or typed address (a PDB global gives the field path, e.g. g.players[3].pos.y). read=true adds each field's value from the image's bytes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2114,7 +2114,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 **Native stack frame and locals** (read-only, idempotent, open-world, long-running)
 
-A native function's stack frame as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as locals); locals=true adds the decompiler's locals (name, type, register or stack offset, user edits). Offsets count from the lowest address; brackets from the return address.
+Stack frame of a native function as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as locals); locals=true adds the decompiler's locals (name, type, register or stack offset, user edits). Offsets count from the lowest address; brackets from the return address.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2150,7 +2150,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 **Browse the engine's types** (read-only, idempotent, open-world, long-running)
 
-The named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member count; name= shows one type as a C declaration with member offsets.
+Named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member count; name= shows one type as a C declaration with member offsets.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -75,7 +75,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         IReadOnlyList<FrameRow> Items, int Offset, int Total);
 
     [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals", UseStructuredContent = true, OutputSchemaType = typeof(FrameReport))]
-    [Description("A native function's stack frame as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as " +
+    [Description("Stack frame of a native function as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as " +
                  "locals); locals=true adds the decompiler's locals (name, type, register or stack offset, user edits). Offsets count from the lowest " +
                  "address; brackets from the return address.")]
     public Task<string> GetNativeFrame(
@@ -732,7 +732,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types", UseStructuredContent = true, OutputSchemaType = typeof(TypeListReport))]
-    [Description("The named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member " +
+    [Description("Named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member " +
                  "count; name= shows one type as a C declaration with member offsets.")]
     public Task<string> ListNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,

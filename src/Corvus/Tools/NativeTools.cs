@@ -339,7 +339,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     private static partial System.Text.RegularExpressions.Regex DynamicRow();
 
     [McpServerTool(Name = "list_exports", Title = "List native exports", UseStructuredContent = true, OutputSchemaType = typeof(ExportList))]
-    [Description("A native image's exported functions and data: ordinal, VA, name (demangled C++ form, ELF symbol version), forwarders and re-exports.")]
+    [Description("Exported functions and data of a native image: ordinal, VA, name (demangled C++ form, ELF symbol version), forwarders and re-exports.")]
     public Task<string> ListExports(
         [Description(ImageDescription)] string image,
         [Description("Name substring (case-insensitive; the demangled form too).")] string? filter = null,
