@@ -2605,26 +2605,27 @@ Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `sys
 
 **Crash dump stack** (read-only, idempotent)
 
-Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP chain; JIT code without unwind data adds heuristic scanned frames. Names from loaded images (code index, PDB, Il2Cpp) or exports (nearest_export is a guess). .NET frames come from the DAC with token, IL offset, the loaded assembly and the C# statement; Mono JIT frames from the runtime's report beside the dump.
+Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP chain; JIT code without unwind data adds scanned frames (basis inferred). Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dump` | string | yes |  | A .dmp path or the id open_minidump returned. |
 | `thread` | string |  |  | Thread id, '#index', name or 'exception'. Default: the faulting thread, else the first. |
-| `exceptionContext` | boolean |  | `true` | Faulting thread: start at the exception context (.ecxr) or, false, at the thread's context when the dump was written. |
+| `exceptionContext` | boolean |  | `true` | Faulting thread: start at the exception context (.ecxr); false: its context at dump time. |
 | `maxFrames` | integer |  | `256` | Max frames walked (up to 1024). |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `100` | Max frames returned. |
+| `limit` | integer |  | `100` | Max rows. |
 | `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries, for modules not at their recorded path; kept for the dump. Its own folder is always searched. |
-| `managed` | string |  | `auto` | auto: .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only. Values: auto, off. |
+| `managed` | string |  | `auto` | auto: .NET frames through the DAC; off: native walk only. Values: auto, off. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `items`, `offset`, `total`, `stop`, `scannedFrames`, `managed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### dump_heap
 
 **Crash dump .NET heap** (read-only, idempotent, long-running)
 
-The .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).
+Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2633,10 +2634,11 @@ The .NET GC heap of a minidump (through the DAC). stats: count and size per type
 | `type` | string |  |  | Type full name, '*' / '?' wildcards; default all. |
 | `minSize` | integer |  | `0` | Only objects of at least this many bytes. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `50` | Max rows returned (up to 1000). |
+| `limit` | integer |  | `50` | Max rows. |
 | `maxObjects` | integer |  | `5000000` | Max objects walked. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `walkStopped`, `total`, `offset`, `matchedBytes`, `types`, `objects`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `matchedBytes`, `items`, `offset`, `total`, `totalExact`, `notes`, `limit`, `hasMore`, `nextOffset`.
 
 ### dump_object
 
@@ -2673,25 +2675,27 @@ Structured output: `dump`, `address`, `requested`, `length`, `source`, `location
 
 **Symbolize crash text** (read-only, idempotent, long-running)
 
-Resolves crash text against the loaded build: Unity Player.log / error.log backtraces, Mono and Il2Cpp managed lines, .NET exception text, Report.wer, Event Log 1000/1026 text, debugger stacks and Android tombstones. Each frame gets our name, a buildCheck (time stamp, MVID, BuildId or the text's own name; a mismatch means another build) and the C# statement at an IL offset.
+Resolves crash text against the loaded build: Unity Player.log / error.log, Mono and Il2Cpp lines, .NET exception text, Report.wer, Event Log 1000/1026, debugger stacks, Android tombstones. Each frame gets our name, a buildCheck (time stamp, MVID, BuildId or the text's own name; mismatch: another build) and the C# statement at an IL offset.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `text` | string |  |  | The crash text (up to 1 MiB). This or path. |
 | `path` | string |  |  | A log or report file; its last 8 MiB are read. |
 | `format` | string |  | `auto` | Text format (auto detects it). Values: auto, unity, dotnet, wer, eventlog, windbg, android. |
-| `images` | string |  |  | Native image ids or paths (';'-separated); default every loaded one. |
+| `images` | string |  |  | Native image ids or paths (';'-separated); default all loaded. |
 | `moduleBases` | string |  |  | Module load addresses, 'name=0xBASE;...', when the text has no module list. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `200` | Max frames returned. |
+| `limit` | integer |  | `50` | Max rows. |
+| `allFrames` | boolean |  | `false` | One row per frame; default folds 3+ matching native frames of one image into one row. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `format`, `exception`, `total`, `offset`, `frames`, `unrecognizedLines`, `unrecognizedSample`, `modulesMissing`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `format`, `exception`, `frames`, `items`, `offset`, `total`, `unrecognizedLines`, `unrecognizedSample`, `modulesMissing`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### bucket_minidumps
 
 **Group crash dumps** (read-only, idempotent, long-running)
 
-Groups a folder of minidumps by signature: exception code | faulting module!function | next frames (raising frames skipped); .NET: clr | exception type | top managed frames; no exception: hang | top frames. Names, not offsets, so rebases do not split a bucket. Each bucket lists its dump ids and its newest dump as representative. Cached per file: re-runs parse only new dumps.
+Groups a folder of minidumps by signature: code | faulting module!function | next frames (raising frames skipped); .NET: clr | exception type | top managed frames; no exception: hang | top frames. Names, not offsets, so rebases do not split a bucket. Each bucket names its dumps and newest representative. Cached per file.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2701,13 +2705,14 @@ Groups a folder of minidumps by signature: exception code | faulting module!func
 | `topFrames` | integer |  | `3` | Frames after the faulting one in the signature. |
 | `skipModules` | string |  |  | More frames to skip, ';'-separated: module or module!function, '*' wildcards. |
 | `splitByVersion` | boolean |  | `false` | Put the faulting module's version in the signature. |
-| `managed` | string |  | `auto` | auto: managed signatures for CLR exceptions when a local DAC is found; off: native only. Values: auto, off. |
+| `managed` | string |  | `auto` | auto: managed signatures through a local DAC; off: native only. Values: auto, off. |
 | `maxDumps` | integer |  | `1000` | Most dumps bucketed, newest first. |
-| `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), for modules not at their recorded paths. |
+| `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `50` | Max buckets returned. |
+| `limit` | integer |  | `50` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `folder`, `dumps`, `total`, `offset`, `buckets`, `failed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `folder`, `dumps`, `items`, `offset`, `total`, `failed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ## live
 

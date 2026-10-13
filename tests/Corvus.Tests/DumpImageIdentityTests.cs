@@ -58,7 +58,7 @@ public sealed class DumpImageIdentityTests : IDisposable
         Assert.Equal("matches", module.LocalImage);
         Assert.EndsWith("synth_1.2.3.dll", module.LocalPath);
         Assert.Contains("another file name", module.LocalDetail);
-        Assert.Equal("synth!Crash+0x5", stack.Frames[0].Symbol);
+        Assert.Equal("synth!Crash+0x5", stack.Items[0].Symbol);
         Assert.Contains(stack.Notes, n => n.StartsWith("synth.dll: image disk", StringComparison.Ordinal));
 
         var missing = new MinidumpService().Modules(Dump(), null, 0, 50).Rows; // no folder given: not found
@@ -75,8 +75,8 @@ public sealed class DumpImageIdentityTests : IDisposable
         using var service = new MinidumpService();
         var summary = await service.Summarize(dump, folder, default);
         Assert.Equal("matches", service.Modules(summary.Id, null, 0, 50).Rows[0].LocalImage);
-        Assert.Equal("synth!Crash+0x5", (await service.Stack(summary.Id, null, true, 64, 0, 64, null, default)).Frames[0].Symbol);
-        Assert.Equal("synth!Crash+0x5", (await service.Stack(dump, null, true, 64, 0, 64, null, default)).Frames[0].Symbol);
+        Assert.Equal("synth!Crash+0x5", (await service.Stack(summary.Id, null, true, 64, 0, 64, null, default)).Items[0].Symbol);
+        Assert.Equal("synth!Crash+0x5", (await service.Stack(dump, null, true, 64, 0, 64, null, default)).Items[0].Symbol);
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class DumpImageIdentityTests : IDisposable
         var (module, stack) = await Open(new MinidumpService(), dump, null);
         Assert.Equal("matches", module.LocalImage);
         Assert.Contains($"symbol store {store}", module.LocalDetail);
-        Assert.Equal("synth!Crash+0x5", stack.Frames[0].Symbol);
+        Assert.Equal("synth!Crash+0x5", stack.Items[0].Symbol);
 
         Directory.Delete(Path.Combine(store, "synth.dll"), recursive: true);
         var renamed = Directory.CreateDirectory(Path.Combine(store, "synth64.dll", key)).FullName;
@@ -114,6 +114,6 @@ public sealed class DumpImageIdentityTests : IDisposable
         var (module, stack) = await Open(new MinidumpService(ws), dump, null);
         Assert.Equal("matches", module.LocalImage);
         Assert.Contains("a loaded image (game_copy.bin)", module.LocalDetail);
-        Assert.Equal("synth!Crash+0x5", stack.Frames[0].Symbol);
+        Assert.Equal("synth!Crash+0x5", stack.Items[0].Symbol);
     }
 }

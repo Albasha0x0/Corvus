@@ -10,22 +10,25 @@ public sealed partial class MinidumpService
     public const long DefaultMaxHeapObjects = 5_000_000;
     private const string FullMemoryHint = "write the dump with full memory (procdump -ma, DOTNET_DbgMiniDumpType=4, MiniDumpWithFullMemory) to inspect the heap";
 
-    public sealed record HeapTypeRow(
-        string Type, long Count, ulong TotalSize,
-        [property: Description("Id of the loaded assembly that is the type's module build, for get_type_info / decompile_member.")] string? Assembly,
-        [property: Description("TypeDef token of the type in that assembly.")] string? Token);
-
-    public sealed record HeapObjectRow(string Address, string Type, ulong Size,
-        [property: Description("A string's value (up to 200 characters).")] string? Value);
+    /// <summary>mode=stats: a type with its object count and total size; mode=objects: one object.</summary>
+    public sealed record HeapRow(string Type,
+        [property: Description("stats: bytes of all its objects; objects: the object's size.")] ulong Size)
+    {
+        [Description("stats: objects of the type.")] public long? Count { get; init; }
+        [Description("objects: the object's address (dump_object).")] public string? Address { get; init; }
+        [Description("objects: a string's value (up to 200 characters).")] public string? Value { get; init; }
+        [Description("stats: id of the loaded assembly that is the type's module build, for get_type_info / decompile_member.")] public string? Assembly { get; init; }
+        [Description("stats: TypeDef token of the type in that assembly.")] public string? Token { get; init; }
+    }
 
     public sealed record HeapReport(
         string Dump, string Mode, string? Type, ulong MinSize,
         [property: Description("Objects walked.")] long Walked,
-        [property: Description("The walk stopped at maxObjects: counts cover only the walked part of the heap.")] bool WalkStopped,
-        [property: Description("stats: matching types; objects: matching objects.")] long Total,
-        int Offset, bool Truncated,
         [property: Description("Size of every matching object walked.")] ulong MatchedBytes,
-        IReadOnlyList<HeapTypeRow> Types, IReadOnlyList<HeapObjectRow> Objects, IReadOnlyList<string> Notes);
+        IReadOnlyList<HeapRow> Items, int Offset,
+        [property: Description("stats: matching types; objects: matching objects.")] int Total,
+        [property: Description("False when the walk stopped at maxObjects: counts cover only the walked part of the heap.")] bool TotalExact,
+        IReadOnlyList<string> Notes);
 
     public sealed record ObjectFieldRow(
         [property: Description("Field name, dotted for fields of expanded references and structs; [i] for array elements.")] string Path,
@@ -93,12 +96,12 @@ public sealed partial class MinidumpService
                 var page = rows.Skip(offset).Take(limit).Select(r =>
                 {
                     var (assembly, _) = AssemblyFor(r.Type.ModulePath, r.Type.Mvid);
-                    return new HeapTypeRow(r.Type.Name, r.Count, r.TotalSize, assembly, r.Type.Token != 0 ? $"0x{r.Type.Token:X8}" : null);
+                    return new HeapRow(r.Type.Name, r.TotalSize) { Count = r.Count, Assembly = assembly, Token = r.Type.Token != 0 ? $"0x{r.Type.Token:X8}" : null };
                 }).ToList();
-                return new HeapReport(s.Id, "stats", pattern, minSize, walked, stopped, rows.Count, offset, offset + page.Count < rows.Count, bytes, page, [], notes);
+                return new HeapReport(s.Id, "stats", pattern, minSize, walked, bytes, page, offset, rows.Count, !stopped, notes);
             }
-            var list = objects.Select(o => new HeapObjectRow(Hex(s.Dump, o.Address), o.Type, o.Size, o.Value)).ToList();
-            return new HeapReport(s.Id, "objects", pattern, minSize, walked, stopped, matched, offset, offset + list.Count < matched, bytes, [], list, notes);
+            var list = objects.Select(o => new HeapRow(o.Type, o.Size) { Address = Hex(s.Dump, o.Address), Value = o.Value }).ToList();
+            return new HeapReport(s.Id, "objects", pattern, minSize, walked, bytes, list, offset, (int)Math.Min(matched, int.MaxValue), !stopped, notes);
         }
     }
 

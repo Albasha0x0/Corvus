@@ -21,7 +21,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
 
     public const int MaxTextChars = 1 << 20;
     public const int MaxFileBytes = 8 << 20;
-    public const int DefaultLimit = 200;
+    public const int DefaultLimit = 50;
     private static readonly TimeSpan IndexWait = TimeSpan.FromSeconds(30);
 
     public sealed record InnerExceptionText(string Type, string? Message);
@@ -47,7 +47,10 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("Which exception of the chain the frame belongs to: 0 the outermost.")] int? Exception,
         [property: Description("match (the same build: time stamp, MVID or the text's own name agree), mismatch (another build: do not trust the name), or unknown.")] string BuildCheck,
         string? BuildDetail,
-        [property: Description("The call that continues from this frame.")] string? NextStep);
+        [property: Description("The call that continues from this frame.")] string? NextStep)
+    {
+        [Description("Names of the next frames, same image and build, folded into this row.")] public IReadOnlyList<string>? Folded { get; init; }
+    }
 
     public sealed record MissingModule(string Module, string? Version, string? TimeDateStamp,
         [property: Description("Frames in that module.")] int Frames);
@@ -55,13 +58,22 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
     public sealed record SymbolizedStack(
         [property: Description("The format recognized (unity, dotnet, wer, eventlog, windbg, android), or the one requested.")] string Format,
         SymbolizedException? Exception,
-        int Total, int Offset, bool Truncated, IReadOnlyList<SymbolizedFrame> Frames,
+        [property: Description("Frames in the text; rows (total) are fewer when compact folds frames.")] int Frames,
+        IReadOnlyList<SymbolizedFrame> Items, int Offset, int Total,
         [property: Description("Lines no format recognized (blank lines aside).")] int UnrecognizedLines,
         IReadOnlyList<string> UnrecognizedSample,
         [property: Description("Modules or assemblies the frames name that are not loaded, with what identifies the build needed.")] IReadOnlyList<MissingModule> ModulesMissing,
         IReadOnlyList<string> Notes);
 
-    public async Task<SymbolizedStack> Symbolize(string? text, string? path, string? format, string? images, string? moduleBases, int offset, int limit, CancellationToken ct)
+    /// <summary>Native frames of one image in a row, all of the same build, folded into the first when compact (at least this many).</summary>
+    private const int FoldRun = 3;
+
+    public Task<SymbolizedStack> Symbolize(string? text, string? path, string? format, string? images, string? moduleBases, int offset, int limit, CancellationToken ct) =>
+        Symbolize(text, path, format, images, moduleBases, offset, limit, false, ct);
+
+    /// <param name="compact">Fold runs of matching native frames of one image into one row (offset and total count rows).</param>
+    public async Task<SymbolizedStack> Symbolize(string? text, string? path, string? format, string? images, string? moduleBases, int offset, int limit, bool compact,
+        CancellationToken ct)
     {
         var fmt = (format ?? "auto").Trim().ToLowerInvariant() switch
         {
@@ -77,28 +89,50 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         var bases = Bases(moduleBases, parsed);
         var natives = Images(images);
 
-        var page = new List<SymbolizedFrame>();
+        // Rows: one per frame, or with compact a run of matching native frames of one image as one row.
         var missing = new Dictionary<string, (string? Version, uint? Stamp, int Frames)>(StringComparer.OrdinalIgnoreCase);
+        var resolved = new SymbolizedFrame?[parsed.Frames.Count];
         for (int i = 0; i < parsed.Frames.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
             var f = parsed.Frames[i];
-            bool inPage = i >= offset && page.Count < limit;
-            if (f.Kind == "native")
+            if (f.Kind != "native") continue;
+            var module = ModuleOf(f, bases, parsed);
+            var native = module == null ? null : FindImage(natives, module, f.BuildId);
+            if (module != null && native == null)
             {
-                var module = ModuleOf(f, bases, parsed);
-                var native = module == null ? null : FindImage(natives, module, f.BuildId);
-                if (module != null && native == null)
-                {
-                    var known = parsed.Modules.FirstOrDefault(m => SameModule(m.Name, module));
-                    var e = missing.GetValueOrDefault(module);
-                    missing[module] = (known?.Version ?? e.Version, known?.TimeDateStamp ?? e.Stamp, e.Frames + 1);
-                }
-                if (inPage) page.Add(await Native(i, f, module, native, bases, parsed, ct));
+                var known = parsed.Modules.FirstOrDefault(m => SameModule(m.Name, module));
+                var e = missing.GetValueOrDefault(module);
+                missing[module] = (known?.Version ?? e.Version, known?.TimeDateStamp ?? e.Stamp, e.Frames + 1);
             }
-            else if (inPage) page.Add(Managed(i, f, missing, page.Count(p => p.Statement != null) < MaxStatements, ct));
-            else if (f.Mvid is { } mvid && workspace.Read(() => !workspace.Assemblies.Any(a => a.Module.Mvid == mvid)))
+            // Folding needs every native frame's build check; frames past the page cost one name lookup each.
+            if (compact || i >= offset && i < offset + limit) resolved[i] = await Native(i, f, module, native, bases, parsed, ct);
+        }
+        var rows = new List<(int First, int Count)>();
+        for (int i = 0; i < parsed.Frames.Count;)
+        {
+            int n = 1;
+            if (compact && Foldable(resolved[i]))
+                while (i + n < parsed.Frames.Count && Foldable(resolved[i + n]) && resolved[i + n]!.Image == resolved[i]!.Image) n++;
+            if (n < FoldRun) n = 1;
+            rows.Add((i, n));
+            i += n;
+        }
+
+        var page = new List<SymbolizedFrame>();
+        var shown = rows.Skip(offset).Take(limit).ToList();
+        // Managed frames off the page still name the assemblies that are missing.
+        var onPage = shown.Select(r => r.First).ToHashSet();
+        foreach (var (f, i) in parsed.Frames.Select((f, i) => (f, i)))
+            if (f.Kind != "native" && !onPage.Contains(i) && f.Mvid is { } mvid && workspace.Read(() => !workspace.Assemblies.Any(a => a.Module.Mvid == mvid)))
                 Count(missing, f.Type, mvid);
+        foreach (var (first, count) in shown)
+        {
+            ct.ThrowIfCancellationRequested();
+            var f = parsed.Frames[first];
+            var row = resolved[first] ?? Managed(first, f, missing, page.Count(p => p.Statement != null) < MaxStatements, ct);
+            if (count > 1) row = row with { Folded = Enumerable.Range(first + 1, count - 1).Select(k => resolved[k]!.Resolved ?? resolved[k]!.Raw.Trim()).ToList() };
+            page.Add(row);
         }
         if (parsed.Frames.Count == 0)
             notes.Add(parsed.Unrecognized > 0 ? "No stack frame was recognized: see unrecognizedSample, or pass format to pick one." : "The text is empty.");
@@ -110,11 +144,13 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             ? new SymbolizedException(x.Code is { } c ? $"0x{c:X8}" : null, x.Code is { } c2 ? ExceptionCodes.Name(c2) : null, x.Type, x.Message,
                 x.Inner.Select(i => new InnerExceptionText(i.Type, i.Message)).ToList())
             : null;
-        return new SymbolizedStack(recognized, exception, parsed.Frames.Count, offset, offset + page.Count < parsed.Frames.Count, page,
+        return new SymbolizedStack(recognized, exception, parsed.Frames.Count, page, offset, rows.Count,
             parsed.Unrecognized, parsed.UnrecognizedSample,
             missing.OrderByDescending(m => m.Value.Frames).Select(m => new MissingModule(m.Key, m.Value.Version, m.Value.Stamp is { } s ? $"0x{s:X8}" : null, m.Value.Frames)).ToList(),
             notes);
     }
+
+    private static bool Foldable(SymbolizedFrame? f) => f is { Kind: "native", BuildCheck: "match", Image: not null, Statement: null };
 
     private static void Count(Dictionary<string, (string? Version, uint? Stamp, int Frames)> missing, string? type, Guid mvid)
     {

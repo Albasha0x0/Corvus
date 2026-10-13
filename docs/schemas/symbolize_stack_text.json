@@ -45,13 +45,11 @@
         "inner"
       ]
     },
-    "total": {
-      "type": "integer"
-    },
-    "offset": {
-      "type": "integer"
-    },
     "frames": {
+      "description": "Frames in the text; rows (total) are fewer when compact folds frames.",
+      "type": "integer"
+    },
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
@@ -119,6 +117,13 @@
           "nextStep": {
             "description": "The call that continues from this frame.",
             "type": "string"
+          },
+          "folded": {
+            "description": "Names of the next frames, same image and build, folded into this row.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -129,6 +134,12 @@
           "buildCheck"
         ]
       }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
     },
     "unrecognizedLines": {
       "description": "Lines no format recognized (blank lines aside).",
@@ -205,9 +216,10 @@
   },
   "required": [
     "format",
-    "total",
-    "offset",
     "frames",
+    "items",
+    "offset",
+    "total",
     "unrecognizedLines",
     "unrecognizedSample",
     "modulesMissing",

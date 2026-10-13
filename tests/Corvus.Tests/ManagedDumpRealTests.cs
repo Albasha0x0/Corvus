@@ -110,27 +110,27 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Contains(e.Stack, f => f.Function.Contains("Main", StringComparison.Ordinal));
 
         var stack = await service.Stack(dump, e.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
-        foreach (var f in stack.Frames) output.WriteLine($"{f.Index,2} {f.StackPointer} {f.Symbol} [{f.SymbolSource}] {f.Method} {f.Token} il={f.IlOffset} {f.Assembly} {f.BuildCheck}");
+        foreach (var f in stack.Items) output.WriteLine($"{f.Index,2} {f.StackPointer} {f.Symbol} [{f.SymbolSource}] {f.Method} {f.Token} il={f.IlOffset} {f.Assembly} {f.BuildCheck}");
         Assert.Equal("decoded", stack.Managed);
-        var main = stack.Frames.First(f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal));
+        var main = stack.Items.First(f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal));
         Assert.Equal($"0x{MethodToken(dll, "Main"):X8}", main.Token);
         Assert.Equal(probe.Id, main.Assembly);
         Assert.NotNull(main.IlOffset);
         // native frames stay: the runtime's exception dispatch below the managed frames
-        Assert.Contains(stack.Frames, f => f.SymbolSource != "clr" && f.Module != null);
+        Assert.Contains(stack.Items, f => f.SymbolSource != "clr" && f.Module != null);
         AssertSortedBySp(stack);
 
         var heap = await service.Heap(dump, "stats", null, 0, 0, 1000, MinidumpService.DefaultMaxHeapObjects, default);
-        Assert.False(heap.WalkStopped);
-        var strings = heap.Types.Single(t => t.Type == "System.String");
-        Assert.True(strings.Count > 10 && strings.TotalSize > 0);
-        Assert.Contains(heap.Types, t => t.Type == "System.ApplicationException");
+        Assert.False(!heap.TotalExact);
+        var strings = heap.Items.Single(t => t.Type == "System.String");
+        Assert.True(strings.Count > 10 && strings.Size > 0);
+        Assert.Contains(heap.Items, t => t.Type == "System.ApplicationException");
         var probeType = await service.Heap(dump, "stats", "System.*Exception", 0, 0, 50, MinidumpService.DefaultMaxHeapObjects, default);
-        Assert.All(probeType.Types, t => Assert.EndsWith("Exception", t.Type, StringComparison.Ordinal));
+        Assert.All(probeType.Items, t => Assert.EndsWith("Exception", t.Type, StringComparison.Ordinal));
         var objects = await service.Heap(dump, "objects", "System.String", 0, 0, 5, MinidumpService.DefaultMaxHeapObjects, default);
-        Assert.Equal(5, objects.Objects.Count);
-        Assert.True(objects.Truncated);
-        Assert.All(objects.Objects, o => Assert.NotNull(o.Value));
+        Assert.Equal(5, objects.Items.Count);
+        Assert.True(objects.Total > objects.Items.Count);
+        Assert.All(objects.Items, o => Assert.NotNull(o.Value));
 
         var outer = await service.Object(dump, e.Address, 2, 100, 32, default);
         output.WriteLine(string.Join("\n", outer.Fields.Select(f => $"{new string(' ', f.Depth * 2)}{f.Path}: {f.Type} = {f.Value} {f.Address}")));
@@ -142,7 +142,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var message = await service.Object(dump, outer.Fields.Single(f => f.Path == "_message").Address!, 1, 100, 32, default);
         Assert.Equal("sample-outer", message.Value);
         await Assert.ThrowsAsync<ToolError>(() => service.Object(dump, "0x10", 1, 100, 32, default));
-        Assert.DoesNotContain(stack.Frames.GroupBy(f => f.StackPointer), g => g.Count() > 1 && g.Any(f => f.SymbolSource == "clr")); // one frame per stack pointer
+        Assert.DoesNotContain(stack.Items.GroupBy(f => f.StackPointer), g => g.Count() > 1 && g.Any(f => f.SymbolSource == "clr")); // one frame per stack pointer
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.StartsWith("heap_not_captured", error.Message);
         Assert.Equal("sample-probe", m.Exception!.Inner.Single().Message);
         var stack = await service.Stack(dump, m.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
-        Assert.Contains(stack.Frames, f => f.SymbolSource == "clr" && f.Function!.Contains("Inner", StringComparison.Ordinal));
+        Assert.Contains(stack.Items, f => f.SymbolSource == "clr" && f.Function!.Contains("Inner", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -175,13 +175,13 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Crash(dll, Path.Combine(dumps, "two.dmp"), 1);
         using var service = new MinidumpService { BucketCache = dir.File("cache") };
         var r = await service.Bucket(dumps, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
-        var bucket = Assert.Single(r.Buckets);
+        var bucket = Assert.Single(r.Items);
         output.WriteLine(bucket.Signature);
         Assert.Equal(2, bucket.Count);
         Assert.Equal("clr_exception", bucket.Kind);
         Assert.StartsWith("clr | System.ApplicationException | Probe.Program.Main", bucket.Signature);
         var native = await service.Bucket(dumps, false, null, 3, null, false, false, 10, null, 0, 10, null, default);
-        Assert.NotEqual("clr_exception", Assert.Single(native.Buckets).Kind);
+        Assert.NotEqual("clr_exception", Assert.Single(native.Items).Kind);
     }
 
     /// <summary>
@@ -262,12 +262,12 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Contains(inner.Stack, f => f.Function.Contains("Inner", StringComparison.Ordinal) && f.Token == $"0x{MethodToken(dll, "Inner"):X8}");
         var stack = await service.Stack(dump, m.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
         Assert.Equal("decoded", stack.Managed);
-        Assert.Contains(stack.Frames, f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal) && f.Token == $"0x{MethodToken(dll, "Main"):X8}");
+        Assert.Contains(stack.Items, f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal) && f.Token == $"0x{MethodToken(dll, "Main"):X8}");
         var heap = await service.Heap(dump, "stats", "System.String", 0, 0, 10, MinidumpService.DefaultMaxHeapObjects, default);
-        Assert.True(heap.Types.Single().Count > 10);
+        Assert.True(heap.Items.Single().Count > 10);
         // the bucket names the CLR exception and its managed frames
         using var bucketing = new MinidumpService { BucketCache = dir.File("cache") };
-        var bucket = Assert.Single((await bucketing.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Buckets);
+        var bucket = Assert.Single((await bucketing.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Items);
         output.WriteLine(bucket.Signature);
         Assert.StartsWith("clr | System.ApplicationException | ", bucket.Signature);
         Assert.Contains("Probe.Program.Main", bucket.Signature);
@@ -358,7 +358,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Contains(small.Exception.Stack, f => f.Function.Contains("Probe.Program.Validate", StringComparison.Ordinal));
         Assert.All(small.Exception.Stack, f => Assert.Null(f.IlOffset));
         var thread = await service.Stack(mini, small.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
-        Assert.All(thread.Frames.Where(f => f.SymbolSource == "clr" && f.Function!.StartsWith("Probe.", StringComparison.Ordinal)), f => Assert.Null(f.IlOffset)); // CoreLib's precompiled maps are in its image
+        Assert.All(thread.Items.Where(f => f.SymbolSource == "clr" && f.Function!.StartsWith("Probe.", StringComparison.Ordinal)), f => Assert.Null(f.IlOffset)); // CoreLib's precompiled maps are in its image
 
         var whole = (await service.Summarize(full, null, default)).Managed!;
         foreach (var f in whole.Exception!.Stack) output.WriteLine($"full {f.Function} il={f.IlOffset} {f.Statement}");
@@ -406,7 +406,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
 
     private static void AssertSortedBySp(MinidumpService.StackReport stack)
     {
-        var sps = stack.Frames.Where(f => !f.Heuristic).Select(f => Convert.ToUInt64(f.StackPointer[2..], 16)).ToList();
+        var sps = stack.Items.Where(f => !(f.Basis == "inferred")).Select(f => Convert.ToUInt64(f.StackPointer[2..], 16)).ToList();
         for (int i = 1; i < sps.Count; i++) Assert.True(sps[i] >= sps[i - 1], $"frame {i}: stack pointers out of order");
     }
 }

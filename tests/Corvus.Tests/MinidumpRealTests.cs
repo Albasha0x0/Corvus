@@ -177,11 +177,11 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         return dump;
     }
 
-    private static List<string?> Functions(MinidumpService.StackReport s) => s.Frames.Select(f => f.Function).ToList();
+    private static List<string?> Functions(MinidumpService.StackReport s) => s.Items.Select(f => f.Function).ToList();
 
     private void Print(MinidumpService.StackReport s)
     {
-        foreach (var f in s.Frames) output.WriteLine($"{f.Index,2} {f.Address} {f.Symbol} [{f.SymbolSource}] {f.Method}{(f.Heuristic ? " (heuristic)" : "")} {f.Note}");
+        foreach (var f in s.Items) output.WriteLine($"{f.Index,2} {f.Address} {f.Symbol} [{f.SymbolSource}] {f.Method}{((f.Basis == "inferred") ? " (heuristic)" : "")} {f.Note}");
         output.WriteLine($"stop: {s.Stop}");
         foreach (var n in s.Notes) output.WriteLine("  " + n);
     }
@@ -226,10 +226,10 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         output.WriteLine($"stack in {sw.ElapsedMilliseconds} ms");
         Print(stack);
         Assert.Equal(CrashFrames, Functions(stack).Take(4));
-        Assert.All(stack.Frames.Take(4), f => Assert.Equal("pdb", f.SymbolSource));
-        Assert.Contains(stack.Frames, f => f.Function == "BaseThreadInitThunk");
-        Assert.Contains(stack.Frames, f => f.Function == "RtlUserThreadStart");
-        Assert.Equal(0, stack.HeuristicFrames);
+        Assert.All(stack.Items.Take(4), f => Assert.Equal("pdb", f.SymbolSource));
+        Assert.Contains(stack.Items, f => f.Function == "BaseThreadInitThunk");
+        Assert.Contains(stack.Items, f => f.Function == "RtlUserThreadStart");
+        Assert.Equal(0, stack.ScannedFrames);
         Assert.Equal("end_of_stack", stack.Stop);
 
         var memory = await service.ReadMemory(dump, e.Address, 16, true, default);
@@ -254,7 +254,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         Print(stack);
         Assert.Equal(CrashFrames, Functions(stack).Take(4));
         Assert.Contains(stack.Notes, n => n.StartsWith("crash.exe: image dump_memory", StringComparison.Ordinal));
-        Assert.Equal(0, stack.HeuristicFrames);
+        Assert.Equal(0, stack.ScannedFrames);
     }
 
     [Fact]
@@ -272,8 +272,8 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         var stack = await service.Stack(dump, null, true, 128, 0, 128, null, default);
         Print(stack);
         Assert.Equal(CrashFrames, Functions(stack).Take(4));
-        Assert.Equal("frame_pointer", stack.Frames[1].Method);
-        Assert.Contains(stack.Frames, f => f.Function == "BaseThreadInitThunk"); // SysWOW64 images for a 32-bit process
+        Assert.Equal("frame_pointer", stack.Items[1].Method);
+        Assert.Contains(stack.Items, f => f.Function == "BaseThreadInitThunk"); // SysWOW64 images for a 32-bit process
         CompareWithCdb(dump, dir.Path, summary, stack);
     }
 
@@ -316,7 +316,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         var stack = await service.Stack(dump, null, true, 128, 0, 128, null, default);
         Print(stack);
         AssertSubsequence(Functions(stack), ["wait_forever", "main", "BaseThreadInitThunk", "RtlUserThreadStart"]);
-        Assert.Equal(0, stack.HeuristicFrames);
+        Assert.Equal(0, stack.ScannedFrames);
     }
 
     [Fact]
@@ -343,10 +343,10 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         for (int i = 0; i < summary.Counts!.Threads; i++)
         {
             var stack = await service.Stack(dump, $"#{i}", true, 128, 0, 128, null, default);
-            frames += stack.Frames.Count;
-            heuristic += stack.HeuristicFrames;
-            managed += stack.Frames.Count(f => f.Kind == "managed");
-            decoded += stack.Frames.Count(f => f.SymbolSource == "clr" && f.Token != null);
+            frames += stack.Items.Count;
+            heuristic += stack.ScannedFrames;
+            managed += stack.Items.Count(f => f.Kind == "managed");
+            decoded += stack.Items.Count(f => f.SymbolSource == "clr" && f.Token != null);
             if (i == 0) Print(stack);
         }
         output.WriteLine($"{summary.Counts!.Threads} threads, {frames} frames ({heuristic} heuristic, {managed} managed, {decoded} decoded) in {sw.ElapsedMilliseconds} ms");
@@ -366,12 +366,12 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         SelfDump(exe, "cpp", Path.Combine(dumps, "cpp.dmp"));
         using var service = new MinidumpService { BucketCache = dir.File("cache") };
         var r = await service.Bucket(dumps, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
-        foreach (var b in r.Buckets) output.WriteLine($"{b.Count} {b.Signature}");
+        foreach (var b in r.Items) output.WriteLine($"{b.Count} {b.Signature}");
         Assert.Equal(2, r.Total);
-        var av = r.Buckets[0];
+        var av = r.Items[0];
         Assert.Equal(2, av.Count);
         Assert.StartsWith("0xC0000005 | crash!crash_here | crash!level2 > crash!level1 > crash!main", av.Signature);
-        Assert.StartsWith("0xE06D7363 | crash!thrower", r.Buckets[1].Signature); // the raising frames are skipped
+        Assert.StartsWith("0xE06D7363 | crash!thrower", r.Items[1].Signature); // the raising frames are skipped
     }
 
     /// <summary>Through the server: a loaded image's user name wins over the PDB name in dump_stack.</summary>
@@ -393,7 +393,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         await Call("rename_native", new() { ["dryRun"] = false, ["image"] = "crash.exe", ["address"] = "level1", ["name"] = "UserLevelOne" });
         var stack = await client.CallToolAsync("dump_stack", new Dictionary<string, object?> { ["dump"] = dump });
         Assert.True(stack.IsError != true);
-        var frames = stack.StructuredContent!.Value.GetProperty("frames").EnumerateArray()
+        var frames = stack.StructuredContent!.Value.GetProperty("items").EnumerateArray()
             .Select(f => (Function: f.TryGetProperty("function", out var n) ? n.GetString() : null, Source: f.TryGetProperty("symbolSource", out var s) ? s.GetString() : null)).ToList();
         Assert.Contains(("UserLevelOne", "user"), frames);
         Assert.Contains(("level2", "pdb"), frames);
@@ -426,7 +426,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
             .Select(m => (Module: m.Groups[1].Value, Function: m.Groups[2].Value)).ToList();
         output.WriteLine("cdb: " + string.Join(" > ", frames.Select(f => $"{f.Module}!{f.Function}")));
         Assert.True(frames.Count >= 4, log);
-        Assert.Equal(frames.Take(4).Select(f => $"{f.Module}!{f.Function}"), stack.Frames.Take(4).Select(f => $"crash!{f.Function}"));
+        Assert.Equal(frames.Take(4).Select(f => $"{f.Module}!{f.Function}"), stack.Items.Take(4).Select(f => $"crash!{f.Function}"));
         int lm = log.IndexOf("start ", site, StringComparison.Ordinal);
         var modules = Regex.Matches(log[Math.Max(lm, 0)..], @"^([0-9a-f]{8}(?:`[0-9a-f]{8})?) [0-9a-f]{8}(?:`[0-9a-f]{8})?\s+(\S+)", RegexOptions.Multiline)
             .Select(m => (Base: Convert.ToUInt64(m.Groups[1].Value.Replace("`", ""), 16), Name: m.Groups[2].Value)).ToList();

@@ -109,7 +109,7 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
             // the main thread waits in a read of its input: the stack runs from an ntdll system call stub up into findstr
             var main = report.Threads.First(t => t.Frames.Any(f => f.Module?.Equals("findstr.exe", StringComparison.OrdinalIgnoreCase) == true));
             Assert.StartsWith("ntdll!Nt", main.Frames[0].Symbol);
-            Assert.All(main.Frames.TakeWhile(f => !f.Heuristic), f => Assert.NotNull(f.Module));
+            Assert.All(main.Frames.TakeWhile(f => f.Basis != "inferred"), f => Assert.NotNull(f.Module));
 
             var after = Snapshot(child.Id);
             Assert.Equal(before.Writable, after.Writable);
@@ -217,7 +217,7 @@ public sealed class LiveProcessSweepTests(ITestOutputHelper output)
                 {
                     frames++;
                     if (f.Function != null) named++;
-                    if (f.Heuristic) heuristic++;
+                    if (f.Basis == "inferred") heuristic++;
                 }
                 if (r.ElapsedMs > slowest) (slowest, slowestName) = (r.ElapsedMs, name);
             }

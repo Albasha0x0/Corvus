@@ -58,36 +58,49 @@ public sealed class MinidumpTools(MinidumpService dumps)
         ToolOutput.List(rows, offset, limit, total, render,
             page => new MinidumpService.DumpReport(id, view) { Items = page.Cast<object>().ToList(), Offset = offset, Total = total }, noun);
 
-    [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true)]
+    [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.StackReport))]
     [Description("Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP chain; JIT code without unwind data adds " +
-                 "heuristic scanned frames. Names from loaded images (code index, PDB, Il2Cpp) or exports (nearest_export is a guess). .NET frames " +
-                 "come from the DAC with token, IL offset, the loaded assembly and the C# statement; Mono JIT frames from the runtime's report beside the dump.")]
-    public Task<MinidumpService.StackReport> DumpStack(
+                 "scanned frames (basis inferred). Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL " +
+                 "offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump.")]
+    public Task<string> DumpStack(
         [Description(DumpDescription)] string dump,
         [Description("Thread id, '#index', name or 'exception'. Default: the faulting thread, else the first.")] string? thread = null,
-        [Description("Faulting thread: start at the exception context (.ecxr) or, false, at the thread's context when the dump was written.")] bool exceptionContext = true,
+        [Description("Faulting thread: start at the exception context (.ecxr); false: its context at dump time.")] bool exceptionContext = true,
         [Description("Max frames walked (up to 1024).")] int maxFrames = 256,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Max frames returned.")] int limit = 100,
+        [Description(ToolSupport.LimitDescription)] int limit = 100,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
-        [Description("auto: .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only.")] string? managed = "auto",
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => dumps.Stack(dump, thread, exceptionContext, maxFrames, offset, limit, imageDirectories,
-            !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), cancellationToken), cancellationToken);
+        [Description("auto: .NET frames through the DAC; off: native walk only.")] string? managed = "auto",
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
+    {
+        var r = await dumps.Stack(dump, thread, exceptionContext, maxFrames, offset, limit, imageDirectories,
+            !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), cancellationToken);
+        var header = $"{r.Dump} thread {r.ThreadId}{(r.ThreadName != null ? $" \"{r.ThreadName}\"" : "")}, {r.Architecture}, from the {r.Context} context; walk ended: {r.Stop}" +
+                     (r.ScannedFrames > 0 ? $"; {r.ScannedFrames} scanned" : "") + (r.Managed != null ? $"; managed frames: {r.Managed}" : "") + "\n" +
+                     (r.Registers != null ? $"registers: {r.Registers}\n" : "") + string.Concat(r.Notes.Select(n => $"note: {n}\n"));
+        return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.Frame, page => r with { Items = page }, "frame", header);
+    }, cancellationToken);
 
-    [McpServerTool(Name = "dump_heap", Title = "Crash dump .NET heap", UseStructuredContent = true)]
-    [Description("The .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects " +
+    [McpServerTool(Name = "dump_heap", Title = "Crash dump .NET heap", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.HeapReport))]
+    [Description("Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects " +
                  "(address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).")]
-    public Task<MinidumpService.HeapReport> DumpHeap(
+    public Task<string> DumpHeap(
         [Description(DumpDescription)] string dump,
         [Description("stats (per type) or objects (one row each).")] string? mode = "stats",
         [Description("Type full name, '*' / '?' wildcards; default all.")] string? type = null,
         [Description("Only objects of at least this many bytes.")] long minSize = 0,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Max rows returned (up to 1000).")] int limit = MinidumpService.DefaultListLimit,
+        [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
         [Description("Max objects walked.")] long maxObjects = MinidumpService.DefaultMaxHeapObjects,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => dumps.Heap(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken), cancellationToken);
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
+    {
+        var r = await dumps.Heap(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken);
+        var header = $"{r.Dump}: {r.Walked:N0} objects walked, {r.MatchedBytes:N0} bytes matching{(r.Type != null ? $" type {r.Type}" : "")}{(r.MinSize > 0 ? $" of at least {r.MinSize} bytes" : "")}\n" +
+                     string.Concat(r.Notes.Select(n => $"note: {n}\n"));
+        return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.HeapRow, page => r with { Items = page }, r.Mode == "stats" ? "type" : "object", header, r.TotalExact);
+    }, cancellationToken);
 
     [McpServerTool(Name = "dump_object", Title = "Crash dump .NET object", UseStructuredContent = true)]
     [Description("One .NET object of a minidump (through the DAC): type, size, fields (references expanded depth levels), a string's or " +

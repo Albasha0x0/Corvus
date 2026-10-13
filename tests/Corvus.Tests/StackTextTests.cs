@@ -52,18 +52,18 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal("outer failure", r.Exception.Message);
         Assert.Equal("System.ArgumentException", Assert.Single(r.Exception.Inner).Type);
         Assert.Equal(3, r.Total);
-        var inner = r.Frames[0];
+        var inner = r.Items[0];
         Assert.Equal(1, inner.Exception);
         Assert.Equal(_fixture.Id, inner.Assembly);
         Assert.Contains("Charge(int)", inner.Resolved);
         Assert.Equal("unknown", inner.BuildCheck);
         Assert.Contains("no MVID", inner.BuildDetail);
         Assert.StartsWith($"decompile_member assembly={_fixture.Id} member=0x06", inner.NextStep);
-        var outer = r.Frames[1];
+        var outer = r.Items[1];
         Assert.Equal(0, outer.Exception);
         Assert.Contains("Charge(int, string)", outer.Resolved);
         Assert.NotEqual(inner.Token, outer.Token);
-        Assert.Null(r.Frames[2].Assembly); // Program is not loaded
+        Assert.Null(r.Items[2].Assembly); // Program is not loaded
         Assert.Equal(0, r.UnrecognizedLines);
     }
 
@@ -82,14 +82,14 @@ public sealed class StackTextTests : IDisposable
             """);
         Assert.Equal("unity", r.Format);
         Assert.Equal("NullReferenceException", r.Exception!.Type);
-        Assert.Equal("match", r.Frames[0].BuildCheck);
-        Assert.Equal(0x1a, r.Frames[0].IlOffset);
-        Assert.Equal(_fixture.Id, r.Frames[0].Assembly);
-        Assert.Equal("mismatch", r.Frames[1].BuildCheck);
-        Assert.Contains(other.ToString("D"), r.Frames[1].BuildDetail);
-        Assert.Null(r.Frames[2].Resolved);
+        Assert.Equal("match", r.Items[0].BuildCheck);
+        Assert.Equal(0x1a, r.Items[0].IlOffset);
+        Assert.Equal(_fixture.Id, r.Items[0].Assembly);
+        Assert.Equal("mismatch", r.Items[1].BuildCheck);
+        Assert.Contains(other.ToString("D"), r.Items[1].BuildDetail);
+        Assert.Null(r.Items[2].Resolved);
         Assert.Contains(r.ModulesMissing, m => m.Module.Contains(unknown.ToString("D"), StringComparison.Ordinal) && m.Module.Contains("Game.Player", StringComparison.Ordinal));
-        Assert.Contains("wrapper", r.Frames[3].BuildDetail);
+        Assert.Contains("wrapper", r.Items[3].BuildDetail);
     }
 
     [Fact]
@@ -106,18 +106,41 @@ public sealed class StackTextTests : IDisposable
             C:\Game\UnityPlayer.dll:UnityPlayer.dll (00007FFB22220000), size: 1048576 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 2022.3.1.0
             """);
         Assert.Equal("unity", r.Format);
-        var crash = r.Frames[0];
+        var crash = r.Items[0];
         Assert.Equal("0x1005", crash.Offset);
         Assert.Equal("Crash+0x5", crash.Resolved);
         Assert.Equal("match", crash.BuildCheck); // the text's own name agrees
         Assert.Equal("synth.dll", crash.Image);
         Assert.StartsWith("decompile_native image=synth.dll address=0x1005", crash.NextStep);
-        Assert.StartsWith("Outer+0x", r.Frames[1].Resolved);
+        Assert.StartsWith("Outer+0x", r.Items[1].Resolved);
         var player = Assert.Single(r.ModulesMissing);
         Assert.Equal("UnityPlayer", player.Module);
         Assert.Equal("2022.3.1.0", player.Version);
-        Assert.Equal(_fixture.Id, r.Frames[3].Assembly);
+        Assert.Equal(_fixture.Id, r.Items[3].Assembly);
         Assert.Equal(2, r.UnrecognizedLines); // the banner lines
+    }
+
+    /// <summary>compact folds a run of matching native frames of one image into one row that keeps their names; offset and total count rows.</summary>
+    [Fact]
+    public async Task CompactFoldsMatchingFramesOfOneImage()
+    {
+        const string text = """
+            ========== OUTPUTTING STACK TRACE ==================
+            0x00007FF610001005 (synth) Crash
+            0x00007FF610001006 (synth) Crash
+            0x00007FF610001007 (synth) Crash
+            0x00007FFB22221234 (UnityPlayer) PlayerMain
+            ========== END OF STACKTRACE ===========
+            C:\Game\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
+            """;
+        var full = await _service.Symbolize(text, null, "auto", null, null, 0, 50, false, default);
+        Assert.Equal((4, 4), (full.Frames, full.Total));
+        var compact = await _service.Symbolize(text, null, "auto", null, null, 0, 50, true, default);
+        Assert.Equal((4, 2), (compact.Frames, compact.Total));
+        Assert.Equal(["Crash+0x6", "Crash+0x7"], compact.Items[0].Folded);
+        Assert.Equal(3, compact.Items[1].Index);
+        var second = await _service.Symbolize(text, null, "auto", null, null, 1, 50, true, default);
+        Assert.Equal(3, Assert.Single(second.Items).Index);
     }
 
     /// <summary>An Android tombstone backtrace: frames resolve in the loaded .so whose GNU build id the line names; another build id is another build.</summary>
@@ -140,13 +163,13 @@ public sealed class StackTextTests : IDisposable
             """);
         Assert.Equal("android", r.Format);
         Assert.Equal(3, r.Total);
-        var crash = r.Frames[0];
+        var crash = r.Items[0];
         Assert.Equal(("libgame.so", "0x1004", "Crash+0x4", image.Id, "match"), (crash.Module, crash.Offset, crash.Resolved, crash.Image, crash.BuildCheck));
-        Assert.Equal("mismatch", r.Frames[1].BuildCheck);
-        Assert.Contains("deadbeef", r.Frames[1].BuildDetail);
+        Assert.Equal("mismatch", r.Items[1].BuildCheck);
+        Assert.Contains("deadbeef", r.Items[1].BuildDetail);
         var libc = Assert.Single(r.ModulesMissing);
         Assert.Equal("libc.so", libc.Module);
-        Assert.Contains("BuildId 0f00ba44", r.Frames[2].NextStep);
+        Assert.Contains("BuildId 0f00ba44", r.Items[2].NextStep);
     }
 
     /// <summary>Il2Cpp builds print an all-zero MVID: no build identity, so the frame is matched by name and its build is unknown.</summary>
@@ -157,7 +180,7 @@ public sealed class StackTextTests : IDisposable
             NullReferenceException: Object reference not set to an instance of an object.
               at Fixture.Model.Account.Charge (System.Int32 amount) [0x00000] in <00000000000000000000000000000000>:0
             """);
-        var f = Assert.Single(r.Frames);
+        var f = Assert.Single(r.Items);
         Assert.Equal((_fixture.Id, "unknown"), (f.Assembly, f.BuildCheck));
         Assert.Empty(r.ModulesMissing);
     }
@@ -171,7 +194,7 @@ public sealed class StackTextTests : IDisposable
             0x00007FF610001005 (synth) Crash
             C:\Game\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
             """);
-        Assert.Equal("Crash+0x5", Assert.Single(r.Frames).Resolved);
+        Assert.Equal("Crash+0x5", Assert.Single(r.Items).Resolved);
         Assert.Empty(r.ModulesMissing);
         Assert.Equal(["Crash!!!"], r.UnrecognizedSample);
     }
@@ -190,12 +213,12 @@ public sealed class StackTextTests : IDisposable
             Fixture.Native.NativeThing:First ()
             C:\Game\GameAssembly.dll:GameAssembly.dll (00007FFB00000000), size: 8192 (result: 0), fileVersion: 0.0.0.0
             """, null, null, null, null, 0, 50, default);
-        var native = r.Frames[0];
+        var native = r.Items[0];
         Assert.Equal("il2cpp", native.Source);
         Assert.Contains("NativeThing", native.Resolved);
         Assert.Contains("Second", native.Resolved);
         Assert.EndsWith("+0x5", native.Resolved);
-        var managed = r.Frames[1];
+        var managed = r.Items[1];
         Assert.Equal("il2cpp", managed.Kind);
         Assert.StartsWith($"get_il2cpp_info assembly={env.Fixture.Id} symbol=0x06", managed.NextStep);
     }
@@ -213,7 +236,7 @@ public sealed class StackTextTests : IDisposable
             backtrace:
                   #00 pc 0000000000001105  /data/app/~~x==/com.example.game-1/lib/arm64/libil2cpp.so
             """, null, null, null, null, 0, 50, default);
-        var native = Assert.Single(r.Frames);
+        var native = Assert.Single(r.Items);
         Assert.Equal("il2cpp", native.Source);
         Assert.Contains("Second", native.Resolved);
         Assert.EndsWith("+0x5", native.Resolved);
@@ -242,13 +265,13 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal("wer", same.Format);
         Assert.Equal("0xC0000005", same.Exception!.Code);
         Assert.Equal("EXCEPTION_ACCESS_VIOLATION", same.Exception.Name);
-        var f = Assert.Single(same.Frames);
+        var f = Assert.Single(same.Items);
         Assert.Equal("Crash+0x5", f.Resolved);
         Assert.Equal("match", f.BuildCheck);
 
         var other = await Run(Report(_stamp + 1));
-        Assert.Equal("mismatch", other.Frames[0].BuildCheck);
-        Assert.Contains($"0x{_stamp + 1:X8}", other.Frames[0].BuildDetail);
+        Assert.Equal("mismatch", other.Items[0].BuildCheck);
+        Assert.Contains($"0x{_stamp + 1:X8}", other.Items[0].BuildDetail);
     }
 
     [Fact]
@@ -264,8 +287,8 @@ public sealed class StackTextTests : IDisposable
             """, "eventlog");
         Assert.Equal("eventlog", r.Format);
         Assert.Equal("0xC0000005", r.Exception!.Code);
-        Assert.Equal("Big+0x5", r.Frames.Single().Resolved);
-        Assert.Equal("match", r.Frames[0].BuildCheck);
+        Assert.Equal("Big+0x5", r.Items.Single().Resolved);
+        Assert.Equal("match", r.Items[0].BuildCheck);
     }
 
     [Fact]
@@ -278,12 +301,12 @@ public sealed class StackTextTests : IDisposable
             03 kernel32!BaseThreadInitThunk+0x14
             0x7FF610001020
             """, "windbg", "synth.dll=0x7FF610000000");
-        Assert.Equal("Crash+0x5", r.Frames[0].Resolved);
-        Assert.Equal("match", r.Frames[0].BuildCheck);
-        Assert.Equal("mismatch", r.Frames[1].BuildCheck); // past the end of Outer
-        Assert.Equal("Big", r.Frames[2].Resolved);
+        Assert.Equal("Crash+0x5", r.Items[0].Resolved);
+        Assert.Equal("match", r.Items[0].BuildCheck);
+        Assert.Equal("mismatch", r.Items[1].BuildCheck); // past the end of Outer
+        Assert.Equal("Big", r.Items[2].Resolved);
         Assert.Equal("kernel32", Assert.Single(r.ModulesMissing).Module);
-        Assert.Equal("Outer", r.Frames[4].Resolved); // absolute address through moduleBases
+        Assert.Equal("Outer", r.Items[4].Resolved); // absolute address through moduleBases
     }
 
     [Fact]
@@ -322,7 +345,7 @@ public sealed class StackTextTests : IDisposable
             w.WriteLine(@"C:\Game\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0)");
         }
         var r = await _service.Symbolize(null, log, null, null, null, 0, 10, default);
-        Assert.Equal("Crash+0x5", Assert.Single(r.Frames).Resolved);
+        Assert.Equal("Crash+0x5", Assert.Single(r.Items).Resolved);
         Assert.Contains(r.Notes, n => n.Contains("last 8 MiB", StringComparison.Ordinal));
     }
 }

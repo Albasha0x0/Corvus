@@ -349,16 +349,16 @@ public class ToolOutputTests
         Assert.Equal(["items", "offset", "total"], root["required"]!.AsArray().Select(n => (string)n!));
     }
 
-    /// <summary>Rows under another name (dump_stack's frames) get the list envelope and the text shows the same rows.</summary>
+    /// <summary>Rows under another name (get_call_arguments's calls) get the list envelope and the text shows the same rows.</summary>
     [Fact]
     public async Task NamedRowArraysAreLists()
     {
         using var services = Services();
-        var frames = Enumerable.Range(0, 3_000).Select(i => new { index = i, address = $"0x{i:X8}", function = $"module!Function{i}+0x10" }).ToArray();
-        var record = JsonSerializer.SerializeToElement(new { dump = "d.dmp", total = 3_000, offset = 0, truncated = false, frames, notes = new[] { "n" } }, Catalog.ToolSerializerOptions);
-        var r = await Call(services, "dump_stack", _ => new CallToolResult { Content = [new TextContentBlock { Text = record.GetRawText() }], StructuredContent = record });
+        var calls = Enumerable.Range(0, 3_000).Select(i => new { index = i, address = $"0x{i:X8}", function = $"module!Function{i}+0x10" }).ToArray();
+        var record = JsonSerializer.SerializeToElement(new { image = "d.dll", total = 3_000, offset = 0, truncated = false, calls, notes = new[] { "n" } }, Catalog.ToolSerializerOptions);
+        var r = await Call(services, "get_call_arguments", _ => new CallToolResult { Content = [new TextContentBlock { Text = record.GetRawText() }], StructuredContent = record });
         var json = Record(r);
-        int rows = json.GetProperty("frames").GetArrayLength();
+        int rows = json.GetProperty("calls").GetArrayLength();
         Assert.InRange(rows, 10, 2_999);
         Assert.False(json.TryGetProperty("truncated", out _));
         Assert.Equal(rows, json.GetProperty("nextOffset").GetInt32());

@@ -3,6 +3,8 @@
 bucket_minidumps
 dump_heap
 dump_stack
+extract_embedded
+extract_strings
 find_method_by_address
 find_similar_functions
 get_call_arguments
@@ -13,4 +15,5 @@ read_result
 search_code_pattern
 search_container
 search_decompiled
+search_instructions
 symbolize_stack_text

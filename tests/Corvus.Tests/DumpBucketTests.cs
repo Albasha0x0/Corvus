@@ -47,7 +47,7 @@ public sealed class DumpBucketTests : IDisposable
         Assert.Contains("not a Windows minidump", r.Failed[0].Reason);
         Assert.Equal(3, r.Total);
 
-        var av = r.Buckets[0];
+        var av = r.Items[0];
         Assert.Equal("0xC0000005 | synth!Crash | synth!Outer > synth!Big", av.Signature);
         Assert.Equal("exception", av.Kind);
         Assert.Equal(3, av.Count);
@@ -55,8 +55,8 @@ public sealed class DumpBucketTests : IDisposable
         Assert.Equal(new Dictionary<string, int> { ["1.2.3.4"] = 3 }, av.ModuleVersions);
         Assert.Equal(["a.dmp", "b.dmp", "c.dmp"], av.Sample.Order());
         Assert.Contains(av.Representative, av.Sample);
-        Assert.Contains(r.Buckets, b => b.Signature.StartsWith("0xC0000094 | synth!Crash", StringComparison.Ordinal));
-        var hang = Assert.Single(r.Buckets, b => b.Kind == "no_exception");
+        Assert.Contains(r.Items, b => b.Signature.StartsWith("0xC0000094 | synth!Crash", StringComparison.Ordinal));
+        var hang = Assert.Single(r.Items, b => b.Kind == "no_exception");
         Assert.StartsWith("hang | synth!Crash", hang.Signature);
 
         // the representatives open by id
@@ -72,11 +72,11 @@ public sealed class DumpBucketTests : IDisposable
         Assert.Equal(1, (await Run()).Total);
         var split = await Run(splitByVersion: true);
         Assert.Equal(2, split.Total);
-        Assert.Contains(split.Buckets, b => b.Signature.EndsWith("| version 1.2.3.5", StringComparison.Ordinal));
+        Assert.Contains(split.Items, b => b.Signature.EndsWith("| version 1.2.3.5", StringComparison.Ordinal));
 
         var skipped = await Run(skip: "synth!Crash");
-        Assert.Equal("0xC0000005 | synth!Outer | synth!Big", skipped.Buckets[0].Signature);
-        Assert.Equal("0xC0000005 | synth!Crash | ", (await Run(topFrames: 0)).Buckets[0].Signature);
+        Assert.Equal("0xC0000005 | synth!Outer | synth!Big", skipped.Items[0].Signature);
+        Assert.Equal("0xC0000005 | synth!Crash | ", (await Run(topFrames: 0)).Items[0].Signature);
     }
 
     [Fact]
@@ -89,13 +89,13 @@ public sealed class DumpBucketTests : IDisposable
 
         var again = await Run();
         Assert.Equal((0, 2), (again.Dumps.Parsed, again.Dumps.Cached));
-        Assert.Equal(first.Buckets.Select(b => b.Signature), again.Buckets.Select(b => b.Signature));
+        Assert.Equal(first.Items.Select(b => b.Signature), again.Items.Select(b => b.Signature));
 
         File.SetLastWriteTimeUtc(Path.Combine(Folder, "a.dmp"), DateTime.UtcNow.AddMinutes(1));
         Write("c.dmp", SyntheticCrash.Builder(moduleBase: 0x7FF6_3000_0000));
         var third = await Run();
         Assert.Equal((2, 1), (third.Dumps.Parsed, third.Dumps.Cached));
-        Assert.Equal(3, third.Buckets.Sum(b => b.Count));
+        Assert.Equal(3, third.Items.Sum(b => b.Count));
 
         // other options are another cache key
         var split = await Run(splitByVersion: false, topFrames: 1);
@@ -108,7 +108,7 @@ public sealed class DumpBucketTests : IDisposable
         for (int i = 0; i < 3; i++) Write($"{i}.dmp", SyntheticCrash.Builder());
         var limited = await _service.Bucket(Folder, false, null, 3, null, false, true, 2, null, 0, 50, null, default);
         Assert.True(limited.Dumps.LimitReached);
-        Assert.Equal(2, limited.Buckets.Single().Count);
+        Assert.Equal(2, limited.Items.Single().Count);
         Assert.Contains(limited.Notes, n => n.Contains("maxDumps", StringComparison.Ordinal));
 
         var none = await _service.Bucket(Folder, false, "*.none", 3, null, false, true, 10, null, 0, 50, null, default);

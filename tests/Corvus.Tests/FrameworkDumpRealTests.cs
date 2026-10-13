@@ -128,14 +128,14 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
         Assert.Equal(probe.Id, thrower.Assembly);
 
         var stack = await service.Stack(dump, e.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
-        foreach (var f in stack.Frames) output.WriteLine($"{f.Index,2} {f.StackPointer} {f.Symbol} [{f.SymbolSource}] {f.Method} {f.Token} il={f.IlOffset} {f.Assembly}");
+        foreach (var f in stack.Items) output.WriteLine($"{f.Index,2} {f.StackPointer} {f.Symbol} [{f.SymbolSource}] {f.Method} {f.Token} il={f.IlOffset} {f.Assembly}");
         Assert.Equal("decoded", stack.Managed);
-        var dumpSelf = stack.Frames.First(f => f.SymbolSource == "clr" && f.Function!.Contains("DumpSelf", StringComparison.Ordinal));
+        var dumpSelf = stack.Items.First(f => f.SymbolSource == "clr" && f.Function!.Contains("DumpSelf", StringComparison.Ordinal));
         Assert.Equal($"0x{MethodToken(exe, "DumpSelf"):X8}", dumpSelf.Token);
-        Assert.Contains(stack.Frames, f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal));
+        Assert.Contains(stack.Items, f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal));
 
         var heap = await service.Heap(dump, "objects", "System.ApplicationException", 0, 0, 10, MinidumpService.DefaultMaxHeapObjects, default);
-        var kept = await service.Object(dump, heap.Objects.Single().Address, 1, 100, 32, default);
+        var kept = await service.Object(dump, heap.Items.Single().Address!, 1, 100, 32, default);
         Assert.Equal("\"sample-outer\"", kept.Fields.Single(f => f.Path == "_message").Value);
     }
 

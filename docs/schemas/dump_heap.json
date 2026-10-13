@@ -17,76 +17,59 @@
       "description": "Objects walked.",
       "type": "integer"
     },
-    "walkStopped": {
-      "description": "The walk stopped at maxObjects: counts cover only the walked part of the heap.",
-      "type": "boolean"
+    "matchedBytes": {
+      "description": "Size of every matching object walked.",
+      "type": "integer"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "size": {
+            "description": "stats: bytes of all its objects; objects: the object's size.",
+            "type": "integer"
+          },
+          "count": {
+            "description": "stats: objects of the type.",
+            "type": "integer"
+          },
+          "address": {
+            "description": "objects: the object's address (dump_object).",
+            "type": "string"
+          },
+          "value": {
+            "description": "objects: a string's value (up to 200 characters).",
+            "type": "string"
+          },
+          "assembly": {
+            "description": "stats: id of the loaded assembly that is the type's module build, for get_type_info / decompile_member.",
+            "type": "string"
+          },
+          "token": {
+            "description": "stats: TypeDef token of the type in that assembly.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "size"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
     },
     "total": {
       "description": "stats: matching types; objects: matching objects.",
       "type": "integer"
     },
-    "offset": {
-      "type": "integer"
-    },
-    "matchedBytes": {
-      "description": "Size of every matching object walked.",
-      "type": "integer"
-    },
-    "types": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer"
-          },
-          "totalSize": {
-            "type": "integer"
-          },
-          "assembly": {
-            "description": "Id of the loaded assembly that is the type's module build, for get_type_info / decompile_member.",
-            "type": "string"
-          },
-          "token": {
-            "description": "TypeDef token of the type in that assembly.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "count",
-          "totalSize"
-        ]
-      }
-    },
-    "objects": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "address": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "size": {
-            "type": "integer"
-          },
-          "value": {
-            "description": "A string's value (up to 200 characters).",
-            "type": "string"
-          }
-        },
-        "required": [
-          "address",
-          "type",
-          "size"
-        ]
-      }
+    "totalExact": {
+      "description": "False when the walk stopped at maxObjects: counts cover only the walked part of the heap.",
+      "type": "boolean"
     },
     "notes": {
       "type": "array",
@@ -96,9 +79,6 @@
     },
     "limit": {
       "type": "integer"
-    },
-    "totalExact": {
-      "type": "boolean"
     },
     "hasMore": {
       "type": "boolean"
@@ -130,12 +110,11 @@
     "mode",
     "minSize",
     "walked",
-    "walkStopped",
-    "total",
-    "offset",
     "matchedBytes",
-    "types",
-    "objects",
+    "items",
+    "offset",
+    "total",
+    "totalExact",
     "notes"
   ]
 }

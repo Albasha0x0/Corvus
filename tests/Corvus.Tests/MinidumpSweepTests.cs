@@ -54,11 +54,11 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
             {
                 var stack = await service.Stack(path, $"#{i}", true, 256, 0, 256, null, default);
                 threads++;
-                frames += stack.Frames.Count;
-                heuristic += stack.HeuristicFrames;
+                frames += stack.Items.Count;
+                heuristic += stack.ScannedFrames;
                 stops[stack.Stop] = stops.GetValueOrDefault(stack.Stop) + 1;
                 if (summary.Exception != null && stack.ThreadId == summary.Exception.ThreadId)
-                    output.WriteLine("  " + string.Join(" > ", stack.Frames.Take(8).Select(f => f.Symbol ?? f.Address)));
+                    output.WriteLine("  " + string.Join(" > ", stack.Items.Take(8).Select(f => f.Symbol ?? f.Address)));
             }
         }
         output.WriteLine($"{dumps} dumps ({withException} with an exception, {rejected} rejected), {threads} threads, {frames} frames ({heuristic} heuristic) in {sw.ElapsedMilliseconds} ms; " +

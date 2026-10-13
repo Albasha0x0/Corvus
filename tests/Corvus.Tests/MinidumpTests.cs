@@ -294,25 +294,27 @@ public sealed class MinidumpTests
         using var service = new MinidumpService();
         var stack = await service.Stack(path, null, true, 64, 0, 64, null, default);
         Assert.Equal("x86", stack.Architecture);
-        Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], stack.Frames.Select(f => f.Symbol));
-        Assert.Equal(["context", "call_target", "call_target"], stack.Frames.Select(f => f.Method));
-        Assert.Equal(0, stack.HeuristicFrames);
+        Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], stack.Items.Select(f => f.Symbol));
+        Assert.Equal(["context", "call_target", "call_target"], stack.Items.Select(f => f.Method));
+        Assert.Equal(0, stack.ScannedFrames);
         Assert.Equal("end_of_stack", stack.Stop);
         // a call to a bad address: the return address is at the stack pointer
         var bad = await service.Stack(path, "101", true, 64, 0, 64, null, default);
-        Assert.Equal(("leaf", "synth32!Jump+0x2"), (bad.Frames[1].Method, bad.Frames[1].Symbol));
+        Assert.Equal(("leaf", "synth32!Jump+0x2"), (bad.Items[1].Method, bad.Items[1].Symbol));
         // a call through an import slot the dump holds unbound: matched by the import's name
         var trap = await service.Stack(path, "102", true, 64, 0, 64, null, default);
-        Assert.Equal(["halt!Halt+0x2", "synth32!Trap+0x6"], trap.Frames.Take(2).Select(f => f.Symbol));
-        Assert.Equal("call_target", trap.Frames[1].Method);
+        Assert.Equal(["halt!Halt+0x2", "synth32!Trap+0x6"], trap.Items.Take(2).Select(f => f.Symbol));
+        Assert.Equal(("call_target", "inferred"), (trap.Items[1].Method, trap.Items[1].Basis)); // a nearest-export name
+        Assert.Equal("derived", MinidumpService.FrameBasis("call_target", false, "export"));
+        Assert.Null(MinidumpService.FrameBasis("unwind_info", false, "pdb"));
         // Leaf reached by a tail jump from Tail: the return address is Outer's call to Tail; the EBP chain would skip Outer
         var tail = await service.Stack(path, "103", true, 64, 0, 64, null, default);
-        Assert.Equal(["synth32!Leaf", "synth32!Outer+0x8"], tail.Frames.Select(f => f.Symbol));
-        Assert.Equal("call_target", tail.Frames[1].Method);
+        Assert.Equal(["synth32!Leaf", "synth32!Outer+0x8"], tail.Items.Select(f => f.Symbol));
+        Assert.Equal("call_target", tail.Items[1].Method);
 
         using var bucketing = new MinidumpService { BucketCache = dir.File("cache") };
         var buckets = await bucketing.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
-        Assert.Equal("0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top", Assert.Single(buckets.Buckets).Signature);
+        Assert.Equal("0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top", Assert.Single(buckets.Items).Signature);
     }
 
     /// <summary>
@@ -348,12 +350,12 @@ public sealed class MinidumpTests
         using var service = new MinidumpService { BucketCache = dir.File("cache") };
         var stack = await service.Stack(path, null, true, 64, 0, 64, null, default);
         Assert.Equal("x86 (WoW64)", stack.Architecture);
-        Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], stack.Frames.Take(3).Select(f => f.Symbol));
+        Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], stack.Items.Take(3).Select(f => f.Symbol));
         Assert.Contains(stack.Notes, n => n.StartsWith("WoW64 thread: frames 0-2 are its 32-bit side", StringComparison.Ordinal));
         var summary = await service.Summarize(path, null, default);
         Assert.Equal("synth32!Leaf", (await service.Threads(path, null, 0, 50, default)).Rows.Single().Location);
         Assert.True(summary.Process!.Wow64);
-        Assert.Equal("hang | synth32!Leaf > synth32!Mid > synth32!Top", Assert.Single((await service.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Buckets).Signature);
+        Assert.Equal("hang | synth32!Leaf > synth32!Mid > synth32!Top", Assert.Single((await service.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Items).Signature);
     }
 
     /// <summary>A module name two modules share (a WoW64 process's two ntdll.dll) is ambiguous alone and with an offset alike.</summary>
@@ -385,7 +387,7 @@ public sealed class MinidumpTests
         SyntheticCrashX86.Write(dir, "with-jit.dmp", jit: true);
         SyntheticCrashX86.Write(dir, "without.dmp");
         using var service = new MinidumpService { BucketCache = dir.File("cache") };
-        var bucket = Assert.Single((await service.Bucket(dir.Path, false, null, 4, null, false, true, 10, null, 0, 10, null, default)).Buckets);
+        var bucket = Assert.Single((await service.Bucket(dir.Path, false, null, 4, null, false, true, 10, null, 0, 10, null, default)).Items);
         Assert.Equal((2, "0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top"), (bucket.Count, bucket.Signature));
     }
 
@@ -447,26 +449,26 @@ public sealed class MinidumpTests
 
         var stack = await service.Stack(summary.Id, null, true, 64, 0, 64, null, default);
         Assert.Equal("exception", stack.Context);
-        Assert.Equal(["synth!Crash+0x5", "synth!Outer+0x35", "synth!Big+0x14"], stack.Frames.Select(f => f.Symbol));
-        Assert.Equal(["context", "unwind_info", "unwind_info"], stack.Frames.Select(f => f.Method));
+        Assert.Equal(["synth!Crash+0x5", "synth!Outer+0x35", "synth!Big+0x14"], stack.Items.Select(f => f.Symbol));
+        Assert.Equal(["context", "unwind_info", "unwind_info"], stack.Items.Select(f => f.Method));
         Assert.Equal("end_of_stack", stack.Stop);
-        Assert.Equal(0, stack.HeuristicFrames);
+        Assert.Equal(0, stack.ScannedFrames);
         Assert.Contains(stack.Notes, n => n.StartsWith("synth.dll: image dump_memory", StringComparison.Ordinal));
 
         // epilog, prolog and a scan from code outside any module
         var epilog = await service.Stack(path, "101", true, 64, 0, 64, null, default);
-        Assert.Equal(["synth!Crash+0xB", "synth!Outer+0x35", "synth!Big+0x14"], epilog.Frames.Select(f => f.Symbol));
-        Assert.Equal("epilog", epilog.Frames[1].Method);
+        Assert.Equal(["synth!Crash+0xB", "synth!Outer+0x35", "synth!Big+0x14"], epilog.Items.Select(f => f.Symbol));
+        Assert.Equal("epilog", epilog.Items[1].Method);
         var prolog = await service.Stack(path, "0x66", true, 64, 0, 64, null, default);
-        Assert.Equal(["synth!Crash+0x1", "synth!Outer+0x35", "synth!Big+0x14"], prolog.Frames.Select(f => f.Symbol));
+        Assert.Equal(["synth!Crash+0x1", "synth!Outer+0x35", "synth!Big+0x14"], prolog.Items.Select(f => f.Symbol));
         var jit = await service.Stack(path, "#3", true, 64, 0, 64, null, default);
-        Assert.Equal("unknown", jit.Frames[0].Kind);
-        Assert.Equal("scan", jit.Frames[1].Method);
-        Assert.True(jit.Frames[1].Heuristic);
-        Assert.Equal(["synth!Outer+0x35", "synth!Big+0x14"], jit.Frames.Skip(1).Select(f => f.Symbol));
+        Assert.Equal("unknown", jit.Items[0].Kind);
+        Assert.Equal("scan", jit.Items[1].Method);
+        Assert.Equal("inferred", jit.Items[1].Basis);
+        Assert.Equal(["synth!Outer+0x35", "synth!Big+0x14"], jit.Items.Skip(1).Select(f => f.Symbol));
         var bad = await service.Stack(path, "104", true, 64, 0, 64, null, default);
-        Assert.Equal(["leaf", "unwind_info"], bad.Frames.Skip(1).Select(f => f.Method));
-        Assert.Equal(["synth!Outer+0x35", "synth!Big+0x14"], bad.Frames.Skip(1).Select(f => f.Symbol));
+        Assert.Equal(["leaf", "unwind_info"], bad.Items.Skip(1).Select(f => f.Method));
+        Assert.Equal(["synth!Outer+0x35", "synth!Big+0x14"], bad.Items.Skip(1).Select(f => f.Symbol));
 
         var memory = await service.ReadMemory(path, "synth+0x1000", 16, true, default);
         Assert.Equal("dump_memory", memory.Source);

@@ -264,9 +264,9 @@
                   "description": "How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).",
                   "type": "string"
                 },
-                "heuristic": {
-                  "description": "Found by scanning the stack for a return address: may be a stale value.",
-                  "type": "boolean"
+                "basis": {
+                  "description": "derived (frame pointer chain, x86 call target) or inferred (a stack scan, may be stale; or a nearest-export name); absent when unwind data or the runtime observed it.",
+                  "type": "string"
                 },
                 "note": {
                   "type": "string"
@@ -297,8 +297,7 @@
                 "address",
                 "stackPointer",
                 "kind",
-                "method",
-                "heuristic"
+                "method"
               ]
             }
           },

@@ -27,10 +27,6 @@ public static partial class ToolOutput
     internal static readonly IReadOnlyDictionary<string, string[]> RowArrays = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
         ["find_similar_functions"] = ["matches", "groups"],
-        ["dump_heap"] = ["types", "objects"],
-        ["dump_stack"] = ["frames"],
-        ["symbolize_stack_text"] = ["frames"],
-        ["bucket_minidumps"] = ["buckets"],
         ["get_android_device_info"] = ["properties"],
         ["compare_folders"] = ["entries"],
     };

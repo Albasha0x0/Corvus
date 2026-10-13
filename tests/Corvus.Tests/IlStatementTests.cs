@@ -98,8 +98,8 @@ public sealed class IlStatementTests : IDisposable
               at Game.Player.Update () [0x{CallTo(update, "Die"):x5}] in <{_game.Module.Mvid:N}>:0
               at Game.Player.Update () [0x{CallTo(update, "Die"):x5}] in <{Guid.NewGuid():N}>:0
             """, null, "auto", null, null, 0, 50, default);
-        Assert.Equal("Die(num);", r.Frames[0].Statement);
-        Assert.Null(r.Frames[1].Statement); // another build: its IL offsets do not apply
+        Assert.Equal("Die(num);", r.Items[0].Statement);
+        Assert.Null(r.Items[1].Statement); // another build: its IL offsets do not apply
     }
 
     /// <summary>A Unity Mono crash folder: the dump, Player.log with the managed exception and error.log naming JIT code addresses.</summary>
@@ -136,7 +136,7 @@ public sealed class IlStatementTests : IDisposable
         Assert.Contains(m.Notes, n => n.Contains("Player.log beside the dump", StringComparison.Ordinal));
 
         var stack = await service.Stack(dump, null, true, 16, 0, 16, null, default);
-        var top = stack.Frames[0];
+        var top = stack.Items[0];
         Assert.Equal(("mono_log", "managed", _game.Id), (top.SymbolSource, top.Kind, top.Assembly));
         Assert.Contains("Update", top.Function);
         Assert.Contains("error.log", top.Note);

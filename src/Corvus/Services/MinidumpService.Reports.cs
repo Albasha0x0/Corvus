@@ -112,7 +112,7 @@ public sealed partial class MinidumpService
         string? FunctionAddress,
         [property: Description("native, managed (JIT or ReadyToRun code), unloaded_module or unknown.")] string Kind,
         [property: Description("How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).")] string Method,
-        [property: Description("Found by scanning the stack for a return address: may be a stale value.")] bool Heuristic,
+        [property: Description("derived (frame pointer chain, x86 call target) or inferred (a stack scan, may be stale; or a nearest-export name); absent when unwind data or the runtime observed it.")] string? Basis,
         string? Note,
         [property: Description("Managed frames: the method token, for decompile_member with assembly.")] string? Token = null,
         [property: Description("Managed frames: IL offset of the instruction, when the dump holds the JIT's IL map.")] int? IlOffset = null,
@@ -124,9 +124,9 @@ public sealed partial class MinidumpService
         string Dump, uint ThreadId, string? ThreadName,
         [property: Description("exception (the context at the exception, like .ecxr) or thread (the context when the dump was written).")] string Context,
         string Architecture, string? Registers,
-        int Total, int Offset, bool Truncated, IReadOnlyList<StackFrame> Frames,
+        IReadOnlyList<StackFrame> Items, int Offset, int Total,
         [property: Description("Why the walk ended: end_of_stack, max_frames, stack_not_captured, no_unwind_data, left_the_stack, ...")] string Stop,
-        int HeuristicFrames,
+        [property: Description("Frames found by scanning the stack (basis inferred).")] int ScannedFrames,
         [property: Description("Managed frames: decoded (through the runtime's DAC), off, or the DAC status that kept them identified only (not_found, bitness_mismatch, ...); null without a managed runtime.")] string? Managed,
         [property: Description("Where the names and unwind data of each module came from, and what was not covered.")] IReadOnlyList<string> Notes);
 
@@ -457,7 +457,7 @@ public sealed partial class MinidumpService
         var frames = await Frames(s, merged, offset, limit, ct);
         notes.AddRange(ModuleNotes(s));
         return new StackReport(s.Id, t.Id, t.Name, contextKind, arch, registers,
-            merged.Count, offset, offset + frames.Count < merged.Count, frames, stop, merged.Count(f => f.Managed == null && f.Native!.Heuristic), managedState, notes);
+            frames, offset, merged.Count, stop, merged.Count(f => f.Managed == null && f.Native!.Heuristic), managedState, notes);
     }
 
     /// <summary>Frames <paramref name="offset"/>.. of a walk, each named through <see cref="Locate"/>.</summary>
@@ -485,10 +485,14 @@ public sealed partial class MinidumpService
             }
             string? note = string.Join("; ", new[] { f.Note, where.Note }.Where(x => !string.IsNullOrEmpty(x)));
             frames.Add(new StackFrame(i, Hex(d, f.Ip), Hex(d, f.Sp), where.Module?.FileName, where.Rva is { } r ? $"0x{r:X}" : null, where.Symbol, where.Function,
-                where.Source, where.FunctionAddress is { } fa ? Hex(d, fa) : null, where.Kind, f.Method, f.Heuristic, note.Length > 0 ? note : null));
+                where.Source, where.FunctionAddress is { } fa ? Hex(d, fa) : null, where.Kind, f.Method, FrameBasis(f.Method, f.Heuristic, where.Source), note.Length > 0 ? note : null));
         }
         return frames;
     }
+
+    /// <summary>A frame's basis (S5.3): null when observed (context, unwind data, the runtime's walk).</summary>
+    internal static string? FrameBasis(string method, bool heuristic, string? symbolSource) =>
+        heuristic || method == "scan" || symbolSource == "nearest_export" ? "inferred" : method is "frame_pointer" or "call_target" ? "derived" : null;
 
     /// <summary>Where each module's image and names came from, for the modules a session resolved.</summary>
     internal static IEnumerable<string> ModuleNotes(Session s)

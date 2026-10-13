@@ -43,7 +43,7 @@ public sealed partial class MinidumpService
     public sealed record FailedDump(string Path, string Reason);
 
     public sealed record DumpBuckets(
-        string Folder, DumpCounts Dumps, int Total, int Offset, bool Truncated, IReadOnlyList<DumpBucket> Buckets, IReadOnlyList<FailedDump> Failed, IReadOnlyList<string> Notes);
+        string Folder, DumpCounts Dumps, IReadOnlyList<DumpBucket> Items, int Offset, int Total, IReadOnlyList<FailedDump> Failed, IReadOnlyList<string> Notes);
 
     /// <summary>One dump's signature parts (cached between calls).</summary>
     internal sealed record DumpSignature(string Kind, string Key, string? Version, string? Offset, DateTime Time);
@@ -130,7 +130,7 @@ public sealed partial class MinidumpService
             .OrderByDescending(b => b.Count).ThenByDescending(b => b.LastTime, StringComparer.Ordinal).ThenBy(b => b.Signature, StringComparer.Ordinal).ToList();
         if (files.Count == 0) notes.Add($"No file in {root} matches {string.Join(";", patterns)}{(recursive ? "" : " (recursive=false)")}.");
         var page = buckets.Skip(offset).Take(limit).ToList();
-        return new DumpBuckets(root, new DumpCounts(seen, parsed, cached, failed.Count, limited), buckets.Count, offset, offset + page.Count < buckets.Count, page, failed.Take(100).ToList(), notes);
+        return new DumpBuckets(root, new DumpCounts(seen, parsed, cached, failed.Count, limited), page, offset, buckets.Count, failed.Take(100).ToList(), notes);
     }
 
     private static Dictionary<string, int> Tally(IEnumerable<string> values) =>

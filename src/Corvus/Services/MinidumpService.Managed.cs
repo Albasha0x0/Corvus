@@ -171,7 +171,7 @@ public sealed partial class MinidumpService
                 try
                 {
                     var r = await stacks.Symbolize(null, log, "auto", null, null, 0, 1000, ct).ConfigureAwait(false);
-                    if (r.Frames.Any(f => f.Kind == "managed")) found.Add((log, r));
+                    if (r.Items.Any(f => f.Kind == "managed")) found.Add((log, r));
                 }
                 catch (ToolError) { }
             }
@@ -182,13 +182,13 @@ public sealed partial class MinidumpService
     {
         var dac = new DacSummary("unsupported_runtime", null, "Mono has no DAC; JIT code is named from the Mono runtime's crash report beside the dump when there is one");
         var reports = await MonoReports(s, ct);
-        var withIl = reports.FirstOrDefault(r => r.Stack.Frames.Any(f => f.IlOffset != null));
+        var withIl = reports.FirstOrDefault(r => r.Stack.Items.Any(f => f.IlOffset != null));
         if (withIl.Log == null)
             return new ManagedSummary("Mono", null, dac, null, null, null, null,
                 [reports.Count > 0 ? $"{Path.GetFileName(reports[0].Log)} beside the dump names the JIT code frames in dump_stack."
                     : "For Unity Mono titles, symbolize_stack_text on Player.log resolves the managed frames (with their module MVIDs); Unity's crash folder keeps it beside the dump."]);
         var x = withIl.Stack.Exception;
-        var frames = withIl.Stack.Frames.Where(f => f.Kind == "managed").Take(ClrDecoder.MaxExceptionFrames)
+        var frames = withIl.Stack.Items.Where(f => f.Kind == "managed").Take(ClrDecoder.MaxExceptionFrames)
             .Select(f => new ManagedFrameSummary(f.Resolved ?? f.Raw.Trim(), f.Token, f.IlOffset, null, f.Assembly, f.BuildCheck, f.Address, f.Statement)).ToList();
         return new ManagedSummary("Mono", null, dac, null, null, null,
             new ManagedExceptionSummary(x?.Type ?? "(not named)", x?.Message, "", "", null, frames, []),
@@ -253,7 +253,7 @@ public sealed partial class MinidumpService
         string label = Path.GetFileNameWithoutExtension(file);
         string? note = check == "mismatch" ? $"{assembly} is another build of {ModuleFile(f.ModulePath)} (MVID differs): its decompiled code may not match this frame" : null;
         return new StackFrame(index, Hex(d, f.Ip), Hex(d, f.Sp), module?.FileName ?? ModuleFile(f.ModulePath), module != null ? $"0x{f.Ip - module.Base:X}" : null,
-            $"{label}!{f.Name}", f.Name, "clr", f.MethodStart is { } ms ? Hex(d, ms) : null, "managed", "clr", false, note,
+            $"{label}!{f.Name}", f.Name, "clr", f.MethodStart is { } ms ? Hex(d, ms) : null, "managed", "clr", null, note,
             f.Token is { } t ? $"0x{t:X8}" : null, f.IlOffset, assembly, check, Statement(s, assembly, check, f.Token, f.IlOffset, ct));
     }
 
@@ -261,10 +261,10 @@ public sealed partial class MinidumpService
     private async Task<StackFrame?> MonoFrame(Session s, int index, WalkFrame f, CancellationToken ct)
     {
         foreach (var (log, stack) in await MonoReports(s, ct))
-            foreach (var m in stack.Frames)
+            foreach (var m in stack.Items)
                 if (m.Kind == "managed" && m.Address is { } a && Native.NativeAddress.Number(a) == f.Ip)
                     return new StackFrame(index, Hex(s.Memory, f.Ip), Hex(s.Memory, f.Sp), null, null, m.Resolved ?? m.Raw.Trim(), m.Resolved, "mono_log", null, "managed",
-                        f.Method, f.Heuristic, $"Mono JIT code, named from {Path.GetFileName(log)}", m.Token, m.IlOffset, m.Assembly, m.BuildCheck, m.Statement);
+                        f.Method, FrameBasis(f.Method, f.Heuristic, null), $"Mono JIT code, named from {Path.GetFileName(log)}", m.Token, m.IlOffset, m.Assembly, m.BuildCheck, m.Statement);
         return null;
     }
 

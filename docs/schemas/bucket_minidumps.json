@@ -35,13 +35,7 @@
         "limitReached"
       ]
     },
-    "total": {
-      "type": "integer"
-    },
-    "offset": {
-      "type": "integer"
-    },
-    "buckets": {
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
@@ -102,6 +96,12 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
     "failed": {
       "type": "array",
       "items": {
@@ -160,9 +160,9 @@
   "required": [
     "folder",
     "dumps",
-    "total",
+    "items",
     "offset",
-    "buckets",
+    "total",
     "failed",
     "notes"
   ]

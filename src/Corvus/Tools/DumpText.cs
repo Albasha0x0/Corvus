@@ -1,4 +1,5 @@
 using System.Text;
+using Corvus.Core;
 using Corvus.Services;
 using static Corvus.Tools.ToolSupport;
 
@@ -69,6 +70,39 @@ internal static class DumpText
         $"{t.Id}{(t.Name != null ? $" \"{t.Name}\"" : "")}{(t.Faulting ? " [faulting]" : "")}: {t.Location ?? t.InstructionPointer ?? "no context"}" +
         $" (ip {t.InstructionPointer ?? "?"}, sp {t.StackPointer ?? "?"}, stack {t.StackStart}-{t.StackEnd}, teb {t.Teb}" +
         (t.StartAddress != null ? $", start {t.StartAddress}" : "") + (t.SuspendCount > 0 ? $", suspended {t.SuspendCount}" : "") + $", priority {t.Priority})";
+
+    /// <summary>#index address symbol [source], managed token and IL offset with the assembly, how it was found, the statement and a note.</summary>
+    public static string Frame(MinidumpService.StackFrame f) =>
+        $"#{f.Index} {f.Address} {f.Symbol ?? (f.Module != null ? $"{f.Module}+{f.ModuleOffset}" : "?")}" + (f.SymbolSource is { } src and not "none" ? $" [{src}]" : "") +
+        (f.Token != null ? $" {f.Token}{(f.IlOffset is { } il ? $" IL_{il:X4}" : "")}" : "") + (f.Assembly != null ? $" in {f.Assembly}" : "") +
+        (f.BuildCheck is { } b and not "match" ? $" (build {b})" : "") + $"  {f.Kind}, {f.Method}" + (f.Basis != null ? $", {f.Basis}" : "") + $", sp {f.StackPointer}" +
+        (f.Statement != null ? $"\n{f.Statement}" : "") + (f.Note != null ? $"\nnote: {f.Note}" : "");
+
+    /// <summary>#index resolved name [source] (build check) in image or assembly; the raw line when it differs; folded names; statement; next step.</summary>
+    public static string TextFrame(StackTextService.SymbolizedFrame f)
+    {
+        var sb = new StringBuilder($"#{f.Index} ");
+        sb.Append(f.Resolved ?? f.Raw.Trim());
+        if (f.Source is { } src and not "none") sb.Append($" [{src}]");
+        if (f.Token != null) sb.Append($" {f.Token}{(f.IlOffset is { } il ? $" IL_{il:X4}" : "")}");
+        if ((f.Image ?? f.Assembly) is { } where) sb.Append($" in {where}");
+        if (f.BuildCheck != "match") sb.Append($" (build {f.BuildCheck}{(f.BuildDetail != null ? $": {f.BuildDetail}" : "")})");
+        if (f.Resolved != null) sb.Append($"\nline {f.Line}: {f.Raw.Trim()}");
+        if (f.Folded is { Count: > 0 } folded) sb.Append($"\n+{folded.Count} more in {f.Image}: {string.Join(" < ", folded)}");
+        if (f.Statement != null) sb.Append($"\n{f.Statement}");
+        if (f.NextStep != null) sb.Append($"\nnext: {f.NextStep}");
+        return sb.ToString();
+    }
+
+    public static string Bucket(MinidumpService.DumpBucket b) =>
+        $"{b.Count} x {b.Signature}  [{b.Kind}] {b.FirstTime} .. {b.LastTime}; representative {b.Representative}" +
+        (b.Sample.Count > 1 ? $"; sample {string.Join(", ", b.Sample)}" : "") +
+        (b.ModuleVersions.Count > 0 ? $"; versions {string.Join(", ", b.ModuleVersions.Select(v => $"{v.Key} x{v.Value}"))}" : "") +
+        (b.Offsets.Count > 1 ? $"; offsets {string.Join(", ", b.Offsets.Select(v => $"{v.Key} x{v.Value}"))}" : "");
+
+    public static string HeapRow(MinidumpService.HeapRow r) => r.Address != null
+        ? $"{r.Address}  {r.Type}  {r.Size:N0} bytes{(r.Value != null ? $"  {Format.Literal(r.Value)}" : "")}"
+        : $"{r.Type}  {r.Count:N0} object{(r.Count == 1 ? "" : "s")}, {r.Size:N0} bytes{(r.Assembly != null ? $"  [{r.Assembly}] {r.Token}" : "")}";
 
     public static string Memory(MinidumpService.MemoryRow m) =>
         $"{m.Base}-{m.End} {m.Size}" + (m.State != null ? $" {m.State}" : "") + (m.Protection != null ? $" {m.Protection}" : "") + (m.Type != null ? $" {m.Type}" : "") +
