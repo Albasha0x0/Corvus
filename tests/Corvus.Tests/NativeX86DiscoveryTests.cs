@@ -65,6 +65,27 @@ public class NativeX86DiscoveryTests
     }
 
     [Fact]
+    public void I386_pic_plt_stubs_are_import_thunks_and_carry_no_return()
+    {
+        const uint Text = NativeFormats.ElfWriter.TextRva, Plt = Text + 0x20;
+        // f: call puts@plt; call abort@plt; then code nothing reaches
+        var text = new byte[0x20];
+        text.AsSpan().Fill(0xCC);
+        byte[] f = [0xE8, 0, 0, 0, 0, 0xE8, 0, 0, 0, 0, 0xB8, 1, 0, 0, 0, 0xC3];
+        BinaryPrimitives.WriteInt32LittleEndian(f.AsSpan(1), (int)(Plt + 16 - (Text + 5)));
+        BinaryPrimitives.WriteInt32LittleEndian(f.AsSpan(6), (int)(Plt + 32 - (Text + 10)));
+        f.CopyTo(text, 0);
+        var w = new NativeFormats.ElfWriter { Is64 = false, Machine = NativeFormats.ElfWriter.EmX86, Entry = Text, Text = text, PltImports = ["puts", "abort"] };
+        var index = NativeCodeIndex.Build(Native.Elf.ElfFile.FromBytes(w.Build(), "pic.so"));
+        Assert.Equal(Plt, w.PltRva);
+        var abort = index.FunctionByStart(Plt + 32)!;
+        Assert.Equal("abort", abort.ThunkImport?.Name);
+        Assert.True(abort.Flags.HasFlag(FunctionFlags.NoReturn));
+        Assert.Equal("puts", index.FunctionByStart(Plt + 16)!.ThunkImport?.Name);
+        Assert.Equal(Text + 10, index.FunctionByStart(Text)!.End);
+    }
+
+    [Fact]
     public void A_short_jump_over_nops_is_alignment_fill_not_a_function()
     {
         // f: call g; ret; then GNU as fill "jmp +13; 13 x nop" up to g

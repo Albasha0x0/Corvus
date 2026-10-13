@@ -493,6 +493,7 @@ internal sealed class X86Decoder : ICodeDecoder
             target = b + (uint)i.MemoryDisplacement64;
             if (target >= _sizeOfImage) return;
         }
+        else if (i.FlowControl == FlowControl.IndirectBranch && PltSlots.TryGetValue(insn.Rva, out target)) { }
         else
         {
             if (i.MemoryDisplSize < 4) return;
@@ -509,6 +510,15 @@ internal sealed class X86Decoder : ICodeDecoder
         insn.MemTarget = target;
         insn.MemAccess = i.Mnemonic == Mnemonic.Lea ? OperandAccess.Address : ComputeAccess ? MemoryAccess(in i) : OperandAccess.Read;
     }
+
+    private Dictionary<uint, uint>? _pltSlots;
+
+    /// <summary>
+    /// i386 ELF PLT stubs ("jmp [ebx + slot]", ebx the caller's GOT pointer) -> their GOT slots, as the ELF reader matched them:
+    /// the stub's jump goes through the slot of its import.
+    /// </summary>
+    private Dictionary<uint, uint> PltSlots => _pltSlots ??= !_is64 && _image is Elf.ElfFile elf
+        ? elf.PltEntries.GroupBy(e => e.StubRva).ToDictionary(g => g.Key, g => g.First().SlotRva) : [];
 
     private OperandAccess MemoryAccess(in Instruction i)
     {

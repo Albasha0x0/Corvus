@@ -570,6 +570,19 @@ internal sealed class ElfWriter
 
     private void WritePlt(ByteWriter w)
     {
+        if (Machine == EmX86)
+        {
+            // i386 PIC PLT: push [ebx+4]; jmp [ebx+8]; then per import jmp [ebx + slot - GOT]; push reloc; jmp plt0
+            uint start = (uint)w.Length;
+            w.Bytes([0xFF, 0xB3, 4, 0, 0, 0, 0xFF, 0xA3, 8, 0, 0, 0, 0x90, 0x90, 0x90, 0x90]);
+            for (int i = 0; i < PltImports.Count; i++)
+            {
+                w.Bytes([0xFF, 0xA3]); w.U32(PltSlotRva(i) - GotPltRva);
+                w.U8(0x68); w.U32((uint)i * 8);
+                w.U8(0xE9); w.U32(start - ((uint)w.Length + 4));
+            }
+            return;
+        }
         uint Adrp(uint at, uint target)
         {
             long pages = ((long)(Base + target) >> 12) - ((long)(Base + at) >> 12);
