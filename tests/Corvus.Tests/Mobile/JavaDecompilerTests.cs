@@ -132,6 +132,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     /// <summary>decompile_java asks JADX for smali where Java fails unless javaOnly (the default of the former smaliFallback=true).</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task DecompileJava_SmaliFallbackByDefault_JavaOnlyTurnsItOff()
     {

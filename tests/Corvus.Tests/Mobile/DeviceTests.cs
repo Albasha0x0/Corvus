@@ -149,6 +149,7 @@ public sealed class DeviceTests : IDisposable
     }
 
     /// <summary>install_android_package replaces an installed app unless keepInstalled (the default of the former replace=true).</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task InstallReplacesByDefault_KeepInstalledDoesNot()
     {

@@ -313,7 +313,7 @@ a game stores encrypted are shown as stored. 32-bit and non-PE binaries (`libil2
 
 ## Unpacking containers
 
-`unpack_container` takes a file, extracts the .NET code inside it, and loads the assemblies it finds (`load=false`
+`unpack_container` takes a file, extracts the .NET code inside it, and loads the assemblies it finds (`extractOnly=true`
 to only extract). It reads bytes only and never runs the file. When an extracted file is itself a container
 (for example a Costura-wrapped app inside a single-file bundle, or a `.nupkg` inside a zip), it is opened too,
 up to 4 levels deep, into a `<name>_unpacked` folder next to it.
