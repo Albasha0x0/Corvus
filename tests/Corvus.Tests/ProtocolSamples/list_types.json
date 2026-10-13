@@ -11,19 +11,16 @@
   "structuredContent": {
     "items": [
       {
-        "assembly": "TestFixture",
         "token": "0x02000002",
         "kind": "class",
         "fullName": "Il2CppDummyDll.AddressAttribute"
       },
       {
-        "assembly": "TestFixture",
         "token": "0x02000003",
         "kind": "class",
         "fullName": "Il2CppDummyDll.FieldOffsetAttribute"
       },
       {
-        "assembly": "TestFixture",
         "token": "0x02000004",
         "kind": "class",
         "fullName": "Il2CppDummyDll.TokenAttribute"

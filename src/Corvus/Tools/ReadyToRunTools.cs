@@ -3,6 +3,7 @@ using System.Text;
 using dnlib.DotNet;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.ReadyToRun;
 using Corvus.Services;
@@ -16,16 +17,15 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
 {
     private const string AssemblyPathNote = " A full path to an assembly that is not loaded yet loads it.";
 
-    [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method")]
-    [Description("The precompiled native code of a method in a ReadyToRun assembly (including the shared framework): entry address, code ranges (hot, funclets, cold), " +
-                 "the fixup import cells, and x86 / x64 disassembly with cells named by what they resolve to (methods, type handles, helpers, strings). " +
-                 "Generic methods show each compiled instantiation; composite images are read from the composite file.")]
+    [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
+    [Description("Precompiled native code of a method in a ReadyToRun assembly (the shared framework too): entry, code ranges, fixup cells and x86 / x64 " +
+                 "disassembly with cells named by what they resolve to; generics per compiled instantiation, composite images included.")]
     public Task<string> GetR2RCode(
         [Description(SymbolDescription)] string method,
         [Description(AssemblyFilterDescription + AssemblyPathNote)] string? assembly = null,
         [Description("Only bodies whose name contains this text ('Int32', '__Canon').")] string? instantiation = null,
         [Description("Max bodies disassembled; the rest are listed with addresses.")] int maxBodies = 4,
-        [Description("Max instructions per body.")] int maxInstructions = 5000,
+        [Description("Max instructions per body.")] int maxInstructions = 1500,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
@@ -41,6 +41,8 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
             int insnLimit = Math.Clamp(maxInstructions, 1, 200_000);
             var sb = new StringBuilder();
             var missing = new List<string>();
+            var listed = new List<R2rBody>();
+            var shownSymbols = new List<ResolvedSymbol>();
             int shown = 0;
             foreach (var sym in methods)
             {
@@ -55,10 +57,14 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
                     missing.Add($"{Format.MemberLabel(md)} [{sym.Assembly.Id}] {Format.Token(md)}: {NoCodeReason(md, code, instantiation)}");
                     continue;
                 }
+                shownSymbols.Add(sym);
                 foreach (var body in bodies)
                 {
-                    if (shown++ < bodiesLimit) AppendBody(sb, code, body, md, insnLimit, cancellationToken);
+                    bool disassembled = shown++ < bodiesLimit;
+                    if (disassembled) AppendBody(sb, code, body, md, insnLimit, cancellationToken);
                     else sb.AppendLine($"(not disassembled) {code.Label(body)}  entry {NativeAddress.Va(code.CodeImage!.Image, body.EntryRva)}, {body.Size} bytes");
+                    if (listed.Count < 100)
+                        listed.Add(new R2rBody(code.Label(body), NativeAddress.Va(code.CodeImage!.Image, body.EntryRva), (int)body.Size, body.Ranges.Count) { Disassembled = disassembled });
                 }
             }
             if (shown == 0)
@@ -66,7 +72,8 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
                     "decompile_member / get_il show the IL the JIT compiles at run time" + (instantiation != null ? "; or drop the instantiation filter" : ""));
             if (shown > bodiesLimit) sb.AppendLine($"({shown - bodiesLimit} more bodies not disassembled; raise maxBodies or filter with instantiation)");
             foreach (var m in missing) sb.AppendLine("No precompiled code: " + m);
-            return pager.Page(sb.ToString(), offset, maxTokens);
+            return ToolOutput.Text(pager, sb.ToString(), offset,
+                new CodePage("asm", "", 0, null, 0) { Symbols = shownSymbols.Select(SymbolRef.Of).ToList(), Bodies = listed }, maxTokens);
         });
     }, cancellationToken);
 
@@ -114,8 +121,8 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
         sb.AppendLine();
     }
 
-    [McpServerTool(Name = "find_r2r_method", Title = "Managed method at a ReadyToRun address")]
-    [Description("The managed method whose ReadyToRun code contains a native address (from a dump, profiler or debugger): name, token, range, offset and " +
+    [McpServerTool(Name = "find_r2r_method", Title = "Managed method at a ReadyToRun address", UseStructuredContent = true, OutputSchemaType = typeof(R2rLookup))]
+    [Description("Returns the managed method whose ReadyToRun code contains a native address (from a dump, profiler or debugger): name, token, range, offset and " +
                  "the instruction there; an import cell is described by what it resolves to. Addresses are in the file holding the code.")]
     public Task<string> FindR2RMethod(
         [Description(AssemblyDescription + AssemblyPathNote)] string assembly,
@@ -137,14 +144,15 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
                 if (image.CellAt(rva) is { } found)
                 {
                     var (section, cell) = found;
-                    sb.AppendLine($"import cell {cell} of import section {section.Index} ({(section.IsEager ? "eager" : "lazy")}, {section.Count} cells): " +
-                                  (code.Symbols.CellAt(rva)?.Describe() ?? "(no signature)"));
-                    return sb.ToString();
+                    var target = code.Symbols.CellAt(rva)?.Describe() ?? "(no signature)";
+                    sb.AppendLine($"import cell {cell} of import section {section.Index} ({(section.IsEager ? "eager" : "lazy")}, {section.Count} cells): " + target);
+                    return ToolOutput.Report(sb.ToString(), new R2rLookup(NativeAddress.Va(pe, rva), Path.GetFileName(code.CodeFile), "import_cell") { ImportCell = target });
                 }
                 throw new ToolError(ErrorCode.NotFound, $"No precompiled method contains {NativeAddress.Va(pe, rva)} in {Path.GetFileName(code.CodeFile)}.",
                     "get_r2r_code shows a method's code ranges; addresses are VAs or RVAs of the file holding the code");
             }
             var r = range;
+            var methods = new List<R2rMethod>();
             sb.AppendLine($"+0x{rva - r.Function.Begin:X} into the {r.Kind.ToString().ToLowerInvariant()} code {NativeAddress.Va(pe, r.Function.Begin)}-{NativeAddress.Va(pe, r.Function.End)} of:");
             foreach (var body in bodies.Take(10))
             {
@@ -154,11 +162,27 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
                         ? $"[component {image.Components[body.Entry.Component].Name}] 0x{0x06000000 | body.Entry.MethodDefRid:X8}"
                         : "[another assembly's method]";
                 sb.AppendLine($"  {code.Label(body)}  {owner}  entry {NativeAddress.Va(pe, body.EntryRva)}, {body.Size} bytes in {Plural(body.Ranges.Count, "range")}");
+                methods.Add(new R2rMethod(code.Label(body), NativeAddress.Va(pe, body.EntryRva), (int)body.Size)
+                {
+                    Token = md != null ? Format.Token(md) : $"0x{0x06000000 | body.Entry.MethodDefRid:X8}",
+                    Assembly = md != null ? code.Assembly.Id : body.Entry.Component >= 0 && body.Entry.Component != code.Component ? image.Components[body.Entry.Component].Name : null,
+                });
             }
             if (bodies.Count > 10) sb.AppendLine($"  ... {bodies.Count - 10} more sharing this code");
+            string? instruction = null;
             if (R2RDisassembly.CanDecode(image.Arch) && R2RDisassembly.Disassembler(image, code.Symbols).DecodeOne(rva) is { } line)
+            {
+                instruction = R2RDisassembly.Line(line).Trim();
                 sb.AppendLine("instruction:" + R2RDisassembly.Line(line));
-            return sb.ToString();
+            }
+            return ToolOutput.Report(sb.ToString(), new R2rLookup(NativeAddress.Va(pe, rva), Path.GetFileName(code.CodeFile), r.Kind.ToString().ToLowerInvariant())
+            {
+                Begin = NativeAddress.Va(pe, r.Function.Begin),
+                End = NativeAddress.Va(pe, r.Function.End),
+                Offset = $"0x{rva - r.Function.Begin:X}",
+                Methods = methods,
+                Instruction = instruction,
+            });
         });
     }, cancellationToken);
 }

@@ -35,7 +35,7 @@ public sealed class OtherBuildLoadedTests : IDisposable
     [Fact]
     public async Task CallPathStartsResolveInTheGivenAssembly()
     {
-        var tools = new CallGraphTools(_env.Workspace, new CallGraphService(_env.Workspace), _env.Pager);
+        var tools = new CallGraphTools(_env.Workspace, new CallGraphService(_env.Workspace));
         var paths = await tools.FindCallPaths("Fixture.Model.Shop::PriceOf(string)", from: "Fixture.Model.Shop::PriceOf(string, int)", assembly: _env.Fixture.Id);
         Assert.Contains("1 path", paths);
     }

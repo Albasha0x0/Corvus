@@ -22,7 +22,7 @@ public sealed class NativeImportCallerTests : IDisposable
         var code = new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann")));
         var link = new NativeLinkService(ws, code);
         var pager = new OutputPager(options);
-        return (ws, new CallGraphTools(ws, new CallGraphService(ws), pager, link, code), new NativeCodeTools(ws, code, pager, link));
+        return (ws, new CallGraphTools(ws, new CallGraphService(ws), link, code), new NativeCodeTools(ws, code, pager, link));
     }
 
     /// <summary>app.exe: Main (entry point) calls Helper, which calls through provider_2c9d.dll!OpenThing; the provider exists nowhere.</summary>

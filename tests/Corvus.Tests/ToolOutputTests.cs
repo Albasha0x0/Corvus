@@ -36,7 +36,7 @@ public class ToolOutputTests
     private static int Tokens(string s) => TokenEstimate.Of(s);
 
     private static TypeList Types(int offset, int count, int total) =>
-        new(Enumerable.Range(offset, count).Select(i => new TypeEntry("A", $"0x{i:X8}", "class", $"Some.Namespace.Of.Types.Type{i}")).ToList(), offset, total, offset + count < total);
+        new(Enumerable.Range(offset, count).Select(i => new TypeEntry($"0x{i:X8}", "class", $"Some.Namespace.Of.Types.Type{i}") { Assembly = "A" }).ToList(), offset, total);
 
     /// <summary>A bare record (the SDK puts its JSON in the text block): readable text from the same rows, the list envelope, no truncated.</summary>
     [Fact]
@@ -203,7 +203,7 @@ public class ToolOutputTests
     public async Task MaxTokensSetsTheBudget()
     {
         Assert.Equal(6_000, CallFilter.Budget("list_types", null, null));
-        Assert.Equal(8_000, CallFilter.Budget("decompile_type", null, null));
+        Assert.Equal(8_000, CallFilter.Budget("decompile_member", null, null));
         Assert.Equal(5_700, CallFilter.FitTokens(6_000));
         var limits = ClientProfiles.Resolve(new ServerOptions(), null);
         var args = new Dictionary<string, JsonElement> { ["maxTokens"] = JsonSerializer.SerializeToElement(24_000) };

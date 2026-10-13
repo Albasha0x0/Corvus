@@ -1,0 +1,18 @@
+{
+  "tool": "get_resource",
+  "arguments": {
+    "assembly": "TestFixture",
+    "name": "Fixture.hello.txt"
+  },
+  "isError": false,
+  "content": [
+    "Fixture.hello.txt (46 bytes)\nHello from an embedded resource.\nSecond line.\n"
+  ],
+  "structuredContent": {
+    "name": "Fixture.hello.txt",
+    "kind": "text",
+    "code": "Fixture.hello.txt (46 bytes)\nHello from an embedded resource.\nSecond line.\n",
+    "offset": 0,
+    "totalChars": 75
+  }
+}

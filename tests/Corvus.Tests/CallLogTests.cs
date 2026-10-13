@@ -33,7 +33,7 @@ public class CallLogTests
         using var services = new ServiceCollection().AddLogging(b => b.AddProvider(capture).SetMinimumLevel(ServerOptions.Parse([]).LogLevel)).BuildServiceProvider();
         var request = new CallToolRequestParams
         {
-            Name = "decompile_type",
+            Name = "decompile_member",
             Arguments = new Dictionary<string, System.Text.Json.JsonElement> { ["type"] = System.Text.Json.JsonSerializer.SerializeToElement("Secret.Path") },
         };
         await CallFilter.Run(request, null, services, _ => ValueTask.FromResult(new CallToolResult { Content = [new TextContentBlock { Text = "x" }] }), default);
@@ -45,9 +45,9 @@ public class CallLogTests
             return new CallToolResult { Content = [new TextContentBlock { Text = "x" }] };
         }, default);
         Assert.Collection(capture.Lines,
-            l => Assert.Matches(@"^Information: call tool=decompile_type outcome=ok ms=\d+ textTokens=1 structuredTokens=0 engine=-$", l),
-            l => Assert.Matches(@"^Information: call tool=decompile_type outcome=not_found ms=\d+ textTokens=\d+ structuredTokens=0 engine=-$", l),
-            l => Assert.Matches(@"^Information: call tool=decompile_type outcome=ok ms=\d+ textTokens=1 structuredTokens=0 engine=ida$", l));
+            l => Assert.Matches(@"^Information: call tool=decompile_member outcome=ok ms=\d+ textTokens=1 structuredTokens=0 engine=-$", l),
+            l => Assert.Matches(@"^Information: call tool=decompile_member outcome=not_found ms=\d+ textTokens=\d+ structuredTokens=0 engine=-$", l),
+            l => Assert.Matches(@"^Information: call tool=decompile_member outcome=ok ms=\d+ textTokens=1 structuredTokens=0 engine=ida$", l));
         Assert.DoesNotContain(capture.Lines, l => l.Contains("Secret.Path"));
     }
 
@@ -115,14 +115,14 @@ public class CallLogTests
         using var services = new ServiceCollection().AddSingleton(options).BuildServiceProvider();
         var request = new CallToolRequestParams
         {
-            Name = "decompile_type",
+            Name = "decompile_member",
             Arguments = new Dictionary<string, System.Text.Json.JsonElement> { ["type"] = System.Text.Json.JsonSerializer.SerializeToElement("Ns.Type") },
         };
         await CallFilter.Run(request, null, services, _ => ValueTask.FromResult(new CallToolResult { Content = [new TextContentBlock { Text = "12345" }] }), default);
         await CallFilter.Run(request, null, services, _ => throw new ToolError(ErrorCode.NotFound, "no such type"), default);
         var lines = File.ReadAllLines(path).Select(l => System.Text.Json.JsonDocument.Parse(l).RootElement).ToList();
         Assert.Equal(2, lines.Count);
-        Assert.Equal("decompile_type", lines[0].GetProperty("tool").GetString());
+        Assert.Equal("decompile_member", lines[0].GetProperty("tool").GetString());
         // names only without --trace-args
         Assert.False(lines[0].TryGetProperty("args", out _));
         Assert.Equal("type", lines[0].GetProperty("argNames")[0].GetString());

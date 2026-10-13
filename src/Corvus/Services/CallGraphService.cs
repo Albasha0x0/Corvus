@@ -3,6 +3,7 @@ using System.Text;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using Corvus.Core;
+using Corvus.Native;
 using static Corvus.Core.MetadataUtil;
 
 namespace Corvus.Services;
@@ -187,36 +188,43 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     private static string ExternalKey(MethodDef m) =>
         $"{m.DeclaringType?.FullName}::{m.Name}({Format.ParameterTypes(m.MethodSig)}){m.GenericParameters.Count}";
 
-    /// <param name="native">
-    /// Optional lines written under each expanded method (and the root): given the method, the levels left and the
-    /// indent level; used for native code a method binds to (callees) or native code calling it (callers).
-    /// </param>
-    public string Tree(LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, CancellationToken ct,
-        Func<MethodDef, int, int, string>? native = null, List<TreeNode>? nodes = null) =>
-        Tree(asm, root, callers, depth, maxNodes, includeExternal, ct, native, nodes, out _);
+    /// <summary>
+    /// Writes the native lines under a method of a call tree: given the method, the levels left, the indent level, the rows list
+    /// to add <see cref="NativeTreeNode"/> rows to (ids continue from its count) and the method's row id as their parent.
+    /// </summary>
+    public delegate string NativeLines(MethodDef method, int levels, int indent, List<NativeTreeNode> rows, int? parent);
 
-    /// <summary>As above; <paramref name="truncated"/>: maxNodes stopped the walk.</summary>
+    /// <summary>
+    /// The call tree of <paramref name="root"/> as text, its nodes in text order in <paramref name="nodes"/>; <paramref name="truncated"/>:
+    /// <paramref name="maxNodes"/> stopped the walk.
+    /// </summary>
+    /// <param name="native">Optional lines under each expanded method (and the root): native code a method binds to (callees) or native code calling it (callers).</param>
     public string Tree(LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, CancellationToken ct,
-        Func<MethodDef, int, int, string>? native, List<TreeNode>? nodes, out bool truncated)
+        NativeLines? native, List<TreeNode>? nodes, out bool truncated)
     {
         var sb = new StringBuilder($"{(callers ? "Callers" : "Callees")} of {Format.MemberLabel(root)}  [{asm.Id}]  (depth {depth})\n");
         int length = sb.Length;
         truncated = WriteTree(sb, asm, root, callers, depth, maxNodes, includeExternal, 0, native, ct, nodes);
         if (sb.Length == length)
             sb.AppendLine(callers ? "  (no callers in the loaded assemblies — load the assemblies that might call it)" : "  (calls nothing in the loaded assemblies; includeExternal=true shows framework calls)");
-        if (truncated) sb.AppendLine($"[Stopped after {maxNodes} nodes (the levels above the last one shown are complete): raise maxNodes or lower depth.]");
+        if (truncated) sb.AppendLine($"[Stopped after {maxNodes} nodes (the levels above the last one shown are complete): lower depth.]");
         return sb.ToString();
     }
 
+    /// <summary>The call tree as text, without native lines.</summary>
+    public string Tree(LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, CancellationToken ct) =>
+        Tree(asm, root, callers, depth, maxNodes, includeExternal, ct, null, null, out _);
+
     /// <summary>The tree below <paramref name="root"/> (not the root line), indented by <paramref name="baseIndent"/> levels; true when maxNodes cut it.</summary>
-    /// <param name="sink">When given, receives the lines written as nodes (level relative to the root, without <paramref name="baseIndent"/>).</param>
+    /// <param name="sink">When given, receives the lines written as nodes (depth: levels below the root plus <paramref name="baseIndent"/>); ids continue from its count.</param>
+    /// <param name="parent">The sink row the top nodes hang under.</param>
     public bool WriteTree(StringBuilder sb, LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, int baseIndent,
-        Func<MethodDef, int, int, string>? native, CancellationToken ct, List<TreeNode>? sink = null)
+        NativeLines? native, CancellationToken ct, List<TreeNode>? sink = null, int? parent = null)
     {
         var g = GetGraph(ct);
 
         // Breadth-first so maxNodes truncates only the deepest level; each method is expanded once, at its shallowest occurrence.
-        var children = new Dictionary<MethodDef, List<(MethodDef Child, string? Note, int Count)>>();
+        var children = new Dictionary<MethodDef, List<(MethodDef Child, string? Note, int Count, string Edge)>>();
         var expandedAt = new Dictionary<MethodDef, (MethodDef Parent, int Level)> { [root] = (root, 0) };
         var parentOf = new Dictionary<MethodDef, MethodDef>();
         int nodes = 0;
@@ -229,10 +237,12 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
             {
                 ct.ThrowIfCancellationRequested();
                 var list = (callers
-                        ? CallersOf(g, m).GroupBy(x => x.Edge.Method).Select(x => (x.Key, Note: x.First().Via is { } via ? $"via {Format.MemberLabel(via)}" : DelegateNote(x.First().Edge), Count: x.Count()))
-                        : (g.Callees.GetValueOrDefault(m) ?? []).GroupBy(e => e.Method).Select(x => (x.Key, Note: x.First().OpCode == "callvirt" && x.Key.IsVirtual ? "virtual" : DelegateNote(x.First()), Count: x.Count())))
+                        ? CallersOf(g, m).GroupBy(x => x.Edge.Method).Select(x => (x.Key, Note: x.First().Via is { } via ? $"via {Format.MemberLabel(via)}" : DelegateNote(x.First().Edge), Count: x.Count(),
+                            Edge: x.First().Via != null ? "virtual" : DelegateNote(x.First().Edge) != null ? "delegate" : "call"))
+                        : (g.Callees.GetValueOrDefault(m) ?? []).GroupBy(e => e.Method).Select(x => (x.Key, Note: x.First().OpCode == "callvirt" && x.Key.IsVirtual ? "virtual" : DelegateNote(x.First()), Count: x.Count(),
+                            Edge: DelegateNote(x.First()) != null ? "delegate" : x.First().OpCode == "callvirt" && x.Key.IsVirtual ? "virtual" : "call")))
                     .OrderBy(c => Format.MemberLabel(c.Key), StringComparer.Ordinal).ToList();
-                var kept = new List<(MethodDef, string?, int)>();
+                var kept = new List<(MethodDef, string?, int, string)>();
                 foreach (var c in list)
                 {
                     if (++nodes > maxNodes) { truncated = true; break; }
@@ -258,50 +268,79 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
             }
         }
 
-        void Print(MethodDef m, int l)
+        int? Add(TreeNode node)
         {
-            foreach (var (child, note, count) in children.GetValueOrDefault(m) ?? [])
+            if (sink == null) return null;
+            sink.Add(node with { Id = sink.Count });
+            return sink.Count - 1;
+        }
+
+        void Print(MethodDef m, int l, int? up)
+        {
+            foreach (var (child, note, count, edge) in children.GetValueOrDefault(m) ?? [])
             {
                 var tags = new List<string>();
                 if (count > 1) tags.Add($"x{count}");
                 if (note != null) tags.Add(note);
                 var home = expandedAt[child];
                 bool expandHere = child != root && home.Parent == m && home.Level == l;
+                string? flag = null;
                 if (!expandHere)
-                    tags.Add(IsAncestor(child, m) ? "recursive" : $"expanded under {(home.Parent == root ? "the root" : Format.MemberLabel(home.Parent))}");
+                {
+                    flag = IsAncestor(child, m) ? "recursive" : "repeated";
+                    tags.Add(flag == "recursive" ? "recursive" : $"expanded under {(home.Parent == root ? "the root" : Format.MemberLabel(home.Parent))}");
+                }
                 var owner = workspace.FindByModule(child.Module)?.Id;
                 sb.AppendLine($"{new string(' ', (l + baseIndent) * 2)}{Format.MemberLabel(child)}{(owner != null && owner != asm.Id ? $"  [{owner}]" : "")}{(tags.Count > 0 ? $"  ({string.Join(", ", tags)})" : "")}");
-                sink?.Add(new TreeNode(l, Format.MemberLabel(child), owner, "method", tags.Count > 0 ? string.Join(", ", tags) : null));
-                if (expandHere) Print(child, l + 1);
+                var id = Add(new TreeNode(0, up, l + baseIndent, Format.MemberLabel(child), edge is "virtual" && callers || edge == "delegate" ? "derived" : "observed")
+                {
+                    Token = Format.Token(child),
+                    Assembly = owner != null && owner != asm.Id ? owner : null,
+                    Edge = edge,
+                    Flags = flag != null ? [flag] : null,
+                    Note = tags.Count > 0 ? string.Join(", ", tags) : null,
+                });
+                if (expandHere) Print(child, l + 1, id);
             }
             if (!callers && includeExternal && children.ContainsKey(m) && g.External.TryGetValue(m, out var ext))
                 foreach (var e in ext)
                 {
                     sb.AppendLine($"{new string(' ', (l + baseIndent) * 2)}{e}  (external)");
-                    sink?.Add(new TreeNode(l, e, null, "external", null));
+                    Add(new TreeNode(0, up, l + baseIndent, e, "observed") { Edge = "external" });
                 }
             if (native != null && depth - l + 1 > 0)
             {
-                var lines = native(m, depth - l + 1, l + baseIndent);
-                sb.Append(lines);
-                // Native lines are indented two spaces per level, like the managed ones.
+                // Native rows get ids from the list's count: it stands in for the sink up to here.
+                var rows = new List<NativeTreeNode>();
+                System.Runtime.InteropServices.CollectionsMarshal.SetCount(rows, sink?.Count ?? 0);
+                int first = rows.Count;
+                sb.Append(native(m, depth - l + 1, l + baseIndent, rows, up));
                 if (sink != null)
-                    foreach (var line in lines.Split('\n').Where(x => x.Trim().Length > 0))
-                        sink.Add(new TreeNode(Math.Max(l, (line.Length - line.TrimStart(' ').Length) / 2 - baseIndent), line.Trim(), null, "native", null));
+                    foreach (var n in rows.Skip(first))
+                        sink.Add(new TreeNode(n.Id, n.Parent, n.Depth, n.Name, n.Edge is "virtual?" or "dynamic" ? "derived" : "observed")
+                            { Assembly = n.Image, Address = n.Address, Edge = n.Edge, Flags = n.Flags, Note = n.Note });
             }
         }
 
-        Print(root, 1);
+        Print(root, 1, parent);
         return truncated;
     }
 
-    /// <summary>A line of a call tree: a method, an external call, or a line of native code below a method.</summary>
+    /// <summary>A node of a call tree: a method, an external call, or native code below a method, in text order.</summary>
     public sealed record TreeNode(
-        [property: System.ComponentModel.Description("Depth below the root (1: direct callers/callees).")] int Level,
-        string Label,
-        [property: System.ComponentModel.Description("Assembly id when it differs from the root's.")] string? Assembly,
-        [property: System.ComponentModel.Description("method, external or native.")] string Kind,
-        [property: System.ComponentModel.Description("xN, virtual, via ..., recursive, expanded under ...")] string? Note);
+        [property: System.ComponentModel.Description("Node id, from 0 in tree order.")] int Id,
+        [property: System.ComponentModel.Description("Parent node id; absent at the top level.")] int? Parent,
+        [property: System.ComponentModel.Description("Levels below the root (1: direct callers or callees).")] int Depth,
+        [property: System.ComponentModel.Description("Method label, external call, or native function or import.")] string Name,
+        [property: System.ComponentModel.Description("observed, or derived (through a base or interface method, a delegate field, a possible virtual target).")] string Basis)
+    {
+        [System.ComponentModel.Description("Managed: metadata token.")] public string? Token { get; init; }
+        [System.ComponentModel.Description("Assembly or image id when it differs from the root's.")] public string? Assembly { get; init; }
+        [System.ComponentModel.Description("Native: VA.")] public string? Address { get; init; }
+        [System.ComponentModel.Description("call, virtual, delegate, external, pinvoke, native, import, ...")] public string? Edge { get; init; }
+        [System.ComponentModel.Description("repeated, recursive, more, unresolved, not-loaded.")] public IReadOnlyList<string>? Flags { get; init; }
+        [System.ComponentModel.Description("xN, via Base::Method, expanded under ..., binding details.")] public string? Note { get; init; }
+    }
 
     /// <summary>A call path step; <c>Via</c> is the base/interface method called when reached by virtual dispatch.</summary>
     public sealed record PathStep(MethodDef Method, MethodDef? Via);

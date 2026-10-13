@@ -6,10 +6,7 @@ add_types_csharp
 apply_edits
 apply_il2cpp_names
 declare_native_types
-decompile_assembly_attributes
 decompile_java
-decompile_member
-decompile_type
 define_native
 diff_edits
 disassemble
@@ -19,16 +16,10 @@ export_edits
 export_il2cpp_symbols
 find_counterpart
 find_method_by_address
-find_r2r_method
 get_android_resource
-get_attributes
 get_exception_info
-get_il
 get_il2cpp_info
 get_native_frame
-get_r2r_code
-get_resource
-get_type_hierarchy
 ghidra_script
 ida_python
 install_android_package

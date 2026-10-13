@@ -21,7 +21,7 @@ public class ToolContractTests
     public void EveryToolHasOutputAndLatencyClass()
     {
         Assert.Equal(AllTools.Order(StringComparer.Ordinal), ToolContract.Table.Keys.Order(StringComparer.Ordinal));
-        Assert.Equal(158, ToolContract.Table.Count);
+        Assert.Equal(155, ToolContract.Table.Count);
         foreach (var tool in AllTools)
         {
             var c = ToolContract.Of(tool);

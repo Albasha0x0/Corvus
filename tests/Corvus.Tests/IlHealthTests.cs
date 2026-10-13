@@ -101,12 +101,12 @@ public class IlHealthTests : IDisposable
         using var env = new Env(path);
         int invalid = env.Fixture.BodyHealth.Invalid;
         var note = $"Skipped: {invalid} method bodies not valid IL ({env.Fixture.Id} {invalid}), read only up to the first invalid instruction";
-        var search = new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings, env.Pager);
+        var search = new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings);
         Assert.Contains(note, await search.SearchStrings("license"));
         Assert.Contains(note, await search.SearchStrings("no such text anywhere"));
         Assert.Contains(note, await search.SearchConstants("12345678"));
         Assert.Contains(note, await search.SearchIL("ldstr *"));
-        Assert.Contains(note, await new ReferenceTools(env.Workspace, env.References, env.Pager).FindReferences("Fixture.Model.Entity"));
+        Assert.Contains(note, await new ReferenceTools(env.Workspace, env.References).FindReferences("Fixture.Model.Entity"));
         Assert.DoesNotContain("Skipped:", await search.SearchSymbols("Account"));
 
         using var clean = new Env();
@@ -116,7 +116,7 @@ public class IlHealthTests : IDisposable
             await compare.CompareAssemblies(clean.Fixture.Id, corrupt.Id));
         Assert.Contains($"Skipped: 0 old and {invalid} new method bodies are not valid IL and were not compared",
             await compare.FindCounterpart("Fixture.Model.Account", clean.Fixture.Id, corrupt.Id));
-        Assert.DoesNotContain("Skipped:", await new SearchTools(clean.Workspace, clean.Search, clean.Il2Cpp, clean.Il2CppStrings, clean.Pager)
+        Assert.DoesNotContain("Skipped:", await new SearchTools(clean.Workspace, clean.Search, clean.Il2Cpp, clean.Il2CppStrings)
             .SearchStrings("license", assembly: clean.Fixture.Id));
     }
 
@@ -279,7 +279,7 @@ public class IlHealthTests : IDisposable
 
         const string issue = "clause 0 (catch): try range ends inside an instruction (IL_0008)";
         AssemblyReport.Summary summary = null!;
-        var info = env.Workspace.Read(() => env.Report.Build(env.Fixture, out summary));
+        var info = env.Workspace.Read(() => env.Report.Build(env.Fixture, "all", out summary));
         Assert.Contains($"Exception clauses: 1 invalid in 1 method(s) (e.g. Lab.P::Parse(string) {issue})", info);
         Assert.Equal(1, summary.InvalidExceptionClauses);
         Assert.Contains($"// invalid exception clause: {issue}\n", await new DecompileTools(env.Workspace, env.Decompiler, env.Pager).GetIL("Lab.P::Parse"));

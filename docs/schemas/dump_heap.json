@@ -47,7 +47,7 @@
             "type": "integer"
           },
           "assembly": {
-            "description": "Id of the loaded assembly that is the type's module build, for get_type_info / decompile_type.",
+            "description": "Id of the loaded assembly that is the type's module build, for get_type_info / decompile_member.",
             "type": "string"
           },
           "token": {

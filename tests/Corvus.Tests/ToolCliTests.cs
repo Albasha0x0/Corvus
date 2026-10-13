@@ -174,7 +174,7 @@ public class ToolCliTests
         Assert.Equal(2, code);
         Assert.Contains("member", error);
 
-        (code, _, error) = await Run(["decompile_member", "--structured"]);
+        (code, _, error) = await Run(["emulate_native", "--structured"]);
         Assert.Equal(2, code);
         Assert.Contains("no structured output", error);
     }

@@ -1,0 +1,86 @@
+{
+  "type": "object",
+  "properties": {
+    "address": {
+      "type": "string"
+    },
+    "file": {
+      "description": "The file holding the code.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "method (main, funclet or cold code) or import_cell.",
+      "type": "string"
+    },
+    "begin": {
+      "type": "string"
+    },
+    "end": {
+      "type": "string"
+    },
+    "offset": {
+      "description": "Offset of the address from Begin.",
+      "type": "string"
+    },
+    "methods": {
+      "description": "The methods whose code it is (several when code is shared).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "entryVa": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          },
+          "assembly": {
+            "description": "Assembly id, or the composite component holding it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "entryVa",
+          "size"
+        ]
+      }
+    },
+    "instruction": {
+      "type": "string"
+    },
+    "importCell": {
+      "description": "An import cell: what it resolves to.",
+      "type": "string"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "address",
+    "file",
+    "kind"
+  ]
+}

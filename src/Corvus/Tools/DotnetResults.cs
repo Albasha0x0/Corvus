@@ -1,8 +1,250 @@
 using System.ComponentModel;
+using Corvus.Native;
 
 namespace Corvus.Tools;
 
-// Records of the dotnet read tools (browse, decompile, search, navigate, resources, ReadyToRun).
+// Records of the dotnet read tools (browse, decompile, search, navigate, resources, ReadyToRun). Lists carry items, offset and
+// total; the call filter adds limit, totalExact, hasMore and nextOffset. Optional fields are left out when empty.
+
+internal static class DotnetDoc
+{
+    public const string Assembly = "Assembly id; only when several assemblies are listed.";
+    public const string Basis = "observed (the code names it) or derived (through a base or interface declaration, or a delegate field).";
+}
+
+public sealed record NamespaceEntry([property: Description("'' for the global namespace.")] string Namespace, int Types)
+{
+    [Description(DotnetDoc.Assembly)] public string? Assembly { get; init; }
+}
+
+public sealed record NamespaceList(IReadOnlyList<NamespaceEntry> Items, int Offset, int Total);
+
+public sealed record TypeEntry(string Token, [property: Description("class, struct, interface, enum, delegate (with modifiers).")] string Kind, string FullName)
+{
+    [Description(DotnetDoc.Assembly)] public string? Assembly { get; init; }
+}
+
+public sealed record TypeList(IReadOnlyList<TypeEntry> Items, int Offset, int Total)
+{
+    [Description(SearchDoc.NotEvaluated)] public int NotEvaluated { get; init; }
+    public bool? TotalExact { get; init; }
+}
+
+public sealed record MemberEntry(
+    [property: Description("nested, field, property, event or method.")] string Kind,
+    string Token,
+    [property: Description("Declaration as C#.")] string Signature)
+{
+    [Description("Il2Cpp RVA / offset from the dummy DLL's attributes.")] public string? Il2Cpp { get; init; }
+    [Description("Methods: IL instruction count; absent without a body.")] public int? IlInstructions { get; init; }
+}
+
+public sealed record TypeOutline(
+    SymbolRef Type,
+    [property: Description("Declaration line: modifiers, kind, name, base types.")] string Declaration,
+    [property: Description("Members per kind.")] IReadOnlyDictionary<string, int> Counts,
+    [property: Description("The section listed in items.")] string Section,
+    IReadOnlyList<MemberEntry> Items,
+    int Offset,
+    int Total)
+{
+    public string? DeclaringType { get; init; }
+    public IReadOnlyList<string>? Attributes { get; init; }
+    [Description("Compiler-generated members left out (includeCompilerGenerated=false).")] public bool CompilerGeneratedHidden { get; init; }
+}
+
+public sealed record TypeHierarchy(
+    SymbolRef Type,
+    [property: Description("Base types, nearest first.")] IReadOnlyList<string> BaseChain,
+    IReadOnlyList<string> Interfaces,
+    [property: Description("Types deriving from it directly (implementing it, for an interface).")] IReadOnlyList<SymbolRef> Items,
+    int Offset,
+    int Total);
+
+public sealed record AttributeEntry(
+    [property: Description("type, method, field, property, event, param:<name>, return, assembly or module.")] string Target,
+    [property: Description("The attribute with its arguments, as C#.")] string Attribute)
+{
+    [Description("The member carrying it; absent for assembly and module.")] public SymbolRef? Owner { get; init; }
+}
+
+/// <summary>get_attributes: rows, or with format=csharp the assembly attributes as a code page (code, offset, nextOffset, totalChars).</summary>
+public sealed record AttributeList(IReadOnlyList<AttributeEntry>? Items, int Offset, int? Total)
+{
+    [Description("format=csharp: the decompiled attributes.")] public string? Code { get; init; }
+    public int? NextOffset { get; init; }
+    public int? TotalChars { get; init; }
+}
+
+public sealed record SymbolMatch(string Kind, string Label, string Assembly, string Token)
+{
+    [Description("Declaration as C#.")] public string? Signature { get; init; }
+}
+
+public sealed record SymbolList(IReadOnlyList<SymbolMatch> Items, int Offset, int Total)
+{
+    [Description(SearchDoc.NotEvaluated)] public int NotEvaluated { get; init; }
+    public bool? TotalExact { get; init; }
+}
+
+/// <summary>A code page (D3): decompiled C#, IL or native code from offset, with the symbols it shows.</summary>
+public sealed record CodePage(
+    [property: Description("csharp, il or asm.")] string Language,
+    string Code,
+    int Offset,
+    [property: Description("Character offset of the next page; absent on the last.")] int? NextOffset,
+    int TotalChars)
+{
+    [Description("The members shown.")] public IReadOnlyList<SymbolRef>? Symbols { get; init; }
+    [Description("get_il: each method's normalized IL hash and raw IL SHA-256 (docs/il-hash.md).")] public IReadOnlyList<IlMethodHash>? Methods { get; init; }
+    [Description("get_r2r_code: the compiled bodies.")] public IReadOnlyList<R2rBody>? Bodies { get; init; }
+}
+
+public sealed record IlMethodHash(string Token, string? IlHash, string? RawSha256);
+
+public sealed record StringEntry(
+    [property: Description("The literal (clipped at 200 characters).")] string Value,
+    [property: Description("il (ldstr), constant (const field), il2cpp (the dump's string literal table).")] string Source)
+{
+    [Description("Method or field using it (il, constant).")] public SymbolRef? Owner { get; init; }
+    public int? IlOffset { get; init; }
+    [Description("Value was clipped.")] public bool? Clipped { get; init; }
+    [Description("Il2Cpp: RVA of the literal's slot.")] public string? SlotRva { get; init; }
+    [Description("Il2Cpp: functions loading it (methods by label, else RVAs), up to usesPerLiteral.")] public IReadOnlyList<string>? LoadedBy { get; init; }
+}
+
+public sealed record StringList(IReadOnlyList<StringEntry> Items, int Offset, int Total)
+{
+    [Description(SearchDoc.NotEvaluated)] public int NotEvaluated { get; init; }
+    public bool? TotalExact { get; init; }
+}
+
+public sealed record ConstantEntry(SymbolRef Owner, [property: Description("Where it appears: ldc.i4, const field, enum member, attribute, array initializer.")] string Kind, string Value)
+{
+    public int? IlOffset { get; init; }
+}
+
+public sealed record ConstantList(string Value, IReadOnlyList<ConstantEntry> Items, int Offset, int Total);
+
+public sealed record IlMatchEntry(SymbolRef Method, int IlOffset, [property: Description("Matched instructions (up to context).")] IReadOnlyList<string> Instructions);
+
+public sealed record IlMatchList(IReadOnlyList<IlMatchEntry> Items, int Offset, int Total);
+
+public sealed record ReferenceEntry(
+    [property: Description("call, read, write, base type, attribute, override, native call, ...")] string Kind,
+    [property: Description(DotnetDoc.Basis)] string Basis)
+{
+    [Description("Method, type or member containing the reference (the overriding method for kind=overrides).")] public SymbolRef? Where { get; init; }
+    public int? IlOffset { get; init; }
+    public string? Detail { get; init; }
+    [Description("Native targets: the P/Invoke declaration the call goes through.")] public string? Via { get; init; }
+}
+
+public sealed record ReferenceList(
+    [property: Description("What was searched: Ns.Type::Member, or the native export.")] string Target,
+    IReadOnlyList<ReferenceEntry> Items, int Offset, int Total);
+
+public sealed record CalleeEntry(
+    [property: Description("call, read, write, address, new, cast, string, ...; native rows: the edge.")] string Kind,
+    string Target)
+{
+    public int? IlOffset { get; init; }
+    public string? OpCode { get; init; }
+    [Description("Assembly defining the target, when loaded.")] public string? TargetAssembly { get; init; }
+    [Description("Native code a P/Invoke target binds to.")] public string? Native { get; init; }
+    [Description("Uses collapsed into this entry (distinct=true).")] public int? Count { get; init; }
+    [Description("Native rows: the node of the native call tree.")] public NativeTreeNode? Node { get; init; }
+}
+
+public sealed record CalleeList(string Method, IReadOnlyList<CalleeEntry> Items, int Offset, int Total);
+
+public sealed record CallTree(
+    string Root,
+    [property: Description("callers or callees.")] string Direction,
+    int Depth,
+    IReadOnlyList<Services.CallGraphService.TreeNode> Items,
+    int Offset,
+    int Total)
+{
+    public bool? TotalExact { get; init; }
+}
+
+public sealed record PathStepEntry([property: Description("Method label or native function.")] string Name)
+{
+    [Description("Managed: metadata token; native: VA.")] public string? Token { get; init; }
+    [Description("Assembly or image id, when it differs from the previous step's.")] public string? Assembly { get; init; }
+    [Description("Reached by virtual dispatch through this base/interface method.")] public string? Via { get; init; }
+    [Description("Native steps: the call site (VA) in the previous step.")] public string? Site { get; init; }
+    [Description("Native steps: call, tail, import, virtual_exact, virtual_possible, pointer or pinvoke.")] public string? Edge { get; init; }
+    [Description(DotnetDoc.Basis + " Native: derived for engine-only, virtual_possible and pointer edges.")] public string? Basis { get; init; }
+}
+
+public sealed record CallPathEntry(IReadOnlyList<PathStepEntry> Steps, int VirtualHops)
+{
+    [Description("Native targets: the final P/Invoke -> native hop.")] public string? NativeHop { get; init; }
+    [Description("Native chains: why the first step is a start (entry point, export, TLS callback, address taken, no callers, from).")] public string? Root { get; init; }
+}
+
+public sealed record CallPathList(string Target, IReadOnlyList<CallPathEntry> Items, int Offset, int Total)
+{
+    public string? From { get; init; }
+    public bool? TotalExact { get; init; }
+    [Description(EngineDoc.Engine)] public string? Engine { get; init; }
+}
+
+public sealed record ResourceEntry(
+    string Name,
+    [property: Description("Embedded, .resources, linked, or a Win32 resource type.")] string Kind)
+{
+    public long? Size { get; init; }
+    [Description(".resources: entry count.")] public int? Entries { get; init; }
+    public bool? Public { get; init; }
+    [Description("Win32: where the data is.")] public string? Rva { get; init; }
+    [Description("File offset of the data.")] public string? FileOffset { get; init; }
+    [Description("Win32: the code page, when not 0.")] public int? CodePage { get; init; }
+    [Description("SHA-256 of the data.")] public string? Sha256 { get; init; }
+    [Description("Win32 icon groups: the RT_ICON ids.")] public IReadOnlyList<int>? Icons { get; init; }
+}
+
+public sealed record ResourceList(string Assembly, IReadOnlyList<ResourceEntry> Items, int Offset, int Total);
+
+/// <summary>get_resource: a text or hex page of one resource.</summary>
+public sealed record ResourcePage(
+    string Name,
+    [property: Description("text, xaml, hex, entries or image.")] string Kind,
+    string Code,
+    int Offset,
+    int? NextOffset,
+    int TotalChars)
+{
+    [Description("outputPath: where the bytes were written.")] public string? SavedTo { get; init; }
+    public long? Size { get; init; }
+}
+
+public sealed record R2rBody(string Label, string EntryVa, int Size, [property: Description("Code ranges: hot, funclets, cold.")] int Ranges)
+{
+    [Description("Disassembled on this page (else only listed: maxBodies).")] public bool Disassembled { get; init; }
+}
+
+public sealed record R2rMethod(string Label, string EntryVa, int Size)
+{
+    public string? Token { get; init; }
+    [Description("Assembly id, or the composite component holding it.")] public string? Assembly { get; init; }
+}
+
+/// <summary>find_r2r_method: what a native address of ReadyToRun code is.</summary>
+public sealed record R2rLookup(
+    string Address,
+    [property: Description("The file holding the code.")] string File,
+    [property: Description("method (main, funclet or cold code) or import_cell.")] string Kind)
+{
+    public string? Begin { get; init; }
+    public string? End { get; init; }
+    [Description("Offset of the address from Begin.")] public string? Offset { get; init; }
+    [Description("The methods whose code it is (several when code is shared).")] public IReadOnlyList<R2rMethod>? Methods { get; init; }
+    public string? Instruction { get; init; }
+    [Description("An import cell: what it resolves to.")] public string? ImportCell { get; init; }
+}
 
 /// <summary>export_project's outcome (S4.2).</summary>
 public sealed record ExportOutcome(

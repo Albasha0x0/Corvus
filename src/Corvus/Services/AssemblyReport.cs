@@ -33,12 +33,19 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         [property: System.ComponentModel.Description("Method bodies that are not valid IL.")] int InvalidBodies,
         [property: System.ComponentModel.Description("Exception clauses of valid bodies with bad flags, ranges outside the code or off instruction boundaries, or a misplaced filter.")] int InvalidExceptionClauses,
         IReadOnlyList<string> UnsavedEdits,
-        IReadOnlyList<ReferenceStatus> References,
-        [property: System.ComponentModel.Description("Assembly attributes (first 40).")] IReadOnlyList<string> Attributes,
-        [property: System.ComponentModel.Description("Row counts of the non-empty metadata tables, in table order.")] IReadOnlyList<TableRows> Tables,
-        IReadOnlyList<HeapSize> Heaps,
-        [property: System.ComponentModel.Description("Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.")] int MetadataIssueCount,
-        [property: System.ComponentModel.Description("The first 50 metadata problems.")] IReadOnlyList<MetadataIssue> MetadataIssues);
+        [property: System.ComponentModel.Description("Assembly references.")] int ReferenceCount,
+        [property: System.ComponentModel.Description("References that resolve to nothing.")] int UnresolvedReferences,
+        [property: System.ComponentModel.Description("Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.")] int MetadataIssueCount)
+    {
+        [System.ComponentModel.Description("view=references or all.")] public IReadOnlyList<ReferenceStatus>? References { get; init; }
+        [System.ComponentModel.Description("view=metadata or all: assembly attributes (first 40).")] public IReadOnlyList<string>? Attributes { get; init; }
+        [System.ComponentModel.Description("view=metadata or all: row counts of the non-empty metadata tables, in table order.")] public IReadOnlyList<TableRows>? Tables { get; init; }
+        [System.ComponentModel.Description("view=metadata or all.")] public IReadOnlyList<HeapSize>? Heaps { get; init; }
+        [System.ComponentModel.Description("view=metadata or all: the first 50 metadata problems.")] public IReadOnlyList<MetadataIssue>? MetadataIssues { get; init; }
+    }
+
+    /// <summary>What get_assembly_info shows: summary, references, metadata or all.</summary>
+    public static readonly string[] Views = ["summary", "references", "metadata", "all"];
 
     /// <summary>Rows of a metadata table.</summary>
     public sealed record TableRows(string Table, uint Rows);
@@ -47,11 +54,12 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
     public sealed record HeapSize(string Heap, uint Bytes, int? IndexBytes);
 
     /// <summary>Call under the workspace read lock.</summary>
-    public string Build(LoadedAssembly asm) => Build(asm, out _);
+    public string Build(LoadedAssembly asm) => Build(asm, "all", out _);
 
-    /// <summary>The overview text, and its facts as <paramref name="summary"/>. Call under the workspace read lock.</summary>
-    public string Build(LoadedAssembly asm, out Summary summary)
+    /// <summary>The overview text of <paramref name="view"/>, and its facts as <paramref name="summary"/>. Call under the workspace read lock.</summary>
+    public string Build(LoadedAssembly asm, string view, out Summary summary)
     {
+        bool all = view == "all", references = all || view == "references", metadata = all || view == "metadata";
         var m = asm.Module;
         var types = MetadataUtil.CountedTypes(m);
         var sb = new StringBuilder();
@@ -88,14 +96,20 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
             sb.AppendLine(readyToRun);
         if (asm.IsDirty)
             sb.AppendLine($"Unsaved edits: {string.Join("; ", asm.Edits)}");
-        AppendPeInfo(sb, m);
         var (tables, heaps) = Inventory(m);
-        sb.AppendLine("Metadata tables (rows): " + string.Join(", ", tables.Select(t => $"{t.Table} {t.Rows}")));
-        sb.AppendLine("Metadata heaps: " + string.Join(", ", heaps.Select(h => $"{h.Heap} {h.Bytes} bytes{(h.IndexBytes is { } w ? $" ({w}-byte indexes)" : "")}")));
-        var (issueCount, issues) = AppendMetadataIssues(sb, asm);
+        var metadataText = new StringBuilder();
+        var (issueCount, issues) = AppendMetadataIssues(metadataText, asm);
+        if (metadata)
+        {
+            AppendPeInfo(sb, m);
+            sb.AppendLine("Metadata tables (rows): " + string.Join(", ", tables.Select(t => $"{t.Table} {t.Rows}")));
+            sb.AppendLine("Metadata heaps: " + string.Join(", ", heaps.Select(h => $"{h.Heap} {h.Bytes} bytes{(h.IndexBytes is { } w ? $" ({w}-byte indexes)" : "")}")));
+            sb.Append(metadataText);
+        }
+        else if (issueCount > 0) sb.AppendLine($"Metadata issues: {issueCount} (view=metadata lists them)");
 
-        sb.AppendLine("References:");
-        var references = new List<ReferenceStatus>();
+        var referenceText = new StringBuilder("References:\n");
+        var referenceRows = new List<ReferenceStatus>();
         foreach (var r in m.GetAssemblyRefs())
         {
             var target = workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, Frameworks.ResolvesAsNetFramework(m), Frameworks.RequesterFramework(m));
@@ -109,23 +123,34 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
                 if (found != null && !Frameworks.IsWildcard(found) && found.Major != wanted.Major)
                     status += $", version {found} (no {wanted.Major}.x on this machine)";
             }
-            sb.AppendLine($"  {r.FullName}  [{status}]");
-            references.Add(new ReferenceStatus(r.FullName, status));
+            referenceText.AppendLine($"  {r.FullName}  [{status}]");
+            referenceRows.Add(new ReferenceStatus(r.FullName, status));
         }
+        int unresolved = referenceRows.Count(r => r.Status == "not found");
+        if (references) sb.Append(referenceText);
+        else sb.AppendLine($"References: {referenceRows.Count}{(unresolved > 0 ? $", {unresolved} not found: " + string.Join(", ", referenceRows.Where(r => r.Status == "not found").Take(10).Select(r => r.Name.Split(',')[0])) : ", all resolved")} (view=references lists them)");
 
         var attrs = m.Assembly?.CustomAttributes.Where(c => c != tfa).ToList() ?? [];
-        if (attrs.Count > 0)
+        if (attrs.Count > 0 && metadata)
         {
             sb.AppendLine("Assembly attributes:");
             foreach (var ca in attrs.Take(40)) sb.AppendLine("  " + Format.Attribute(ca));
         }
+        else if (attrs.Count > 0) sb.AppendLine($"Assembly attributes: {attrs.Count} (view=metadata, or get_attributes)");
         summary = new Summary(asm.Id, asm.FullAssemblyName, asm.FilePath, asm.OriginalSha256, m.Mvid?.ToString() ?? "", m.RuntimeVersion ?? "", m.Kind.ToString(), m.Machine.ToString(),
             tfa?.ConstructorArguments.Count > 0 ? tfa.ConstructorArguments[0].Value?.ToString() : null,
             m.EntryPoint != null ? Format.MemberLabel(m.EntryPoint) : null,
             types.Count, types.Count(t => t.DeclaringType != null), MetadataUtil.NamespaceCount(types),
             m.GetTypes().Sum(t => t.Methods.Count), m.GetTypes().Sum(t => t.Fields.Count), m.Resources.Count,
-            MetadataUtil.IsReferenceAssembly(m), addressed, health.Invalid, health.InvalidClauseCount, asm.Edits.Select(e => e.ToString()).ToList(), references,
-            attrs.Take(40).Select(Format.Attribute).ToList(), tables, heaps, issueCount, issues.Take(50).ToList());
+            MetadataUtil.IsReferenceAssembly(m), addressed, health.Invalid, health.InvalidClauseCount, asm.Edits.Select(e => e.ToString()).ToList(),
+            referenceRows.Count, unresolved, issueCount)
+        {
+            References = references ? referenceRows : null,
+            Attributes = metadata ? attrs.Take(40).Select(Format.Attribute).ToList() : null,
+            Tables = metadata ? tables : null,
+            Heaps = metadata ? heaps : null,
+            MetadataIssues = metadata ? issues.Take(50).ToList() : null,
+        };
         return sb.ToString();
     }
 

@@ -17,7 +17,7 @@ public class AssemblyInfoTests
         using var env = new Env();
         var sha = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Env.FixturePath)));
         AssemblyReport.Summary summary = null!;
-        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, out summary));
+        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, "all", out summary));
         Assert.Contains($"SHA-256: {sha}\n", text.ReplaceLineEndings("\n"));
         Assert.Contains($"MVID {env.Fixture.Module.Mvid}", text);
         Assert.Equal(sha, summary.Sha256);
@@ -33,22 +33,22 @@ public class AssemblyInfoTests
     {
         using var env = new Env();
         AssemblyReport.Summary summary = null!;
-        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, out summary));
+        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, "all", out summary));
         using var pe = new PEReader(File.OpenRead(Env.FixturePath));
         var md = pe.GetMetadataReader();
         foreach (var table in Enum.GetValues<TableIndex>().Distinct())
         {
             int rows = md.GetTableRowCount(table);
             var name = table == TableIndex.MethodDef ? "Method" : table.ToString();
-            var listed = summary.Tables.SingleOrDefault(t => string.Equals(t.Table, name, StringComparison.OrdinalIgnoreCase));
+            var listed = summary.Tables!.SingleOrDefault(t => string.Equals(t.Table, name, StringComparison.OrdinalIgnoreCase));
             Assert.Equal(rows, (int)(listed?.Rows ?? 0));
         }
-        Assert.All(summary.Tables, t => Assert.True(t.Rows > 0));
+        Assert.All(summary.Tables!, t => Assert.True(t.Rows > 0));
         var streams = StreamSizes(pe.GetMetadata().GetContent().AsSpan());
-        foreach (var heap in summary.Heaps)
+        foreach (var heap in summary.Heaps!)
             Assert.Equal(streams[heap.Heap], heap.Bytes);
-        Assert.Equal(2, summary.Heaps.Single(h => h.Heap == "#Strings").IndexBytes);
-        Assert.Null(summary.Heaps.Single(h => h.Heap == "#US").IndexBytes);
+        Assert.Equal(2, summary.Heaps!.Single(h => h.Heap == "#Strings").IndexBytes);
+        Assert.Null(summary.Heaps!.Single(h => h.Heap == "#US").IndexBytes);
         Assert.Contains($"Metadata tables (rows): Module 1, TypeRef {md.GetTableRowCount(TableIndex.TypeRef)}, TypeDef {md.GetTableRowCount(TableIndex.TypeDef)}", text);
         Assert.Contains($"Metadata heaps: #Strings {streams["#Strings"]} bytes (2-byte indexes), #US ", text);
     }
@@ -105,10 +105,10 @@ public class AssemblyInfoTests
         File.WriteAllBytes(path, image);
         using var env = new Env(path);
         AssemblyReport.Summary summary = null!;
-        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, out summary));
+        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, "all", out summary));
         Assert.Contains($"bad_coded_index at #~ TypeDef row 2 (token 0x02000002), column Extends, file offset 0x{typeDef:X}: TypeDefOrRef tag 3 is not defined", text);
         Assert.True(summary.MetadataIssueCount >= 5);
-        Assert.Contains(summary.MetadataIssues, i => i.Code == "bad_list_index");
+        Assert.Contains(summary.MetadataIssues!, i => i.Code == "bad_list_index");
     }
 
     /// <summary>Stream sizes from the metadata root's stream headers (ECMA-335 II.24.2.1-2).</summary>

@@ -137,7 +137,7 @@ public sealed class Il2CppStringTests : IDisposable
 
     private static (SearchTools Search, Il2CppTools Il2Cpp, Il2CppStringService Strings) Tools(Env env)
     {
-        return (new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings, env.Pager), env.Il2CppTools(), env.Il2CppStrings);
+        return (new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings), env.Il2CppTools(), env.Il2CppStrings);
     }
 
     [Fact]
@@ -262,7 +262,8 @@ public sealed class Il2CppStringTests : IDisposable
         var (search, il2cpp, strings) = Tools(env);
 
         var text = await search.SearchStrings("hello");
-        Assert.StartsWith("3 occurrences (0 in IL and constants, 3 Il2Cpp string literals):", text);
+        Assert.StartsWith("0 in IL and constants, 3 Il2Cpp string literals\n", text);
+        Assert.Contains("3 occurrences (showing 1-3):", text);
         Assert.Contains("4 literals from", text);
         Assert.Contains("6 loads of 3 literals in 4 functions", text);
         Assert.Contains("""
@@ -328,7 +329,7 @@ public sealed class Il2CppStringTests : IDisposable
         Assert.Contains("3 Il2Cpp string literals", all);
         Assert.Contains("[TestFixture#2]", all);
         var one = await search.SearchStrings("hello", assembly: "TestFixture");
-        Assert.Contains("1 Il2Cpp string literal)", one); // the unused literal and the unnamed function's are left out
+        Assert.Contains("1 Il2Cpp string literal\n", one); // the unused literal and the unnamed function's are left out
         Assert.DoesNotContain("other hello", one);
     }
 
@@ -339,7 +340,7 @@ public sealed class Il2CppStringTests : IDisposable
         var (search, _, _) = Tools(env);
         Assert.Contains("put the dump's stringliteral.json", await search.SearchStrings("hello"));
         using var managed = new Env(Env.ConsumerPath);
-        Assert.Equal("No string literals match 'zzz-none'.", await Tools(managed).Search.SearchStrings("zzz-none"));
+        Assert.StartsWith("No string literals match 'zzz-none'.\n0 occurrences", await Tools(managed).Search.SearchStrings("zzz-none"));
     }
 
     /// <summary>

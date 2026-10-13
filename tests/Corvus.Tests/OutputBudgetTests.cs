@@ -107,7 +107,7 @@ public sealed partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHelp
             ("find_references", new() { ["symbol"] = "System.String::Concat(string, string)", ["limit"] = 5_000 }),
             ("search_il", new() { ["pattern"] = "call *", ["limit"] = 5_000 }),
             ("get_type_info", new() { ["type"] = "System.String" }),
-            ("decompile_type", new() { ["type"] = "System.String" }),
+            ("decompile_member", new() { ["member"] = "System.String" }),
             ("get_il", new() { ["symbol"] = "System.String" }),
             ("get_assembly_info", new() { ["assembly"] = "System.Private.CoreLib" }),
             ("verify_native_imports", new() { ["assembly"] = "System.Private.CoreLib" }),

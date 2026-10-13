@@ -99,7 +99,7 @@ public sealed class NativeIntrospectionRealTests(ITestOutputHelper output) : IDi
         var native = ws.LoadAny(dll).Native!;
         await engines.Session(native, IdaProvider.ProviderId, null, default);
         var pager = new OutputPager(options);
-        var paths = await new CallGraphTools(ws, new CallGraphService(ws), pager, new NativeLinkService(ws, code), code, engines)
+        var paths = await new CallGraphTools(ws, new CallGraphService(ws), new NativeLinkService(ws, code), code, engines)
             .FindCallPaths("native:version.dll!GetFileVersionInfoSizeW");
         output.WriteLine(paths);
         Assert.Contains("to native version.dll!GetFileVersionInfoSizeW", paths);

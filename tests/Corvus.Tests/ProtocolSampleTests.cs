@@ -27,6 +27,21 @@ public partial class ProtocolSampleTests
         ["decompile_member"] = new() { ["member"] = "Account::CheckLicense" },
         ["get_il"] = new() { ["symbol"] = "Account::CheckLicense" },
         ["find_references"] = new() { ["symbol"] = "Account::Charge(int)" },
+        ["get_assembly_info"] = new() { ["assembly"] = "TestFixture" },
+        ["get_attributes"] = new() { ["symbol"] = "NativeThing::First" },
+        ["get_type_hierarchy"] = new() { ["type"] = "Entity" },
+        ["resolve_symbol"] = new() { ["symbol"] = "Account::Charge" },
+        ["search_strings"] = new() { ["query"] = "LICENSE" },
+        ["search_constants"] = new() { ["value"] = "0x3E8" },
+        ["search_il"] = new() { ["pattern"] = "ldstr *LICENSE*; call *Validate*", ["context"] = 3 },
+        ["find_callees"] = new() { ["method"] = "Account::Charge(int, string)", ["distinct"] = true },
+        ["get_call_tree"] = new() { ["method"] = "Account::Charge(int)", ["depth"] = 2 },
+        ["find_call_paths"] = new() { ["to"] = "Account::Charge(int)", ["limit"] = 3 },
+        ["list_resources"] = new() { ["assembly"] = "TestFixture" },
+        ["get_resource"] = new() { ["assembly"] = "TestFixture", ["name"] = "Fixture.hello.txt" },
+        ["export_project"] = new() { ["assembly"] = "TestFixture", ["outputDirectory"] = "sample-export" },
+        ["get_r2r_code"] = new() { ["method"] = "Account::Charge(int)" },
+        ["find_r2r_method"] = new() { ["assembly"] = "TestFixture", ["address"] = "rva:0x2050" },
     };
 
     [Fact]
@@ -44,6 +59,8 @@ public partial class ProtocolSampleTests
         var stale = new List<string>();
         foreach (var (tool, args) in calls.OrderBy(c => c.Key, StringComparer.Ordinal))
         {
+            // An export starts from no directory, so every run records the same outcome.
+            if (args.GetValueOrDefault("outputDirectory") is { } output && Directory.Exists(output.ToString())) Directory.Delete(output.ToString()!, recursive: true);
             var result = await server.Client.CallToolAsync(tool, args);
             var sample = new JsonObject
             {

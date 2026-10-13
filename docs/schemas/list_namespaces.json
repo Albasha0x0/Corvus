@@ -6,19 +6,19 @@
       "items": {
         "type": "object",
         "properties": {
-          "assembly": {
-            "type": "string"
-          },
           "namespace": {
             "description": "'' for the global namespace.",
             "type": "string"
           },
           "types": {
             "type": "integer"
+          },
+          "assembly": {
+            "description": "Assembly id; only when several assemblies are listed.",
+            "type": "string"
           }
         },
         "required": [
-          "assembly",
           "namespace",
           "types"
         ]

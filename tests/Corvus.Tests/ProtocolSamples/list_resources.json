@@ -1,0 +1,37 @@
+{
+  "tool": "list_resources",
+  "arguments": {
+    "assembly": "TestFixture"
+  },
+  "isError": false,
+  "content": [
+    "TestFixture: 2 managed resources\n2 resources (showing 1-2):\n  Fixture.Strings.resources  [embedded, 264 bytes, 2 entries]  file 0x2B58  sha256 <id>\n  Fixture.hello.txt  [embedded, 46 bytes]  file 0x2C68  sha256 <id>\n[End: 2 resources]\n"
+  ],
+  "structuredContent": {
+    "assembly": "TestFixture",
+    "items": [
+      {
+        "name": "Fixture.Strings.resources",
+        "kind": "embedded",
+        "size": 264,
+        "entries": 2,
+        "public": true,
+        "fileOffset": "0x2B58",
+        "sha256": "<id>"
+      },
+      {
+        "name": "Fixture.hello.txt",
+        "kind": "embedded",
+        "size": 46,
+        "public": true,
+        "fileOffset": "0x2C68",
+        "sha256": "<id>"
+      }
+    ],
+    "offset": 0,
+    "total": 2,
+    "limit": 200,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

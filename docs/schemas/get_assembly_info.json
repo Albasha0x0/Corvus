@@ -72,7 +72,20 @@
         "type": "string"
       }
     },
+    "referenceCount": {
+      "description": "Assembly references.",
+      "type": "integer"
+    },
+    "unresolvedReferences": {
+      "description": "References that resolve to nothing.",
+      "type": "integer"
+    },
+    "metadataIssueCount": {
+      "description": "Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.",
+      "type": "integer"
+    },
     "references": {
+      "description": "view=references or all.",
       "type": "array",
       "items": {
         "type": "object",
@@ -92,14 +105,14 @@
       }
     },
     "attributes": {
-      "description": "Assembly attributes (first 40).",
+      "description": "view=metadata or all: assembly attributes (first 40).",
       "type": "array",
       "items": {
         "type": "string"
       }
     },
     "tables": {
-      "description": "Row counts of the non-empty metadata tables, in table order.",
+      "description": "view=metadata or all: row counts of the non-empty metadata tables, in table order.",
       "type": "array",
       "items": {
         "type": "object",
@@ -118,6 +131,7 @@
       }
     },
     "heaps": {
+      "description": "view=metadata or all.",
       "type": "array",
       "items": {
         "type": "object",
@@ -138,12 +152,8 @@
         ]
       }
     },
-    "metadataIssueCount": {
-      "description": "Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.",
-      "type": "integer"
-    },
     "metadataIssues": {
-      "description": "The first 50 metadata problems.",
+      "description": "view=metadata or all: the first 50 metadata problems.",
       "type": "array",
       "items": {
         "type": "object",
@@ -210,11 +220,8 @@
     "invalidBodies",
     "invalidExceptionClauses",
     "unsavedEdits",
-    "references",
-    "attributes",
-    "tables",
-    "heaps",
-    "metadataIssueCount",
-    "metadataIssues"
+    "referenceCount",
+    "unresolvedReferences",
+    "metadataIssueCount"
   ]
 }

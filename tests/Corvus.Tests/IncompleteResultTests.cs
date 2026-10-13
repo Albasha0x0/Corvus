@@ -97,7 +97,7 @@ public class IncompleteResultTests
                 public class {{Slow}} { public static string Get() => "{{Slow}}"; }
                 """));
             using var env = new Env(path);
-            var search = new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings, env.Pager);
+            var search = new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings);
 
             var collector = ToolOutput.Collect();
             var strings = await search.SearchStrings(Catastrophic, regex: true);

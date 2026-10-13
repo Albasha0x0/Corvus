@@ -37,7 +37,7 @@
             "type": "integer"
           },
           "instructions": {
-            "description": "Matched instructions (first 24).",
+            "description": "Matched instructions (up to context).",
             "type": "array",
             "items": {
               "type": "string"

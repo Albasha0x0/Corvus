@@ -6,7 +6,6 @@ export_engine_database.force
 extract_strings.savePath
 find_virtual_calls.seconds
 get_android_resource.savePath
-get_resource.savePath
 ghidra_script.timeout
 ida_python.file
 inspect_instruction.count

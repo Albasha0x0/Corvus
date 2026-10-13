@@ -43,9 +43,9 @@ public class FrameworkSymbolTests : IDisposable
     public async Task FrameworkTypesAndMembers_CanBeTargets()
     {
         using var env = Load();
-        var refs = new ReferenceTools(env.Workspace, env.References, env.Pager);
+        var refs = new ReferenceTools(env.Workspace, env.References);
 
-        var overrides = await refs.FindOverrides("System.IDisposable::Dispose");
+        var overrides = await refs.FindReferences("System.IDisposable::Dispose", kind: "overrides");
         Assert.Contains("Resource::Dispose()", overrides);
         Assert.Contains("Explicit::System.IDisposable.Dispose()", overrides);
         Assert.Contains("(reference)", overrides); // origin of the base method
@@ -56,12 +56,12 @@ public class FrameworkSymbolTests : IDisposable
         var hierarchy = await new BrowseTools(env.Workspace, env.References, env.Pager).GetTypeHierarchy("System.IO.Stream");
         Assert.Contains("Counting", hierarchy);
 
-        var paths = await new CallGraphTools(env.Workspace, new Corvus.Services.CallGraphService(env.Workspace), env.Pager).FindCallPaths("System.Diagnostics.Process::Start(string)");
+        var paths = await new CallGraphTools(env.Workspace, new Corvus.Services.CallGraphService(env.Workspace)).FindCallPaths("System.Diagnostics.Process::Start(string)");
         Assert.Contains("Launcher::Run()", paths);
         Assert.Contains("Launcher::Open(string)", paths);
 
         // Unknown names still fail.
-        Assert.Contains("not found", (await Assert.ThrowsAsync<Corvus.Core.ToolError>(() => refs.FindOverrides("System.NoSuchType::Dispose"))).Message);
+        Assert.Contains("not found", (await Assert.ThrowsAsync<Corvus.Core.ToolError>(() => refs.FindReferences("System.NoSuchType::Dispose", kind: "overrides"))).Message);
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class FrameworkSymbolTests : IDisposable
     {
         using var env = Load(); // System.Private.CoreLib
         env.Workspace.Load(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "net45", "Newtonsoft.Json.dll")); // mscorlib
-        var overrides = await new ReferenceTools(env.Workspace, env.References, env.Pager).FindOverrides("System.IDisposable::Dispose", limit: 1000);
+        var overrides = await new ReferenceTools(env.Workspace, env.References).FindReferences("System.IDisposable::Dispose", kind: "overrides", limit: 1000);
         Assert.Contains("[Users]", overrides);
         Assert.Contains("[Newtonsoft.Json]", overrides);
     }

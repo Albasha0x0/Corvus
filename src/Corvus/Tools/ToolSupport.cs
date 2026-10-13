@@ -22,6 +22,8 @@ internal static class ToolSupport
     /// <summary>offset of a text tool: characters.</summary>
     public const string CharOffsetDescription = "Character offset (a page's nextOffset).";
     public const string MaxTokensDescription = "Page size in tokens (min 500).";
+    /// <summary>limit of a list tool: rows per page; the page is cut further to the token budget.</summary>
+    public const string LimitDescription = "Max rows.";
     public const string DryRunDescription = "Preview the change without applying it.";
     /// <summary>The D7 text for editing tools whose dryRun defaults to true.</summary>
     public const string DryRunDefaultTrueDescription = "Default true: preview; pass dryRun=false to apply.";
@@ -51,6 +53,9 @@ internal static class ToolSupport
     }
 
     public static int ClampLimit(int limit, int max = 5_000) => Math.Clamp(limit, 1, max);
+
+    /// <summary>offset + limit without overflow: the end of a page (offsets come from the caller).</summary>
+    public static int End(int offset, int limit) => (int)Math.Min((long)offset + Math.Max(0, limit), int.MaxValue);
 
     /// <summary>The page of <paramref name="all"/> that <see cref="OutputPager.PageRows"/> shows, as a structured list: (items, offset, total, truncated).</summary>
     public static TResult Paged<T, TResult>(IReadOnlyList<T> all, int offset, int limit, Func<IReadOnlyList<T>, int, int, bool, TResult> make)

@@ -9,17 +9,17 @@
       "items": {
         "type": "object",
         "properties": {
+          "kind": {
+            "description": "call, read, write, address, new, cast, string, ...; native rows: the edge.",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
           "ilOffset": {
             "type": "integer"
           },
           "opCode": {
-            "type": "string"
-          },
-          "kind": {
-            "description": "call, read, write, address, new, cast, string, ...",
-            "type": "string"
-          },
-          "target": {
             "type": "string"
           },
           "targetAssembly": {
@@ -31,22 +31,64 @@
             "type": "string"
           },
           "count": {
-            "description": "Uses collapsed into this entry (distinct=true), else 1.",
+            "description": "Uses collapsed into this entry (distinct=true).",
             "type": "integer"
+          },
+          "node": {
+            "description": "Native rows: the node of the native call tree.",
+            "type": "object",
+            "properties": {
+              "id": {
+                "description": "Node id, 0 for the root.",
+                "type": "integer"
+              },
+              "parent": {
+                "description": "Parent node id; absent on the root.",
+                "type": "integer"
+              },
+              "depth": {
+                "description": "Levels below the root.",
+                "type": "integer"
+              },
+              "name": {
+                "description": "Function, import (module!name) or managed method.",
+                "type": "string"
+              },
+              "address": {
+                "description": "VA of the function or import slot; absent when unresolved.",
+                "type": "string"
+              },
+              "image": {
+                "description": "Image id when it differs from the root's.",
+                "type": "string"
+              },
+              "edge": {
+                "description": "How the parent reaches it: call, import, virtual, virtual?, dynamic, pinvoke, native (a managed method's native body), managed.",
+                "type": "string"
+              },
+              "flags": {
+                "description": "repeated (expanded elsewhere), more (children not expanded), unresolved, not-loaded.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "note": {
+                "description": "Binding or edge detail: the provider of an import, the candidate count of a virtual call.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "depth",
+              "name"
+            ]
           }
         },
         "required": [
           "kind",
-          "target",
-          "count"
+          "target"
         ]
-      }
-    },
-    "nativeLines": {
-      "description": "Native code below (P/Invoke methods, native symbols), as indented text lines.",
-      "type": "array",
-      "items": {
-        "type": "string"
       }
     },
     "offset": {
@@ -89,7 +131,6 @@
   "required": [
     "method",
     "items",
-    "nativeLines",
     "offset",
     "total"
   ]

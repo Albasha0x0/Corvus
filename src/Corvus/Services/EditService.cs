@@ -628,7 +628,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         { IsPinvokeImpl: true, ImplMap: { } map } =>
             $"the body is native: '{map.Name}' in {map.Module?.Name ?? "its library"}; load that library, find the export with list_exports and patch it with patch_bytes (or patch the managed callers, find_references)",
         { IsPinvokeImpl: true } => "the body is native: load the library it binds to, find the export with list_exports and patch it with patch_bytes",
-        { IsAbstract: true } => "an abstract method has no code: patch its implementations (find_overrides)",
+        { IsAbstract: true } => "an abstract method has no code: patch its implementations (find_references kind=overrides)",
         _ => "the runtime implements this method: patch its managed callers instead (find_references)",
     };
 

@@ -28,31 +28,31 @@
         "token"
       ]
     },
-    "fullName": {
-      "type": "string"
-    },
     "declaration": {
       "description": "Declaration line: modifiers, kind, name, base types.",
       "type": "string"
     },
-    "declaringType": {
-      "type": "string"
-    },
-    "attributes": {
-      "type": "array",
-      "items": {
-        "type": "string"
+    "counts": {
+      "description": "Members per kind.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
       }
     },
-    "nestedTypes": {
+    "section": {
+      "description": "The section listed in items.",
+      "type": "string"
+    },
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "token": {
+          "kind": {
+            "description": "nested, field, property, event or method.",
             "type": "string"
           },
-          "name": {
+          "token": {
             "type": "string"
           },
           "signature": {
@@ -64,48 +64,47 @@
             "type": "string"
           },
           "ilInstructions": {
-            "description": "Methods: IL instruction count; null without a body.",
+            "description": "Methods: IL instruction count; absent without a body.",
             "type": "integer"
           }
         },
         "required": [
+          "kind",
           "token",
-          "name",
           "signature"
         ]
       }
     },
-    "fields": {
-      "type": "array",
-      "items": {
-        "$ref": "#/properties/nestedTypes/items"
-      }
+    "offset": {
+      "type": "integer"
     },
-    "properties": {
-      "type": "array",
-      "items": {
-        "$ref": "#/properties/nestedTypes/items"
-      }
+    "total": {
+      "type": "integer"
     },
-    "events": {
-      "type": "array",
-      "items": {
-        "$ref": "#/properties/nestedTypes/items"
-      }
+    "declaringType": {
+      "type": "string"
     },
-    "methods": {
+    "attributes": {
       "type": "array",
       "items": {
-        "$ref": "#/properties/nestedTypes/items"
+        "type": "string"
       }
     },
     "compilerGeneratedHidden": {
       "description": "Compiler-generated members left out (includeCompilerGenerated=false).",
       "type": "boolean"
     },
-    "truncated": {
-      "description": "A member list was cut at 2000 entries.",
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
       "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -128,15 +127,11 @@
   },
   "required": [
     "type",
-    "fullName",
     "declaration",
-    "attributes",
-    "nestedTypes",
-    "fields",
-    "properties",
-    "events",
-    "methods",
-    "compilerGeneratedHidden",
-    "truncated"
+    "counts",
+    "section",
+    "items",
+    "offset",
+    "total"
   ]
 }

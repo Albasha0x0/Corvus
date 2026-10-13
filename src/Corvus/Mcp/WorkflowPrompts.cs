@@ -29,7 +29,7 @@ public static class WorkflowPrompts
         Find where "{feature}" is implemented{(assembly is null ? "" : $" in {assembly}")} using the corvus tools.
         - Start broad: search_strings for UI/log text related to it, search_symbols for likely names (use wildcards), search_constants for known magic numbers.
         - For each candidate, get_type_info / decompile_member, then follow the flow with find_references (callers) and find_callees (callees).
-        - For virtual/interface methods, use find_overrides; for transformed names, rely on strings, constants and search_il patterns.
+        - For virtual/interface methods, use find_references kind=overrides; for transformed names, rely on strings, constants and search_il patterns.
         Report the call chain from entry point to the core logic, with tokens, and quote the decisive lines of decompiled code.
         {DataRule}
         """;
@@ -40,7 +40,7 @@ public static class WorkflowPrompts
         [Description("Type name or token.")] string type,
         [Description("Assembly id (optional).")] string? assembly = null) => $"""
         Explain {type}{(assembly is null ? "" : $" from {assembly}")}.
-        Use get_type_info first, then get_type_hierarchy, then decompile_type (page through long output). Use find_references on the type to see who creates and uses it.
+        Use get_type_info first, then get_type_hierarchy, then decompile_member on the type (page through long output). Use find_references on the type to see who creates and uses it.
         Describe: purpose, state (fields), lifecycle (constructors, framework callbacks), public API, collaborators, and anything surprising. Keep it grounded in the decompiled code.
         {DataRule}
         """;

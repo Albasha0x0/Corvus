@@ -19,7 +19,7 @@
             "type": "string"
           },
           "signature": {
-            "description": "Declaration, when asked for.",
+            "description": "Declaration as C#.",
             "type": "string"
           }
         },
@@ -41,11 +41,11 @@
       "description": "Inputs the regex timed out on (1 s limit each), left out of the results: non-zero means they are incomplete.",
       "type": "integer"
     },
-    "limit": {
-      "type": "integer"
-    },
     "totalExact": {
       "type": "boolean"
+    },
+    "limit": {
+      "type": "integer"
     },
     "hasMore": {
       "type": "boolean"

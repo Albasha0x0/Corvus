@@ -4,125 +4,135 @@ using dnlib.DotNet;
 using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Mcp;
+using Corvus.Native;
 using Corvus.Services;
 using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService references, OutputPager pager, NativeLinkService? link = null)
+public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService references, NativeLinkService? link = null)
 {
     [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)", UseStructuredContent = true, OutputSchemaType = typeof(ReferenceList))]
-    [Description("Every usage of a symbol across loaded assemblies ('Used By'): a method's call sites (also through the base / interface method it implements), " +
-                 "a field's reads, writes and address-taken uses, accessor calls, a type's every use (bases, signatures, locals, casts, attributes, ...). " +
-                 "A native export lists its P/Invoke declarations with their call sites and native call sites in loaded images; C++/CLI native callers are included.")]
+    [Description("Every usage of a symbol across loaded assemblies: a method's call sites (also through base / interface methods it implements), a field's " +
+                 "reads, writes and address uses, a type's every use (bases, signatures, locals, casts, attributes). kind=overrides: a method's overrides. " +
+                 "A native export: its P/Invoke callers and native call sites.")]
     public async Task<string> FindReferences(
         [Description(SymbolOrNativeDescription)] string symbol,
         [Description("Assembly defining the symbol (only to disambiguate; all loaded ones are searched).")] string? assembly = null,
-        [Description("Restrict symbol resolution to this kind.")] string? kind = null,
-        [Description("Methods: include calls through base / interface declarations.")] bool includeVirtualCalls = true,
-        [Description("Max results.")] int limit = 300,
+        [Description("Symbol kind; overrides: the method's overrides and implementations.")] string? kind = null,
+        [Description("Methods: no calls through base / interface declarations.")] bool directOnly = false,
+        [Description(LimitDescription)] int limit = 150,
         [Description(RowOffsetDescription)] int offset = 0,
         CancellationToken cancellationToken = default)
     {
-        limit = ClampLimit(limit);
-        offset = Math.Clamp(offset, 0, int.MaxValue - limit);
-        if (link != null) await link.WarmUp(null, cancellationToken);
-        if (link != null && SymbolResolver.ParseNative(symbol) is { } native)
-            return await Read(workspace, () => pager.Page(NativeReferences(link, native, includeVirtualCalls, limit, cancellationToken)), cancellationToken);
+        bool overrides = string.Equals(kind?.Trim(), "overrides", StringComparison.OrdinalIgnoreCase);
+        if (link != null && !overrides) await link.WarmUp(null, cancellationToken);
+        if (link != null && !overrides && SymbolResolver.ParseNative(symbol) is { } native)
+            return await Read(workspace, () => NativeReferences(link, native, !directOnly, offset, limit, cancellationToken), cancellationToken);
         return await Read(workspace, () =>
         {
+            if (overrides) return Overrides(symbol, assembly, offset, limit, cancellationToken);
             var target = SymbolResolver.ResolveOne(workspace, assembly, symbol, SymbolResolver.ParseKind(kind), referenced: true);
-            var r = references.FindReferences(target, includeVirtualCalls, offset + limit, cancellationToken);
-            var page = r.Items.Skip(offset).ToList();
+            var r = references.FindReferences(target, !directOnly, End(offset, limit), cancellationToken);
             var nativeSites = link != null && target.Member is MethodDef md ? link.NativeCallSitesOf(md, cancellationToken) : [];
-            var sb = new StringBuilder($"References to {target.Kind} {target.Label} [{target.Assembly.Id}]: {r.Total + nativeSites.Count}" +
-                                       (offset >= r.Total && r.Total > 0 ? $" (none from offset {offset})" : offset > 0 ? $" (showing {offset + 1}-{offset + page.Count})" : TruncationNote(page.Count, r.Total)) + "\n");
-            if (r.Total == 0 && nativeSites.Count == 0)
-                sb.AppendLine(workspace.Assemblies.Count == 1
-                    ? "  none found. Only loaded assemblies are searched — load the assemblies that might use it (e.g. the whole Managed folder)."
-                    : "  none found in loaded assemblies.");
-            AppendReferences(sb, page, "  ");
-            if (nativeSites.Count > 0)
-            {
-                sb.AppendLine($"  native call sites ({nativeSites.Count}):");
-                foreach (var row in nativeSites.Take(limit)) sb.AppendLine("      " + row);
-            }
-            if (offset > 0 && offset + page.Count < r.Total) sb.AppendLine($"[More: offset={offset + page.Count}]");
-            sb.Append(SkippedBodiesNote(workspace.Assemblies));
-            var result = new ReferenceList($"{target.Label} [{target.Assembly.Id}]", page.Select(i => Entry(i, null)).ToList(), nativeSites.Take(limit).ToList(),
-                offset, r.Total, offset + page.Count < r.Total);
-            return ToolOutput.With(pager.Page(sb.ToString()), result);
+            int total = r.Total + nativeSites.Count;
+            var page = new List<ReferenceEntry>();
+            for (int i = offset; i < Math.Min(total, End(offset, limit)); i++)
+                page.Add(i < r.Total ? Entry(r.Items[i], null) : NativeSite(nativeSites[i - r.Total]));
+            var header = $"References to {target.Kind} {target.Label} [{target.Assembly.Id}]: ";
+            if (total == 0)
+                header += workspace.Assemblies.Count == 1
+                    ? "none found. Only loaded assemblies are searched: load the assemblies that might use it (e.g. the whole Managed folder).\n"
+                    : "none found in loaded assemblies.\n";
+            return ToolOutput.List(page, offset, limit, total, Row, rows => new ReferenceList($"{target.Label} [{target.Assembly.Id}]", rows, offset, total), "reference",
+                SkippedBodiesNote(workspace.Assemblies) + header);
         }, cancellationToken);
     }
 
-    private static ReferenceEntry Entry(ReferenceService.Reference i, string? via) =>
-        new(SymbolRef.Of(i.Assembly, i.Where), (int?)i.ILOffset, i.Kind, i.Detail.Length > 0 ? i.Detail : null, via);
-
-    private static void AppendReferences(StringBuilder sb, IEnumerable<ReferenceService.Reference> items, string indent)
+    private string Overrides(string symbol, string? assembly, int offset, int limit, CancellationToken ct)
     {
-        foreach (var g in items.GroupBy(i => (i.Assembly, i.Where)))
-        {
-            sb.AppendLine($"{indent}{Format.MemberLabel(g.Key.Where)}  [{g.Key.Assembly.Id}] {Format.Token(g.Key.Where)}");
-            foreach (var i in g)
-                sb.AppendLine($"{indent}    {(i.ILOffset is { } o ? $"IL_{o:X4} " : "")}{i.Kind}{(i.Detail.Length > 0 ? " " + i.Detail : "")}");
-        }
+        var sym = SymbolResolver.ResolveOne(workspace, assembly, symbol, SymbolKind.Method, referenced: true);
+        var method = (MethodDef)sym.Member;
+        var list = references.FindOverrides(method, ct);
+        string kind = method.DeclaringType.IsInterface ? "implementation" : "override";
+        var page = list.Skip(offset).Take(limit).Select(o => new ReferenceEntry(kind, "observed") { Where = SymbolRef.Of(o) }).ToList();
+        return ToolOutput.List(page, offset, limit, list.Count, Row, rows => new ReferenceList($"{sym.Label} [{sym.Assembly.Id}]", rows, offset, list.Count),
+            kind, $"Overrides / implementations of {sym.Label}  [{sym.Assembly.Id}]: ");
     }
 
-    /// <summary>P/Invoke declarations bound to a native export with their callers, and native call sites in loaded images.</summary>
-    private string NativeReferences(NativeLinkService link, NativeSymbol symbol, bool includeVirtualCalls, int limit, CancellationToken ct)
+    /// <summary>A reference row: derived when it reaches the symbol through a base or interface declaration or a delegate field.</summary>
+    private static ReferenceEntry Entry(ReferenceService.Reference i, string? via) =>
+        new(i.Kind, i.Detail.StartsWith("via ", StringComparison.Ordinal) ? "derived" : "observed")
+        {
+            Where = SymbolRef.Of(i.Assembly, i.Where),
+            IlOffset = (int?)i.ILOffset,
+            Detail = i.Detail.Length > 0 ? i.Detail : null,
+            Via = via,
+        };
+
+    private static ReferenceEntry NativeSite(string row) => new("native call", "observed") { Detail = row };
+
+    private static string Row(ReferenceEntry e) =>
+        e.Where is { } w
+            ? $"{w.Label}  [{w.Assembly}] {w.Token}{(e.IlOffset is { } o ? $"  IL_{o:X4}" : "")}  {e.Kind}{(e.Detail != null ? " " + e.Detail : "")}{(e.Via != null ? $"  (through {e.Via})" : "")}"
+            : $"{e.Kind}: {e.Detail}";
+
+    /// <summary>P/Invoke declarations bound to a native export with their callers, then native call sites in loaded images, paged as one list.</summary>
+    private string NativeReferences(NativeLinkService link, NativeSymbol symbol, bool includeVirtualCalls, int offset, int limit, CancellationToken ct)
     {
         var target = link.Resolve(symbol);
         var managed = link.ManagedLinksTo(target, ct);
         var sites = link.NativeCallSites(target, ct);
-        var sb = new StringBuilder($"References to native {symbol}: {target.Label}\n");
-        sb.AppendLine($"Managed declarations bound to it: {managed.Count}");
-        int shown = 0, total = 0;
-        var items = new List<ReferenceEntry>();
+        var header = new StringBuilder($"References to native {symbol}: {target.Label}\n");
+        header.Append($"Managed declarations bound to it: {managed.Count}\n");
+        foreach (var m in managed)
+            header.Append($"  {Format.MemberLabel(m.Method)}  [{m.Assembly.Id}] {Format.Token(m.Method)}  ({m.Kind}: {NativeLinkService.Describe(m.Binding)})\n");
+        if (managed.Count == 0)
+            header.Append("  none (P/Invokes reaching it through a jump thunk are matched only when the thunk's image is loaded)\n");
+        // Each declaration's callers up to offset + limit: the rows before the page end are exact.
+        var rows = new List<ReferenceEntry>();
+        int total = 0;
         foreach (var m in managed)
         {
-            sb.AppendLine($"  {Format.MemberLabel(m.Method)}  [{m.Assembly.Id}] {Format.Token(m.Method)}  ({m.Kind}: {NativeLinkService.Describe(m.Binding)})");
-            var r = references.FindReferences(new ResolvedSymbol(m.Assembly, m.Method), includeVirtualCalls, Math.Max(1, limit - shown), ct);
-            shown += r.Items.Count;
+            var r = references.FindReferences(new ResolvedSymbol(m.Assembly, m.Method), includeVirtualCalls, End(offset, limit), ct);
+            var via = $"{Format.MemberLabel(m.Method)} [{m.Assembly.Id}]";
+            if (total < End(offset, limit)) rows.AddRange(r.Items.Take(End(offset, limit) - total).Select(i => Entry(i, via)));
             total += r.Total;
-            if (r.Total == 0) sb.AppendLine("      no callers in the loaded assemblies");
-            AppendReferences(sb, r.Items, "      ");
-            if (r.Items.Count < r.Total) sb.AppendLine($"      ... {r.Total - r.Items.Count} more (raise limit)");
-            items.AddRange(r.Items.Select(i => Entry(i, $"{Format.MemberLabel(m.Method)} [{m.Assembly.Id}]")));
         }
-        if (managed.Count == 0)
-            sb.AppendLine("  none (P/Invokes reaching it through a jump thunk are matched only when the thunk's image is loaded)");
-        sb.AppendLine($"Native call sites in loaded images: {sites.Count}{TruncationNote(Math.Min(sites.Count, limit), sites.Count)}");
-        foreach (var row in sites.Take(limit)) sb.AppendLine("  " + row);
-        return ToolOutput.With(sb.ToString(),
-            new ReferenceList($"native {symbol}: {target.Label}", items, sites.Take(limit).ToList(), 0, total, items.Count < total || sites.Count > limit));
+        foreach (var s in sites)
+        {
+            if (total < End(offset, limit) && rows.Count == total) rows.Add(NativeSite(s));
+            total++;
+        }
+        var page = rows.Skip(offset).Take(limit).ToList();
+        return ToolOutput.List(page, offset, limit, total, Row, p => new ReferenceList($"native {symbol}: {target.Label}", p, offset, total), "reference", header.ToString());
     }
 
     [McpServerTool(Name = "find_callees", Title = "What a method uses (xrefs from)", UseStructuredContent = true, OutputSchemaType = typeof(CalleeList))]
     [Description("What a method uses ('Uses'): calls, field reads / writes, types instantiated or cast, and strings, in IL order with offsets. P/Invoke calls show " +
-                 "the native code they bind to ('native: module!export -> PROVIDER!export at VA [image]'); for a P/Invoke or native export, its native callees.")]
+                 "the native code they bind to; for a P/Invoke or native export, its native callees as call-tree rows.")]
     public async Task<string> FindCallees(
         [Description(SymbolOrNativeDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Collapse repeated targets into one line with a count.")] bool distinct = false,
+        [Description("Collapse repeated targets into one row with a count.")] bool distinct = false,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max entries.")] int limit = 2000,
+        [Description(LimitDescription)] int limit = 200,
         CancellationToken cancellationToken = default)
     {
-        limit = ClampLimit(limit);
-        offset = Math.Max(0, offset);
         if (link != null) await link.WarmUp(null, cancellationToken);
         if (link != null && SymbolResolver.ParseNative(method) is { } native)
             return await Read(workspace, () =>
             {
                 var target = link.Resolve(native);
-                var sb = new StringBuilder($"native {native}: {target.Label}\n");
+                var header = $"native {native}: {target.Label}\n";
+                var nodes = new List<NativeTreeNode>();
                 if (link.FunctionOf(target.Binding) is not { } fn)
-                    sb.AppendLine(target.Binding.Status == NativeLinkService.Bound
-                        ? "  (its image's code index is still being built or has no function there)"
-                        : $"  (the code is in {target.Binding.FinalFile}, which is not loaded: load_assembly it to see what it calls)");
-                else link.AppendTree(sb, fn.Image, fn.Function, false, 1, 2000, 1, withRoot: false, cancellationToken);
-                return ToolOutput.With(pager.Page(sb.ToString()), new CalleeList($"native {native}: {target.Label}", [], Lines(sb.ToString()), 0, 0, false));
+                    header += target.Binding.Status == NativeLinkService.Bound
+                        ? "  (its image's code index is still being built or has no function there)\n"
+                        : $"  (the code is in {target.Binding.FinalFile}, which is not loaded: load_assembly it to see what it calls)\n";
+                else link.AppendTree(new StringBuilder(), fn.Image, fn.Function, false, 1, 5_000, 1, withRoot: false, cancellationToken, rows: nodes, home: fn.Image);
+                return NativePage($"native {native}: {target.Label}", header, nodes, offset, limit);
             }, cancellationToken);
         return await Read(workspace, () =>
         {
@@ -131,50 +141,44 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             var label = $"{sym.Label} [{sym.Assembly.Id}]";
             if (link?.NativeOf(md) is { } own && !md.HasBody)
             {
-                var runs = link.NativeCallees(md, 2, 1, 2000, cancellationToken);
-                return ToolOutput.With(pager.Page($"{label} is a {own.Kind} with no IL body; it runs:\n" + runs),
-                    new CalleeList(label, [], Lines(runs), 0, 0, false));
+                var nodes = new List<NativeTreeNode>();
+                link.NativeCallees(md, 2, 1, 5_000, cancellationToken, nodes);
+                return NativePage(label, $"{label} is a {own.Kind} with no IL body; it runs:\n", nodes, offset, limit);
             }
             var list = references.FindCallees(md);
             var entries = distinct
                 ? list.GroupBy(c => (c.Kind, c.Target)).OrderBy(g => g.Key.Kind).ThenBy(g => g.Key.Target)
-                    .Select(g => (Callee: g.First(), Count: g.Count(), Line: $"  {g.Key.Kind,-14} {g.Key.Target}{(g.Count() > 1 ? $"  x{g.Count()}" : "")}{Where(g.First())}{Native(g.First())}"))
-                    .ToList()
-                : list.Select(c => (Callee: c, Count: 1, Line: $"  IL_{c.ILOffset:X4} {c.OpCode,-10} {c.Kind,-14} {c.Target}{Where(c)}{Native(c)}")).ToList();
-            var page = entries.Skip(offset).Take(limit).ToList();
-            var sb = new StringBuilder($"{label} uses {Plural(list.Count, "item")}" +
-                                       (offset > 0 || page.Count < entries.Count ? $" (showing {(page.Count == 0 ? 0 : offset + 1)}-{offset + page.Count} of {entries.Count})" : "") + ":\n");
-            foreach (var e in page) sb.AppendLine(e.Line);
-            if (offset + page.Count < entries.Count) sb.AppendLine($"[More: offset={offset + page.Count}]");
-            var result = new CalleeList(label, page.Select(e => new CalleeEntry(distinct ? null : (int)e.Callee.ILOffset, distinct ? null : e.Callee.OpCode,
-                    e.Callee.Kind, e.Callee.Target, e.Callee.TargetAssembly?.Id, NativeTarget(e.Callee), e.Count)).ToList(),
-                [], offset, entries.Count, offset + page.Count < entries.Count);
-            return ToolOutput.With(pager.Page(sb.ToString()), result);
+                    .Select(g => new CalleeEntry(g.Key.Kind, g.Key.Target)
+                    {
+                        TargetAssembly = g.First().TargetAssembly?.Id,
+                        Native = NativeTarget(g.First()),
+                        Count = g.Count() > 1 ? g.Count() : null,
+                    }).ToList()
+                : list.Select(c => new CalleeEntry(c.Kind, c.Target)
+                {
+                    IlOffset = (int)c.ILOffset,
+                    OpCode = c.OpCode,
+                    TargetAssembly = c.TargetAssembly?.Id,
+                    Native = NativeTarget(c),
+                }).ToList();
+            return ToolOutput.List(entries.Skip(offset).Take(limit).ToList(), offset, limit, entries.Count, CalleeRow,
+                rows => new CalleeList(label, rows, offset, entries.Count), "callee", $"{label} uses:\n");
         }, cancellationToken);
 
-        static string Where(ReferenceService.Callee c) => c.TargetAssembly != null ? $"  [{c.TargetAssembly.Id}]" : "";
         string? NativeTarget(ReferenceService.Callee c) =>
             link != null && c.Method != null && link.NativeOf(c.Method) is { } n ? NativeLinkService.Describe(n.Binding) : null;
-        string Native(ReferenceService.Callee c) => NativeTarget(c) is { } n ? $"\n      -> native: {n}" : "";
     }
 
-    /// <summary>Non-empty lines of a text block, for the structured form of native trees.</summary>
-    internal static List<string> Lines(string text) =>
-        text.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Trim().Length > 0).Take(5_000).ToList();
+    private static string CalleeRow(CalleeEntry e) =>
+        e.Node is { } n
+            ? new string(' ', Math.Max(0, n.Depth - 1) * 2) + CallGraphTools.NativeLabel(n.Name, n.Address, n.Image, n.Edge, n.Flags, n.Note)
+            : $"{(e.IlOffset is { } o ? $"IL_{o:X4} {e.OpCode,-10} " : "")}{e.Kind,-14} {e.Target}{(e.TargetAssembly != null ? $"  [{e.TargetAssembly}]" : "")}" +
+              $"{(e.Count is { } c ? $"  x{c}" : "")}{(e.Native != null ? $"\n  -> native: {e.Native}" : "")}";
 
-    [McpServerTool(Name = "find_overrides", Title = "Find overrides / implementations", UseStructuredContent = true, OutputSchemaType = typeof(OverrideList))]
-    [Description("Methods overriding a virtual / abstract method or implementing an interface method (explicitly or implicitly), across loaded assemblies.")]
-    public Task<string> FindOverrides(
-        [Description(SymbolDescription)] string method,
-        [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Max results.")] int limit = 200,
-        [Description(RowOffsetDescription)] int offset = 0,
-        CancellationToken cancellationToken = default) => Read(workspace, () =>
+    private static string NativePage(string label, string header, List<NativeTreeNode> nodes, int offset, int limit)
     {
-        var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method, referenced: true);
-        var list = references.FindOverrides((MethodDef)sym.Member, cancellationToken);
-        var rows = list.Select(o => $"{o.Label}  [{o.Assembly.Id}] {Format.Token(o.Member)}").ToList();
-        return ToolOutput.With($"Overrides / implementations of {sym.Label}  [{sym.Assembly.Id}]:\n" + pager.PageRows(rows, offset, ClampLimit(limit), "override/implementation"),
-            Paged(list.Select(o => BrowseTools.Match(o)).ToList(), offset, limit, (page, o, total, more) => new OverrideList(SymbolRef.Of(sym), page, o, total, more)));
-    }, cancellationToken);
+        var entries = nodes.Select(n => new CalleeEntry(n.Edge ?? "call", n.Name) { Node = n }).ToList();
+        return ToolOutput.List(entries.Skip(offset).Take(limit).ToList(), offset, limit, entries.Count, CalleeRow,
+            rows => new CalleeList(label, rows, offset, entries.Count), "callee", header);
+    }
 }

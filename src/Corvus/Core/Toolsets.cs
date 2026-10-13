@@ -23,8 +23,8 @@ public static class Toolsets
              "save_session", "load_session"]),
         new("dotnet", ".NET browse, decompile, search, navigate, resources, ReadyToRun, project export",
             ["list_namespaces", "list_types", "get_type_info", "get_assembly_info", "get_attributes", "get_type_hierarchy", "resolve_symbol",
-             "decompile_type", "decompile_member", "decompile_assembly_attributes", "get_il", "search_symbols", "search_strings", "search_constants",
-             "search_il", "find_references", "find_callees", "find_overrides", "get_call_tree", "find_call_paths", "list_resources", "get_resource",
+             "decompile_member", "get_il", "search_symbols", "search_strings", "search_constants",
+             "search_il", "find_references", "find_callees", "get_call_tree", "find_call_paths", "list_resources", "get_resource",
              "export_project", "get_r2r_code", "find_r2r_method"]),
         new("containers", "file inspection, containers and wrapped apps, Unity overview",
             ["summarize_file", "survey_features", "extract_strings", "extract_embedded", "search_container", "unpack_container", "unity_overview"]),
@@ -103,9 +103,9 @@ public static class Toolsets
     {
         ["readonly"] =
         [
-            "list_namespaces", "list_types", "get_type_info", "get_assembly_info", "get_attributes", "get_type_hierarchy", "resolve_symbol", "decompile_type",
-            "decompile_member", "decompile_assembly_attributes", "get_il", "search_symbols", "search_strings", "search_constants", "search_il", "find_references",
-            "find_callees", "find_overrides", "get_call_tree", "find_call_paths", "list_resources", "get_r2r_code", "find_r2r_method",
+            "list_namespaces", "list_types", "get_type_info", "get_assembly_info", "get_attributes", "get_type_hierarchy", "resolve_symbol",
+            "decompile_member", "get_il", "search_symbols", "search_strings", "search_constants", "search_il", "find_references",
+            "find_callees", "get_call_tree", "find_call_paths", "list_resources", "get_r2r_code", "find_r2r_method",
             "summarize_file", "survey_features", "search_container", "unity_overview", "list_edits", "diff_edits",
             "get_il2cpp_info", "find_method_by_address", "generate_cpp_binding",
             "get_pe_info", "get_engine_status", "get_nativeaot_info", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "convert_number",

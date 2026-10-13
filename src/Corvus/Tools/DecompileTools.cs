@@ -18,23 +18,9 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
 {
     private const int MaxMembersPerCall = 25;
 
-    [McpServerTool(Name = "decompile_type", Title = "Decompile type to C#")]
-    [Description("Decompile a whole type (nested types included) to C#; decompile_member is cheaper for one method. A method that breaks the decompiler is shown as IL.")]
-    public Task<string> DecompileType(
-        [Description(SymbolDescription)] string type,
-        [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(SimplifiedDescription)] bool simplified = false,
-        [Description(CharOffsetDescription)] int offset = 0,
-        [Description(MaxTokensDescription)] int? maxTokens = null,
-        CancellationToken cancellationToken = default) => Read(workspace, () =>
-    {
-        var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
-        return pager.Page(TypeSource(sym, simplified, cancellationToken), offset, maxTokens);
-    }, cancellationToken);
-
-    [McpServerTool(Name = "decompile_member", Title = "Decompile member to C#")]
-    [Description("Decompile a method, property, field, event or constructor to C#: every overload unless a parameter list narrows it; async / iterator state " +
-                 "machines and lambdas fold back into the method. A type name decompiles the whole type.")]
+    [McpServerTool(Name = "decompile_member", Title = "Decompile to C#", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
+    [Description("Decompile a type, method, property, field, event or constructor to C#: every overload unless a parameter list narrows it; async / iterator " +
+                 "state machines and lambdas fold back into the method; a type decompiles whole (nested types included). A method that breaks the decompiler is shown as IL.")]
     public Task<string> DecompileMember(
         [Description(SymbolDescription)] string member,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -48,7 +34,10 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         var all = SymbolResolver.Resolve(workspace, assembly, member, SymbolResolver.ParseKind(kind));
         var header = offset == 0 ? NotesHeader(all) : "";
         if (all.Count == 1 && all[0].Member is TypeDef)
-            return header + pager.Page((provenance ? Provenance(all[0].Assembly, [all[0].Member]) : "") + TypeSource(all[0], simplified, cancellationToken), offset, maxTokens);
+        {
+            var source = (provenance ? Provenance(all[0].Assembly, [all[0].Member]) : "") + TypeSource(all[0], simplified, cancellationToken);
+            return header + ToolOutput.Text(pager, source, offset, Page("csharp", all), maxTokens);
+        }
         RequireFew(all, member);
 
         var text = pager.GetOrCreate(CacheKey((simplified ? "member-simplified" : "member") + (provenance ? "-provenance" : ""), all), () =>
@@ -56,8 +45,12 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
                 $"// [{g.Key.Id}]\n" + (provenance ? Provenance(g.Key, g.Select(s => s.Member)) : "") + (simplified
                     ? decompiler.DecompileSimplified(g.Key, g.Select(s => s.Member).ToList(), new SimplifyOptions(), cancellationToken)
                     : decompiler.DecompileMembers(g.Key, g.Select(s => s.Member), cancellationToken)))));
-        return header + pager.Page(text, offset, maxTokens);
+        return header + ToolOutput.Text(pager, text, offset, Page("csharp", all), maxTokens);
     }, cancellationToken);
+
+    /// <summary>The record of a code page; the call filter fills in the page.</summary>
+    private static CodePage Page(string language, IReadOnlyList<ResolvedSymbol> symbols, IReadOnlyList<IlMethodHash>? methods = null) =>
+        new(language, "", 0, null, 0) { Symbols = symbols.Select(SymbolRef.Of).ToList(), Methods = methods };
 
     /// <summary>One line when the members (a type: and its members) have open notes; empty otherwise, so it costs nothing without notes.</summary>
     private string NotesHeader(IReadOnlyList<ResolvedSymbol> symbols)
@@ -98,9 +91,9 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "get_il", Title = "IL disassembly")]
-    [Description("IL disassembly (ildasm style, /* token */ comments, offsets, try blocks) of a member or type; each method starts with its normalized IL hash " +
-                 "(stable across rebuilds) and raw IL SHA-256. For when the C# looks wrong, transformed code, or as patch_method_il input.")]
+    [McpServerTool(Name = "get_il", Title = "IL disassembly", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
+    [Description("IL disassembly (ildasm style, tokens, offsets, try blocks) of a member or type; each method starts with its normalized IL hash " +
+                 "(stable across rebuilds) and raw IL SHA-256. For when the C# looks wrong, or as patch_method_il input.")]
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -112,20 +105,27 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         RequireFew(all, symbol);
         var text = pager.GetOrCreate(CacheKey("il", all), () => string.Join("\n", all.Select(s =>
             $"// [{s.Assembly.Id}] {s.Label}\n{HashLines(s)}{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken)}")));
-        return pager.Page(text, offset, maxTokens);
+        var hashes = all.SelectMany(s =>
+        {
+            using var raw = IlHash.RawReader(s.Assembly);
+            return MethodsOf(s.Member).Select(m => new IlMethodHash(Format.Token(m), IlHash.Of(s.Assembly, m), IlHash.RawSha256(raw, m))).ToList();
+        }).Take(200).ToList();
+        return ToolOutput.Text(pager, text, offset, Page("il", all, hashes), maxTokens);
     }, cancellationToken);
+
+    private static IEnumerable<MethodDef> MethodsOf(IMemberDef member) => member switch
+    {
+        MethodDef m => [m],
+        PropertyDef p => p.GetMethods.Concat(p.SetMethods).Concat(p.OtherMethods),
+        EventDef e => new[] { e.AddMethod, e.RemoveMethod, e.InvokeMethod }.Where(m => m != null).Concat(e.OtherMethods),
+        TypeDef t => t.Methods,
+        _ => [],
+    };
 
     /// <summary>One "// IL hash:" line per method of the symbol with its raw IL SHA-256 (docs/il-hash.md), and the method's name unless the symbol is that method.</summary>
     private static string HashLines(ResolvedSymbol s)
     {
-        IEnumerable<MethodDef> methods = s.Member switch
-        {
-            MethodDef m => [m],
-            PropertyDef p => p.GetMethods.Concat(p.SetMethods).Concat(p.OtherMethods),
-            EventDef e => new[] { e.AddMethod, e.RemoveMethod, e.InvokeMethod }.Where(m => m != null).Concat(e.OtherMethods),
-            TypeDef t => t.Methods,
-            _ => [],
-        };
+        var methods = MethodsOf(s.Member);
         var sb = new StringBuilder();
         using var raw = IlHash.RawReader(s.Assembly);
         foreach (var m in methods)
@@ -144,13 +144,6 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         }
         return sb.ToString();
     }
-
-    [McpServerTool(Name = "decompile_assembly_attributes", Title = "Decompile assembly attributes")]
-    [Description("Decompile assembly- and module-level attributes (InternalsVisibleTo, versions, TargetFramework...) to C#.")]
-    public Task<string> DecompileAssemblyAttributes(
-        [Description(AssemblyDescription)] string assembly,
-        CancellationToken cancellationToken = default) => Read(workspace, () =>
-            pager.Page(decompiler.DecompileAssemblyAttributes(workspace.Get(assembly), cancellationToken)), cancellationToken);
 
     [McpServerTool(Name = "export_project", Title = "Export C# project", UseStructuredContent = true, OutputSchemaType = typeof(ExportOutcome))]
     [Description("Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources), to grep or browse a large codebase with file tools. " +
@@ -228,10 +221,23 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     private string CacheKey(string kind, IEnumerable<ResolvedSymbol> symbols) =>
         $"{workspace.Generation}|{kind}|{string.Join(",", symbols.Select(s => s.Assembly.Id + (s.Member.MDToken.Rid != 0 ? Format.Token(s.Member) : Format.MemberLabel(s.Member))))}"; // added members share token (new)
 
+    /// <summary>More than 25 matches: ambiguous, naming up to 25 in details.matches and as many as fit the error budget in the text.</summary>
     private static void RequireFew(IReadOnlyList<ResolvedSymbol> all, string query)
     {
-        if (all.Count > MaxMembersPerCall)
-            throw new ToolError(ErrorCode.Ambiguous, $"'{query}' matches {all.Count} symbols; narrow it with a type name, parameter list or token. First matches:\n" +
-                                string.Join("\n", all.Take(MaxMembersPerCall).Select(a => "  " + a)));
+        if (all.Count <= MaxMembersPerCall) return;
+        var first = all.Take(MaxMembersPerCall).ToList();
+        var lines = new List<string>();
+        int chars = 0;
+        foreach (var a in first)
+        {
+            var line = "  " + a;
+            if (chars + line.Length > 2_000) break;
+            lines.Add(line);
+            chars += line.Length + 1;
+        }
+        throw new ToolError(ErrorCode.Ambiguous, $"'{query}' matches {all.Count} symbols. First matches:\n" + string.Join("\n", lines) +
+                            (lines.Count < all.Count ? $"\n  ... {all.Count - lines.Count} more" : ""),
+            "narrow it with a type name, a parameter list (Method(int, string)) or a token from details.matches")
+        { Details = new { matches = first.Select(SymbolRef.Of).ToList(), total = all.Count } };
     }
 }

@@ -7,9 +7,7 @@ extract_embedded
 extract_strings
 find_method_by_address
 find_similar_functions
-get_attributes
 get_call_arguments
-get_type_hierarchy
 list_assemblies
 list_cpp_classes
 list_edits

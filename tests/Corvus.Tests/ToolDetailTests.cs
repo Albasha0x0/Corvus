@@ -86,13 +86,13 @@ public class ToolDetailTests : IDisposable
     }
 
     [Fact]
-    public async Task FindOverrides_Pages()
+    public async Task Overrides_Page()
     {
-        var tools = new ReferenceTools(_env.Workspace, _env.References, _env.Pager);
-        var all = await tools.FindOverrides("Fixture.Model.Entity::Score");
+        var tools = new ReferenceTools(_env.Workspace, _env.References);
+        var all = await tools.FindReferences("Fixture.Model.Entity::Score", kind: "overrides");
         Assert.Contains("Fixture.Model.Account::Score()", all);
         Assert.Contains("Fixture.Model.PremiumAccount::Score()", all);
-        var first = await tools.FindOverrides("Fixture.Model.Entity::Score", limit: 1);
+        var first = await tools.FindReferences("Fixture.Model.Entity::Score", kind: "overrides", limit: 1);
         Assert.Contains("(showing 1-1)", first);
         Assert.Contains("[More: offset=1]", first);
     }

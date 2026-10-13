@@ -6,9 +6,6 @@
       "items": {
         "type": "object",
         "properties": {
-          "assembly": {
-            "type": "string"
-          },
           "token": {
             "type": "string"
           },
@@ -18,10 +15,13 @@
           },
           "fullName": {
             "type": "string"
+          },
+          "assembly": {
+            "description": "Assembly id; only when several assemblies are listed.",
+            "type": "string"
           }
         },
         "required": [
-          "assembly",
           "token",
           "kind",
           "fullName"
@@ -38,11 +38,11 @@
       "description": "Inputs the regex timed out on (1 s limit each), left out of the results: non-zero means they are incomplete.",
       "type": "integer"
     },
-    "limit": {
-      "type": "integer"
-    },
     "totalExact": {
       "type": "boolean"
+    },
+    "limit": {
+      "type": "integer"
     },
     "hasMore": {
       "type": "boolean"

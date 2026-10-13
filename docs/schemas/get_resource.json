@@ -1,0 +1,56 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "kind": {
+      "description": "text, xaml, hex, entries or image.",
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "savedTo": {
+      "description": "outputPath: where the bytes were written.",
+      "type": "string"
+    },
+    "size": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "kind",
+    "code",
+    "offset",
+    "totalChars"
+  ]
+}

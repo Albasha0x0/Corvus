@@ -73,7 +73,7 @@ public class DeterminismTests
             ("find_similar_functions", new() { ["image"] = "native.dll", ["address"] = "First", ["scope"] = "all", ["minScore"] = 0 }),
             ("list_types", new() { ["assembly"] = "TestFixture" }),
             ("search_strings", new() { ["query"] = "e" }),
-            ("decompile_type", new() { ["type"] = "Account" }),
+            ("decompile_member", new() { ["member"] = "Account" }),
             ("list_exports", new() { ["image"] = "native.dll" }),
             ("summarize_file", new() { ["path"] = native }),
         ];

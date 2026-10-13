@@ -1,0 +1,39 @@
+{
+  "tool": "find_callees",
+  "arguments": {
+    "method": "Account::Charge(int, string)",
+    "distinct": true
+  },
+  "isError": false,
+  "content": [
+    "Fixture.Model.Account::Charge(int, string) [TestFixture] uses:\n4 callees (showing 1-4):\n  method         Fixture.Model.Account::Charge(int)  [TestFixture]\n  method         Fixture.Model.Account::Log(string)  [TestFixture]\n  method         System.String::Concat(string, string)\n  string         \"charged by \"\n[End: 4 callees]\n"
+  ],
+  "structuredContent": {
+    "method": "Fixture.Model.Account::Charge(int, string) [TestFixture]",
+    "items": [
+      {
+        "kind": "method",
+        "target": "Fixture.Model.Account::Charge(int)",
+        "targetAssembly": "TestFixture"
+      },
+      {
+        "kind": "method",
+        "target": "Fixture.Model.Account::Log(string)",
+        "targetAssembly": "TestFixture"
+      },
+      {
+        "kind": "method",
+        "target": "System.String::Concat(string, string)"
+      },
+      {
+        "kind": "string",
+        "target": "\"charged by \""
+      }
+    ],
+    "offset": 0,
+    "total": 4,
+    "limit": 200,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

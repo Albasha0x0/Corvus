@@ -1,0 +1,29 @@
+{
+  "tool": "get_attributes",
+  "arguments": {
+    "symbol": "NativeThing::First"
+  },
+  "isError": false,
+  "content": [
+    "1 attribute (showing 1-1):\n  Fixture.Native.NativeThing::First()  [TestFixture]  [Address(RVA = \"0x1000\", Offset = \"0x400\", VA = \"0x180001000\")]\n[End: 1 attribute]\n"
+  ],
+  "structuredContent": {
+    "items": [
+      {
+        "target": "method",
+        "attribute": "[Address(RVA = \"0x1000\", Offset = \"0x400\", VA = \"0x180001000\")]",
+        "owner": {
+          "kind": "method",
+          "label": "Fixture.Native.NativeThing::First()",
+          "assembly": "TestFixture",
+          "token": "0x06000004"
+        }
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "limit": 200,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

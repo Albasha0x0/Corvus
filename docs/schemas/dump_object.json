@@ -18,7 +18,7 @@
       "type": "string"
     },
     "token": {
-      "description": "TypeDef token, for get_type_info / decompile_type with assembly.",
+      "description": "TypeDef token, for get_type_info / decompile_member with assembly.",
       "type": "string"
     },
     "buildCheck": {

@@ -10,7 +10,7 @@ using static Corvus.Tools.ToolSupport;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService references, OutputPager pager)
+public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService references, OutputPager pager, DecompilerService? decompiler = null)
 {
     private const string CompilerGenerated = "System.Runtime.CompilerServices.CompilerGeneratedAttribute";
 
@@ -20,39 +20,21 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Substring (case-insensitive).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max namespaces.")] int limit = 2000,
+        [Description(LimitDescription)] int limit = 200,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        limit = ClampLimit(limit);
-        offset = Math.Max(0, offset);
+        var scope = workspace.Scope(assembly);
+        bool several = scope.Count > 1;
         var all = new List<NamespaceEntry>();
-        var perAssembly = new List<(LoadedAssembly Asm, int Count)>();
-        foreach (var asm in workspace.Scope(assembly))
-        {
-            var groups = MetadataUtil.CountedTypes(asm.Module)
+        foreach (var asm in scope)
+            all.AddRange(MetadataUtil.CountedTypes(asm.Module)
                 .GroupBy(t => MetadataUtil.TopLevel(t).Namespace.String)
                 .Where(g => filter == null || g.Key.Contains(filter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(g => g.Key, StringComparer.Ordinal)
-                .ToList();
-            if (groups.Count == 0 && assembly == null && filter != null)
-                continue; // when filtering across all assemblies, omit those with no match
-            perAssembly.Add((asm, groups.Count));
-            all.AddRange(groups.Select(g => new NamespaceEntry(asm.Id, g.Key, g.Count())));
-        }
-        var page = all.Skip(offset).Take(limit).ToList();
-        var result = new NamespaceList(page, offset, all.Count, offset + page.Count < all.Count);
-        if (perAssembly.Count == 0) return ToolOutput.With($"No namespaces match '{filter}'.", result);
-        var sb = new StringBuilder();
-        foreach (var (asm, count) in perAssembly)
-        {
-            var shown = page.Where(e => e.Assembly == asm.Id).ToList();
-            if (shown.Count == 0 && count > 0) continue; // outside this page
-            sb.AppendLine($"[{asm.Id}] {Plural(count, "namespace")}:");
-            foreach (var e in shown)
-                sb.AppendLine($"  {(e.Namespace.Length == 0 ? "<global>" : e.Namespace)}  ({e.Types})");
-        }
-        if (result.Truncated) sb.AppendLine($"[More: offset={offset + page.Count}]");
-        return ToolOutput.With(pager.Page(sb.ToString()), result);
+                .Select(g => new NamespaceEntry(g.Key, g.Count()) { Assembly = several ? asm.Id : null }));
+        return ToolOutput.List(all, offset, limit,
+            e => $"{(e.Namespace.Length == 0 ? "<global>" : e.Namespace)}  ({e.Types}){(e.Assembly != null ? $"  [{e.Assembly}]" : "")}",
+            rows => new NamespaceList(rows, offset, all.Count), "namespace", all.Count == 0 && filter != null ? $"No namespaces match '{filter}'.\n" : null);
     }, cancellationToken);
 
     [McpServerTool(Name = "list_types", Title = "List types", UseStructuredContent = true, OutputSchemaType = typeof(TypeList))]
@@ -63,165 +45,185 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description("Name substring or wildcard (*, ?), or a regex with regex=true.")] string? filter = null,
         [Description("Treat filter as a regular expression.")] bool regex = false,
         [Description("Only this kind.")] string? kind = null,
-        [Description("Include nested types.")] bool includeNested = true,
+        [Description("Leave out nested types.")] bool topLevelOnly = false,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max results.")] int limit = 300,
+        [Description(LimitDescription)] int limit = 150,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var timeouts = new RegexTimeouts();
         var matcher = filter == null ? null : SearchService.CreateMatcher(filter, regex, timeouts);
         var ns = @namespace == "<global>" ? "" : @namespace;
-        bool showAssembly = workspace.Assemblies.Count > 1;
-        var rows = new List<string>();
+        var scope = workspace.Scope(assembly);
+        bool several = scope.Count > 1;
         var items = new List<TypeEntry>();
-        foreach (var asm in workspace.Scope(assembly))
-            foreach (var t in includeNested ? asm.Module.GetTypes() : asm.Module.Types)
+        foreach (var asm in scope)
+            foreach (var t in topLevelOnly ? asm.Module.Types : asm.Module.GetTypes())
             {
                 if (t.FullName == "<Module>") continue;
                 if (ns != null && MetadataUtil.TopLevel(t).Namespace != ns) continue;
                 var k = Format.Kind(t);
                 if (kind != null && !k.EndsWith(kind.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
                 if (matcher != null && !matcher(Format.StripArity(t.Name)) && !matcher(t.FullName)) continue;
-                rows.Add($"{Format.Token(t)}  {k,-12} {t.FullName}{(showAssembly ? $"  [{asm.Id}]" : "")}");
-                items.Add(new TypeEntry(asm.Id, Format.Token(t), k, t.FullName));
+                items.Add(new TypeEntry(Format.Token(t), k, t.FullName) { Assembly = several ? asm.Id : null });
             }
-        return ToolOutput.With(timeouts.Note("name") + pager.PageRows(rows, offset, limit, "type"),
-            Paged(items, offset, limit, (page, o, total, more) => new TypeList(page, o, total, more) { NotEvaluated = timeouts.Count }));
+        return ToolOutput.List(items.Skip(offset).Take(limit).ToList(), offset, limit, items.Count,
+            e => $"{e.Token}  {e.Kind,-12} {e.FullName}{(e.Assembly != null ? $"  [{e.Assembly}]" : "")}",
+            rows => new TypeList(rows, offset, items.Count) { NotEvaluated = timeouts.Count, TotalExact = timeouts.Count > 0 ? false : null },
+            "type", Header(timeouts.Note("name")), totalExact: timeouts.Count == 0);
     }, cancellationToken);
 
+    /// <summary>Header lines, null when empty; "Incomplete:" and "Skipped:" lines become the record's warnings too.</summary>
+    internal static string? Header(params string?[] parts) => string.Concat(parts) is { Length: > 0 } text ? text : null;
+
+    private static readonly string[] Sections = ["summary", "nested", "fields", "properties", "events", "methods", "all"];
+
     [McpServerTool(Name = "get_type_info", Title = "Type outline", UseStructuredContent = true, OutputSchemaType = typeof(TypeOutline))]
-    [Description("Outline of a type without decompiling: declaration, attributes, nested types, fields (constants, enum values with hex, Il2Cpp offsets), properties, events and method signatures with tokens, IL sizes and Il2Cpp RVAs.")]
+    [Description("Outline of a type without decompiling: declaration, attributes, member counts and the first members of each kind; a section pages " +
+                 "one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs).")]
     public Task<string> GetTypeInfo(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
+        [Description("summary, nested, fields, properties, events, methods or all.")] string section = "summary",
         [Description("Include compiler-generated members (backing fields, lambdas, state machines).")] bool includeCompilerGenerated = false,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description(LimitDescription)] int limit = 100,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
+        section = (section ?? "summary").Trim().ToLowerInvariant();
+        if (!Sections.Contains(section))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown section '{section}'.", "pass section as one of " + string.Join(", ", Sections));
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
         var t = (TypeDef)sym.Member;
-        var sb = new StringBuilder();
-        sb.AppendLine(Format.TypeHeader(t));
-        sb.AppendLine($"  full name: {t.FullName}   token: {Format.Token(t)}   assembly: {sym.Assembly.Id}");
-        if (t.DeclaringType != null) sb.AppendLine($"  declared in: {t.DeclaringType.FullName}");
-        foreach (var gp in t.GenericParameters.Where(g => g.GenericParamConstraints.Count > 0))
-            sb.AppendLine($"  where {gp.Name} : {string.Join(", ", gp.GenericParamConstraints.Select(c => Format.TypeName(c.Constraint)))}");
-        if (t.HasClassLayout) sb.AppendLine($"  layout: pack {t.PackingSize}, size {t.ClassSize}");
-        foreach (var ca in t.CustomAttributes) sb.AppendLine("  " + Format.Attribute(ca));
-
         bool Show(IHasCustomAttribute m, string name) =>
             includeCompilerGenerated || (!name.StartsWith('<') && !m.CustomAttributes.IsDefined(CompilerGenerated));
-        static string Il2Cpp(IHasCustomAttribute m) => Il2CppService.CompactSummary(m) is { } s ? $"  [{s}]" : "";
+        static string? Il2Cpp(IHasCustomAttribute m) => Il2CppService.CompactSummary(m);
 
-        var nested = t.NestedTypes.Where(n => Show(n, n.Name)).ToList();
-        Section(sb, "Nested types", nested, n => $"{Format.Token(n)}  {Format.Kind(n)} {Format.TypeName(n)}");
-
-        var fields = t.Fields.Where(f => Show(f, f.Name)).ToList();
-        Section(sb, "Fields", fields, f => $"{Format.Token(f)}  " +
-            (t.IsEnum && f.IsLiteral ? $"{f.Name} = {Format.LiteralWithHex(f.Constant?.Value)}" : Format.Field(f)) + Il2Cpp(f));
-
-        Section(sb, "Properties", t.Properties.ToList(), p => $"{Format.Token(p)}  {Format.Property(p)}");
-        Section(sb, "Events", t.Events.ToList(), e => $"{Format.Token(e)}  {Format.Event(e)}");
-
-        var methods = t.Methods.Where(m => Show(m, m.Name)).ToList();
-        Section(sb, "Methods", methods, m =>
-        {
-            var accessor = MetadataUtil.IsAccessor(m) ? "  (accessor)" : "";
-            var size = MetadataUtil.SafeBody(m) is { } body ? $"  IL {body.Instructions.Count} instr" : m.HasBody ? "" : "  no body";
-            return $"{Format.Token(m)}  {Format.Method(m)}{accessor}{size}{Il2Cpp(m)}";
-        });
-
+        var nested = t.NestedTypes.Where(n => Show(n, n.Name)).Select(n => new MemberEntry("nested", Format.Token(n), $"{Format.Kind(n)} {Format.TypeName(n)}")).ToList();
+        var fields = t.Fields.Where(f => Show(f, f.Name)).Select(f => new MemberEntry("field", Format.Token(f),
+            t.IsEnum && f.IsLiteral ? $"{f.Name} = {Format.LiteralWithHex(f.Constant?.Value)}" : Format.Field(f)) { Il2Cpp = Il2Cpp(f) }).ToList();
+        var properties = t.Properties.Select(p => new MemberEntry("property", Format.Token(p), Format.Property(p))).ToList();
+        var events = t.Events.Select(e => new MemberEntry("event", Format.Token(e), Format.Event(e))).ToList();
+        var methods = t.Methods.Where(m => Show(m, m.Name)).Select(m => new MemberEntry("method", Format.Token(m),
+            Format.Method(m) + (MetadataUtil.IsAccessor(m) ? "  (accessor)" : "") + (m.HasBody || MetadataUtil.SafeBody(m) != null ? "" : "  no body"))
+            { Il2Cpp = Il2Cpp(m), IlInstructions = MetadataUtil.SafeBody(m)?.Instructions.Count }).ToList();
+        var kinds = new (string Name, List<MemberEntry> Rows)[] { ("nested", nested), ("fields", fields), ("properties", properties), ("events", events), ("methods", methods) };
         bool hidden = fields.Count != t.Fields.Count || methods.Count != t.Methods.Count || nested.Count != t.NestedTypes.Count;
-        if (hidden)
-            sb.AppendLine("\n(Compiler-generated members hidden; pass includeCompilerGenerated=true to show them.)");
 
-        const int MaxMembers = 2000;
-        bool cut = false;
-        List<MemberEntry> Entries<T>(IReadOnlyList<T> items, Func<T, MemberEntry> entry)
+        var header = new StringBuilder(Format.TypeHeader(t)).Append('\n');
+        header.Append($"  full name: {t.FullName}   token: {Format.Token(t)}   assembly: {sym.Assembly.Id}\n");
+        if (t.DeclaringType != null) header.Append($"  declared in: {t.DeclaringType.FullName}\n");
+        foreach (var gp in t.GenericParameters.Where(g => g.GenericParamConstraints.Count > 0))
+            header.Append($"  where {gp.Name} : {string.Join(", ", gp.GenericParamConstraints.Select(c => Format.TypeName(c.Constraint)))}\n");
+        if (t.HasClassLayout) header.Append($"  layout: pack {t.PackingSize}, size {t.ClassSize}\n");
+        var attributes = t.CustomAttributes.Select(Format.Attribute).ToList();
+        foreach (var a in attributes) header.Append("  ").Append(a).Append('\n');
+        header.Append("  members: ").Append(string.Join(", ", kinds.Select(k => $"{k.Rows.Count} {k.Name}"))).Append('\n');
+        if (hidden) header.Append("  (compiler-generated members hidden; includeCompilerGenerated=true shows them)\n");
+
+        const int PerKind = 8;
+        List<MemberEntry> rows;
+        if (section == "summary")
         {
-            cut |= items.Count > MaxMembers;
-            return items.Take(MaxMembers).Select(entry).ToList();
+            rows = kinds.SelectMany(k => k.Rows.Take(PerKind)).ToList();
+            var more = kinds.Where(k => k.Rows.Count > PerKind).Select(k => $"section={k.Name} for all {k.Rows.Count}").ToList();
+            if (more.Count > 0) header.Append("  first ").Append(PerKind).Append(" of each kind below; ").Append(string.Join(", ", more)).Append('\n');
+            offset = 0;
+            limit = Math.Max(1, rows.Count);
         }
-        var outline = new TypeOutline(SymbolRef.Of(sym), t.FullName, Format.TypeHeader(t), t.DeclaringType?.FullName,
-            t.CustomAttributes.Select(Format.Attribute).ToList(),
-            Entries(nested, n => new MemberEntry(Format.Token(n), n.Name, $"{Format.Kind(n)} {Format.TypeName(n)}", null, null)),
-            Entries(fields, f => new MemberEntry(Format.Token(f), f.Name,
-                t.IsEnum && f.IsLiteral ? $"{f.Name} = {Format.LiteralWithHex(f.Constant?.Value)}" : Format.Field(f), Il2CppService.CompactSummary(f), null)),
-            Entries(t.Properties.ToList(), p => new MemberEntry(Format.Token(p), p.Name, Format.Property(p), null, null)),
-            Entries(t.Events.ToList(), e => new MemberEntry(Format.Token(e), e.Name, Format.Event(e), null, null)),
-            Entries(methods, m => new MemberEntry(Format.Token(m), m.Name, Format.Method(m), Il2CppService.CompactSummary(m),
-                MetadataUtil.SafeBody(m)?.Instructions.Count)),
-            hidden, cut);
-        return ToolOutput.With(pager.Page(sb.ToString()), outline);
+        else rows = section == "all" ? kinds.SelectMany(k => k.Rows).ToList() : kinds.First(k => k.Name == section).Rows;
+        var counts = kinds.ToDictionary(k => k.Name, k => k.Rows.Count);
+        return ToolOutput.List(rows.Skip(offset).Take(limit).ToList(), offset, limit, rows.Count, MemberRow,
+            page => new TypeOutline(SymbolRef.Of(sym), Format.TypeHeader(t), counts, section, page, offset, rows.Count)
+            {
+                DeclaringType = t.DeclaringType?.FullName,
+                Attributes = attributes.Count > 0 ? attributes : null,
+                CompilerGeneratedHidden = hidden,
+            }, section == "summary" ? "member" : section is "all" ? "member" : section.TrimEnd('s'), header.ToString());
     }, cancellationToken);
 
-    private static void Section<T>(StringBuilder sb, string title, IReadOnlyList<T> items, Func<T, string> line)
-    {
-        if (items.Count == 0) return;
-        sb.AppendLine($"\n{title} ({items.Count}):");
-        foreach (var item in items) sb.AppendLine("  " + line(item));
-    }
+    private static string MemberRow(MemberEntry m) =>
+        $"{m.Kind,-8} {m.Token}  {m.Signature}{(m.IlInstructions is { } n ? $"  IL {n} instr" : "")}{(m.Il2Cpp is { } s ? $"  [{s}]" : "")}";
 
-    [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy")]
-    [Description("A type's base chain, all implemented interfaces, and the types deriving from (or implementing) it directly across loaded assemblies.")]
+    [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy", UseStructuredContent = true, OutputSchemaType = typeof(TypeHierarchy))]
+    [Description("Returns a type's base chain, all implemented interfaces, and the types deriving from (or implementing) it directly across loaded assemblies.")]
     public Task<string> GetTypeHierarchy(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Max derived types listed.")] int limit = 200,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description(LimitDescription)] int limit = 200,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type, referenced: true);
         var t = (TypeDef)sym.Member;
-        var h = references.GetHierarchy(t, ClampLimit(limit), cancellationToken);
-        var sb = new StringBuilder($"{Format.TypeHeader(t)}   [{sym.Assembly.Id}]\n");
-        sb.AppendLine("\nBase types (nearest first):");
-        if (h.BaseChain.Count == 0) sb.AppendLine("  (none)");
-        foreach (var b in h.BaseChain) sb.AppendLine("  " + b);
-        sb.AppendLine($"\nInterfaces ({h.Interfaces.Count}):");
-        foreach (var i in h.Interfaces) sb.AppendLine("  " + i);
-        sb.AppendLine($"\n{(t.IsInterface ? "Implemented by" : "Directly derived types")} ({h.DerivedTotal}):");
-        foreach (var d in h.Derived) sb.AppendLine($"  {d.Label}  [{d.Assembly.Id}] {Format.Token(d.Member)}");
-        if (h.DerivedTotal > h.Derived.Count) sb.AppendLine($"  … {h.DerivedTotal - h.Derived.Count} more (raise limit)");
-        return sb.ToString();
+        var h = references.GetHierarchy(t, End(offset, limit), cancellationToken);
+        var header = new StringBuilder($"{Format.TypeHeader(t)}   [{sym.Assembly.Id}]\n");
+        header.Append("Base types (nearest first):\n");
+        if (h.BaseChain.Count == 0) header.Append("  (none)\n");
+        foreach (var b in h.BaseChain) header.Append("  ").Append(b).Append('\n');
+        header.Append($"Interfaces ({h.Interfaces.Count}):\n");
+        foreach (var i in h.Interfaces) header.Append("  ").Append(i).Append('\n');
+        header.Append(t.IsInterface ? "Implemented by: " : "Directly derived types: ");
+        var derived = h.Derived.Skip(offset).Select(SymbolRef.Of).ToList();
+        return ToolOutput.List(derived, offset, limit, h.DerivedTotal, d => $"{d.Label}  [{d.Assembly}] {d.Token}",
+            page => new TypeHierarchy(SymbolRef.Of(sym), h.BaseChain, h.Interfaces, page, offset, h.DerivedTotal), "type", header.ToString());
     }, cancellationToken);
 
-    [McpServerTool(Name = "get_attributes", Title = "Custom attributes")]
-    [Description("Custom attributes with arguments on a type, member (with parameter and return attributes), or the assembly / module when symbol is omitted. " +
-                 "Everything carrying an attribute: find_references on the attribute type.")]
+    [McpServerTool(Name = "get_attributes", Title = "Custom attributes", UseStructuredContent = true, OutputSchemaType = typeof(AttributeList))]
+    [Description("Custom attributes with arguments on a type or member (parameters and return value included), or on the assembly and module " +
+                 "(symbol omitted; format=csharp decompiles them).")]
     public Task<string> GetAttributes(
         [Description(SymbolDescription + " Omit for assembly-level attributes.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
         [Description("Only attributes whose type name contains this text.")] string? filter = null,
+        [Description("rows, or csharp (symbol omitted).")] string format = "rows",
+        [Description("Rows to skip (characters with format=csharp).")] int offset = 0,
+        [Description(LimitDescription)] int limit = 200,
+        [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var sb = new StringBuilder();
-        void Section(string title, IHasCustomAttribute owner)
+        bool csharp = (format ?? "rows").Trim().ToLowerInvariant() switch
         {
-            var attrs = owner.CustomAttributes
-                .Where(ca => filter == null || (ca.AttributeType?.FullName ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (attrs.Count == 0) return;
-            sb.AppendLine(title);
-            foreach (var ca in attrs) sb.AppendLine("  " + Format.Attribute(ca));
+            "rows" => false,
+            "csharp" or "c#" => true,
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{format}'.", "pass format=rows or format=csharp"),
+        };
+        if (string.IsNullOrWhiteSpace(symbol) && string.IsNullOrWhiteSpace(assembly))
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass symbol, or assembly for assembly-level attributes.", "pass symbol=<type or member>, or assembly=<id> for the assembly's own attributes");
+        if (csharp)
+        {
+            if (!string.IsNullOrWhiteSpace(symbol))
+                throw new ToolError(ErrorCode.InvalidArgument, "format=csharp decompiles assembly-level attributes: leave symbol out.",
+                    "pass assembly only; decompile_member shows a member's attributes in its C#");
+            if (decompiler == null) throw new ToolError(ErrorCode.Unsupported, "Decompilation is not available here.");
+            var asm = workspace.Get(assembly!);
+            var code = decompiler.DecompileAssemblyAttributes(asm, cancellationToken);
+            return ToolOutput.Text(pager, code, offset, new AttributeList(null, offset, null), maxTokens);
         }
-
+        var rows = new List<AttributeEntry>();
+        void Add(IHasCustomAttribute owner, string target, SymbolRef? who)
+        {
+            foreach (var ca in owner.CustomAttributes)
+                if (filter == null || (ca.AttributeType?.FullName ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase))
+                    rows.Add(new AttributeEntry(target, Format.Attribute(ca)) { Owner = who });
+        }
         if (string.IsNullOrWhiteSpace(symbol))
         {
-            if (string.IsNullOrWhiteSpace(assembly))
-                throw new ToolError(ErrorCode.InvalidArgument, "Pass symbol, or assembly for assembly-level attributes.");
-            var asm = workspace.Get(assembly);
-            if (asm.Module.Assembly != null) Section($"Assembly {asm.FullAssemblyName}:", asm.Module.Assembly);
-            Section($"Module {asm.Module.Name}:", asm.Module);
+            var asm = workspace.Get(assembly!);
+            if (asm.Module.Assembly != null) Add(asm.Module.Assembly, "assembly", null);
+            Add(asm.Module, "module", null);
         }
         else
-        {
-            foreach (var sym in SymbolResolver.Resolve(workspace, assembly, symbol).Take(25))
+            foreach (var sym in SymbolResolver.Resolve(workspace, assembly, symbol))
             {
-                Section($"{sym.Kind} {sym.Label}  [{sym.Assembly.Id}]:", sym.Member);
+                var who = SymbolRef.Of(sym);
+                Add(sym.Member, who.Kind, who);
                 if (sym.Member is MethodDef m)
                     foreach (var p in m.ParamDefs)
-                        Section(p.Sequence == 0 ? "  return value:" : $"  parameter {p.Name}:", p);
+                        Add(p, p.Sequence == 0 ? "return" : $"param:{p.Name}", who);
             }
-        }
-        return sb.Length == 0 ? "No custom attributes" + (filter != null ? $" matching '{filter}'." : ".") : pager.Page(sb.ToString());
+        return ToolOutput.List(rows.Skip(offset).Take(limit).ToList(), offset, limit, rows.Count,
+            r => $"{(r.Owner is { } o ? $"{o.Label}  [{o.Assembly}]  " : "")}{(r.Target is "type" or "method" or "field" or "property" or "event" ? "" : r.Target + ": ")}{r.Attribute}",
+            page => new AttributeList(page, offset, rows.Count), "attribute", rows.Count == 0 && filter != null ? $"No custom attributes match '{filter}'.\n" : null);
     }, cancellationToken);
 
     [McpServerTool(Name = "resolve_symbol", Title = "Resolve symbol", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
@@ -230,28 +232,26 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Restrict to this kind.")] string? kind = null,
+        [Description(RowOffsetDescription)] int offset = 0,
+        [Description(LimitDescription)] int limit = 50,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, symbol, SymbolResolver.ParseKind(kind));
-        var sb = new StringBuilder($"{Plural(all.Count, "match")}:\n");
-        var items = new List<SymbolMatch>();
-        foreach (var r in all)
-        {
-            var signature = r.Member switch
-            {
-                MethodDef m => Format.Method(m),
-                FieldDef f => Format.Field(f),
-                PropertyDef p => Format.Property(p),
-                EventDef e => Format.Event(e),
-                TypeDef t => Format.TypeHeader(t),
-                _ => "",
-            };
-            sb.AppendLine($"  {r}\n      {signature}");
-            if (items.Count < 1000) items.Add(Match(r, signature));
-        }
-        return ToolOutput.With(sb.ToString(), Firsts(items, all.Count, (page, o, total, more) => new SymbolList(page, o, total, more)));
+        var page = all.Skip(offset).Take(limit).Select(r => Match(r, Signature(r.Member))).ToList();
+        return ToolOutput.List(page, offset, limit, all.Count, m => $"{m.Kind,-8} {m.Label}  [{m.Assembly}] {m.Token}\n{m.Signature}",
+            rows => new SymbolList(rows, offset, all.Count), "match");
     }, cancellationToken);
 
+    internal static string Signature(IMemberDef member) => member switch
+    {
+        MethodDef m => Format.Method(m),
+        FieldDef f => Format.Field(f),
+        PropertyDef p => Format.Property(p),
+        EventDef e => Format.Event(e),
+        TypeDef t => Format.TypeHeader(t),
+        _ => "",
+    };
+
     internal static SymbolMatch Match(ResolvedSymbol r, string? signature = null) =>
-        new(SymbolRef.MemberKind(r.Member), r.Label, r.Assembly.Id, Format.Token(r.Member), signature);
+        new(SymbolRef.MemberKind(r.Member), r.Label, r.Assembly.Id, Format.Token(r.Member)) { Signature = signature };
 }

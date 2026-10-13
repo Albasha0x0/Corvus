@@ -1,0 +1,19 @@
+{
+  "tool": "export_project",
+  "arguments": {
+    "assembly": "TestFixture",
+    "outputDirectory": "sample-export"
+  },
+  "isError": false,
+  "content": [
+    "Exported to <fixtures>/sample-export: 23 files. Project: <fixtures>/sample-export\\TestFixture.csproj"
+  ],
+  "structuredContent": {
+    "applied": true,
+    "outputDirectory": "<fixtures>/sample-export",
+    "files": 23,
+    "projectFile": "<fixtures>/sample-export\\TestFixture.csproj",
+    "failedTypes": [],
+    "replaced": false
+  }
+}

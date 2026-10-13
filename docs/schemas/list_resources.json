@@ -30,9 +30,24 @@
             "description": "Win32: where the data is.",
             "type": "string"
           },
+          "fileOffset": {
+            "description": "File offset of the data.",
+            "type": "string"
+          },
           "codePage": {
             "description": "Win32: the code page, when not 0.",
             "type": "integer"
+          },
+          "sha256": {
+            "description": "SHA-256 of the data.",
+            "type": "string"
+          },
+          "icons": {
+            "description": "Win32 icon groups: the RT_ICON ids.",
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
           }
         },
         "required": [

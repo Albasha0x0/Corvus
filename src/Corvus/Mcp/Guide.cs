@@ -13,7 +13,7 @@ public static partial class Guide
     public const string Core = """
         Reverse engineering of .NET assemblies and native PE, ELF and Mach-O files (x86, x64, ARM).
         Start: load_assembly(path) takes a file or a folder; results name an id (app.dll, app.dll#2) that later calls take as assembly or image (a path there loads the file). Unknown file: summarize_file. Wrapped apps (single-file, .apk, .nupkg, Costura): list_assemblies path=..., unpack_container. Unity: unity_overview. Il2Cpp: load the game folder or global-metadata.dat.
-        .NET: find with search_symbols, search_strings, search_constants, search_il; outline with get_type_info; read with decompile_member (one method, cheapest), decompile_type, get_il; follow with find_references, find_callees, get_call_tree, find_call_paths, find_overrides, get_type_hierarchy.
+        .NET: find with search_symbols, search_strings, search_constants, search_il; outline with get_type_info; read with decompile_member (a method, cheapest, or a type), get_il; follow with find_references (kind=overrides too), find_callees, get_call_tree, find_call_paths, get_type_hierarchy.
         Native: get_pe_info, list_imports, list_exports, list_functions, find_xrefs ('kernel32!CreateFileW'), disassemble, native_call_tree, decompile_native (IDA or Ghidra; server_status says which).
         Edit in memory, dryRun=true first: rename_symbol, stub_method, patch_method_csharp, patch_method_il, simplify_methods (folds string decoders); native rename_native, patch_bytes, patch_asm. Review list_edits / diff_edits, undo_edit; save_assembly / save_native write a new file.
         New build: load both, then update_to_new_build (dryRun) or compare_assemblies / compare_native_images.

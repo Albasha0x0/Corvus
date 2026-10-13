@@ -1,0 +1,130 @@
+{
+  "type": "object",
+  "properties": {
+    "language": {
+      "description": "csharp, il or asm.",
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "description": "Character offset of the next page; absent on the last.",
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "symbols": {
+      "description": "The members shown.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "type, method, field, property or event.",
+            "type": "string"
+          },
+          "label": {
+            "description": "Ns.Type or Ns.Type::Member(params).",
+            "type": "string"
+          },
+          "assembly": {
+            "description": "Assembly id.",
+            "type": "string"
+          },
+          "token": {
+            "description": "Metadata token, 0x06000001.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "assembly",
+          "token"
+        ]
+      }
+    },
+    "methods": {
+      "description": "get_il: each method's normalized IL hash and raw IL SHA-256 (docs/il-hash.md).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "ilHash": {
+            "type": "string"
+          },
+          "rawSha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      }
+    },
+    "bodies": {
+      "description": "get_r2r_code: the compiled bodies.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "entryVa": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "ranges": {
+            "description": "Code ranges: hot, funclets, cold.",
+            "type": "integer"
+          },
+          "disassembled": {
+            "description": "Disassembled on this page (else only listed: maxBodies).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "entryVa",
+          "size",
+          "ranges"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "language",
+    "code",
+    "offset",
+    "totalChars"
+  ]
+}

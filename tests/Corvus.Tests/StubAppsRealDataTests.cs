@@ -40,12 +40,12 @@ public class StubAppsRealDataTests(ITestOutputHelper output)
             }
 
             await Call("get_assembly_info", new() { ["assembly"] = assembly });
-            await Call("decompile_assembly_attributes", new() { ["assembly"] = assembly });
+            await Call("get_attributes", new() { ["assembly"] = assembly, ["format"] = "csharp" });
             await Call("decompile_member", new() { ["member"] = member, ["assembly"] = assembly });
             await Call("patch_method_csharp", new() { ["method"] = method, ["code"] = "throw null;", ["assembly"] = assembly, ["dryRun"] = true });
             Assert.True(await Call("verify_native_imports", new() { ["assembly"] = assembly }) < WarmBudget);
             Assert.True(await Call("find_references", new() { ["symbol"] = type, ["assembly"] = assembly, ["kind"] = "type" }) < WarmBudget);
-            Assert.True(await Call("decompile_type", new() { ["type"] = type, ["assembly"] = assembly }) < WarmBudget);
+            Assert.True(await Call("decompile_member", new() { ["member"] = type, ["assembly"] = assembly }) < WarmBudget);
             await Call("add_types_csharp", new() { ["assembly"] = assembly, ["code"] = "namespace Probe { public static class Added { public static int Answer() { return 42; } } }" });
             await Call("add_members_csharp", new() { ["type"] = type, ["assembly"] = assembly, ["code"] = "public static int ProbeMember() { return 7; }" });
             await Call("diff_edits", new() { ["assembly"] = assembly });

@@ -12,7 +12,7 @@ public sealed partial class MinidumpService
 
     public sealed record HeapTypeRow(
         string Type, long Count, ulong TotalSize,
-        [property: Description("Id of the loaded assembly that is the type's module build, for get_type_info / decompile_type.")] string? Assembly,
+        [property: Description("Id of the loaded assembly that is the type's module build, for get_type_info / decompile_member.")] string? Assembly,
         [property: Description("TypeDef token of the type in that assembly.")] string? Token);
 
     public sealed record HeapObjectRow(string Address, string Type, ulong Size,
@@ -36,7 +36,7 @@ public sealed partial class MinidumpService
     public sealed record ObjectReport(
         string Dump, string Address, string Type, ulong Size,
         [property: Description("Id of the loaded assembly that is the type's module build.")] string? Assembly,
-        [property: Description("TypeDef token, for get_type_info / decompile_type with assembly.")] string? Token,
+        [property: Description("TypeDef token, for get_type_info / decompile_member with assembly.")] string? Token,
         [property: Description("match, mismatch (the loaded assembly of that name is another build) or unknown.")] string? BuildCheck,
         [property: Description("A string's value, or a boxed primitive's.")] string? Value,
         [property: Description("Array length.")] int? Length,

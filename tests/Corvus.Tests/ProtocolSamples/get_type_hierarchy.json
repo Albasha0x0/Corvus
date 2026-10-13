@@ -1,0 +1,35 @@
+{
+  "tool": "get_type_hierarchy",
+  "arguments": {
+    "type": "Entity"
+  },
+  "isError": false,
+  "content": [
+    "public abstract class Entity   [TestFixture]\nBase types (nearest first):\n  System.Object  [System.Private.CoreLib.dll]\nInterfaces (0):\nDirectly derived types: 1 type (showing 1-1):\n  Fixture.Model.Account  [TestFixture] 0x0200000A\n[End: 1 type]\n"
+  ],
+  "structuredContent": {
+    "type": {
+      "kind": "type",
+      "label": "Fixture.Model.Entity",
+      "assembly": "TestFixture",
+      "token": "0x02000009"
+    },
+    "baseChain": [
+      "System.Object  [System.Private.CoreLib.dll]"
+    ],
+    "interfaces": [],
+    "items": [
+      {
+        "kind": "type",
+        "label": "Fixture.Model.Account",
+        "assembly": "TestFixture",
+        "token": "0x0200000A"
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "limit": 200,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

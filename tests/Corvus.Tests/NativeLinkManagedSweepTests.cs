@@ -99,8 +99,8 @@ public sealed class NativeLinkManagedSweepTests(ITestOutputHelper output)
         foreach (var f in new[] { kernel32, kernelbase, ntdll }) env.Workspace.LoadAny(f);
         var code = new NativeCodeService(env.Workspace, new ServerOptions { BackgroundIndexing = false }, null, new AnnotationStore(dir.File("ann")));
         var link = new NativeLinkService(env.Workspace, code);
-        var graph = new CallGraphTools(env.Workspace, new CallGraphService(env.Workspace), env.Pager, link);
-        var refs = new ReferenceTools(env.Workspace, env.References, env.Pager, link);
+        var graph = new CallGraphTools(env.Workspace, new CallGraphService(env.Workspace), link);
+        var refs = new ReferenceTools(env.Workspace, env.References, link);
         var sw = Stopwatch.StartNew();
         await link.WarmUp(null, default);
         output.WriteLine($"indexed kernel32, KERNELBASE and ntdll in {sw.Elapsed.TotalSeconds:0.0} s");

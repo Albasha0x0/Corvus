@@ -156,7 +156,7 @@ public sealed class OutputPager(ServerOptions options)
         {
             shown = Math.Min(shown, page.Count);
             var sb = new System.Text.StringBuilder()
-                .Append($"{rows.Count} {(rows.Count == 1 ? noun : noun + "s")} (showing {(shown == 0 ? 0 : offset + 1)}-{offset + shown}):\n");
+                .Append($"{rows.Count} {Noun(rows.Count, noun)} (showing {(shown == 0 ? 0 : offset + 1)}-{offset + shown}):\n");
             foreach (var r in page.Take(shown)) sb.Append("  ").Append(r).Append('\n');
             sb.Append(offset + shown < rows.Count ? More(offset + shown) : End(rows.Count, noun)).Append('\n');
             return sb.ToString();
@@ -170,7 +170,14 @@ public sealed class OutputPager(ServerOptions options)
     public static string More(int next) => $"[More: offset={next}]";
 
     /// <summary>The footer of a last page.</summary>
-    public static string End(int total, string noun) => $"[End: {total} {(total == 1 ? noun : noun + "s")}]";
+    public static string End(int total, string noun) => $"[End: {total} {Noun(total, noun)}]";
+
+    /// <summary>The noun for <paramref name="count"/> rows: match, matches; entry, entries.</summary>
+    public static string Noun(int count, string noun) =>
+        count == 1 ? noun
+        : noun.EndsWith("ch", StringComparison.Ordinal) || noun.EndsWith("sh", StringComparison.Ordinal) || noun.EndsWith('s') || noun.EndsWith('x') ? noun + "es"
+        : noun.EndsWith('y') && noun.Length > 1 && !"aeiou".Contains(noun[^2]) ? noun[..^1] + "ies"
+        : noun + "s";
 
     /// <summary>
     /// A character count that holds a page: the token budget at the densest text (2 characters per token) inside a call,

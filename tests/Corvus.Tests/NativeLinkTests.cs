@@ -257,8 +257,8 @@ public sealed class NativeLinkTests : IDisposable
         foreach (var f in new[] { app, prov, deep }) env.Workspace.LoadAny(f);
         var code = new NativeCodeService(env.Workspace, new ServerOptions { BackgroundIndexing = false }, null, new AnnotationStore(_dir.File("ann2")));
         var link = new NativeLinkService(env.Workspace, code);
-        return (env, new ReferenceTools(env.Workspace, env.References, env.Pager, link),
-            new CallGraphTools(env.Workspace, new CallGraphService(env.Workspace), env.Pager, link));
+        return (env, new ReferenceTools(env.Workspace, env.References, link),
+            new CallGraphTools(env.Workspace, new CallGraphService(env.Workspace), link));
     }
 
     [WindowsFact("P/Invoke DLL lookup is done on Windows hosts only.")]
@@ -281,20 +281,21 @@ public sealed class NativeLinkTests : IDisposable
         var plain = await refs.FindReferences("provlib.dll!Plain");
         Has(plain, "References to native provlib.dll!Plain: provlib.dll!Plain at 0x180001010 [provlib.dll]");
         Has(plain, "  Interop::Plain()  [Managed]");
-        Has(plain, "      App::Run()  [Managed]");
+        Has(plain, "  App::Run()  [Managed] 0x06000004  IL_0001  call  (through Interop::Plain() [Managed])");
         Has(plain, "[app.dll] 0x180001006  ImportCall Main+0x6  via provlib!Plain");
 
         // Through the jump thunk provlib!Work, the P/Invoke reaches deeplib!Deep.
         Has(await refs.FindReferences("native:deeplib.dll!Deep"), "  Interop::Thunked()  [Managed]");
 
         var callers = await graph.GetCallTree("provlib.dll!Plain", "callers", depth: 3);
-        Has(callers, "  Main  0x180001000  [app.dll]  (calls provlib!Plain)");
+        Has(callers, "  Main at 0x180001000 [app.dll]  (calls provlib!Plain)");
         Has(callers, "  Interop::Plain()  [Managed]  (P/Invoke: provlib.dll!Plain");
         Has(callers, "    App::Run()");
         Has(callers, "      App::Main()");
 
         var paths = await graph.FindCallPaths("native:provlib!Plain");
-        Has(paths, "1 path to native provlib!Plain");
+        Has(paths, "Paths to native provlib!Plain");
+        Has(paths, "1 path (showing 1-1)");
         Has(paths, "      -> native: provlib.dll!Plain at 0x180001010 [provlib.dll]");
         await Assert.ThrowsAsync<ToolError>(() => refs.FindReferences("native:provlib.dll!NoSuchExport"));
     }

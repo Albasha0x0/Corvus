@@ -60,7 +60,7 @@ public sealed class NativeCallPathTests : IDisposable
         foreach (var f in files) ws.LoadAny(f);
         var code = new NativeCodeService(ws, options, null, new AnnotationStore(dir.File("ann")));
         var link = new NativeLinkService(ws, code);
-        return (ws, new CallGraphTools(ws, new CallGraphService(ws), new OutputPager(options), link, code));
+        return (ws, new CallGraphTools(ws, new CallGraphService(ws), link, code));
     }
 
     [Fact]
@@ -69,10 +69,11 @@ public sealed class NativeCallPathTests : IDisposable
         var (path, rva) = Lattice();
         var (ws, tools) = Rig(_dir, path);
         using var _ = ws;
-        var text = await tools.FindCallPaths("native:lattice.dll!Goal", maxPaths: 10);
-        NativeLinkTests.Has(text, "10 paths to native lattice.dll!Goal ([lattice.dll] Goal at ");
+        var text = await tools.FindCallPaths("native:lattice.dll!Goal", limit: 10);
+        NativeLinkTests.Has(text, "Paths to native lattice.dll!Goal ([lattice.dll] Goal at ");
+        NativeLinkTests.Has(text, "≥10 paths (showing 1-10)");
         // one call: from the export Short and from the uncalled Lonely; Mid is reached through Short, not a root
-        var first = text.Split("\n#")[1..3];
+        var first = text.Split("\n  #")[1..3];
         Assert.Contains("(1 native call; root: export)", first[0]);
         Assert.Contains("[lattice.dll] Short at", first[0]);
         Assert.Contains("(1 native call; root: no callers)", first[1]);
@@ -81,7 +82,7 @@ public sealed class NativeCallPathTests : IDisposable
         Assert.DoesNotContain("root: no callers)\n  [lattice.dll] Mid", text);
         // the lattice has 64 chains of 7 calls from the entry point: 8 fit, and the cut is said
         Assert.Equal(8, text.Split("(7 native calls; root: entry point)").Length - 1);
-        NativeLinkTests.Has(text, "[More paths exist: raise maxPaths (now 10) or give from]");
+        NativeLinkTests.Has(text, "[More: offset=10]");
     }
 
     [Fact]
@@ -90,8 +91,9 @@ public sealed class NativeCallPathTests : IDisposable
         var (path, rva) = Lattice();
         var (ws, tools) = Rig(_dir, path);
         using var _ = ws;
-        var from = await tools.FindCallPaths("native:lattice.dll!Goal", from: $"native:lattice.dll!rva:0x{rva["A5"]:X}", maxPaths: 50);
-        NativeLinkTests.Has(from, "2 paths to native lattice.dll!Goal");
+        var from = await tools.FindCallPaths("native:lattice.dll!Goal", from: $"native:lattice.dll!rva:0x{rva["A5"]:X}", limit: 50);
+        NativeLinkTests.Has(from, "Paths to native lattice.dll!Goal");
+        NativeLinkTests.Has(from, "2 paths (showing 1-2)");
         NativeLinkTests.Has(from, $"from lattice.dll!rva:0x{rva["A5"]:X}");
         NativeLinkTests.Has(from, "(2 native calls; root: from)");
         var shallow = await tools.FindCallPaths("native:lattice.dll!Goal", from: "native:lattice.dll!Top", maxDepth: 3);
@@ -153,7 +155,7 @@ public sealed class NativeCallPathTests : IDisposable
         engine.Xrefs.Add(new Corvus.Native.Providers.NativeXref(LinkedImages.Text, LinkedImages.Text + 0x20, Corvus.Native.Providers.NativeXrefKind.Call, LinkedImages.Text));
         using var engines = new NativeEngineService([engine], _dir.File("cache"), null, ws, options);
         await engines.Session(native, Corvus.Native.Providers.Ida.IdaProvider.ProviderId, null, default);
-        var tools = new CallGraphTools(ws, new CallGraphService(ws), new OutputPager(options), new NativeLinkService(ws, code), code, engines);
+        var tools = new CallGraphTools(ws, new CallGraphService(ws), new NativeLinkService(ws, code), code, engines);
         var text = await tools.FindCallPaths("native:eng.dll!Goal");
         NativeLinkTests.Has(text, "-> [eng.dll] Goal at 0x180001020  (engine at 0x180001000)");
     }

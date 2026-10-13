@@ -1,12 +1,9 @@
 # Exemptions from: a description starts with what the tool returns or does (S8.3)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
 dump_heap
-find_r2r_method
 get_android_device_info
 get_native_frame
 get_native_type
-get_r2r_code
-get_type_hierarchy
 inspect_process
 list_edits
 list_exports

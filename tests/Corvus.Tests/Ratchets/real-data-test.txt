@@ -12,11 +12,9 @@ compare_folders
 compare_native_images
 convert_number
 declare_native_types
-decompile_assembly_attributes
 decompile_java
 decompile_member
 decompile_native
-decompile_type
 define_native
 diff_edits
 diff_function
@@ -37,7 +35,6 @@ find_callees
 find_counterpart
 find_dex_references
 find_method_by_address
-find_overrides
 find_r2r_method
 find_references
 find_similar_functions

@@ -626,7 +626,7 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         string[] structured =
         [
             "list_namespaces", "list_types", "get_type_info", "search_symbols", "search_strings", "search_constants", "search_il", "find_references",
-            "find_callees", "find_overrides", "get_call_tree", "find_call_paths", "resolve_symbol", "list_resources", "get_assembly_info",
+            "find_callees", "get_call_tree", "find_call_paths", "resolve_symbol", "list_resources", "get_assembly_info",
             "list_imports", "list_exports", "list_functions", "find_xrefs", "search_native_strings", "resolve_address", "get_pe_info",
         ];
         foreach (var name in structured)
@@ -641,7 +641,7 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         }
 
         var (text, json) = await Call("search_symbols", new() { ["query"] = "Charge", ["kind"] = "method" });
-        Assert.Matches(@"^\d+ matches:\n", text); // the readable text, not JSON
+        Assert.Matches(@"^\d+ matches \(showing", text); // the readable text, not JSON
         var first = json.GetProperty("items")[0];
         Assert.Equal("method", first.GetProperty("kind").GetString());
         Assert.StartsWith("Fixture.Model.Account::Charge(", first.GetProperty("label").GetString());
@@ -660,13 +660,13 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.Contains("[More: offset=3]", text);
 
         (_, json) = await Call("get_call_tree", new() { ["method"] = "Account::Charge(int)", ["direction"] = "callers" });
-        Assert.Contains(json.GetProperty("items").EnumerateArray(), n => n.GetProperty("kind").GetString() == "method" && n.GetProperty("level").GetInt32() == 1);
+        Assert.Contains(json.GetProperty("items").EnumerateArray(), n => n.TryGetProperty("token", out _) && n.GetProperty("depth").GetInt32() == 1 && n.GetProperty("basis").GetString() == "observed");
         // Pages by node rows: the text and the record hold the same nodes and continue at the same offset (G1).
         (text, json) = await Call("get_call_tree", new() { ["method"] = "Account::Charge(int)", ["direction"] = "callers", ["limit"] = 1 });
         var node = Assert.Single(json.GetProperty("items").EnumerateArray());
         Assert.Equal(1, json.GetProperty("nextOffset").GetInt32());
         Assert.Contains("(showing 1-1)", text);
-        Assert.Contains("\n  " + node.GetProperty("label").GetString(), text);
+        Assert.Contains("\n  " + node.GetProperty("name").GetString(), text);
         Assert.Contains("[More: offset=1]", text);
 
         (_, json) = await Call("list_exports", new() { ["image"] = McpProtocolTests.NativeSample(_dir) });

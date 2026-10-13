@@ -1,0 +1,99 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "description": "type, method, field, property, event, param:<name>, return, assembly or module.",
+            "type": "string"
+          },
+          "attribute": {
+            "description": "The attribute with its arguments, as C#.",
+            "type": "string"
+          },
+          "owner": {
+            "description": "The member carrying it; absent for assembly and module.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "description": "type, method, field, property or event.",
+                "type": "string"
+              },
+              "label": {
+                "description": "Ns.Type or Ns.Type::Member(params).",
+                "type": "string"
+              },
+              "assembly": {
+                "description": "Assembly id.",
+                "type": "string"
+              },
+              "token": {
+                "description": "Metadata token, 0x06000001.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "label",
+              "assembly",
+              "token"
+            ]
+          }
+        },
+        "required": [
+          "target",
+          "attribute"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "code": {
+      "description": "format=csharp: the decompiled attributes.",
+      "type": "string"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "offset"
+  ]
+}

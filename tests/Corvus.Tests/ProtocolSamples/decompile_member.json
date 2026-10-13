@@ -7,5 +7,18 @@
   "content": [
     "// [TestFixture]\n// Fixture.Model.Account::CheckLicense()  [token 0x0600001C]\npublic bool CheckLicense()\n{\n\treturn Secret.Validate(\"LICENSE-KEY-123\");\n}\n"
   ],
-  "structuredContent": null
+  "structuredContent": {
+    "language": "csharp",
+    "code": "// [TestFixture]\n// Fixture.Model.Account::CheckLicense()  [token 0x0600001C]\npublic bool CheckLicense()\n{\n\treturn Secret.Validate(\"LICENSE-KEY-123\");\n}\n",
+    "offset": 0,
+    "totalChars": 153,
+    "symbols": [
+      {
+        "kind": "method",
+        "label": "Fixture.Model.Account::CheckLicense()",
+        "assembly": "TestFixture",
+        "token": "0x0600001C"
+      }
+    ]
+  }
 }

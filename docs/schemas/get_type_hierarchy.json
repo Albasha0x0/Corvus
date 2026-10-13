@@ -1,7 +1,7 @@
 {
   "type": "object",
   "properties": {
-    "method": {
+    "type": {
       "type": "object",
       "properties": {
         "kind": {
@@ -28,25 +28,39 @@
         "token"
       ]
     },
+    "baseChain": {
+      "description": "Base types, nearest first.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "interfaces": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "items": {
+      "description": "Types deriving from it directly (implementing it, for an interface).",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "kind": {
+            "description": "type, method, field, property or event.",
             "type": "string"
           },
           "label": {
+            "description": "Ns.Type or Ns.Type::Member(params).",
             "type": "string"
           },
           "assembly": {
+            "description": "Assembly id.",
             "type": "string"
           },
           "token": {
-            "type": "string"
-          },
-          "signature": {
-            "description": "Declaration, when asked for.",
+            "description": "Metadata token, 0x06000001.",
             "type": "string"
           }
         },
@@ -96,7 +110,9 @@
     }
   },
   "required": [
-    "method",
+    "type",
+    "baseChain",
+    "interfaces",
     "items",
     "offset",
     "total"

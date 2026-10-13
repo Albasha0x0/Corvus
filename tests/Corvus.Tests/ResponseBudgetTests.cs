@@ -23,7 +23,7 @@ public class ResponseBudgetTests
     public void OversizedSuccessKeepsItsHead()
     {
         var store = new ResultStore(ResultCacheOptions.MemoryOnly);
-        var limited = ResponseBudget.Enforce(TextResult(100_000), "decompile_type", 1_000, store);
+        var limited = ResponseBudget.Enforce(TextResult(100_000), "decompile_member", 1_000, store);
         Assert.NotEqual(true, limited.IsError);
         var text = ((TextContentBlock)limited.Content[0]).Text;
         Assert.StartsWith(new string('x', 1_000), text);
@@ -67,8 +67,8 @@ public class ResponseBudgetTests
         Assert.Contains("error 4999; ", store.Read(id).Text);
         Assert.Contains("Next: fix the code", store.Read(id).Text);
 
-        var small = ErrorResult.From(new ToolError(ErrorCode.NotFound, "no such type"), "decompile_type");
-        Assert.Same(small, ResponseBudget.Enforce(small, "decompile_type", 1_000, store));
+        var small = ErrorResult.From(new ToolError(ErrorCode.NotFound, "no such type"), "decompile_member");
+        Assert.Same(small, ResponseBudget.Enforce(small, "decompile_member", 1_000, store));
     }
 
     [Fact]

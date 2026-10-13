@@ -5,26 +5,26 @@
   },
   "isError": false,
   "content": [
-    "References to method Fixture.Model.Account::Charge(int) [TestFixture]: 1\n  Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000019\n      IL_0014 call\n"
+    "References to method Fixture.Model.Account::Charge(int) [TestFixture]: 1 reference (showing 1-1):\n  Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000019  IL_0014  call\n[End: 1 reference]\n"
   ],
   "structuredContent": {
     "target": "Fixture.Model.Account::Charge(int) [TestFixture]",
     "items": [
       {
+        "kind": "call",
+        "basis": "observed",
         "where": {
           "kind": "method",
           "label": "Fixture.Model.Account::Charge(int, string)",
           "assembly": "TestFixture",
           "token": "0x06000019"
         },
-        "ilOffset": 20,
-        "kind": "call"
+        "ilOffset": 20
       }
     ],
-    "nativeCallSites": [],
     "offset": 0,
     "total": 1,
-    "limit": 300,
+    "limit": 150,
     "totalExact": true,
     "hasMore": false
   }

@@ -25,7 +25,7 @@ public class TypeCountTests : IDisposable
         var namespaces = await browse.ListNamespaces();
         var counts = Regex.Matches(namespaces, @"^  \S+  \((\d+)\)", RegexOptions.Multiline).Select(m => int.Parse(m.Groups[1].Value)).ToList();
         Assert.Equal(expected, counts.Sum());
-        var namespaceCount = int.Parse(Regex.Match(namespaces, @"\] (\d+) namespace").Groups[1].Value);
+        var namespaceCount = int.Parse(Regex.Match(namespaces, @"^(\d+) namespace").Groups[1].Value);
         Assert.Contains($"Namespaces: {namespaceCount} ", info);
         Assert.DoesNotContain("<Module>", namespaces);
 

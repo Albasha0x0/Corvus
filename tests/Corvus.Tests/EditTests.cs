@@ -51,7 +51,7 @@ public class EditTests : IDisposable
     {
         var abstractError = Assert.Throws<ToolError>(() => _env.Edits.StubMethod(_env.One("Entity::Tick"), null));
         Assert.Equal(ErrorCode.Unsupported, abstractError.Code);
-        Assert.Contains("find_overrides", abstractError.Remediation);
+        Assert.Contains("kind=overrides", abstractError.Remediation);
 
         var module = _env.Fixture.Module;
         var native = new MethodDefUser("Beep", MethodSig.CreateStatic(module.CorLibTypes.Boolean, module.CorLibTypes.UInt32, module.CorLibTypes.UInt32),

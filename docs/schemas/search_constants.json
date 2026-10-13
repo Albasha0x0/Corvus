@@ -36,15 +36,15 @@
               "token"
             ]
           },
-          "ilOffset": {
-            "type": "integer"
-          },
           "kind": {
             "description": "Where it appears: ldc.i4, const field, enum member, attribute, array initializer.",
             "type": "string"
           },
           "value": {
             "type": "string"
+          },
+          "ilOffset": {
+            "type": "integer"
           }
         },
         "required": [

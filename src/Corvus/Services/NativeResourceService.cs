@@ -60,7 +60,7 @@ public static class NativeResourceService
             hex.Append($"{i:X6}  ").Append(string.Join(" ", row.ToArray().Select(b => b.ToString("X2"))).PadRight(48)).Append("  ")
                .AppendLine(new string(row.ToArray().Select(b => b is >= 0x20 and < 0x7F ? (char)b : '.').ToArray()));
         }
-        if (bytes.Length > preview.Length) hex.AppendLine($"... {bytes.Length - preview.Length:N0} more bytes (savePath writes them all)");
+        if (bytes.Length > preview.Length) hex.AppendLine($"... {bytes.Length - preview.Length:N0} more bytes (outputPath writes them all)");
         return hex.ToString();
     }
 

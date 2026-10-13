@@ -8,11 +8,15 @@ namespace Corvus.Services;
 /// <summary>Lists and extracts manifest resources, including entries inside .resources containers.</summary>
 public sealed class ResourceService
 {
-    public sealed record ResourceInfo(string Name, string Kind, long? Size, bool IsPublic, int? EntryCount);
+    /// <param name="FileOffset">Where the data starts in the file as loaded (absent once edits rewrote the image).</param>
+    public sealed record ResourceInfo(string Name, string Kind, long? Size, bool IsPublic, int? EntryCount, long? FileOffset = null, string? Sha256 = null);
 
     public List<ResourceInfo> List(LoadedAssembly asm)
     {
         var list = new List<ResourceInfo>();
+        long? directory = null;
+        if (!asm.IsDirty && asm.Module.Metadata.ImageCor20Header.Resources is { VirtualAddress: var rva, Size: > 0 } && rva != 0)
+            directory = (long)asm.Module.Metadata.PEImage.ToFileOffset(rva);
         foreach (var r in asm.Module.Resources)
         {
             switch (r)
@@ -21,7 +25,9 @@ public sealed class ResourceService
                     int? entries = null;
                     if (er.Name.String.EndsWith(".resources", StringComparison.OrdinalIgnoreCase))
                         entries = TryReadSet(asm, er)?.ResourceElements.Count();
-                    list.Add(new ResourceInfo(er.Name, "embedded", er.Length, r.IsPublic, entries));
+                    // Each entry is a 4-byte length, then the data.
+                    list.Add(new ResourceInfo(er.Name, "embedded", er.Length, r.IsPublic, entries, directory + er.Offset + 4,
+                        Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(er.CreateReader().ToArray()))));
                     break;
                 case LinkedResource lr:
                     list.Add(new ResourceInfo(lr.Name, $"linked file '{lr.File?.Name}'", null, r.IsPublic, null));
@@ -36,9 +42,9 @@ public sealed class ResourceService
 
     /// <summary>
     /// Returns a text rendering of a resource (or one entry of a .resources container) and,
-    /// when <paramref name="savePath"/> is set, writes the raw bytes there.
+    /// when <paramref name="outputPath"/> is set, writes the raw bytes there.
     /// </summary>
-    public string Get(LoadedAssembly asm, string name, string? entry, string? savePath, int previewBytes = 4096, Func<byte[], string?>? baml = null,
+    public string Get(LoadedAssembly asm, string name, string? entry, string? outputPath, int previewBytes = 4096, Func<byte[], string?>? baml = null,
         bool overwrite = false)
     {
         var res = asm.Module.Resources.FirstOrDefault(r => r.Name == name)
@@ -52,9 +58,9 @@ public sealed class ResourceService
 
         if (set != null && entry == null)
         {
-            if (savePath != null) savePath = SafeFile.WriteAllBytes(savePath, data, overwrite);
+            if (outputPath != null) outputPath = SafeFile.WriteAllBytes(outputPath, data, overwrite);
             var sb = new StringBuilder($"{er.Name}: .resources container with {set.ResourceElements.Count()} entries");
-            if (savePath != null) sb.Append($" (raw container saved to {savePath})");
+            if (outputPath != null) sb.Append($" (raw container saved to {outputPath})");
             sb.AppendLine().AppendLine("Pass entry=<name> to read or save one entry.").AppendLine();
             foreach (var el in set.ResourceElements.OrderBy(e => e.Name, StringComparer.Ordinal))
                 sb.AppendLine($"  {el.Name}  [{DescribeType(el.ResourceData)}]  {Preview(el.ResourceData)}");
@@ -67,22 +73,22 @@ public sealed class ResourceService
                      ?? set.ResourceElements.FirstOrDefault(e => string.Equals(e.Name, entry, StringComparison.OrdinalIgnoreCase))
                      ?? throw new ToolError(ErrorCode.NotFound, $"Entry '{entry}' not found in {name}.");
             var bytes = EntryBytes(el.ResourceData);
-            if (savePath != null)
+            if (outputPath != null)
             {
                 if (bytes == null) throw new ToolError(ErrorCode.InvalidArgument, $"Entry '{entry}' is a {DescribeType(el.ResourceData)} value; nothing binary to save. Value: {Preview(el.ResourceData, 500)}");
-                return $"Saved entry '{entry}' ({bytes.Length} bytes) to {SafeFile.WriteAllBytes(savePath, bytes, overwrite)}";
+                return $"Saved entry '{entry}' ({bytes.Length} bytes) to {SafeFile.WriteAllBytes(outputPath, bytes, overwrite)}";
             }
             // BAML (compiled WPF XAML) is shown decompiled to XAML.
             if (bytes != null && baml != null && entry.EndsWith(".baml", StringComparison.OrdinalIgnoreCase) && baml(bytes) is { } xaml)
-                return $"<!-- {entry}: XAML decompiled from BAML ({bytes.Length} bytes; savePath writes the raw BAML) -->{Environment.NewLine}{xaml}";
+                return $"<!-- {entry}: XAML decompiled from BAML ({bytes.Length} bytes; outputPath writes the raw BAML) -->{Environment.NewLine}{xaml}";
             return el.ResourceData is BuiltInResourceData { Data: string s }
                 ? s
                 : bytes != null ? Render(bytes, previewBytes) : Preview(el.ResourceData, 100_000);
         }
 
-        if (savePath != null)
+        if (outputPath != null)
         {
-            return $"Saved {er.Name} ({data.Length} bytes) to {SafeFile.WriteAllBytes(savePath, data, overwrite)}";
+            return $"Saved {er.Name} ({data.Length} bytes) to {SafeFile.WriteAllBytes(outputPath, data, overwrite)}";
         }
         return $"{er.Name} ({data.Length} bytes)\n" + Render(data, previewBytes);
     }
@@ -124,7 +130,7 @@ public sealed class ResourceService
         if (text != null)
             return text;
         int n = Math.Min(data.Length, previewBytes);
-        var sb = new StringBuilder($"[binary; hex dump of first {n} bytes — pass savePath to extract it]\n");
+        var sb = new StringBuilder($"[binary; hex dump of first {n} bytes — pass outputPath to extract it]\n");
         for (int i = 0; i < n; i += 16)
         {
             sb.Append($"{i:X8}  ");

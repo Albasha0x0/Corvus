@@ -216,7 +216,8 @@ public static partial class ToolOutput
         // Tools that state incompleteness in their own text: the same lines become the record's warnings.
         if (record != null && record["warnings"] is null)
         {
-            var stated = text.Split('\n').Where(l => l.StartsWith("Incomplete:", StringComparison.Ordinal) || l.StartsWith("Partial:", StringComparison.Ordinal)).ToList();
+            var stated = text.Split('\n').Where(l => l.StartsWith("Incomplete:", StringComparison.Ordinal) || l.StartsWith("Partial:", StringComparison.Ordinal)
+                || l.StartsWith("Skipped:", StringComparison.Ordinal)).ToList();
             if (stated.Count > 0) record["warnings"] = new JsonArray(stated.Select(l => (JsonNode)JsonValue.Create(l)!).ToArray());
         }
         if (call.Warnings.Count > 0)

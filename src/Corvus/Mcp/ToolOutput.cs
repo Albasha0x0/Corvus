@@ -93,7 +93,7 @@ public static partial class ToolOutput
     {
         var sb = new StringBuilder();
         string count = (totalExact ? "" : "≥") + total;
-        sb.Append($"{count} {(total == 1 ? noun : noun + "s")}");
+        sb.Append($"{count} {OutputPager.Noun(total, noun)}");
         sb.Append(shown == 0 ? (offset > 0 ? $" (none from offset {offset})" : "") : $" (showing {offset + 1}-{offset + shown})").Append(":\n");
         foreach (var l in lines.Take(shown)) sb.Append("  ").Append(l).Append('\n');
         sb.Append(offset + shown < total || !totalExact && shown > 0 && offset + shown >= total

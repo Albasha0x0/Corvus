@@ -94,8 +94,8 @@ public sealed class NativeLinkMixedTests(ITestOutputHelper output)
         Assert.NotNull(view);
         var code = new NativeCodeService(env.Workspace, new ServerOptions { BackgroundIndexing = false }, null, new AnnotationStore(dir.File("ann")));
         var link = new NativeLinkService(env.Workspace, code);
-        var graph = new CallGraphTools(env.Workspace, new CallGraphService(env.Workspace), env.Pager, link);
-        var refs = new ReferenceTools(env.Workspace, env.References, env.Pager, link);
+        var graph = new CallGraphTools(env.Workspace, new CallGraphService(env.Workspace), link);
+        var refs = new ReferenceTools(env.Workspace, env.References, link);
         var calls = new NativeCodeTools(env.Workspace, code, env.Pager, link);
         var native = new NativeTools(env.Workspace, env.Pager, code, link);
         await link.WarmUp(null, default);

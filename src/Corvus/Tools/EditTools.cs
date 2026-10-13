@@ -181,7 +181,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "safe IL interpreter and become literals), cfg (constant branches and switches, dead code, flattened control flow made sequential), " +
                  "inline (forwarders and static delegate call proxies call their real target). Each body is stack-verified or left unchanged; " +
                  "everything left alone is reported with a reason code (guide edits topic, docs/simplify.md). 5 s and 16 MB simulated memory per method. " +
-                 "Preview without editing: decompile_member / decompile_type simplified=true.")]
+                 "Preview without editing: decompile_member simplified=true.")]
     public Task<string> SimplifyMethods(
         [Description("A method, or a type (nested types included). " + SymbolDescription + " Omit for the whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,

@@ -2,14 +2,14 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-158 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+155 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
 | Toolset | In `core` | In `lean` | Tools |
 |---|---|---|---|
 | [session](#session) | 9 | 5 | 9: workspace and server state |
-| [dotnet](#dotnet) | 22 | 9 | 25: .NET browse, decompile, search, navigate, resources, ReadyToRun, project export |
+| [dotnet](#dotnet) | 22 | 9 | 22: .NET browse, decompile, search, navigate, resources, ReadyToRun, project export |
 | [containers](#containers) | 7 | 2 | 7: file inspection, containers and wrapped apps, Unity overview |
 | [edit](#edit) | 15 | 5 | 15: .NET edits, edit history and saving |
 | [il2cpp](#il2cpp) | 5 | 1 | 5: Il2Cpp metadata, addresses, symbols and bindings |
@@ -162,7 +162,7 @@ List namespaces with their type counts (nested types under their outer type's na
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `filter` | string |  |  | Substring (case-insensitive). |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `2000` | Max namespaces. |
+| `limit` | integer |  | `200` | Max rows. |
 
 Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -179,61 +179,74 @@ List types, optionally by namespace, name filter and kind.
 | `filter` | string |  |  | Name substring or wildcard (*, ?), or a regex with regex=true. |
 | `regex` | boolean |  | `false` | Treat filter as a regular expression. |
 | `kind` | string |  |  | Only this kind. Values: class, struct, interface, enum, delegate. |
-| `includeNested` | boolean |  | `true` | Include nested types. |
+| `topLevelOnly` | boolean |  | `false` | Leave out nested types. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `300` | Max results. |
+| `limit` | integer |  | `150` | Max rows. |
 
-Structured output: `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
 ### get_type_info
 
 **Type outline** (read-only, idempotent)
 
-Outline of a type without decompiling: declaration, attributes, nested types, fields (constants, enum values with hex, Il2Cpp offsets), properties, events and method signatures with tokens, IL sizes and Il2Cpp RVAs.
+Outline of a type without decompiling: declaration, attributes, member counts and the first members of each kind; a section pages one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
+| `section` | string |  | `summary` | summary, nested, fields, properties, events, methods or all. Values: summary, nested, fields, properties, events, methods, all. |
 | `includeCompilerGenerated` | boolean |  | `false` | Include compiler-generated members (backing fields, lambdas, state machines). |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `100` | Max rows. |
 
-Structured output: `type`, `fullName`, `declaration`, `declaringType`, `attributes`, `nestedTypes`, `fields`, `properties`, `events`, `methods`, `compilerGeneratedHidden`, `truncated`.
+Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`, `total`, `declaringType`, `attributes`, `compilerGeneratedHidden`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### get_assembly_info
 
 **Assembly overview** (read-only, idempotent)
 
-Assembly overview: identity (MVID, SHA-256), target framework, entry point, counts, references (resolved or not), PE headers and sections, metadata streams, tables and heaps, metadata problems with file offsets, attributes, Il2Cpp detection, invalid IL bodies, unsaved edits.
+Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, edits; view=references: where references resolve; view=metadata: PE headers, streams, tables, heaps, metadata problems, attributes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
+| `view` | string |  | `summary` | summary, references, metadata or all. Values: summary, references, metadata, all. |
 
-Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `references`, `attributes`, `tables`, `heaps`, `metadataIssueCount`, `metadataIssues`.
+Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `referenceCount`, `unresolvedReferences`, `metadataIssueCount`, `references`, `attributes`, `tables`, `heaps`, `metadataIssues`.
 
 ### get_attributes
 
 **Custom attributes** (read-only, idempotent)
 
-Custom attributes with arguments on a type, member (with parameter and return attributes), or the assembly / module when symbol is omitted. Everything carrying an attribute: find_references on the attribute type.
+Custom attributes with arguments on a type or member (parameters and return value included), or on the assembly and module (symbol omitted; format=csharp decompiles them).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string |  |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). Omit for assembly-level attributes. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. Required when symbol is omitted. |
 | `filter` | string |  |  | Only attributes whose type name contains this text. |
+| `format` | string |  | `rows` | rows, or csharp (symbol omitted). Values: rows, csharp. |
+| `offset` | integer |  | `0` | Rows to skip (characters with format=csharp). |
+| `limit` | integer |  | `200` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens (min 500). |
+
+Structured output: `items`, `offset`, `total`, `code`, `nextOffset`, `totalChars`, `limit`, `totalExact`, `hasMore`.
 
 ### get_type_hierarchy
 
 **Type hierarchy** (read-only, idempotent)
 
-A type's base chain, all implemented interfaces, and the types deriving from (or implementing) it directly across loaded assemblies.
+Returns a type's base chain, all implemented interfaces, and the types deriving from (or implementing) it directly across loaded assemblies.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `limit` | integer |  | `200` | Max derived types listed. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `200` | Max rows. |
+
+Structured output: `type`, `baseChain`, `interfaces`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### resolve_symbol
 
@@ -246,28 +259,16 @@ What a symbol string or token resolves to: every match with kind, assembly, toke
 | `symbol` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `50` | Max rows. |
 
-Structured output: `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
-
-### decompile_type
-
-**Decompile type to C#** (read-only, idempotent)
-
-Decompile a whole type (nested types included) to C#; decompile_member is cheaper for one method. A method that breaks the decompiler is shown as IL.
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `type` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
-| `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `simplified` | boolean |  | `false` | Show the code as simplify_methods would leave it, without changing the assembly. |
-| `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens (min 500). |
+Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
 ### decompile_member
 
-**Decompile member to C#** (read-only, idempotent)
+**Decompile to C#** (read-only, idempotent)
 
-Decompile a method, property, field, event or constructor to C#: every overload unless a parameter list narrows it; async / iterator state machines and lambdas fold back into the method. A type name decompiles the whole type.
+Decompile a type, method, property, field, event or constructor to C#: every overload unless a parameter list narrows it; async / iterator state machines and lambdas fold back into the method; a type decompiles whole (nested types included). A method that breaks the decompiler is shown as IL.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -279,21 +280,13 @@ Decompile a method, property, field, event or constructor to C#: every overload 
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 
-### decompile_assembly_attributes
-
-**Decompile assembly attributes** (read-only, idempotent)
-
-Decompile assembly- and module-level attributes (InternalsVisibleTo, versions, TargetFramework...) to C#.
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, file name or path. |
+Structured output: `language`, `code`, `offset`, `nextOffset`, `totalChars`, `symbols`, `methods`, `bodies`.
 
 ### get_il
 
 **IL disassembly** (read-only, idempotent)
 
-IL disassembly (ildasm style, /* token */ comments, offsets, try blocks) of a member or type; each method starts with its normalized IL hash (stable across rebuilds) and raw IL SHA-256. For when the C# looks wrong, transformed code, or as patch_method_il input.
+IL disassembly (ildasm style, tokens, offsets, try blocks) of a member or type; each method starts with its normalized IL hash (stable across rebuilds) and raw IL SHA-256. For when the C# looks wrong, or as patch_method_il input.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -302,11 +295,13 @@ IL disassembly (ildasm style, /* token */ comments, offsets, try blocks) of a me
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 
+Structured output: `language`, `code`, `offset`, `nextOffset`, `totalChars`, `symbols`, `methods`, `bodies`.
+
 ### search_symbols
 
 **Search symbols by name** (read-only, idempotent)
 
-Find types and members by name across loaded assemblies: a case-insensitive substring, wildcard (Get*Value?) or regex; queries with '.' or '::' also match full names; exact matches first.
+Find types and members by name across loaded assemblies: a case-insensitive substring, wildcard (Get*Value?) or regex; queries with '.' or '::' also match full names. Exact matches first, then by name length; ties by assembly and token.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -315,27 +310,27 @@ Find types and members by name across loaded assemblies: a case-insensitive subs
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `namespace` | string |  |  | Only types in namespaces starting with this. |
 | `regex` | boolean |  | `false` | Treat query as a regular expression. |
-| `limit` | integer |  | `100` | Max results. |
+| `limit` | integer |  | `100` | Max rows. |
 | `offset` | integer |  | `0` | Rows to skip. |
 
-Structured output: `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
 ### search_strings
 
 **Search string literals** (read-only, idempotent)
 
-Find string literals (ldstr and string constants) by substring, wildcard or regex, with the method and IL offset using each: code from UI text, log messages, URLs, keys. For Il2Cpp dummy DLLs: the game's literals with their slot RVA and, with the binary, the native functions that load them, by method name.
+Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. Il2Cpp dummy DLLs: the game's literals with slot RVAs and, with the binary, the functions loading them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `query` | string | yes |  | Substring, wildcard or regex. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `regex` | boolean |  | `false` | Treat query as a regular expression. |
-| `limit` | integer |  | `200` | Max results. |
+| `limit` | integer |  | `100` | Max rows. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `usesPerLiteral` | integer |  | `10` | Il2Cpp: max functions listed per literal. |
 
-Structured output: `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
 ### search_constants
 
@@ -347,7 +342,7 @@ Find a numeric constant (magic number, opcode id, flag, crypto constant) in IL l
 |---|---|---|---|---|
 | `value` | string | yes |  | Decimal, 0x hex, negative or floating-point. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `limit` | integer |  | `200` | Max results. |
+| `limit` | integer |  | `100` | Max rows. |
 | `offset` | integer |  | `0` | Rows to skip. |
 
 Structured output: `value`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -362,8 +357,9 @@ Find methods containing an IL instruction sequence: elements separated by ';' or
 |---|---|---|---|---|
 | `pattern` | string | yes |  | Instruction pattern. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `limit` | integer |  | `100` | Max matches. |
+| `limit` | integer |  | `100` | Max rows. |
 | `offset` | integer |  | `0` | Rows to skip. |
+| `context` | integer |  | `8` | Instructions shown per match (1-24). |
 
 Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -371,47 +367,32 @@ Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`,
 
 **Find usages (xrefs to)** (read-only, idempotent)
 
-Every usage of a symbol across loaded assemblies ('Used By'): a method's call sites (also through the base / interface method it implements), a field's reads, writes and address-taken uses, accessor calls, a type's every use (bases, signatures, locals, casts, attributes, ...). A native export lists its P/Invoke declarations with their call sites and native call sites in loaded images; C++/CLI native callers are included.
+Every usage of a symbol across loaded assemblies: a method's call sites (also through base / interface methods it implements), a field's reads, writes and address uses, a type's every use (bases, signatures, locals, casts, attributes). kind=overrides: a method's overrides. A native export: its P/Invoke callers and native call sites.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member ('Ns.Type::Method(int)', short name, token) or native export ('kernel32.dll!CreateFileW', 'native:<image>!<name\|#ord\|addr>'). |
 | `assembly` | string |  |  | Assembly defining the symbol (only to disambiguate; all loaded ones are searched). |
-| `kind` | string |  |  | Restrict symbol resolution to this kind. Values: type, method, field, property, event. |
-| `includeVirtualCalls` | boolean |  | `true` | Methods: include calls through base / interface declarations. |
-| `limit` | integer |  | `300` | Max results. |
+| `kind` | string |  |  | Symbol kind; overrides: the method's overrides and implementations. Values: type, method, field, property, event, overrides. |
+| `directOnly` | boolean |  | `false` | Methods: no calls through base / interface declarations. |
+| `limit` | integer |  | `150` | Max rows. |
 | `offset` | integer |  | `0` | Rows to skip. |
 
-Structured output: `target`, `items`, `nativeCallSites`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `target`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### find_callees
 
 **What a method uses (xrefs from)** (read-only, idempotent)
 
-What a method uses ('Uses'): calls, field reads / writes, types instantiated or cast, and strings, in IL order with offsets. P/Invoke calls show the native code they bind to ('native: module!export -> PROVIDER!export at VA [image]'); for a P/Invoke or native export, its native callees.
+What a method uses ('Uses'): calls, field reads / writes, types instantiated or cast, and strings, in IL order with offsets. P/Invoke calls show the native code they bind to; for a P/Invoke or native export, its native callees as call-tree rows.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member ('Ns.Type::Method(int)', short name, token) or native export ('kernel32.dll!CreateFileW', 'native:<image>!<name\|#ord\|addr>'). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `distinct` | boolean |  | `false` | Collapse repeated targets into one line with a count. |
+| `distinct` | boolean |  | `false` | Collapse repeated targets into one row with a count. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `2000` | Max entries. |
-
-Structured output: `method`, `items`, `nativeLines`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
-
-### find_overrides
-
-**Find overrides / implementations** (read-only, idempotent)
-
-Methods overriding a virtual / abstract method or implementing an interface method (explicitly or implicitly), across loaded assemblies.
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `method` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
-| `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `limit` | integer |  | `200` | Max results. |
-| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `200` | Max rows. |
 
 Structured output: `method`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -419,50 +400,50 @@ Structured output: `method`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **Call tree (callers / callees)** (read-only, idempotent)
 
-Multi-level callers or callees of a method across loaded assemblies; callers include calls through base / interface methods it implements, repeats and recursion are marked. Callees continue through P/Invokes and C++/CLI native bodies into loaded native images ('native: module!export -> PROVIDER!export at VA [image]'); native callers (C++/CLI thunks) are listed too. Given a native export, callers are its native call sites and its P/Invoke declarations with their managed callers.
+Multi-level callers or callees of a method across loaded assemblies, one row per node in tree order; calls through base / interface methods, repeats and recursion are marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member ('Ns.Type::Method(int)', short name, token) or native export ('kernel32.dll!CreateFileW', 'native:<image>!<name\|#ord\|addr>'). |
 | `direction` | string |  | `callers` | callers or callees. Values: callers, callees. |
 | `depth` | integer |  | `3` | Levels to expand (1-8). |
-| `maxNodes` | integer |  | `300` | Stop after this many nodes. |
 | `includeExternal` | boolean |  | `false` | Callees: also calls into assemblies not loaded (framework). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `200` | Nodes per page (default 200). |
+| `limit` | integer |  | `200` | Max rows. |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
 
-Structured output: `root`, `direction`, `depth`, `items`, `total`, `offset`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
+Structured output: `root`, `direction`, `depth`, `items`, `offset`, `total`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
 ### find_call_paths
 
 **Call paths to a method** (read-only, idempotent)
 
-How execution reaches a method: call chains from 'from' to 'to', or from entry points (methods nothing loaded calls: Main, callbacks, event handlers). Shortest first, direct calls preferred; hops through virtual dispatch are marked. 'to' may be native (an export, an import of an unloaded library, native:<image>!<address or function>): chains then run through native callers across loaded images (calls, imports, engine references, RTTI virtual calls, function pointers) back to native roots and to managed callers through P/Invoke, each step with its call site and edge kind.
+How execution reaches a method: call chains from 'from', or from entry points (methods nothing loaded calls), shortest first, direct calls preferred. A native 'to' follows native callers across loaded images and P/Invokes back to managed code (guide dotnet).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `to` | string | yes |  | Target. Type or member ('Ns.Type::Method(int)', short name, token) or native export ('kernel32.dll!CreateFileW', 'native:<image>!<name\|#ord\|addr>'). |
 | `from` | string |  |  | Start method, same forms as to (native only when to is native). |
 | `maxDepth` | integer |  | `8` | Max chain length (max 30). |
-| `maxPaths` | integer |  | `10` | Max paths. |
-| `includeVirtual` | boolean |  | `true` | Follow virtual dispatch (native: RTTI virtual calls, resolved function pointers); false avoids chains through widely overridden methods. |
+| `limit` | integer |  | `10` | Max rows. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `directOnly` | boolean |  | `false` | No hops through virtual dispatch (native: RTTI virtual calls, pointers). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 
-Structured output: `target`, `from`, `items`, `total`, `limit`, `totalExact`, `hasMore`.
+Structured output: `target`, `items`, `offset`, `total`, `from`, `totalExact`, `engine`, `limit`, `hasMore`, `nextOffset`.
 
 ### list_resources
 
 **List manifest resources** (read-only, idempotent)
 
-List manifest resources: embedded files, .resources containers (with entry counts), linked resources. For a native image, its Win32 resources as TYPE/NAME/LANGUAGE.
+List manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 resources as TYPE/NAME/LANGUAGE (icon groups name their icons).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `200` | Max rows (default 200). |
+| `limit` | integer |  | `200` | Max rows. |
 
 Structured output: `assembly`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -470,17 +451,19 @@ Structured output: `assembly`, `items`, `offset`, `total`, `limit`, `totalExact`
 
 **Read / extract resource** (destructive, idempotent)
 
-Read a resource: text as text, binary as hex preview, .resources as an entry list (entry reads one; .baml as XAML); savePath extracts the raw bytes. Native images: TYPE/NAME[/LANGUAGE], version info and string tables decoded.
+Read a resource: text as text, binary as hex preview, .resources as an entry list (entry reads one; .baml as XAML); outputPath extracts the raw bytes. Native images: TYPE/NAME[/LANGUAGE], version info and string tables decoded.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 | `name` | string | yes |  | Name from list_resources. |
 | `entry` | string |  |  | Entry inside a .resources container. |
-| `savePath` | string |  |  | Write the raw bytes to this file. |
-| `overwrite` | boolean |  | `false` | Replace savePath if it exists. |
+| `outputPath` | string |  |  | Write the raw bytes to this file. |
+| `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
+
+Structured output: `name`, `kind`, `code`, `offset`, `nextOffset`, `totalChars`, `savedTo`, `size`.
 
 ### export_project
 
@@ -500,7 +483,7 @@ Structured output: `applied`, `outputDirectory`, `files`, `projectFile`, `failed
 
 **ReadyToRun native code of a method** (read-only, idempotent)
 
-The precompiled native code of a method in a ReadyToRun assembly (including the shared framework): entry address, code ranges (hot, funclets, cold), the fixup import cells, and x86 / x64 disassembly with cells named by what they resolve to (methods, type handles, helpers, strings). Generic methods show each compiled instantiation; composite images are read from the composite file.
+Precompiled native code of a method in a ReadyToRun assembly (the shared framework too): entry, code ranges, fixup cells and x86 / x64 disassembly with cells named by what they resolve to; generics per compiled instantiation, composite images included.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -508,20 +491,24 @@ The precompiled native code of a method in a ReadyToRun assembly (including the 
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. A full path to an assembly that is not loaded yet loads it. |
 | `instantiation` | string |  |  | Only bodies whose name contains this text ('Int32', '__Canon'). |
 | `maxBodies` | integer |  | `4` | Max bodies disassembled; the rest are listed with addresses. |
-| `maxInstructions` | integer |  | `5000` | Max instructions per body. |
+| `maxInstructions` | integer |  | `1500` | Max instructions per body. |
 | `offset` | integer |  | `0` | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (min 500). |
+
+Structured output: `language`, `code`, `offset`, `nextOffset`, `totalChars`, `symbols`, `methods`, `bodies`.
 
 ### find_r2r_method
 
 **Managed method at a ReadyToRun address** (read-only, idempotent)
 
-The managed method whose ReadyToRun code contains a native address (from a dump, profiler or debugger): name, token, range, offset and the instruction there; an import cell is described by what it resolves to. Addresses are in the file holding the code.
+Returns the managed method whose ReadyToRun code contains a native address (from a dump, profiler or debugger): name, token, range, offset and the instruction there; an import cell is described by what it resolves to. Addresses are in the file holding the code.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. A full path to an assembly that is not loaded yet loads it. |
 | `address` | string | yes |  | A VA or RVA in the code image (rva:/va:/off: prefix). |
+
+Structured output: `address`, `file`, `kind`, `begin`, `end`, `offset`, `methods`, `instruction`, `importCell`.
 
 ## containers
 
@@ -734,7 +721,7 @@ Add classes, structs, interfaces, enums or delegates written in C# (with their n
 
 **Simplify method bodies** (destructive, long-running)
 
-Compiler-style cleanup of method bodies in memory, for transformed code. Passes: fold (string decoder calls with constant inputs run in a safe IL interpreter and become literals), cfg (constant branches and switches, dead code, flattened control flow made sequential), inline (forwarders and static delegate call proxies call their real target). Each body is stack-verified or left unchanged; everything left alone is reported with a reason code (guide edits topic, docs/simplify.md). 5 s and 16 MB simulated memory per method. Preview without editing: decompile_member / decompile_type simplified=true.
+Compiler-style cleanup of method bodies in memory, for transformed code. Passes: fold (string decoder calls with constant inputs run in a safe IL interpreter and become literals), cfg (constant branches and switches, dead code, flattened control flow made sequential), inline (forwarders and static delegate call proxies call their real target). Each body is stack-verified or left unchanged; everything left alone is reported with a reason code (guide edits topic, docs/simplify.md). 5 s and 16 MB simulated memory per method. Preview without editing: decompile_member simplified=true.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

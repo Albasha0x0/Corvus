@@ -5,29 +5,26 @@
   },
   "isError": false,
   "content": [
-    "[TestFixture] 3 namespaces:\n  Fixture.Model  (20)\n  Fixture.Native  (1)\n  Il2CppDummyDll  (3)\n"
+    "3 namespaces (showing 1-3):\n  Fixture.Model  (20)\n  Fixture.Native  (1)\n  Il2CppDummyDll  (3)\n[End: 3 namespaces]\n"
   ],
   "structuredContent": {
     "items": [
       {
-        "assembly": "TestFixture",
         "namespace": "Fixture.Model",
         "types": 20
       },
       {
-        "assembly": "TestFixture",
         "namespace": "Fixture.Native",
         "types": 1
       },
       {
-        "assembly": "TestFixture",
         "namespace": "Il2CppDummyDll",
         "types": 3
       }
     ],
     "offset": 0,
     "total": 3,
-    "limit": 2000,
+    "limit": 200,
     "totalExact": true,
     "hasMore": false
   }

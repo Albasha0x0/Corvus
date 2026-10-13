@@ -1,0 +1,37 @@
+{
+  "tool": "find_call_paths",
+  "arguments": {
+    "to": "Account::Charge(int)",
+    "limit": 3
+  },
+  "isError": false,
+  "content": [
+    "Paths to Fixture.Model.Account::Charge(int) from entry points: 1 path (showing 1-1):\n  #1 (2 methods)\n      Fixture.Model.Account::Charge(int, string)\n        -> Fixture.Model.Account::Charge(int)\n[End: 1 path]\n"
+  ],
+  "structuredContent": {
+    "target": "Fixture.Model.Account::Charge(int)",
+    "items": [
+      {
+        "steps": [
+          {
+            "name": "Fixture.Model.Account::Charge(int, string)",
+            "token": "0x06000019",
+            "assembly": "TestFixture",
+            "basis": "observed"
+          },
+          {
+            "name": "Fixture.Model.Account::Charge(int)",
+            "token": "0x06000018",
+            "basis": "observed"
+          }
+        ],
+        "virtualHops": 0
+      }
+    ],
+    "offset": 0,
+    "total": 1,
+    "limit": 3,
+    "totalExact": true,
+    "hasMore": false
+  }
+}

@@ -21,7 +21,7 @@ public class CallDeadlineTests
     {
         var options = new ServerOptions { TimeoutSeconds = 180 };
         Assert.Null(CallFilter.Deadline("export_project", options));
-        Assert.Equal(TimeSpan.FromSeconds(180 * CallFilter.DeadlineFactor), CallFilter.Deadline("decompile_type", options));
+        Assert.Equal(TimeSpan.FromSeconds(180 * CallFilter.DeadlineFactor), CallFilter.Deadline("decompile_member", options));
     }
 
     [Fact]
@@ -29,7 +29,7 @@ public class CallDeadlineTests
     {
         using var services = Services();
         var release = new TaskCompletionSource();
-        var cooperative = Run(services, "decompile_type", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }).AsTask();
+        var cooperative = Run(services, "decompile_member", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }).AsTask();
         var ignoring = Run(services, "search_strings", async _ => { await release.Task; return Done; }).AsTask();
         var quick = Run(services, "get_type_info", async ct => { await Task.Delay(10, ct); return Done; }).AsTask();
 
@@ -102,7 +102,7 @@ public class CallDeadlineTests
         // A deadline out of reach: with timers for both, a busy pool could run the deadline's first.
         using var services = Services(timeoutSeconds: 3600);
         using var cts = new CancellationTokenSource();
-        var call = Run(services, "decompile_type", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }, cts.Token).AsTask();
+        var call = Run(services, "decompile_member", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }, cts.Token).AsTask();
         await cts.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
     }

@@ -31,7 +31,7 @@ The agent loads the file, searches for the export code and reads it. The same ca
 ```json
 {"tool": "load_assembly", "args": {"path": "samples/Notes/v1/bin/Notes.dll"}}
 {"tool": "search_symbols", "args": {"query": "Csv"}}
-{"tool": "decompile_type", "args": {"type": "Notes.CsvExporter"}}
+{"tool": "decompile_member", "args": {"member": "Notes.CsvExporter"}}
 ```
 
 <!-- check: output -->
@@ -43,7 +43,7 @@ Loaded Notes: Notes, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
 === [2/3] search_symbols
 1 match:
   type     Notes.CsvExporter  [Notes] 0x02000008
-=== [3/3] decompile_type
+=== [3/3] decompile_member
 // [Notes] Notes.CsvExporter
 using System.Collections.Generic;
 using System.IO;

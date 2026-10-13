@@ -214,17 +214,15 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["list_assemblies"] = (new(), "TestFixture"),
         ["reload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Reloaded"),
         ["add_search_directory"] = (new() { ["directory"] = Path.GetDirectoryName(Env.FixturePath) }, "Search directories"),
-        ["get_assembly_info"] = (new() { ["assembly"] = "TestFixture" }, "Sections:"),
+        ["get_assembly_info"] = (new() { ["assembly"] = "TestFixture", ["view"] = "metadata" }, "Sections:"),
         ["list_namespaces"] = (new() { ["assembly"] = "TestFixture" }, "Fixture.Model"),
         ["list_types"] = (new() { ["namespace"] = "Fixture.Model", ["kind"] = "class" }, "Fixture.Model.Shop"),
         ["get_type_info"] = (new() { ["type"] = "Account" }, "Charge"),
         ["get_type_hierarchy"] = (new() { ["type"] = "Entity" }, "Archive"),
         ["get_attributes"] = (new() { ["symbol"] = "NativeThing::First" }, "RVA = \"0x1000\""),
         ["resolve_symbol"] = (new() { ["symbol"] = "Account::Charge" }, "2 matches"),
-        ["decompile_type"] = (new() { ["type"] = "Shop" }, "public class Shop"),
         ["decompile_member"] = (new() { ["member"] = "Account::CheckLicense" }, "Secret.Validate(\"LICENSE-KEY-123\")"),
         ["get_il"] = (new() { ["symbol"] = "Account::CheckLicense" }, "ldstr"),
-        ["decompile_assembly_attributes"] = (new() { ["assembly"] = "TestFixture" }, "TargetFramework"),
         ["export_project"] = (new() { ["assembly"] = "TestFixture.Consumer", ["outputDirectory"] = dir.File("export") }, "Exported"),
         ["search_symbols"] = (new() { ["query"] = "Charg*", ["kind"] = "method" }, "Charge"),
         ["search_strings"] = (new() { ["query"] = "LICENSE" }, "CheckLicense"),
@@ -232,7 +230,6 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["search_il"] = (new() { ["pattern"] = "ldstr *LICENSE*; call *Validate*" }, "CheckLicense"),
         ["find_references"] = (new() { ["symbol"] = "Account::Charge(int)" }, "Consumer.Branch::Bill"),
         ["find_callees"] = (new() { ["method"] = "Account::Charge(int, string)", ["distinct"] = true }, "Log"),
-        ["find_overrides"] = (new() { ["method"] = "Entity::Score" }, "PremiumAccount::Score"),
         ["list_resources"] = (new() { ["assembly"] = "TestFixture" }, "hello.txt"),
         ["get_resource"] = (new() { ["assembly"] = "TestFixture", ["name"] = "Fixture.hello.txt" }, "Hello from"),
         ["summarize_file"] = (new() { ["assembly"] = "TestFixture" }, "none (loaded assembly)"),
@@ -399,7 +396,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 Assert.NotNull(tool.ProtocolTool.Annotations);
                 Assert.Equal(Corvus.Mcp.ToolEffects.Table[tool.Name].OpenWorld, tool.ProtocolTool.Annotations!.OpenWorldHint);
             }
-            Assert.True(tools.Single(t => t.Name == "decompile_type").ProtocolTool.Annotations!.ReadOnlyHint);
+            Assert.True(tools.Single(t => t.Name == "decompile_member").ProtocolTool.Annotations!.ReadOnlyHint);
             Assert.True(tools.Single(t => t.Name == "save_assembly").ProtocolTool.Annotations!.DestructiveHint);
 
             // Stale-server check: the digest of what the client sees and server_status's agree (SetupTests: and this build's, in process).
@@ -768,7 +765,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         [Fact]
         public async Task ErrorsAreToolErrorsAndServerSurvives()
         {
-            Assert.Contains("not found", await Call("decompile_type", new() { ["type"] = "Nope.DoesNotExist" }, expectError: true));
+            Assert.Contains("not found", await Call("decompile_member", new() { ["member"] = "Nope.DoesNotExist" }, expectError: true));
             Assert.Contains("File not found", await Call("load_assembly", new() { ["path"] = @"C:\definitely\missing.dll" }, expectError: true));
             Assert.Contains("must be one of any, method", await Call("decompile_member", new() { ["member"] = "Charge", ["kind"] = "banana" }, expectError: true));
             Assert.Contains("ambiguous", await Call("find_references", new() { ["symbol"] = "Account::Charge" }, expectError: true));
@@ -783,7 +780,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             using var cts = new CancellationTokenSource();
             cts.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                _client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account" }, cancellationToken: cts.Token).AsTask());
+                _client.CallToolAsync("decompile_member", new Dictionary<string, object?> { ["member"] = "Account" }, cancellationToken: cts.Token).AsTask());
             Assert.Contains("Charge", await Call("get_type_info", new() { ["type"] = "Account" }));
         }
     }
@@ -876,11 +873,11 @@ public abstract class McpProtocolTests : IAsyncLifetime
         public async Task PagingOverTheWire()
         {
             await using var client = await StartServerAsync("--load", Env.FixturePath, "--max-output", "2000");
-            var first = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["maxTokens"] = 500 }));
+            var first = Text(await client.CallToolAsync("decompile_member", new Dictionary<string, object?> { ["member"] = "Account", ["maxTokens"] = 500 }));
             var match = System.Text.RegularExpressions.Regex.Match(first, @"offset=(\d+)");
             Assert.True(match.Success, $"no truncation footer in {first.Length} chars: {first[..Math.Min(400, first.Length)]}");
             var offset = int.Parse(match.Groups[1].Value);
-            var second = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["offset"] = offset, ["maxTokens"] = 500 }));
+            var second = Text(await client.CallToolAsync("decompile_member", new Dictionary<string, object?> { ["member"] = "Account", ["offset"] = offset, ["maxTokens"] = 500 }));
             Assert.StartsWith($"[Continuing from offset {offset}]", second);
         }
     }
@@ -893,7 +890,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         {
             var calls = Enumerable.Range(0, 40).Select(i => (i % 5) switch
             {
-                0 => _client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account" }),
+                0 => _client.CallToolAsync("decompile_member", new Dictionary<string, object?> { ["member"] = "Account" }),
                 1 => _client.CallToolAsync("search_strings", new Dictionary<string, object?> { ["query"] = "LICENSE" }),
                 2 => _client.CallToolAsync("find_references", new Dictionary<string, object?> { ["symbol"] = "Account::_balance" }),
                 3 => _client.CallToolAsync("rename_symbol", new Dictionary<string, object?> { ["symbol"] = "Shop::Describe", ["newName"] = i % 2 == 0 ? "Describe" : "Describe" }),

@@ -7,10 +7,7 @@ decompile_java.smaliFallback
 diff_function.useNames
 disassemble.function
 dump_stack.exceptionContext
-find_call_paths.includeVirtual
-find_references.includeVirtualCalls
 install_android_package.replace
-list_types.includeNested
 map_address_between_builds.useNames
 migrate_native_names.comments
 migrate_native_names.useNames

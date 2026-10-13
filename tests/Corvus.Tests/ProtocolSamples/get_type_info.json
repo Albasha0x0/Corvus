@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "public class Account : Entity, IChargeable\n  full name: Fixture.Model.Account   token: 0x0200000A   assembly: TestFixture\n  [NullableContext(1)]\n  [Nullable(0)]\n\nNested types (1):\n  0x02000015  class Inventory\n\nFields (3):\n  0x0400000A  public const int MaxBalance = 100\n  0x0400000B  private int _balance\n  0x0400000C  public static int AccountCount\n\nProperties (2):\n  0x17000003  public int Balance { get; set; }\n  0x17000004  public bool IsActive { get; }\n\nEvents (1):\n  0x14000001  public event EventHandler Closed\n\nMethods (13):\n  0x06000014  public Account(string name)  IL 15 instr\n  0x06000015  public int get_Balance()  (accessor)  IL 3 instr\n  0x06000016  public void set_Balance(int value)  (accessor)  IL 4 instr\n  0x06000017  public bool get_IsActive()  (accessor)  IL 5 instr\n  0x06000018  public void Charge(int amount)  IL 27 instr\n  0x06000019  public void Charge(int amount, string source)  IL 11 instr\n  0x0600001A  public override void Tick(float dt)  IL 2 instr\n  0x0600001B  public override int Score()  IL 5 instr\n  0x0600001C  public bool CheckLicense()  IL 3 instr\n  0x0600001D  public Task<int> LoadAsync()  IL 19 instr\n  0x0600001E  public IEnumerable<int> Range()  IL 6 instr\n  0x0600001F  public int SumPositive(List<int> values)  IL 13 instr\n  0x06000020  private static void Log(string message)  IL 6 instr\n\n(Compiler-generated members hidden; pass includeCompilerGenerated=true to show them.)\n"
+    "public class Account : Entity, IChargeable\n  full name: Fixture.Model.Account   token: 0x0200000A   assembly: TestFixture\n  [NullableContext(1)]\n  [Nullable(0)]\n  members: 1 nested, 3 fields, 2 properties, 1 events, 13 methods\n  (compiler-generated members hidden; includeCompilerGenerated=true shows them)\n  first 8 of each kind below; section=methods for all 13\n15 members (showing 1-15):\n  nested   0x02000015  class Inventory\n  field    0x0400000A  public const int MaxBalance = 100\n  field    0x0400000B  private int _balance\n  field    0x0400000C  public static int AccountCount\n  property 0x17000003  public int Balance { get; set; }\n  property 0x17000004  public bool IsActive { get; }\n  event    0x14000001  public event EventHandler Closed\n  method   0x06000014  public Account(string name)  IL 15 instr\n  method   0x06000015  public int get_Balance()  (accessor)  IL 3 instr\n  method   0x06000016  public void set_Balance(int value)  (accessor)  IL 4 instr\n  method   0x06000017  public bool get_IsActive()  (accessor)  IL 5 instr\n  method   0x06000018  public void Charge(int amount)  IL 27 instr\n  method   0x06000019  public void Charge(int amount, string source)  IL 11 instr\n  method   0x0600001A  public override void Tick(float dt)  IL 2 instr\n  method   0x0600001B  public override int Score()  IL 5 instr\n[End: 15 members]\n"
   ],
   "structuredContent": {
     "type": {
@@ -14,138 +14,109 @@
       "assembly": "TestFixture",
       "token": "0x0200000A"
     },
-    "fullName": "Fixture.Model.Account",
     "declaration": "public class Account : Entity, IChargeable",
-    "attributes": [
-      "[NullableContext(1)]",
-      "[Nullable(0)]"
-    ],
-    "nestedTypes": [
+    "counts": {
+      "nested": 1,
+      "fields": 3,
+      "properties": 2,
+      "events": 1,
+      "methods": 13
+    },
+    "section": "summary",
+    "items": [
       {
+        "kind": "nested",
         "token": "0x02000015",
-        "name": "Inventory",
         "signature": "class Inventory"
-      }
-    ],
-    "fields": [
+      },
       {
+        "kind": "field",
         "token": "0x0400000A",
-        "name": "MaxBalance",
         "signature": "public const int MaxBalance = 100"
       },
       {
+        "kind": "field",
         "token": "0x0400000B",
-        "name": "_balance",
         "signature": "private int _balance"
       },
       {
+        "kind": "field",
         "token": "0x0400000C",
-        "name": "AccountCount",
         "signature": "public static int AccountCount"
-      }
-    ],
-    "properties": [
+      },
       {
+        "kind": "property",
         "token": "0x17000003",
-        "name": "Balance",
         "signature": "public int Balance { get; set; }"
       },
       {
+        "kind": "property",
         "token": "0x17000004",
-        "name": "IsActive",
         "signature": "public bool IsActive { get; }"
-      }
-    ],
-    "events": [
+      },
       {
+        "kind": "event",
         "token": "0x14000001",
-        "name": "Closed",
         "signature": "public event EventHandler Closed"
-      }
-    ],
-    "methods": [
+      },
       {
+        "kind": "method",
         "token": "0x06000014",
-        "name": ".ctor",
         "signature": "public Account(string name)",
         "ilInstructions": 15
       },
       {
+        "kind": "method",
         "token": "0x06000015",
-        "name": "get_Balance",
-        "signature": "public int get_Balance()",
+        "signature": "public int get_Balance()  (accessor)",
         "ilInstructions": 3
       },
       {
+        "kind": "method",
         "token": "0x06000016",
-        "name": "set_Balance",
-        "signature": "public void set_Balance(int value)",
+        "signature": "public void set_Balance(int value)  (accessor)",
         "ilInstructions": 4
       },
       {
+        "kind": "method",
         "token": "0x06000017",
-        "name": "get_IsActive",
-        "signature": "public bool get_IsActive()",
+        "signature": "public bool get_IsActive()  (accessor)",
         "ilInstructions": 5
       },
       {
+        "kind": "method",
         "token": "0x06000018",
-        "name": "Charge",
         "signature": "public void Charge(int amount)",
         "ilInstructions": 27
       },
       {
+        "kind": "method",
         "token": "0x06000019",
-        "name": "Charge",
         "signature": "public void Charge(int amount, string source)",
         "ilInstructions": 11
       },
       {
+        "kind": "method",
         "token": "0x0600001A",
-        "name": "Tick",
         "signature": "public override void Tick(float dt)",
         "ilInstructions": 2
       },
       {
+        "kind": "method",
         "token": "0x0600001B",
-        "name": "Score",
         "signature": "public override int Score()",
         "ilInstructions": 5
-      },
-      {
-        "token": "0x0600001C",
-        "name": "CheckLicense",
-        "signature": "public bool CheckLicense()",
-        "ilInstructions": 3
-      },
-      {
-        "token": "0x0600001D",
-        "name": "LoadAsync",
-        "signature": "public Task<int> LoadAsync()",
-        "ilInstructions": 19
-      },
-      {
-        "token": "0x0600001E",
-        "name": "Range",
-        "signature": "public IEnumerable<int> Range()",
-        "ilInstructions": 6
-      },
-      {
-        "token": "0x0600001F",
-        "name": "SumPositive",
-        "signature": "public int SumPositive(List<int> values)",
-        "ilInstructions": 13
-      },
-      {
-        "token": "0x06000020",
-        "name": "Log",
-        "signature": "private static void Log(string message)",
-        "ilInstructions": 6
       }
     ],
-    "compilerGeneratedHidden": true,
-    "truncated": false,
     "offset": 0,
-    "totalChars": 1425
+    "total": 15,
+    "attributes": [
+      "[NullableContext(1)]",
+      "[Nullable(0)]"
+    ],
+    "compilerGeneratedHidden": true,
+    "limit": 100,
+    "totalExact": true,
+    "hasMore": false
   }
 }

@@ -34,16 +34,16 @@ public abstract class ResultBoundsTests : IAsyncLifetime
         /// <summary>Calls that ask for everything (no or extreme limits).</summary>
         private static IEnumerable<(string Tool, Dictionary<string, object?> Args)> Unbounded() =>
         [
-            ("decompile_type", new() { ["type"] = "Newtonsoft.Json.Serialization.JsonSerializerInternalReader" }),
-            ("decompile_type", new() { ["type"] = "Newtonsoft.Json.Serialization.JsonSerializerInternalReader", ["maxTokens"] = int.MaxValue }),
+            ("decompile_member", new() { ["member"] = "Newtonsoft.Json.Serialization.JsonSerializerInternalReader" }),
+            ("decompile_member", new() { ["member"] = "Newtonsoft.Json.Serialization.JsonSerializerInternalReader", ["maxTokens"] = int.MaxValue }),
             ("get_il", new() { ["symbol"] = "Newtonsoft.Json.Serialization.JsonSerializerInternalReader" }),
             ("search_symbols", new() { ["query"] = "*", ["limit"] = int.MaxValue }),
             ("list_types", new() { ["limit"] = int.MaxValue }),
             ("search_strings", new() { ["query"] = "*", ["limit"] = int.MaxValue }),
             ("search_il", new() { ["pattern"] = "call *", ["limit"] = int.MaxValue }),
             ("find_references", new() { ["symbol"] = "Newtonsoft.Json.JsonReader::Read", ["limit"] = int.MaxValue }),
-            ("get_call_tree", new() { ["method"] = "Newtonsoft.Json.JsonReader::Read", ["depth"] = int.MaxValue, ["maxNodes"] = int.MaxValue }),
-            ("find_call_paths", new() { ["to"] = "Newtonsoft.Json.JsonReader::Read", ["maxDepth"] = int.MaxValue, ["maxPaths"] = int.MaxValue }),
+            ("get_call_tree", new() { ["method"] = "Newtonsoft.Json.JsonReader::Read", ["depth"] = int.MaxValue, ["limit"] = int.MaxValue }),
+            ("find_call_paths", new() { ["to"] = "Newtonsoft.Json.JsonReader::Read", ["maxDepth"] = int.MaxValue, ["limit"] = int.MaxValue }),
             ("get_type_hierarchy", new() { ["type"] = "System.Object", ["limit"] = int.MaxValue }),
             ("extract_strings", new() { ["assembly"] = "Newtonsoft.Json" }),
             ("survey_features", new() { ["assembly"] = "Newtonsoft.Json" }),
@@ -106,7 +106,7 @@ public abstract class ResultBoundsTests : IAsyncLifetime
             // logged rather than asserted, as a machine busy with other tests can make the first calls slow.
             var watch = Stopwatch.StartNew();
             using var limit = new CancellationTokenSource(ContractSweep.CallLimit);
-            var read = await _client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Newtonsoft.Json.JsonConvert" }, cancellationToken: limit.Token);
+            var read = await _client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Newtonsoft.Json.JsonConvert", ["section"] = "methods", ["limit"] = 500 }, cancellationToken: limit.Token);
             Assert.Contains("SerializeObject", Text(read));
             var edit = await _client.CallToolAsync("stub_method",
                 new Dictionary<string, object?> { ["method"] = "Newtonsoft.Json.JsonConvert::ToString(bool)", ["value"] = "\"x\"" }, cancellationToken: limit.Token);

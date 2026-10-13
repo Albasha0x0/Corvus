@@ -1,0 +1,35 @@
+{
+  "tool": "get_assembly_info",
+  "arguments": {
+    "assembly": "TestFixture"
+  },
+  "isError": false,
+  "content": [
+    "Id: TestFixture\nAssembly: TestFixture, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null\nFile: <fixtures>/TestFixture.dll\nModule: TestFixture.dll  MVID <id>\nSHA-256: <id>\nRuntime: v4.0.30319  Kind: Dll  Machine: I386  IL-only: True  32-bit required: False\nTarget framework: .NETCoreApp,Version=v10.0\nTypes: 24 (5 nested)  Namespaces: 3  Methods: 79  Fields: 39  Resources: 2\nIl2Cpp metadata: 2 methods carry [Address] attributes (dummy DLL; method bodies are stubs — use get_il2cpp_info / find_method_by_address).\nReferences: 5, all resolved (view=references lists them)\nAssembly attributes: 9 (view=metadata, or get_attributes)\n"
+  ],
+  "structuredContent": {
+    "id": "TestFixture",
+    "fullName": "TestFixture, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+    "file": "<fixtures>/TestFixture.dll",
+    "sha256": "<id>",
+    "mvid": "<id>",
+    "runtime": "v4.0.30319",
+    "kind": "Dll",
+    "machine": "I386",
+    "targetFramework": ".NETCoreApp,Version=v10.0",
+    "types": 24,
+    "nestedTypes": 5,
+    "namespaces": 3,
+    "methods": 79,
+    "fields": 39,
+    "resources": 2,
+    "referenceAssembly": false,
+    "il2CppAddressedMethods": 2,
+    "invalidBodies": 0,
+    "invalidExceptionClauses": 0,
+    "unsavedEdits": [],
+    "referenceCount": 5,
+    "unresolvedReferences": 0,
+    "metadataIssueCount": 0
+  }
+}

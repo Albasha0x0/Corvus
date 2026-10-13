@@ -10,8 +10,16 @@
       "items": {
         "type": "object",
         "properties": {
+          "kind": {
+            "description": "call, read, write, base type, attribute, override, native call, ...",
+            "type": "string"
+          },
+          "basis": {
+            "description": "observed (the code names it) or derived (through a base or interface declaration, or a delegate field).",
+            "type": "string"
+          },
           "where": {
-            "description": "Method, type or member containing the reference.",
+            "description": "Method, type or member containing the reference (the overriding method for kind=overrides).",
             "type": "object",
             "properties": {
               "kind": {
@@ -41,10 +49,6 @@
           "ilOffset": {
             "type": "integer"
           },
-          "kind": {
-            "description": "call, read, write, base type, attribute, ...",
-            "type": "string"
-          },
           "detail": {
             "type": "string"
           },
@@ -54,16 +58,9 @@
           }
         },
         "required": [
-          "where",
-          "kind"
+          "kind",
+          "basis"
         ]
-      }
-    },
-    "nativeCallSites": {
-      "description": "Native call sites in loaded images, as text rows.",
-      "type": "array",
-      "items": {
-        "type": "string"
       }
     },
     "offset": {
@@ -106,7 +103,6 @@
   "required": [
     "target",
     "items",
-    "nativeCallSites",
     "offset",
     "total"
   ]
