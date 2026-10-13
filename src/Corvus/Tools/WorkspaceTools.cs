@@ -46,12 +46,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         UnpackService.ContainerListing? Container = null);
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly")]
-    [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (an application folder, Unity *_Data/Managed, a DummyDll folder). " +
-                 "A native PE, ELF or Mach-O file loads as a native image (a universal Mach-O: one slice, as name[slice]); folder loads take only " +
-                 ".NET assemblies and list native files skipped. An Il2Cpp game (its folder or global-metadata.dat, .apk/.xapk/.aab/.ipa, iOS .app, " +
-                 "or a memory dump) is read by the built-in metadata reader (v24-39): dummy assemblies with addresses, offsets and tokens, cached per " +
-                 "user, plus the binary as a native image. Files are read into memory, never locked; the directory joins the reference search path; " +
-                 "loading a path twice is a no-op.")]
+    [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (application folder, Unity *_Data/Managed, DummyDll folder). " +
+                 "A native PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, as name[slice]); folder loads skip native files. " +
+                 "An Il2Cpp game (folder or global-metadata.dat, .apk/.xapk/.aab/.ipa, iOS .app, memory dump) is read by the built-in metadata " +
+                 "reader (v24-39): dummy assemblies with addresses, offsets and tokens, plus the binary as a native image. Files are read into " +
+                 "memory, never locked; loading a path twice is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
         [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
