@@ -42,17 +42,26 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
             var v => throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{v}'; use summary or components."),
         };
         var m = packages.Manifest(path, cancellationToken);
-        static string Row(AndroidComponent c) => $"{c.Kind} {c.Name}  {(c.EffectiveExported ? "exported" : "not exported")} ({c.ExportedReason})"
+        static string Meta(AndroidMetaData d) => $"{d.Name}={d.Value ?? d.Resource}";
+        static string Filter(AndroidIntentFilter f) => string.Join(" ", f.Actions.Concat(f.Categories)
+            .Concat(f.Data.Select(d => $"{d.Scheme}://{d.Host}{(d.Port != null ? ":" + d.Port : "")}{d.Path}{(d.MimeType != null ? " " + d.MimeType : "")}"))
+            .Concat(f.AutoVerify ? ["autoVerify"] : []).Concat(f.Priority is { } p ? [$"priority {p}"] : []));
+        static string Row(AndroidComponentRow c) => $"{c.Kind} {c.Name}  {(c.EffectiveExported ? "exported" : "not exported")} ({c.ExportedReason})"
             + string.Concat(new[]
             {
-                c.Launcher ? "launcher" : null, c.Permission != null ? "permission " + c.Permission : null, c.Authorities != null ? "authorities " + c.Authorities : null,
-                c.TargetActivity != null ? "target " + c.TargetActivity : null, c.DeepLinks.Count > 0 ? "deep links " + string.Join(", ", c.DeepLinks) : null,
-                c.IntentFilters.Count > 0 ? $"{c.IntentFilters.Count} intent filters: " + string.Join("; ", c.IntentFilters.Select(f => string.Join(" ", f.Actions.Concat(f.Categories)))) : null,
-                c.MetaData.Count > 0 ? "meta-data " + string.Join(", ", c.MetaData.Select(d => d.Name)) : null, c.DotNetType != null ? ".NET " + c.DotNetType : null,
+                c.Launcher == true ? "launcher" : null, c.Permission != null ? "permission " + c.Permission : null, c.Authorities != null ? "authorities " + c.Authorities : null,
+                c.TargetActivity != null ? "target " + c.TargetActivity : null, c.DeepLinks != null ? "deep links " + string.Join(", ", c.DeepLinks) : null,
+                c.IntentFilters != null ? "filters: " + string.Join(" | ", c.IntentFilters) : null,
+                c.MetaData != null ? "meta-data " + string.Join(", ", c.MetaData) : null, c.DotNetType != null ? ".NET " + c.DotNetType : null,
             }.OfType<string>().Select(s => "; " + s));
+        static IReadOnlyList<string>? Some(IEnumerable<string> list) => list.ToList() is { Count: > 0 } l ? l : null;
+        static string Exported(AndroidComponent c) => $"{c.Kind} {c.Name}  ({c.ExportedReason}){(c.Permission != null ? "; permission " + c.Permission : "")}" +
+            $"{(c.Launcher ? "; launcher" : "")}{(c.DeepLinks.Count > 0 ? "; deep links " + string.Join(", ", c.DeepLinks) : "")}";
         if (components)
         {
-            var page = m.Components.Skip(Math.Max(0, offset)).Take(ClampLimit(limit)).ToList();
+            var page = m.Components.Skip(Math.Max(0, offset)).Take(ClampLimit(limit)).Select(c => new AndroidComponentRow(c.Kind, c.Name, c.Exported, c.EffectiveExported,
+                c.ExportedReason, c.Permission, c.Enabled, c.Process, c.TargetActivity, c.Authorities, c.ReadPermission, c.WritePermission, c.GrantUriPermissions,
+                c.Launcher ? true : null, Some(c.DeepLinks), Some(c.IntentFilters.Select(Filter)), Some(c.MetaData.Select(Meta)), c.DotNetType)).ToList();
             var list = new AndroidManifestView(m.Package, m.VersionCode, m.VersionName, m.MinSdk, m.TargetSdk, m.MaxSdk, m.CompileSdk, m.Split, null, null, null, null,
                 null, null, null, null, null, null, null, null, page, Math.Max(0, offset), m.Components.Count);
             return ToolOutput.List(page, Math.Max(0, offset), ClampLimit(limit), m.Components.Count, Row, rows => list with { Items = rows }, "component", $"{m.Package}\n");
@@ -60,26 +69,25 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         var exported = m.Components.Where(c => c.EffectiveExported).ToList();
         var counts = m.Components.GroupBy(c => c.Kind).ToDictionary(g => g.Key, g => $"{g.Count()} ({g.Count(c => c.EffectiveExported)} exported)");
         var record = new AndroidManifestView(m.Package, m.VersionCode, m.VersionName, m.MinSdk, m.TargetSdk, m.MaxSdk, m.CompileSdk, m.Split, m.Application,
-            [.. m.Permissions.Select(p => p.Name + (p.MaxSdkVersion is { } x ? $" (maxSdk {x})" : "") + (p.Sdk23Only ? " (sdk 23+)" : ""))], m.DeclaredPermissions, counts,
-            [.. exported.Take(MaxExportedShown).Select(c => new AndroidExportedComponent(c.Kind, c.Name, c.ExportedReason, c.Permission, c.Launcher ? true : null,
-                c.DeepLinks.Count > 0 ? c.DeepLinks : null))], exported.Count, m.Queries, m.Features, m.Libraries, m.MetaData, m.Highlights, m.Issues, null, null, null);
+            [.. m.Permissions.Select(p => p.Name + (p.MaxSdkVersion is { } x ? $" (maxSdk {x})" : "") + (p.Sdk23Only ? " (sdk 23+)" : ""))],
+            Some(m.DeclaredPermissions.Select(p => $"{p.Name} ({p.ProtectionLevel}{(p.Group != null ? ", group " + p.Group : "")})")), counts,
+            [.. exported.Take(MaxExportedShown).Select(Exported)], exported.Count, Some(m.Queries.Packages.Concat(m.Queries.Intents).Concat(m.Queries.Providers)),
+            m.Features, m.Libraries, Some(m.MetaData.Select(Meta)), m.Highlights, m.Issues, null, null, null);
         var sb = new System.Text.StringBuilder($"{m.Package} {m.VersionName} ({m.VersionCode}); SDK min {m.MinSdk}, target {m.TargetSdk}{(m.CompileSdk is { } cs ? $", compile {cs}" : "")}{(m.Split != null ? $"; split {m.Split}" : "")}\n");
         var a = m.Application;
         sb.Append($"application {a.Name}{(a.Label != null ? $" \"{a.Label}\"" : "")}: debuggable={a.Debuggable?.ToString() ?? "-"}, allowBackup={a.AllowBackup?.ToString() ?? "-"}, " +
                   $"usesCleartextTraffic={a.UsesCleartextTraffic?.ToString() ?? "-"}{(a.NetworkSecurityConfig != null ? ", networkSecurityConfig " + a.NetworkSecurityConfig : "")}\n");
         foreach (var h in m.Highlights) sb.Append("! ").Append(h).Append('\n');
         sb.Append($"permissions ({record.Permissions!.Count}): {string.Join(", ", record.Permissions)}\n");
-        if (m.DeclaredPermissions.Count > 0) sb.Append($"declared: {string.Join(", ", m.DeclaredPermissions.Select(p => $"{p.Name} ({p.ProtectionLevel})"))}\n");
+        if (record.DeclaredPermissions != null) sb.Append($"declared: {string.Join(", ", record.DeclaredPermissions)}\n");
         sb.Append($"components: {string.Join(", ", counts.Select(c => $"{c.Key} {c.Value}"))}\n");
         sb.Append($"exported ({exported.Count}{(exported.Count > MaxExportedShown ? $", first {MaxExportedShown}; view=components lists all" : "")}):\n");
-        foreach (var c in exported.Take(MaxExportedShown))
-            sb.Append($"  {c.Kind} {c.Name}  ({c.ExportedReason}){(c.Permission != null ? "; permission " + c.Permission : "")}{(c.Launcher ? "; launcher" : "")}" +
-                      $"{(c.DeepLinks.Count > 0 ? "; deep links " + string.Join(", ", c.DeepLinks) : "")}\n");
+        foreach (var e in record.Exported!) sb.Append("  ").Append(e).Append('\n');
         if (m.Features.Count > 0) sb.Append($"features: {string.Join(", ", m.Features)}\n");
         if (m.Libraries.Count > 0) sb.Append($"libraries: {string.Join(", ", m.Libraries)}\n");
         if (m.Queries.Packages.Count + m.Queries.Intents.Count + m.Queries.Providers.Count > 0)
             sb.Append($"queries: {string.Join(", ", m.Queries.Packages.Concat(m.Queries.Intents).Concat(m.Queries.Providers))}\n");
-        if (m.MetaData.Count > 0) sb.Append($"meta-data: {string.Join(", ", m.MetaData.Select(d => $"{d.Name}={d.Value ?? d.Resource}"))}\n");
+        if (record.MetaData != null) sb.Append($"meta-data: {string.Join(", ", record.MetaData)}\n");
         foreach (var i in m.Issues) sb.Append("issue: ").Append(i).Append('\n');
         return ToolOutput.Report(sb.ToString(), record);
     }, cancellationToken);
@@ -87,20 +95,28 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     /// <summary>Exported components the summary names; view=components pages all.</summary>
     private const int MaxExportedShown = 30;
 
-    public sealed record AndroidExportedComponent(string Kind, string Name, string Reason, string? Permission, bool? Launcher, IReadOnlyList<string>? DeepLinks);
+    /// <summary>A manifest component with its intent filters and meta-data as text.</summary>
+    public sealed record AndroidComponentRow(string Kind, string Name,
+        [property: Description("android:exported as written.")] bool? Exported, bool EffectiveExported, string ExportedReason, string? Permission, bool? Enabled,
+        string? Process, string? TargetActivity, string? Authorities, string? ReadPermission, string? WritePermission, bool? GrantUriPermissions, bool? Launcher,
+        IReadOnlyList<string>? DeepLinks,
+        [property: Description("Each filter: actions, categories, then data as scheme://host:port/path and MIME type.")] IReadOnlyList<string>? IntentFilters,
+        [property: Description("name=value or resource.")] IReadOnlyList<string>? MetaData,
+        [property: Description("The .NET type implementing it (Xamarin / MAUI).")] string? DotNetType);
 
     /// <summary>get_android_manifest: the summary (view=summary) or a page of components (view=components).</summary>
     public sealed record AndroidManifestView(string Package, string? VersionCode, string? VersionName, int? MinSdk, int? TargetSdk, int? MaxSdk, int? CompileSdk,
         [property: Description("Set on a split APK: its split name.")] string? Split,
         AndroidApplicationFlags? Application,
         [property: Description("Used permissions, with maxSdk and sdk-23-only marks.")] IReadOnlyList<string>? Permissions,
-        IReadOnlyList<AndroidDeclaredPermission>? DeclaredPermissions,
+        [property: Description("Declared permissions with protection level and group.")] IReadOnlyList<string>? DeclaredPermissions,
         [property: Description("Components per kind, with how many are exported.")] IReadOnlyDictionary<string, string>? ComponentCounts,
-        [property: Description("The first 30 exported components with why they are exported.")] IReadOnlyList<AndroidExportedComponent>? Exported,
-        int? ExportedTotal, AndroidQueries? Queries, IReadOnlyList<string>? Features, IReadOnlyList<string>? Libraries, IReadOnlyList<AndroidMetaData>? MetaData,
+        [property: Description("The first 30 exported components: kind, name, why exported, permission, launcher, deep links.")] IReadOnlyList<string>? Exported,
+        int? ExportedTotal, [property: Description("Packages, intents and providers it queries.")] IReadOnlyList<string>? Queries, IReadOnlyList<string>? Features,
+        IReadOnlyList<string>? Libraries, [property: Description("Application meta-data, name=value.")] IReadOnlyList<string>? MetaData,
         [property: Description("Notable facts: debuggable, cleartext traffic, backups, exported components without permission, deep links.")] IReadOnlyList<string>? Highlights,
         IReadOnlyList<string>? Issues,
-        [property: Description("view=components: the page of components.")] IReadOnlyList<AndroidComponent>? Items, int? Offset, int? Total);
+        [property: Description("view=components: the page of components.")] IReadOnlyList<AndroidComponentRow>? Items, int? Offset, int? Total);
 
     [McpServerTool(Name = "list_android_resources", Title = "List Android resources", UseStructuredContent = true, OutputSchemaType = typeof(AndroidResourceList))]
     [Description("Compiled resources of an Android package (resources.arsc, or a bundle's resources.pb): a row per resource and " +
@@ -157,7 +173,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
             c.Methods + c.Fields > 0 ? $"{c.Methods} methods, {c.Fields} fields" : null, c.DexFile, c.SourceFile,
         }.OfType<string>())}]";
         var header = string.Concat(r.Notes.Take(5).Select(n => $"Note: {n}\n"))
-                     + (r.Packages is { Count: > 0 } p ? $"Packages with most classes: {string.Join(", ", p.Select(x => $"{x.Package} {x.Classes}"))}\n" : "");
+                     + (r.Packages is { Count: > 0 } p ? $"Packages with most classes: {string.Join(", ", p)}\n" : "");
         return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit), r.Total, Row, rows => r with { Items = rows }, "class", header);
     }, cancellationToken);
 

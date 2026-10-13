@@ -79,24 +79,10 @@
       }
     },
     "declaredPermissions": {
+      "description": "Declared permissions with protection level and group.",
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "protectionLevel": {
-            "type": "string"
-          },
-          "group": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "protectionLevel"
-        ]
+        "type": "string"
       }
     },
     "componentCounts": {
@@ -107,70 +93,21 @@
       }
     },
     "exported": {
-      "description": "The first 30 exported components with why they are exported.",
+      "description": "The first 30 exported components: kind, name, why exported, permission, launcher, deep links.",
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "permission": {
-            "type": "string"
-          },
-          "launcher": {
-            "type": "boolean"
-          },
-          "deepLinks": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "kind",
-          "name",
-          "reason"
-        ]
+        "type": "string"
       }
     },
     "exportedTotal": {
       "type": "integer"
     },
     "queries": {
-      "type": "object",
-      "properties": {
-        "packages": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "intents": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "providers": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "required": [
-        "packages",
-        "intents",
-        "providers"
-      ]
+      "description": "Packages, intents and providers it queries.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "features": {
       "type": "array",
@@ -185,23 +122,10 @@
       }
     },
     "metaData": {
+      "description": "Application meta-data, name=value.",
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "value": {
-            "type": "string"
-          },
-          "resource": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "name"
-        ]
+        "type": "string"
       }
     },
     "highlights": {
@@ -224,23 +148,19 @@
         "type": "object",
         "properties": {
           "kind": {
-            "description": "activity, activity-alias, service, receiver or provider.",
             "type": "string"
           },
           "name": {
-            "description": "Fully qualified class name.",
             "type": "string"
           },
           "exported": {
-            "description": "android:exported as written; null when absent.",
+            "description": "android:exported as written.",
             "type": "boolean"
           },
           "effectiveExported": {
-            "description": "Whether other apps can reach it: the explicit value, or the platform default.",
             "type": "boolean"
           },
           "exportedReason": {
-            "description": "Why EffectiveExported has its value.",
             "type": "string"
           },
           "permission": {
@@ -253,11 +173,9 @@
             "type": "string"
           },
           "targetActivity": {
-            "description": "activity-alias: the activity it opens.",
             "type": "string"
           },
           "authorities": {
-            "description": "provider: its authorities; readPermission / writePermission and grantUriPermissions follow.",
             "type": "string"
           },
           "readPermission": {
@@ -270,79 +188,30 @@
             "type": "boolean"
           },
           "launcher": {
-            "description": "MAIN + LAUNCHER intent filter.",
             "type": "boolean"
           },
           "deepLinks": {
-            "description": "scheme://host/path URIs its BROWSABLE / VIEW filters accept.",
             "type": "array",
             "items": {
               "type": "string"
             }
           },
           "intentFilters": {
+            "description": "Each filter: actions, categories, then data as scheme://host:port/path and MIME type.",
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "actions": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "categories": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "data": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "scheme": {
-                        "type": "string"
-                      },
-                      "host": {
-                        "type": "string"
-                      },
-                      "port": {
-                        "type": "string"
-                      },
-                      "path": {
-                        "type": "string"
-                      },
-                      "mimeType": {
-                        "type": "string"
-                      }
-                    }
-                  }
-                },
-                "autoVerify": {
-                  "type": "boolean"
-                },
-                "priority": {
-                  "type": "integer"
-                }
-              },
-              "required": [
-                "actions",
-                "categories",
-                "data",
-                "autoVerify"
-              ]
+              "type": "string"
             }
           },
           "metaData": {
+            "description": "name=value or resource.",
             "type": "array",
             "items": {
-              "$ref": "#/properties/metaData/items"
+              "type": "string"
             }
           },
           "dotNetType": {
-            "description": "The .NET type implementing this component (Xamarin / MAUI apps), with how it was matched.",
+            "description": "The .NET type implementing it (Xamarin / MAUI).",
             "type": "string"
           }
         },
@@ -350,11 +219,7 @@
           "kind",
           "name",
           "effectiveExported",
-          "exportedReason",
-          "launcher",
-          "deepLinks",
-          "intentFilters",
-          "metaData"
+          "exportedReason"
         ]
       }
     },

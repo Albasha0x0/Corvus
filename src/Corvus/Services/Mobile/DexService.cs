@@ -11,10 +11,8 @@ public sealed record DexClassRow(string Descriptor, string DexFile, string Acces
     [property: Description("How many interfaces in all, when more than 3.")] int? InterfacesTotal,
     int Methods, int Fields, string? SourceFile);
 
-public sealed record DexPackageCount(string Package, int Classes);
-
 public sealed record DexClassList(IReadOnlyList<DexClassRow> Items, int Offset, int Total, IReadOnlyList<string> Notes,
-    [property: Description("Without a filter, on the first page: the packages with the most classes, to narrow with package.")] IReadOnlyList<DexPackageCount>? Packages);
+    [property: Description("Without a filter, on the first page: the packages with the most classes ('pkg n'), to narrow with package.")] IReadOnlyList<string>? Packages);
 
 public sealed record DexFieldInfo(
     [property: Description("Exact field id: Lpkg/C;->name:type.")] string Id, string Name, string Type, string Access,
@@ -125,10 +123,10 @@ public sealed class DexService
             return new DexClassRow(e.Class.Descriptor, e.File.Name, DexFile.Access(e.Class.Access, 0), e.Class.SuperClass,
                 [.. interfaces.Take(3)], interfaces.Count > 3 ? interfaces.Count : null, methods.Count, fields.Count, source);
         }).ToList();
-        List<DexPackageCount>? packages = null;
+        List<string>? packages = null;
         if (offset == 0 && pattern == null && prefix == null)
             packages = [.. rows.GroupBy(e => e.Class.Descriptor.LastIndexOf('/') is var slash and > 0 ? DexFile.JavaName(e.Class.Descriptor[..slash] + ";") : "(default)")
-                .Select(g => new DexPackageCount(g.Key, g.Count())).OrderByDescending(p => p.Classes).ThenBy(p => p.Package, StringComparer.Ordinal).Take(20)];
+                .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal).Take(20).Select(g => $"{g.Key} {g.Count()}")];
         var notes = offset == 0 ? index.Notes.ToList() : [];
         if (r8.Count > 0) notes.Add($"Source file attributes {string.Join(", ", r8)} are R8 map ids, left out of the rows.");
         return new DexClassList(page, offset, rows.Count, notes, packages);

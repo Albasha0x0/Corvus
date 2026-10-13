@@ -62,22 +62,10 @@
       }
     },
     "packages": {
-      "description": "Without a filter, on the first page: the packages with the most classes, to narrow with package.",
+      "description": "Without a filter, on the first page: the packages with the most classes ('pkg n'), to narrow with package.",
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "package": {
-            "type": "string"
-          },
-          "classes": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "package",
-          "classes"
-        ]
+        "type": "string"
       }
     },
     "limit": {

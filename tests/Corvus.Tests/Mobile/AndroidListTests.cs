@@ -29,7 +29,7 @@ public sealed class AndroidListTests : IDisposable
         var record = classes.StructuredContent!.Value;
         Assert.Equal((2, 2, true, 4), (record.GetProperty("items").GetArrayLength(), record.GetProperty("nextOffset").GetInt32(), record.GetProperty("hasMore").GetBoolean(),
             record.GetProperty("total").GetInt32()));
-        Assert.Equal("com.example.app", record.GetProperty("packages")[0].GetProperty("package").GetString());
+        Assert.Equal("com.example.app 3", record.GetProperty("packages")[0].GetString());
 
         var refs = await server.Client.CallToolAsync("find_dex_references", new Dictionary<string, object?> { ["path"] = apk, ["target"] = Log });
         Assert.Contains($"To method {Log}", Text(refs));
