@@ -259,25 +259,34 @@ public class SimilarFunctionsTests
         var tools = new Corvus.Tools.NativeSimilarityTools(env.Workspace, code);
         var path = dir.File("a.dll");
         File.WriteAllBytes(path, NativePeTests.KitchenSink(is64: true));
-        var similar = await tools.FindSimilarFunctions(path, "First", minScore: 0, minInstructions: 1, limit: 2);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        async Task<Corvus.Tools.NativeSimilarityTools.SimilarityReport> Find(string? address = null, string? view = null, double? minScore = null, int minInstructions = 5,
+            int offset = 0, int limit = 20)
+        {
+            await tools.FindSimilarFunctions(path, address, view, minScore: minScore, minInstructions: minInstructions, offset: offset, limit: limit);
+            return Assert.IsType<Corvus.Tools.NativeSimilarityTools.SimilarityReport>(collector.Value);
+        }
+        var text = await tools.FindSimilarFunctions(path, "First", minScore: 0, minInstructions: 1, limit: 2);
+        Assert.Matches(@"\n  \d\.\d\d  \w+ +0x[0-9A-F]+  ", text);
+        var similar = await Find("First", minScore: 0, minInstructions: 1, limit: 2);
         Assert.Equal(("similar", "First"), (similar.View, similar.Function));
         Assert.True(similar.Compared > 0);
         Assert.True(similar.Matches.Count <= 2);
         Assert.Equal(similar.Total > 2, similar.Truncated);
         Assert.All(similar.Matches, m => Assert.Equal("a.dll", m.Image));
         // pages of one query share one candidate pool: a walk sees every match once
-        var all = await tools.FindSimilarFunctions(path, "First", minScore: 0, minInstructions: 1, limit: 500);
+        var all = await Find("First", minScore: 0, minInstructions: 1, limit: 500);
         var walked = new List<string>();
         for (int at = 0; at < all.Total; at += 2)
         {
-            var page = await tools.FindSimilarFunctions(path, "First", minScore: 0, minInstructions: 1, offset: at, limit: 2);
+            var page = await Find("First", minScore: 0, minInstructions: 1, offset: at, limit: 2);
             Assert.Equal(all.Total, page.Total);
             walked.AddRange(page.Matches.Select(m => m.Address));
         }
         Assert.Equal(all.Matches.Select(m => m.Address), walked);
-        var clusters = await tools.FindSimilarFunctions(path, minInstructions: 1);
+        var clusters = await Find(minInstructions: 1);
         Assert.Equal("clusters", clusters.View);
-        Assert.Equal("duplicates", (await tools.FindSimilarFunctions(path, view: "duplicates")).View);
+        Assert.Equal("duplicates", (await Find(view: "duplicates")).View);
 
         async Task<ErrorCode> Error(Func<Task> call) => (await Assert.ThrowsAsync<ToolError>(call)).Code;
         Assert.Equal(ErrorCode.InvalidArgument, await Error(() => tools.FindSimilarFunctions(path, view: "similar")));

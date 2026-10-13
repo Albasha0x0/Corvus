@@ -3,6 +3,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Code;
 using Corvus.Native.Diff;
@@ -44,11 +45,11 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         int Offset, int Total, bool Truncated,
         IReadOnlyList<SimilarMatch> Matches, IReadOnlyList<FunctionGroup> Groups, IReadOnlyList<string> Notes);
 
-    [McpServerTool(Name = "find_similar_functions", Title = "Find similar functions", UseStructuredContent = true)]
+    [McpServerTool(Name = "find_similar_functions", Title = "Find similar functions", UseStructuredContent = true, OutputSchemaType = typeof(SimilarityReport))]
     [Description("Functions like a given one in a native image, ranked by score with evidence: instruction-shape similarity (registers, " +
                  "addresses, constants ignored), containment, CFG shape, shared strings, constants, imports, callees. scope=all: every loaded " +
                  "image of the architecture. view=duplicates: same-shape groups; view=clusters: near-duplicates image-wide.")]
-    public Task<SimilarityReport> FindSimilarFunctions(
+    public Task<string> FindSimilarFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("view=similar: an address in the function.")] string? address = null,
         [Description("similar (default with address), duplicates or clusters (default without).")] string? view = null,
@@ -116,8 +117,10 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
             var hits = await Task.Run(() => SimilarFunctions.Similar(home, q, scopeImages, min, minInstructions, keep, cancellationToken, out compared), cancellationToken);
             if (hits.Count >= keep / 2) notes.Add($"only the {keep} best sketch candidates were rescored; raise minScore to see a complete list");
             var page = hits.Skip(offset).Take(limit).Select(h => Match(home, q0, h, ids[h.Image.Index])).ToList();
-            return new SimilarityReport(native.Id, v, Name(index, fn), Va(index, fn.Start), compared, offset, hits.Count, offset + limit < hits.Count,
-                page, [], notes);
+            var head = $"Functions like {Name(index, fn)} at {Va(index, fn.Start)} [{native.Id}], {Plural(compared, "function")} compared\n" + Notes(notes);
+            return ToolOutput.List(page, offset, limit, hits.Count, MatchRow,
+                rows => new SimilarityReport(native.Id, v, Name(index, fn), Va(index, fn.Start), compared, offset, hits.Count, offset + rows.Count < hits.Count,
+                    rows, [], notes), "match", head);
         }
 
         int pairs = 0;
@@ -126,9 +129,29 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
             : SimilarFunctions.Clusters(home, min, minInstructions, cancellationToken, out pairs), cancellationToken);
         if (v == "clusters") notes.Add("scores are sketch estimates; view=similar on a member rescores exactly");
         var shown = groups.Skip(offset).Take(limit).Select((g, k) => Group(home, g, offset + k + 1)).ToList();
-        return new SimilarityReport(native.Id, v, null, null, v == "clusters" ? pairs : home.Functions.Length, offset, groups.Count, offset + limit < groups.Count,
-            [], shown, notes);
+        int scanned = v == "clusters" ? pairs : home.Functions.Length;
+        var title = $"{(v == "clusters" ? "Near-duplicate clusters" : "Duplicate groups")} in {native.Id}, " +
+                    $"{(v == "clusters" ? Plural(scanned, "candidate pair") + " scored" : Plural(scanned, "function") + " compared")}\n" + Notes(notes);
+        return ToolOutput.List(shown, offset, limit, groups.Count, GroupRow,
+            rows => new SimilarityReport(native.Id, v, null, null, scanned, offset, groups.Count, offset + rows.Count < groups.Count, [], rows, notes), "group", title);
     });
+
+    private static string Notes(List<string> notes) => string.Concat(notes.Select(n => $"Note: {n}\n"));
+
+    private static string MatchRow(SimilarMatch m)
+    {
+        var evidence = new List<string>();
+        if (m.SharedStrings.Count > 0) evidence.Add("strings " + string.Join(", ", m.SharedStrings.Select(Format.EscapeMarkers)));
+        if (m.SharedConstants.Count > 0) evidence.Add("constants " + string.Join(", ", m.SharedConstants));
+        if (m.SharedImports.Count > 0) evidence.Add("imports " + string.Join(", ", m.SharedImports));
+        if (m.SharedCallees.Count > 0) evidence.Add("callees " + string.Join(", ", m.SharedCallees));
+        return $"{m.Score:0.00}  {m.Kind,-10} {m.Address}  {m.Name}  [{m.Image}]  code {m.Code:0.00}, contains {m.Containment:0.00}, {m.Instructions} insns, cfg {m.Cfg}" +
+               (evidence.Count > 0 ? "; " + string.Join("; ", evidence) : "");
+    }
+
+    private static string GroupRow(FunctionGroup g) =>
+        $"#{g.Id} {g.Kind}: {Plural(g.Members, "member")}, {g.RedundantBytes:N0} redundant bytes: " +
+        string.Join(", ", g.Functions.Take(8).Select(f => $"{f.Name} {f.Address}")) + (g.Members > 8 ? ", ..." : "");
 
     /// <summary>The image's prints (feature sketches), indexing it first; progress covers both.</summary>
     private async Task<ImagePrints> Prints(LoadedNative native, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
