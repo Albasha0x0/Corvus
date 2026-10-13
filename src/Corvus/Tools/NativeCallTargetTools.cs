@@ -64,7 +64,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         [Description("Trace pointers that arrive as parameters back into the callers (slower).")] bool deep = false,
         [Description(NativeCodeTools.EngineDescription)] string? engine = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Max sites (max 1000).")] int limit = 100,
+        [Description("Max sites (default 75, max 1000).")] int limit = 75,
         [Description(NativeTools.EngineTimeoutDescription)] int? timeoutSeconds = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,

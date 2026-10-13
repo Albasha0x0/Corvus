@@ -131,7 +131,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         [Description("Name or decorated name substring (case-insensitive); empty for all.")] string? query = null,
         [Description("Only this kind (default all).")] string? kind = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max rows.")] int limit = 200,
+        [Description("Max rows (default 150).")] int limit = 150,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {

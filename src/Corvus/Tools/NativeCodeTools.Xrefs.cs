@@ -31,7 +31,7 @@ public sealed partial class NativeCodeTools
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Or a struct member: Type::member, Type.member, Type+0xOFFSET.")] string? address = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max rows.")] int limit = 500,
+        [Description("Max rows (default 200).")] int limit = 200,
         [Description("Instead of address: up to 100 targets.")] string[]? addresses = null,
         [Description(EngineDescription + " Adds the RTTI virtual calls an engine lacks.")]
         string? engine = null,

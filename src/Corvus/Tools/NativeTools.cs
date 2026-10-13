@@ -267,7 +267,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Bind each import to the export it reaches, with a summary.")] bool bind = false,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max rows.")] int limit = 500,
+        [Description("Max rows (default 200).")] int limit = 200,
         [Description("Also list late-bound imports (waits for the code index).")] bool includeDynamic = false,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
@@ -344,7 +344,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description(ImageDescription)] string image,
         [Description("Name substring (case-insensitive; the demangled form too).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max rows.")] int limit = 500,
+        [Description("Max rows (default 300).")] int limit = 300,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {

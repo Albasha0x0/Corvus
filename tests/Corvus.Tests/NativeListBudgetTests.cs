@@ -70,4 +70,17 @@ public class NativeListBudgetTests
         Assert.True(codes.Count > 2, $"{codes.Count} pages");
         Assert.Contains("3000 instructions from", string.Concat(codes));
     }
+
+    [WindowsFact]
+    public async Task Default_pages_follow_the_native_list_defaults()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        foreach (var (tool, limit) in new[] { ("list_exports", 300), ("list_imports", 200) })
+        {
+            var result = await server.Client.CallToolAsync(tool, new Dictionary<string, object?> { ["image"] = Kernel32 });
+            var record = JsonDocument.Parse(result.StructuredContent!.Value.GetRawText()).RootElement;
+            Assert.Equal(limit, record.GetProperty("limit").GetInt32());
+            Assert.True(record.GetProperty("items").GetArrayLength() <= limit);
+        }
+    }
 }

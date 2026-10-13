@@ -45,7 +45,7 @@ public sealed partial class NativeCodeTools
         [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Only this section, e.g. .data.")] string? section = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max rows.")] int limit = 300,
+        [Description("Max rows (default 200).")] int limit = 200,
         [Description(EngineDescription)] string? engine = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
