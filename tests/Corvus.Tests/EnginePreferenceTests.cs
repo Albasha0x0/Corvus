@@ -183,9 +183,11 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         var rig = Setup(provider);
         var (_, first) = await Loaded(rig);
         provider.Functions = [new(first, first + 0x20, "ida_First", NativeFunctionFlags.None, 0)];
-        var list = await rig.Tools.ListFunctions(rig.Image, engine: "ida");
+        var (list, call) = await EngineMeta.Run(() => rig.Tools.ListFunctions(rig.Image, engine: "ida"));
         Assert.Contains("Engine: ida (engine=ida: IDA's analysis)", list);
         Assert.Equal(1, provider.Opens);
+        // the engine's provenance is in _meta
+        Assert.Equal(("full", "complete"), (call.EngineMeta["engineProfile"], call.EngineMeta["analysis"]));
 
         var missing = new FakeProvider(available: false);
         var absent = Setup(missing);

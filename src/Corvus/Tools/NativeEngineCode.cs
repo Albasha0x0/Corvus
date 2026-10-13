@@ -46,6 +46,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         var display = NativeEngineService.DisplayName(choice.Engine);
         var session = await engines.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"{display} {p.Stage}" })), ct);
+        EngineReport.Answered(choice, engines, session);
         if (names != null) await names.EnsureAsync(native, session, ct);
         return session;
     }
