@@ -392,6 +392,27 @@ public class PdbTests
     private static string PdbTools_Status(LoadedNative native) => Corvus.Tools.PdbTools.Status(native) ?? "";
 
     [Fact]
+    public async Task LoadPdbReturnsAnEditOutcomeAndClearUndoesIt()
+    {
+        using var h = new Harness();
+        var native = h.Env.Workspace.LoadAny(h.ImagePath).Native!;
+        await h.Code.Index(native, null, default);
+        var syms = h.Dir.File("syms2");
+        Directory.CreateDirectory(syms);
+        File.WriteAllBytes(Path.Combine(syms, "tiny.pdb"), PdbBuilder.Sample().Build());
+        var tools = new Corvus.Tools.PdbTools(h.Env.Workspace, h.Pdbs);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.LoadPdb(native.Id, path: syms);
+        var loaded = Assert.IsType<Corvus.Tools.PdbTools.PdbLoadOutcome>(collector.Value);
+        Assert.True(loaded.Pdb!.Match);
+        Assert.True(loaded.Applied);
+        Assert.Contains(loaded.Changes, c => c.Kind == "names" && c.After!.Contains("pdb names"));
+        await tools.LoadPdb(native.Id, clear: true);
+        var cleared = Assert.IsType<Corvus.Tools.PdbTools.PdbLoadOutcome>(collector.Value);
+        Assert.Contains(cleared.Changes, c => c.Kind == "names" && c.Before != null);
+    }
+
+    [Fact]
     public async Task LoadPdbAppliesNamesKeepsUserNamesAndAddsMissedFunctions()
     {
         using var h = new Harness();

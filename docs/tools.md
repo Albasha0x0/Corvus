@@ -1513,6 +1513,8 @@ Load the PDB of a native image: function and data names (publics, globals, proce
 | `maxMegabytes` | integer |  | `2048` | Download size limit in MB. |
 | `clear` | boolean |  | `false` | Remove the PDB names and their saved copy instead (not read again this session). |
 
+Structured output: `applied`, `changes`, `pdb`.
+
 ### search_pdb_symbols
 
 **Search native debug symbols** (read-only, idempotent)

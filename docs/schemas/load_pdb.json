@@ -1,0 +1,81 @@
+{
+  "type": "object",
+  "properties": {
+    "applied": {
+      "type": "boolean"
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "before": {
+            "type": "string"
+          },
+          "after": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "target"
+        ]
+      }
+    },
+    "pdb": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "guid": {
+          "type": "string"
+        },
+        "age": {
+          "type": "integer"
+        },
+        "match": {
+          "description": "The image's GUID and age match; absent when it has no RSDS record.",
+          "type": "boolean"
+        },
+        "downloaded": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "guid",
+        "age",
+        "downloaded"
+      ]
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "applied",
+    "changes"
+  ]
+}

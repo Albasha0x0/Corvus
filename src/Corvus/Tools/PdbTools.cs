@@ -35,7 +35,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         return "PDB not loaded (load_pdb)";
     }
 
-    [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols")]
+    [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(PdbLoadOutcome))]
     [Description("Load the PDB of a native image: function and data names (publics, globals, procedures, thunks), checked against its GUID and " +
                  "age. Searched: path, the image's folder, its recorded path, _NT_SYMBOL_PATH, the debugger caches and C:\\symbols; download=true " +
                  "fetches it from a symbol server. Names show as source 'pdb' (user names win); missed functions become function starts. A matching " +
@@ -56,8 +56,12 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         if (clear)
         {
             var (removed, deleted) = await Task.Run(() => workspace.Read(() => pdbs.Clear(native)), cancellationToken);
-            return removed is { } n ? $"{native.Id}: removed {Plural(n, "PDB name")}{(deleted ? " and the saved copy" : "")}."
-                : deleted ? $"{native.Id}: deleted the saved PDB names." : $"{native.Id}: no PDB names were loaded.";
+            var changes = new List<EditChange>();
+            if (removed is { } count) changes.Add(new EditChange("names", native.Id, Plural(count, "PDB name"), null));
+            if (deleted) changes.Add(new EditChange("saved_names", native.Id, "saved", null));
+            return ToolOutput.With(
+                removed is { } n ? $"{native.Id}: removed {Plural(n, "PDB name")}{(deleted ? " and the saved copy" : "")}."
+                : deleted ? $"{native.Id}: deleted the saved PDB names." : $"{native.Id}: no PDB names were loaded.", new PdbLoadOutcome(changes.Count > 0, changes, null));
         }
         progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"locating the PDB of {native.Id}" });
         var timeout = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 5, 3600));
@@ -98,8 +102,17 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         foreach (var t in p.Truncations) text.AppendLine($"  Limit: {t}");
         foreach (var i in p.Issues.Take(10)) text.AppendLine($"  Issue ({i.Area}): {i.Message}");
         if (p.Issues.Count > 10) text.AppendLine($"  ... {p.Issues.Count - 10} more issues");
-        return text.ToString();
+        var applied = new List<EditChange> { new("names", native.Id, null, $"{r.NamesApplied} pdb names from {Path.GetFileName(s.Path)}") };
+        if (r.NewFunctionStarts > 0) applied.Add(new EditChange("function_starts", native.Id, null, Plural(r.NewFunctionStarts, "function start")));
+        var match = native.Pe?.CodeView is { Format: "RSDS" } rsds ? p.Matches(rsds) : (bool?)null;
+        return ToolOutput.With(text.ToString(), new PdbLoadOutcome(true, applied, new PdbIdentity(s.Path, p.Guid.ToString("D"), (int)p.DbiAge, match, s.Downloaded)));
     });
+
+    /// <summary>load_pdb's outcome (S4.2): what changed, and the PDB read.</summary>
+    public sealed record PdbLoadOutcome(bool Applied, IReadOnlyList<EditChange> Changes, PdbIdentity? Pdb);
+
+    public sealed record PdbIdentity(string Path, string Guid, int Age,
+        [property: System.ComponentModel.Description("The image's GUID and age match; absent when it has no RSDS record.")] bool? Match, bool Downloaded);
 
     private static string Probes(IReadOnlyList<PdbProbe> probes)
     {
