@@ -803,7 +803,8 @@ internal sealed class Arm32Decoder : ICodeDecoder
         {
             ref var x = ref Back(k);
             if (IsCall(in x)) return null;
-            if (!own && Condition(in x) is { } cc)
+            // a conditional return (it hi; bxhi lr) leaves for out-of-range values as a branch to the default does
+            if (!own && (Condition(in x) ?? (x.Flow == ArmFlow.Return && x.IsConditional ? x.Cond : null)) is { } cc)
             {
                 if (pending == null)
                 {

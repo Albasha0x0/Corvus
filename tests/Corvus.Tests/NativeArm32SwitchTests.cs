@@ -54,6 +54,26 @@ public class NativeArm32SwitchTests
         Assert.Contains(g.Blocks, b => b.Start == cases[3] && b.EndKind == BlockEnd.Return);
     }
 
+    /// <summary>Thumb, biased, the default a conditional return: subs r0, #100; cmp r0, #3; it hi; bxhi lr; tbb [pc, r0].</summary>
+    [Fact]
+    public void Thumb_table_branch_bounded_by_a_conditional_return()
+    {
+        const int n = 4;
+        var a = new A32Code(Text);
+        var cases = new uint[n];
+        a.H(0x3864).H(A32Code.CmpImm(0, n - 1)).H(0xBF88).H(A32Code.BxLr);   // subs r0, #100; cmp r0, #3; it hi; bxhi lr
+        uint tb = a.Here;
+        a.T(A32Code.Tbb(0));
+        for (int k = 0; k < n; k += 2) { int c = k; a.Later(2, _ => (cases[c] - (tb + 4)) / 2 | (cases[c + 1] - (tb + 4)) / 2 << 8); }
+        for (int k = 0; k < n; k++) { cases[k] = a.Here; a.H(A32Code.MovImm(0, k + 10)).H(A32Code.BxLr); }
+        var (g, _) = Build(a, thumb: true);
+
+        var s = Assert.Single(g.Switches);
+        Assert.Equal((tb, n, 100L), (s.JumpRva, s.EntryCount, s.Bias));
+        Assert.Equal(cases, s.Cases.Select(c => c.Target));
+        Assert.Empty(g.UnresolvedJumps);
+    }
+
     /// <summary>ARM: cmp r0, #2; ldrls pc, [pc, r0, lsl #2]; b default; three absolute entries (an image without relocations).</summary>
     [Fact]
     public void Arm_conditional_load_into_pc()

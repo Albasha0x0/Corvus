@@ -84,6 +84,31 @@ public class NativeArm64SwitchTests
         Assert.Equal($"selects case 7 -> 0x{Base + caseAt[2]:X}", Assert.Single(g.Nodes, n => n.Kind == TraceNodeKind.Switch).Decoded);
     }
 
+    /// <summary>A table at the start of a page: add x9, x9, #0 after the adrp decodes as mov x9, x9 (MSVC, biased by 100).</summary>
+    [Fact]
+    public void A_table_at_a_page_start_through_the_mov_alias()
+    {
+        var a = new A64(Code);
+        uint anchor = 0, dflt = 0;
+        var caseAt = new uint[3];
+        a.Word(SubImm(8, 0, 100)).Word(CmpImm(8, 2)).Later(at => A64.BCond(at, dflt, Hi));
+        a.Word(A64.Adrp(a.Here, Data, 9, Base)).Word(A64.AddImm(9, 9, 0));
+        a.Later(at => A64.Adr(at, anchor, 10)).Word(Ldrb(11, 9, 8)).Word(AddShift(10, 10, 11, 2)).Word(A64.Br(10));
+        anchor = a.Here;
+        for (int i = 0; i < 3; i++) { caseAt[i] = a.Here; a.Word(A64.MovW(0, (uint)i + 1)).Word(A64.Ret); }
+        dflt = a.Here;
+        a.Word(A64.MovW(0, 0)).Word(A64.Ret);
+        var data = new byte[0x200];
+        caseAt.Select(t => (byte)((t - anchor) / 4)).ToArray().CopyTo(data, 0);
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), data, entry: Code));
+        var graph = index.GetGraph(index.FunctionByStart(Code)!);
+
+        var sw = Assert.Single(graph.Switches);
+        Assert.Equal((Data, 3, 100L, dflt), (sw.TableRva, sw.EntryCount, sw.Bias, sw.Default));
+        Assert.Equal(caseAt, sw.Cases.Select(c => c.Target));
+        Assert.Empty(graph.UnresolvedJumps);
+    }
+
     [Fact]
     public void Byte_offsets_from_an_adr_anchor_with_bias_and_a_sparse_default()
     {

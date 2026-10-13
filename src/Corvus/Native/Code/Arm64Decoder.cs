@@ -443,6 +443,9 @@ internal sealed class Arm64Decoder : ICodeDecoder
                 int shift = x.OperandCount > 3 && x.GetOperand(3).Kind == Arm64OperandKind.Shift ? ((Arm64ShiftOperand)x.GetOperand(3)).Amount : 0;
                 return Constant(w + 1, Index(in x, 1), depth + 1) is { } v ? v + ((ulong)((Arm64ImmediateOperand)x.GetOperand(2)).Value << shift) : null;
             }
+            // add xd, xn, #0 (a page offset of 0, a table at the start of a page) decodes as its mov alias
+            case Arm64InstructionId.MOV_add_64_addsub_imm when x.OperandCount == 2 && x.GetOperand(1).Kind == Arm64OperandKind.Register:
+                return Constant(w + 1, Index(in x, 1), depth + 1);
             case Arm64InstructionId.MOV_orr_64_log_shift:
                 return Constant(w + 1, Index(in x, 1), depth + 1);
         }
