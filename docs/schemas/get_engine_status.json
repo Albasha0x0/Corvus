@@ -35,6 +35,17 @@
           "version": {
             "type": "string"
           },
+          "profile": {
+            "description": "The analysis profile: full or none (IDA); standard, full, minimal or none (Ghidra).",
+            "type": "string"
+          },
+          "limitations": {
+            "description": "Known limits of this engine's analysis (engine-profile-standard: about 2% fewer references than the full profile).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "processor": {
             "type": "string"
           },

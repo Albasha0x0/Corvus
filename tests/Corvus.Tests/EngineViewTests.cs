@@ -57,8 +57,11 @@ public sealed class EngineViewTests : IDisposable
 
         rig.Provider.Gate.SetResult();
         await opening;
-        var open = await tool.GetEngineStatus(rig.Image);
+        var (open, call) = await EngineMeta.Run(() => tool.GetEngineStatus(rig.Image));
         Assert.Contains("Ghidra 12.1: open, analysis complete", open);
+        Assert.Contains("profile full", open);
+        var ghidra = Assert.IsType<NativeEngineStatusTools.EngineStatusReport>(call.Record).Engines.Single(e => e.Engine == "ghidra");
+        Assert.Equal(("full", null), (ghidra.Profile, ghidra.Limitations));
         Assert.Contains("x86 x86:LE:64:default, compiler windows, PE, 64-bit little", open);
         Assert.Contains("input: sha256 abc, md5 d41d", open);
         Assert.Contains(".text", open);

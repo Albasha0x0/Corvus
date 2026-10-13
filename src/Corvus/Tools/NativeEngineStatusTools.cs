@@ -26,6 +26,9 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         string? Error)
     {
         public string? Version { get; init; }
+        [Description("The analysis profile: full or none (IDA); standard, full, minimal or none (Ghidra).")] public string? Profile { get; init; }
+        [Description("Known limits of this engine's analysis (engine-profile-standard: about 2% fewer references than the full profile).")]
+        public IReadOnlyList<string>? Limitations { get; init; }
         public string? Processor { get; init; }
         public string? Language { get; init; }
         public string? Compiler { get; init; }
@@ -73,14 +76,22 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         foreach (var id in engines.ProviderIds.Where(i => wanted == null || i == wanted))
         {
             bool saved = engines.HasSavedAnalysis(native, id);
+            var identity = engines.Identity(id);
+            EngineStatus Known(EngineStatus s) => s with
+            {
+                Profile = identity.Profile, Version = s.Version ?? identity.Version,
+                Limitations = identity.Profile == "standard" ? [Limitations.Id(Limitation.EngineProfileStandard)] : null,
+            };
             if (states.FirstOrDefault(s => s.Engine == id) is not { } state)
             {
                 if (wanted != null || saved || engines.UnavailabilityOf(id) == null)
-                    list.Add(new EngineStatus(id, "not_started", null, 0, saved, engines.UnavailabilityOf(id)?.Reason));
+                    list.Add(Known(new EngineStatus(id, "not_started", null, 0, saved, engines.UnavailabilityOf(id)?.Reason)));
                 continue;
             }
             var status = new EngineStatus(id, state.State, state.Stage, state.Seconds, saved, state.Error) { OpenStages = state.OpenStages.Count > 0 ? state.OpenStages : null };
             if (state.Session is { IsOpen: true } session) status = await Describe(native, session, status, cancellationToken);
+            status = Known(status);
+            if (status.Analysis == "partial") status = status with { Limitations = [.. status.Limitations ?? [], Limitations.Id(Limitation.AnalysisPartial)] };
             list.Add(status);
         }
         return ToolOutput.With(Render(native, list), new EngineStatusReport(native.Id, list));
@@ -145,7 +156,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                     continue;
             }
             sb.AppendLine($"{name} {s.Version}: open, analysis {s.Analysis}" + (s.ReusedDatabase == true ? ", reused saved database" : ", analyzed in this session") +
-                          $", opened in {s.OpenSeconds:0.#} s");
+                          $", opened in {s.OpenSeconds:0.#} s; profile {s.Profile}");
             if (s.OpenStages != null) sb.AppendLine($"  open stages: {EngineOpenProfile.Describe(s.OpenStages)}");
             if (s.Analysis == "partial")
                 sb.AppendLine($"  the analysis budget ran out; reanalyze_native image={native.Id} engine={s.Engine} completes it");
