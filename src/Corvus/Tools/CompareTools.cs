@@ -159,7 +159,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         string? group = null;
         string Row((ChangeItem Item, string Group, string? Line) r)
         {
-            var text = (r.Group != group ? r.Group + (r.Line != null ? "\n" : "") : "") + (r.Line != null ? "  " + r.Line : "");
+            // A row under a heading continues on an indented line: the same column as a row without one.
+            var text = r.Group != group ? r.Group + (r.Line != null ? "\n  " + r.Line : "") : "    " + r.Line;
             group = r.Group;
             return text;
         }

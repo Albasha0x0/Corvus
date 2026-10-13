@@ -40,24 +40,21 @@ Types: 0 renamed, 4 with member changes, 1 removed, 0 added (7 matched of 8 old)
 Members (each change of a member counted): 2 renamed, 1 moved, 0 signature, 4 body, 0 metadata, 0 type, 0 offset, 0 address, 0 added, 0 removed, 0 ambiguous, 0 unknown
 Member matches: 73 exact, 2 strong, 1 structural, 0 ambiguous (by tier: full name + signature 53, full name 20, body shape 1, IL hash 1, IL hash, other type 1).
 
-Notes.CsvExporter
-    body      method Write(IEnumerable<Note>, TextWriter): 47 -> 47 instructions
-    renamed   method Quote(string) -> Escape(string)  (identical body (renamed); tier: IL hash, strong)
-
-Notes.LicenseCheck
-    renamed   method Verify(string) -> Check(string)  (identical body shape (renamed); tier: body shape, structural)  +body: 46 -> 46 instructions
-
-Notes.NoteStore
-    body      method All(): 25 -> 32 instructions
-
-Notes.Program
-    body      method Main(string[]): 90 -> 90 instructions
-
-Notes.Strings  (removed)
-    moved     method D(string, int) -> Notes.LicenseCheck::D(string, int)  (identical body (moved); tier: IL hash, other type, strong)
-
-Removed types (1):
-  Notes.Strings
+7 changes (showing 1-7):
+  Notes.CsvExporter
+      body      method Write(IEnumerable<Note>, TextWriter): 47 -> 47 instructions
+      renamed   method Quote(string) -> Escape(string)  (identical body (renamed); tier: IL hash, strong)
+  Notes.LicenseCheck
+      renamed   method Verify(string) -> Check(string)  (identical body shape (renamed); tier: body shape, structural)  +body: 46 -> 46 instructions
+  Notes.NoteStore
+      body      method All(): 25 -> 32 instructions
+  Notes.Program
+      body      method Main(string[]): 90 -> 90 instructions
+  Notes.Strings  (removed)
+      moved     method D(string, int) -> Notes.LicenseCheck::D(string, int)  (identical body (moved); tier: IL hash, other type, strong)
+  Removed types (1):
+      Notes.Strings
+[End: 7 changes]
 === [4/5] apply_edits
 Applying 3 edit(s) from notes-v1.edits.json to Notes#2 (different build: resolving symbols by name, renamed ones through Notes (the build the script was made from)):
 Build check: different build, carried over (targetBuild=other): the script was made for sha256 <sha256-1>, MVID <guid-1>, Notes, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null; Notes#2 is sha256 <sha256-2>, MVID <guid-2>, Notes, Version=2.0.0.0, Culture=neutral, PublicKeyToken=null
