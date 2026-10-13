@@ -39,6 +39,48 @@ public sealed class EngineViewTests : IDisposable
         return rig.Workspace.Read(() => rig.Workspace.Natives[0]);
     }
 
+    /// <summary>A call waiting for an open hears from it every few seconds while a stage lasts (S9.2), not only when the stage changes.</summary>
+    [Fact]
+    public async Task A_wait_for_an_open_sends_progress_while_a_stage_lasts()
+    {
+        var rig = Setup();
+        var native = await Loaded(rig);
+        rig.Engines.OpenHeartbeat = TimeSpan.FromMilliseconds(40);
+        rig.Provider.Gate = new TaskCompletionSource();
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<NativeProviderProgress>();
+        var opening = rig.Engines.Session(native, "ghidra", new SyncProgress(reports.Enqueue), default);
+        await rig.Provider.Reported.Task;
+        var until = DateTime.UtcNow.AddSeconds(5);
+        while (reports.Count(r => r.Stage.Contains("waiting", StringComparison.Ordinal)) < 3 && DateTime.UtcNow < until) await Task.Delay(20);
+        Assert.True(reports.Count(r => r.Stage.StartsWith("analysis, waiting", StringComparison.Ordinal)) >= 3, string.Join("; ", reports.Select(r => r.Stage)));
+        rig.Provider.Gate.SetResult();
+        await opening;
+    }
+
+    /// <summary>A call whose deadline comes during an engine's open gets a timeout that says the open goes on; the retry picks the same open up (EL-5).</summary>
+    [Fact]
+    public async Task A_deadline_during_an_open_is_a_timeout_and_the_retry_joins_the_open()
+    {
+        var rig = Setup();
+        var native = await Loaded(rig);
+        rig.Provider.Gate = new TaskCompletionSource();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        var e = await Assert.ThrowsAsync<ToolError>(() => rig.Engines.Session(native, "ghidra", null, deadline.Token));
+        Assert.Equal(ErrorCode.Timeout, e.Code);
+        Assert.Contains("goes on in the background", e.Message);
+        Assert.Contains("server_status", e.Remediation);
+        Assert.Equal(TimeSpan.FromSeconds(30), e.RetryAfter);
+        var retry = rig.Engines.Session(native, "ghidra", null, default);
+        rig.Provider.Gate.SetResult();
+        await retry;
+        Assert.Equal(1, rig.Provider.Opens);
+    }
+
+    private sealed class SyncProgress(Action<NativeProviderProgress> report) : IProgress<NativeProviderProgress>
+    {
+        public void Report(NativeProviderProgress value) => report(value);
+    }
+
     [Fact]
     public async Task Engine_status_reports_not_started_opening_with_its_stage_and_open_with_the_engine_view()
     {

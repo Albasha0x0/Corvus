@@ -477,6 +477,14 @@ public sealed class NativeEngineService : IDisposable
     public async Task<INativeDecompilerSession> Session(LoadedNative native, string? engine, IProgress<NativeProviderProgress>? progress, CancellationToken ct)
     {
         var id = Resolve(native, engine);
+        // an open reports its stages as they change; an analysis stage can last minutes, so the wait reports every few seconds too
+        var waiting = System.Diagnostics.Stopwatch.StartNew();
+        using var heartbeat = progress == null ? null : new Timer(_ =>
+        {
+            var h = Existing(native, id);
+            var stage = h?.Opening is { IsCompleted: false } ? h.Stage ?? "start" : "sync";
+            progress.Report(new NativeProviderProgress($"{stage}, waiting {waiting.Elapsed.TotalSeconds:0} s", h?.Opening is { IsCompleted: false } ? DateTime.UtcNow - h.OpenStarted : waiting.Elapsed));
+        }, null, OpenHeartbeat, OpenHeartbeat);
         var session = await SessionCore(native, id, progress, ct).ConfigureAwait(false);
         // the image's PDB types, once per PDB and database (see NativePdbTypes)
         var holder = Holder(native, id);
@@ -486,6 +494,9 @@ public sealed class NativeEngineService : IDisposable
         if (!patched && Interlocked.Exchange(ref holder.PdbTimed, 1) == 0) holder.Profile.After("pdb types", pdbClock.Elapsed.TotalSeconds);
         return session;
     }
+
+    /// <summary>Between progress reports while a call waits for an engine's open or patch sync (under the 5 s the progress contract allows).</summary>
+    internal TimeSpan OpenHeartbeat { get; set; } = TimeSpan.FromSeconds(4);
 
     /// <summary>Brings the PDB's types into the engine database (also used by the tools to report the type source).</summary>
     public NativePdbTypes PdbTypes { get; } = new();
@@ -602,7 +613,17 @@ public sealed class NativeEngineService : IDisposable
     {
         try { return await opening.WaitAsync(ct).ConfigureAwait(false); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && native.Released.IsCancellationRequested) { throw native.Gone(); }
+        // the call's deadline came first: the open is not the call's and goes on, so the same call later picks it up (EL-5)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested && !opening.IsCompleted && !native.Released.IsCancellationRequested)
+        {
+            throw new ToolError(ErrorCode.Timeout, $"the engine is still opening {native.Id} (its first analysis can take minutes); the open goes on in the background.",
+                "call again after details.retryAfterMs: the same open is picked up, not started again; server_status shows its stage and seconds")
+                { Details = new { stillRunning = true }, RetryAfter = OpenRetryAfter };
+        }
     }
+
+    /// <summary>When a call that left an engine open running should come back.</summary>
+    internal static readonly TimeSpan OpenRetryAfter = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// The import of the open IDA session's library names (the number imported, -1 when it failed), or null when no IDA
