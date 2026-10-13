@@ -1892,7 +1892,7 @@ Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the ex
 | `limit` | integer |  | `100` | Max rows. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `pattern`, `length`, `images`, `items`, `offset`, `total`, `failed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `pattern`, `items`, `offset`, `total`, `failed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### migrate_native_names
 

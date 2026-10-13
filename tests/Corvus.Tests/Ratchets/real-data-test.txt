@@ -4,11 +4,9 @@ add_search_directory
 analyze_native_function
 apply_il2cpp_names
 bucket_minidumps
-compare_native_images
 convert_number
 declare_native_types
 define_native
-diff_function
 disassemble
 dump_heap
 dump_object
@@ -55,7 +53,6 @@ load_assembly
 load_pdb
 load_session
 make_code_pattern
-map_address_between_builds
 migrate_native_names
 migrate_native_patches
 native_call_tree

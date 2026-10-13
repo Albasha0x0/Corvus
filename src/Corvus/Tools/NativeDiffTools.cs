@@ -128,7 +128,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     /// <summary>One function of an addresses[] batch: what changed, or why there is no diff.</summary>
     public sealed record FunctionDiffSummary(string Target, string? OldFunction, string? NewFunction, string? OldAddress, string? NewAddress, int? Tier,
-        string? Summary, int Same, int Changed, int Removed, int Added, BatchError? Error);
+        string? Summary, int Changed, int Removed, int Added, BatchError? Error);
 
     public sealed record FunctionDiffReport(
         string OldImage, string NewImage, string? OldFunction, string? NewFunction, string? OldAddress, string? NewAddress,
@@ -145,7 +145,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     public sealed record PatternHit(string Image, string Address, string Section, string? Function, string? FunctionAddress, uint? FunctionOffset);
 
-    public sealed record PatternSearch(string Pattern, int Length, int Images, IReadOnlyList<PatternHit> Items, int Offset, int Total,
+    public sealed record PatternSearch(string Pattern, IReadOnlyList<PatternHit> Items, int Offset, int Total,
         [property: Description("Images that could not be searched; the others are.")] IReadOnlyList<ImageError>? Failed,
         IReadOnlyList<string> Notes);
 
@@ -313,8 +313,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         {
             var batch = BatchResult.ThrowIfAllFailed(await BatchResult.RunAsync(addresses, a => DiffOne(pair, differ, a.Trim(), s == "old", v, context, engine, cancellationToken), "diff_function"));
             var summaries = batch.Items.Select(i => i.Value is { } d
-                ? new FunctionDiffSummary(i.Target.Trim(), d.OldFunction, d.NewFunction, d.OldAddress, d.NewAddress, d.Tier, d.Summary, d.Same, d.Changed, d.Removed, d.Added, null)
-                : new FunctionDiffSummary(i.Target.Trim(), null, null, null, null, null, null, 0, 0, 0, 0, i.Error)).ToList();
+                ? new FunctionDiffSummary(i.Target.Trim(), d.OldFunction, d.NewFunction, d.OldAddress, d.NewAddress, d.Tier, d.Summary, d.Changed, d.Removed, d.Added, null)
+                : new FunctionDiffSummary(i.Target.Trim(), null, null, null, null, null, null, 0, 0, 0, i.Error)).ToList();
             var text = new System.Text.StringBuilder($"{summaries.Count} functions{(batch.Failed > 0 ? $", {batch.Failed} failed" : "")} ({v}):\n");
             foreach (var f in summaries)
                 text.Append(f.Error is { } e ? $"{f.Target}: error {e.Code}: {e.Message}\n"
@@ -735,7 +735,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                     fn != null ? NativeAddress.Va(pe, fn.Start) : null, fn != null ? rva - fn.Start : null));
             }
         }
-        var record = new PatternSearch(p.ToString(), p.Length, targets.Count, [], offset, total, failed.Count > 0 ? failed : null, notes);
+        var record = new PatternSearch(p.ToString(), [], offset, total, failed.Count > 0 ? failed : null, notes);
         var head = new System.Text.StringBuilder($"{p} in {Plural(targets.Count, "image")}" + (failed.Count > 0 ? $"; {failed.Count} failed" : "") + ":\n");
         foreach (var f in failed) head.Append($"{f.Image}: error {f.Error.Code}: {f.Error.Message}\n");
         foreach (var note in notes) head.Append("Note: ").Append(note).Append('\n');

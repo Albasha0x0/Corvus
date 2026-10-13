@@ -6,4 +6,3 @@ get_native_type
 inspect_process
 list_exports
 list_native_types
-make_code_pattern

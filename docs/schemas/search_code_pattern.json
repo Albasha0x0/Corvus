@@ -4,12 +4,6 @@
     "pattern": {
       "type": "string"
     },
-    "length": {
-      "type": "integer"
-    },
-    "images": {
-      "type": "integer"
-    },
     "items": {
       "type": "array",
       "items": {
@@ -121,8 +115,6 @@
   },
   "required": [
     "pattern",
-    "length",
-    "images",
     "items",
     "offset",
     "total",
