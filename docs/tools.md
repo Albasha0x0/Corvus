@@ -1160,7 +1160,7 @@ Structured output: `image`, `engine`, `engineNote`, `items`, `notes`, `code`, `o
 
 **Search native instructions** (read-only, idempotent, open-world, long-running)
 
-Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or target) in every function, one function, or an address range; a scan budget's end is named in the result (continue with from=).
+Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or target) in every function, one function, or an address range; a page stopped by the scan budget goes on at nextOffset.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1174,11 +1174,11 @@ Find instructions by mnemonic, operand or whole-line regex (case-insensitive) an
 | `to` | string |  |  | Range end (exclusive). |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Max matches (max 2000). |
-| `maxInstructions` | integer |  | `500000` | Max instructions scanned (max 5000000). |
+| `maxInstructions` | integer |  | `500000` | Instructions scanned per page (max 5000000). |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `image`, `items`, `offset`, `total`, `scanned`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `items`, `offset`, `total`, `scanned`, `engine`, `engineNote`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
 ### get_cfg
 

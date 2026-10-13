@@ -45,11 +45,11 @@
       "description": "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).",
       "type": "string"
     },
-    "limit": {
-      "type": "integer"
-    },
     "totalExact": {
       "type": "boolean"
+    },
+    "limit": {
+      "type": "integer"
     },
     "hasMore": {
       "type": "boolean"

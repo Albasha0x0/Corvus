@@ -19,7 +19,7 @@ public sealed partial class NativeCodeTools
 {
     [McpServerTool(Name = "search_instructions", Title = "Search native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionMatchList))]
     [Description("Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or " +
-                 "target) in every function, one function, or an address range; a scan budget's end is named in the result (continue with from=).")]
+                 "target) in every function, one function, or an address range; a page stopped by the scan budget goes on at nextOffset.")]
     public Task<string> SearchInstructions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Mnemonic regex, e.g. '^(call|jmp)$'.")] string? mnemonic = null,
@@ -31,7 +31,7 @@ public sealed partial class NativeCodeTools
         [Description("Range end (exclusive).")] string? to = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max matches (max 2000).")] int limit = 100,
-        [Description("Max instructions scanned (max 5000000).")] int maxInstructions = 500_000,
+        [Description("Instructions scanned per page (max 5000000).")] int maxInstructions = 500_000,
         [Description(EngineDescription)] string? engine = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -44,7 +44,7 @@ public sealed partial class NativeCodeTools
             throw new ToolError(ErrorCode.InvalidArgument, "Pass function or a range, not both.");
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, 2000);
-        int budget = Math.Clamp(maxInstructions, 1, 5_000_000);
+        int budget = Math.Clamp(maxInstructions, 1, ScanState.MaxBudget);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var choice = Choose(mode, native, index);
         if (!choice.External && index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
@@ -72,22 +72,36 @@ public sealed partial class NativeCodeTools
         else if (!string.IsNullOrWhiteSpace(to)) throw new ToolError(ErrorCode.InvalidArgument, "to needs from.");
         else if (!choice.External) foreach (var f in index.Functions.OrderBy(f => f.Start)) ranges.AddRange(index.Ranges(f).Select(r => (r.Start, r.End, (NativeFunction?)f)));
 
+        var state = new ScanState(query, index.Image.ImageBase, offset, offset + limit + 1, budget);
         var scan = choice.External
-            ? await ScanEngine(native, index, ranges, functionRva, query, offset + limit + 1, budget, choice, progress, cancellationToken)
-            : await Task.Run(() => ScanIndex(index, ranges, query, offset + limit + 1, budget, cancellationToken), cancellationToken);
+            ? await ScanEngine(native, index, ranges, functionRva, state, choice, progress, cancellationToken)
+            : await Task.Run(() => ScanIndex(index, ranges, state, cancellationToken), cancellationToken);
 
         var head = new StringBuilder($"; {choice.Line}\n{Plural(scan.Scanned, "instruction")} scanned\n");
+        // a budget stop after a match past offset continues at nextOffset (the next page rescans to there); without one, at from=
+        bool resumable = scan.Matches.Count > offset;
         if (scan.StoppedAt is { } stop)
         {
-            var next = $"from=0x{index.Image.ImageBase + stop:X}" + (ranges.Count > 0 && ranges[^1].End > stop ? $" to=0x{index.Image.ImageBase + ranges[^1].End:X}" : "");
-            head.AppendLine($"Scan budget of {Plural(budget, "instruction")} reached at {NativeAddress.Va(index.Image, stop)}: continue with {next}, or raise maxInstructions");
-            ToolOutput.Coverage("partial", $"the scan budget stopped at {NativeAddress.Va(index.Image, stop)}; continue with {next}", "row-cap");
+            var at = NativeAddress.Va(index.Image, stop);
+            if (resumable)
+            {
+                head.AppendLine($"Scan budget of {Plural(budget, "instruction")} reached at {at}: the next page goes on from there");
+                ToolOutput.Coverage("partial", $"the scan budget stopped at {at}; total is a lower bound", "row-cap");
+            }
+            else
+            {
+                var next = $"from=0x{index.Image.ImageBase + stop:X}" + (ranges.Count > 0 && ranges[^1].End > stop ? $" to=0x{index.Image.ImageBase + ranges[^1].End:X}" : "");
+                head.AppendLine($"No match in {Plural(scan.Scanned, "instruction")} up to {at}: continue with {next}");
+                ToolOutput.Coverage("partial", $"the scan stopped at {at} without a match; continue with {next}", "row-cap");
+            }
         }
         // the scan stops one match past the page: more matches make the total a lower bound
         bool exact = scan.Matches.Count <= offset + limit && scan.StoppedAt == null;
+        bool more = !exact && resumable;
         var page = scan.Matches.Skip(offset).Take(limit).Select(m => new InstructionMatch(NativeAddress.Va(index.Image, m.Rva), m.Where, m.Text)).ToList();
         return ToolOutput.List(page, offset, limit, scan.Matches.Count, m => $"{m.Address}  {m.Function}  {m.Text}",
-            rows => new InstructionMatchList(native.Id, rows.ToList(), offset, scan.Matches.Count, scan.Scanned, choice.Engine, choice.Note), "matching instruction",
+            rows => new InstructionMatchList(native.Id, rows.ToList(), offset, scan.Matches.Count, scan.Scanned, choice.Engine, choice.Note)
+                { TotalExact = exact ? null : false, Truncated = more ? true : null }, "matching instruction",
             head.ToString(), exact);
     });
 
@@ -98,11 +112,44 @@ public sealed partial class NativeCodeTools
     public sealed record InstructionMatchList(string Image, IReadOnlyList<InstructionMatch> Items, int Offset, int Total,
         [property: Description("Instructions scanned.")] int Scanned,
         [property: Description(EngineDoc.Engine)] string Engine,
-        [property: Description(EngineDoc.Note)] string? EngineNote);
+        [property: Description(EngineDoc.Note)] string? EngineNote)
+    {
+        public bool? TotalExact { get; init; }
+
+        public bool? Truncated { get; init; }
+    }
 
     private sealed record InstructionScan(List<ScanMatch> Matches, int Scanned, uint? StoppedAt);
 
     private sealed record ScanMatch(uint Rva, string Where, string Text);
+
+    /// <summary>
+    /// One page's scan: the first <paramref name="skip"/> matches (the earlier pages) are found again outside the budget, so
+    /// a page resumes where the last one stopped; after them the budget counts, and a page scans on to one match past them
+    /// unless <see cref="MaxBudget"/> instructions find none.
+    /// </summary>
+    private sealed class ScanState(InstructionQuery query, ulong imageBase, int skip, int wanted, int budget)
+    {
+        public const int MaxBudget = 5_000_000;
+        public readonly List<ScanMatch> Matches = [];
+        public int Scanned;
+        private int _past;
+
+        /// <summary>The budget is spent before the next instruction.</summary>
+        public bool Spent => Matches.Count >= skip && _past >= budget && (Matches.Count > skip || _past >= MaxBudget);
+
+        /// <summary>Scans one instruction; true when the page has enough matches.</summary>
+        public bool Take(uint rva, string text, Func<string> where, params uint?[] targets)
+        {
+            Scanned++;
+            if (Matches.Count >= skip) _past++;
+            if (!query.Matches(text, imageBase, targets)) return false;
+            Matches.Add(new(rva, where(), text));
+            return Matches.Count >= wanted;
+        }
+
+        public InstructionScan Done(uint? stoppedAt = null) => new(Matches, Scanned, stoppedAt);
+    }
 
     private static Regex? Pattern(string? text, string name)
     {
@@ -176,65 +223,59 @@ public sealed partial class NativeCodeTools
 
     private static string Where(NativeFunction? f, uint rva) => f != null ? $"{f.Name}+0x{rva - f.Start:X}" : "-";
 
-    private static InstructionScan ScanIndex(NativeCodeIndex index, List<(uint Start, uint End, NativeFunction? Function)> ranges, InstructionQuery query,
-        int wanted, int budget, CancellationToken ct)
+    private static InstructionScan ScanIndex(NativeCodeIndex index, List<(uint Start, uint End, NativeFunction? Function)> ranges, ScanState state, CancellationToken ct)
     {
         var dis = index.CreateDisassembler();
-        var matches = new List<ScanMatch>();
-        int scanned = 0;
         foreach (var (start, end, fn) in ranges)
         {
             uint at = start;
             while (at < end)
             {
                 ct.ThrowIfCancellationRequested();
-                if (scanned >= budget) return new(matches, scanned, at);
-                var lines = dis.Disassemble(at, Math.Min(4096, budget - scanned), end);
+                var lines = dis.Disassemble(at, 4096, end);
                 if (lines.Count == 0) break;
                 foreach (var l in lines)
                 {
-                    scanned++;
-                    var f = fn ?? index.FunctionAt(l.Rva);
-                    if (query.Matches(l.Text, index.Image.ImageBase, l.Facts.BranchTarget, l.Facts.MemoryTarget, l.Facts.ImmediateTarget))
-                    {
-                        matches.Add(new(l.Rva, Where(f, l.Rva), l.Text));
-                        if (matches.Count >= wanted) return new(matches, scanned, null);
-                    }
+                    if (state.Spent) return state.Done(l.Rva);
+                    if (state.Take(l.Rva, l.Text, () => Where(fn ?? index.FunctionAt(l.Rva), l.Rva), l.Facts.BranchTarget, l.Facts.MemoryTarget, l.Facts.ImmediateTarget))
+                        return state.Done();
                 }
                 var last = lines[^1];
                 at = Math.Max(at + 1, last.Rva + (uint)Math.Max(1, last.Facts.Length));
             }
         }
-        return new(matches, scanned, null);
+        return state.Done();
     }
 
     /// <summary>The engine's instructions: of each function for a function scan or a whole-image scan (the engine's functions), else of the range.</summary>
     private async Task<InstructionScan> ScanEngine(LoadedNative native, NativeCodeIndex index, List<(uint Start, uint End, NativeFunction? Function)> ranges, uint? function,
-        InstructionQuery query, int wanted, int budget, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+        ScanState state, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await _engine!.Session(native, choice, progress, ct);
-        var matches = new List<ScanMatch>();
-        int scanned = 0;
         // true when the scan is done: enough matches, or the budget ran out (stop: the first instruction not scanned)
         bool Take(IEnumerable<Native.Providers.DisassembledInstruction> instructions, Func<uint, string> where, out uint? stop)
         {
             stop = null;
             foreach (var i in instructions)
             {
-                if (scanned >= budget) { stop = i.Rva; return true; }
-                scanned++;
-                if (!query.Matches(i.Text, index.Image.ImageBase)) continue;
-                matches.Add(new(i.Rva, where(i.Rva), i.Text));
-                if (matches.Count >= wanted) return true;
+                if (state.Spent) { stop = i.Rva; return true; }
+                if (state.Take(i.Rva, i.Text, () => where(i.Rva))) return true;
             }
             return false;
         }
         if (function == null && ranges.Count == 1)
         {
             var (start, end, _) = ranges[0];
-            var d = await session.DisassembleRangeAsync(start, Math.Min(budget, (int)Math.Min(int.MaxValue, end - start)), ct);
-            Take(d.Instructions.Where(i => i.Rva < end), r => Where(index.FunctionAt(r), r), out var stop);
-            return new(matches, scanned, stop);
+            for (uint at = start; at < end;)
+            {
+                ct.ThrowIfCancellationRequested();
+                var d = await session.DisassembleRangeAsync(at, (int)Math.Min(4096, end - at), ct);
+                var lines = d.Instructions.Where(i => i.Rva >= at && i.Rva < end).ToList();
+                if (lines.Count == 0) break;
+                if (Take(lines, r => Where(index.FunctionAt(r), r), out var stop)) return state.Done(stop);
+                at = Math.Max(at + 1, lines[^1].Rva + (uint)Math.Max(1, lines[^1].Bytes.Length));
+            }
+            return state.Done();
         }
         var functions = function is { } one ? [one] : (await session.ListFunctionsAsync(ct)).Select(f => f.StartRva).Order().ToList();
         foreach (var f in functions)
@@ -242,8 +283,8 @@ public sealed partial class NativeCodeTools
             ct.ThrowIfCancellationRequested();
             var d = await session.DisassembleAsync(f, ct);
             var name = index.FunctionByStart(d.StartRva)?.Name ?? d.Name;
-            if (Take(d.Instructions, r => $"{name}+0x{r - d.StartRva:X}", out var stop)) return new(matches, scanned, stop);
+            if (Take(d.Instructions, r => $"{name}+0x{r - d.StartRva:X}", out var stop)) return state.Done(stop);
         }
-        return new(matches, scanned, null);
+        return state.Done();
     }
 }

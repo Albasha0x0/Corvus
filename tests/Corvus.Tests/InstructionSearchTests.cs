@@ -57,11 +57,66 @@ public sealed class InstructionSearchTests : IDisposable
         Assert.Contains("More: offset=1", all);
         Assert.Contains("ret", await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", offset: 1, limit: 1));
         var budget = await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", maxInstructions: 1);
-        Assert.Contains("Scan budget of 1 instruction reached at 0x140001045: continue with from=0x140001045 to=0x140001046", budget);
+        Assert.Contains("Scan budget of 1 instruction reached at 0x140001045: the next page goes on from there", budget);
+        Assert.Contains("[More: offset=1]", budget);
+        Assert.Contains("ret", await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", offset: 1, maxInstructions: 1));
+        // no match within the budget: the page scans on to one
+        Assert.Contains("1 matching instruction ", await Search(mnemonic: "^ret$", start: "rva:0x1040", end: "rva:0x1046", maxInstructions: 1));
 
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Search())).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Search(mnemonic: "(unclosed"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Search(mnemonic: "mov", value: "zz"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Search(mnemonic: "mov", function: "rva:0x1000", start: "rva:0x1000"))).Code);
+    }
+
+    /// <summary>G2-B5: pages a scan budget stops continue at the record's nextOffset, as the text footer says, to every match once.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("rva:0x1000")]
+    public async Task Budget_stopped_pages_walk_to_every_match_once(string? from)
+    {
+        const int Functions = 24;
+        byte[] Code(Dictionary<string, uint> _)
+        {
+            var bytes = new List<byte>();
+            for (int i = 0; i < Functions; i++) bytes.AddRange([0xB8, (byte)i, 0, 0, 0, 0xC3, .. Enumerable.Repeat((byte)0xCC, 10)]); // mov eax, i; ret
+            return [.. bytes];
+        }
+        var path = _dir.File("rets.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("rets.dll", [.. Enumerable.Range(0, Functions).Select(i => ($"F{i}", (object)(16 * i)))], [], Code));
+        await using var server = await InProcessServer.StartAsync();
+        Dictionary<string, object?> Args(int offset) => new()
+        {
+            ["image"] = path, ["mnemonic"] = "^ret$", ["maxInstructions"] = 3, ["limit"] = 4, ["offset"] = offset,
+            ["from"] = from, ["to"] = from == null ? null : $"rva:0x{0x1000 + 16 * Functions:X}",
+        };
+        var seen = new List<string>();
+        int pages = 0;
+        for (int offset = 0; ; pages++)
+        {
+            Assert.True(pages < 3 * Functions, "the walk does not end");
+            var r = await server.Client.CallToolAsync("search_instructions", Args(offset));
+            var text = string.Concat(r.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
+            Assert.True(r.IsError != true, text);
+            var record = r.StructuredContent!.Value;
+            seen.AddRange(record.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("address").GetString()!));
+            bool more = record.GetProperty("hasMore").GetBoolean();
+            var footer = System.Text.RegularExpressions.Regex.Match(text, @"\[More: offset=(\d+)\]");
+            Assert.Equal(more, footer.Success);
+            if (!more)
+            {
+                Assert.False(record.TryGetProperty("nextOffset", out _));
+                Assert.True(record.GetProperty("totalExact").GetBoolean(), text);
+                break;
+            }
+            Assert.False(record.GetProperty("totalExact").GetBoolean());
+            int next = record.GetProperty("nextOffset").GetInt32();
+            Assert.Equal(next, int.Parse(footer.Groups[1].Value));
+            Assert.Equal(offset + record.GetProperty("items").GetArrayLength(), next);
+            offset = next;
+        }
+        Assert.True(pages > 2, $"{pages} pages: the budget should stop the scan");
+        Assert.Equal(Functions, seen.Count);
+        Assert.Equal(Enumerable.Range(0, Functions).Select(i => $"0x{0x180001005L + 16 * i:X}"), seen);
     }
 }
