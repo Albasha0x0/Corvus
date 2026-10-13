@@ -156,6 +156,17 @@ public class NativeX86DiscoveryTests
     }
 
     [Fact]
+    public void X64_pe_gap_scan_skips_nops_after_int3_padding()
+    {
+        // .pdata functions at 0x1000 and 0x1010; between them ret, int3, then nop fill (as NativeAOT pads)
+        byte[] code = [0x31, 0xC0, 0xC3, 0xCC, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x8D, 0x47, 0x01, 0xC3];
+        var unwind = Data;
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, data: [1, 0, 0, 0], entry: Code,
+            pdata: [new RuntimeFunction(Code, Code + 3, unwind), new RuntimeFunction(Code + 0x10, Code + 0x14, unwind)]));
+        Assert.Equal([Code, Code + 0x10], index.Functions.Select(f => f.Start));
+    }
+
+    [Fact]
     public void A_short_jump_over_nops_is_alignment_fill_not_a_function()
     {
         // f: call g; ret; then GNU as fill "jmp +13; 13 x nop" up to g

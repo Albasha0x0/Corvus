@@ -629,10 +629,10 @@ internal sealed partial class FunctionDiscovery
                 if (!prologues)
                 {
                     if (bytes[p] == 0xCC) { afterCode |= sawCode; sawCode = false; p++; continue; }
-                    // ELF and Mach-O pad with nops (or nothing) instead of int3
-                    if (nopPadding)
+                    // ELF and Mach-O pad with nops (or nothing) instead of int3; NativeAOT pads with int3 then nops
+                    if (nopPadding || afterCode)
                     {
-                        if (sawCode) afterCode = true;
+                        if (nopPadding && sawCode) afterCode = true;
                         sawCode = false;
                         if (PaddingLength(bytes, p, bytes.Length) is var nops and > 0) { p += nops; continue; }
                     }
