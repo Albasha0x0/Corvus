@@ -75,16 +75,17 @@ public static partial class ToolEffects
     public const string AlwaysLoadMetaKey = "anthropic/alwaysLoad";
     public static readonly IReadOnlySet<string> AlwaysLoad = new HashSet<string>(StringComparer.Ordinal) { "load_assembly", "server_status" };
 
-    /// <summary>Sets every tool's annotations (keeping its title), marks long-running tools in the description and _meta, and sets the client _meta keys.</summary>
+    /// <summary>Sets every tool's annotations, marks long-running tools in the description and _meta, and sets the client _meta keys.</summary>
     public static void Apply(IEnumerable<McpServerTool> tools)
     {
         foreach (var tool in tools)
         {
             var t = tool.ProtocolTool;
             var e = Of(t.Name);
+            // The title is said once, at the top level (annotations.title predates it and repeated it: 5 KB of tools/list).
+            t.Title ??= t.Annotations?.Title;
             t.Annotations = new ToolAnnotations
             {
-                Title = t.Annotations?.Title ?? t.Title,
                 ReadOnlyHint = e.ReadOnly,
                 DestructiveHint = e.Destructive,
                 IdempotentHint = e.Idempotent,

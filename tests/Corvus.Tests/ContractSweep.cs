@@ -556,7 +556,7 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
             var a = t.Annotations;
             if (a?.ReadOnlyHint != e.ReadOnly || a.DestructiveHint != e.Destructive || a.IdempotentHint != e.Idempotent || a.OpenWorldHint != e.OpenWorld)
                 problems.Add($"{t.Name}: advertised annotations differ from ToolEffects.Table");
-            if (a?.Title != t.Title) problems.Add($"{t.Name}: annotation title differs from the tool's title");
+            if (string.IsNullOrEmpty(t.Title) || a?.Title != null) problems.Add($"{t.Name}: the title belongs at the top level only");
             if (e.ReadOnly && ContractSweep.FileWriters.ContainsKey(t.Name)) problems.Add($"{t.Name}: writes files but is read-only in ToolEffects.Table");
             if (e.ReadOnly && (e.Destructive || !e.Idempotent)) problems.Add($"{t.Name}: read-only, so not destructive and idempotent");
             bool longMarked = t.Description?.EndsWith(Corvus.Mcp.ToolEffects.LongRunningSuffix, StringComparison.Ordinal) == true;
