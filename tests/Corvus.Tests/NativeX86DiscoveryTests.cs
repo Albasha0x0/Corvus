@@ -300,6 +300,7 @@ public class NativeX86DiscoveryTests
     [InlineData(6)] // a byte compared in memory, then loaded: cmp byte [esi], 2; ja; movzx ecx, byte [esi]
     [InlineData(7)] // the GOT pointer spilled to the stack and reloaded (past a push) into another register for the dispatch
     [InlineData(8)] // a byte element compared in memory, then loaded: cmp byte [eax + esi], 2; ja; movzx ecx, byte [eax + esi]
+    [InlineData(9)] // the index scaled into another frame slot (mov eax, [ebp-8]; shl eax, 2; mov [ebp-12], eax), bounded in the first, reloaded scaled
     public void I386_position_independent_switch_tables_resolve(int form)
     {
         const uint Got = Data, Table = Data + 0x40;
@@ -331,6 +332,11 @@ public class NativeX86DiscoveryTests
             else if (form == 7) { a.mov(__dword_ptr[esp + 8], ebx); a.xor(ebx, ebx); a.push(ecx); a.cmp(eax, 2); a.ja(dflt); a.mov(edx, __dword_ptr[esp + 12]); a.pop(ecx); }
             else if (form == 6) { a.mov(esi, eax); a.cmp(__byte_ptr[esi], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[esi]); }
             else if (form == 8) { a.xor(esi, esi); a.cmp(__byte_ptr[eax + esi], 2); a.ja(dflt); a.movzx(ecx, __byte_ptr[eax + esi]); }
+            else if (form == 9)
+            {
+                a.mov(__dword_ptr[ebp - 8], eax); a.mov(eax, __dword_ptr[ebp - 8]); a.shl(eax, 2); a.mov(__dword_ptr[ebp - 12], eax);
+                a.xor(eax, eax); a.cmp(__dword_ptr[ebp - 8], 2); a.ja(dflt); a.mov(ecx, __dword_ptr[ebp - 12]);
+            }
             else if (form != 2) { a.cmp(eax, 2); a.ja(dflt); }
             switch (form)
             {
@@ -338,7 +344,8 @@ public class NativeX86DiscoveryTests
                 case 8:
                 case 6: a.mov(eax, __dword_ptr[ebx + ecx * 4 + (int)(Table - Got)]); a.add(eax, ebx); a.jmp(eax); break;
                 case 4: a.mov(eax, __dword_ptr[ebx + ecx * 4 + (int)(Table - Got)]); a.add(eax, ebx); a.xchg(eax, edx); a.jmp(edx); break;
-                case 5: a.mov(eax, __dword_ptr[ebx + ecx + (int)(Table - Got)]); a.add(eax, ebx); a.jmp(eax); break;
+                case 5:
+                case 9: a.mov(eax, __dword_ptr[ebx + ecx + (int)(Table - Got)]); a.add(eax, ebx); a.jmp(eax); break;
                 case 1: a.add(edx, __dword_ptr[edx + eax * 4 + (int)(Table - Got)]); a.jmp(edx); break;
                 case 2: a.mov(eax, __dword_ptr[ebp + eax * 4 + (int)(Table - Got)]); a.lea(eax, __[eax + ebp]); a.jmp(eax); break;
                 case 3: a.lea(ecx, __[eax * 4]); a.mov(eax, __dword_ptr[esi + ecx + (int)(Table - Got)]); a.add(eax, esi); a.jmp(eax); break;

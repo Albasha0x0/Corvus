@@ -243,6 +243,42 @@ internal sealed class X86Decoder : ICodeDecoder
         _stateAt.Clear();
         _states = 0;
         _dispatchState = -1;
+        _scaledSlots.Clear();
+    }
+
+    // frame slots [ebp + d] holding another frame slot's value times four (a switch index scaled once and kept), by displacement
+    private readonly Dictionary<ulong, ulong> _scaledSlots = [];
+
+    /// <summary>
+    /// "mov [ebp + d2], r" (the last instruction) after "mov r, [ebp + d1]; shl r, 2" (or lea r, [r'*4] of such a load):
+    /// records d2 as d1 scaled; any other store to a recorded slot forgets it.
+    /// </summary>
+    private void TrackScaledSlot(in Instruction i)
+    {
+        var frame = _is64 ? Register.RBP : Register.EBP;
+        if (i.Op0Kind != OpKind.Memory || i.MemoryBase != frame || i.MemoryIndex != Register.None
+            || i.Mnemonic is Mnemonic.Cmp or Mnemonic.Test or Mnemonic.Push or Mnemonic.Bt or Mnemonic.Call or Mnemonic.Jmp) return;
+        ulong d2 = i.MemoryDisplacement64;
+        if (i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Register && IsFull(i.Op1Register))
+        {
+            var r = i.Op1Register.GetFullRegister();
+            int w = FindWriter(1, r);
+            if (w >= 0)
+            {
+                ref var x = ref Back(w);
+                int load = -1;
+                if (x.Mnemonic == Mnemonic.Shl && x.Op1Kind == OpKind.Immediate8 && x.Immediate8 == 2) load = FindWriter(w + 1, r);
+                else if (x.Mnemonic == Mnemonic.Lea && x.MemoryBase == Register.None && x.MemoryIndexScale == 4 && x.MemoryDisplacement64 == 0)
+                    load = FindWriter(w + 1, x.MemoryIndex.GetFullRegister());
+                if (load >= 0 && Back(load) is { Mnemonic: Mnemonic.Mov, Op1Kind: OpKind.Memory, MemoryIndex: Register.None } l && l.MemoryBase == frame
+                    && l.MemorySize is MemorySize.UInt32 or MemorySize.Int32)
+                {
+                    _scaledSlots[d2] = l.MemoryDisplacement64;
+                    return;
+                }
+            }
+        }
+        _scaledSlots.Remove(d2);
     }
 
     private static int Gpr(Register r)
@@ -267,6 +303,7 @@ internal sealed class X86Decoder : ICodeDecoder
         _popPc = 0;
         int frame = _espKnown ? _esp : int.MinValue;
         TrackEsp(in i, in insn);
+        if (i.Op0Kind == OpKind.Memory) TrackScaledSlot(in i);
         if (insn.Flow is FlowKind.Jump or FlowKind.ConditionalJump && insn.HasTarget && !_stateAt.ContainsKey(insn.Target)) _stateAt[insn.Target] = SaveState();
         else if (insn.Flow == FlowKind.IndirectJump) _dispatchState = SaveState();
         if (insn.Flow is FlowKind.Call or FlowKind.IndirectCall)
@@ -880,18 +917,21 @@ internal sealed class X86Decoder : ICodeDecoder
         }
         else
         {
+            ulong? slot = null;
             if (l.MemoryIndexScale == 1)
             {
-                // the index scaled before the load: lea rI, [rJ*4] or shl rI, 2
+                // the index scaled before the load: lea rI, [rJ*4] or shl rI, 2, or a frame slot holding another one scaled
                 if (s < 0) return null;
                 ref var x = ref Back(s);
                 if (x.Mnemonic == Mnemonic.Lea && x.MemoryBase == Register.None && x.MemoryIndexScale == 4 && x.MemoryDisplacement64 == 0) index = x.MemoryIndex.GetFullRegister();
+                else if (x.Mnemonic == Mnemonic.Mov && x.Op1Kind == OpKind.Memory && x.MemoryIndex == Register.None && x.MemoryBase == (_is64 ? Register.RBP : Register.EBP)
+                         && _scaledSlots.TryGetValue(x.MemoryDisplacement64, out ulong source)) slot = source;
                 else if (!(x.Mnemonic == Mnemonic.Shl && x.Op1Kind == OpKind.Immediate8 && x.Immediate8 == 2)) return null;
                 next = s + 1;
             }
             else if (l.MemoryIndexScale != 4) return null;
             bool assumed = false;
-            if (!TryFindBound(next, index, ref assumed, out count, out indexTable, out reason, out bound)) return null;
+            if (!TryFindBound(next, index, ref assumed, out count, out indexTable, out reason, out bound, slot)) return null;
         }
         var match = indexTable is { } it
             ? new SwitchMatch(table, 4, false, entryBase == table, 0, it, count, false)
@@ -949,10 +989,11 @@ internal sealed class X86Decoder : ICodeDecoder
 
     /// <summary>
     /// Walks back from step <paramref name="k"/> to the compare bounding <paramref name="index"/>, following register
-    /// copies and at most one byte index table ("movzx rI, byte [rJ + table]").
+    /// copies and at most one byte index table ("movzx rI, byte [rJ + table]"). <paramref name="frameSlot"/>: the index is the
+    /// frame slot [ebp + d] instead.
     /// </summary>
     private bool TryFindBound(int k, Register index, ref bool baseAssumed, out uint count, out uint? indexTable, out string reason,
-        out (uint? Default, long Bias, bool Mask) bound)
+        out (uint? Default, long Bias, bool Mask) bound, ulong? frameSlot = null)
     {
         count = 0;
         indexTable = null;
@@ -962,10 +1003,10 @@ internal sealed class X86Decoder : ICodeDecoder
         var pending = ConditionCode.None;
         int pendingStep = 0;
         // the index was loaded from memory [base + disp] (a frame slot, a field): follow the slot instead of a register
-        bool inSlot = false;
-        Register slotBase = Register.None, slotIndex = Register.None;
+        bool inSlot = frameSlot != null;
+        Register slotBase = inSlot ? Register.RBP : Register.None, slotIndex = Register.None;
         int slotScale = 1;
-        ulong slotDisp = 0;
+        ulong slotDisp = frameSlot ?? 0;
         for (; k < _ringCount; k++)
         {
             ref var x = ref Back(k);
