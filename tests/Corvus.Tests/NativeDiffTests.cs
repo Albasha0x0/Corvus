@@ -331,25 +331,36 @@ public class NativeDiffTests
         var tools = new Corvus.Tools.NativeDiffTools(env.Workspace, code);
         var path = dir.File("a.dll");
         File.WriteAllBytes(path, NativePeTests.KitchenSink(is64: true));
-        var ida = await tools.MakeCodePattern(path, "First", anchor: "address");
+        var ida = await tools.MakePattern(path, "First", anchor: "address");
         var tokens = ida.Pattern.Split(' ');
-        Assert.Equal(ida.Pattern, (await tools.MakeCodePattern(path, "First", anchor: "address", format: "x64dbg")).Pattern);
-        var mask = (await tools.MakeCodePattern(path, "First", anchor: "address", format: "mask")).Pattern;
+        Assert.Equal(ida.Pattern, (await tools.MakePattern(path, "First", anchor: "address", format: "x64dbg")).Pattern);
+        var mask = (await tools.MakePattern(path, "First", anchor: "address", format: "mask")).Pattern;
         Assert.Equal(string.Concat(tokens.Select(t => t == "??" ? "\\x00" : "\\x" + t)) + " " + string.Concat(tokens.Select(t => t == "??" ? '?' : 'x')), mask);
-        var bits = (await tools.MakeCodePattern(path, "First", anchor: "address", format: "bitmask")).Pattern;
+        var bits = (await tools.MakePattern(path, "First", anchor: "address", format: "bitmask")).Pattern;
         Assert.Equal(string.Join(", ", tokens.Select(t => t == "??" ? "0x00" : "0x" + t)) + " 0b" + string.Concat(tokens.Reverse().Select(t => t == "??" ? '0' : '1')), bits);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakeCodePattern(path, "First", format: "yara"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakePattern(path, "First", format: "yara"))).Code);
 
         // range: the instructions inside [start, end) only, unique or not
-        var range = await tools.MakeCodePattern(path, "First", anchor: "range", end: "+0x4");
+        var range = await tools.MakePattern(path, "First", anchor: "range", end: "+0x4");
         Assert.Equal("range", range.Anchor);
         Assert.InRange(range.Length, 1, 4);
         Assert.Equal(range.Hits == 1, range.Unique);
         Assert.Equal(tokens.Take(range.Length), range.Pattern.Split(' ').Take(tokens.Length));
-        var e = await Assert.ThrowsAsync<ToolError>(() => tools.MakeCodePattern(path, "First", anchor: "range"));
+        var e = await Assert.ThrowsAsync<ToolError>(() => tools.MakePattern(path, "First", anchor: "range"));
         Assert.Equal(ErrorCode.InvalidArgument, e.Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakeCodePattern(path, "First", end: "+4"))).Code);
-        Assert.Equal(ErrorCode.LimitExceeded, (await Assert.ThrowsAsync<ToolError>(() => tools.MakeCodePattern(path, "First", anchor: "range", end: "+0x10000"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakePattern(path, "First", end: "+4"))).Code);
+        Assert.Equal(ErrorCode.LimitExceeded, (await Assert.ThrowsAsync<ToolError>(() => tools.MakePattern(path, "First", anchor: "range", end: "+0x10000"))).Code);
+
+        // the tool: addresses[] with a bad one is a success with a per-item error
+        var (batch, text) = await BuildToolCalls.Collected<Corvus.Tools.NativeDiffTools.CodePatternResults>(() => tools.MakeCodePattern(path, addresses: ["First", "no_such_name"], anchor: "address"));
+        Assert.Equal((1, "ida"), (batch.Failed, batch.Format));
+        Assert.Equal(("First", ida.Pattern), (batch.Results[0].Target, batch.Results[0].Pattern));
+        Assert.Equal("not_found", batch.Results[1].Error!.Code);
+        Assert.StartsWith($"2 addresses, 1 failed.\nFirst: {ida.Pattern}\n", text);
+        var (one, oneText) = await BuildToolCalls.Collected<Corvus.Tools.NativeDiffTools.CodePatternResults>(() => tools.MakeCodePattern(path, "First", anchor: "address"));
+        Assert.Null(Assert.Single(one.Results).Target);
+        Assert.Contains(" fixed, ", oneText);
+        Assert.Contains(", address at ", oneText);
     }
 
     [Fact]

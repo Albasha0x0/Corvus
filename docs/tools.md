@@ -1861,20 +1861,21 @@ Structured output: `oldImage`, `newImage`, `results`, `failed`.
 
 **Make a code pattern** (read-only, idempotent, open-world, long-running)
 
-A byte pattern for an address that survives rebuilds: instruction bytes with displacements and relocated addresses as ?? ('48 8B 05 ?? ?? ?? ??'), extended until it is unique in the executable sections. anchor=reference (or auto when the code is not unique): the pattern starts at an instruction referencing the address, with the operand offset to recover it from a hit. anchor=xrefs: a signature at each referencing instruction, so a rebuild that changed one site keeps others. anchor=range: [address, end), unique or not. search_code_pattern finds it in another build.
+Make a byte pattern for an address that survives rebuilds: instruction bytes with displacements and relocated addresses as ?? ('48 8B 05 ?? ?? ?? ??'), extended until unique in the executable sections. anchor=auto starts at the address, else at an instruction referencing it (with the operand offset to recover it); xrefs: one per referencing instruction; range: [address, end). search_code_pattern finds it in another build.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
-| `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `anchor` | string |  |  | auto (default): the address, else a reference to it; xrefs: one per reference. Values: auto, address, reference, xrefs, range. |
+| `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
+| `addresses` | string[] |  |  | Instead of address: up to 50 addresses. |
+| `anchor` | string |  | `auto` | auto, address, reference, xrefs or range. Values: auto, address, reference, xrefs, range. |
 | `maxBytes` | integer |  | `64` | Longest pattern in bytes (8-512). |
 | `maxPatterns` | integer |  | `8` | anchor=xrefs: most signatures (1-32). |
-| `engine` | string |  |  | anchor=xrefs: auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
-| `format` | string |  |  | Syntax: ida (default), x64dbg, mask (\x48\x00 x?) or bitmask (0x48, 0x00 0b01). Values: ida, x64dbg, mask, bitmask. |
+| `engine` | string |  |  | anchor=xrefs: auto, ours, ida or ghidra (engine references added). Values: auto, ours, ida, ghidra. |
+| `format` | string |  | `ida` | ida, x64dbg, mask (\x48\x00 x?) or bitmask (0x48, 0x00 0b01). Values: ida, x64dbg, mask, bitmask. |
 | `end` | string |  |  | anchor=range: exclusive end, an address or +length. |
 
-Structured output: `image`, `address`, `pattern`, `length`, `fixedBytes`, `unique`, `hits`, `anchor`, `patternAddress`, `referenceOffset`, `operandOffset`, `operandSize`, `operandKind`, `instructionEnd`, `note`, `references`, `engine`.
+Structured output: `image`, `format`, `results`, `failed`.
 
 ### search_code_pattern
 

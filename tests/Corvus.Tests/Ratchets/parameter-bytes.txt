@@ -5,6 +5,7 @@ dump_stack.imageDirectories
 find_xrefs.engine
 get_il2cpp_info.symbol
 make_code_pattern.engine
+native_call_tree.engine
 open_minidump.imageDirectories
 simplify_methods.symbol
 trace_native_values.engine

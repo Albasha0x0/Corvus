@@ -525,15 +525,15 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var calls = (await session.GetXrefsFromAsync(NativeIdaProviderTests.ExportRva(path, "CheckSumMappedFile"), true))
             .Where(x => x.Kind == Native.Providers.NativeXrefKind.Call).GroupBy(x => x.ToRva).OrderByDescending(g => g.Count()).First();
         var target = $"rva:0x{calls.Key:X}";
-        var ours = await diff.MakeCodePattern(path, target, anchor: "xrefs", engine: "ours");
-        var ida = await diff.MakeCodePattern(path, target, anchor: "xrefs", engine: "ida");
+        var ours = await diff.MakePattern(path, target, anchor: "xrefs", engine: "ours");
+        var ida = await diff.MakePattern(path, target, anchor: "xrefs", engine: "ida");
         output.WriteLine($"ours: {ours.Note}\nida: {ida.Note}");
         foreach (var r in ida.References!) output.WriteLine($"  {r.Pattern}  at {r.ReferenceAddress} ({r.Source}) {r.Note}");
         Assert.Equal("ida", ida.Engine);
         Assert.NotEmpty(ida.References!);
         Assert.True(ida.References!.Count >= ours.References!.Count);
         Assert.All(ida.References!, r => Assert.True(r.OperandKind != null, r.Note));
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => diff.MakeCodePattern(path, target, anchor: "xrefs", maxPatterns: 0))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => diff.MakePattern(path, target, anchor: "xrefs", maxPatterns: 0))).Code);
     }
 
     [Trait("Speed", "Slow")]

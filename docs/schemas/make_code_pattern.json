@@ -4,63 +4,19 @@
     "image": {
       "type": "string"
     },
-    "address": {
+    "format": {
       "type": "string"
     },
-    "pattern": {
-      "description": "The pattern in the format asked (default IDA style, ?? for bytes that change between builds); empty when none could be made.",
-      "type": "string"
-    },
-    "length": {
-      "type": "integer"
-    },
-    "fixedBytes": {
-      "type": "integer"
-    },
-    "unique": {
-      "type": "boolean"
-    },
-    "hits": {
-      "description": "Occurrences in the image's executable sections.",
-      "type": "integer"
-    },
-    "anchor": {
-      "description": "address: the pattern starts at the address; reference: at (or shortly before) an instruction referencing it; xrefs; range.",
-      "type": "string"
-    },
-    "patternAddress": {
-      "description": "Where the pattern starts.",
-      "type": "string"
-    },
-    "referenceOffset": {
-      "description": "Reference anchor: offset of the referencing instruction from the pattern start.",
-      "type": "integer"
-    },
-    "operandOffset": {
-      "description": "Reference anchor: offset of the address operand from the pattern start.",
-      "type": "integer"
-    },
-    "operandSize": {
-      "type": "integer"
-    },
-    "operandKind": {
-      "description": "relative, rip_relative or absolute.",
-      "type": "string"
-    },
-    "instructionEnd": {
-      "description": "Reference anchor: offset of the end of the referencing instruction (relative operands count from it).",
-      "type": "integer"
-    },
-    "note": {
-      "type": "string"
-    },
-    "references": {
-      "description": "anchor=xrefs: a unique pattern at each referencing instruction, shortest first; null otherwise.",
+    "results": {
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
+          "address": {
+            "type": "string"
+          },
           "pattern": {
+            "description": "The pattern in the format asked (?? for bytes that change between builds); empty when none could be made.",
             "type": "string"
           },
           "length": {
@@ -69,19 +25,27 @@
           "fixedBytes": {
             "type": "integer"
           },
+          "unique": {
+            "type": "boolean"
+          },
+          "hits": {
+            "description": "Occurrences in the image's executable sections.",
+            "type": "integer"
+          },
+          "anchor": {
+            "description": "address: the pattern starts at the address; reference: at (or shortly before) an instruction referencing it; xrefs; range.",
+            "type": "string"
+          },
           "patternAddress": {
             "description": "Where the pattern starts.",
             "type": "string"
           },
-          "referenceAddress": {
-            "description": "The instruction that references the address.",
-            "type": "string"
-          },
-          "function": {
-            "type": "string"
+          "referenceOffset": {
+            "description": "Reference anchor: offset of the referencing instruction from the pattern start.",
+            "type": "integer"
           },
           "operandOffset": {
-            "description": "Offset of the address operand from the pattern start.",
+            "description": "Reference anchor: offset of the address operand from the pattern start.",
             "type": "integer"
           },
           "operandSize": {
@@ -92,30 +56,116 @@
             "type": "string"
           },
           "instructionEnd": {
+            "description": "Reference anchor: offset of the end of the referencing instruction (relative operands count from it).",
             "type": "integer"
           },
           "note": {
             "type": "string"
           },
-          "source": {
-            "description": "ours (a reference the built-in index has), or ida or ghidra (one only that engine has).",
+          "references": {
+            "description": "anchor=xrefs: a unique pattern at each referencing instruction, shortest first.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string"
+                },
+                "length": {
+                  "type": "integer"
+                },
+                "fixedBytes": {
+                  "type": "integer"
+                },
+                "patternAddress": {
+                  "description": "Where the pattern starts.",
+                  "type": "string"
+                },
+                "referenceAddress": {
+                  "description": "The instruction that references the address.",
+                  "type": "string"
+                },
+                "function": {
+                  "type": "string"
+                },
+                "operandOffset": {
+                  "description": "Offset of the address operand from the pattern start.",
+                  "type": "integer"
+                },
+                "operandSize": {
+                  "type": "integer"
+                },
+                "operandKind": {
+                  "description": "relative, rip_relative or absolute.",
+                  "type": "string"
+                },
+                "instructionEnd": {
+                  "type": "integer"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "source": {
+                  "description": "ours (a reference the built-in index has), or ida or ghidra (one only that engine has).",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "pattern",
+                "length",
+                "fixedBytes",
+                "patternAddress",
+                "referenceAddress",
+                "note",
+                "source"
+              ]
+            }
+          },
+          "engine": {
+            "description": "anchor=xrefs: where the references came from.",
             "type": "string"
+          },
+          "target": {
+            "description": "The address as given (addresses[]).",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why no pattern was made for this address; the others still are.",
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "next"
+            ]
           }
         },
         "required": [
+          "address",
           "pattern",
           "length",
           "fixedBytes",
+          "unique",
+          "hits",
+          "anchor",
           "patternAddress",
-          "referenceAddress",
-          "note",
-          "source"
+          "note"
         ]
       }
     },
-    "engine": {
-      "description": "anchor=xrefs: where the references came from.",
-      "type": "string"
+    "failed": {
+      "description": "Addresses with an error.",
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -138,14 +188,8 @@
   },
   "required": [
     "image",
-    "address",
-    "pattern",
-    "length",
-    "fixedBytes",
-    "unique",
-    "hits",
-    "anchor",
-    "patternAddress",
-    "note"
+    "format",
+    "results",
+    "failed"
   ]
 }

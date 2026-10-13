@@ -11,5 +11,7 @@ inspect_instruction
 load_assembly
 load_pdb
 make_code_pattern
+native_call_tree
+resolve_call_targets
 summarize_file
 update_to_new_build
