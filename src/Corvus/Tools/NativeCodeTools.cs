@@ -93,7 +93,11 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private static string Coverage(NativeCodeIndex index)
     {
         var notes = new List<string>();
-        if (index.Support == CodeSupport.DeclaredFunctionsOnly) notes.Add(index.SupportNote ?? "instructions are not decoded for this architecture");
+        if (index.Support == CodeSupport.DeclaredFunctionsOnly)
+        {
+            notes.Add(index.SupportNote ?? "instructions are not decoded for this architecture");
+            ToolOutput.Coverage("partial", $"{index.Image.ArchName()} instructions are not decoded: declared functions only", "architecture-undecoded");
+        }
         if (index.AbsoluteRefsUnconfirmed) notes.Add("no relocations: absolute data references are accepted by address range alone");
         if (index.PointersUnconfirmed) notes.Add("no relocations: data pointers are runs of values that are function starts, unconfirmed");
         notes.AddRange(index.Truncations);
@@ -330,6 +334,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var choice = Choose(mode, native, index);
+        if (!choice.External && index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         uint at = Address(index, function);
         if (both)
         {

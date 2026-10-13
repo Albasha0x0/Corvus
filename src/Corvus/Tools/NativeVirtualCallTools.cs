@@ -115,9 +115,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         {
             Progress = (float)waited.Elapsed.TotalSeconds, Message = $"indexing {native.Id}: {p.Phase}",
         })), cancellationToken);
-        if (index.Support != CodeSupport.Full)
-            throw new ToolError(ErrorCode.Unsupported, $"Instructions are not decoded for {index.Image.Arch} images: virtual calls are not resolved.",
-                "decompile_native shows calls through IDA");
+        if (index.Support != CodeSupport.Full) throw NativeEngineCode.Unsupported(index, engines, "decompile_native reads the code through IDA or Ghidra");
 
         var set = index.VirtualCalls;
         IEnumerable<VirtualCallSite> sites = set.Sites;

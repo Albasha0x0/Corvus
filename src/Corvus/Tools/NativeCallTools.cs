@@ -54,6 +54,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         }, ct);
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
+        if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, null, "decompile_native reads the code through IDA or Ghidra");
         if (Sites(index) == null)
             throw new ToolError(ErrorCode.Unsupported, $"Call arguments are recovered for x86, x64, ARM64 and ARM32 code, not {index.Image.Arch}.", "decompile_native shows calls through IDA");
         return index;

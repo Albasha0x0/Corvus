@@ -116,6 +116,6 @@ internal static class CodeDecoders
         NativeArch.X86 or NativeArch.X64 => new X86Decoder(image, code, sortedRelocations),
         NativeArch.Arm64 => new Arm64Decoder(image, code, sortedRelocations, importSlots, dataInCode),
         NativeArch.Arm => new Arm32Decoder(image, code, sortedRelocations, armModes ?? new Arm32Modes(image), importSlots, dataInCode),
-        _ => throw new NotSupportedException(InstructionSets.For(image.Arch).Reason),
+        _ => throw new NotSupportedException(InstructionSets.For(image).Reason),
     };
 }

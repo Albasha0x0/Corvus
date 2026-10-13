@@ -221,13 +221,14 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             .Where(x => x.Target == f.Start).ToList() ?? [];
         var built = new List<Section>();
         bool decoded = index.Support != CodeSupport.DeclaredFunctionsOnly;
+        if (!decoded) ToolOutput.Coverage("partial", $"{image.ArchName()} instructions are not decoded: code sections are empty", "architecture-undecoded");
         foreach (var s in wanted)
         {
             var section = new Section(s, max);
             try
             {
-                if (!decoded && s is "signature" or "frame" or "callees" or "data" or "flow" or "params")
-                    section.Error = $"{index.SupportNote ?? $"{image.Arch} instructions are not decoded by the built-in analysis"}; pseudocode=true reads the function through IDA or Ghidra";
+                if (!decoded && s is "signature" or "frame" or "callers" or "callees" or "data" or "constants" or "flow" or "params")
+                    section.Error = $"not decoded ({image.ArchName()}): pseudocode=true reads the function through IDA or Ghidra";
                 else switch (s)
                 {
                     case "identity": Identity(section); break;
@@ -283,11 +284,16 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             var named = index.Sourced.NameAt(f.Start);
             x.Add(Va(f.Start), $"name {name} ({(named is { } nm ? nm.Source.Id() : f.KnownName != null ? "export or import" : "discovered")})", "name");
             foreach (var (s, e) in ranges) x.Add(Va(s), $"range {Va(s)}-{Va(e)} ({e - s} bytes)", "range");
-            x.Add(null, $"{Plural(f.BlockCount, "block")}, {Plural(f.InstructionCount, "instruction")}", "size");
-            var callers = index.Callers(f);
-            var refs = index.CountRefsTo(f.Start);
-            x.Add(null, $"xrefs: {Plural(refs, "reference")} to it ({Plural(callers.Count, "call site")} in {Plural(callers.Select(c => c.Caller?.Start).Distinct().Count(), "caller")}), " +
-                        $"{Plural(index.Callees(f).Count, "call")} out", "xrefs");
+            if (index.Support == CodeSupport.DeclaredFunctionsOnly)
+                x.Add(null, $"blocks, instructions and references: not decoded ({image.ArchName()})", "size");
+            else
+            {
+                x.Add(null, $"{Plural(f.BlockCount, "block")}, {Plural(f.InstructionCount, "instruction")}", "size");
+                var callers = index.Callers(f);
+                var refs = index.CountRefsTo(f.Start);
+                x.Add(null, $"xrefs: {Plural(refs, "reference")} to it ({Plural(callers.Count, "call site")} in {Plural(callers.Select(c => c.Caller?.Start).Distinct().Count(), "caller")}), " +
+                            $"{Plural(index.Callees(f).Count, "call")} out", "xrefs");
+            }
             if (NativeCodeTools.FlagList(f, index) is { Count: > 0 } flags) x.Add(null, "flags: " + string.Join(", ", flags), "flags");
             x.Add(null, $"found by: {f.Sources}", "discovery");
             if (name.StartsWith('?') && MsvcDemangler.Undecorate(name) is { } msvc && msvc != name) x.Add(null, $"demangled: {msvc}", "demangled");

@@ -69,7 +69,7 @@ public sealed class MaskedDecoder
     public MaskedDecoder(INativeImage image, NativeCodeIndex? index = null)
     {
         if (image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm))
-            throw new NotSupportedException(InstructionSets.For(image.Arch).Reason);
+            throw new NotSupportedException(InstructionSets.For(image).Reason);
         _image = image;
         _relocs = image.RelocationRvas as uint[] ?? image.RelocationRvas.ToArray();
         if (!IsSorted(_relocs)) { _relocs = (uint[])_relocs.Clone(); Array.Sort(_relocs); }

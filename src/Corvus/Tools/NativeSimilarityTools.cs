@@ -134,9 +134,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
     {
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p => progress.Report(new ProgressNotificationValue
             { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
-        if (index.Support != CodeSupport.Full)
-            throw new ToolError(ErrorCode.Unsupported, $"{native.Id}: {index.SupportNote ?? "instructions are not decoded for this architecture"}.",
-                "x86, x64, ARM64 and ARM32 images are supported");
+        if (index.Support != CodeSupport.Full) throw NativeEngineCode.Unsupported(index, null, "x86, x64, ARM64 and ARM32 images are compared");
         int total = index.Functions.Count;
         return await Task.Run(() => ImagePrints.Of(index, ct, new Progress<int>(done => progress.Report(new ProgressNotificationValue
             { Progress = done, Total = total, Message = $"sketching {native.Id}: {done:N0} of {total:N0} functions" }))), ct);

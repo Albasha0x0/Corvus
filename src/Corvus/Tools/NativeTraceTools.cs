@@ -168,6 +168,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         {
             Progress = (float)waited.Elapsed.TotalSeconds, Message = $"indexing {native.Id}: {p.Phase}",
         })), ct);
+        if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, null, "decompile_native reads the code through IDA or Ghidra");
         if (!CallAnalysis.Supports(index) && !Arm64Trace.Supports(index) && !Arm32Trace.Supports(index))
             throw new ToolError(ErrorCode.Unsupported, $"Values are traced in x86 / x64 / ARM code, not {index.Image.Arch}.", "decompile_native shows the code through IDA");
         return (native, index);

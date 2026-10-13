@@ -62,6 +62,9 @@ public sealed partial class NativeCodeTools
         if (addresses?.Length > MaxXrefTargets)
             throw new ToolError(ErrorCode.InvalidArgument, $"{addresses.Length} addresses; at most {MaxXrefTargets} per call.", "split the addresses");
         var (native, index) = await Open(image, context, progress, cancellationToken);
+        // never "0 references" for code the built-in analysis cannot read
+        bool member = addresses is not { Length: > 0 } && FieldTarget(address!) is not null && !IsAddress(index, address!);
+        if (!member && index.Support == CodeSupport.DeclaredFunctionsOnly && !Choose(mode, native, index).External) throw NativeEngineCode.Unsupported(index, engines);
         if (addresses is { Length: > 0 })
             return await XrefsBatch(native, index, addresses, dir, code, Choose(mode, native, index), offset, limit, progress, cancellationToken);
         if (FieldTarget(address!) is { } field && !IsAddress(index, address!))

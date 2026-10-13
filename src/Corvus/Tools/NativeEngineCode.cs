@@ -32,14 +32,25 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     /// <param name="named">Whether the call named the engine (else it is the server default).</param>
     public static EngineChoice Choose(EngineMode mode, bool named, NativeEngineService? engines, LoadedNative native, NativeCodeIndex index) =>
         EngineChoice.Of(mode, named, engines, native,
-            index.Support == CodeSupport.DeclaredFunctionsOnly ? $"the built-in analysis does not decode {index.Image.Arch} instructions" : null);
+            index.Support == CodeSupport.DeclaredFunctionsOnly ? $"the built-in analysis does not decode {index.Image.ArchName()} instructions" : null);
 
     /// <summary>The typed error for an undecoded architecture when no engine is installed.</summary>
-    public static ToolError Unsupported(NativeCodeIndex index, NativeEngineService? engines) =>
-        new(ErrorCode.Unsupported, $"Instructions are not decoded for {index.Image.Arch} images by the built-in analysis" +
-                                   (engines?.Unavailability is { } u ? $", and no engine is available: {u.Reason}" : "."),
-            $"install IDA Pro 9 or newer with idalib (or set CORVUS_IDA_DIR), or Ghidra 12 or newer with a JDK (set CORVUS_GHIDRA_DIR), so {index.Image.Arch} code is analyzed through it" +
-            (engines?.Unavailability is { Remediation: { } r } ? $": {r}" : ""));
+    /// <remarks>details: reason instructions-not-decoded and the file's machine name; Next names an installed engine, else how to install one.</remarks>
+    /// <param name="engineNext">Next for a tool without an engine parameter when an engine is installed.</param>
+    public static ToolError Unsupported(NativeCodeIndex index, NativeEngineService? engines, string? engineNext = null)
+    {
+        var arch = index.Image.ArchName();
+        var installed = engines?.FirstAvailable();
+        return new(ErrorCode.Unsupported, $"Instructions are not decoded for {arch} images by the built-in analysis" +
+                                          (installed != null ? "." : engines?.Unavailability is { } u ? $", and no engine is available: {u.Reason}" : "."),
+            engineNext != null && (installed != null || engines == null) ? engineNext
+            : installed != null ? $"pass engine={installed} to read {arch} code through {NativeEngineService.DisplayName(installed)}"
+            : $"install IDA Pro 9 or newer with idalib (or set CORVUS_IDA_DIR), or Ghidra 12 or newer with a JDK (set CORVUS_GHIDRA_DIR), so {arch} code is analyzed through it" +
+              (engines?.Unavailability is { Remediation: { } r } ? $": {r}" : ""))
+        {
+            Details = new { reason = "instructions-not-decoded", arch = index.Image.MachineName },
+        };
+    }
 
     internal async Task<INativeDecompilerSession> Session(LoadedNative native, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {

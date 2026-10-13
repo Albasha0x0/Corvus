@@ -166,7 +166,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     {
         options ??= new CodeIndexOptions();
         var report = new ProgressGate(progress);
-        var (support, note) = InstructionSets.For(image.Arch);
+        var (support, note) = InstructionSets.For(image);
         if (support != CodeSupport.Full) return DeclaredOnly(image, note, report, options.SymbolStarts);
         return new Builder(image, options, report, ct).Run();
     }

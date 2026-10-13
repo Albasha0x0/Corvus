@@ -423,6 +423,11 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         if (export != null) sb.AppendLine(export.Rva == rva ? $"  export {export.Name ?? "#" + export.Ordinal}" : $"  nearest export before it: {export.Name ?? "#" + export.Ordinal} + 0x{rva - export.Rva:X}");
         var function = FindRuntimeFunction(pe, rva);
         if (function != null) sb.AppendLine($"  inside the unwind range 0x{pe.ImageBase + function.BeginRva:X}-0x{pe.ImageBase + function.EndRva:X}");
+        if (index is { Support: CodeSupport.DeclaredFunctionsOnly })
+        {
+            sb.AppendLine($"  instructions and references: not decoded ({pe.ArchName()})");
+            ToolOutput.Coverage("partial", $"{pe.ArchName()} instructions are not decoded: no function, instruction or reference facts", "architecture-undecoded");
+        }
         var facets = index != null ? CodeFacets(sb, index, rva, cancellationToken) : null;
         var text = sb.ToString();
         return (text, new AddressInfo(native.Id, $"0x{rva:X}", NativeAddress.Va(pe, rva),

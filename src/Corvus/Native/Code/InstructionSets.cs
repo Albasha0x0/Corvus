@@ -16,6 +16,10 @@ public static class InstructionSets
     public static (CodeSupport Support, string? Reason) For(NativeArch arch) => arch switch
     {
         NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm => (CodeSupport.Full, null),
-        _ => (CodeSupport.DeclaredFunctionsOnly, $"instruction set {arch} is not supported"),
+        _ => (CodeSupport.DeclaredFunctionsOnly, $"instruction set {arch} is not decoded by the built-in analysis"),
     };
+
+    /// <summary><see cref="For(NativeArch)"/> with the instruction set as the file names it (EM_S390, not Other).</summary>
+    public static (CodeSupport Support, string? Reason) For(INativeImage image) => For(image.Arch) is { Support: CodeSupport.DeclaredFunctionsOnly } r
+        ? (r.Support, $"instruction set {image.ArchName()} is not decoded by the built-in analysis") : For(image.Arch);
 }

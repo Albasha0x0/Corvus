@@ -78,7 +78,7 @@ public sealed class NativeDisassembler
             return;
         }
         if (image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64))
-            throw new NotSupportedException(InstructionSets.For(image.Arch).Reason);
+            throw new NotSupportedException(InstructionSets.For(image).Reason);
         _decoder = new X86Decoder(image, null, sortedRelocations, is64: image.Is64Bit);
         _resolver = new Resolver(image) { Symbols = symbols };
         _formatter = new MasmFormatter(_resolver);
