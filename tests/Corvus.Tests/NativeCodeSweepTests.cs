@@ -18,7 +18,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
     public static IEnumerable<string> Sample(string directory)
     {
         if (!OperatingSystem.IsWindows() || !Directory.Exists(directory)) return [];
-        int limit = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_SWEEP_LIMIT"), out var l) ? l : 400;
+        int limit = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_SWEEP_LIMIT"), out var l) ? l : SweepScope.Count(400);
         var files = Directory.EnumerateFiles(directory, "*.dll").Concat(Directory.EnumerateFiles(directory, "*.exe"))
             .Where(f => { try { return new FileInfo(f).Length is > 0 and < 200_000_000; } catch (IOException) { return false; } })
             .Order(StringComparer.OrdinalIgnoreCase).ToList();

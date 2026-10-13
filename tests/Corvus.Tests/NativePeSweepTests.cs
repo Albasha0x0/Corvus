@@ -22,7 +22,7 @@ public sealed class NativePeSweepTests(ITestOutputHelper output)
     public void System32AndSysWow64AgreeWithOracles()
     {
         int limit = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_SWEEP_LIMIT"), out int l) ? l : int.MaxValue;
-        var files = PeCorpus.Files().Take(limit).ToList();
+        var files = (limit == int.MaxValue ? SweepScope.Pick(PeCorpus.Files()) : PeCorpus.Files().Take(limit)).ToList();
         var failures = new ConcurrentBag<string>();
         var diffs = new ConcurrentBag<string>();
         var oracleGaps = new ConcurrentBag<string>();

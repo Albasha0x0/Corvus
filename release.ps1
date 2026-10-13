@@ -114,11 +114,11 @@ if (-not $VerifyOnly) {
         if (git tag --list $tag) { Fail "tag $tag exists" }
         $null = Get-Notes
 
-        # test.ps1 -Full stamps the clean tree it passed on; the bump below changes only version strings and generated docs,
+        # test.ps1 -Full -Exhaustive stamps the clean tree it passed on; the bump below changes only version strings and generated docs,
         # whose quick run follows, so a passed tree needs no second full run.
         $stamp = Join-Path (git rev-parse --absolute-git-dir).Trim() 'corvus-full-suite.stamp'
-        $passed = (Test-Path $stamp) -and (Get-Content $stamp -Raw).Trim() -eq (git rev-parse 'HEAD^{tree}').Trim()
-        if ($passed) { Write-Host 'The full suite passed on this tree (test.ps1 -Full); not run again.' }
+        $passed = (Test-Path $stamp) -and (Get-Content $stamp -Raw).Trim() -eq "$((git rev-parse 'HEAD^{tree}').Trim()) exhaustive"
+        if ($passed) { Write-Host 'The full suite passed on this tree (test.ps1 -Full -Exhaustive); not run again.' }
 
         $csproj = Get-Content $project -Raw
         $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
@@ -134,7 +134,11 @@ if (-not $VerifyOnly) {
         $env:CORVUS_UPDATE_DOCS = '1'
         try { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo') }
         finally { Remove-Item Env:CORVUS_UPDATE_DOCS }
-        if (-not $SkipTests -and -not $passed) { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo', '-p:CORVUS_ALL_TESTS=1') }
+        if (-not $SkipTests -and -not $passed) {
+            $env:CORVUS_SWEEP = 'exhaustive'
+            try { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo', '-p:CORVUS_ALL_TESTS=1') }
+            finally { Remove-Item Env:CORVUS_SWEEP -ErrorAction SilentlyContinue }
+        }
 
         Run 'git' @('add', '-A')
         Run 'git' @('commit', '-m', "release: $Version")

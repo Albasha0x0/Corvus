@@ -16,9 +16,9 @@ namespace Corvus.Tests;
 [Collection(SweepCollection.Name)]
 public class NativeToolSweepTests(ITestOutputHelper output)
 {
-    private static int Limit => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_SWEEP_LIMIT"), out var l) ? l : 120;
+    private static int Limit => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_SWEEP_LIMIT"), out var l) ? l : SweepScope.Count(120);
     /// <summary>Program Files holds tens of thousands of images: CORVUS_NATIVE_TOOL_SWEEP_PF_LIMIT per root (default 120; 0 = all).</summary>
-    private static int ProgramFilesLimit => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_SWEEP_PF_LIMIT"), out var l) ? l : 120;
+    private static int ProgramFilesLimit => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_SWEEP_PF_LIMIT"), out var l) ? l : SweepScope.Count(120);
     private static int IdaSample => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_SWEEP_IDA"), out var n) ? n : 2;
     private static readonly string Windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
     /// <summary>Images from this size on run alone, with their memory sampled.</summary>
@@ -62,9 +62,9 @@ public class NativeToolSweepTests(ITestOutputHelper output)
             .DistinctBy(f => Path.GetFileName(f).ToLowerInvariant())
             .OrderByDescending(f => new FileInfo(f).Length).Take(15).ToList();
         // The three largest files, and the two with the most code among the fifteen largest (huge DLLs are often mostly data).
-        var largest = candidates.Take(3).ToList();
-        largest.AddRange(candidates.Skip(3).OrderByDescending(CodeBytes).Take(2));
-        return Sweep("largest", largest, IdaSample > 0 ? 1 : 0, workers: 1, indexLimit: TimeSpan.FromMinutes(5));
+        var largest = candidates.Take(SweepScope.Exhaustive ? 3 : 1).ToList();
+        largest.AddRange(candidates.Skip(largest.Count).OrderByDescending(CodeBytes).Take(SweepScope.Exhaustive ? 2 : 1));
+        return Sweep("largest", largest, IdaSample > 0 && SweepScope.Exhaustive ? 1 : 0, workers: 1, indexLimit: TimeSpan.FromMinutes(5));
     }
 
     private static long CodeBytes(string path)
