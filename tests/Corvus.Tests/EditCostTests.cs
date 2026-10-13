@@ -32,6 +32,7 @@ public sealed class EditCostTests : IDisposable
         Assert.Contains("x * 2", _env.Decompile("Account::Twice"));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void UndoReplaysCSharpEditsWithoutAScratchPass()
     {

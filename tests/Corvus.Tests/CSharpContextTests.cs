@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace Corvus.Tests;
 
 /// <summary>C# patches whose decompiled context or references bound differently from the original (harness rows that failed to compile).</summary>
+[Trait("Speed", "Slow")]
 public sealed class CSharpContextTests : IDisposable
 {
     private readonly TempDir _dir = new();
