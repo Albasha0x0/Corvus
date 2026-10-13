@@ -55,8 +55,8 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     [Description("A further dossier of a batch, or an address that could not be analyzed (Error).")]
     public sealed record DossierPart(string Query, string? Address, string? Name, long Size, string? End, IReadOnlyList<DossierSection> Sections, string? Error);
 
-    /// <summary>Records of the dossiers whose text the pager holds, by the same key (a later page needs both).</summary>
-    private static readonly Dictionary<string, FunctionDossier> Reports = [];
+    /// <summary>Records of the dossiers whose text the pager holds, by the same key, with the warnings and coverage a hit replays.</summary>
+    private static readonly Dictionary<string, (FunctionDossier Report, string[] Warnings, (string, string, IReadOnlyList<string>)? Coverage)> Reports = [];
 
     private static readonly string[] AllSections = ["identity", "signature", "frame", "callers", "callees", "data", "constants", "flow", "annotations", "params", "pseudocode"];
     private static readonly string[] DefaultSections = ["identity", "signature", "frame", "callers", "callees", "data", "flow", "annotations"];
@@ -121,8 +121,15 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                   string.Join(",", records.Values.Select(x => string.Join(";", NativeEngineCode.RecordLines(x.Value, r => r.ToString("X")))));
         var (text, report) = await Task.Run(() =>
         {
+            var call = OutputCall.Current;
             lock (Reports)
-                if (Reports.TryGetValue(key, out var hit) && pager.TryGet(key, out var cached)) return (cached, hit);
+                if (Reports.TryGetValue(key, out var hit) && pager.TryGet(key, out var cached))
+                {
+                    foreach (var w in hit.Warnings) ToolOutput.Warn(w);
+                    if (hit.Coverage is { } c) call?.Coverage = c;
+                    return (cached, hit.Report);
+                }
+            int warned = call?.Warnings.Count ?? 0;
             var parts = functions.Select(f => Build(native, index, f, wanted, max, pseudo.GetValueOrDefault(f.Start).Text, pseudo.GetValueOrDefault(f.Start).Error,
                 cancellationToken, records.TryGetValue(f.Start, out var rec) ? rec : null)).ToList();
             var sb = new StringBuilder();
@@ -141,7 +148,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             lock (Reports)
             {
                 if (Reports.Count >= 64) Reports.Clear();
-                Reports[key] = built.Report;
+                Reports[key] = (built.Report, call?.Warnings.Skip(warned).ToArray() ?? [], call?.Coverage);
             }
             return built;
         }, cancellationToken);

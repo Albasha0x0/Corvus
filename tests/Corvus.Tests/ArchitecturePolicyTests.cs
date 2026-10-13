@@ -62,6 +62,8 @@ public sealed class ArchitecturePolicyTests : IDisposable
         Assert.DoesNotContain("0 blocks", dossier);
         Assert.Contains($"not decoded ({archName})", dossier);
         Assert.Equal("partial", collector.Coverage?.Status);
+        var repeat = await FunctionDossierTests.Answer(() => new NativeFunctionTools(workspace, code, pager).AnalyzeNativeFunction(path, f));
+        Assert.Contains("coverage: (partial,", repeat); // a cached answer keeps the coverage (G2-B1)
         var resolved = await native.ResolveAddress(path, f);
         Assert.Contains($"instructions and references: not decoded ({archName})", resolved);
         Assert.Contains("1 function", await tools.ListFunctions(path));

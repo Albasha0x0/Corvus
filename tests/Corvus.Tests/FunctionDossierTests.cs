@@ -171,11 +171,21 @@ public sealed class FunctionDossierTests : IDisposable
         }
         var path = _dir.File("cut.dll");
         File.WriteAllBytes(path, LinkedImages.Build("cut.dll", [("Main", 0)], [("KERNEL32.dll", ["ExitProcess"])], Code));
+        var first = await Answer(() => tools.AnalyzeNativeFunction(path, "Main", sections: "flow"));
+        NativeLinkTests.Has(first, "the body may be cut at 0x");
+        NativeLinkTests.Has(first, "by the call to KERNEL32!ExitProcess");
+        Assert.Contains("warning: the body may be cut", first);
+        // a repeat answered from the cache carries the same warning (G2-B1)
+        Assert.Equal(first, await Answer(() => tools.AnalyzeNativeFunction(path, "Main", sections: "flow")));
+    }
+
+    /// <summary>A call's text, record, warnings and coverage as one string, to compare repeats.</summary>
+    internal static async Task<string> Answer(Func<Task<string>> call)
+    {
         var collector = ToolOutput.Collect();
-        var text = await tools.AnalyzeNativeFunction(path, "Main", sections: "flow");
-        NativeLinkTests.Has(text, "the body may be cut at 0x");
-        NativeLinkTests.Has(text, "by the call to KERNEL32!ExitProcess");
-        Assert.Contains(collector.Warnings, w => w.Contains("may be cut", StringComparison.Ordinal));
+        var text = await call();
+        return $"{text}\nrecord: {System.Text.Json.JsonSerializer.Serialize(collector.Record)}\n" +
+               string.Concat(collector.Warnings.Select(w => $"warning: {w}\n")) + $"coverage: {collector.Coverage}";
     }
 
     private (AssemblyWorkspace Workspace, NativeFunctionTools Tools) Rig()
