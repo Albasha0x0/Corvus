@@ -115,6 +115,16 @@ public static class ServerHost
                 await context.Services!.GetRequiredService<ResourceSubscriptions>().ListenFilter(next)(context, ct)));
 
         var host = builder.Build();
+        // The tools and the full tools/list are made while the rest starts; the transport's first request waits for them.
+        _ = Task.Run(() =>
+        {
+            // A failure here shows again, and is reported, where the transport makes the same objects.
+            try
+            {
+                if (host.Services.GetService<Microsoft.Extensions.Options.IOptions<McpServerOptions>>()?.Value is { ToolCollection: not null } mcp) ToolListCache.For(mcp, null);
+            }
+            catch (Exception) { }
+        });
         // Resolve before preloading so preloaded assemblies are indexed and watched.
         host.Services.GetRequiredService<IndexingService>();
         host.Services.GetRequiredService<NativeCodeService>();

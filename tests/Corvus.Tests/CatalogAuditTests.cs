@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.DependencyInjection;
 using Corvus.Core;
 using Corvus.Mcp;
 
@@ -22,6 +23,25 @@ public class CatalogAuditTests
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild().Tools;
 
     private static int Bytes(JsonNode? node) => node == null ? 0 : Encoding.UTF8.GetByteCount(node.ToJsonString());
+
+    /// <summary>The tools made in parallel at startup are the SDK's WithToolsFromAssembly tools: same order, names and schemas.</summary>
+    [Fact]
+    public void ToolsMadeInParallelMatchTheSdkRegistration()
+    {
+        static List<string> Made(Action<IMcpServerBuilder> add)
+        {
+            var services = new ServiceCollection();
+            add(services.AddMcpServer());
+            using var provider = services.BuildServiceProvider();
+            return [.. provider.GetServices<ModelContextProtocol.Server.McpServerTool>()
+                .Select(t => $"{t.ProtocolTool.Name} {t.ProtocolTool.InputSchema.GetRawText()} {t.ProtocolTool.OutputSchema?.GetRawText()}")];
+        }
+        var assembly = typeof(Catalog).Assembly;
+        var sdk = Made(b => b.WithToolsFromAssembly(assembly, Catalog.ToolSerializerOptions));
+        var parallel = Made(b => b.WithToolsInParallel(assembly, Catalog.ToolSerializerOptions));
+        Assert.True(sdk.Count > 100);
+        Assert.Equal(sdk, parallel);
+    }
 
     [Fact]
     public void InputSchemasAreFlatObjects()

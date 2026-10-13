@@ -39,7 +39,7 @@ public static partial class Catalog
     public static IMcpServerBuilder WithCatalog(this IMcpServerBuilder builder)
     {
         var assembly = typeof(Catalog).Assembly;
-        builder.WithToolsFromAssembly(assembly, ToolSerializerOptions).WithResourcesFromAssembly(assembly).WithPromptsFromAssembly(assembly)
+        builder.WithToolsInParallel(assembly, ToolSerializerOptions).WithResourcesFromAssembly(assembly).WithPromptsFromAssembly(assembly)
             .WithMessageFilters(filters => filters.AddIncomingFilter(ToolListCache.Filter));
         // Applied once the tool collection is complete.
         builder.Services.AddOptions<McpServerOptions>().PostConfigure<IServiceProvider>((o, services) =>
@@ -59,6 +59,45 @@ public static partial class Catalog
                     tool.ProtocolTool.OutputSchema = OutputSchemas.Compact(output);
                 }
         });
+        return builder;
+    }
+
+    /// <summary>Every tool of <see cref="WithToolsInParallel"/>, made on first use.</summary>
+    internal sealed class ToolSet(McpServerTool[] tools)
+    {
+        public McpServerTool[] Tools { get; } = tools;
+    }
+
+    /// <summary>
+    /// WithToolsFromAssembly with the tools made on all cores: building each tool's schemas from its method took about 0.7 s
+    /// one by one, before the server could answer initialize. Same tools, same order.
+    /// </summary>
+    internal static IMcpServerBuilder WithToolsInParallel(this IMcpServerBuilder builder, System.Reflection.Assembly assembly, JsonSerializerOptions serializerOptions)
+    {
+        const System.Reflection.BindingFlags all = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+        var methods = assembly.GetTypes()
+            .Where(t => System.Reflection.CustomAttributeExtensions.GetCustomAttribute<McpServerToolTypeAttribute>(t) != null)
+            .SelectMany(t => t.GetMethods(all).Where(m => System.Reflection.CustomAttributeExtensions.GetCustomAttribute<McpServerToolAttribute>(m) != null)
+                .Select(m => (Type: t, Method: m)))
+            .ToArray();
+        builder.Services.AddSingleton(services =>
+        {
+            var tools = new McpServerTool[methods.Length];
+            Parallel.For(0, methods.Length, i =>
+            {
+                var (type, method) = methods[i];
+                var options = new McpServerToolCreateOptions { Services = services, SerializerOptions = serializerOptions };
+                tools[i] = method.IsStatic ? McpServerTool.Create(method, (object?)null, options)
+                    : McpServerTool.Create(method, r => r.Services is { } s ? ActivatorUtilities.CreateInstance(s, type) : Activator.CreateInstance(type)!, options);
+            });
+            return new ToolSet(tools);
+        });
+        for (int i = 0; i < methods.Length; i++)
+        {
+            int k = i;
+            builder.Services.AddSingleton(services => services.GetRequiredService<ToolSet>().Tools[k]);
+        }
         return builder;
     }
 
