@@ -311,9 +311,12 @@ public sealed partial class DeviceService(ServerOptions options)
         var s = Serial(serial, ct);
         remotePath = remotePath.Trim();
         if (remotePath.Length == 0 || remotePath.Contains('\n', StringComparison.Ordinal)) throw new ToolError(ErrorCode.InvalidArgument, "remotePath is empty or has a line break.");
-        var kind = Check(Run(ExternalTools.Arguments(Adb, "stat", ("serial", s), ("remote", remotePath)), Short, 4096, ct), $"checking {remotePath}").Trim();
+        var stat = Run(ExternalTools.Arguments(Adb, "stat", ("serial", s), ("remote", remotePath)), Short, 4096, ct);
+        // stat on a missing path exits non-zero, which adb shell passes on: not a failure of adb.
+        if ((stat.Text + stat.Stderr).Contains("No such file", StringComparison.OrdinalIgnoreCase))
+            throw new ToolError(ErrorCode.NotFound, $"{remotePath} does not exist on {s}.", "check the path on the device; get_android_package_info names an app's codePath and dataDir");
+        var kind = Check(stat, $"checking {remotePath}").Trim();
         if (kind.Contains("directory", StringComparison.OrdinalIgnoreCase)) throw new ToolError(ErrorCode.InvalidArgument, $"{remotePath} is a directory; pull_android_file pulls one file.");
-        if (kind.Contains("No such file", StringComparison.OrdinalIgnoreCase)) throw new ToolError(ErrorCode.NotFound, $"{remotePath} does not exist on {s}.");
         var full = SafeFile.FullPath(outputPath);
         if (Directory.Exists(full)) throw new ToolError(ErrorCode.InvalidArgument, $"{full} is a directory; pass the file to write.");
         if (File.Exists(full) && !overwrite) throw new ToolError(ErrorCode.Conflict, $"{full} exists.", "pass overwrite=true, or another outputPath");

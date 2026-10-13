@@ -86,6 +86,7 @@ public sealed class DeviceTests : IDisposable
         Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => Service().PullFile("/data/local/tmp/notes.txt", file.Local, false, null, default)).Code);
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => Service().PullFile("/data/local/tmp/dir", _dir.File("d"), false, null, default)).Code);
         Assert.Equal(ErrorCode.Failed, Assert.Throws<ToolError>(() => Service().PullFile("/data/local/tmp/fail.txt", _dir.File("out/fail.txt"), false, null, default)).Code);
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => Service().PullFile("/data/local/tmp/missing", _dir.File("out/missing"), false, null, default)).Code);
         Assert.Equal(["notes.txt"], Directory.EnumerateFiles(_dir.File("out")).Select(Path.GetFileName));
     }
 
