@@ -1,5 +1,2 @@
 # Exemptions from: a tool of the list output class returns its rows as items (S2.1)
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
-find_similar_functions
-read_result
-search_decompiled

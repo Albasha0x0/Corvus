@@ -43,7 +43,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         string? Function, string? Address,
         [property: Description("Functions scanned (similar) or candidate pairs scored (clusters).")] int Compared,
         int Offset, int Total, bool Truncated,
-        IReadOnlyList<SimilarMatch> Matches, IReadOnlyList<FunctionGroup> Groups, IReadOnlyList<string> Notes);
+        IReadOnlyList<SimilarMatch> Items, IReadOnlyList<FunctionGroup> Groups, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_similar_functions", Title = "Find similar functions", UseStructuredContent = true, OutputSchemaType = typeof(SimilarityReport))]
     [Description("Functions like a given one in a native image, ranked by score with evidence: instruction-shape similarity (registers, " +

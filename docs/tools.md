@@ -1393,7 +1393,7 @@ Functions like a given one in a native image, ranked by score with evidence: ins
 | `limit` | integer |  | `20` | Items to return (max 500). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `matches`, `groups`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `items`, `groups`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### get_exception_info
 
@@ -1493,7 +1493,7 @@ Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pse
 | `offset` | integer |  |  | First function (nextOffset). |
 | `limit` | integer |  | `100` | Max hits (max 2000). |
 
-Structured output: `image`, `engine`, `pattern`, `hits`, `functionsTotal`, `offset`, `functionsSearched`, `failed`, `nextOffset`, `hasMore`, `totalExact`, `stoppedBy`, `engineNote`.
+Structured output: `image`, `engine`, `pattern`, `items`, `functionsTotal`, `offset`, `functionsSearched`, `failed`, `nextOffset`, `hasMore`, `totalExact`, `stoppedBy`, `engineNote`.
 
 ### emulate_native
 

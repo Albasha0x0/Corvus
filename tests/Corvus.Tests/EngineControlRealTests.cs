@@ -129,16 +129,16 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
         output.WriteLine($"{engine} search ({clock.Elapsed.TotalSeconds:0.0} s):\n{string.Join('\n', first.Split('\n').Take(6))}");
         Assert.Equal(engine, report.Engine);
-        Assert.InRange(report.Hits.Count, 5, 400);
+        Assert.InRange(report.Items.Count, 5, 400);
         Assert.Equal("hits", report.StoppedBy);
         collector = ToolOutput.Collect();
         clock.Restart();
         await rig.Search.SearchDecompiled(id, @"\breturn\b", engine: engine, offset: report.NextOffset!.Value, maxFunctions: 40, limit: 2000);
         var next = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
-        output.WriteLine($"{engine} 40 functions from offset {report.NextOffset}: {next.Hits.Count} hits in {clock.Elapsed.TotalSeconds:0.0} s");
+        output.WriteLine($"{engine} 40 functions from offset {report.NextOffset}: {next.Items.Count} hits in {clock.Elapsed.TotalSeconds:0.0} s");
         Assert.Equal(report.NextOffset, next.Offset);
         Assert.False(report.TotalExact);
-        Assert.True(string.CompareOrdinal(next.Hits[0].Function, report.Hits[^1].Function) > 0);
+        Assert.True(string.CompareOrdinal(next.Items[0].Function, report.Items[^1].Function) > 0);
 
         // callersOf: a function with callers inside the image
         var session = await rig.Engines.Session(rig.Native, engine, null, default);

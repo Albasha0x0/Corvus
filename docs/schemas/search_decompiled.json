@@ -11,7 +11,7 @@
     "pattern": {
       "type": "string"
     },
-    "hits": {
+    "items": {
       "type": "array",
       "items": {
         "type": "object",
@@ -97,7 +97,7 @@
     "image",
     "engine",
     "pattern",
-    "hits",
+    "items",
     "functionsTotal",
     "offset",
     "functionsSearched",

@@ -31,7 +31,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         string Image,
         [property: Description("ida or ghidra.")] string Engine,
         string Pattern,
-        IReadOnlyList<DecompiledHit> Hits,
+        IReadOnlyList<DecompiledHit> Items,
         [property: Description("Functions in scope (after filter; thunks left out).")] int FunctionsTotal,
         [property: Description("Index of the first function searched (offset counts functions, not hits).")] int Offset,
         [property: Description("Functions searched by this call.")] int FunctionsSearched,

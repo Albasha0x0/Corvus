@@ -61,9 +61,9 @@ public sealed class SearchDecompiledTests : IDisposable
         Assert.Contains("1 function did not decompile", text);
         Assert.Contains("f_20: failed: decompilation failed", text);
         // case-insensitive: memcpy and MemCpy; f_0, f_9, f_18, f_27, f_36 have both
-        Assert.Equal(14 + 5, report.Hits.Count);
-        Assert.Equal(report.Hits.OrderBy(h => h.Function, StringComparer.Ordinal).ThenBy(h => h.Line).Select(h => (h.Function, h.Line)), report.Hits.Select(h => (h.Function, h.Line)));
-        var first = report.Hits[0];
+        Assert.Equal(14 + 5, report.Items.Count);
+        Assert.Equal(report.Items.OrderBy(h => h.Function, StringComparer.Ordinal).ThenBy(h => h.Line).Select(h => (h.Function, h.Line)), report.Items.Select(h => (h.Function, h.Line)));
+        var first = report.Items[0];
         Assert.Equal(("f_0", 3, "memcpy(dst, src, n);"), (first.Name, first.Line, first.Text));
         Assert.Contains("0x140001000  f_0:3  memcpy(dst, src, n);", text);
         Assert.Contains("Every function in scope was searched.", text);
@@ -77,7 +77,7 @@ public sealed class SearchDecompiledTests : IDisposable
         await tools.SearchDecompiled(native.Id, "(?-i)MemCpy", filter: "/^f_[0-9]$/");
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
         Assert.Equal(10, report.FunctionsTotal);
-        Assert.Equal(["f_0", "f_9"], report.Hits.Select(h => h.Name));
+        Assert.Equal(["f_0", "f_9"], report.Items.Select(h => h.Name));
     }
 
     [Fact]
@@ -92,20 +92,20 @@ public sealed class SearchDecompiledTests : IDisposable
             var collector = ToolOutput.Collect();
             var text = await tools.SearchDecompiled(native.Id, "memcpy", offset: c, limit: 4);
             var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
-            Assert.True(report.Hits.Count <= 5, text); // the last function's hits are kept whole
+            Assert.True(report.Items.Count <= 5, text); // the last function's hits are kept whole
             if (report.NextOffset != null)
             {
                 Assert.Equal("hits", report.StoppedBy);
                 Assert.Contains($"offset={report.NextOffset}", text);
             }
-            all.AddRange(report.Hits);
+            all.AddRange(report.Items);
             cursor = report.NextOffset;
             Assert.True(++calls < 20);
         }
         var collectorAll = ToolOutput.Collect();
         await tools.SearchDecompiled(native.Id, "memcpy");
         var whole = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collectorAll.Value);
-        Assert.Equal(whole.Hits, all);
+        Assert.Equal(whole.Items, all);
     }
 
     [Fact]

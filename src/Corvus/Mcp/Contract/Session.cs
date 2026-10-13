@@ -46,7 +46,7 @@ public sealed partial record ToolContract
         ["add_search_directory"] = Row(O.Edit, L.Instant, core: true, noDryRun: "only adds a directory for reference resolution"),
         ["list_assemblies"] = Row(O.List, L.Instant, lean: true, core: true, sort: "load order"),
         ["server_status"] = Row(O.Report, L.Interactive, lean: true, core: true),
-        ["read_result"] = Row(O.List, L.Instant, lean: true, core: true, sort: "kept text order", noDryRun: "writes only with outputPath; overwrite=false refuses an existing file"),
+        ["read_result"] = Row(O.Bytes, L.Instant, lean: true, core: true, noDryRun: "writes only with outputPath; overwrite=false refuses an existing file"),
         ["save_session"] = Row(O.Edit, L.Instant, core: true, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),
         ["load_session"] = Row(O.Edit, L.Long, core: true, dryRun: true),
     };
