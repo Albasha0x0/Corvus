@@ -354,11 +354,11 @@ public class ToolOutputTests
     public async Task NamedRowArraysAreLists()
     {
         using var services = Services();
-        var calls = Enumerable.Range(0, 3_000).Select(i => new { index = i, address = $"0x{i:X8}", function = $"module!Function{i}+0x10" }).ToArray();
-        var record = JsonSerializer.SerializeToElement(new { image = "d.dll", total = 3_000, offset = 0, truncated = false, calls, notes = new[] { "n" } }, Catalog.ToolSerializerOptions);
-        var r = await Call(services, "get_call_arguments", _ => new CallToolResult { Content = [new TextContentBlock { Text = record.GetRawText() }], StructuredContent = record });
+        var entries = Enumerable.Range(0, 3_000).Select(i => new { path = $"lib/Module{i}.dll", status = "changed", detail = $"0x{i:X8} bytes differ" }).ToArray();
+        var record = JsonSerializer.SerializeToElement(new { oldFolder = "a", newFolder = "b", total = 3_000, offset = 0, truncated = false, entries, notes = new[] { "n" } }, Catalog.ToolSerializerOptions);
+        var r = await Call(services, "compare_folders", _ => new CallToolResult { Content = [new TextContentBlock { Text = record.GetRawText() }], StructuredContent = record });
         var json = Record(r);
-        int rows = json.GetProperty("calls").GetArrayLength();
+        int rows = json.GetProperty("entries").GetArrayLength();
         Assert.InRange(rows, 10, 2_999);
         Assert.False(json.TryGetProperty("truncated", out _));
         Assert.Equal(rows, json.GetProperty("nextOffset").GetInt32());

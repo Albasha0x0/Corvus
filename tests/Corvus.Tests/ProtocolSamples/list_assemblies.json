@@ -3,7 +3,7 @@
   "arguments": {},
   "isError": false,
   "content": [
-    "Search directories: <fixtures>\nBackground indexing: idle\n1 file (showing 1-1):\n  TestFixture  1.0.0.0, 24 types, Il2Cpp dummy  <fixtures>/TestFixture.dll\n[End: 1 file]\n"
+    "Search directories: <fixtures>\nBackground indexing: idle\n3 files (showing 1-3):\n  TestFixture  1.0.0.0, 24 types, Il2Cpp dummy  <fixtures>/TestFixture.dll\n  sample-build-a.dll  native AMD64 exe, 4,098 bytes  <fixtures>/sample-build-a.dll\n  sample-build-b.dll  native AMD64 exe, 4,099 bytes  <fixtures>/sample-build-b.dll\n[End: 3 files]\n"
   ],
   "structuredContent": {
     "items": [
@@ -15,10 +15,28 @@
         "version": "1.0.0.0",
         "types": 24,
         "il2CppDummy": true
+      },
+      {
+        "kind": "native",
+        "id": "sample-build-a.dll",
+        "path": "<fixtures>/sample-build-a.dll",
+        "machine": "AMD64",
+        "fileKind": "exe",
+        "size": 4098,
+        "sha256": "<id>"
+      },
+      {
+        "kind": "native",
+        "id": "sample-build-b.dll",
+        "path": "<fixtures>/sample-build-b.dll",
+        "machine": "AMD64",
+        "fileKind": "exe",
+        "size": 4099,
+        "sha256": "<id>"
       }
     ],
     "offset": 0,
-    "total": 1,
+    "total": 3,
     "searchDirectories": [
       "<fixtures>"
     ],

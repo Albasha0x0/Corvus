@@ -2,19 +2,12 @@
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
 add_search_directory
 analyze_native_function
-apply_il2cpp_names
-bucket_minidumps
-compare_native_images
 convert_number
 declare_native_types
 define_native
 disassemble
 emulate_native
 export_engine_database
-export_il2cpp_symbols
-extract_embedded
-extract_strings
-find_method_by_address
 find_similar_functions
 find_virtual_calls
 find_xrefs
@@ -50,8 +43,6 @@ pull_android_file
 pull_android_package
 read_android_log
 read_bytes
-read_dump_memory
-read_result
 reanalyze_native
 record_note
 reload_assembly
@@ -59,8 +50,6 @@ resolve_address
 resolve_call_targets
 save_session
 search_bytes
-search_code_pattern
-search_container
 search_decompiled
 search_instructions
 search_native_strings
@@ -70,9 +59,6 @@ set_native_local
 set_native_operand
 set_native_stack_var
 set_native_type
-summarize_file
-survey_features
-symbolize_stack_text
 trace_native_feature
 trace_native_values
 uninstall_android_package

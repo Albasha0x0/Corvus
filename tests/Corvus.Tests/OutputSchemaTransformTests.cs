@@ -11,7 +11,7 @@ public class OutputSchemaTransformTests
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
     /// <summary>Output schemas in tools/list: 194.6 KB for 87 tools before the compact form (SC-11), 111.4 KB after (with the list and page envelope).</summary>
-    private const int MaxOutputSchemaTotalBytes = 143_900; // Interim per D18 (SX-1 edit, S4 engine, Android and F-NA native records); S-TRIM returns it to ≤ 120 KB before G2.
+    private const int MaxOutputSchemaTotalBytes = 136_400; // Interim per D18 (Phase 2 records, 135,904 measured); S-TRIM returns it to ≤ 120 KB before G2.
 
     [Fact]
     public void CatalogOutputSchemasAreCompact()
