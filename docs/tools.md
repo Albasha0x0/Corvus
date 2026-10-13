@@ -2201,8 +2201,10 @@ Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a 
 | `start` | string |  |  | Range start (default: the whole image). |
 | `end` | string |  |  | Range end (exclusive). |
 | `timeoutSeconds` | integer |  | `600` | Seconds (1-3600); what is left runs on the next run. |
+| `offset` | integer |  |  | With analyzers: rows to skip. |
+| `limit` | integer |  | `200` | With analyzers: max rows. |
 
-Structured output: `image`, `engine`, `scope`, `complete`, `functionsBefore`, `functionsAfter`, `options`, `items`, `total`, `limit`, `totalExact`, `hasMore`.
+Structured output: `image`, `engine`, `scope`, `complete`, `functionsBefore`, `functionsAfter`, `options`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### set_native_operand
 

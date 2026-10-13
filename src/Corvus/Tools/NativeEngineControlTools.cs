@@ -26,6 +26,7 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         IReadOnlyList<string>? Options,
         IReadOnlyList<string>? Warnings,
         IReadOnlyList<AnalyzerEntry>? Items,
+        int? Offset,
         int? Total)
     {
         [Description("Seconds the run took (moved to _meta).")] public double? ElapsedSeconds { get; init; }
@@ -43,6 +44,8 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         [Description("Range start (default: the whole image).")] string? start = null,
         [Description("Range end (exclusive).")] string? end = null,
         [Description("Seconds (1-3600); what is left runs on the next run.")] int timeoutSeconds = 600,
+        [Description("With analyzers: rows to skip.")] int offset = 0,
+        [Description("With analyzers: max rows.")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -75,13 +78,13 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         {
             var all = (await control.AnalyzersAsync(cancellationToken)).Where(a => nameFilter == null || nameFilter.IsMatch(a.Name))
                 .ToList();
-            var entries = all.Select(a => new AnalyzerEntry(a.Name, a.Value, a.Type))
-                .ToList();
-            // No offset: the whole list; past the page the call filter keeps it for read_result.
-            var text = $"// {native.Id}: {session.ProviderId} analysis options" + (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + "\n" +
-                       $"{Plural(all.Count, "option")}:\n" + string.Concat(all.Select(a => $"  {a.Name} = {a.Value}  ({a.Type}){(string.IsNullOrWhiteSpace(a.Description) ? "" : "  " + Format.Clip(a.Description.ReplaceLineEndings(" "), 160))}\n")) +
-                       (nameFilter?.Note("option name") ?? "");
-            return ToolOutput.Report(text, new ReanalysisReport(native.Id, session.ProviderId, null, null, null, null, null, null, entries, entries.Count));
+            offset = Math.Max(0, offset);
+            var header = $"// {native.Id}: {session.ProviderId} analysis options" + (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + "\n" +
+                         (nameFilter?.Note("option name") ?? "");
+            return ToolOutput.List(all.Skip(offset).ToList(), offset, limit, all.Count,
+                a => $"{a.Name} = {a.Value}  ({a.Type}){(string.IsNullOrWhiteSpace(a.Description) ? "" : "  " + Format.Clip(a.Description.ReplaceLineEndings(" "), 160))}",
+                page => new ReanalysisReport(native.Id, session.ProviderId, null, null, null, null, null, null,
+                    [.. page.Select(a => new AnalyzerEntry(a.Name, a.Value, a.Type))], offset, all.Count), "option", header);
         }
 
         var r = await control.ReanalyzeAsync(pairs, from, from is { } s ? to ?? s + 1 : null, timeoutSeconds, cancellationToken);
@@ -94,7 +97,7 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         foreach (var w in r.Warnings) sb.Append("Warning: " + w + "\n");
         sb.Append("Cached pseudocode of this image is discarded; list_functions engine=" + session.ProviderId + " shows the functions now.\n");
         return ToolOutput.Report(sb.ToString(), new ReanalysisReport(native.Id, session.ProviderId, scope, r.Complete, r.FunctionsBefore, r.FunctionsAfter,
-            pairs.Count > 0 ? [.. pairs.Select(p => $"{p.Key}={p.Value}")] : null, r.Warnings.Count > 0 ? r.Warnings : null, null, null)
+            pairs.Count > 0 ? [.. pairs.Select(p => $"{p.Key}={p.Value}")] : null, r.Warnings.Count > 0 ? r.Warnings : null, null, null, null)
             { ElapsedSeconds = Math.Round(r.Elapsed.TotalSeconds, 1) });
     });
 }

@@ -46,6 +46,10 @@ public sealed class ReanalyzeNativeTests : IDisposable
         var some = await control.ReanalyzeNative(native.Id, analyzers: true, filter: "AF_*");
         Assert.Contains("2 options", some);
         Assert.DoesNotContain("Decompiler", some);
+        // N10: the listing pages by rows like any list
+        var page = await control.ReanalyzeNative(native.Id, analyzers: true, offset: 1, limit: 1);
+        Assert.Single(page.Split('\n'), l => l.Contains(" = ", StringComparison.Ordinal));
+        Assert.Contains("offset=2", page);
     }
 
     [Fact]

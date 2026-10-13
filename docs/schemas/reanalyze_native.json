@@ -54,6 +54,9 @@
         ]
       }
     },
+    "offset": {
+      "type": "integer"
+    },
     "total": {
       "type": "integer"
     },
@@ -65,6 +68,9 @@
     },
     "hasMore": {
       "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",
