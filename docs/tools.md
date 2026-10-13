@@ -1380,15 +1380,15 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra. The first call runs the engine's auto-analysis (seconds to minutes); the database is kept per file hash. Names, comments, PDB types and prototypes are pushed first (the first line names the type source); user types win. functions=: several in one request, each within perFunctionSeconds; a failure affects only its item.
+C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs the engine's auto-analysis (seconds to minutes); database and answers are kept per file hash. Names, comments and types in effect are pushed first; user types win. functions=: several in one request, each within perFunctionSeconds; a failure affects only its item.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Required unless functions is given. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `addresses` | boolean |  | `false` | Prefix each line with the address it was generated from. |
-| `offset` | integer |  | `0` | Character offset (nextOffset); with functions or callersOf, the first input (nextInput). |
+| `offset` | integer |  | `0` | Character offset; with functions/callersOf the first input (nextInput). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 | `functions` | string[] |  |  | Several functions instead of address: addresses or names, in the order wanted. |
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (1-600). |
@@ -1409,11 +1409,11 @@ Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pse
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `pattern` | string | yes |  | Regex. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `filter` | string |  |  | Function name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
 | `maxFunctions` | integer |  | `500` | Max 20000. |
 | `timeoutSeconds` | integer |  | `60` | Max 600. |
-| `offset` | integer |  | `0` | First function to search: nextOffset of the previous result. |
+| `offset` | integer |  | `0` | First function (nextOffset). |
 | `limit` | integer |  | `100` | Max hits (max 2000). |
 
 Structured output: `image`, `engine`, `pattern`, `hits`, `functionsTotal`, `offset`, `functionsSearched`, `failed`, `nextOffset`, `hasMore`, `totalExact`, `stoppedBy`, `engineNote`.
@@ -1968,7 +1968,7 @@ Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len
 | `rename` | boolean |  | `false` | Name the function as its prototype does. |
 | `guess` | boolean |  | `false` | Report the engine's guess at address without applying it. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### set_native_local
 
@@ -1986,7 +1986,7 @@ Rename and/or retype a local or argument in a native function's pseudocode, name
 | `clear` | boolean |  | `false` | Drop the user's name and type of the variable. |
 | `items` | string |  |  | Instead of local: lines 'local = newName', or JSON [{local, newName?, type?, clear?}]. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### set_native_stack_var
 
@@ -2004,22 +2004,22 @@ Rename and/or retype a stack frame member, by its get_native_frame name (var_28)
 | `delete` | boolean |  | `false` | Delete the member. |
 | `clear` | boolean |  | `false` | Drop the user's edit, restoring the engine's member. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### get_native_frame
 
 **Native stack frame and locals** (read-only, idempotent, open-world, long-running)
 
-A native function's stack frame as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as locals) and, with locals=true, its decompiler locals (name, type, register or stack offset, user edits). Offsets count from the frame's lowest address; brackets give the offset from the return address.
+A native function's stack frame as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as locals); locals=true adds the decompiler's locals (name, type, register or stack offset, user edits). Offsets count from the lowest address; brackets from the return address.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
 | `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
-| `locals` | boolean |  | `false` | Add the decompiler's locals (decompiles the function). |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+| `locals` | boolean |  | `false` | Decompile for the locals too. |
 | `offset` | integer |  | `0` | Rows to skip. |
-| `limit` | integer |  | `200` | Max rows, members then locals (max 5000). |
+| `limit` | integer |  | `200` | Max rows (max 5000). |
 
 Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedRegisters`, `returnAddressOffset`, `members`, `locals`, `localsNote`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2038,7 +2038,7 @@ Declare C types (structs, unions, enums, typedefs, function types) in the engine
 | `fields` | string |  |  | Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes. |
 | `delete` | string |  |  | A type to delete. |
 | `rename` | string |  |  | 'Old=New'; kept edits naming it follow. |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### list_native_types
 
@@ -2054,7 +2054,7 @@ The named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, dec
 | `name` | string |  |  | Show this one type in full instead of a list. |
 | `offset` | integer |  | `0` | Rows to skip. |
 | `limit` | integer |  | `200` | Max rows (max 5000). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `sort` | string |  |  | name (default), size, or ordinal (the engine's order). Values: name, size. |
 | `descending` | boolean |  | `false` | Reverse the order. |
 | `members` | boolean |  | `false` | List each type's first 32 members (enums: name = value). |
@@ -2075,7 +2075,7 @@ Change the engine's analysis at an address. code decodes instructions (to end, e
 | `kind` | string | yes |  | What to make. Values: code, function, undefine, data. |
 | `end` | string |  |  | Exclusive end address (same forms as address). |
 | `type` | string |  |  | kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16) or a C type, with an optional [count] (dword[8]). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### reanalyze_native
 
@@ -2086,7 +2086,7 @@ Re-run IDA's or Ghidra's auto-analysis over an image (or start-end) and save; a 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path (a path is loaded). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `analyzers` | boolean |  | `false` | List the analyzer options and values instead of running. |
 | `filter` | string |  |  | With analyzers: name filter. |
 | `options` | string[] |  |  | name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true'). |
@@ -2109,13 +2109,13 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 | `operand` | integer | yes |  | Operand index, 0 for the first. |
 | `display` | string | yes |  | How to display it (see the description). Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
 | `type` | string |  |  | display=enum or struct: the type's name (struct: optionally +delta). |
-| `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### ida_python
 
 **Run IDAPython on a native image** (destructive, open-world, long-running)
 
-Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base = image base, globals persist (reset=true clears); returns a final expression's value, stdout and stderr. An exception is an error unless allowError. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights. Not journaled: persist=true saves.
+Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base = image base, globals persist (reset=true clears); returns a final expression's value, stdout and stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights. Not journaled: persist=true saves.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2134,7 +2134,7 @@ Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `sa
 
 **Run a Ghidra script on a native image** (destructive, open-world, long-running)
 
-Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first (currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved; an exception rolls it back and is an error unless allowError. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.
+Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first (currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved; an exception rolls it back. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -53,16 +53,15 @@ public sealed partial class NativeAnalysisTools
     }
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of the native function at an address, via IDA (Hex-Rays) or Ghidra. The first call runs the engine's " +
-                 "auto-analysis (seconds to minutes); the database is kept per file hash. Names, comments, PDB types and prototypes are pushed " +
-                 "first (the first line names the type source); user types win. functions=: several in one request, each within " +
-                 "perFunctionSeconds; a failure affects only its item.")]
+    [Description("C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs the engine's auto-analysis (seconds to " +
+                 "minutes); database and answers are kept per file hash. Names, comments and types in effect are pushed first; user types " +
+                 "win. functions=: several in one request, each within perFunctionSeconds; a failure affects only its item.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Required unless functions is given.")] string? address = null,
         [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
         [Description("Prefix each line with the address it was generated from.")] bool addresses = false,
-        [Description("Character offset (nextOffset); with functions or callersOf, the first input (nextInput).")] int offset = 0,
+        [Description("Character offset; with functions/callersOf the first input (nextInput).")] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Several functions instead of address: addresses or names, in the order wanted.")] string[]? functions = null,
         [Description("With functions: seconds per function (1-600).")] int perFunctionSeconds = 60,

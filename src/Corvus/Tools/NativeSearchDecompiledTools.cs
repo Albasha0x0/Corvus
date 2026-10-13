@@ -58,7 +58,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         [Description("Function name filter: " + NameFilter.Description + ".")] string? filter = null,
         [Description("Max 20000.")] int maxFunctions = 500,
         [Description("Max 600.")] int timeoutSeconds = 60,
-        [Description("First function to search: nextOffset of the previous result.")] int offset = 0,
+        [Description("First function (nextOffset).")] int offset = 0,
         [Description("Max hits (max 2000).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

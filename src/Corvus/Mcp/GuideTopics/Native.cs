@@ -37,7 +37,7 @@ public static partial class Guide
         forwarders and thunks into them.
         Engines: list_functions, disassemble, search_instructions, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida|ghidra. auto
         (default) uses the first engine (IDA, then Ghidra) that has analyzed the image's bytes, open or saved in the analysis cache,
-        else the built-in index; ida / ghidra start that engine; --engine / CORVUS_ENGINE sets the server default. Every result has an
+        else the built-in index (tools that need an engine, such as decompile_native: the first installed); ida / ghidra start that engine; --engine / CORVUS_ENGINE sets the server default. Every result has an
         "Engine: ours|ida|ghidra (why)" line. 32-bit ARM: an odd address is Thumb code one byte
         lower; list_functions flags A32 functions "arm". inspect_instruction takes auto|ours|ida|ghidra (auto: the built-in decoder for x86 / x64 / ARM).
         Name priority: user > pdb > nativeaot > il2cpp > objc > swift > napi > ida > ghidra > discovered; our names win in engine output. decompile_native pushes

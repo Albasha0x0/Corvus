@@ -17,7 +17,7 @@ internal sealed record EngineChoice(string Engine, string Note)
                                       "ida / ghidra: that engine, started when needed.";
 
     /// <summary>The engine parameter text shared by the engine-only tools.</summary>
-    public const string EngineOnlyDescription = "auto (default): IDA, else Ghidra, when it has analyzed these bytes, else the first installed.";
+    public const string EngineOnlyDescription = "auto (default), ida or ghidra.";
 
     /// <summary>Whether an external engine answers (not the built-in index).</summary>
     public bool External => Engine != "ours";

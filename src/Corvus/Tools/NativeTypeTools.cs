@@ -76,15 +76,15 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals", UseStructuredContent = true, OutputSchemaType = typeof(FrameReport))]
     [Description("A native function's stack frame as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as " +
-                 "locals) and, with locals=true, its decompiler locals (name, type, register or stack offset, user edits). Offsets count from the frame's lowest " +
-                 "address; brackets give the offset from the return address.")]
+                 "locals); locals=true adds the decompiler's locals (name, type, register or stack offset, user edits). Offsets count from the lowest " +
+                 "address; brackets from the return address.")]
     public Task<string> GetNativeFrame(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
         [Description(EngineDescription)] string? engine = null,
-        [Description("Add the decompiler's locals (decompiles the function).")] bool locals = false,
+        [Description("Decompile for the locals too.")] bool locals = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Max rows, members then locals (max 5000).")] int limit = 200,
+        [Description("Max rows (max 5000).")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
