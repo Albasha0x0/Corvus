@@ -72,11 +72,18 @@ public sealed class EditJournal
     /// The shared lock is taken before the gate, as by <see cref="Saved"/>, which runs under it: the other order deadlocked
     /// with a save waiting for the gate while a queued writer kept the gate holder out of the shared lock.
     /// </remarks>
-    public void Sync() => _workspace.Read(() =>
+    public void Sync()
     {
-        lock (_gate) SyncLocked();
-        return 0;
-    });
+        try
+        {
+            _workspace.Read(() =>
+            {
+                using (AssemblyWorkspace.Lock(_gate)) SyncLocked();
+                return 0;
+            });
+        }
+        catch (OperationCanceledException) { } // the call was cancelled while waiting: the next change journals it
+    }
 
     private void SyncLocked()
     {

@@ -55,6 +55,27 @@ public sealed class EditJournalTests : IDisposable
         await Task.WhenAll(save, writer, sync).WaitAsync(TimeSpan.FromMinutes(1)); // a deadlock never ends
     }
 
+    /// <summary>A sync waiting for the journal's gate stops when its call is cancelled; the next sync journals the change.</summary>
+    [Fact]
+    public async Task ASyncWaitingForTheGateStopsWhenItsCallIsCancelled()
+    {
+        using var env = new Env(Copy());
+        var journal = new EditJournal(env.Workspace, Store(), env.History);
+        var gate = typeof(EditJournal).GetField("_gate", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(journal)!;
+        using var release = new ManualResetEventSlim();
+        using var held = new ManualResetEventSlim();
+        var holder = Task.Run(() => { lock (gate) { held.Set(); release.Wait(); } });
+        held.Wait();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        await Task.Run(() =>
+        {
+            using var scope = AssemblyWorkspace.CancelWaitsWith(cts.Token);
+            journal.Sync();
+        }).WaitAsync(TimeSpan.FromSeconds(30));
+        release.Set();
+        await holder;
+    }
+
     [Fact]
     public void EditsAreJournaledAndOfferedToTheNextSession()
     {
