@@ -44,6 +44,7 @@ public partial class UnpackTests
         Assert.Equal((0, 3), (first.Offset, first.Items.Count));
         Assert.Contains("[More: offset=3]", text);
         Assert.Null(first.Next);
+        Assert.All(first.Items, f => Assert.True(File.Exists(Path.Combine(first.OutputDirectory, f.Path)), f.Path)); // relative to outputDirectory
         int total = first.Total;
         Assert.Equal(Directory.GetFiles(output, "*", SearchOption.AllDirectories).Count(f => !f.EndsWith(".corvus-unpack", StringComparison.Ordinal)), total);
 
