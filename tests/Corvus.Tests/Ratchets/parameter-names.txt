@@ -1,7 +1,6 @@
 # Exemptions from: parameters use the canonical names of S7.1
 # This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
 compare_assemblies.tokenMapPath
-emulate_native.seconds
 export_engine_database.force
 extract_strings.savePath
 find_virtual_calls.seconds

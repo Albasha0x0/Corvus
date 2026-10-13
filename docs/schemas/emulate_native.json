@@ -1,0 +1,212 @@
+{
+  "description": "An emulation run: why it stopped, the return value, changed registers, calls, written memory, reads and trace.",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "engine": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string"
+    },
+    "instructions": {
+      "type": "integer"
+    },
+    "stop": {
+      "description": "returned, stop_address, instruction_budget, time_budget, unmodelled_call, memory_fault, unmapped_execute, error or cancelled.",
+      "type": "string"
+    },
+    "stoppedAt": {
+      "description": "Where it stopped (VA and item), unless it returned.",
+      "type": "string"
+    },
+    "returnRegister": {
+      "type": "string"
+    },
+    "returnValue": {
+      "type": "string"
+    },
+    "registers": {
+      "description": "Registers the run changed.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
+      }
+    },
+    "callCount": {
+      "type": "integer"
+    },
+    "calls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "site": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "action": {
+            "description": "into (stepped in), stub (answered by stubs=) or skip.",
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site",
+          "target",
+          "action"
+        ]
+      }
+    },
+    "scratch": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "va": {
+            "type": "string"
+          },
+          "length": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "va",
+          "length"
+        ]
+      }
+    },
+    "writtenRanges": {
+      "type": "integer"
+    },
+    "stackBytesWritten": {
+      "type": "integer"
+    },
+    "written": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "va": {
+            "type": "string"
+          },
+          "where": {
+            "description": "The image item there, if any.",
+            "type": "string"
+          },
+          "length": {
+            "type": "integer"
+          },
+          "bytes": {
+            "description": "The bytes, hex.",
+            "type": "string"
+          },
+          "text": {
+            "description": "The bytes as text, when they read as ASCII or UTF-16.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "va",
+          "length",
+          "bytes"
+        ]
+      }
+    },
+    "reads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "va": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "va"
+        ]
+      }
+    },
+    "trace": {
+      "description": "The last instructions: VA and text.",
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "engine",
+    "language",
+    "instructions",
+    "stop",
+    "registers",
+    "callCount",
+    "calls",
+    "scratch",
+    "writtenRanges",
+    "stackBytesWritten",
+    "written",
+    "reads",
+    "trace"
+  ]
+}

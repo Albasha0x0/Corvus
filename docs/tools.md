@@ -1435,9 +1435,11 @@ Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memo
 | `stubs` | string |  |  | Calls answered without running: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 any call). |
 | `read` | string |  |  | Shown after the run: ADDR or register, space, length (rcx 64). |
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
-| `seconds` | integer |  | `10` | Time budget, s (1-300). |
+| `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
 | `engine` | string |  |  | auto or ghidra. Values: auto, ghidra. |
+
+Structured output: `image`, `engine`, `language`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `scratch`, `writtenRanges`, `stackBytesWritten`, `written`, `reads`, `trace`.
 
 ### verify_native_imports
 

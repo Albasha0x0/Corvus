@@ -21,7 +21,7 @@ public sealed class NativeEmulationTests
         Assert.Equal(ErrorCode.Unsupported, ours.Code);
         Assert.Contains("Ghidra", ours.Message);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.EmulateNative("x.dll", "f", maxInstructions: 0))).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.EmulateNative("x.dll", "f", seconds: 301))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.EmulateNative("x.dll", "f", timeoutSeconds: 301))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.EmulateNative("x.dll", "f", trace: 2001))).Code);
     }
 
@@ -59,7 +59,14 @@ public sealed class NativeEmulationTests
              "reads":[{"label":"rcx","va":"0x7ffe00101000","bytes":"4869"}],"trace":[["0x180001000","RET"]]}
             """;
         var text = NativeEmulationTools.Format("t.dll", JsonDocument.Parse(json).RootElement, 100);
-        Assert.Contains("1,234 instructions", text);
+        Assert.Contains("1,234 instructions\n", text); // the time taken is in _meta: the text is the same in every run
+        var report = NativeEmulationTools.Report("t.dll", JsonDocument.Parse(json).RootElement);
+        Assert.Equal(("returned", "RAX", "0x2a", 1234L), (report.Stop, report.ReturnRegister, report.ReturnValue, report.Instructions));
+        Assert.Equal([new NativeEmulationTools.EmulatedRegister("RAX", "0x2a")], report.Registers);
+        Assert.Equal("\"Hi\"", report.Written[0].Text);
+        Assert.Equal("stub", report.Calls[0].Action);
+        Assert.Null(report.StoppedAt);
+        Assert.Equal(0.05, report.ElapsedSeconds);
         Assert.Contains("Stopped: returned to the caller\n", text);
         Assert.Contains("Return value: RAX = 0x2a (42)", text);
         Assert.Contains("Registers changed: RAX=0x2a\n", text);
@@ -284,7 +291,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
         Assert.Contains("1,000 instructions", spin);
         Assert.Contains("instruction budget (1,000) reached at ", spin);
         Assert.Contains("(Spin); raise maxInstructions", spin);
-        var timed = await rig.Tools.EmulateNative("emu.dll", "Spin", maxInstructions: 50_000_000, seconds: 1);
+        var timed = await rig.Tools.EmulateNative("emu.dll", "Spin", maxInstructions: 50_000_000, timeoutSeconds: 1);
         output.WriteLine(timed);
         Assert.Contains("Stopped: time budget reached at ", timed);
         var stopped = await Run("Fnv1a", args: "\"a\"", stopAt: $"rva:0x{rig.At["Fnv1aEnd"]:X}");

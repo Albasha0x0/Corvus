@@ -21,7 +21,7 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
 {
     internal const int MaxScratchBytes = 1 << 20;
 
-    [McpServerTool(Name = "emulate_native", Title = "Emulate native code")]
+    [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
     [Description("Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memory is the image, a stack and the writes " +
                  "given): string decoders, hashes, computed constants. Stops on return, stopAt or a budget. Calls step into the image or return " +
                  "stubs= values; an unmodelled call or unmapped read is an error with the address. Reports return value, registers, written " +
@@ -37,7 +37,7 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
         [Description("Calls answered without running: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 any call).")] string? stubs = null,
         [Description("Shown after the run: ADDR or register, space, length (rcx 64).")] string? read = null,
         [Description("Instruction budget (1-50000000).")] int maxInstructions = 1_000_000,
-        [Description("Time budget, s (1-300).")] int seconds = 10,
+        [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
         [Description("Last instructions listed (0-2000).")] int trace = 0,
         [Description("auto or ghidra.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -48,12 +48,14 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
             throw new ToolError(ErrorCode.Unsupported, $"emulate_native runs in Ghidra's p-code emulator, not in '{engine!.Trim()}'.",
                 $"omit engine or pass engine=ghidra; Ghidra comes from {GhidraOptions.DirectoryVariable}");
         if (maxInstructions is < 1 or > 50_000_000) throw new ToolError(ErrorCode.InvalidArgument, $"maxInstructions must be 1-50000000, not {maxInstructions}.");
-        if (seconds is < 1 or > 300) throw new ToolError(ErrorCode.InvalidArgument, $"seconds must be 1-300, not {seconds}.");
+        if (timeoutSeconds is < 1 or > 300) throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds must be 1-300, not {timeoutSeconds}.");
+        int seconds = timeoutSeconds;
         if (trace is < 0 or > 2000) throw new ToolError(ErrorCode.InvalidArgument, $"trace must be 0-2000, not {trace}.");
         engines.Provider("ghidra");
         var (native, startRva) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, nativeCode, image, address), cancellationToken);
         var session = await engines.Session(native, "ghidra", new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"Ghidra {p.Stage}" })), cancellationToken);
+        EngineReport.Answered(new EngineChoice("ghidra", "the p-code emulator is Ghidra's"), engines, session);
         if (session is not GhidraSession ghidra)
             throw new ToolError(ErrorCode.Unsupported, "emulate_native needs a Ghidra session.", "omit engine or pass engine=ghidra");
         if (names != null) await names.EnsureAsync(native, session, cancellationToken);
@@ -88,11 +90,58 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
             "cancelled" => new ToolError(ErrorCode.Cancelled, $"Emulation was cancelled at {where}.") { Partial = text },
             _ => null,
         };
-        return error != null ? throw error : text;
+        return error != null ? throw error : Mcp.ToolOutput.Report(text, Report(native.Id, r));
     });
 
     private static string At(JsonElement r) =>
         r.GetProperty("where").GetString() is { } w ? $"{r.GetProperty("pc").GetString()} ({w})" : r.GetProperty("pc").GetString() ?? "?";
+
+    public sealed record EmulatedRegister(string Name, string Value);
+    public sealed record EmulatedCall(string Site, string Target, string? Name,
+        [property: Description("into (stepped in), stub (answered by stubs=) or skip.")] string Action, string? Value);
+    public sealed record EmulatedMemory(string Va, [property: Description("The image item there, if any.")] string? Where, long Length,
+        [property: Description("The bytes, hex.")] string Bytes, [property: Description("The bytes as text, when they read as ASCII or UTF-16.")] string? Text);
+    public sealed record EmulatedRead(string? Label, string Va, string? Bytes, string? Text, string? Error);
+    public sealed record EmulatedScratch(string Label, string Va, int Length);
+
+    [Description("An emulation run: why it stopped, the return value, changed registers, calls, written memory, reads and trace.")]
+    public sealed record EmulationReport(string Image, string Engine, string Language, long Instructions,
+        [property: Description("returned, stop_address, instruction_budget, time_budget, unmodelled_call, memory_fault, unmapped_execute, error or cancelled.")] string Stop,
+        [property: Description("Where it stopped (VA and item), unless it returned.")] string? StoppedAt,
+        string? ReturnRegister, string? ReturnValue,
+        [property: Description("Registers the run changed.")] IReadOnlyList<EmulatedRegister> Registers,
+        int CallCount, IReadOnlyList<EmulatedCall> Calls, IReadOnlyList<EmulatedScratch> Scratch,
+        int WrittenRanges, long StackBytesWritten, IReadOnlyList<EmulatedMemory> Written, IReadOnlyList<EmulatedRead> Reads,
+        [property: Description("The last instructions: VA and text.")] IReadOnlyList<IReadOnlyList<string>> Trace)
+    {
+        [Description("Seconds the run took (moved to _meta).")] public double? ElapsedSeconds { get; init; }
+    }
+
+    internal static EmulationReport Report(string imageId, JsonElement r)
+    {
+        string? S(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        var stop = S(r, "stop") ?? "stopped";
+        return new EmulationReport(imageId, "ghidra", S(r, "language") ?? "", r.GetProperty("instructions").GetInt64(), stop, stop == "returned" ? null : At(r),
+            stop == "returned" ? S(r, "return_register") : null, stop == "returned" ? S(r, "return_value") : null,
+            [.. r.GetProperty("registers").EnumerateArray().Where(x => x[2].GetBoolean()).Select(x => new EmulatedRegister(x[0].GetString()!, x[1].GetString()!))],
+            r.GetProperty("call_count").GetInt32(),
+            [.. r.GetProperty("calls").EnumerateArray().Select(c => new EmulatedCall(S(c, "site") ?? "", S(c, "target") ?? "", S(c, "name"), S(c, "action") ?? "", S(c, "value")))],
+            [.. r.GetProperty("scratch").EnumerateArray().Select(s => new EmulatedScratch(S(s, "label") ?? "", S(s, "va") ?? "", s.GetProperty("length").GetInt32()))],
+            r.GetProperty("written_ranges").GetInt32(), r.GetProperty("stack_bytes_written").GetInt64(),
+            [.. r.GetProperty("written").EnumerateArray().Select(w =>
+            {
+                var bytes = Convert.FromHexString(S(w, "bytes") ?? "");
+                return new EmulatedMemory(S(w, "va") ?? "", S(w, "where"), w.GetProperty("length").GetInt64(), Convert.ToHexString(bytes), Ascii(bytes) ?? Utf16(bytes));
+            })],
+            [.. r.GetProperty("reads").EnumerateArray().Select(x =>
+            {
+                var hex = S(x, "bytes");
+                var bytes = hex != null ? Convert.FromHexString(hex) : null;
+                return new EmulatedRead(S(x, "label"), S(x, "va") ?? "", hex, bytes != null ? Ascii(bytes) ?? Utf16(bytes) : null, S(x, "error"));
+            })],
+            [.. r.GetProperty("trace").EnumerateArray().Select(l => (IReadOnlyList<string>)[l[0].GetString() ?? "", l[1].GetString() ?? ""])])
+            { ElapsedSeconds = r.TryGetProperty("seconds", out var s) ? Math.Round(s.GetDouble(), 3) : null };
+    }
 
     internal static string Format(string imageId, JsonElement r, int maxInstructions)
     {
@@ -108,14 +157,14 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
             _ => r.GetProperty("detail").GetString() ?? stop ?? "stopped",
         };
         sb.Append(CultureInfo.InvariantCulture, $"{imageId}: Ghidra p-code emulation ({r.GetProperty("language").GetString()}), ")
-            .Append(CultureInfo.InvariantCulture, $"{count:N0} instructions in {r.GetProperty("seconds").GetDouble():0.###} s\n");
+            .Append(CultureInfo.InvariantCulture, $"{count:N0} instructions\n");
         sb.Append("Stopped: ").Append(why);
         // a return stops on the sentinel return address, which says nothing
         if (stop != "returned") sb.Append(" at ").Append(At(r));
         sb.Append(stop switch
         {
             "instruction_budget" => "; raise maxInstructions to go further",
-            "time_budget" => "; raise seconds to go further",
+            "time_budget" => "; raise timeoutSeconds to go further",
             _ => "",
         }).Append('\n');
         if (r.GetProperty("return_register").GetString() is { } rr && stop == "returned")
