@@ -133,13 +133,16 @@ public sealed partial class NativeCodeIndex
                 return plan;
             }
             var eh = plan.Eh;
-            if (eh.Parents.Count == 0 && eh.Fragments.Count == 0) return plan;
+            var aot = _ctx.AotFunclets;
+            if (eh.Parents.Count == 0 && eh.Fragments.Count == 0 && aot.Count == 0) return plan;
 
             // children, and x64 chained fragments that discovery made functions of their own
             var relations = eh.Parents.Select(kv => (Child: kv.Key, Owners: kv.Value)).ToList();
             foreach (var (begin, primary) in eh.Fragments)
                 if (index.ContainsKey(begin) && !eh.Parents.ContainsKey(begin))
                     relations.Add((begin, [(primary, MsvcEhChildKind.Fragment)]));
+            foreach (var (begin, (parent, kind)) in aot)
+                if (index.ContainsKey(begin) && !eh.Parents.ContainsKey(begin)) relations.Add((begin, [(parent, kind)]));
             relations.Sort((a, b) => a.Child.CompareTo(b.Child));
             var related = relations.Select(r => r.Child).ToHashSet();
 
@@ -177,11 +180,12 @@ public sealed partial class NativeCodeIndex
                 var ownerIdx = owners.Select(p => index[p.Parent]).ToHashSet();
                 if (index.TryGetValue(child, out int ci))
                 {
-                    if ((_sources[child] & OwnSources) != 0) continue;
+                    // a NativeAOT funclet its method calls (a finally) is still part of the method
+                    if ((_sources[child] & OwnSources) != 0 && !aot.ContainsKey(child)) continue;
                     if (callers.TryGetValue(child, out var from) && from.Any(g => g != ci && !ownerIdx.Contains(g))) continue;
                     // x64 C++ catch and unwind funclets have their own .pdata entry and frame, and the linker folds identical
                     // ones across functions: they stay functions with a parent link (as IDA keeps them)
-                    if (image.Arch == NativeArch.X64 && owners[0].Kind is MsvcEhChildKind.Catch or MsvcEhChildKind.Unwind)
+                    if (image.Arch == NativeArch.X64 && owners[0].Kind is MsvcEhChildKind.Catch or MsvcEhChildKind.Unwind && !aot.ContainsKey(child))
                     {
                         plan.Funclets[child] = owners[0].Parent;
                         if (owners[0].Kind == MsvcEhChildKind.Catch) keptCatches.Add((index[owners[0].Parent], results[ci]));
@@ -208,10 +212,20 @@ public sealed partial class NativeCodeIndex
                     fragments.Add((pi, begin));
                     toWalk.Add(begin);
                 }
+            // NativeAOT funclets nothing calls: the runtime enters them
+            var funclets = new List<(int Parent, uint Begin, MsvcEhChildKind Kind)>();
+            foreach (var (begin, (parent, kind)) in aot)
+                if (index.TryGetValue(parent, out int pi) && !index.ContainsKey(begin) && view.FunctionContaining(begin) == null && _ctx.Code.IsCode(begin))
+                {
+                    funclets.Add((pi, begin, kind));
+                    toWalk.Add(begin);
+                }
             var walked = WalkChunks(toWalk);
             foreach (var (pi, begin) in fragments)
                 if (walked.TryGetValue(begin, out var w) && w.RangeStarts.Length > 0 && (w.Flags & FunctionFlags.InvalidCode) == 0)
                     Attach(pi, begin, MsvcEhChildKind.Fragment, -1);
+            foreach (var (pi, begin, kind) in funclets)
+                if (walked.TryGetValue(begin, out var w) && w.RangeStarts.Length > 0) Attach(pi, begin, kind, -1);
             var catches = new List<(int Parent, WalkResult Catch)>(keptCatches);
             foreach (var (p, chunks) in extra)
                 foreach (var (root, kind, child) in chunks)

@@ -253,6 +253,7 @@ internal sealed class CodeContext
                 primaries[i] = Image.Arch == NativeArch.X64 ? PrimaryOf(rf, byBegin, out handlers[i]) : rf.BeginRva;
             }
         });
+        if (Image.Arch == NativeArch.X64 && Image.Format == ImageFormat.Pe && NativeAot.NativeAotLocator.HasMarkers(Image)) FindAotFunclets(entries, primaries);
         var keys = new ulong[entries.Count];
         var sorted = new (uint, uint, uint)[entries.Count];
         int n = 0;
@@ -271,6 +272,49 @@ internal sealed class CodeContext
         // entries sharing a begin stay in .pdata order
         KeySort.Sort(ref keys, ref sorted, n, Options.MaxParallelism);
         PdataSorted = sorted[..n];
+    }
+
+    /// <summary>x64 NativeAOT: exception handler and filter funclets (their own .pdata entries) -> the method and the kind.</summary>
+    public Dictionary<uint, (uint Parent, Msvc.MsvcEhChildKind Kind)> AotFunclets { get; } = [];
+
+    /// <summary>
+    /// x64 NativeAOT: the byte after a managed method's unwind codes (and personality routine) holds its kind (0 the method,
+    /// 1 a handler, 2 a filter funclet). A funclet follows its method's code with no gap, and RyuJIT starts it with
+    /// "sub rsp, n"; its ranges join the method's, as chained fragments do. Native runtime code in the same image has no such
+    /// byte, so a run of entries counts only from a method whose byte reads as one.
+    /// </summary>
+    private void FindAotFunclets(IReadOnlyList<RuntimeFunction> entries, uint[] primaries)
+    {
+        var order = Enumerable.Range(0, entries.Count).Where(i => primaries[i] == entries[i].BeginRva && entries[i].EndRva > entries[i].BeginRva)
+            .OrderBy(i => entries[i].BeginRva).ToArray();
+        Span<byte> header = stackalloc byte[4];
+        Span<byte> code = stackalloc byte[4];
+        uint? parent = null;
+        uint previousEnd = 0;
+        foreach (int i in order)
+        {
+            var rf = entries[i];
+            bool contiguous = rf.BeginRva == previousEnd;
+            previousEnd = rf.EndRva;
+            if (Read(rf.UnwindInfoRva, header) < 4) { parent = null; continue; }
+            uint at = rf.UnwindInfoRva + 4 + 2u * header[2];
+            if (((header[0] >> 3) & 3) != 0) at = ((at + 3) & ~3u) + 4;
+            if (Read(at, code[..1]) < 1) { parent = null; continue; }
+            int flags = code[0];
+            if ((flags & 3) == 0)
+            {
+                // a method: no flag besides EH info, reverse P/Invoke and associated data
+                parent = (flags & 0xE0) == 0 ? rf.BeginRva : null;
+                continue;
+            }
+            if (!contiguous || parent is not { } p || Read(rf.BeginRva, code) < 4 || !(code[0] == 0x48 && code[1] is 0x83 or 0x81 && code[2] == 0xEC))
+            {
+                parent = null;
+                continue;
+            }
+            primaries[i] = p;
+            AotFunclets[rf.BeginRva] = (p, (flags & 3) == 2 ? Msvc.MsvcEhChildKind.Filter : Msvc.MsvcEhChildKind.Catch);
+        }
     }
 
     /// <summary>

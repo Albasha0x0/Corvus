@@ -166,6 +166,31 @@ public class NativeX86DiscoveryTests
         Assert.Equal([Code, Code + 0x10], index.Functions.Select(f => f.Start));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void NativeAot_funclets_join_their_method(bool aot)
+    {
+        // a method and, right after it, a handler funclet ("sub rsp, n" first) with its own .pdata entry; the byte after each
+        // entry's unwind codes holds the NativeAOT function kind (0 method, 1 handler)
+        byte[] code = [0x48, 0x83, 0xEC, 0x28, 0x31, 0xC0, 0x48, 0x83, 0xC4, 0x28, 0xC3,
+                       0x48, 0x83, 0xEC, 0x28, 0xB8, 0x01, 0, 0, 0, 0x48, 0x83, 0xC4, 0x28, 0xC3];
+        byte[] data = new byte[0x40];
+        data[0] = 1; data[8] = 1; data[12] = 1;
+        var image = CodeTestImage.Synthetic(NativeArch.X64, code, data, entry: Code,
+            pdata: [new RuntimeFunction(Code, Code + 11, Data), new RuntimeFunction(Code + 11, Code + 25, Data + 8)],
+            exports: aot ? [new NativeExport("DotNetRuntimeDebugHeader", 1, Data + 0x20, null)] : []);
+        var index = NativeCodeIndex.Build(image);
+        if (!aot)
+        {
+            Assert.Equal([Code, Code + 11], index.Functions.Select(f => f.Start));
+            return;
+        }
+        var method = Assert.Single(index.Functions);
+        Assert.Equal(Code + 11, Assert.Single(method.Chunks).Start);
+        Assert.Same(method, index.FunctionAt(Code + 20));
+    }
+
     [Fact]
     public void A_short_jump_over_nops_is_alignment_fill_not_a_function()
     {
