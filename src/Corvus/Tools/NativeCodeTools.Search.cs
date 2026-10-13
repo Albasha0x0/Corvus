@@ -6,6 +6,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Code;
 using static Corvus.Tools.ToolSupport;
@@ -16,7 +17,7 @@ namespace Corvus.Tools;
 // insn_query and search_text (MIT); see THIRD-PARTY-NOTICES.md.
 public sealed partial class NativeCodeTools
 {
-    [McpServerTool(Name = "search_instructions", Title = "Search native instructions")]
+    [McpServerTool(Name = "search_instructions", Title = "Search native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionMatchList))]
     [Description("Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or " +
                  "target) in every function, one function, or an address range; a scan budget's end is named in the result (continue with from=).")]
     public Task<string> SearchInstructions(
@@ -75,23 +76,33 @@ public sealed partial class NativeCodeTools
             ? await ScanEngine(native, index, ranges, functionRva, query, offset + limit + 1, budget, choice, progress, cancellationToken)
             : await Task.Run(() => ScanIndex(index, ranges, query, offset + limit + 1, budget, cancellationToken), cancellationToken);
 
-        var sb = new StringBuilder($"; {choice.Line}\n");
-        var lines = scan.Matches.Skip(offset).Take(limit).Select(m => $"  {NativeAddress.Va(index.Image, m.Rva)}  {m.Where}  {m.Text}").ToList();
-        int fit = pager.FitRows(lines, 600);
-        sb.AppendLine($"{(scan.Matches.Count > offset + limit ? "More than " + (offset + limit) : scan.Matches.Count.ToString(CultureInfo.InvariantCulture))} match(es) " +
-                      $"in {Plural(scan.Scanned, "instruction")} scanned" + (fit > 0 ? $"; showing {offset + 1}-{offset + fit}" : ""));
-        foreach (var line in lines.Take(fit)) sb.AppendLine(line);
-        if (fit < lines.Count) sb.AppendLine(OutputPager.CapNote(fit, lines.Count, offset + fit));
-        else if (scan.Matches.Count > offset + limit) sb.AppendLine($"More: offset={offset + limit}");
+        var head = new StringBuilder($"; {choice.Line}\n{Plural(scan.Scanned, "instruction")} scanned\n");
         if (scan.StoppedAt is { } stop)
-            sb.AppendLine($"Scan budget of {Plural(budget, "instruction")} reached at {NativeAddress.Va(index.Image, stop)}: continue with from=0x{index.Image.ImageBase + stop:X}" +
-                          (ranges.Count > 0 && ranges[^1].End > stop ? $" to=0x{index.Image.ImageBase + ranges[^1].End:X}" : "") + ", or raise maxInstructions");
-        return pager.Page(sb.ToString(), 0, null);
+        {
+            var next = $"from=0x{index.Image.ImageBase + stop:X}" + (ranges.Count > 0 && ranges[^1].End > stop ? $" to=0x{index.Image.ImageBase + ranges[^1].End:X}" : "");
+            head.AppendLine($"Scan budget of {Plural(budget, "instruction")} reached at {NativeAddress.Va(index.Image, stop)}: continue with {next}, or raise maxInstructions");
+            ToolOutput.Coverage("partial", $"the scan budget stopped at {NativeAddress.Va(index.Image, stop)}; continue with {next}", "row-cap");
+        }
+        // the scan stops one match past the page: more matches make the total a lower bound
+        bool exact = scan.Matches.Count <= offset + limit && scan.StoppedAt == null;
+        var page = scan.Matches.Skip(offset).Take(limit).Select(m => new InstructionMatch(NativeAddress.Va(index.Image, m.Rva), m.Where, m.Text)).ToList();
+        return ToolOutput.List(page, offset, limit, scan.Matches.Count, m => $"{m.Address}  {m.Function}  {m.Text}",
+            rows => new InstructionMatchList(native.Id, rows.ToList(), offset, scan.Matches.Count, scan.Scanned, choice.Engine, choice.Note), "matching instruction",
+            head.ToString(), exact);
     });
 
-    private sealed record InstructionMatch(uint Rva, string Where, string Text);
+    /// <summary>One search_instructions match.</summary>
+    public sealed record InstructionMatch(string Address, [property: Description("function+offset, or - outside functions.")] string Function, string Text);
 
-    private sealed record InstructionScan(List<InstructionMatch> Matches, int Scanned, uint? StoppedAt);
+    /// <summary>search_instructions' record.</summary>
+    public sealed record InstructionMatchList(string Image, IReadOnlyList<InstructionMatch> Items, int Offset, int Total,
+        [property: Description("Instructions scanned.")] int Scanned,
+        [property: Description(EngineDoc.Engine)] string Engine,
+        [property: Description(EngineDoc.Note)] string? EngineNote);
+
+    private sealed record InstructionScan(List<ScanMatch> Matches, int Scanned, uint? StoppedAt);
+
+    private sealed record ScanMatch(uint Rva, string Where, string Text);
 
     private static Regex? Pattern(string? text, string name)
     {
@@ -169,7 +180,7 @@ public sealed partial class NativeCodeTools
         int wanted, int budget, CancellationToken ct)
     {
         var dis = index.CreateDisassembler();
-        var matches = new List<InstructionMatch>();
+        var matches = new List<ScanMatch>();
         int scanned = 0;
         foreach (var (start, end, fn) in ranges)
         {
@@ -202,7 +213,7 @@ public sealed partial class NativeCodeTools
         InstructionQuery query, int wanted, int budget, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await _engine!.Session(native, choice, progress, ct);
-        var matches = new List<InstructionMatch>();
+        var matches = new List<ScanMatch>();
         int scanned = 0;
         // true when the scan is done: enough matches, or the budget ran out (stop: the first instruction not scanned)
         bool Take(IEnumerable<Native.Providers.DisassembledInstruction> instructions, Func<uint, string> where, out uint? stop)

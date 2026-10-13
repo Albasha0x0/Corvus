@@ -239,7 +239,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("Engine: ida", ida);
         Assert.Contains($"{Function}+0x", ida);
         var inFunction = await rig.CodeTools.SearchInstructions(path, operands: "10Bh", function: Function, engine: "ida");
-        Assert.Contains("1 match(es)", inFunction);
+        Assert.Contains("1 matching instruction ", inFunction);
     }
 
     [GhidraFact]

@@ -1148,6 +1148,8 @@ Find instructions by mnemonic, operand or whole-line regex (case-insensitive) an
 | `maxInstructions` | integer |  | `500000` | Max instructions scanned (max 5000000). |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, when it has analyzed these bytes (saved or open), else ours (built-in index). ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
+Structured output: `image`, `items`, `offset`, `total`, `scanned`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+
 ### get_cfg
 
 **Native control-flow graph** (read-only, idempotent, open-world, long-running)

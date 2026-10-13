@@ -15,5 +15,4 @@ read_result
 search_code_pattern
 search_container
 search_decompiled
-search_instructions
 symbolize_stack_text

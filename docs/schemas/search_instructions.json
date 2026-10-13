@@ -1,0 +1,87 @@
+{
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "function": {
+            "description": "function+offset, or - outside functions.",
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "function",
+          "text"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "scanned": {
+      "description": "Instructions scanned.",
+      "type": "integer"
+    },
+    "engine": {
+      "description": "Which analysis produced the result: ours (the built-in index), ida (IDA's analysis through idalib) or ghidra (Ghidra's analysis).",
+      "type": "string"
+    },
+    "engineNote": {
+      "description": "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).",
+      "type": "string"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "image",
+    "items",
+    "offset",
+    "total",
+    "scanned",
+    "engine"
+  ]
+}

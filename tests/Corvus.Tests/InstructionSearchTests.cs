@@ -44,16 +44,16 @@ public sealed class InstructionSearchTests : IDisposable
         var ret = await Search(mnemonic: "^ret$");
         Assert.Contains("Engine: ours", ret);
         Assert.Matches(@"\n  0x140001005  \S+\+0x5  ret", ret);
-        Assert.Contains("1 match(es)", await Search(mnemonic: "mov", value: "1"));
-        Assert.Contains("0 match(es)", await Search(mnemonic: "mov", value: "2"));
+        Assert.Contains("1 matching instruction ", await Search(mnemonic: "mov", value: "1"));
+        Assert.Contains("0 matching instructions", await Search(mnemonic: "mov", value: "2"));
         // a range outside any function, value in hex
         var range = await Search(operands: "eax", value: "0x2", start: "rva:0x1040", end: "rva:0x1046");
         Assert.Matches(@"0x140001040  -  mov\s+eax,\s*2", range);
-        Assert.Contains("1 match(es)", await Search(text: @"^mov\s+eax", start: "rva:0x1000", end: "rva:0x1006"));
+        Assert.Contains("1 matching instruction ", await Search(text: @"^mov\s+eax", start: "rva:0x1000", end: "rva:0x1006"));
 
         // paging and the scan budget
         var all = await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", limit: 1);
-        Assert.Contains("More than 1 match(es)", all);
+        Assert.Contains("≥2 matching instructions", all);
         Assert.Contains("More: offset=1", all);
         Assert.Contains("ret", await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", offset: 1, limit: 1));
         var budget = await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", maxInstructions: 1);

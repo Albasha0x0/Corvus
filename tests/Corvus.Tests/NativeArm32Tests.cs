@@ -509,7 +509,7 @@ public class NativeArm32Tests
         }));
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var found = await h.CodeTools.SearchInstructions(path, mnemonic: "^b$");
-        Assert.Contains("1 match(es)", found);
+        Assert.Contains("1 matching instruction ", found);
         Assert.Contains("b.w", found);
     }
 
