@@ -72,7 +72,11 @@ public sealed class RawImageTests : IDisposable
         Assert.Contains("shellcode.bin[x64@0x400000]", list.Text);
         Assert.Contains("shellcode.bin[thumb@0x8000000]", list.Text);
 
-        Assert.Contains("needs arch", (await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw" })).Text);
+        var mips = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "mipsel", ["base"] = "0x80000000" });
+        Assert.False(mips.IsError, mips.Text);
+        Assert.Contains("unsupported", (await Call(server, "disassemble", new() { ["image"] = "shellcode.bin[mipsel@0x80000000]", ["address"] = "0x80000000", ["engine"] = "ours" })).Text);
+
+        Assert.Contains("needs arch",(await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw" })).Text);
         Assert.Contains("not 4 KiB aligned", (await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x401" })).Text);
         Assert.Contains("outside", (await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["entry"] = "0x100" })).Text);
         Assert.Contains("apply to format=raw", (await Call(server, "load_assembly", new() { ["path"] = path, ["arch"] = "x64" })).Text);

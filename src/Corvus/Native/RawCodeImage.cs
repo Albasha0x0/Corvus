@@ -5,41 +5,69 @@ using Corvus.Native.Pe;
 namespace Corvus.Native;
 
 /// <summary>
-/// How a headerless file maps: instruction set, load address and entry. <see cref="Thumb"/> marks ARM code as Thumb
-/// throughout (Cortex-M firmware has no A32 state).
+/// An instruction set a headerless file can be read as, with the engines' names for it. <see cref="Thumb"/> marks ARM
+/// code as Thumb throughout (Cortex-M firmware has no A32 state). Architectures our index does not decode go to IDA or Ghidra.
 /// </summary>
-public sealed record RawLayout(NativeArch Arch, bool Thumb, ulong Base, uint EntryOffset)
+public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigEndian, int Bits, string IdaProcessor, string GhidraLanguage)
 {
-    /// <summary>The arch names load_assembly takes.</summary>
-    public static readonly string[] ArchNames = ["x86", "x64", "arm", "thumb", "arm64"];
+    // The engines' processor and language ids, kept in this one table.
+    public static readonly IReadOnlyList<RawArch> All =
+    [
+        new("x86", NativeArch.X86, false, false, 32, "metapc", "x86:LE:32:default"),
+        new("x64", NativeArch.X64, false, false, 64, "metapc", "x86:LE:64:default"),
+        new("arm", NativeArch.Arm, false, false, 32, "arm", "ARM:LE:32:v8"),
+        new("thumb", NativeArch.Arm, true, false, 32, "arm", "ARM:LE:32:Cortex"),
+        new("arm64", NativeArch.Arm64, false, false, 64, "arm", "AARCH64:LE:64:v8A"),
+        new("mips", NativeArch.Mips, false, true, 32, "mipsb", "MIPS:BE:32:default"),
+        new("mipsel", NativeArch.Mips, false, false, 32, "mipsl", "MIPS:LE:32:default"),
+        new("mips64", NativeArch.Mips, false, true, 64, "mipsb", "MIPS:BE:64:default"),
+        new("ppc", NativeArch.PowerPc, false, true, 32, "ppc", "PowerPC:BE:32:default"),
+        new("ppc64", NativeArch.PowerPc, false, true, 64, "ppc", "PowerPC:BE:64:default"),
+        new("riscv32", NativeArch.RiscV, false, false, 32, "riscv", "RISCV:LE:32:RV32GC"),
+        new("riscv64", NativeArch.RiscV, false, false, 64, "riscv", "RISCV:LE:64:RV64GC"),
+        new("6502", NativeArch.Other, false, false, 16, "m6502", "6502:LE:16:default"),
+    ];
+
+    private static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["i386"] = "x86", ["x86_64"] = "x64", ["amd64"] = "x64", ["arm32"] = "arm", ["aarch64"] = "arm64", ["mipsbe"] = "mips",
+        ["mipsle"] = "mipsel", ["powerpc"] = "ppc", ["riscv"] = "riscv64",
+    };
+
+    public static RawArch Find(string? name)
+    {
+        var key = name?.Trim() ?? "";
+        if (Aliases.TryGetValue(key, out var alias)) key = alias;
+        return All.FirstOrDefault(a => a.Name.Equals(key, StringComparison.OrdinalIgnoreCase))
+               ?? throw new ToolError(ErrorCode.InvalidArgument, key.Length == 0 ? "format=raw needs arch." : $"unknown arch '{name}'.",
+                   $"pass arch={string.Join("|", All.Select(a => a.Name))}");
+    }
+}
+
+/// <summary>How a headerless file maps: instruction set, load address and entry (an offset into the file).</summary>
+public sealed record RawLayout(RawArch Isa, ulong Base, uint EntryOffset)
+{
+    public NativeArch Arch => Isa.Arch;
+    public bool Thumb => Isa.Thumb;
 
     public static RawLayout Parse(string? arch, string? baseAddress, string? entry, long fileSize)
     {
-        var (a, thumb) = arch?.Trim().ToLowerInvariant() switch
-        {
-            "x86" or "i386" => (NativeArch.X86, false),
-            "x64" or "x86_64" or "amd64" => (NativeArch.X64, false),
-            "arm" or "arm32" => (NativeArch.Arm, false),
-            "thumb" => (NativeArch.Arm, true),
-            "arm64" or "aarch64" => (NativeArch.Arm64, false),
-            null or "" => throw new ToolError(ErrorCode.InvalidArgument, "format=raw needs arch.", $"pass arch={string.Join("|", ArchNames)}"),
-            _ => throw new ToolError(ErrorCode.InvalidArgument, $"unknown arch '{arch}'.", $"pass arch={string.Join("|", ArchNames)}"),
-        };
+        var isa = RawArch.Find(arch);
         ulong load = baseAddress is { Length: > 0 } ? Number(baseAddress, "base") : 0;
         if (load % 0x1000 != 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} is not 4 KiB aligned.", "pass a page-aligned base, e.g. base=0x8000000");
-        if (a is NativeArch.X86 or NativeArch.Arm && load + (ulong)fileSize > 0x1_0000_0000)
-            throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} puts a {fileSize}-byte image past the 32-bit address space.", "pass a lower base");
+        if (isa.Bits < 64 && load + (ulong)fileSize > 1UL << isa.Bits)
+            throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} puts a {fileSize}-byte image past the {isa.Bits}-bit address space.", "pass a lower base");
         ulong start = entry is { Length: > 0 } ? Number(entry, "entry") : load;
         // entry is an address at or above base, or an offset into the file below it
         ulong offset = start >= load ? start - load : start;
         if (offset >= (ulong)Math.Max(fileSize, 1))
             throw new ToolError(ErrorCode.InvalidArgument, $"entry 0x{start:X} is outside the {fileSize}-byte image at 0x{load:X}.", "pass an address inside the image or a file offset");
-        return new RawLayout(a, thumb, load, (uint)offset);
+        return new RawLayout(isa, load, (uint)offset);
     }
 
     /// <summary>The identity of the layout among entries of the same file, e.g. <c>thumb@0x8000000</c>.</summary>
-    public string Key => $"{(Thumb ? "thumb" : Arch.ToString().ToLowerInvariant())}@0x{Base:X}";
+    public string Key => $"{Isa.Name}@0x{Base:X}";
 
     private static ulong Number(string text, string name)
     {
@@ -62,8 +90,8 @@ public sealed class RawCodeImage : INativeImage
     public string Path { get; }
     public string Sha256 { get; }
     public NativeArch Arch => Layout.Arch;
-    public bool Is64Bit => Layout.Arch is NativeArch.X64 or NativeArch.Arm64;
-    public string MachineName => Layout.Thumb ? "Thumb" : Layout.Arch.ToString();
+    public bool Is64Bit => Layout.Isa.Bits == 64;
+    public string MachineName => Layout.Isa.Name;
     public long FileSize => _data.Length;
     public bool IsDll => false;
     public ulong ImageBase => Layout.Base;

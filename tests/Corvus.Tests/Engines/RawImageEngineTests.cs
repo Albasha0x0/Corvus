@@ -27,6 +27,20 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
     [GhidraFact]
     public Task Shellcode_in_Ghidra() => Engine("ghidra");
 
+    /// <summary>An instruction set our index does not decode: Ghidra reads it with the language from the arch table.</summary>
+    [GhidraFact]
+    public async Task Mips_in_Ghidra()
+    {
+        var path = _dir.File("mips.bin");
+        // li v0, 42; jr ra; nop (little endian)
+        File.WriteAllBytes(path, [0x2A, 0x00, 0x02, 0x24, 0x08, 0x00, 0xE0, 0x03, 0x00, 0x00, 0x00, 0x00, .. Guid.NewGuid().ToByteArray()]);
+        await using var server = await InProcessServer.StartAsync();
+        Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "mipsel", ["base"] = "0x80000000" })).IsError);
+        var code = await Call(server, "decompile_native", new() { ["image"] = "mips.bin[mipsel@0x80000000]", ["address"] = "0x80000000", ["engine"] = "ghidra" });
+        Assert.False(code.IsError, code.Text);
+        Assert.True(code.Text.Contains("0x2a", StringComparison.OrdinalIgnoreCase) || code.Text.Contains("42"), code.Text);
+    }
+
     private async Task Engine(string engine)
     {
         // bytes of their own: the engines' databases are cached by content

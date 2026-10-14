@@ -312,7 +312,7 @@ def setup_raw(m, raw):
         m.ida_ida.inf_set_64bit(True)
     seg = ida_segment.get_first_seg()
     while seg is not None:
-        ida_segment.set_segm_addressing(seg, 2 if bits == 64 else 1)
+        ida_segment.set_segm_addressing(seg, {16: 0, 32: 1, 64: 2}[bits])
         if raw.get("thumb"):
             ida_segregs.split_sreg_range(seg.start_ea, ida_idp.str2reg("T"), 1, ida_segregs.SR_user)
         seg = ida_segment.get_next_seg(seg.start_ea)

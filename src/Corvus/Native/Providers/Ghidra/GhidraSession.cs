@@ -241,7 +241,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             if (Options.Raw is { } layout)
             {
                 args["loader"] = "BinaryLoader";
-                args["language"] = GhidraOptions.RawLanguage(layout);
+                args["language"] = layout.Isa.GhidraLanguage;
                 args["entry"] = layout.EntryOffset;
                 args["raw_base"] = layout.Base;
             }

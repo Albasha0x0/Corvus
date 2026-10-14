@@ -39,7 +39,7 @@ Load a .NET assembly (.dll/.exe) or every assembly in a directory (app folder, U
 | `loadProviders` | boolean |  |  | For a file: also load the DLLs its imports bind to (one level, at most 16), so the call tools continue into them. |
 | `slice` | string |  |  | Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a). Values: arm64e, arm64, x86_64, x86_64h, arm64_32, armv7, armv7s, armv7k, i386, arm64-v8a, armeabi-v7a, x86. |
 | `format` | string |  | `auto` | auto, or raw (headerless code). |
-| `arch` | string |  |  | raw: x86, x64, arm, thumb or arm64. |
+| `arch` | string |  |  | raw: x86, x64, arm, thumb, arm64; mips, mipsel, ppc, riscv64, 6502 etc. through IDA or Ghidra. |
 | `base` | string |  |  | raw: load address (default 0). |
 | `entry` | string |  |  | raw: entry address or file offset (default start). |
 

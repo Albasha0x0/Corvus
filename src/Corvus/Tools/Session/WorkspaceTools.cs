@@ -62,7 +62,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         [Description("For a file: also load the DLLs its imports bind to (one level, at most 16), so the call tools continue into them.")] bool loadProviders = false,
         [Description("Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a).")] string? slice = null,
         [Description("auto, or raw (headerless code).")] string format = "auto",
-        [Description("raw: x86, x64, arm, thumb or arm64.")] string? arch = null,
+        [Description("raw: x86, x64, arm, thumb, arm64; mips, mipsel, ppc, riscv64, 6502 etc. through IDA or Ghidra.")] string? arch = null,
         [Description("raw: load address (default 0).")] string? @base = null,
         [Description("raw: entry address or file offset (default start).")] string? entry = null,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK

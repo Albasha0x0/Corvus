@@ -156,9 +156,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         if (Options.Raw is { } layout)
         {
             // the binary loader with this processor, loaded at the base (-b takes 16-byte paragraphs)
-            idaArgs.Add(layout.Arch is NativeArch.Arm or NativeArch.Arm64 ? "-parm" : "-pmetapc");
+            idaArgs.Add("-p" + layout.Isa.IdaProcessor);
             idaArgs.Add("-b" + (layout.Base >> 4).ToString("X", System.Globalization.CultureInfo.InvariantCulture));
-            raw = IdaProvider.Args(("base", layout.Base), ("entry", layout.EntryOffset), ("bits", layout.Arch is NativeArch.X64 or NativeArch.Arm64 ? 64 : 32),
+            raw = IdaProvider.Args(("base", layout.Base), ("entry", layout.EntryOffset), ("bits", layout.Isa.Bits),
                 ("thumb", layout.Thumb));
         }
         var remaining = Options.OpenTimeout - clock.Elapsed;

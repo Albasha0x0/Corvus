@@ -83,16 +83,6 @@ public static class GhidraOptions
     /// <summary>The ELF loader's base override, so a base-0 shared object loads at its file base instead of 0x100000.</summary>
     public const string ElfImageBaseArgument = "-loader-imagebase";
 
-    /// <summary>Ghidra's language for a headerless image; Thumb code uses the Cortex-M language (Thumb only).</summary>
-    public static string RawLanguage(RawLayout raw) => raw.Arch switch
-    {
-        NativeArch.X86 => "x86:LE:32:default",
-        NativeArch.X64 => "x86:LE:64:default",
-        NativeArch.Arm => raw.Thumb ? "ARM:LE:32:Cortex" : "ARM:LE:32:v8",
-        NativeArch.Arm64 => "AARCH64:LE:64:v8A",
-        _ => throw new ToolError(ErrorCode.Unsupported, $"no Ghidra language for {raw.Arch}."),
-    };
-
     /// <summary>Analyzer options set before the first analysis; names the program does not register are reported and skipped.</summary>
     public static IReadOnlyList<KeyValuePair<string, string>> AnalyzerOptions(GhidraAnalysisProfile profile, SymbolMode symbols, string? extra)
     {
