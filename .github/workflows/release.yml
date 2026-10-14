@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Publishes an existing release's package again (nuget.org, MCP Registry) without rebuilding it.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (vX.Y.Z)
+        required: true
 
 permissions:
   contents: write
@@ -13,6 +19,7 @@ env:
 
 jobs:
   test:
+    if: github.event_name == 'push'
     strategy:
       fail-fast: true
       matrix:
@@ -109,3 +116,48 @@ jobs:
             CorvusRE.*.nupkg
             SHA256SUMS
           generate_release_notes: true
+
+  # nuget.org by Trusted Publishing (policy corvus-release: this repository, this workflow, package CorvusRE), then the
+  # MCP Registry by the workflow's GitHub identity. The package is the release asset, checked against SHA256SUMS.
+  publish:
+    needs: release
+    if: ${{ !cancelled() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Package from the release
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "CorvusRE.*.nupkg" --pattern SHA256SUMS --dir dist
+          cd dist && sha256sum --check --ignore-missing --strict SHA256SUMS
+      - uses: NuGet/login@v1
+        id: nuget
+        with:
+          user: Albasha0x0
+      - name: nuget.org
+        run: dotnet nuget push dist/CorvusRE.*.nupkg --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+      # The registry checks the package on nuget.org (its README's mcp-name line), so it waits until the version is listed.
+      - name: Wait for nuget.org
+        run: |
+          version="${TAG#v}"
+          for i in $(seq 1 90); do
+            curl -fsS https://api.nuget.org/v3-flatcontainer/corvusre/index.json | grep -q "\"$version\"" && exit 0
+            sleep 20
+          done
+          echo "CorvusRE $version is not listed on nuget.org after 30 minutes" >&2; exit 1
+      - name: MCP Registry
+        run: |
+          curl -fsSL -o publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
+          curl -fsSL -o checksums.txt https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/registry_1.8.1_checksums.txt
+          grep " mcp-publisher_linux_amd64.tar.gz$" checksums.txt | sed 's/mcp-publisher_linux_amd64.tar.gz$/publisher.tar.gz/' | sha256sum --check --strict
+          tar -xzf publisher.tar.gz mcp-publisher
+          ./mcp-publisher login github-oidc
+          cp src/Corvus/.mcp/server.json server.json
+          ./mcp-publisher publish
