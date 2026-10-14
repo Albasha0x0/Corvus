@@ -10,7 +10,7 @@ namespace Corvus.Tests;
 
 /// <summary>Type renames, deletions and struct member edits through the tools in IDA and Ghidra: applied, kept over recovered types, and pushed into a new database.</summary>
 [Trait("Speed", "Slow")]
-public sealed class NativeTypeEditEngineTests(ITestOutputHelper output) : IDisposable
+public abstract class NativeTypeEditEngineTests(ITestOutputHelper output) : IDisposable
 {
     private const string Function = "CheckSumMappedFile";
     private readonly TempDir _dir = new();
@@ -131,33 +131,50 @@ public sealed class NativeTypeEditEngineTests(ITestOutputHelper output) : IDispo
         Assert.Equal("x@0:4 z@0:8", await Members(again, "SampleU"));
     }
 
-    [IdaFact]
-    public Task Struct_and_union_member_edits_apply_in_IDA_stay_over_declarations_and_reach_a_new_database() => MemberEdits("ida", "ida-m", "ida-n");
+    private ITestOutputHelper Output => output;
 
-    [GhidraFact]
-    public Task Struct_and_union_member_edits_apply_in_Ghidra_stay_over_declarations_and_reach_a_new_project() => MemberEdits("ghidra", "ghidra-m", "ghidra-n");
-
-    [GhidraFact]
-    public async Task Define_native_refreshes_the_ghidra_name_layer_in_the_background()
+    /// <summary>Type renames and deletions in Ghidra.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class GhidraRenames(ITestOutputHelper output) : NativeTypeEditEngineTests(output)
     {
-        var rig = Setup("ghidra-g");
-        var path = Image();
-        output.WriteLine(await rig.Types.GetNativeFrame(path, Function, engine: "ghidra", locals: true));
-        Assert.True(await rig.Engines.GhidraNameLayer(rig.Native)! > 0);
-        var index = await rig.Code.Index(rig.Native, null, default);
-        NativeNameLayers.Of(rig.Native).Remove(NativeNameSource.Ghidra, index);
-        Assert.Null(NativeNameLayers.Of(rig.Native).Get(NativeNameSource.Ghidra));
-        var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
-        await rig.Types.DefineNative(path, $"rva:0x{fn:X}", "function", engine: "ghidra");
-        Assert.True(await GhidraNames.LastRefresh(rig.Native)! > 0);
-        Assert.NotNull(NativeNameLayers.Of(rig.Native).Get(NativeNameSource.Ghidra));
+        [GhidraFact]
+        public Task Type_renames_and_deletions_apply_in_Ghidra_stay_over_recovered_types_and_reach_a_new_project() =>
+            RenameAndDelete("ghidra", "ghidra-t", "ghidra-u");
     }
 
-    [IdaFact]
-    public Task Type_renames_and_deletions_apply_in_IDA_stay_over_recovered_types_and_reach_a_new_database() =>
-        RenameAndDelete("ida", "ida-t", "ida-u", async (ida, data) => Assert.Contains("SampleMsg", (await ida.RunScriptAsync($"idc.get_type(base + 0x{data:X})")).Result));
+    /// <summary>Struct and union member edits in Ghidra.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class GhidraMembers(ITestOutputHelper output) : NativeTypeEditEngineTests(output)
+    {
+        [GhidraFact]
+        public Task Struct_and_union_member_edits_apply_in_Ghidra_stay_over_declarations_and_reach_a_new_project() => MemberEdits("ghidra", "ghidra-m", "ghidra-n");
+    }
 
-    [GhidraFact]
-    public Task Type_renames_and_deletions_apply_in_Ghidra_stay_over_recovered_types_and_reach_a_new_project() =>
-        RenameAndDelete("ghidra", "ghidra-t", "ghidra-u");
+    /// <summary>The Ghidra name layer after define_native, and the type edits through IDA.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class DefineAndIda(ITestOutputHelper output) : NativeTypeEditEngineTests(output)
+    {
+        [IdaFact]
+        public Task Struct_and_union_member_edits_apply_in_IDA_stay_over_declarations_and_reach_a_new_database() => MemberEdits("ida", "ida-m", "ida-n");
+
+        [GhidraFact]
+        public async Task Define_native_refreshes_the_ghidra_name_layer_in_the_background()
+        {
+            var rig = Setup("ghidra-g");
+            var path = Image();
+            Output.WriteLine(await rig.Types.GetNativeFrame(path, Function, engine: "ghidra", locals: true));
+            Assert.True(await rig.Engines.GhidraNameLayer(rig.Native)! > 0);
+            var index = await rig.Code.Index(rig.Native, null, default);
+            NativeNameLayers.Of(rig.Native).Remove(NativeNameSource.Ghidra, index);
+            Assert.Null(NativeNameLayers.Of(rig.Native).Get(NativeNameSource.Ghidra));
+            var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
+            await rig.Types.DefineNative(path, $"rva:0x{fn:X}", "function", engine: "ghidra");
+            Assert.True(await GhidraNames.LastRefresh(rig.Native)! > 0);
+            Assert.NotNull(NativeNameLayers.Of(rig.Native).Get(NativeNameSource.Ghidra));
+        }
+
+        [IdaFact]
+        public Task Type_renames_and_deletions_apply_in_IDA_stay_over_recovered_types_and_reach_a_new_database() =>
+            RenameAndDelete("ida", "ida-t", "ida-u", async (ida, data) => Assert.Contains("SampleMsg", (await ida.RunScriptAsync($"idc.get_type(base + 0x{data:X})")).Result));
+    }
 }

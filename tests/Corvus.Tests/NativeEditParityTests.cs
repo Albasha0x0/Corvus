@@ -12,7 +12,7 @@ namespace Corvus.Tests;
 /// edits, pseudocode comments, batch renames and comments, before/after pseudocode, type guesses.
 /// </summary>
 [Trait("Speed", "Slow")]
-public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposable
+public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposable
 {
     private const string Function = "CheckSumMappedFile";
     private readonly TempDir _dir = new();
@@ -65,12 +65,6 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
 
     private static string Rva(uint rva) => $"rva:0x{rva:X}";
 
-    [IdaFact]
-    public Task Pseudocode_comments_show_clear_and_reach_a_new_database_in_IDA() => PseudocodeComments("ida");
-
-    [GhidraFact]
-    public Task Pseudocode_comments_show_clear_and_reach_a_new_database_in_Ghidra() => PseudocodeComments("ghidra");
-
     private async Task PseudocodeComments(string engine)
     {
         var rig = Setup(engine + "-p");
@@ -103,42 +97,6 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("test inside", again);
     }
 
-    [GhidraFact]
-    public async Task Comment_kinds_reach_Ghidra_and_a_pre_comment_shows_in_its_pseudocode()
-    {
-        var rig = Setup("ghidra-k");
-        var path = Image();
-        var session = await rig.Session("ghidra");
-        var lines = (await session.DecompileAsync(rig.Start)).LineAddresses.Where(l => l.Rva > rig.Start).ToList();
-        var at = lines[lines.Count / 2].Rva;
-        await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "pre", engine: "ghidra", dryRun: false);
-        Assert.Contains("test kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
-        // another kind: the pre comment is removed (the decompiler does not print end-of-line comments)
-        await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "eol", engine: "ghidra", dryRun: false);
-        Assert.DoesNotContain("test kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
-    }
-
-    [IdaFact]
-    public async Task Comment_kinds_reach_IDA_as_regular_and_anterior_comments()
-    {
-        var rig = Setup("ida-k");
-        var path = Image();
-        var session = await rig.Session("ida");
-        var at = (await session.DisassembleAsync(rig.Start)).Instructions[3].Rva;
-        async Task<string> Ida(string expr) => (await session.RunScriptAsync(expr)).Result ?? "";
-        await rig.Edits.CommentNative(path, Rva(at), "test pre", scope: "pre", engine: "ida", dryRun: false);
-        Assert.Contains("test pre", await Ida($"__import__('ida_lines').get_extra_cmt(base + 0x{at:X}, __import__('ida_lines').E_PREV)"));
-        await rig.Edits.CommentNative(path, Rva(at), "test eol", scope: "eol", engine: "ida", dryRun: false);
-        Assert.Contains("test eol", await Ida($"ida_bytes.get_cmt(base + 0x{at:X}, False)"));
-        Assert.DoesNotContain("test pre", await Ida($"__import__('ida_lines').get_extra_cmt(base + 0x{at:X}, __import__('ida_lines').E_PREV)"));
-    }
-
-    [IdaFact]
-    public Task Batch_renames_comments_and_locals_reach_IDA_in_one_push() => BatchEdits("ida");
-
-    [GhidraFact]
-    public Task Batch_renames_comments_and_locals_reach_Ghidra_in_one_push() => BatchEdits("ghidra");
-
     private async Task BatchEdits(string engine)
     {
         var rig = Setup(engine + "-b");
@@ -167,12 +125,6 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         Assert.StartsWith("2 of 3 local edit(s) applied", edited);
         Assert.Equal(2, rig.Code.Annotations(rig.Native).UserTypes.Locals.Values.Sum(l => l.Count));
     }
-
-    [IdaFact]
-    public Task Edits_show_the_pseudocode_diff_and_a_prototype_names_the_function_in_IDA() => DiffAndPrototypeName("ida");
-
-    [GhidraFact]
-    public Task Edits_show_the_pseudocode_diff_and_a_prototype_names_the_function_in_Ghidra() => DiffAndPrototypeName("ghidra");
 
     private async Task DiffAndPrototypeName(string engine)
     {
@@ -208,12 +160,6 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal("sample_proto_name", rig.Code.Annotations(rig.Native).NameAt(callee));
     }
 
-    [IdaFact]
-    public Task Type_guesses_come_from_the_decompiler_and_the_data_in_IDA() => TypeGuesses("ida");
-
-    [GhidraFact]
-    public Task Type_guesses_come_from_the_decompiler_and_the_data_in_Ghidra() => TypeGuesses("ghidra");
-
     private async Task TypeGuesses(string engine)
     {
         var rig = Setup(engine + "-g");
@@ -229,12 +175,6 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         Assert.StartsWith("Guess at", global);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeType(path, Function, "int f(void)", guess: true, engine: engine))).Code);
     }
-
-    [IdaFact]
-    public Task Local_and_stack_edits_clear_in_IDA() => LocalAndStackEditsClear("ida");
-
-    [GhidraFact]
-    public Task Local_and_stack_edits_clear_in_Ghidra() => LocalAndStackEditsClear("ghidra");
 
     private async Task LocalAndStackEditsClear(string engine)
     {
@@ -272,5 +212,82 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         Assert.Empty(layer().StackVars);
         var now = (await session.GetFrameAsync(rig.Start)).Members.Single(m => m.Offset == member.Offset);
         Assert.Equal((member.Name, member.Type), (now.Name, now.Type));
+    }
+
+    private ITestOutputHelper Output => output;
+
+    /// <summary>Comments and batch edits in Ghidra.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class GhidraComments(ITestOutputHelper output) : NativeEditParityTests(output)
+    {
+        [GhidraFact]
+        public Task Pseudocode_comments_show_clear_and_reach_a_new_database_in_Ghidra() => PseudocodeComments("ghidra");
+
+        [GhidraFact]
+        public async Task Comment_kinds_reach_Ghidra_and_a_pre_comment_shows_in_its_pseudocode()
+        {
+            var rig = Setup("ghidra-k");
+            var path = Image();
+            var session = await rig.Session("ghidra");
+            var lines = (await session.DecompileAsync(rig.Start)).LineAddresses.Where(l => l.Rva > rig.Start).ToList();
+            var at = lines[lines.Count / 2].Rva;
+            await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "pre", engine: "ghidra", dryRun: false);
+            Assert.Contains("test kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
+            // another kind: the pre comment is removed (the decompiler does not print end-of-line comments)
+            await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "eol", engine: "ghidra", dryRun: false);
+            Assert.DoesNotContain("test kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
+        }
+
+        [GhidraFact]
+        public Task Batch_renames_comments_and_locals_reach_Ghidra_in_one_push() => BatchEdits("ghidra");
+    }
+
+    /// <summary>Type guesses, pseudocode diffs and local edits in Ghidra.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class GhidraTypesAndLocals(ITestOutputHelper output) : NativeEditParityTests(output)
+    {
+        [GhidraFact]
+        public Task Edits_show_the_pseudocode_diff_and_a_prototype_names_the_function_in_Ghidra() => DiffAndPrototypeName("ghidra");
+
+        [GhidraFact]
+        public Task Type_guesses_come_from_the_decompiler_and_the_data_in_Ghidra() => TypeGuesses("ghidra");
+
+        [GhidraFact]
+        public Task Local_and_stack_edits_clear_in_Ghidra() => LocalAndStackEditsClear("ghidra");
+    }
+
+    /// <summary>The same edits through IDA.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class Ida(ITestOutputHelper output) : NativeEditParityTests(output)
+    {
+        [IdaFact]
+        public Task Pseudocode_comments_show_clear_and_reach_a_new_database_in_IDA() => PseudocodeComments("ida");
+
+        [IdaFact]
+        public async Task Comment_kinds_reach_IDA_as_regular_and_anterior_comments()
+        {
+            var rig = Setup("ida-k");
+            var path = Image();
+            var session = await rig.Session("ida");
+            var at = (await session.DisassembleAsync(rig.Start)).Instructions[3].Rva;
+            async Task<string> Ida(string expr) => (await session.RunScriptAsync(expr)).Result ?? "";
+            await rig.Edits.CommentNative(path, Rva(at), "test pre", scope: "pre", engine: "ida", dryRun: false);
+            Assert.Contains("test pre", await Ida($"__import__('ida_lines').get_extra_cmt(base + 0x{at:X}, __import__('ida_lines').E_PREV)"));
+            await rig.Edits.CommentNative(path, Rva(at), "test eol", scope: "eol", engine: "ida", dryRun: false);
+            Assert.Contains("test eol", await Ida($"ida_bytes.get_cmt(base + 0x{at:X}, False)"));
+            Assert.DoesNotContain("test pre", await Ida($"__import__('ida_lines').get_extra_cmt(base + 0x{at:X}, __import__('ida_lines').E_PREV)"));
+        }
+
+        [IdaFact]
+        public Task Batch_renames_comments_and_locals_reach_IDA_in_one_push() => BatchEdits("ida");
+
+        [IdaFact]
+        public Task Edits_show_the_pseudocode_diff_and_a_prototype_names_the_function_in_IDA() => DiffAndPrototypeName("ida");
+
+        [IdaFact]
+        public Task Type_guesses_come_from_the_decompiler_and_the_data_in_IDA() => TypeGuesses("ida");
+
+        [IdaFact]
+        public Task Local_and_stack_edits_clear_in_IDA() => LocalAndStackEditsClear("ida");
     }
 }

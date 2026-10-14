@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 
 /// <summary>The native query surface through IDA and Ghidra on a real system DLL: headers, cross-reference directions, function filters, decompiler references, types.</summary>
 [Trait("Speed", "Slow")]
-public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposable
+public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDisposable
 {
     private const string Function = "CheckSumMappedFile";
     private readonly TempDir _dir = new();
@@ -49,51 +49,6 @@ public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposab
             new NativeAnalysisTools(workspace, engines, pager, names, code, types, user), new NativeCodeTools(workspace, code, pager, null, engines, names, types, user));
     }
 
-    [IdaFact]
-    public async Task Decompile_and_frame_headers_demangle_IDA_names()
-    {
-        var rig = Setup();
-        var rva = await rig.Rva(Function);
-        var session = await rig.Session();
-        var set = await session.RunScriptAsync($"ida_name.set_name(base + 0x{rva:X}, '?Run@Widget@@QEAAXXZ', ida_name.SN_NOCHECK)");
-        Assert.Equal("True", set.Result?.Trim());
-        var text = await rig.Analysis.DecompileNative(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida");
-        output.WriteLine(text.Split('\n')[0]);
-        // the name in effect (the export) wins in pseudocode headers, as in list_functions (DN-4); the frame shows the engine's
-        Assert.Contains($"// {Function} at ", text);
-        var frame = await rig.Types.GetNativeFrame(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida", locals: true);
-        output.WriteLine(frame.Split('\n')[0]);
-        Assert.StartsWith("Frame of Widget::Run at ", frame);
-        Assert.Contains("(symbol ?Run@Widget@@QEAAXXZ)", frame);
-    }
-
-    [IdaFact]
-    public async Task Find_xrefs_from_a_function_through_IDA_by_kind()
-    {
-        var rig = Setup();
-        var from = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from");
-        output.WriteLine(string.Join('\n', from.Split('\n').Take(12)));
-        Assert.Contains($"References from 0x", from);
-        Assert.Contains("(the whole function) (via IDA)", from);
-        Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call\s+\S+\+0x[0-9A-F]+  -> 0x[0-9A-F]+", from);
-        var code = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from", kind: "code");
-        var data = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from", kind: "data");
-        Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Read|Write|Offset)\s", code);
-        Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Call|Jump|Code)\s", data);
-        // every row is in one of the two
-        static int Rows(string text) => System.Text.RegularExpressions.Regex.Count(text, @"(?m)^\s*0x[0-9A-F]+  \S");
-        Assert.Equal(Rows(from), Rows(code) + Rows(data));
-        var both = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "both");
-        Assert.Contains("References to ", both);
-        Assert.Contains("References from ", both);
-    }
-
-    [IdaFact]
-    public Task List_functions_through_IDA_filters_by_type_name_and_size() => FunctionFilters("ida");
-
-    [GhidraFact]
-    public Task List_functions_through_Ghidra_filters_by_type_name_and_size() => FunctionFilters("ghidra");
-
     private async Task FunctionFilters(string engine)
     {
         var rig = Setup();
@@ -115,74 +70,136 @@ public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposab
         Assert.Equal(large.Select(f => f.Size).Order(), large.Select(f => f.Size));
     }
 
-    [GhidraFact]
-    public async Task Find_xrefs_from_a_function_through_Ghidra()
+    private ITestOutputHelper Output => output;
+
+    /// <summary>Function and type listings through Ghidra.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class GhidraListings(ITestOutputHelper output) : NativeQueryEngineTests(output)
     {
-        var rig = Setup();
-        var from = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ghidra", direction: "from");
-        output.WriteLine(string.Join('\n', from.Split('\n').Take(12)));
-        Assert.Contains("(the whole function) (via Ghidra)", from);
-        Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call\s+\S+\+0x[0-9A-F]+  -> 0x[0-9A-F]+", from);
-        Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Call|Jump|Code)\s", await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ghidra", direction: "from", kind: "data"));
+        [GhidraFact]
+        public Task List_functions_through_Ghidra_filters_by_type_name_and_size() => FunctionFilters("ghidra");
+
+        [GhidraFact]
+        public async Task List_native_types_through_Ghidra_by_pattern_kind_order_and_members()
+        {
+            var rig = Setup();
+            await rig.Types.DeclareNativeTypes(rig.Native.Id, "struct QzPkt { int len; char data[12]; }; union QzWord { int i; float f; }; typedef struct QzPkt *PQzPkt;", engine: "ghidra");
+            static List<string> Names(string text) => [.. text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("    ", StringComparison.Ordinal))
+                .Select(l => l.Trim().Split(' ')[1])];
+            Assert.Equal(["QzPkt", "QzWord"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "qz*", kind: "udt", engine: "ghidra", sort: "name")));
+            Assert.Equal(["QzPkt", "QzWord"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^Qz/", engine: "ghidra", sort: "size", descending: true)));
+            var members = await rig.Types.ListNativeTypes(rig.Native.Id, "QzPkt", engine: "ghidra", members: true);
+            Output.WriteLine(members);
+            Assert.Matches(@"      \+0x4  data  char\[12\]  12", members);
+            Assert.Equal(["PQzPkt"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/qz/", kind: "ptr", engine: "ghidra")));
+        }
     }
 
-    [IdaFact]
-    public async Task Decompile_refs_lists_the_ctree_objects_through_IDA()
+    /// <summary>Decompile references and cross-references through Ghidra.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class GhidraRefs(ITestOutputHelper output) : NativeQueryEngineTests(output)
     {
-        var rig = Setup();
-        var report = await NativeQuerySurfaceTests.Structured<NativeAnalysisTools.DecompileReport>(() => rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ida", refs: true));
-        var text = await rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ida", refs: true);
-        output.WriteLine(text[text.IndexOf("// refs:", StringComparison.Ordinal)..]);
-        Assert.Matches(@"// refs: .*import", text);
-        Assert.DoesNotContain("(from ida's references)", text);
-        var refs = report.Items[0].Refs!;
-        Assert.Contains(refs, r => r.Kind == "import" && r.Name.EndsWith("!RtlImageNtHeaderEx", StringComparison.Ordinal));
-        Assert.All(refs, r => Assert.True(r.Uses >= 1));
+        [GhidraFact]
+        public async Task Find_xrefs_from_a_function_through_Ghidra()
+        {
+            var rig = Setup();
+            var from = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ghidra", direction: "from");
+            Output.WriteLine(string.Join('\n', from.Split('\n').Take(12)));
+            Assert.Contains("(the whole function) (via Ghidra)", from);
+            Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call\s+\S+\+0x[0-9A-F]+  -> 0x[0-9A-F]+", from);
+            Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Call|Jump|Code)\s", await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ghidra", direction: "from", kind: "data"));
+        }
+
+        [GhidraFact]
+        public async Task Decompile_refs_come_from_the_function_references_through_Ghidra()
+        {
+            var rig = Setup();
+            var text = await rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ghidra", refs: true);
+            Output.WriteLine(text[text.IndexOf("// refs:", StringComparison.Ordinal)..]);
+            Assert.Matches(@"// refs: .*import.* \(from ghidra's references\)", text);
+            Assert.Contains("!RtlImageNtHeaderEx", text);
+        }
     }
 
-    [GhidraFact]
-    public async Task Decompile_refs_come_from_the_function_references_through_Ghidra()
+    /// <summary>The same queries through IDA.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class Ida(ITestOutputHelper output) : NativeQueryEngineTests(output)
     {
-        var rig = Setup();
-        var text = await rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ghidra", refs: true);
-        output.WriteLine(text[text.IndexOf("// refs:", StringComparison.Ordinal)..]);
-        Assert.Matches(@"// refs: .*import.* \(from ghidra's references\)", text);
-        Assert.Contains("!RtlImageNtHeaderEx", text);
-    }
+        [IdaFact]
+        public async Task Decompile_and_frame_headers_demangle_IDA_names()
+        {
+            var rig = Setup();
+            var rva = await rig.Rva(Function);
+            var session = await rig.Session();
+            var set = await session.RunScriptAsync($"ida_name.set_name(base + 0x{rva:X}, '?Run@Widget@@QEAAXXZ', ida_name.SN_NOCHECK)");
+            Assert.Equal("True", set.Result?.Trim());
+            var text = await rig.Analysis.DecompileNative(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida");
+            Output.WriteLine(text.Split('\n')[0]);
+            // the name in effect (the export) wins in pseudocode headers, as in list_functions (DN-4); the frame shows the engine's
+            Assert.Contains($"// {Function} at ", text);
+            var frame = await rig.Types.GetNativeFrame(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida", locals: true);
+            Output.WriteLine(frame.Split('\n')[0]);
+            Assert.StartsWith("Frame of Widget::Run at ", frame);
+            Assert.Contains("(symbol ?Run@Widget@@QEAAXXZ)", frame);
+        }
 
-    [IdaFact]
-    public async Task List_native_types_through_IDA_by_pattern_kind_order_and_members()
-    {
-        var rig = Setup();
-        await rig.Types.DeclareNativeTypes(rig.Native.Id, "struct QzPkt { int len; char data[12]; }; typedef struct QzPkt *PQzPkt; " +
-                                                          "enum QzColor { QzRed = 1, QzGreen = 2 };", engine: "ida");
-        static List<string> Names(string text) => [.. text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("    ", StringComparison.Ordinal))
-            .Select(l => l.Trim().Split(' ')[1])];
-        var glob = await rig.Types.ListNativeTypes(rig.Native.Id, "*qz*", engine: "ida", sort: "name");
-        output.WriteLine(glob);
-        Assert.Equal(["PQzPkt", "QzColor", "QzPkt"], Names(glob));
-        Assert.Equal(["PQzPkt"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/qz/", kind: "ptr", engine: "ida")));
-        Assert.Equal(["QzPkt"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^Qz/", kind: "udt", engine: "ida")));
-        Assert.Empty(Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^qz/s", engine: "ida"))); // a flag drops the default i
-        Assert.Equal(["QzPkt", "PQzPkt", "QzColor"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "*Qz*", engine: "ida", sort: "size", descending: true)));
-        var members = await rig.Types.ListNativeTypes(rig.Native.Id, "/qz(pkt|color)$/", engine: "ida", members: true);
-        output.WriteLine(members);
-        Assert.Contains("      +0x4  data  char[12]  12", members);
-        Assert.Contains("      QzGreen = 2", members);
-    }
+        [IdaFact]
+        public async Task Find_xrefs_from_a_function_through_IDA_by_kind()
+        {
+            var rig = Setup();
+            var from = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from");
+            Output.WriteLine(string.Join('\n', from.Split('\n').Take(12)));
+            Assert.Contains($"References from 0x", from);
+            Assert.Contains("(the whole function) (via IDA)", from);
+            Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call\s+\S+\+0x[0-9A-F]+  -> 0x[0-9A-F]+", from);
+            var code = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from", kind: "code");
+            var data = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from", kind: "data");
+            Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Read|Write|Offset)\s", code);
+            Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Call|Jump|Code)\s", data);
+            // every row is in one of the two
+            static int Rows(string text) => System.Text.RegularExpressions.Regex.Count(text, @"(?m)^\s*0x[0-9A-F]+  \S");
+            Assert.Equal(Rows(from), Rows(code) + Rows(data));
+            var both = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "both");
+            Assert.Contains("References to ", both);
+            Assert.Contains("References from ", both);
+        }
 
-    [GhidraFact]
-    public async Task List_native_types_through_Ghidra_by_pattern_kind_order_and_members()
-    {
-        var rig = Setup();
-        await rig.Types.DeclareNativeTypes(rig.Native.Id, "struct QzPkt { int len; char data[12]; }; union QzWord { int i; float f; }; typedef struct QzPkt *PQzPkt;", engine: "ghidra");
-        static List<string> Names(string text) => [.. text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("    ", StringComparison.Ordinal))
-            .Select(l => l.Trim().Split(' ')[1])];
-        Assert.Equal(["QzPkt", "QzWord"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "qz*", kind: "udt", engine: "ghidra", sort: "name")));
-        Assert.Equal(["QzPkt", "QzWord"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^Qz/", engine: "ghidra", sort: "size", descending: true)));
-        var members = await rig.Types.ListNativeTypes(rig.Native.Id, "QzPkt", engine: "ghidra", members: true);
-        output.WriteLine(members);
-        Assert.Matches(@"      \+0x4  data  char\[12\]  12", members);
-        Assert.Equal(["PQzPkt"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/qz/", kind: "ptr", engine: "ghidra")));
+        [IdaFact]
+        public Task List_functions_through_IDA_filters_by_type_name_and_size() => FunctionFilters("ida");
+
+        [IdaFact]
+        public async Task Decompile_refs_lists_the_ctree_objects_through_IDA()
+        {
+            var rig = Setup();
+            var report = await NativeQuerySurfaceTests.Structured<NativeAnalysisTools.DecompileReport>(() => rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ida", refs: true));
+            var text = await rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ida", refs: true);
+            Output.WriteLine(text[text.IndexOf("// refs:", StringComparison.Ordinal)..]);
+            Assert.Matches(@"// refs: .*import", text);
+            Assert.DoesNotContain("(from ida's references)", text);
+            var refs = report.Items[0].Refs!;
+            Assert.Contains(refs, r => r.Kind == "import" && r.Name.EndsWith("!RtlImageNtHeaderEx", StringComparison.Ordinal));
+            Assert.All(refs, r => Assert.True(r.Uses >= 1));
+        }
+
+        [IdaFact]
+        public async Task List_native_types_through_IDA_by_pattern_kind_order_and_members()
+        {
+            var rig = Setup();
+            await rig.Types.DeclareNativeTypes(rig.Native.Id, "struct QzPkt { int len; char data[12]; }; typedef struct QzPkt *PQzPkt; " +
+                                                              "enum QzColor { QzRed = 1, QzGreen = 2 };", engine: "ida");
+            static List<string> Names(string text) => [.. text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("    ", StringComparison.Ordinal))
+                .Select(l => l.Trim().Split(' ')[1])];
+            var glob = await rig.Types.ListNativeTypes(rig.Native.Id, "*qz*", engine: "ida", sort: "name");
+            Output.WriteLine(glob);
+            Assert.Equal(["PQzPkt", "QzColor", "QzPkt"], Names(glob));
+            Assert.Equal(["PQzPkt"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/qz/", kind: "ptr", engine: "ida")));
+            Assert.Equal(["QzPkt"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^Qz/", kind: "udt", engine: "ida")));
+            Assert.Empty(Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^qz/s", engine: "ida"))); // a flag drops the default i
+            Assert.Equal(["QzPkt", "PQzPkt", "QzColor"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "*Qz*", engine: "ida", sort: "size", descending: true)));
+            var members = await rig.Types.ListNativeTypes(rig.Native.Id, "/qz(pkt|color)$/", engine: "ida", members: true);
+            Output.WriteLine(members);
+            Assert.Contains("      +0x4  data  char[12]  12", members);
+            Assert.Contains("      QzGreen = 2", members);
+        }
     }
 }

@@ -15,7 +15,7 @@ namespace Corvus.Tests;
 /// scratch copy of a system DLL.
 /// </summary>
 [Trait("Speed", "Slow")]
-public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposable
+public abstract class EngineControlRealTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly List<IDisposable> _owned = [];
@@ -52,13 +52,6 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
             new NativeEditTools(workspace, code, new NativeEditService(workspace, code), null, engines, names), notes, native);
     }
 
-    /// <summary>The open's stage profile, cold (a new cache) and warm (the saved database), on notepad.exe and dbghelp.dll copies.</summary>
-    [GhidraFact]
-    public Task Open_stages_Ghidra() => OpenStages("ghidra");
-
-    [IdaFact]
-    public Task Open_stages_Ida() => OpenStages("ida");
-
     private async Task OpenStages(string engine)
     {
         foreach (var name in new[] { "notepad.exe", "dbghelp.dll" })
@@ -82,36 +75,6 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
             }
         }
     }
-
-    /// <summary>A Ghidra open whose analysis budget runs out: lookups that fail say so and name reanalyze_native, which completes the analysis.</summary>
-    [GhidraFact]
-    public async Task A_partial_Ghidra_analysis_points_at_reanalysis_which_completes_it()
-    {
-        var dir = Directory.CreateDirectory(_dir.File("partial")).FullName;
-        var copy = Path.Combine(dir, "dbghelp.dll");
-        File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "dbghelp.dll"), copy, overwrite: true);
-        using var provider = new Native.Providers.Ghidra.GhidraProvider(new Native.Providers.Ghidra.GhidraProviderOptions { CacheRoot = _dir.File("partial-cache") });
-        await using var session = (Native.Providers.Ghidra.GhidraSession)await provider.OpenAsync(copy, null,
-            new NativeOpenOptions { Symbols = SymbolMode.Off, AnalysisBudget = TimeSpan.FromSeconds(1) }); // seconds short of a full analysis, however fast the machine
-        Assert.False(session.AnalysisComplete);
-        var e = await Assert.ThrowsAsync<ToolError>(() => session.DecompileAsync(0x10)); // the headers: in no function
-        Assert.Equal(ErrorCode.NotFound, e.Code);
-        Assert.Contains("is partial (the open's budget ran out): reanalyze_native image=dbghelp.dll engine=ghidra completes it", e.Remediation);
-        var clock = Stopwatch.StartNew();
-        var r = await EngineControl.Of(session)!.ReanalyzeAsync([], null, null, 900);
-        output.WriteLine($"resumed in {clock.Elapsed.TotalSeconds:0.0} s: complete {r.Complete}, functions {r.FunctionsBefore} -> {r.FunctionsAfter}");
-        Assert.True(r.Complete);
-        Assert.True(session.AnalysisComplete);
-        Assert.True(r.FunctionsAfter >= r.FunctionsBefore);
-        e = await Assert.ThrowsAsync<ToolError>(() => session.DecompileAsync(0x10));
-        Assert.DoesNotContain("partial", e.Remediation ?? "");
-    }
-
-    [IdaFact]
-    public Task Ida() => Run("ida");
-
-    [GhidraFact]
-    public Task Ghidra() => Run("ghidra");
 
     private async Task Run(string engine)
     {
@@ -185,5 +148,59 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         Assert.Contains("Complete: the analysis queue ran empty.", run);
         Assert.DoesNotContain("Warning:", run);
         Assert.Contains(engine == "ida" ? "AF_FLIRT = true" : "Decompiler Parameter ID = ", await rig.Control.ReanalyzeNative(id, engine: engine, analyzers: true));
+    }
+
+    private ITestOutputHelper Output => output;
+
+    /// <summary>Ghidra open stages.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class GhidraOpenStages(ITestOutputHelper output) : EngineControlRealTests(output)
+    {
+        /// <summary>The open's stage profile, cold (a new cache) and warm (the saved database), on notepad.exe and dbghelp.dll copies.</summary>
+        [GhidraFact]
+        public Task Open_stages_Ghidra() => OpenStages("ghidra");
+    }
+
+    /// <summary>A partial Ghidra analysis and the reanalysis that completes it.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class GhidraPartialAnalysis(ITestOutputHelper output) : EngineControlRealTests(output)
+    {
+        /// <summary>A Ghidra open whose analysis budget runs out: lookups that fail say so and name reanalyze_native, which completes the analysis.</summary>
+        [GhidraFact]
+        public async Task A_partial_Ghidra_analysis_points_at_reanalysis_which_completes_it()
+        {
+            var dir = Directory.CreateDirectory(_dir.File("partial")).FullName;
+            var copy = Path.Combine(dir, "dbghelp.dll");
+            File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "dbghelp.dll"), copy, overwrite: true);
+            using var provider = new Native.Providers.Ghidra.GhidraProvider(new Native.Providers.Ghidra.GhidraProviderOptions { CacheRoot = _dir.File("partial-cache") });
+            await using var session = (Native.Providers.Ghidra.GhidraSession)await provider.OpenAsync(copy, null,
+                new NativeOpenOptions { Symbols = SymbolMode.Off, AnalysisBudget = TimeSpan.FromSeconds(1) }); // seconds short of a full analysis, however fast the machine
+            Assert.False(session.AnalysisComplete);
+            var e = await Assert.ThrowsAsync<ToolError>(() => session.DecompileAsync(0x10)); // the headers: in no function
+            Assert.Equal(ErrorCode.NotFound, e.Code);
+            Assert.Contains("is partial (the open's budget ran out): reanalyze_native image=dbghelp.dll engine=ghidra completes it", e.Remediation);
+            var clock = Stopwatch.StartNew();
+            var r = await EngineControl.Of(session)!.ReanalyzeAsync([], null, null, 900);
+            Output.WriteLine($"resumed in {clock.Elapsed.TotalSeconds:0.0} s: complete {r.Complete}, functions {r.FunctionsBefore} -> {r.FunctionsAfter}");
+            Assert.True(r.Complete);
+            Assert.True(session.AnalysisComplete);
+            Assert.True(r.FunctionsAfter >= r.FunctionsBefore);
+            e = await Assert.ThrowsAsync<ToolError>(() => session.DecompileAsync(0x10));
+            Assert.DoesNotContain("partial", e.Remediation ?? "");
+        }
+    }
+
+    /// <summary>Engine controls through IDA and Ghidra, and IDA open stages.</summary>
+    [Trait("Speed", "Slow")]
+    public sealed class Controls(ITestOutputHelper output) : EngineControlRealTests(output)
+    {
+        [IdaFact]
+        public Task Open_stages_Ida() => OpenStages("ida");
+
+        [IdaFact]
+        public Task Ida() => Run("ida");
+
+        [GhidraFact]
+        public Task Ghidra() => Run("ghidra");
     }
 }
