@@ -7,7 +7,8 @@
   quick set is green at every commit.
 - **Full set** (`CORVUS_ALL_TESTS=1 dotnet test`, or `dotnet test -p:CORVUS_ALL_TESTS=1`): adds real-library builds, whole-server
   runs over stdio, sweeps, fuzzing and the large runtime packs. It runs before a release or a gate run;
-  a push runs the quick set plus the slow tests of the families it touches. A routine `./test.ps1 -Full` sweeps an evenly spread quarter of the real images; `-Exhaustive` (gates and
+  a push runs the quick set plus the slow tests of the families it touches (`./test.ps1 -Affected`, against
+  `origin/main`; a change to shared code, such as `Core`, `Mcp` or test `Support`, runs the full suite). A routine `./test.ps1 -Full` sweeps an evenly spread quarter of the real images; `-Exhaustive` (gates and
   releases, `CORVUS_SWEEP=exhaustive`) takes them all. `./test.ps1 -Full` records the clean tree it
   passed on (in `.git`), and `-IfChanged` and `release.ps1` skip a second full run on that tree.
 
