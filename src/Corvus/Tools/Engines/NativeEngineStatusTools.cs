@@ -77,10 +77,11 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         {
             bool saved = engines.HasSavedAnalysis(native, id);
             var identity = engines.Identity(id);
+            // Describe leaves only the completion pass's suffix in Profile
             EngineStatus Known(EngineStatus s) => s with
             {
-                Profile = identity.Profile, Version = s.Version ?? identity.Version,
-                Limitations = identity.Profile == "standard" ? [Limitations.Id(Limitation.EngineProfileStandard)] : null,
+                Profile = identity.Profile + s.Profile, Version = s.Version ?? identity.Version,
+                Limitations = identity.Profile == "standard" && s.Profile != "→full" ? [Limitations.Id(Limitation.EngineProfileStandard)] : null,
             };
             if (states.FirstOrDefault(s => s.Engine == id) is not { } state)
             {
@@ -109,7 +110,11 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             Analysis = session.AnalysisComplete ? "complete" : "partial",
         };
         if (session is WorkerSessionBase worker) status = status with { WorkerPid = worker.WorkerProcessId, UnsavedEdits = worker.UnsavedCount };
-        if (session is GhidraSession g) status = status with { Database = g.ProjectDirectory, Warnings = g.Warnings, Language = g.Language, Functions = g.FunctionCount };
+        if (session is GhidraSession g)
+        {
+            status = status with { Database = g.ProjectDirectory, Warnings = g.Warnings, Language = g.Language, Functions = g.FunctionCount };
+            status = status with { Profile = await g.CompletionAsync(ct) };
+        }
         if (session is IdaSession i) status = status with { Database = i.DatabasePath };
         try
         {

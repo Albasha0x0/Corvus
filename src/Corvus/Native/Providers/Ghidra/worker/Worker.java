@@ -132,7 +132,8 @@ public class Worker implements GhidraLaunchable {
     }
 
     private PrintStream out;
-    private final ConcurrentHashMap<Long, Request> running = new ConcurrentHashMap<>();
+    final ConcurrentHashMap<Long, Request> running = new ConcurrentHashMap<>();
+    volatile CompletionPass completion;
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "worker request");
         t.setDaemon(true);
@@ -187,6 +188,8 @@ public class Worker implements GhidraLaunchable {
                 if (target != null) target.stop("cancelled");
                 continue;
             }
+            CompletionPass pass = completion;
+            if (pass != null) pass.activity();
             running.put(r.id, r); // registered before it runs, so a cancel that follows at once finds it
             executor.submit(() -> handle(r));
         }
@@ -248,6 +251,8 @@ public class Worker implements GhidraLaunchable {
         }
         finally {
             running.remove(r.id);
+            CompletionPass pass = completion;
+            if (pass != null) pass.activity();
         }
         String text = GSON.toJson(response);
         if (text.length() > MAX_RESPONSE_CHARS)
@@ -261,6 +266,7 @@ public class Worker implements GhidraLaunchable {
             case "hello": return hello();
             case "open": return open(r);
             case "gzf_original": return GzfOps.original(this, r);
+            case "completion": return completionStatus();
             case "rebase": return rebase(r);
             // the program's change counter and this worker's identity: a caller's cached tables stay valid while both match
             case "stamp": return read(() -> {
@@ -517,6 +523,10 @@ public class Worker implements GhidraLaunchable {
                 a.has("decompile_payload_mb") ? a.get("decompile_payload_mb").getAsInt() : 200);
             r.monitor.setMessage("ready");
             startFunctionPass();
+            if (complete && a.has("completion") && a.get("completion").getAsBoolean() && !CompletionPass.finished(program)) {
+                completion = new CompletionPass(this, program);
+                completion.start();
+            }
             return info(reused, complete, warnings, (System.nanoTime() - start) / 1e9);
         }
         finally {
@@ -816,6 +826,15 @@ public class Worker implements GhidraLaunchable {
         finally {
             lock.writeLock().unlock();
         }
+    }
+
+    /** The completion pass: state (off, pending, running, done, ...), functions done and total. */
+    private JsonElement completionStatus() {
+        CompletionPass pass = completion;
+        if (pass != null) return pass.status();
+        JsonObject o = new JsonObject();
+        o.addProperty("state", program != null && CompletionPass.finished(program) ? "done" : "off");
+        return o;
     }
 
     /** Test hook: holds a request for the given seconds unless cancelled. */

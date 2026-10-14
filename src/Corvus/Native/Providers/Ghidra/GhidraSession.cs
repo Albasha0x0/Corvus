@@ -240,6 +240,8 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 ("decompile_timeout", (int)provider.DecompileTimeout.TotalSeconds),
                 ("decompile_payload_mb", provider.DecompilePayloadMb));
             if (Options.GhidraDatabase is { } packed) args["gzf"] = packed.Path;
+            // the analyzers the standard profile caps run again uncapped in the background, while the worker is idle
+            else if (provider.Profile == GhidraAnalysisProfile.Standard && Options.Analysis != EngineAnalysis.None && provider.CompletionPass) args["completion"] = true;
             if (Options.Raw is { } layout)
             {
                 args["loader"] = layout.Isa.GhidraLoader ?? "BinaryLoader";
@@ -577,6 +579,19 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             timeout: TimeSpan.FromSeconds(seconds + 30)).ConfigureAwait(false);
         return new NativeScriptResult(null, WorkerRows.Text(r.GetProperty("stdout")) ?? "", WorkerRows.Text(r.GetProperty("stderr")) ?? "",
             WorkerRows.Text(r.GetProperty("error")));
+    }
+
+    /// <summary>The completion pass as status shows it after the profile: "→full" when done, its progress while it runs, else null.</summary>
+    internal async Task<string?> CompletionAsync(CancellationToken cancellationToken)
+    {
+        var r = await CallAsync("completion", WorkerRows.Args(), cancellationToken).ConfigureAwait(false);
+        return r.GetProperty("state").GetString() switch
+        {
+            "done" => "→full",
+            "off" or null => null,
+            "running" or "pending" => $" (completion pass: {r.GetProperty("done").GetInt32():N0} of {r.GetProperty("total").GetInt32():N0} functions)",
+            var other => $" (completion pass {other})",
+        };
     }
 
     /// <summary>Saves the program and writes it to <paramref name="path"/> as a packed Ghidra archive (.gzf); returns the path and size.</summary>

@@ -25,6 +25,8 @@ public static class GhidraOptions
     public const string JavaVariable = "CORVUS_GHIDRA_JAVA";
     public const string MaxMemoryVariable = "CORVUS_GHIDRA_MAXMEM";
     public const string ProfileVariable = "CORVUS_GHIDRA_ANALYSIS";
+    /// <summary>off: no completion pass after a standard-profile analysis (the worker's CompletionPass).</summary>
+    public const string CompletionVariable = "CORVUS_GHIDRA_COMPLETION";
     /// <summary>Extra analyzer options, "Name=value;Name=value", applied after the profile's.</summary>
     public const string OptionsVariable = "CORVUS_GHIDRA_OPTIONS";
     /// <summary>A directory of Ghidra extensions (zips or unpacked) installed into the workers' private settings (see <see cref="GhidraExtensions"/>).</summary>
@@ -123,6 +125,8 @@ public static class GhidraOptions
         }
         return list;
     }
+
+    public static bool Completion(string? value) => value?.Trim().ToLowerInvariant() is not ("off" or "0" or "false" or "no");
 
     public static GhidraAnalysisProfile Profile(string? value) => value?.Trim().ToLowerInvariant() switch
     {

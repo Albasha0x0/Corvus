@@ -13,6 +13,9 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
+    // a private analysis cache: another class's server may hold the shared project of the same DLL
+    private Dictionary<string, string?> Cache => new() { [Corvus.Native.Providers.AnalysisCache.RootVariable] = _dir.File("cache") };
+
     [Fact]
     public void A_file_other_than_the_recorded_one_is_refused()
     {
@@ -30,7 +33,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
         File.Copy(RealPackages.File("runtime.win-x64.Microsoft.DotNet.ILCompiler", "10.0.11", "tools", "jitinterface_x64.dll"), image);
         var gzf = _dir.File("jit.gzf");
         string function;
-        await using (var c = await McpProtocolTests.StartServerInAsync(_dir.Path))
+        await using (var c = await McpProtocolTests.StartServerAsync(_dir.Path, null, [], Cache))
         {
             await Call(c, "load_assembly", new() { ["path"] = image });
             // an unnamed function: the server has no name of its own there, so the archive's shows
@@ -40,7 +43,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
             output.WriteLine((await Call(c, "export_engine_database", new() { ["image"] = "jitinterface_x64.dll", ["outputPath"] = gzf, ["engine"] = "ghidra" })).Text);
         }
         File.Delete(image);
-        await using (var c = await McpProtocolTests.StartServerInAsync(_dir.Path, "--ghidra-scripting"))
+        await using (var c = await McpProtocolTests.StartServerAsync(_dir.Path, null, ["--ghidra-scripting"], Cache))
         {
             var (loaded, _) = await Call(c, "load_assembly", new() { ["path"] = gzf });
             output.WriteLine(loaded);

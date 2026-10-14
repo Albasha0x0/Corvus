@@ -13,6 +13,8 @@ public sealed record GhidraProviderOptions
     public string? CacheRoot { get; init; }
     /// <summary>Analysis profile; null: CORVUS_GHIDRA_ANALYSIS, else standard.</summary>
     public GhidraAnalysisProfile? Profile { get; init; }
+    /// <summary>Null: <see cref="GhidraOptions.CompletionVariable"/> decides (default on).</summary>
+    public bool? CompletionPass { get; init; }
     /// <summary>JVM heap such as 6G; null: CORVUS_GHIDRA_MAXMEM, else by image size.</summary>
     public string? MaxMemory { get; init; }
     /// <summary>Extra analyzer options "Name=value;..."; null: CORVUS_GHIDRA_OPTIONS.</summary>
@@ -61,6 +63,8 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
     internal GhidraDirectories Directories => new(Path.Combine(Cache.Root, ProviderId));
     /// <summary>One first analysis at a time: a cold analysis of a large image takes several GB.</summary>
     internal SemaphoreSlim ColdAnalysis { get; } = new(1, 1);
+
+    internal bool CompletionPass => _options.CompletionPass ?? GhidraOptions.Completion(Environment.GetEnvironmentVariable(GhidraOptions.CompletionVariable));
 
     internal GhidraAnalysisProfile Profile => _options.Profile ?? GhidraOptions.Profile(Environment.GetEnvironmentVariable(GhidraOptions.ProfileVariable));
     internal string? ExtraOptions => _options.ExtraOptions ?? Environment.GetEnvironmentVariable(GhidraOptions.OptionsVariable);

@@ -14,5 +14,7 @@ internal static class TestDataFolder
     {
         if (Environment.GetEnvironmentVariable(DataFolder.RootVariable) is not { Length: > 0 })
             Environment.SetEnvironmentVariable(DataFolder.RootVariable, Path.Combine(Path.GetTempPath(), "corvus-test-data"));
+        // Ghidra's answers stay fixed within a test; CompletionPassTests turns the pass on
+        Environment.SetEnvironmentVariable("CORVUS_GHIDRA_COMPLETION", "off");
     }
 }
