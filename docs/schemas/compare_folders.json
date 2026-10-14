@@ -8,7 +8,7 @@
           "type": "string"
         },
         "kind": {
-          "description": "folder, zip (central directory: CRC-32 and size, entries not read) or file.",
+          "description": "folder, zip (central directory: CRC-32 and size, entries not read), asar (Electron archive header; declared SHA-256 or hashed data) or file.",
           "type": "string"
         },
         "entries": {
@@ -58,7 +58,7 @@
           "type": "string"
         },
         "kind": {
-          "description": "folder, zip (central directory: CRC-32 and size, entries not read) or file.",
+          "description": "folder, zip (central directory: CRC-32 and size, entries not read), asar (Electron archive header; declared SHA-256 or hashed data) or file.",
           "type": "string"
         },
         "entries": {

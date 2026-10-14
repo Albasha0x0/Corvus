@@ -39,7 +39,7 @@ public sealed class FolderCompare
 
     public sealed record Side(
         string Path,
-        [property: Description("folder, zip (central directory: CRC-32 and size, entries not read) or file.")] string Kind,
+        [property: Description("folder, zip (central directory: CRC-32 and size, entries not read), asar (Electron archive header; declared SHA-256 or hashed data) or file.")] string Kind,
         int Entries, long Bytes,
         [property: Description("False when the walk stopped (maxEntries, a folder not listed): absent paths are then unmatched, not added or removed.")] bool Complete,
         [property: Description("Files hashed in this call; Reused: hashes kept from an earlier call (same path, size and write time).")] int Hashed, int Reused,
@@ -387,7 +387,7 @@ public sealed class FolderCompare
     private static string Location(Inventory inv, InventoryEntry e) => inv.Kind switch
     {
         Core.Inventory.Folder => Path.Combine(inv.Root, e.Path.Replace('/', Path.DirectorySeparatorChar)),
-        Core.Inventory.Zip => $"{inv.Root}!/{e.Path}",
+        Core.Inventory.Zip or Core.Inventory.Asar => $"{inv.Root}!/{e.Path}",
         _ => inv.Root,
     };
 
@@ -396,9 +396,9 @@ public sealed class FolderCompare
         if (r.Change is "moved" or "moved_ambiguous")
             return kind is "dotnet" or "pe" or "elf" or "macho" ? "same bytes at another path: nothing to compare; load from the new path" : null;
         if (r.Change != "modified") return null;
-        if (oldInv.Kind == Core.Inventory.Zip || newInv.Kind == Core.Inventory.Zip)
+        if (oldInv.Kind is Core.Inventory.Zip or Core.Inventory.Asar || newInv.Kind is Core.Inventory.Zip or Core.Inventory.Asar)
             return kind is "dotnet" or "pe" or "elf" or "macho"
-                ? $"unpack_container path=\"{(oldInv.Kind == Core.Inventory.Zip ? oldInv.Root : newInv.Root)}\" (each archive side), then compare the extracted files"
+                ? $"unpack_container path=\"{(oldInv.Kind is Core.Inventory.Zip or Core.Inventory.Asar ? oldInv.Root : newInv.Root)}\" (each archive side), then compare the extracted files"
                 : null;
         var (a, b) = (Location(oldInv, r.Old!), Location(newInv, r.New!));
         var name = Path.GetFileName(b);

@@ -227,6 +227,13 @@ also without writing or loading anything. Matching is the same as `search_symbol
 full member name and the kind, best matches first (exact, then prefix, then substring). At most `limit` matches are
 returned (default 200, up to 5000); `total` counts every match and `truncated` says whether some were left out.
 
+Other kinds search files rather than metadata. `kind=electron` lists where an Electron app's own scripts cross a
+boundary, each with `file:line:column`: preload scripts, `contextBridge` keys, IPC channels handled in main and used
+from renderers, `child_process` and `shell` sinks, and native add-ons loaded (the query matches the channel or the row
+kind, e.g. `ipc-main`). `kind=endpoint` on a HAR or mitmproxy capture lists each request template once (numeric and id
+path segments folded, query values never shown) with its request count and statuses. `compare_folders` compares two
+`.asar` archives entry by entry without unpacking (the app's declared SHA-256 per file, or the hashed data).
+
 **ReadyToRun** (`readyToRun`): the image carries precompiled native code next to its IL (crossgen2,
 `PublishReadyToRun`, and the shared framework itself). The IL is still there and decompiles normally.
 

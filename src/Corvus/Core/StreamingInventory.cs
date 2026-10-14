@@ -20,10 +20,10 @@ public sealed class InventoryEntry
     public bool HasContentKey => Sha256 != null || Crc32 != null;
 }
 
-/// <summary>One side of a comparison: a folder walk, a zip-family archive's central directory, or one file.</summary>
+/// <summary>One side of a comparison: a folder walk, a zip-family archive's central directory, an Electron ASAR header, or one file.</summary>
 public sealed class Inventory
 {
-    public const string Folder = "folder", Zip = "zip", File = "file";
+    public const string Folder = "folder", Zip = "zip", Asar = "asar", File = "file";
 
     public required string Root { get; init; }
     public required string Kind { get; init; }
@@ -83,6 +83,16 @@ public static class StreamingInventory
         if (Directory.Exists(root)) return EnumerateFolder(root, filter, maxEntries, ct);
         var info = new FileInfo(root);
         var stamp = (info.Length, info.LastWriteTimeUtc.Ticks);
+        if (root.EndsWith(".asar", StringComparison.OrdinalIgnoreCase))
+        {
+            try { return EnumerateAsar(root, stamp, filter, maxEntries, ct); }
+            catch (ToolError ex)
+            {
+                var single = Single(root, info, stamp);
+                single.Problems.Add($"not a readable ASAR archive ({ex.Message}): compared as one file");
+                return single;
+            }
+        }
         if (IsArchive(root))
         {
             try { return EnumerateZip(root, stamp, filter, maxEntries, ct); }
@@ -163,6 +173,23 @@ public static class StreamingInventory
         return true;
     }
 
+    /// <summary>The header's files; a SHA-256 integrity hash the app declares is the entry's content key, others are hashed from the data.</summary>
+    private static Inventory EnumerateAsar(string root, (long, long) stamp, PathFilter filter, int maxEntries, CancellationToken ct)
+    {
+        var inv = new Inventory { Root = root, Kind = Inventory.Asar, Entries = [], FileStamp = stamp };
+        using var fs = new FileStream(root, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.RandomAccess);
+        var archive = AsarArchive.Read(fs, ct);
+        foreach (var e in archive.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (e.Kind != AsarEntryKind.File || e.UnsafeName || filter.ExcludesFile(e.Path)) continue;
+            var sha = e.Integrity is { } i && i.Algorithm.Equals("SHA256", StringComparison.OrdinalIgnoreCase) ? i.Hash.ToLowerInvariant() : null;
+            if (!Add(inv, new InventoryEntry { Path = e.Path, Size = e.Size, Sha256 = sha }, maxEntries)) return inv;
+        }
+        inv.Entries.Sort((a, b) => string.CompareOrdinal(a.Path, b.Path));
+        return inv;
+    }
+
     private static Inventory EnumerateZip(string root, (long, long) stamp, PathFilter filter, int maxEntries, CancellationToken ct)
     {
         var inv = new Inventory { Root = root, Kind = Inventory.Zip, Entries = [], FileStamp = stamp };
@@ -205,6 +232,20 @@ public static class StreamingInventory
             work.Add(e);
         }
         int done = 0;
+        if (inv.Kind == Inventory.Asar)
+        {
+            // one archive stream: entries are read in turn
+            using var reader = new ContentReader(inv);
+            foreach (var e in work)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (reader.Read(e, e.Size, whole: true) is { } bytes) e.Sha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+                else e.Error = "unreadable in the archive";
+                progress?.Invoke(++done);
+            }
+            inv.Hashed = work.Count;
+            return;
+        }
         Parallel.ForEach(work, new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 16), CancellationToken = ct },
             () => ArrayPool<byte>.Shared.Rent(BufferBytes),
             (e, state, buffer) =>
@@ -243,6 +284,8 @@ public static class StreamingInventory
     {
         private ZipArchive? _zip;
         private Dictionary<string, ZipArchiveEntry>? _byPath;
+        private FileStream? _asarStream;
+        private AsarArchive? _asar;
 
         /// <summary>The first <paramref name="maxBytes"/> bytes (all when <paramref name="whole"/> and the entry fits), or null when unreadable or too large.</summary>
         public byte[]? Read(InventoryEntry e, long maxBytes, bool whole)
@@ -267,6 +310,15 @@ public static class StreamingInventory
                     return new FileStream(inv.Root, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 case Inventory.Folder:
                     return new FileStream(System.IO.Path.Combine(inv.Root, e.Path), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                case Inventory.Asar:
+                    _asarStream ??= new FileStream(inv.Root, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.RandomAccess);
+                    _asar ??= AsarArchive.Read(_asarStream);
+                    if (_asar.Find(e.Path) is not { } item) return null;
+                    inv.CountEntryRead();
+                    // an unpacked file lives beside the archive, in <name>.asar.unpacked
+                    if (item.Unpacked)
+                        return new FileStream(System.IO.Path.Combine(inv.Root + ".unpacked", e.Path), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    return _asar.ReadPacked(_asarStream, item, AnalysisLimits.Default.MaxItemBytes) is { } bytes ? new MemoryStream(bytes, writable: false) : null;
                 default:
                     if (_zip == null)
                     {
@@ -285,6 +337,10 @@ public static class StreamingInventory
             }
         }
 
-        public void Dispose() => _zip?.Dispose();
+        public void Dispose()
+        {
+            _zip?.Dispose();
+            _asarStream?.Dispose();
+        }
     }
 }

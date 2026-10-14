@@ -41,6 +41,26 @@ public sealed class FolderCompareTests : IDisposable
     private static FolderCompare.Entry One(FolderCompare.Comparison c, string path) =>
         Assert.Single(c.Entries, e => e.NewPath == path || e.OldPath == path);
 
+    /// <summary>Two Electron archives compared by their headers' entries, without unpacking.</summary>
+    [Fact]
+    public void AsarArchivesCompareByEntry()
+    {
+        string Asar(string name, params (string Path, string Text)[] files)
+        {
+            var path = _dir.File(name);
+            File.WriteAllBytes(path, AsarWriter.Build(files.Select(f => AsarWriter.Text(f.Path, f.Text))).Archive);
+            return path;
+        }
+        var a = Asar("old.asar", ("main.js", "same"), ("preload.js", "v1"), ("gone.js", "x"));
+        var b = Asar("new.asar", ("main.js", "same"), ("preload.js", "v2"), ("added.js", "y"));
+        var c = Run(a, b);
+        Assert.Equal("asar", c.Old.Kind);
+        Assert.Equal("unchanged", One(c, "main.js").Change);
+        Assert.Equal("modified", One(c, "preload.js").Change);
+        Assert.Equal("added", One(c, "added.js").Change);
+        Assert.Equal("removed", One(c, "gone.js").Change);
+    }
+
     [Fact]
     public async Task AddedRemovedModifiedMovedUnchanged()
     {
