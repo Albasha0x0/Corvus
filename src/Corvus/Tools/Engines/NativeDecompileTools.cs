@@ -54,7 +54,7 @@ public sealed partial class NativeAnalysisTools
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
     [Description("C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs the engine's auto-analysis (seconds to " +
-                 "minutes); database and answers are kept per file hash. Names, comments and types in effect are pushed first; user types " +
+                 "minutes); database and answers are kept per file. Names, comments and types in effect are pushed first; user types " +
                  "win. functions=: several in one request, each within perFunctionSeconds; a failure affects only its item.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
@@ -63,17 +63,26 @@ public sealed partial class NativeAnalysisTools
         [Description("Prefix each line with the address it was generated from.")] bool addresses = false,
         [Description("Character offset; with functions/callersOf the first input (nextInput).")] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        [Description("Several functions instead of address: addresses or names, in the order wanted.")] string[]? functions = null,
+        [Description("Several functions instead of address: addresses or names, in order.")] string[]? functions = null,
         [Description("With functions: seconds per function (1-600).")] int perFunctionSeconds = 60,
-        [Description("With functions: most decompiled (1-200); the rest get a follow-up call.")] int maxFunctions = 32,
+        [Description("With functions: most decompiled (1-200); the rest follow.")] int maxFunctions = 32,
         [Description("With address: a footer listing the globals, functions, strings and imports used.")] bool refs = false,
-        [Description("Seconds per engine request (1-600; default CORVUS_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x.")] int? timeoutSeconds = null,
+        [Description("Seconds per engine request (1-600); Ghidra retries once with 4x.")] int? timeoutSeconds = null,
         [Description("Instead of address: decompile the functions calling this one (engine references).")] string? callersOf = null,
+        [Description("c, or pcode (Ghidra high p-code per block).")] string view = "c",
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         bool callers = !string.IsNullOrWhiteSpace(callersOf);
         bool batch = functions is { Length: > 0 } || callers;
+        bool pcode = view.Trim().ToLowerInvariant() switch
+        {
+            "c" => false,
+            "pcode" => true,
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "view=c or view=pcode"),
+        };
+        if (pcode && (batch || refs || addresses))
+            throw new ToolError(ErrorCode.InvalidArgument, "view=pcode takes one address, without refs or addresses.", "pass address alone");
         if ((functions is { Length: > 0 } ? 1 : 0) + (callers ? 1 : 0) + (string.IsNullOrWhiteSpace(address) ? 0 : 1) != 1)
             throw new ToolError(ErrorCode.InvalidArgument, batch ? "Pass one of address, functions or callersOf." : "address is required (or functions / callersOf for several).",
                 "address=<one function>, functions=[...] for several, or callersOf=<function>");
@@ -86,7 +95,7 @@ public sealed partial class NativeAnalysisTools
         if (!batch || callers) (native, rva) = await Task.Run(() => Resolve(image, callers ? callersOf! : address!), cancellationToken);
         var choice = EngineChoice.EngineOnly(engine, engines, native!);
         // another process decompiled this function in the database state saved on disk, after the same pushes: no engine needed
-        string? setup = !batch && !refs && engines.OutputCache != null ? SetupDigest(native!) : null;
+        string? setup = !batch && !refs && !pcode && engines.OutputCache != null ? SetupDigest(native!) : null;
         if (setup != null && engines.Answer<DecompileAnswer>(native!, choice.Engine, setup, AnswerKind(addresses), rva) is { } answered)
         {
             EngineReport.Answered(choice, engines);
@@ -102,6 +111,14 @@ public sealed partial class NativeAnalysisTools
             throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.",
                 "disassemble the function instead, or install/license the decompiler for this architecture");
         var pushed = await Push(native!, session, cancellationToken);
+        if (pcode)
+        {
+            if (session is not Native.Providers.Ghidra.GhidraSession ghidra)
+                throw new ToolError(ErrorCode.Unsupported, $"view=pcode is Ghidra's high p-code; {NativeEngineService.DisplayName(session.ProviderId)} has none here.", "engine=ghidra");
+            var p = await ghidra.PcodeAsync(rva, cancellationToken);
+            return $"// {p.Name} at {NativeAddress.Va(native!.Image, p.StartRva)}: high p-code (ghidra)\n" + ToolOutput.Text(pager, p.Text, offset,
+                new DecompileReport(native.Id, choice.Engine, [SingleItem(native, address!, rva, p.StartRva, p.Name, p.Text)], 1, 1, 0, 0, null) { EngineNote = choice.Note }, maxTokens);
+        }
         if (batch)
         {
             if (refs) throw new ToolError(ErrorCode.InvalidArgument, "refs applies to one function (address), not functions.", "drop refs, or decompile one address");

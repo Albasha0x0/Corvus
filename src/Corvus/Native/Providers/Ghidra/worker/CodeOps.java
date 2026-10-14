@@ -224,6 +224,34 @@ final class CodeOps {
         return o;
     }
 
+    /**
+     * The decompiler's high p-code (pcode): per basic block its index, range and successors, then each op with its address.
+     * Result: start, name, text.
+     */
+    static JsonElement pcode(Worker w, Worker.Request r) throws Exception {
+        Function f = functionAt(w, w.addr(r.args, "rva"));
+        DecompileResults res = results(w, f, w.decompileTimeout, 0, false, r.monitor).results();
+        ghidra.program.model.pcode.HighFunction high = res.getHighFunction();
+        if (high == null) throw new Worker.WorkerError("failed", "the decompiler gave no p-code: " + res.getErrorMessage());
+        StringBuilder text = new StringBuilder();
+        for (ghidra.program.model.pcode.PcodeBlockBasic b : high.getBasicBlocks()) {
+            text.append("block ").append(b.getIndex()).append("  ").append(b.getStart()).append("-").append(b.getStop());
+            for (int i = 0; i < b.getOutSize(); i++) text.append(i == 0 ? "  -> " : ", ").append(b.getOut(i).getIndex());
+            text.append('\n');
+            var ops = b.getIterator();
+            while (ops.hasNext()) {
+                ghidra.program.model.pcode.PcodeOp op = ops.next();
+                text.append("  ").append(op.getSeqnum().getTarget()).append("  ").append(op).append('\n');
+            }
+        }
+        JsonObject o = new JsonObject();
+        o.addProperty("start", w.rva(f.getEntryPoint()));
+        o.addProperty("name", f.getName());
+        o.addProperty("text", text.toString());
+        o.add("lines", new JsonArray());
+        return o;
+    }
+
     static JsonObject decompiled(Worker w, Function f, int timeout, Worker.Monitor monitor) throws Exception {
         return text(w, f, results(w, f, timeout, monitor));
     }

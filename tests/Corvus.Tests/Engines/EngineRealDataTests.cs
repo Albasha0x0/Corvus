@@ -64,5 +64,8 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
         var function = exports.GetProperty("items")[0].GetProperty("name").GetString()!;
         Assert.Contains("returned to the caller", await Log(c, "emulate_native", new() { ["image"] = image, ["address"] = function, ["maxInstructions"] = 1000, ["stubs"] = "*=0", ["engine"] = "ghidra" }));
         Assert.Contains("jitinterface_x64.dll", await Log(c, "ghidra_script", new() { ["image"] = image, ["code"] = "println(currentProgram.getName());", ["engine"] = "ghidra" }));
+        var pcode = await Log(c, "decompile_native", new() { ["image"] = image, ["address"] = function, ["view"] = "pcode", ["engine"] = "ghidra" });
+        Assert.Contains("block 0", pcode);
+        Assert.Contains("RETURN", pcode);
     }
 }

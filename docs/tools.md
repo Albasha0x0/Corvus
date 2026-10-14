@@ -1470,7 +1470,7 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs the engine's auto-analysis (seconds to minutes); database and answers are kept per file hash. Names, comments and types in effect are pushed first; user types win. functions=: several in one request, each within perFunctionSeconds; a failure affects only its item.
+C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs the engine's auto-analysis (seconds to minutes); database and answers are kept per file. Names, comments and types in effect are pushed first; user types win. functions=: several in one request, each within perFunctionSeconds; a failure affects only its item.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1480,12 +1480,13 @@ C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call r
 | `addresses` | boolean |  |  | Prefix each line with the address it was generated from. |
 | `offset` | integer |  |  | Character offset; with functions/callersOf the first input (nextInput). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
-| `functions` | string[] |  |  | Several functions instead of address: addresses or names, in the order wanted. |
+| `functions` | string[] |  |  | Several functions instead of address: addresses or names, in order. |
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (1-600). |
-| `maxFunctions` | integer |  | `32` | With functions: most decompiled (1-200); the rest get a follow-up call. |
+| `maxFunctions` | integer |  | `32` | With functions: most decompiled (1-200); the rest follow. |
 | `refs` | boolean |  |  | With address: a footer listing the globals, functions, strings and imports used. |
-| `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600; default CORVUS_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x. |
+| `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600); Ghidra retries once with 4x. |
 | `callersOf` | string |  |  | Instead of address: decompile the functions calling this one (engine references). |
+| `view` | string |  | `c` | c, or pcode (Ghidra high p-code per block). |
 
 Structured output: `image`, `engine`, `items`, `inputs`, `succeeded`, `failed`, `skipped`, `nextInput`, `offset`, `engineNote`, `code`, `nextOffset`, `totalChars`.
 

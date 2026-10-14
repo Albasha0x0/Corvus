@@ -277,6 +277,7 @@ public class Worker implements GhidraLaunchable {
             });
             case "functions": return read(() -> CodeOps.functions(this, r));
             case "decompile": return read(() -> CodeOps.decompile(this, r));
+            case "pcode": return read(() -> CodeOps.pcode(this, r));
             case "disasm": return read(() -> CodeOps.disasm(this, r));
             case "disasm_range": return read(() -> CodeOps.disasmRange(this, r));
             case "blocks": return read(() -> CodeOps.blocks(this, r));

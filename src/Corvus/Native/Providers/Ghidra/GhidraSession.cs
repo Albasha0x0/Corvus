@@ -342,6 +342,16 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         return functions;
     }
 
+    /// <summary>The decompiler's high p-code of the function at <paramref name="rva"/>, per basic block (decompile_native view=pcode).</summary>
+    internal async Task<DecompiledFunction> PcodeAsync(uint rva, CancellationToken cancellationToken)
+    {
+        if (!DecompilerAvailable)
+            throw new ToolError(ErrorCode.Unsupported, $"Ghidra's native decompiler is not built for {GhidraInstallation.PlatformName} in {ghidra.Directory}.",
+                ghidra.DecompilerRemediation);
+        return WorkerRows.Decompiled(await FunctionCallAsync("pcode", WorkerRows.Args(("rva", rva)), rva, cancellationToken,
+            GhidraOptions.DecompileRequestTimeout(provider.DecompileTimeout, Options.RequestTimeout)).ConfigureAwait(false));
+    }
+
     public Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default) =>
         DecompileWithinAsync(rva, null, cancellationToken);
 
