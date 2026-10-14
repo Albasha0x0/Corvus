@@ -50,7 +50,8 @@ internal static class ReferencePacks
         var id = packId.ToLowerInvariant();
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            // Calls wait on this download: a network that never answers costs seconds, not minutes.
+            using var http = new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(10) }) { Timeout = TimeSpan.FromSeconds(30) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("Corvus/" + (typeof(ReferencePacks).Assembly.GetName().Version?.ToString(3) ?? "0"));
             using var index = JsonDocument.Parse(http.GetStringAsync($"{FeedBase}{id}/index.json").GetAwaiter().GetResult());
             var version = index.RootElement.GetProperty("versions").EnumerateArray()
