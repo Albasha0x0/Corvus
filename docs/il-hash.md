@@ -1,6 +1,6 @@
 # Normalized IL hash
 
-`IlHash` (src/Corvus/Services/IlHash.cs) gives each method body a SHA-256 that does not depend on
+`IlHash` (src/Corvus/Services/Dotnet/IlHash.cs) gives each method body a SHA-256 that does not depend on
 metadata tokens, byte offsets or the short / long form the compiler picked for an instruction. Two builds of the
 same code therefore give each method the same hash, even when adding members elsewhere shifted every token.
 `get_il` prints it (`// IL hash: <first 16 hex digits>`, one line per method), `find_counterpart` compares it
