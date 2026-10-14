@@ -76,12 +76,14 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
         async Task<NativeFrame> Frame() => await session.GetFrameAsync(fn, true, default);
 
         // a decompiler local renamed, then undone
-        var local = (await Frame()).Locals.First(l => !l.IsArgument && l.Name.Length > 0 && Regex(l.Name)).Name;
+        var original = (await Frame()).Locals.First(l => !l.IsArgument && l.Name.Length > 0 && Regex(l.Name));
+        var local = original.Name;
         var (_, localEdit) = await Edit(() => rig.Types.SetNativeLocal(native.Id, Function, local, "corvus_local", engine: engine));
         Assert.Contains("corvus_local", await Pseudocode());
         await rig.Journal.UndoAsync(native, localEdit, default);
         Assert.DoesNotContain("corvus_local", await Pseudocode());
-        Assert.Contains((await Frame()).Locals, l => l.Name == local);
+        // the slot is back to an engine default name; Ghidra may derive another default than before (local_res8 / puStackX_8)
+        Assert.Contains((await Frame()).Locals, l => l.Location == original.Location && l.Stack == original.Stack && !l.UserName && l.Name != "corvus_local");
 
         // a stack member renamed, then undone
         var member = (await Frame()).Members.First(m => m.Kind != "special" && m.Name.Length > 0);
