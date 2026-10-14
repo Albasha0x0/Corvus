@@ -27,6 +27,9 @@ public partial class ToolPackageTests
         Assert.Equal(version, (string?)package["version"]);
         Assert.Equal("stdio", (string?)package["transport"]!["type"]);
         Assert.True(((string?)server["description"])!.Length <= 100, "the registry limits description to 100 characters");
+        Assert.Equal("README.md", Property("PackageReadmeFile"));
+        var readme = File.ReadAllText(Path.Combine(Root, "src", "Corvus", "PACKAGE.md"));
+        Assert.Contains($"<!-- mcp-name: {(string?)server["name"]} -->", readme, StringComparison.Ordinal); // the registry's ownership check
     }
 
     [Fact]
@@ -88,12 +91,14 @@ public partial class ToolPackageTests
         {
             var entries = zip.Entries.Select(e => e.FullName).ToHashSet();
             Assert.Contains(".mcp/server.json", entries);
+            Assert.Contains("README.md", entries);
             Assert.Contains("tools/net10.0/any/corvus.dll", entries);
             Assert.Contains("tools/net10.0/any/DotnetToolSettings.xml", entries);
             using var reader = new StreamReader(zip.GetEntry($"{Installation.PackageId}.nuspec")!.Open());
             var nuspec = await reader.ReadToEndAsync();
             Assert.Contains("<packageType name=\"DotnetTool\" />", nuspec, StringComparison.Ordinal);
             Assert.Contains("<packageType name=\"McpServer\" />", nuspec, StringComparison.Ordinal);
+            Assert.Contains("<readme>README.md</readme>", nuspec, StringComparison.Ordinal);
         }
 
         var install = await RunAsync("dotnet", ["tool", "install", "-g", Installation.PackageId, "--configfile", config], dir.Path, env);

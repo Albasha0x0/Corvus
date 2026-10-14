@@ -22,6 +22,7 @@
     <Description>MCP server and command line for reverse engineering .NET assemblies and native PE, ELF and Mach-O binaries: decompile, search, compare builds, patch and save. Nothing is executed.</Description>
     <PackageTags>mcp;mcp-server;decompiler;reverse-engineering;dotnet;il2cpp;disassembler</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/Albasha0x0/Corvus</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Albasha0x0/Corvus</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -37,6 +38,8 @@
   <ItemGroup>
     <!-- The MCP Registry entry nuget.org reads from the package; a test keeps its versions and id equal to the above. -->
     <None Include=".mcp\server.json" Pack="true" PackagePath="/.mcp/" />
+    <!-- the MCP Registry proves ownership of a NuGet package by the mcp-name line in its README -->
+    <None Include="PACKAGE.md" Pack="true" PackagePath="/README.md" />
     <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
 
