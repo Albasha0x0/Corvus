@@ -544,33 +544,18 @@ leftover calls, worker lifetime and logs.
 
 ## 1.2.0
 
-155 tools (1.1.0 had 101) and 13 prompts (9). The project is now **Corvus**; it was NetDecompilerMcp up to 1.1.0. This
+155 tools (1.1.0 had 101) and 13 prompts (9). The project takes its current name, **Corvus**. This
 release adds a second decompiler engine (Ghidra), ELF and Mach-O images, our own ARM64 and ARM32 / Thumb-2 analysis,
 NativeAOT and mobile Il2Cpp builds, Android packages and devices, deeper crash-dump decoding, and a round of reliability
 work across the server and its engine workers.
 
 ### Renamed to Corvus
 
-Upgrading needs no manual steps beyond environment variables you set yourself; details in
-[docs/installation.md](installation.md#install-script) ("Upgrading from NetDecompilerMcp").
-
 - **Program and registration.** The program is `corvus` (`corvus.exe`), installed under `Corvus`, and registers with
   clients under the MCP key `corvus`. Release archives are `corvus-<rid>` from the `Albasha0x0/Corvus` repository.
-- **Environment variables** are read only under their new names: `NDM_X` becomes `CORVUS_X` and `NETDECOMP_LOAD`
-  becomes `CORVUS_LOAD`. The old names are not read.
-- **Resources** use the `corvus://` scheme (was `netdecomp://`).
-- **Data folder.** On first start annotations, notes, caches, code indexes, engine databases, symbols and relay state move
-  from the old data folder to the new one; an entry in use is copied and the original kept. Engine databases and files
-  saved before the rename (sessions, edit scripts, patch sets, notes) are still read.
-- **Client entries.** `corvus install` and `corvus update` rename every `net-decompiler` entry to `corvus`, keeping its
-  arguments and env (`NDM_*` keys renamed); a development relay entry stays a relay for the same publish folder. Skill
-  folders written by `install --skill` move to `corvus`; `status` reports old entries and `uninstall` removes both.
-- **Update path from 1.1.0.** The release also ships its archives under their old names, so `NetDecompilerMcp update`
-  on 1.1.0 (Windows) reaches this release, which moves the install to the new folder and puts `corvus` on PATH. On
-  Linux and macOS 1.1.0's `update` cannot switch versions; run the new install script, which takes over the old
-  install. For a private repository, run the old update as `NDM_REPO=Albasha0x0/Corvus NetDecompilerMcp update`
-  (1.1.0 loses the token on GitHub's redirect from the old name) or the install script with `GITHUB_TOKEN` set.
-  Corvus's own `update` keeps the token across GitHub's redirects.
+- **Names.** Environment variables are `CORVUS_*` and resources use the `corvus://` scheme.
+- **Earlier installs.** On first start, data, client entries and skill folders of an earlier install move to the new
+  names; files saved by earlier versions (sessions, edit scripts, patch sets, notes, engine databases) are still read.
 
 ### Changes in behaviour
 
