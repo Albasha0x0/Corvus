@@ -46,6 +46,25 @@ public sealed class JsModulesTests
         Assert.Equal(("esm", "./vendor-abc.js,./x.js"), (chunk.Family, string.Join(",", chunk.Requires)));
     }
 
+    /// <summary>Mutated source maps and bundles: typed errors or results, never a crash or a hang.</summary>
+    [Fact]
+    public void Fuzzed_maps_and_bundles_never_throw()
+    {
+        var map = System.Text.Encoding.UTF8.GetBytes("""{"version":3,"sources":["a.ts","b.ts"],"names":["x","y"],"mappings":"AAAA,IAAMA;ACAA,CAACC,GAAG;;AAAA"}""");
+        var failures = FormatFuzz.Run(map, b =>
+        {
+            try
+            {
+                var m = SourceMap.Parse(b);
+                for (int line = 0; line < 4; line++) m.Find(line, 3);
+            }
+            catch (Corvus.Core.ToolError) { }
+        }, 1000);
+        var bundle = System.Text.Encoding.UTF8.GetBytes("(()=>{var m={12:(e,t,n)=>{const a=n(34);e.exports=a+1},34:(e,t,n)=>{e.exports=41}}})();");
+        failures.AddRange(FormatFuzz.Run(bundle, b => JsModules.Find(System.Text.Encoding.UTF8.GetString(b), default), 500));
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
+
     [Fact]
     public void Esbuild_commonjs_keys_keep_paths()
     {

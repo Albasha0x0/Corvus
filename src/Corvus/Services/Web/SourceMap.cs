@@ -43,6 +43,8 @@ public sealed class SourceMap
             return new SourceMap(doc.RootElement);
         }
         catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"the source map is not valid JSON: {ex.Message}"); }
+        // a string value that is not valid UTF-8
+        catch (InvalidOperationException ex) { throw new ToolError(ErrorCode.MalformedInput, $"the source map holds invalid text: {ex.Message}"); }
     }
 
     private SourceMap(JsonElement root)
