@@ -38,6 +38,9 @@ function Get-Family([string]$path) {
         '^src/Corvus/Native/' { return 'NativeAnalysis', 'NativeFormats' }
         '^src/' { return '*' }                                   # Core, Mcp, Setup, Relay, the project file
         '^tests/Corvus\.Tests/(Support|ContractSweepData)/' { return '*' }
+        '^tests/Corvus\.Tests/(Ratchets|ProtocolSamples|TokenCorpus)/' { return 'Contract' }
+        '^tests/Corvus\.Tests/PipelineSamples/' { return 'DotnetEdits' }
+        '^tests/Corvus\.Tests/NativeAotSample/' { return 'NativeAot' }
         '^tests/Corvus\.Tests/([^/]+)/' { return $Matches[1] }
         '^tests/' { return '*' }                                 # the test project file, runsettings, fixtures
         default { return 'Contract' }                            # docs, scripts, README: the doc and contract tests
