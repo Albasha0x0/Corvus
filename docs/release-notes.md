@@ -1,5 +1,11 @@
 # Release notes
 
+## 2.0.2
+
+- **Package metadata.** The NuGet package, the MCP bundles and the license name the maintainer as Albasha0x0. This is
+  the first release published on nuget.org and in the MCP Registry.
+- **Release script.** `release.ps1` waits for the release run of the tag's commit.
+
 ## 2.0.1
 
 - **Security.** Built with .NET SDK 10.0.402: the self-contained builds carry runtime 10.0.13 (the October 2026 .NET
