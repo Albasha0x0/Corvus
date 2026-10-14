@@ -36,8 +36,7 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') { Fail "version '$Version' is not majo
 # The release targets are the release workflow's matrix; the archives and SHA256SUMS are what it attaches.
 $rids = [regex]::Matches((Get-Content $workflow -Raw), 'rid: ([a-z0-9-]+)') | ForEach-Object { $_.Groups[1].Value }
 if (-not $rids) { Fail "no rid entries in $workflow" }
-# Migration only: each archive also ships under its name from before the rename, for the update of installs made then.
-$assets = @(foreach ($name in 'corvus', 'NetDecompilerMcp') { $rids | ForEach-Object { if ($_ -like 'win-*') { "$name-$_.zip" } else { "$name-$_.tar.gz" } } }) + 'SHA256SUMS'
+$assets = @($rids | ForEach-Object { if ($_ -like 'win-*') { "corvus-$_.zip" } else { "corvus-$_.tar.gz" } }) + 'SHA256SUMS'
 
 # MCP bundles for the targets marked bundle: true: the release archive under server/ plus mcpb/manifest.json for its platform.
 $bundleRids = [regex]::Matches((Get-Content $workflow -Raw), 'rid: ([a-z0-9-]+)[^}\n]*bundle: true') | ForEach-Object { $_.Groups[1].Value }

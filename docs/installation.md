@@ -53,24 +53,6 @@ with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 **From source.** `./publish.ps1` (add `-SelfContained` for a build that needs no .NET), then
 `publish/corvus install`.
 
-**Upgrading from NetDecompilerMcp (1.1.0 and earlier).** The project was renamed; nothing needs to be done by hand:
-
-- `NetDecompilerMcp update` reaches the first Corvus release, which moves the program from the old folder
-  (`%LOCALAPPDATA%\NetDecompilerMcp`, `~/.local/share/net-decompiler-mcp`) to the one above and puts `corvus` on PATH
-  instead (Windows). On Linux and macOS 1.1.0's `update` downloads the release but cannot switch its `current` link;
-  run the install script above instead, which takes over the old install (also after such a failed update). With a
-  token for a private repository, name the repository directly (`NDM_REPO=Albasha0x0/Corvus NetDecompilerMcp update`):
-  1.1.0 loses the token on GitHub's redirect from the old name and reads a 404. Corvus itself keeps the token across
-  GitHub's redirects.
-- Every client entry named `net-decompiler` becomes `corvus`, pointing at the new program with its own arguments and
-  env; `NDM_*` variables in those entries become `CORVUS_*`. A development relay entry stays a relay for the same
-  publish folder. Skill folders written by `install --skill` move from `net-decompiler` to `corvus`.
-- On first start the data (annotations, notes, caches, code indexes, engine databases, symbols, relay state) moves
-  from the old data folder to the new one; an entry in use is copied and the original kept. Engine databases and
-  files saved before the rename (sessions, edit scripts, patch sets, notes) are still read.
-- Environment variables are only read under their new names: rename `NDM_*` and `NETDECOMP_LOAD` you set yourself
-  to `CORVUS_*` and `CORVUS_LOAD`.
-
 If `update` cannot reach the release (a private repository: the old program loses the token on GitHub's redirect to
 the renamed repository), run the install script above with `GITHUB_TOKEN` set; it takes over the old install.
 
