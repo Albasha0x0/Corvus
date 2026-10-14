@@ -550,7 +550,7 @@ First look at any file or loaded assembly, without executing it: type, hashes, s
 |---|---|---|---|---|
 | `path` | string |  |  | Any file (assembly, bundle, .nupkg, .apk, zip, .asar, native executable); pass this or assembly. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, electron, go, native, all. |
+| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, electron, go, native, wasm, all. |
 
 Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`.
 
