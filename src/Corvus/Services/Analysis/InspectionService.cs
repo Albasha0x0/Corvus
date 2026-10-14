@@ -348,6 +348,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             });
         }
 
+        // an .app, .appex or .framework folder: its main executable, whose apple view describes the bundle
+        if (AppleFileView.MainExecutable(path!) is { } executable) path = executable;
         var (full, bytes) = ReadFile(path!);
         var facts = Facts(full, bytes);
         var fileHighlights = new List<string>();

@@ -16,12 +16,12 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     private const string PathParam = "A .NET assembly file to analyze without loading it; pass this or assembly.";
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
-    [Description("First look at any file or loaded assembly, without executing it: type, hashes, signature, container wrapping (bundles, packages, APKs, " +
-                 "zips, Costura are opened), its assemblies, highlights (toolchain markers, ATT&CK features, packers), entry points and typed value counts. " +
+    [Description("First look at any file or loaded assembly, never executed: type, hashes, signature, container wrapping (bundles, packages, APKs, " +
+                 "zips, Costura opened), its assemblies, highlights (toolchain markers, ATT&CK features, packers), entry points, value counts. " +
                  "view= gives the details: managed (identity, markers, features, values), native (ELF / Mach-O, packers, NativeAOT; " +
-                 "a loaded image's triage), android, electron, go, all; views lists those that apply.")]
+                 "a loaded image's triage), android, apple, electron, go, all; views lists those that apply.")]
     public Task<string> SummarizeFile(
-        [Description("Any file (assembly, bundle, .nupkg, .apk, zip, .asar, native executable); pass this or assembly.")] string? path = null,
+        [Description("Any file (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder; this or assembly.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("overview (default) or a view the overview lists.")] string view = "overview",
         RequestContext<CallToolRequestParams> context = null!,
