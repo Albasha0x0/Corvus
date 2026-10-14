@@ -25,6 +25,8 @@ public sealed record ElectronFacts(
     [property: Description("Fuse wire version (1 is decoded; others are reported, not guessed).")] int? FuseWireVersion,
     IReadOnlyList<Electron.Fuse> Fuses, ElectronArchive? Archive, ElectronPackage? Package,
     [property: Description("Values in webPreferences objects of the app's own JavaScript (node_modules skipped), with file:line:column.")] IReadOnlyList<ElectronSetting> WebPreferences,
+    [property: Description("Preload scripts, contextBridge keys, IPC channels (main and renderer), child_process and shell sinks, native add-ons; with file:line:column.")]
+    IReadOnlyList<ElectronRow> Surface,
     IReadOnlyList<string> Notes)
 {
     /// <summary>Settings worth a highlight: what the app sets for these differs from nothing else in the summary.</summary>
@@ -47,6 +49,9 @@ public sealed record ElectronFacts(
             yield return $"Main entry {p.Main} (package.json){(p.MainFound ? "" : ", not found in the app")}.";
         foreach (var s in WebPreferences.Where(s => s.Setting is "nodeIntegration" or "contextIsolation" or "sandbox" or "webSecurity").Take(6))
             yield return $"webPreferences {s.Setting}: {s.Value} at {s.Site}.";
+        if (Surface.Count > 0)
+            yield return "Surface: " + string.Join(", ", Surface.GroupBy(r => r.Kind).Select(g => $"{g.Count()} {g.Key}")) +
+                         " (search_container kind=electron lists them).";
 
         static string Join(IEnumerable<Electron.Fuse> fuses) => fuses.Any() ? string.Join(", ", fuses.Select(f => f.Name)) : "none";
     }
@@ -125,9 +130,11 @@ internal static class ElectronInspector
             else if (appFolder != null) app = Folder(appFolder);
 
             var package = app != null ? Package(app, notes) : null;
-            var settings = app != null ? WebPreferences(app, package?.Main, notes, ct) : [];
+            var surface = new List<ElectronRow>();
+            var settings = app != null ? WebPreferences(app, package?.Main, notes, surface, ct) : [];
+            surface.InsertRange(0, settings.Where(s => s.Setting == "preload").Select(s => new ElectronRow("preload", s.Value, s.Site)));
             return new ElectronFacts(binary?.Path, binary?.ElectronVersion, binary?.ChromiumVersion, binary?.NodeVersion, binary?.Evidence ?? [],
-                binary?.FuseWireVersion, binary?.Fuses ?? [], archive, package, settings, notes);
+                binary?.FuseWireVersion, binary?.Fuses ?? [], archive, package, settings, surface, notes);
         }
         finally { stream?.Dispose(); }
     }
@@ -183,7 +190,7 @@ internal static class ElectronInspector
     /// webPreferences object literals in the app's own scripts (main entry first, node_modules skipped): each top-level
     /// property of interest with its source text; a webPreferences that is not a literal is reported as its expression.
     /// </summary>
-    private static List<ElectronSetting> WebPreferences(AppFiles app, string? main, List<string> notes, CancellationToken ct)
+    private static List<ElectronSetting> WebPreferences(AppFiles app, string? main, List<string> notes, List<ElectronRow> surface, CancellationToken ct)
     {
         var scripts = app.Files.Where(f => IsScript(f.Path) && !f.Path.StartsWith("node_modules/", StringComparison.Ordinal) && !f.Path.Contains("/node_modules/", StringComparison.Ordinal))
             .OrderBy(f => main != null && (f.Path == main || f.Path == main + ".js") ? 0 : 1).ThenBy(f => f.Path, StringComparer.Ordinal).ToList();
@@ -203,7 +210,9 @@ internal static class ElectronInspector
             if (bytes == null) continue;
             files++;
             scanned += bytes.Length;
-            Scan(Encoding.UTF8.GetString(bytes), path, result);
+            var text = Encoding.UTF8.GetString(bytes);
+            Scan(text, path, result);
+            ElectronSurface.Scan(text, path, surface);
         }
         return result;
     }
