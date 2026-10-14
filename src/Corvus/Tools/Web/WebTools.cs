@@ -16,14 +16,15 @@ public sealed class WebTools(OutputPager pager)
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
     [Description("Bundler signatures, modules and source map of a JavaScript file, statically. view=summary; modules: its module table " +
-                 "(webpack, esbuild, Browserify, Metro) with requires; module: one's code; position: line:column to the original source; sources, source.")]
+                 "(webpack, esbuild, Browserify, Metro) with requires; module: one's code; search: strings and names; refs: a module's users; " +
+                 "position: line:column to the original source; sources, source.")]
     public string AnalyzeJs(
         [Description("Absolute path to a .js file.")] string path,
         [Description("View; default summary.")] string view = "summary",
         [Description("position: generated line and column, 1-based.")] int line = 0,
         [Description("position: see line.")] int column = 0,
         [Description("source: path or index.")] string? source = null,
-        [Description("module: its id; modules: a filter.")] string? query = null,
+        [Description("module, refs: a module id; modules, search: a filter.")] string? query = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
     {
@@ -65,6 +66,32 @@ public sealed class WebTools(OutputPager pager)
                            (m.Requires.Count > 0 ? $"\n// requires: {string.Join(", ", m.Requires.Take(50))}" : "");
                 return ToolOutput.With(pager.Page(head + "\n" + code[m.Start..m.End], offset, maxTokens), new JsResult("module", Modules: [m]));
             }
+            case "search":
+            {
+                if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=search needs query.", "pass query=<text>");
+                var code = Encoding.UTF8.GetString(JsAnalysis.Read(path));
+                var notes = new List<string>();
+                if (JsModules.Parse(code, notes) is not { } script) throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)} could not be searched: {string.Join("; ", notes)}");
+                SourceMap? map = null;
+                try { map = SourceMap.Locate(path, JsAnalysis.Read(path))?.Map; } catch (ToolError) { } catch (FormatException) { }
+                var hits = JsSearch.Find(code, script, JsModules.Find(code, script, default), map, query.Trim(), default);
+                var text = $"{hits.Count}{(hits.Count >= JsSearch.MaxHits ? "+" : "")} hit(s) for '{query.Trim()}':\n" +
+                           string.Join("\n", hits.Select(h => $"  {h.Line}:{h.Column} {h.Kind} {h.Value}" + (h.Module != null ? $"  [module {h.Module}]" : "") +
+                                                              (h.Original != null ? $"  <- {h.Original}" : "")));
+                return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("search", Total: hits.Count));
+            }
+            case "refs":
+            {
+                if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=refs needs query (the module id).", "pass query=<id> (view=modules lists them)");
+                var all = JsModules.Find(Encoding.UTF8.GetString(JsAnalysis.Read(path)), default).Modules;
+                var target = all.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
+                             ?? throw new ToolError(ErrorCode.NotFound, $"no module '{query}' in {Path.GetFileName(path)}.", "analyze_js view=modules lists them");
+                var (requires, by) = JsSearch.Refs(all, target);
+                var text = $"module {target.Id}{(target.Name != null && target.Name != target.Id ? " (" + target.Name + ")" : "")}\n" +
+                           $"requires ({requires.Count}): {(requires.Count > 0 ? string.Join(", ", requires) : "none")}\n" +
+                           $"required by ({by.Count}): {(by.Count > 0 ? string.Join(", ", by) : "none found")}";
+                return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("refs", Modules: [target], Total: by.Count));
+            }
             case "position":
             {
                 var p = JsAnalysis.Position(path, line, column);
@@ -89,7 +116,7 @@ public sealed class WebTools(OutputPager pager)
                 return ToolOutput.With(pager.Page($"// {s.Source}\n{s.Content}", offset, maxTokens), new JsResult("source"));
             }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, position, sources or source");
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources or source");
         }
     }
 }

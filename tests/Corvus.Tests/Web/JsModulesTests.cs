@@ -20,6 +20,20 @@ public sealed class JsModulesTests
     }
 
     [Fact]
+    public void Refs_and_search_name_modules_and_positions()
+    {
+        const string text = "(()=>{var m={12:(e,t,n)=>{const a=n(34);e.exports=a+\"apiKey\"},\n34:(e,t,n)=>{e.exports=41}}})();";
+        var notes = new List<string>();
+        var script = JsModules.Parse(text, notes)!;
+        var modules = JsModules.Find(text, script, default);
+        var (requires, by) = JsSearch.Refs(modules, modules.Single(x => x.Id == "34"));
+        Assert.Empty(requires);
+        Assert.Equal(["12"], by);
+        var hit = Assert.Single(JsSearch.Find(text, script, modules, null, "apikey", default));
+        Assert.Equal(("string", "apiKey", "12", 1), (hit.Kind, hit.Value, hit.Module, hit.Line));
+    }
+
+    [Fact]
     public void Esbuild_commonjs_keys_keep_paths()
     {
         var m = Modules("""

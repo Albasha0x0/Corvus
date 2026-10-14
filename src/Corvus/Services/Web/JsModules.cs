@@ -14,37 +14,40 @@ public static class JsModules
     /// <summary>Largest file parsed whole; larger ones report no modules (a tokenizer split is the design's fallback).</summary>
     public const int MaxParseBytes = 64 * 1024 * 1024;
 
+    /// <summary>The syntax tree, or null with the reason in <paramref name="notes"/> (over the budget, or a parse error).</summary>
+    public static Script? Parse(string text, List<string> notes)
+    {
+        if (text.Length > MaxParseBytes)
+        {
+            notes.Add($"not parsed: {text.Length:N0} characters, over the {MaxParseBytes:N0} parse budget");
+            return null;
+        }
+        // a deep tree must not overflow the server's stack: a thread of its own with a large stack
+        Script? parsed = null;
+        Exception? error = null;
+        var thread = new Thread(() =>
+        {
+            try { parsed = new Parser(new ParserOptions { Tolerant = true }).ParseScript(text); }
+            catch (Exception ex) { error = ex; }
+        }, 256 * 1024 * 1024);
+        thread.Start();
+        thread.Join();
+        if (error is ParseErrorException parse) { notes.Add($"parse error: {parse.Message}"); return null; }
+        if (error != null) throw error;
+        return parsed;
+    }
+
     public static (List<JsModule> Modules, List<string> Notes) Find(string text, CancellationToken ct)
     {
         var notes = new List<string>();
         var modules = new List<JsModule>();
-        if (text.Length > MaxParseBytes)
-        {
-            notes.Add($"not parsed: {text.Length:N0} characters, over the {MaxParseBytes:N0} parse budget");
-            return (modules, notes);
-        }
-        Script script;
-        try
-        {
-            // a deep tree must not overflow the server's stack: a thread of its own with a large stack
-            Script? parsed = null;
-            Exception? error = null;
-            var thread = new Thread(() =>
-            {
-                try { parsed = new Parser(new ParserOptions { Tolerant = true }).ParseScript(text); }
-                catch (Exception ex) { error = ex; }
-            }, 256 * 1024 * 1024);
-            thread.Start();
-            thread.Join();
-            if (error != null) throw error;
-            script = parsed!;
-        }
-        catch (ParseErrorException ex)
-        {
-            notes.Add($"parse error: {ex.Message}");
-            return (modules, notes);
-        }
+        if (Parse(text, notes) is not { } script) return (modules, notes);
+        return (Find(text, script, ct), notes);
+    }
 
+    public static List<JsModule> Find(string text, Script script, CancellationToken ct)
+    {
+        var modules = new List<JsModule>();
         var stack = new Stack<Node>();
         stack.Push(script);
         var seen = new HashSet<Node>();
@@ -84,7 +87,7 @@ public static class JsModules
                 if (child != null) stack.Push(child);
         }
         modules.Sort((x, y) => x.Start.CompareTo(y.Start));
-        return (modules, notes);
+        return modules;
     }
 
     /// <summary>At least two entries, every one a function of up to three parameters (or [function, deps]).</summary>

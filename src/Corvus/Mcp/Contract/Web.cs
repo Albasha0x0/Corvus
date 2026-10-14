@@ -17,7 +17,7 @@ public static partial class ParameterDomains
 {
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> WebTools() => new(StringComparer.Ordinal)
     {
-        ["analyze_js"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "modules", "module", "position", "sources", "source"]) },
+        ["analyze_js"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "modules", "module", "search", "refs", "position", "sources", "source"]) },
     };
 }
 
