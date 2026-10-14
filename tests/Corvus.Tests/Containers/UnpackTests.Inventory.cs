@@ -10,8 +10,8 @@ public partial class UnpackTests
     [Fact]
     public void NothingExtracted_NamesTheNextCallOrFails()
     {
-        // not a container at all
-        var data = Save("blob.tar.xz", [0xFD, (byte)'7', (byte)'z', (byte)'X', (byte)'Z', 0, .. new byte[200]]);
+        // not a container at all, whatever its name says
+        var data = Save("blob.tar.xz", [0x4E, 0x4F, 0x54, 0x41, 0x52, 0x43, .. new byte[200]]);
         var ex = Assert.Throws<ToolError>(() => Unpack(data));
         Assert.Equal(ErrorCode.Unsupported, ex.Code);
         Assert.StartsWith($"summarize_file path={data}", ex.Remediation);
