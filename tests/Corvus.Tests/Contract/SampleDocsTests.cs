@@ -161,6 +161,7 @@ public partial class SampleDocsTests
         // The SDK leaves random folders in its temporary folder: one of its own, deleted after the call.
         var temp = Directory.CreateTempSubdirectory("corvus-dotnet-").FullName;
         foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" }) psi.Environment[name] = temp;
+        psi.Environment["UseSharedCompilation"] = "false"; // a compiler server started here would outlive the call and hold the folder
         try
         {
             using var p = Process.Start(psi)!;
