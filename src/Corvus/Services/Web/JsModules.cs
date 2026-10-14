@@ -15,7 +15,7 @@ public static class JsModules
     public const int MaxParseBytes = 64 * 1024 * 1024;
 
     /// <summary>The syntax tree, or null with the reason in <paramref name="notes"/> (over the budget, or a parse error).</summary>
-    public static Script? Parse(string text, List<string> notes)
+    public static Acornima.Ast.Program? Parse(string text, List<string> notes)
     {
         if (text.Length > MaxParseBytes)
         {
@@ -23,11 +23,18 @@ public static class JsModules
             return null;
         }
         // a deep tree must not overflow the server's stack: a thread of its own with a large stack
-        Script? parsed = null;
+        Acornima.Ast.Program? parsed = null;
         Exception? error = null;
         var thread = new Thread(() =>
         {
-            try { parsed = new Parser(new ParserOptions { Tolerant = true }).ParseScript(text); }
+            var parser = new Parser(new ParserOptions { Tolerant = true });
+            // a script first; import / export make it a module (Rollup and Vite chunks)
+            try { parsed = parser.ParseScript(text); }
+            catch (ParseErrorException)
+            {
+                try { parsed = parser.ParseModule(text); }
+                catch (Exception ex) { error = ex; }
+            }
             catch (Exception ex) { error = ex; }
         }, 256 * 1024 * 1024);
         thread.Start();
@@ -45,7 +52,7 @@ public static class JsModules
         return (Find(text, script, ct), notes);
     }
 
-    public static List<JsModule> Find(string text, Script script, CancellationToken ct)
+    public static List<JsModule> Find(string text, Acornima.Ast.Program script, CancellationToken ct)
     {
         var modules = new List<JsModule>();
         var stack = new Stack<Node>();
@@ -61,6 +68,19 @@ public static class JsModules
                     foreach (var p in table.Properties.OfType<Property>())
                         if (p.Value is Node body && Key(p) is { } key && seen.Add(p))
                             modules.Add(Module(text, key, key, "bundler_key", "esbuild", body, null));
+                    break;
+                // AMD: define("name", ["dep"], factory)
+                case CallExpression { Callee: Identifier { Name: "define" }, Arguments: [StringLiteral name, ArrayExpression amdDeps, Node factory, ..] }:
+                    modules.Add(new JsModule(name.Value, name.Value, "bundler_key", "amd", factory.Start, factory.End, Strings(amdDeps)));
+                    break;
+                // SystemJS: System.register(["dep"], function(_export, _context) {...})
+                case CallExpression { Callee: MemberExpression { Object: Identifier { Name: "System" }, Property: Identifier { Name: "register" } }, Arguments: [.., ArrayExpression systemDeps, Node factory] } system:
+                    var systemName = system.Arguments.Count == 3 && system.Arguments[0] is StringLiteral sn ? sn.Value : null;
+                    modules.Add(new JsModule(systemName ?? $"@{system.Start}", systemName, systemName != null ? "bundler_key" : "module_table", "systemjs", factory.Start, factory.End, Strings(systemDeps)));
+                    break;
+                // Parcel 2: parcelRegister("id", function(module, exports) {...})
+                case CallExpression { Callee: Identifier { Name: "parcelRegister" }, Arguments: [StringLiteral parcelId, Node factory, ..] }:
+                    modules.Add(new JsModule(parcelId.Value, null, "module_table", "parcel", factory.Start, factory.End, []));
                     break;
                 case CallExpression { Callee: Identifier { Name: "__d" }, Arguments: [FunctionExpression fn, var id, ..] } metro:
                     string? path = metro.Arguments.Count > 3 && metro.Arguments[3] is StringLiteral s ? s.Value : null;
@@ -85,6 +105,18 @@ public static class JsModules
             }
             foreach (var child in node.ChildNodes)
                 if (child != null) stack.Push(child);
+        }
+        // an ES module (a Rollup or Vite chunk): the file is one module and its imports are its requires
+        if (modules.Count == 0 && script.Body.Any(s => s is ImportDeclaration or ExportNamedDeclaration or ExportAllDeclaration))
+        {
+            var imports = script.Body.Select(s => s switch
+            {
+                ImportDeclaration i => i.Source.Value,
+                ExportNamedDeclaration { Source: { } from } => from.Value,
+                ExportAllDeclaration a => a.Source.Value,
+                _ => null,
+            }).OfType<string>().Distinct().ToList();
+            modules.Add(new JsModule("(file)", null, "module_table", "esm", 0, text.Length, imports));
         }
         modules.Sort((x, y) => x.Start.CompareTo(y.Start));
         return modules;
@@ -128,6 +160,8 @@ public static class JsModules
         }
         return found.Distinct().ToList();
     }
+
+    private static List<string> Strings(ArrayExpression a) => a.Elements.OfType<StringLiteral>().Select(s => s.Value).ToList();
 
     private static string? Key(Property p) => p.Key switch
     {

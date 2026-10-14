@@ -30,7 +30,7 @@ public static class JsAnalysis
         ("webpack", "__webpack_require__"), ("webpack", "webpackChunk"), ("webpack", "webpackJsonp"),
         ("esbuild", "__commonJS("), ("esbuild", "__toESM("), ("rollup/vite", "__vitePreload"), ("rollup/vite", "__vite__mapDeps"),
         ("parcel", "parcelRegister("), ("parcel", "parcelRequire"), ("turbopack", "TURBOPACK"), ("browserify", "require,module,exports"),
-        ("systemjs", "System.register("), ("metro", "__d(function"), ("amd", "define(["), ("hermes", "Hermes"),
+        ("systemjs", "System.register("), ("metro", "__d(function"), ("amd", "define(["),
     ];
 
     public static byte[] Read(string path)
@@ -46,6 +46,13 @@ public static class JsAnalysis
     {
         var text = Read(path);
         var notes = new List<string>();
+        // React Native's Hermes bytecode: compiled, not JavaScript text
+        if (text.AsSpan().StartsWith((ReadOnlySpan<byte>)[0xC6, 0x1F, 0xBC, 0x03, 0xC1, 0x03, 0x19, 0x1F]) && text.Length >= 12)
+        {
+            uint version = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(text.AsSpan(8));
+            notes.Add($"Hermes bytecode version {version} (React Native): compiled, not JavaScript text; its functions need a Hermes decompiler.");
+            return new JsSummary(text.Length, 0, 0, [new JsBundler("hermes", $"bytecode v{version}", 1)], null, notes);
+        }
         int lines = 1, longest = 0, start = 0;
         for (int i = 0; i < text.Length; i++)
             if (text[i] == '\n') { lines++; longest = Math.Max(longest, i - start); start = i + 1; }

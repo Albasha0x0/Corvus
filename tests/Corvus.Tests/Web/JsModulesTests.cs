@@ -34,6 +34,19 @@ public sealed class JsModulesTests
     }
 
     [Fact]
+    public void Amd_systemjs_parcel_and_esm_chunks()
+    {
+        var amd = Assert.Single(Modules("define(\"app/main\", [\"app/util\", \"jquery\"], function(u, $) { return 1; });"));
+        Assert.Equal(("app/main", "amd", "app/util,jquery"), (amd.Id, amd.Family, string.Join(",", amd.Requires)));
+        var system = Assert.Single(Modules("System.register([\"./dep.js\"], function (_export, _context) { return { setters: [], execute: function () {} }; });"));
+        Assert.Equal(("systemjs", "./dep.js"), (system.Family, Assert.Single(system.Requires)));
+        var parcel = Modules("parcelRegister(\"a1\", function(module, exports) {}); parcelRegister(\"b2\", function(module, exports) {});");
+        Assert.Equal(["a1", "b2"], parcel.Select(x => x.Id));
+        var chunk = Assert.Single(Modules("import { h } from \"./vendor-abc.js\"; export { x } from \"./x.js\"; export const app = h();"));
+        Assert.Equal(("esm", "./vendor-abc.js,./x.js"), (chunk.Family, string.Join(",", chunk.Requires)));
+    }
+
+    [Fact]
     public void Esbuild_commonjs_keys_keep_paths()
     {
         var m = Modules("""

@@ -11,7 +11,7 @@ public static class JsSearch
     public const int MaxHits = 2000;
 
     /// <summary>String literals, identifiers and property names containing <paramref name="query"/> (case-insensitive), in text order.</summary>
-    public static List<JsHit> Find(string text, Script script, IReadOnlyList<JsModule> modules, SourceMap? map, string query, CancellationToken ct)
+    public static List<JsHit> Find(string text, Acornima.Ast.Program script, IReadOnlyList<JsModule> modules, SourceMap? map, string query, CancellationToken ct)
     {
         var lines = LineStarts(text);
         var hits = new List<JsHit>();
