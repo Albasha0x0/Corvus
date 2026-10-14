@@ -1,7 +1,7 @@
 # Native annotations and patching
 
 Tools: `rename_native`, `comment_native`, `export_native_annotations`, `patch_bytes`, `patch_asm`,
-`list_native_edits`, `undo_native_edit`, `save_native` (src/Corvus/Tools/NativeEditTools.cs,
+`list_native_edits`, `undo_native_edit`, `save_native` (src/Corvus/Tools/NativeEdits/NativeEditTools.cs,
 Services/NativeEditService.cs).
 
 ## Annotations (names and comments)

@@ -44,7 +44,7 @@ upserts, stack member deletion, the pseudocode object references of `decompile_n
 deadlines: per-request deadlines that long loops check for partial results, IDA's cancel flag cleared around each request,
 and the profile hook that stops a script) are adapted from
 [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp); the Ghidra worker's `EditOps.java` follows the same
-operations on Ghidra's listing, and `search_instructions` (`src/Corvus/Tools/NativeCodeTools.Search.cs`) follows
+operations on Ghidra's listing, and `search_instructions` (`src/Corvus/Tools/NativeAnalysis/NativeCodeTools.Search.cs`) follows
 the query shape of its `insn_query` and `search_text`. The IDA marked positions the server keeps for notes (`set_marks`) use its bookmark slot handling. The output formats of `make_code_pattern` follow its signature maker, and the function roles of the `summarize_file` triage and the `analyze_native_function` component view follow its `survey_binary` and `analyze_component`.
 
 ```
