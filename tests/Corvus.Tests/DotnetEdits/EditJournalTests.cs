@@ -57,23 +57,29 @@ public sealed class EditJournalTests : IDisposable
 
     /// <summary>A sync waiting for the journal's gate stops when its call is cancelled; the next sync journals the change.</summary>
     [Fact]
-    public async Task ASyncWaitingForTheGateStopsWhenItsCallIsCancelled()
+    public void ASyncWaitingForTheGateStopsWhenItsCallIsCancelled()
     {
         using var env = new Env(Copy());
         var journal = new EditJournal(env.Workspace, Store(), env.History);
         var gate = typeof(EditJournal).GetField("_gate", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(journal)!;
         using var release = new ManualResetEventSlim();
         using var held = new ManualResetEventSlim();
-        var holder = Task.Run(() => { lock (gate) { held.Set(); release.Wait(); } });
+        // Dedicated threads and a direct Cancel: pool threads and timer callbacks can be starved on small CI runners.
+        var holder = new Thread(() => { lock (gate) { held.Set(); release.Wait(); } });
+        holder.Start();
         held.Wait();
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-        await Task.Run(() =>
+        using var cts = new CancellationTokenSource();
+        var waiter = new Thread(() =>
         {
             using var scope = AssemblyWorkspace.CancelWaitsWith(cts.Token);
             journal.Sync();
-        }).WaitAsync(TimeSpan.FromSeconds(30));
+        });
+        waiter.Start();
+        Thread.Sleep(200);
+        cts.Cancel();
+        Assert.True(waiter.Join(TimeSpan.FromSeconds(30)), "the waiting sync did not stop on cancellation");
         release.Set();
-        await holder;
+        holder.Join();
     }
 
     [Fact]
