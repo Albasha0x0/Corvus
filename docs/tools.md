@@ -30,7 +30,7 @@ Workspace and server state.
 
 **Load assembly** (edit, idempotent, long-running)
 
-Load a .NET assembly (.dll/.exe) or every assembly in a directory (application folder, Unity *_Data/Managed, DummyDll folder). A native PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, as name[slice]); folder loads skip native files. An Il2Cpp game (folder or global-metadata.dat, .apk/.xapk/.aab/.ipa, iOS .app, memory dump) is read by the built-in metadata reader (v24-39): dummy assemblies with addresses, offsets and tokens, plus the binary as a native image. Files are read into memory, never locked; loading a path twice is a no-op.
+Load a .NET assembly (.dll/.exe) or every assembly in a directory (app folder, Unity *_Data/Managed, DummyDll). A native PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa, iOS .app, memory dump) is read by the built-in reader (metadata v24-39): dummy assemblies with addresses, offsets and tokens, plus the binary as a native image. Files are read into memory, never locked; loading a path twice is a no-op.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -38,6 +38,10 @@ Load a .NET assembly (.dll/.exe) or every assembly in a directory (application f
 | `recursive` | boolean |  |  | When path is a directory, also load assemblies in subdirectories. |
 | `loadProviders` | boolean |  |  | For a file: also load the DLLs its imports bind to (one level, at most 16), so the call tools continue into them. |
 | `slice` | string |  |  | Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a). Values: arm64e, arm64, x86_64, x86_64h, arm64_32, armv7, armv7s, armv7k, i386, arm64-v8a, armeabi-v7a, x86. |
+| `format` | string |  | `auto` | auto, or raw (headerless code). |
+| `arch` | string |  |  | raw: x86, x64, arm, thumb or arm64. |
+| `base` | string |  |  | raw: load address (default 0). |
+| `entry` | string |  |  | raw: entry address or file offset (default start). |
 
 Structured output: `ids`, `text`.
 

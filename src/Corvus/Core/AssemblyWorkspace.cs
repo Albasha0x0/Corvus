@@ -311,7 +311,7 @@ public sealed class AssemblyWorkspace : IDisposable
         if (kind is Native.NativeFileKind.Elf or Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat)
             return (null, LoadNativeFile(full, slice));
         if (slice != null) Native.NativeImageLoader.Open(full, slice); // the slice error
-        if (Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full))) is { } existing)
+        if (Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == null)) is { } existing)
             return (existing.ManagedView, existing);
         try
         {
@@ -333,7 +333,7 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>An ELF or Mach-O image; each slice of a universal file is its own entry, id "name[slice]".</summary>
     private LoadedNative LoadNativeFile(string full, string? slice)
     {
-        if (slice == null && Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && n.SliceName == null)) is { } existing)
+        if (slice == null && Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == null)) is { } existing)
             return existing;
         var image = Native.NativeImageLoader.Open(full, slice);
         int before = _natives.Count;
@@ -342,12 +342,25 @@ public sealed class AssemblyWorkspace : IDisposable
         return native;
     }
 
+    /// <summary>A headerless file mapped by <paramref name="layout"/>; each layout of a file is its own entry, id "name[x64@0x400000]".</summary>
+    public LoadedNative LoadRaw(string path, Native.RawLayout layout)
+    {
+        var full = InputFiles.RequireRegularFile(path);
+        if (Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == layout.Key)) is { } existing)
+            return existing;
+        var image = Native.RawCodeImage.Open(full, layout);
+        int before = _natives.Count;
+        var native = Write(() => LoadNativeCore(full, image));
+        if (_natives.Count != before) NativeLoaded?.Invoke(native);
+        return native;
+    }
+
     private LoadedNative LoadNativeCore(string full, Native.INativeImage image)
     {
-        var sliceName = LoadedNative.SliceOf(image);
-        var existing = _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && n.SliceName == sliceName);
+        var key = LoadedNative.KeyOf(image);
+        var existing = _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == key);
         if (existing != null) return existing;
-        var baseId = Path.GetFileName(full) + (sliceName != null ? $"[{sliceName}]" : "");
+        var baseId = Path.GetFileName(full) + (key != null ? $"[{key}]" : "");
         var id = baseId;
         for (int n = 2; IdTaken(id); n++) id = $"{baseId}#{n}";
         var native = new LoadedNative(id, full, image);
@@ -445,7 +458,9 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Re-reads a native image from disk, discarding its analysis state.</summary>
     public LoadedNative ReloadNative(LoadedNative native)
     {
-        var image = Native.NativeImageLoader.Open(native.FilePath, native.SliceName);
+        Native.INativeImage image = native.Image is Native.RawCodeImage raw
+            ? Native.RawCodeImage.Open(native.FilePath, raw.Layout)
+            : Native.NativeImageLoader.Open(native.FilePath, native.SliceName);
         var fresh = Write(() =>
         {
             int index = _natives.IndexOf(native);

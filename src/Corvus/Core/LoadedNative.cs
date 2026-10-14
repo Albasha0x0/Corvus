@@ -37,6 +37,9 @@ public sealed class LoadedNative
 
     internal static string? SliceOf(INativeImage image) => (image as Native.MachO.MachOFile)?.Slice?.Name;
 
+    /// <summary>What tells entries of one file apart: the Mach-O slice, or a raw image's layout.</summary>
+    internal static string? KeyOf(INativeImage image) => SliceOf(image) ?? (image as RawCodeImage)?.Layout.Key;
+
     /// <summary>The current image when it is a PE file, else null.</summary>
     public PeFile? Pe => Image as PeFile;
 
@@ -45,7 +48,7 @@ public sealed class LoadedNative
 
     /// <summary>The error for a PE-only operation on an ELF or Mach-O image.</summary>
     public static ToolError PeOnly(INativeImage image, string what) =>
-        new(ErrorCode.Unsupported, $"{what} needs a PE image; {Path.GetFileName(image.Path)} is {(image.Format == ImageFormat.Elf ? "an ELF" : "a Mach-O")} image.",
+        new(ErrorCode.Unsupported, $"{what} needs a PE image; {Path.GetFileName(image.Path)} is {image.Format switch { ImageFormat.Elf => "an ELF", ImageFormat.MachO => "a Mach-O", _ => "a raw" }} image.",
             "use the format-neutral native tools (list_imports, list_exports, list_functions, disassemble) for this image")
         { Details = new { reason = "pe_only", format = image.Format.ToString() } };
 

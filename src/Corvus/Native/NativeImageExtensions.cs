@@ -12,6 +12,7 @@ public static class NativeImageExtensions
     {
         Elf.ElfFile elf => $"{elf.MachineName} ELF{(elf.Is64Bit ? "64" : "32")} {elf.KindName}",
         MachO.MachOFile m => $"{m.MachineName} Mach-O {m.FileTypeName}" + (m.Slice != null ? $" (slice {m.Slice.Name} of {string.Join(", ", m.Slices.Select(s => s.Name))})" : ""),
+        RawCodeImage raw => $"raw {raw.MachineName} code at 0x{raw.ImageBase:X}, entry 0x{raw.ImageBase + raw.EntryPointRva:X}",
         Pe.PeFile pe => $"{(Pe.PeHybrid.Of(pe) is { } h ? h.Kind : pe.MachineName)} {(pe.IsDll ? "DLL" : "executable")}, {pe.SubsystemName}",
         _ => $"{image.MachineName} {(image.IsDll ? "DLL" : "executable")}",
     };

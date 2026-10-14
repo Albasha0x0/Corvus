@@ -51,20 +51,39 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     private static string Changed(IEnumerable<string> ids, string text) => ToolOutput.With(text, new WorkspaceChange([.. ids], text));
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceChange))]
-    [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (application folder, Unity *_Data/Managed, DummyDll folder). " +
-                 "A native PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, as name[slice]); folder loads skip native files. " +
-                 "An Il2Cpp game (folder or global-metadata.dat, .apk/.xapk/.aab/.ipa, iOS .app, memory dump) is read by the built-in metadata " +
-                 "reader (v24-39): dummy assemblies with addresses, offsets and tokens, plus the binary as a native image. Files are read into " +
-                 "memory, never locked; loading a path twice is a no-op.")]
+    [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (app folder, Unity *_Data/Managed, DummyDll). " +
+                 "A native PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; " +
+                 "folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa, " +
+                 "iOS .app, memory dump) is read by the built-in reader (metadata v24-39): dummy assemblies with addresses, offsets and tokens, " +
+                 "plus the binary as a native image. Files are read into memory, never locked; loading a path twice is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
         [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
         [Description("For a file: also load the DLLs its imports bind to (one level, at most 16), so the call tools continue into them.")] bool loadProviders = false,
         [Description("Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a).")] string? slice = null,
+        [Description("auto, or raw (headerless code).")] string format = "auto",
+        [Description("raw: x86, x64, arm, thumb or arm64.")] string? arch = null,
+        [Description("raw: load address (default 0).")] string? @base = null,
+        [Description("raw: entry address or file offset (default start).")] string? entry = null,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
         var requestedSlice = string.IsNullOrWhiteSpace(slice) ? null : slice.Trim();
+        switch (format.Trim().ToLowerInvariant())
+        {
+            case "raw":
+                if (requestedSlice != null || recursive) throw new ToolError(ErrorCode.InvalidArgument, "format=raw loads one file; slice and recursive do not apply.", "omit slice and recursive");
+                var full = InputFiles.RequireRegularFile(path, "image file");
+                var raw = workspace.LoadRaw(full, Native.RawLayout.Parse(arch, @base, entry, new FileInfo(full).Length));
+                var r = (Native.RawCodeImage)raw.Image;
+                return Changed([raw.Id], $"Loaded native image {raw.Id}: {Native.NativeImageExtensions.KindText(r)}\n  {raw.FilePath}\n  " +
+                       $"{r.FileSize:N0} bytes at 0x{r.ImageBase:X}-0x{r.ImageBase + (ulong)r.FileSize:X}; list_functions and disassemble start from the entry");
+            case "auto":
+                if (arch != null || @base != null || entry != null) throw new ToolError(ErrorCode.InvalidArgument, "arch, base and entry apply to format=raw.", "pass format=raw, or omit them");
+                break;
+            default:
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{format}'.", "pass format=auto or format=raw");
+        }
         if (RawIl2CppGame(path, requestedSlice) is { } game)
         {
             int step = 0;

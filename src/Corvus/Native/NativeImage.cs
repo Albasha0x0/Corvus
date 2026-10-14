@@ -20,6 +20,8 @@ public enum ImageFormat
     Pe,
     Elf,
     MachO,
+    /// <summary>A headerless file mapped by the caller's layout (<see cref="RawCodeImage"/>).</summary>
+    Raw,
 }
 
 [Flags]

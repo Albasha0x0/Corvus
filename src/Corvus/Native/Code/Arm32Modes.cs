@@ -25,7 +25,7 @@ internal sealed class Arm32Modes
         _image = image;
         // the Go compiler emits A32 only, Windows on ARM included
         var go = Go.GoFunctionTable.Of(image);
-        _allThumb = image.Format == ImageFormat.Pe && go == null;
+        _allThumb = (image.Format == ImageFormat.Pe || image is RawCodeImage { Layout.Thumb: true }) && go == null;
         if (go != null)
             foreach (var f in go.Functions) _facts.TryAdd(f.Rva, false);
         var mapping = new List<(uint, char)>();

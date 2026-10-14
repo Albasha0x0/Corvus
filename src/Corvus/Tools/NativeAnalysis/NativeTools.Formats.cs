@@ -15,6 +15,7 @@ public sealed partial class NativeTools
     {
         ElfFile elf => ElfInfo(native, elf),
         MachOFile macho => MachOInfo(native, macho),
+        RawCodeImage raw => RawInfo(native, raw),
         _ => throw LoadedNative.PeOnly(native.Image, "get_pe_info"),
     };
 
@@ -24,7 +25,16 @@ public sealed partial class NativeTools
         sb.AppendLine($"  {native.FilePath}");
         sb.AppendLine($"  {image.FileSize:N0} bytes, sha256 {image.Sha256}");
         sb.AppendLine($"  image base 0x{image.ImageBase:X}, size 0x{image.SizeOfImage:X}, entry point " +
-                      (image.EntryPointRva == 0 ? "none" : NativeAddress.Describe(image, image.EntryPointRva)));
+                      (image.EntryPointRva == 0 && image is not RawCodeImage ? "none" : NativeAddress.Describe(image, image.EntryPointRva)));
+    }
+
+    private static string RawInfo(LoadedNative native, RawCodeImage raw)
+    {
+        var sb = new StringBuilder();
+        Head(sb, native, raw);
+        sb.AppendLine("  no header: mapped by load_assembly format=raw (arch, base, entry); no imports, exports or symbols");
+        Tail(sb, raw, raw.FileBytes.Span);
+        return sb.ToString();
     }
 
     private static void Tail(StringBuilder sb, INativeImage image, ReadOnlySpan<byte> file)
@@ -204,12 +214,12 @@ public sealed partial class NativeTools
     {
         var image = native.Image;
         var (on, off) = FormatMitigations(image);
-        var file = image switch { ElfFile e => e.FileBytes, MachOFile m => m.FileBytes, _ => ReadOnlyMemory<byte>.Empty };
-        string format = image is ElfFile elf ? $"ELF{(elf.Is64Bit ? "64" : "32")}" : $"Mach-O {(image.Is64Bit ? "64" : "32")}-bit";
-        string kind = image switch { ElfFile e => e.KindName, MachOFile m => m.FileTypeName, _ => "" };
+        var file = image switch { ElfFile e => e.FileBytes, MachOFile m => m.FileBytes, RawCodeImage r => r.FileBytes, _ => ReadOnlyMemory<byte>.Empty };
+        string format = image switch { ElfFile elf => $"ELF{(elf.Is64Bit ? "64" : "32")}", RawCodeImage => "raw", _ => $"Mach-O {(image.Is64Bit ? "64" : "32")}-bit" };
+        string kind = image switch { ElfFile e => e.KindName, MachOFile m => m.FileTypeName, RawCodeImage r => $"headerless code mapped at 0x{r.ImageBase:X}", _ => "" };
         var sig = (image as MachOFile)?.CodeSignature;
         return new PeSummary(native.Id, native.FilePath, image.MachineName, image.IsDll ? "dll" : "exe", format, kind, image.FileSize, image.Sha256,
-            $"0x{image.ImageBase:X}", image.EntryPointRva == 0 ? null : NativeAddress.Va(image, image.EntryPointRva), "none", false, on, off,
+            $"0x{image.ImageBase:X}", image.EntryPointRva == 0 && image is not RawCodeImage ? null : NativeAddress.Va(image, image.EntryPointRva), "none", false, on, off,
             image.Sections.Select(s => new SectionEntry(s.Name, $"0x{s.Rva:X}", $"0x{s.VirtualSize:X}", $"0x{s.RawOffset:X}", $"0x{s.RawSize:X}", Access(s.Access),
                 Math.Round(FileEntropy(file.Span, s), 2), SectionFlags(image, s))).ToList(),
             image.Imports.Select(i => i.Module).Distinct().Count(), image.Imports.Count, 0, image.Exports.Count, 0,
