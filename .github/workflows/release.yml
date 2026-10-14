@@ -130,9 +130,8 @@ jobs:
       TAG: ${{ inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The workflow's own commit: a republish takes the current server.json with the tag's version.
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ env.TAG }}
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
@@ -162,5 +161,5 @@ jobs:
           grep " mcp-publisher_linux_amd64.tar.gz$" checksums.txt | sed 's/mcp-publisher_linux_amd64.tar.gz$/publisher.tar.gz/' | sha256sum --check --strict
           tar -xzf publisher.tar.gz mcp-publisher
           ./mcp-publisher login github-oidc
-          cp src/Corvus/.mcp/server.json server.json
+          jq --arg v "${TAG#v}" '.version = $v | .packages[].version = $v' src/Corvus/.mcp/server.json > server.json
           ./mcp-publisher publish

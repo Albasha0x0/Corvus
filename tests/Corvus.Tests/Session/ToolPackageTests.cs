@@ -23,6 +23,7 @@ public partial class ToolPackageTests
         Assert.Equal(version, (string?)server["version"]);
         var package = Assert.Single(server["packages"]!.AsArray())!;
         Assert.Equal("nuget", (string?)package["registryType"]);
+        Assert.Equal("https://api.nuget.org/v3/index.json", (string?)package["registryBaseUrl"]); // the registry's RegistryURLNuGet
         Assert.Equal(Installation.PackageId, (string?)package["identifier"]);
         Assert.Equal(version, (string?)package["version"]);
         Assert.Equal("stdio", (string?)package["transport"]!["type"]);
