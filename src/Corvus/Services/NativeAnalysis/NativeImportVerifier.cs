@@ -29,7 +29,7 @@ public sealed class NativeImportVerifier
         [property: Description("Why: verified -> exact, suffixed (A/W), decorated (stdcall _Name@N), forwarded, ordinal, versioned, internal; contradicted -> missing_export, " +
                                "missing_ordinal, bad_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken, arch_mismatch, mangled_only; unresolved -> dll_not_found, " +
                                "api_set_unmapped, not_an_image, system_dll_not_on_host, forwarder_dll_not_found, forwarded_unverified, wrong_platform, malformed_metadata; dynamic_only -> " +
-                               "library_loaded_at_run_time, dll_import_resolver; not_checked -> runtime_internal, runtime_library.")] string Reason,
+                               "library_loaded_at_run_time, dll_import_resolver; not_checked -> runtime_internal, runtime_library; Mach-O: resolved, version_too_old, system_library, weak_library_absent.")] string Reason,
         string? ResolvedFile, string? Export, string Detail,
         [property: Description("Where malformed metadata was found (stream, table, row, token, file offset), else null.")] string? Location);
 

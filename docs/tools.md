@@ -1536,7 +1536,7 @@ Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `retu
 
 **Verify P/Invoke imports** (read-only, idempotent, long-running)
 
-Check a .NET assembly's P/Invoke declarations against the exports of their libraries, with the runtime's lookup rules (search order, API sets, A/W suffixes, stdcall decoration, ordinals, forwarders; .so/.dylib probing along the RID chain, __Internal in Il2Cpp). Verdict per declaration with a reason: verified, contradicted (missing_export, arch_mismatch), unresolved (dll_not_found with places searched), dynamic_only, not_checked. Run-time loading found in the IL is listed too.
+Check imports against library exports. A .NET assembly: each P/Invoke declaration with the runtime's lookup rules (search order, API sets, A/W, stdcall names, ordinals, forwarders; .so/.dylib by RID, Il2Cpp __Internal), plus run-time loading in IL. A loaded Mach-O: each load command as dyld resolves it (@rpath, @loader_path), slice, version, bound symbols. Verdict, reason: verified, contradicted (missing_export, arch_mismatch), unresolved (dll_not_found, places searched), dynamic_only, not_checked.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

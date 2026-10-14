@@ -194,10 +194,11 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", UseStructuredContent = true, OutputSchemaType = typeof(NativeImportReport))]
-    [Description("Check a .NET assembly's P/Invoke declarations against the exports of their libraries, with the runtime's lookup rules (search " +
-                 "order, API sets, A/W suffixes, stdcall decoration, ordinals, forwarders; .so/.dylib probing along the RID chain, __Internal in " +
-                 "Il2Cpp). Verdict per declaration with a reason: verified, contradicted (missing_export, arch_mismatch), unresolved (dll_not_found " +
-                 "with places searched), dynamic_only, not_checked. Run-time loading found in the IL is listed too.")]
+    [Description("Check imports against library exports. A .NET assembly: each P/Invoke declaration with the runtime's lookup rules " +
+                 "(search order, API sets, A/W, stdcall names, ordinals, forwarders; .so/.dylib by RID, Il2Cpp __Internal), " +
+                 "plus run-time loading in IL. A loaded Mach-O: each load command as dyld resolves it (@rpath, @loader_path), slice, version, " +
+                 "bound symbols. Verdict, reason: verified, contradicted (missing_export, arch_mismatch), unresolved (dll_not_found, places " +
+                 "searched), dynamic_only, not_checked.")]
     public Task<string> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only declarations with this status or reason code (e.g. contradicted, missing_export).")] string? status = null,
@@ -208,6 +209,14 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
+        // a loaded Mach-O image (no managed assembly of that name): its load commands and bound symbols
+        var macho = workspace.Read(() =>
+        {
+            if (workspace.FindNative(assembly) is not { Image: Native.MachO.MachOFile } n) return null;
+            try { workspace.Get(assembly); return null; }
+            catch (ToolError) { return n; }
+        }, cancellationToken);
+        if (macho != null) return MachOImports(macho, status, offset, limit, cancellationToken);
         var asm = workspace.Read(() => workspace.Get(assembly), cancellationToken);
         // Outside the lock: the verifier takes it in short sections.
         var result = new NativeImportVerifier(path => NativeImageLoader.Open(path)).Verify(asm, cancellationToken, platform, workspace,
@@ -253,4 +262,26 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
             rows => new NativeImportReport(asm.Id, checks.Count, counts, filter, offset, selected.Count, offset + rows.Count < selected.Count,
                 rows, loads, result.DynamicLoads.Count, result.MetadataIssues.Take(10).ToList(), notes), "declaration", head.ToString());
     }, cancellationToken));
+
+    private static string MachOImports(LoadedNative native, string? status, int offset, int limit, CancellationToken ct)
+    {
+        var checks = MachOLinkCheck.Check((Native.MachO.MachOFile)native.Image, native.FilePath, ct);
+        var filter = string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant();
+        offset = Math.Max(0, offset);
+        limit = ClampLimit(limit);
+        var selected = checks.Where(c => filter == null || c.Status == filter || c.Reason == filter)
+            .OrderBy(c => c.Status switch { NativeImportVerifier.Contradicted => 0, NativeImportVerifier.Unresolved => 1, NativeImportVerifier.NotChecked => 3, _ => 4 }).ToList();
+        var counts = checks.Where(c => c.EntryPoint.Length == 0).GroupBy(c => (c.Status, c.Reason)).OrderBy(g => Array.IndexOf(NativeImportVerifier.Statuses, g.Key.Status))
+            .Select(g => new VerdictCount(g.Key.Status, g.Key.Reason, g.Count())).ToList();
+        int libraries = checks.Count(c => c.EntryPoint.Length == 0);
+        List<string> notes = ["Mach-O mode: each load command resolved as dyld does (@rpath, @loader_path, @executable_path), its slice and compatibility version " +
+                              "checked, and the symbols bound to it looked up in its exports; system libraries live in the dyld shared cache and are not checked."];
+        var head = $"{native.Id}: {Plural(libraries, "load command")}" + (counts.Count > 0 ? ": " + string.Join(", ", counts.Select(c => $"{c.Count} {c.Status} ({c.Reason})")) : "") + "\n";
+        var page = selected.Skip(offset).Take(limit).ToList();
+        return ToolOutput.List(page, offset, limit, selected.Count,
+            c => $"{c.Status} ({c.Reason})  {c.Module}" + (c.EntryPoint.Length > 0 ? $"!{c.EntryPoint}" : "") + (c.ResolvedFile != null ? $"  -> {c.ResolvedFile}" : "") +
+                 (c.Detail.Length > 0 ? $": {Format.EscapeMarkers(c.Detail)}" : ""),
+            rows => new NativeImportReport(native.Id, libraries, counts, filter, offset, selected.Count, offset + rows.Count < selected.Count, rows, [], 0, [], notes),
+            "load", head + $"Note: {notes[0]}\n");
+    }
 }
