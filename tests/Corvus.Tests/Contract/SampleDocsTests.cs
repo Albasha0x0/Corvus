@@ -8,6 +8,8 @@ namespace Corvus.Tests;
 /// The guides (docs/guides) and showcases (docs/showcase) run on the samples built from samples/. Their checked blocks
 /// are executed in order and each output block must equal what the step prints now; CORVUS_UPDATE_DOCS=1 rewrites them.
 /// </summary>
+// Runs alone: it builds and exports into samples/, which other classes running at once can hold open.
+[Collection(nameof(SerialTimingTests))]
 public partial class SampleDocsTests
 {
     private static readonly string Root = DocsTests.RepoRoot();

@@ -333,6 +333,8 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
 /// The relay with the real server: two publishes of this build, a load replayed, an edit holding the swap back; on
 /// 2026-07-28 with a listen stream open throughout, which carries list_changed.
 /// </summary>
+// Runs alone: it copies and starts the whole server, which other classes running at once can hold open.
+[Collection(nameof(SerialTimingTests))]
 public sealed class DevRelayRealServerTests
 {
     [Trait("Speed", "Slow")]
