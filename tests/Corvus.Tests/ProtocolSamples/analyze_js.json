@@ -1,0 +1,35 @@
+{
+  "tool": "analyze_js",
+  "arguments": {
+    "path": "samples/bundle.js"
+  },
+  "isError": false,
+  "content": [
+    "bundle.js: 90 bytes, 3 lines (longest 54)\nBundlers: webpack (__webpack_require__ x1)\nSource map: samples\\bundle.js.map; 1 sources (1 with content), 2 segments"
+  ],
+  "structuredContent": {
+    "view": "summary",
+    "summary": {
+      "path": "samples/bundle.js",
+      "bytes": 90,
+      "lines": 3,
+      "longestLine": 54,
+      "bundlers": [
+        {
+          "family": "webpack",
+          "evidence": "__webpack_require__",
+          "count": 1
+        }
+      ],
+      "sourceMap": {
+        "location": "samples\\bundle.js.map",
+        "sources": 1,
+        "sourcesWithContent": 1,
+        "segments": 2,
+        "issues": []
+      },
+      "banners": 0,
+      "notes": []
+    }
+  }
+}

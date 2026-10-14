@@ -100,6 +100,8 @@
     <PackageDownload Include="Microsoft.Android.Ref.35" Version="[35.0.105]" />
     <PackageDownload Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="[1.0.3]" />
     <PackageDownload Include="Microsoft.Android.Runtime.35.android-arm" Version="[35.0.105]" />
+    <!-- a minified bundle with its source map (analyze_js) -->
+    <PackageDownload Include="jQuery" Version="[3.7.1]" />
   </ItemGroup>
 
   <ItemGroup>

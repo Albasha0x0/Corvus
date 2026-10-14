@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-155 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+156 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -21,6 +21,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [android](#android) | 0 | 0 | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | 0 | 0 | 7: crash dumps and crash text |
 | [live](#live) | 0 | 0 | 1: read-only inspection of a running process |
+| [web](#web) | 0 | 0 | 1: JavaScript bundles and their source maps |
 
 ## session
 
@@ -2764,3 +2765,25 @@ Inspects a running local process (Windows) read-only, every address named as dum
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`, `runtime`, `access`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `notes`, `startTimeUtc`, `counts`, `mainModule`, `largestRegions`, `thread`, `stackStop`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+
+## web
+
+JavaScript bundles and their source maps.
+
+### analyze_js
+
+**Analyze a JavaScript bundle** (read-only, idempotent)
+
+Bundler signatures and the source map of a JavaScript file, read statically. view=summary: bundlers (webpack, esbuild, Vite, Parcel, Metro...), lines, the map (inline, sourceMappingURL or sibling .map); position: line:column to the original source; sources lists them; source pages one.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | Absolute path to a .js file. |
+| `view` | string |  | `summary` | summary, position, sources or source. Values: summary, position, sources, source. |
+| `line` | integer |  | `0` | position: generated line and column, 1-based. |
+| `column` | integer |  | `0` | position: see line. |
+| `source` | string |  |  | source: a source path (or its end) or index. |
+| `offset` | integer |  |  | Character offset (a page's nextOffset). |
+| `maxTokens` | integer |  |  | Page size in tokens. |
+
+Structured output: `view`, `summary`, `position`, `sources`, `source`.

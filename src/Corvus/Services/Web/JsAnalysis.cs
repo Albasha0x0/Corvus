@@ -1,0 +1,106 @@
+using System.ComponentModel;
+using System.Text;
+using Corvus.Core;
+
+namespace Corvus.Services.Web;
+
+/// <summary>A bundler or runtime recognized by its signature, with the evidence string and its count.</summary>
+public sealed record JsBundler(string Family, string Evidence, int Count);
+
+public sealed record JsMapInfo(
+    [property: Description("inline, or the .map file read.")] string Location,
+    int Sources, int SourcesWithContent, int Segments, IReadOnlyList<string> Issues);
+
+/// <summary>analyze_js view=summary: what the file is built from, without running it.</summary>
+public sealed record JsSummary(string Path, long Bytes, int Lines, int LongestLine, IReadOnlyList<JsBundler> Bundlers, JsMapInfo? SourceMap,
+    [property: Description("License banners (/*! or @license).")] int Banners, IReadOnlyList<string> Notes);
+
+/// <summary>analyze_js view=position: a generated position and the original position it maps to.</summary>
+public sealed record JsPosition(int Line, int Column, string? Source, int? OriginalLine, int? OriginalColumn, string? Name);
+
+/// <summary>analyze_js view=source: one original source from the map's sourcesContent, paged by the caller.</summary>
+public sealed record JsSource(string Source, int Index, string? Content);
+
+/// <summary>Static facts of JavaScript files: bundler signatures, source maps and positions through them.</summary>
+public static class JsAnalysis
+{
+    public const long MaxFileBytes = 512L * 1024 * 1024;
+
+    // byte signatures of bundler runtimes; the design's AST recognizers refine these into module tables
+    private static readonly (string Family, string Evidence)[] Signatures =
+    [
+        ("webpack", "__webpack_require__"), ("webpack", "webpackChunk"), ("webpack", "webpackJsonp"),
+        ("esbuild", "__commonJS("), ("esbuild", "__toESM("), ("rollup/vite", "__vitePreload"), ("rollup/vite", "__vite__mapDeps"),
+        ("parcel", "parcelRegister("), ("parcel", "parcelRequire"), ("turbopack", "TURBOPACK"), ("browserify", "require,module,exports"),
+        ("systemjs", "System.register("), ("metro", "__d(function"), ("amd", "define(["), ("hermes", "Hermes"),
+    ];
+
+    public static byte[] Read(string path)
+    {
+        var full = InputFiles.RequireRegularFile(path, "JavaScript file");
+        var info = new FileInfo(full);
+        if (info.Length > MaxFileBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{path} is {info.Length:N0} bytes; files up to {MaxFileBytes:N0} bytes are read.");
+        return File.ReadAllBytes(full);
+    }
+
+    public static JsSummary Summary(string path)
+    {
+        var text = Read(path);
+        var notes = new List<string>();
+        int lines = 1, longest = 0, start = 0;
+        for (int i = 0; i < text.Length; i++)
+            if (text[i] == '\n') { lines++; longest = Math.Max(longest, i - start); start = i + 1; }
+        longest = Math.Max(longest, text.Length - start);
+        var bundlers = Signatures.Select(s => new JsBundler(s.Family, s.Evidence, Count(text, Encoding.UTF8.GetBytes(s.Evidence))))
+            .Where(b => b.Count > 0).ToList();
+        int banners = Count(text, "/*!"u8.ToArray()) + Count(text, "@license"u8.ToArray());
+        JsMapInfo? map = null;
+        try
+        {
+            if (SourceMap.Locate(path, text) is { } found)
+                map = new JsMapInfo(found.Location, found.Map.Sources.Count, found.Map.SourcesContent.Count(c => c != null), found.Map.SegmentCount, found.Map.Issues);
+        }
+        catch (ToolError ex) { notes.Add("source map: " + ex.Message); }
+        catch (FormatException ex) { notes.Add("source map: inline data is not base64: " + ex.Message); }
+        if (map == null) notes.Add("No source map (no sourceMappingURL and no sibling .map): positions stay generated.");
+        if (longest > 100_000) notes.Add($"Minified: the longest line has {longest:N0} bytes.");
+        return new JsSummary(path, text.Length, lines, longest, bundlers, map, banners, notes);
+    }
+
+    /// <summary>The original position of generated <paramref name="line"/>:<paramref name="column"/> (both 1-based, as editors show them).</summary>
+    public static JsPosition Position(string path, int line, int column)
+    {
+        if (line < 1 || column < 1) throw new ToolError(ErrorCode.InvalidArgument, "line and column are 1-based.", "pass line>=1 and column>=1");
+        var map = Map(path);
+        if (map.Find(line - 1, column - 1) is not { Source: >= 0 } seg) return new JsPosition(line, column, null, null, null, null);
+        return new JsPosition(line, column, seg.Source < map.Sources.Count ? map.Sources[seg.Source] : null, seg.OriginalLine + 1, seg.OriginalColumn + 1,
+            seg.Name >= 0 && seg.Name < map.Names.Count ? map.Names[seg.Name] : null);
+    }
+
+    /// <summary>An original source by path (a suffix match) or index, with its content when the map embeds it.</summary>
+    public static JsSource Source(string path, string source)
+    {
+        var map = Map(path);
+        int index = int.TryParse(source, out var n) && n >= 0 && n < map.Sources.Count ? n
+            : map.Sources.Select((s, i) => (s, i)).Where(x => x.s == source || x.s.EndsWith("/" + source.TrimStart('/'), StringComparison.Ordinal)).Select(x => x.i).DefaultIfEmpty(-1).First();
+        if (index < 0)
+            throw new ToolError(ErrorCode.NotFound, $"no source '{source}' in the map ({map.Sources.Count} sources).", "analyze_js view=sources lists them");
+        return new JsSource(map.Sources[index], index, index < map.SourcesContent.Count ? map.SourcesContent[index] : null);
+    }
+
+    public static SourceMap Map(string path) =>
+        SourceMap.Locate(path, Read(path))?.Map ?? throw new ToolError(ErrorCode.NotFound, $"{path} has no source map (no sourceMappingURL and no sibling .map).",
+            "positions and original sources need a map; analyze_js view=summary shows what the file holds");
+
+    private static int Count(byte[] text, byte[] needle)
+    {
+        int n = 0;
+        for (int at = 0; at < text.Length && n < 1_000_000; n++)
+        {
+            int hit = text.AsSpan(at).IndexOf(needle);
+            if (hit < 0) break;
+            at += hit + needle.Length;
+        }
+        return n;
+    }
+}

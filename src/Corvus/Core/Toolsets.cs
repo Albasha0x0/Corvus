@@ -54,6 +54,7 @@ public static class Toolsets
              "get_android_package_info", "pull_android_package", "pull_android_file", "read_android_log", "install_android_package", "uninstall_android_package"]),
         new("dumps", "crash dumps and crash text", ["open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps"]),
         new("live", "read-only inspection of a running process", ["inspect_process"]),
+        new("web", "JavaScript bundles and their source maps", ["analyze_js"]),
     ];
 
     private static readonly Dictionary<string, string> FamilyByTool =
@@ -106,7 +107,7 @@ public static class Toolsets
             "list_namespaces", "list_types", "get_type_info", "get_assembly_info", "get_attributes", "get_type_hierarchy", "resolve_symbol",
             "decompile_member", "get_il", "search_symbols", "search_strings", "search_constants", "search_il", "find_references",
             "find_callees", "get_call_tree", "find_call_paths", "list_resources", "get_r2r_code", "find_r2r_method",
-            "summarize_file", "survey_features", "extract_strings", "search_container", "unity_overview", "list_edits", "diff_edits",
+            "summarize_file", "survey_features", "extract_strings", "search_container", "unity_overview", "analyze_js", "list_edits", "diff_edits",
             "get_il2cpp_info", "find_method_by_address", "generate_cpp_binding",
             "get_pe_info", "get_engine_status", "get_nativeaot_info", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "convert_number",
             "list_functions", "list_globals", "disassemble", "search_instructions",

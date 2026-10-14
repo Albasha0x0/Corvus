@@ -97,6 +97,7 @@ public partial class ProtocolSampleTests
         ["search_container"] = new() { ["path"] = In + "lz4.nupkg", ["query"] = "LZ4Codec", ["kind"] = "type" },
         ["unpack_container"] = new() { ["path"] = In + "lz4.nupkg", ["outputDirectory"] = In + "unpack", ["extractOnly"] = true, ["limit"] = 5 },
         ["unity_overview"] = new() { ["path"] = In + "MonoGame" },
+        ["analyze_js"] = new() { ["path"] = In + "bundle.js" },
         ["get_android_manifest"] = new() { ["path"] = In + "app.apk" },
         ["list_android_resources"] = new() { ["path"] = In + "app.apk", ["type"] = "string" },
         ["get_android_resource"] = new() { ["path"] = In + "app.apk", ["name"] = "@xml/network_security_config" },

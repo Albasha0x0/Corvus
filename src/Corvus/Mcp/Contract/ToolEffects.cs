@@ -51,6 +51,7 @@ public static partial class ToolEffects
         ["android"] = AndroidTools(),
         ["dumps"] = DumpsTools(),
         ["live"] = LiveTools(),
+        ["web"] = WebTools(),
     };
 
     /// <summary>Every tool, by name.</summary>

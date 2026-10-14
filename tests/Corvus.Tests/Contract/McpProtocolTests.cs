@@ -168,6 +168,18 @@ public abstract class McpProtocolTests : IAsyncLifetime
     }
 
     /// <summary>One successful call per tool; EveryToolIsCoveredAndAnnotated fails if a tool is missing.</summary>
+    /// <summary>A webpack-shaped bundle.js with a sibling source map embedding its one source (src/app.ts).</summary>
+    internal static string JsSample(TempDir dir)
+    {
+        var path = dir.File("bundle.js");
+        if (!File.Exists(path))
+        {
+            File.WriteAllText(path, "var __webpack_require__=function(e){return e};var a=1;\n//# sourceMappingURL=bundle.js.map\n");
+            File.WriteAllText(path + ".map", """{"version":3,"sources":["webpack://app/./src/app.ts"],"sourcesContent":["export const a: number = 1;\n"],"names":["a"],"mappings":"AAAA,IAAMA"}""");
+        }
+        return path;
+    }
+
     /// <summary>A synthetic native DLL (imports, delay imports, exports, debug directory) written as native.dll in the temp folder.</summary>
     internal static string NativeSample(TempDir dir)
     {
@@ -378,6 +390,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "534883EC"),
         // the test process itself (the server is a child process): read-only, every handle closed
         ["inspect_process"] = (new() { ["process"] = Environment.ProcessId.ToString(), ["view"] = "modules", ["limit"] = 5 }, "\"detached\":true"),
+        ["analyze_js"] = (new() { ["path"] = JsSample(dir), ["view"] = "position", ["line"] = 1, ["column"] = 30 }, "src/app.ts"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };

@@ -26,6 +26,9 @@ public static partial class Guide
         Content-Encoding (gzip, deflate, br, zstd). Nothing is fetched or replayed.
         summarize_file on an Electron executable or its .asar adds Electron / Chromium / Node versions, fuses, archive integrity,
         the package.json main entry and webPreferences values (nodeIntegration, contextIsolation, sandbox...) with file:line:column.
+        search_container kind=electron lists preload scripts, contextBridge keys, IPC channels, child_process / shell sinks and
+        native add-ons with file:line:column; kind=endpoint lists a HAR or mitmproxy capture's request templates.
+        analyze_js on a .js file: bundler signatures and its source map; view=position maps a minified line:column to the original source.
         Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read these yet; unpack_container on the _framework folder converts them to PEs that load; save_assembly to a .wasm path writes Webcil back.
         Unity builds: unity_overview first.
         Android packages (.apk, .aab, split sets), read natively: get_android_manifest (components, exported state, permissions, deep links),

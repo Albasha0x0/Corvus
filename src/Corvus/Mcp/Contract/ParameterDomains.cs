@@ -49,6 +49,7 @@ public static partial class ParameterDomains
             ["android"] = AndroidTools(),
             ["dumps"] = DumpsTools(),
             ["live"] = LiveTools(),
+            ["web"] = WebTools(),
         };
 
     /// <summary>By tool, then parameter.</summary>

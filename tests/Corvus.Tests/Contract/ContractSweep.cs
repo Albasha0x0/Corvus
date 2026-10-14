@@ -37,6 +37,7 @@ public static partial class ContractSweep
         ["android"] = AndroidFileWriters(),
         ["dumps"] = DumpsFileWriters(),
         ["live"] = LiveFileWriters(),
+        ["web"] = WebFileWriters(),
     };
 
     public static readonly Dictionary<string, string[]> FileWriters = FileWritersByFamily.Values.SelectMany(d => d).ToDictionary();

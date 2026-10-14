@@ -1,0 +1,169 @@
+{
+  "type": "object",
+  "properties": {
+    "view": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer"
+        },
+        "lines": {
+          "type": "integer"
+        },
+        "longestLine": {
+          "type": "integer"
+        },
+        "bundlers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "family": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "family",
+              "evidence",
+              "count"
+            ]
+          }
+        },
+        "sourceMap": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "description": "inline, or the .map file read.",
+              "type": "string"
+            },
+            "sources": {
+              "type": "integer"
+            },
+            "sourcesWithContent": {
+              "type": "integer"
+            },
+            "segments": {
+              "type": "integer"
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "location",
+            "sources",
+            "sourcesWithContent",
+            "segments",
+            "issues"
+          ]
+        },
+        "banners": {
+          "description": "License banners (/*! or @license).",
+          "type": "integer"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "bytes",
+        "lines",
+        "longestLine",
+        "bundlers",
+        "banners",
+        "notes"
+      ]
+    },
+    "position": {
+      "type": "object",
+      "properties": {
+        "line": {
+          "type": "integer"
+        },
+        "column": {
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        },
+        "originalLine": {
+          "type": "integer"
+        },
+        "originalColumn": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "column"
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "index"
+      ]
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "view"
+  ]
+}

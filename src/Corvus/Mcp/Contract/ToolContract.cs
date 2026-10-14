@@ -57,6 +57,7 @@ public sealed partial record ToolContract(string Tool, OutputClass Output, Laten
             ["android"] = AndroidTools(),
             ["dumps"] = DumpsTools(),
             ["live"] = LiveTools(),
+            ["web"] = WebTools(),
         };
 
     /// <summary>Every tool, by name.</summary>

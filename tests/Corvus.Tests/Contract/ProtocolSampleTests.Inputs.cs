@@ -36,6 +36,7 @@ public partial class ProtocolSampleTests
         AndroidSamples.Save(dir, "app.apk", AndroidSamples.Apk(30, ("classes.dex", AndroidSamples.Dex())));
         AndroidSamples.SaveXamarin(dir);
         UnityOverviewTests.MonoSample(dir);
+        McpProtocolTests.JsSample(dir);
         File.Copy(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), dir.File("lz4.nupkg"));
         McpProtocolTests.FolderPair(dir, "old");
         McpProtocolTests.FolderPair(dir, "new");
