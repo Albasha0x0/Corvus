@@ -3,14 +3,14 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Tests;
 
-/// <summary>The README's tool tables, tool counts, prompt list and prompt count match the registered catalog.</summary>
+/// <summary>The tool tables and prompt list (docs/features.md) and the tool and prompt counts (README.md, docs/features.md) match the registered catalog.</summary>
 public partial class ReadmeSyncTests
 {
     [Fact]
     public void ToolTablesAndCounts_MatchRegisteredTools()
     {
         var registered = Corvus.Mcp.Catalog.OfThisBuild().Tools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
-        var lines = File.ReadAllLines(Path.Combine(RepoRoot(), "README.md"));
+        var lines = File.ReadAllLines(Path.Combine(RepoRoot(), "docs", "features.md"));
 
         var listed = new HashSet<string>(StringComparer.Ordinal);
         bool inToolTable = false;
@@ -28,22 +28,25 @@ public partial class ReadmeSyncTests
         }
 
         Assert.True(listed.SetEquals(registered),
-            $"README tool tables: missing {string.Join(", ", registered.Except(listed).Order())}; not registered {string.Join(", ", listed.Except(registered).Order())}");
-        Assert.NotEmpty(counts);
+            $"docs/features.md tool tables: missing {string.Join(", ", registered.Except(listed).Order())}; not registered {string.Join(", ", listed.Except(registered).Order())}");
+        var readme = File.ReadAllLines(Path.Combine(RepoRoot(), "README.md"));
+        for (int i = 0; i < readme.Length; i++)
+            foreach (Match m in ToolCount().Matches(readme[i])) counts.Add((-(i + 1), int.Parse(m.Groups[1].Value)));
+        Assert.Contains(counts, c => c.Line < 0);
         foreach (var (line, count) in counts)
-            Assert.True(count == registered.Count, $"README.md line {line}: {count} tools, {registered.Count} registered");
+            Assert.True(count == registered.Count, $"{(line < 0 ? "README.md" : "docs/features.md")} line {Math.Abs(line)}: {count} tools, {registered.Count} registered");
     }
 
     [Fact]
     public void PromptListAndCount_MatchRegisteredPrompts()
     {
         var registered = Corvus.Mcp.Catalog.OfThisBuild().Prompts.Select(p => (string)p["name"]!).Order(StringComparer.Ordinal).ToList();
-        var readme = File.ReadAllText(Path.Combine(RepoRoot(), "README.md"));
+        var readme = File.ReadAllText(Path.Combine(RepoRoot(), "README.md")) + File.ReadAllText(Path.Combine(RepoRoot(), "docs", "features.md"));
         var counts = PromptCount().Matches(readme).Select(m => int.Parse(m.Groups[1].Value)).ToList();
         Assert.NotEmpty(counts);
         Assert.All(counts, c => Assert.Equal(registered.Count, c));
         var line = PromptLine().Match(readme);
-        Assert.True(line.Success, "README.md has no **Prompts:** paragraph");
+        Assert.True(line.Success, "docs/features.md has no **Prompts:** paragraph");
         Assert.Equal(registered, ToolName().Matches(TopLevel(line.Groups[1].Value)).Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal));
     }
 

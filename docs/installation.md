@@ -262,3 +262,90 @@ Server options and their environment variables are in the README ("Server option
 | `CORVUS_AUTO_APPLE_NAMES` | `0`: do not name Mach-O images from their Objective-C and Swift metadata automatically. |
 | `CORVUS_DIE` | Detect It Easy's `diec` (the file or its folder) for `unity_overview detectItEasy=true`. |
 | `CORVUS_CLEANUP_LOG` | Set: record the decompiler cleanup's rewrite decisions (diagnostics). |
+
+## Development reload
+
+For work on the server itself: `publish/corvus install --dev-reload publish` registers a relay instead of the
+server (`config --dev-reload publish` prints it). The relay runs from a staged copy under
+`<LocalAppData>/Corvus/relay` (`CORVUS_RELAY_DIR`), speaks MCP to the client and runs the server published in
+that folder as a child, itself from a staged copy. Each `./publish.ps1` writes `publish/.build-complete` last; once
+it is stable and no call is in flight, the relay starts the new build, repeats the client's `initialize`, replays
+the workspace calls that succeeded (`load_assembly`, `unload_assembly`, `add_search_directory`, `load_pdb`,
+`unpack_container`, log level, resource subscriptions), switches over and sends `tools`, `prompts` and `resources`
+`list_changed`, so the client sees the new build without reconnecting. Clients on the 2026-07-28 protocol (per-request
+metadata, no session) are served too: the relay sends the new build `server/discover` with the client's metadata instead
+of `initialize`, moves open `subscriptions/listen` streams to it, and sends `list_changed` on the streams that asked for it.
+A `[relay]` line on the next tool result names the build, its catalog digest and what was replayed. In-memory edits and native engine sessions are not
+carried over: with unsaved edits or patches the switch waits until they are saved or reverted, and the added tool
+`relay_apply` switches at once. A build that fails to start or to replay is reported and the old server stays.
+Arguments after the relay's own (`relay --target <dir> [--state <dir>] [--poll-ms <n>] [--] ...`) go to the server;
+a plain `install` switches the registration back. publish.ps1 renames files of a running server aside
+(`*.aside-*`) and deletes them once free.
+
+## Server options
+
+Options go after the command in a client's configuration (`args`), e.g. to preload a folder:
+`"args": ["--load", "D:\\App\\App_Data\\Managed"]`.
+
+| Option | Meaning |
+|---|---|
+| `--load <path>` | Assembly file or folder to load at startup (repeatable). The `CORVUS_LOAD` env var takes `;`-separated paths. |
+| `--search-dir <dir>` | Extra directory for resolving references (repeatable). |
+| `--max-output <chars>` | Page size for long results (default 60000). |
+| `--timeout <seconds>` | Per-call decompilation timeout (default 180; `export_project` gets 10×). Calls to tools not marked long-running end after twice this. |
+| `--no-index` | Don't index method bodies and build the call graph in the background after loading. |
+| `--no-watch` | Don't watch loaded files or reload them when they change on disk. |
+| `--allow-device-changes` | Allow `install_android_package` and `uninstall_android_package`, which change a connected Android device (`CORVUS_ALLOW_DEVICE_CHANGES=1`). Off by default; the other device tools only read. |
+| `--ida-scripting` | Allow `ida_python` (arbitrary Python in the IDA worker, with the server's rights; `CORVUS_IDA_SCRIPTING=1`). Off by default. |
+| `--ghidra-scripting` | Allow `ghidra_script` (arbitrary Java in the Ghidra worker, with the server's rights; `CORVUS_GHIDRA_SCRIPTING=1`). Off by default. |
+| `--engine <auto\|ours\|ida\|ghidra>` | Default engine for the native function, cross-reference and CFG tools, and for `decompile_native` when it names one (default `auto`; `CORVUS_ENGINE`); see Engine preference above. |
+| `--prewarm <ida\|ghidra\|auto>` | Analyze each native image in that engine in the background as it loads, one at a time (`auto`: IDA when installed, else Ghidra; `CORVUS_PREWARM`; `--ida-prewarm` / `CORVUS_IDA_PREWARM=1` mean `ida`). Off by default. |
+| `--index-cache <dir\|off>` | Where native code indexes are saved (default `<LocalAppData>/Corvus/code-index`; `CORVUS_CODE_INDEX_CACHE`). Entries are keyed by the file's SHA-256 and the build options, so reopening the same bytes loads the index in seconds (msedge.dll, 334 MB: 2.6 s instead of 36 s); changed, damaged or older-format entries are rebuilt. |
+| `--index-cache-mb <n>`, `--index-cache-days <n>` | Bounds of that cache (default 8192 MB and 30 days unused; least recently used entries go first; `CORVUS_CODE_INDEX_CACHE_MB` / `_DAYS`). |
+| `--binding-style <mono\|hostapi>` | `generate_cpp_binding` style when a call gives none and no host table is detected (default `mono`). |
+| `--binding-project <dir>` | Project directory `generate_cpp_binding` scans for a host table when a call gives no `projectDir`. |
+| `--toolsets <list>` | Register only a profile or these tool families (`CORVUS_TOOLSETS`), for clients with little context. Profiles: `full` (every tool; also `all`), `core` (at most 100: .NET read and edit, containers, Il2Cpp, native analysis and native edits, the session tools) and `lean` (at most 40: load, find, read, follow and edit for .NET and native, notes, the session basics). Families: `session`, `dotnet`, `containers`, `edit`, `il2cpp`, `native`, `native-edit`, `builds`, `notes`, `engine` (engine status, IDA or Ghidra type, local, frame and declaration edits, `ida_python`, `ghidra_script`), `android`, `dumps` and `live`; a family brings `session` along. Combine names, e.g. `lean,dumps` or `core,builds`. Without the option every tool is registered, and clients that cap tool counts (VS Code, VS Code Insiders, VSCodium, Visual Studio, Copilot CLI) are listed `lean`; a tool left out of a list still answers a call. `server_status` names the families. |
+| `--tools-file <file\|readonly\|triage>` | Register only the tools a whitelist names, applied after `--toolsets`; the session tools stay (`CORVUS_TOOLS_FILE`). The file holds tool names separated by spaces, commas or lines, `#` starts a comment; an unknown name stops the server at startup. Built-in lists: `readonly` (every analysis tool that changes nothing and writes no file, without device and live-process tools) and `triage` (a small first-look set). |
+| `--log-level <level>` | Stderr log level: `trace`, `debug`, `information` (default), `warning`, `error` or `none` (`CORVUS_LOG_LEVEL`). At `information` and below, every tool call logs one line: `call tool=<name> outcome=<ok or error code> ms=<n> in=<argument characters> out=<result characters> engine=<ida, ghidra or ->`, never the arguments themselves; `CORVUS_LOG_FORMAT=json` writes JSON lines. |
+| `--trace <file>` | Append one JSON line per tool call to this file (`CORVUS_TRACE`): time, tool, argument names, milliseconds, error code (`null` when it succeeded) and result characters. Off by default. An engine database path is refused. |
+| `--trace-args` | The trace records argument values too (`CORVUS_TRACE_ARGS=1`); they can hold paths and code. Secrets are masked as `[redacted]`: values of parameters named like a password, token, key or cookie, `NAME=value` pairs whose name says password, secret, token or key, Bearer / Basic credentials, passwords in URLs and common token shapes (best effort). |
+
+Logs go to stderr; stdout is reserved for the protocol.
+
+Each IDA or Ghidra worker is capped at three quarters of the memory available to the server (Windows Job Object; `CORVUS_ENGINE_MEMORY_MB`
+sets the limit in MB, `0` removes it). A worker that reaches it fails its request with the limit named and restarts on the next one.
+
+Each engine request may take `CORVUS_ENGINE_REQUEST_TIMEOUT` seconds (default 120; `decompile_native` and `resolve_call_targets`
+take `timeoutSeconds` per call), and an engine's start plus auto-analysis `CORVUS_ENGINE_OPEN_TIMEOUT` seconds (default 1200).
+A request that runs out of time or is cancelled by the client is stopped inside the worker, which keeps the database open:
+scans answer with what they found, marked partial with where to continue, and only a worker that does not stop within 10 s
+is killed (the next request restarts it from the saved database). `server_status` reports both limits.
+For huge or hostile inputs, `CORVUS_ENGINE_ANALYSIS=none` opens images in IDA and Ghidra without auto-analysis: functions are made where a
+tool asks for one, the database is kept apart from the fully analyzed one, and output headers say so.
+A second server process opening an image whose IDA database another process holds gets a read-only snapshot of the last
+saved database (edits are neither journaled nor saved; decompile headers and `server_status` say so), or, when none is
+saved yet, a conflict naming the owning process.
+
+Ghidra (12.0 or newer) is found through `CORVUS_GHIDRA_DIR` (else `GHIDRA_INSTALL_DIR`) and a JDK through `CORVUS_GHIDRA_JAVA` (else
+`JAVA_HOME`, else `PATH`); the worker is compiled from its embedded sources on first use. `CORVUS_GHIDRA_ANALYSIS` picks the
+analysis profile (`standard`, `full` or `minimal`), `CORVUS_GHIDRA_MAXMEM` the JVM heap, `CORVUS_GHIDRA_OPTIONS` extra analyzer
+options (`Name=value;...`), and `CORVUS_GHIDRA_EXTENSIONS` a directory of Ghidra extension zips built for that Ghidra (a NativeAOT
+analyzer, for example), installed into the workers' private settings; nothing is downloaded. Projects are kept per file hash
+and configuration, so a changed profile or extension set analyzes again once. `CORVUS_GHIDRA_DECOMPILE_TIMEOUT` (seconds, default 60)
+and `CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB` (default 200) bound one decompilation; a timeout or an oversized result is retried once
+with four times the time and twice the payload.
+
+Other external programs are optional and each is found through one variable (a file or its folder), then as listed;
+`server_status` reports where each was found, its version, or the fix. They run in their own process tree with a minimal
+environment (path, temp, home and Android / Java variables only).
+
+| Variable | Program | Used for |
+|---|---|---|
+| `CORVUS_JAVA` | `java`, JDK 17+ (else `JAVA_HOME`, else `PATH`) | running the Java decompiler |
+| `CORVUS_JAVA_DECOMPILER` | the [jadx-headless-mcp](https://github.com/1013503897/jadx-headless-mcp) fat jar (Apache-2.0), started with `java -jar` | Java / Kotlin source |
+| `CORVUS_ADB` | `adb` (else `PATH`, else the Android SDK's `platform-tools`) | the Android device tools |
+| `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER` | aapt2, the apksigner jar, the baksmali jar | test oracles only |
+
+Code that targets a .NET version not installed on the machine is read against that version's reference pack, which
+is downloaded once from nuget.org into the local app data folder. Set `CORVUS_OFFLINE=1` to never download; such code is
+then read against the nearest installed version.

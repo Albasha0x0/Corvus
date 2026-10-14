@@ -68,3 +68,26 @@ pushed. The workflow makes the bundles with `./release.ps1 -Bundle`.
 ## Reporting problems
 
 Bugs and feature requests: the issue forms. Security problems: privately, as described in [SECURITY.md](SECURITY.md).
+
+## Layout
+
+```
+src/Corvus/
+  Core/      workspace (loading, locking, reference resolution), symbol resolver, formatting, paging
+  Services/  decompiler, search, references, fast IL reader, call graph, assembly comparer, Il2Cpp (+ IDA/Ghidra/C
+             export, Il2CppDumper script.json / stringliteral.json reader, string literals and native code references, metadata ↔ native navigation), C++ binding generator, resources, assembly report, edits and edit history, IL assembler,
+             C# patcher (module merger, access fixer), background indexing, file watching
+    Analysis/  bounds-checked PE parsing, byte-level helpers (identification, bounded decompression, carving, safe
+               output paths), container formats, unpacking
+  Tools/     thin MCP tool classes: resolve input, call a service, format text
+  Mcp/       resources, prompts, completion
+tests/
+  TestFixture/            sample assembly covering every feature (inheritance, async, resources, stand-in Il2Cpp attributes)
+  TestFixture.Consumer/   second assembly that uses the first (cross-assembly and virtual-dispatch references)
+  Corvus.Tests/ service, patching, concurrency, protocol and real-assembly tests
+samples/Notes/            v1 and v2 of the guides' sample program (docs/guides, docs/showcase), built by the test project
+```
+
+To add a tool, put the logic in a service, then add a `[McpServerTool]` method in `Tools/` that wraps it in
+`ToolSupport.Read`, `Write` or `Edit` and returns text. Throw `ToolError` for anything the agent should read and
+act on. `McpProtocolTests.ToolCases` must get an entry, or the coverage test fails.
