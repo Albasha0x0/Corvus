@@ -133,6 +133,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
       - name: Package from the release
         run: |
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "CorvusRE.*.nupkg" --pattern SHA256SUMS --dir dist
