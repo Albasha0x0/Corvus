@@ -51,6 +51,20 @@ public sealed class ElectronSurfaceTests : IDisposable
         Assert.Equal(2, new UnpackService(_ws).Search(app, "ipc-main", "electron", 100, AnalysisLimits.Default, default).Total);
     }
 
+    /// <summary>A required .node add-on is found beside the script and its N-API registrations are named.</summary>
+    [Fact]
+    public void Native_require_names_the_addon_registrations()
+    {
+        // an Electron layout: the scripts in app.asar, native add-ons in app.asar.unpacked
+        var app = _dir.File("app.asar");
+        File.WriteAllBytes(app, AsarWriter.Build([AsarWriter.Text("main.js", "const native = require(\"./build/Release/addon.node\");")]).Archive);
+        Directory.CreateDirectory(Path.Combine(app + ".unpacked", "build", "Release"));
+        File.WriteAllBytes(Path.Combine(app + ".unpacked", "build", "Release", "addon.node"), NodeApiTests.ElfAddon());
+        var row = Assert.Single(new UnpackService(_ws).Search(app, "native-require", "electron", 100, AnalysisLimits.Default, default).Items);
+        Assert.Contains("add-on build/Release/addon.node:", row.Detail);
+        Assert.Contains("hello", row.Detail);
+    }
+
     [Fact]
     public void Endpoint_templates_fold_ids_and_hide_values()
     {

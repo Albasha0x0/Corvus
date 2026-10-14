@@ -118,8 +118,8 @@ public sealed class NodeApiTests : IDisposable
         Assert.Empty(found.Notes);
     }
 
-    [Fact]
-    public async Task ElfAddonGetsTheLayerWhenIndexed()
+    /// <summary>An x64 ELF add-on registering hello and a Counter class through N-API.</summary>
+    internal static byte[] ElfAddon()
     {
         var elf = new ElfWriter { Machine = ElfWriter.EmX64, Type = 3, SoName = "addon.node", Needed = ["libnode.so"], PltImports = [.. Imports] };
         ulong textVa = ElfWriter.TextRva, dataVa = ElfWriter.DataRva;
@@ -128,8 +128,14 @@ public sealed class NodeApiTests : IDisposable
         elf.Data = Data(textVa, dataVa, pointers);
         foreach (var at in pointers) elf.Relocations.Add(new ElfWriter.Reloc(ElfWriter.DataRva + at, 8, null, (long)BitConverter.ToUInt64(elf.Data, (int)at)));
         elf.Symbols.Add(new ElfWriter.Symbol("napi_register_module_v1", ElfWriter.TextRva, 0x60));
+        return elf.Build();
+    }
+
+    [Fact]
+    public async Task ElfAddonGetsTheLayerWhenIndexed()
+    {
         var path = _dir.File("addon.node");
-        File.WriteAllBytes(path, elf.Build());
+        File.WriteAllBytes(path, ElfAddon());
 
         var options = new ServerOptions();
         using var ws = new AssemblyWorkspace(options);
