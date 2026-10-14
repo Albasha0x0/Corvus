@@ -10,7 +10,6 @@
   "structuredContent": {
     "view": "summary",
     "summary": {
-      "path": "samples/bundle.js",
       "bytes": 90,
       "lines": 3,
       "longestLine": 54,
@@ -24,11 +23,10 @@
       "sourceMap": {
         "location": "samples\\bundle.js.map",
         "sources": 1,
-        "sourcesWithContent": 1,
+        "withContent": 1,
         "segments": 2,
         "issues": []
       },
-      "banners": 0,
       "notes": []
     }
   }

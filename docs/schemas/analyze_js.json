@@ -7,9 +7,6 @@
     "summary": {
       "type": "object",
       "properties": {
-        "path": {
-          "type": "string"
-        },
         "bytes": {
           "type": "integer"
         },
@@ -45,13 +42,12 @@
           "type": "object",
           "properties": {
             "location": {
-              "description": "inline, or the .map file read.",
               "type": "string"
             },
             "sources": {
               "type": "integer"
             },
-            "sourcesWithContent": {
+            "withContent": {
               "type": "integer"
             },
             "segments": {
@@ -67,14 +63,10 @@
           "required": [
             "location",
             "sources",
-            "sourcesWithContent",
+            "withContent",
             "segments",
             "issues"
           ]
-        },
-        "banners": {
-          "description": "License banners (/*! or @license).",
-          "type": "integer"
         },
         "notes": {
           "type": "array",
@@ -84,24 +76,16 @@
         }
       },
       "required": [
-        "path",
         "bytes",
         "lines",
         "longestLine",
         "bundlers",
-        "banners",
         "notes"
       ]
     },
     "position": {
       "type": "object",
       "properties": {
-        "line": {
-          "type": "integer"
-        },
-        "column": {
-          "type": "integer"
-        },
         "source": {
           "type": "string"
         },
@@ -114,35 +98,50 @@
         "name": {
           "type": "string"
         }
-      },
-      "required": [
-        "line",
-        "column"
-      ]
-    },
-    "sources": {
-      "type": "array",
-      "items": {
-        "type": "string"
       }
     },
-    "source": {
-      "type": "object",
-      "properties": {
-        "source": {
-          "type": "string"
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "family": {
+            "type": "string"
+          },
+          "start": {
+            "type": "integer"
+          },
+          "end": {
+            "type": "integer"
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
-        "index": {
-          "type": "integer"
-        },
-        "content": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "source",
-        "index"
-      ]
+        "required": [
+          "id",
+          "provenance",
+          "family",
+          "start",
+          "end",
+          "requires"
+        ]
+      }
+    },
+    "total": {
+      "type": "integer"
     },
     "notices": {
       "type": "array",

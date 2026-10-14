@@ -11,19 +11,19 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class WebTools(OutputPager pager)
 {
-    /// <summary>analyze_js's record: the view's part is set, the others are null.</summary>
-    public sealed record JsResult(string View, JsSummary? Summary = null, JsPosition? Position = null, IReadOnlyList<string>? Sources = null, JsSource? Source = null);
+    /// <summary>analyze_js's record: the view's part is set (sources and source carry their text only).</summary>
+    public sealed record JsResult(string View, JsSummary? Summary = null, JsPosition? Position = null, IReadOnlyList<JsModule>? Modules = null, int? Total = null);
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
-    [Description("Bundler signatures and the source map of a JavaScript file, read statically. view=summary: bundlers (webpack, esbuild, Vite, " +
-                 "Parcel, Metro...), lines, the map (inline, sourceMappingURL or sibling .map); position: line:column to the original source; " +
-                 "sources lists them; source pages one.")]
+    [Description("Bundler signatures, modules and source map of a JavaScript file, statically. view=summary; modules: its module table " +
+                 "(webpack, esbuild, Browserify, Metro) with requires; module: one's code; position: line:column to the original source; sources, source.")]
     public string AnalyzeJs(
         [Description("Absolute path to a .js file.")] string path,
-        [Description("summary, position, sources or source.")] string view = "summary",
+        [Description("View; default summary.")] string view = "summary",
         [Description("position: generated line and column, 1-based.")] int line = 0,
         [Description("position: see line.")] int column = 0,
-        [Description("source: a source path (or its end) or index.")] string? source = null,
+        [Description("source: path or index.")] string? source = null,
+        [Description("module: its id; modules: a filter.")] string? query = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
     {
@@ -38,11 +38,32 @@ public sealed class WebTools(OutputPager pager)
                     ? "Bundlers: " + string.Join("; ", s.Bundlers.GroupBy(b => b.Family).Select(g => $"{g.Key} ({string.Join(", ", g.Select(b => $"{b.Evidence} x{b.Count}"))})"))
                     : "Bundlers: no runtime signature");
                 if (s.SourceMap is { } m)
-                    sb.AppendLine($"Source map: {m.Location}; {m.Sources} sources ({m.SourcesWithContent} with content), {m.Segments:N0} segments" +
+                    sb.AppendLine($"Source map: {m.Location}; {m.Sources} sources ({m.WithContent} with content), {m.Segments:N0} segments" +
                                   (m.Issues.Count > 0 ? $"; {m.Issues.Count} issue(s): {m.Issues[0]}" : ""));
                 if (s.Banners > 0) sb.AppendLine($"License banners: {s.Banners}");
                 foreach (var n in s.Notes) sb.AppendLine("Note: " + n);
                 return ToolOutput.With(sb.ToString().TrimEnd(), new JsResult("summary", Summary: s));
+            }
+            case "modules":
+            {
+                var (all, notes) = JsModules.Find(Encoding.UTF8.GetString(JsAnalysis.Read(path)), default);
+                var rows = all.Where(m => query == null || m.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
+                                          || m.Name?.Contains(query, StringComparison.OrdinalIgnoreCase) == true).ToList();
+                var text = $"{rows.Count} module(s)" + (rows.Count > 0 ? $" ({string.Join(", ", rows.GroupBy(m => m.Family).Select(g => $"{g.Count()} {g.Key}"))})" : "") + ":\n" +
+                           string.Join("\n", rows.Select(m => $"  {m.Id}{(m.Name != null && m.Name != m.Id ? " " + m.Name : "")}  [{m.Provenance}] {m.End - m.Start:N0} bytes, " +
+                                                              $"{m.Requires.Count} require(s)")) +
+                           string.Concat(notes.Select(n => "\nNote: " + n));
+                return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("modules", Modules: rows.Take(500).ToList(), Total: rows.Count));
+            }
+            case "module":
+            {
+                if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=module needs query (the module id).", "pass query=<id> (view=modules lists them)");
+                var code = Encoding.UTF8.GetString(JsAnalysis.Read(path));
+                var m = JsModules.Find(code, default).Modules.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
+                        ?? throw new ToolError(ErrorCode.NotFound, $"no module '{query}' in {Path.GetFileName(path)}.", "analyze_js view=modules lists them");
+                var head = $"// module {m.Id}{(m.Name != null && m.Name != m.Id ? " (" + m.Name + ")" : "")}, {m.Family}, bytes {m.Start}-{m.End}" +
+                           (m.Requires.Count > 0 ? $"\n// requires: {string.Join(", ", m.Requires.Take(50))}" : "");
+                return ToolOutput.With(pager.Page(head + "\n" + code[m.Start..m.End], offset, maxTokens), new JsResult("module", Modules: [m]));
             }
             case "position":
             {
@@ -57,7 +78,7 @@ public sealed class WebTools(OutputPager pager)
                 var map = JsAnalysis.Map(path);
                 var rows = map.Sources.Select((s, i) => $"  [{i}] {s}{(i < map.SourcesContent.Count && map.SourcesContent[i] != null ? "" : " (no content)")}");
                 return ToolOutput.With(pager.Page($"{map.Sources.Count} sources:\n" + string.Join("\n", rows), offset, maxTokens),
-                    new JsResult("sources", Sources: map.Sources));
+                    new JsResult("sources", Total: map.Sources.Count));
             }
             case "source":
             {
@@ -65,10 +86,10 @@ public sealed class WebTools(OutputPager pager)
                 var s = JsAnalysis.Source(path, source.Trim());
                 if (s.Content == null)
                     throw new ToolError(ErrorCode.NotFound, $"the map names {s.Source} but carries no sourcesContent for it.", "the original file is not in the map");
-                return ToolOutput.With(pager.Page($"// {s.Source}\n{s.Content}", offset, maxTokens), new JsResult("source", Source: s with { Content = null }));
+                return ToolOutput.With(pager.Page($"// {s.Source}\n{s.Content}", offset, maxTokens), new JsResult("source"));
             }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, position, sources or source");
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, position, sources or source");
         }
     }
 }

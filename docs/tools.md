@@ -2774,16 +2774,17 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler signatures and the source map of a JavaScript file, read statically. view=summary: bundlers (webpack, esbuild, Vite, Parcel, Metro...), lines, the map (inline, sourceMappingURL or sibling .map); position: line:column to the original source; sources lists them; source pages one.
+Bundler signatures, modules and source map of a JavaScript file, statically. view=summary; modules: its module table (webpack, esbuild, Browserify, Metro) with requires; module: one's code; position: line:column to the original source; sources, source.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | Absolute path to a .js file. |
-| `view` | string |  | `summary` | summary, position, sources or source. Values: summary, position, sources, source. |
+| `view` | string |  | `summary` | View; default summary. Values: summary, modules, module, position, sources, source. |
 | `line` | integer |  | `0` | position: generated line and column, 1-based. |
 | `column` | integer |  | `0` | position: see line. |
-| `source` | string |  |  | source: a source path (or its end) or index. |
+| `source` | string |  |  | source: path or index. |
+| `query` | string |  |  | module: its id; modules: a filter. |
 | `offset` | integer |  |  | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `view`, `summary`, `position`, `sources`, `source`.
+Structured output: `view`, `summary`, `position`, `modules`, `total`.

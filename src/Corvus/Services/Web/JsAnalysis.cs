@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text;
 using Corvus.Core;
 
@@ -7,16 +6,15 @@ namespace Corvus.Services.Web;
 /// <summary>A bundler or runtime recognized by its signature, with the evidence string and its count.</summary>
 public sealed record JsBundler(string Family, string Evidence, int Count);
 
-public sealed record JsMapInfo(
-    [property: Description("inline, or the .map file read.")] string Location,
-    int Sources, int SourcesWithContent, int Segments, IReadOnlyList<string> Issues);
+/// <summary>A located source map: inline, or the .map file read.</summary>
+public sealed record JsMapInfo(string Location, int Sources, int WithContent, int Segments, IReadOnlyList<string> Issues);
 
 /// <summary>analyze_js view=summary: what the file is built from, without running it.</summary>
-public sealed record JsSummary(string Path, long Bytes, int Lines, int LongestLine, IReadOnlyList<JsBundler> Bundlers, JsMapInfo? SourceMap,
-    [property: Description("License banners (/*! or @license).")] int Banners, IReadOnlyList<string> Notes);
+public sealed record JsSummary(long Bytes, int Lines, int LongestLine, IReadOnlyList<JsBundler> Bundlers, JsMapInfo? SourceMap,
+    IReadOnlyList<string> Notes) { internal int Banners { get; init; } }
 
 /// <summary>analyze_js view=position: a generated position and the original position it maps to.</summary>
-public sealed record JsPosition(int Line, int Column, string? Source, int? OriginalLine, int? OriginalColumn, string? Name);
+public sealed record JsPosition(string? Source, int? OriginalLine, int? OriginalColumn, string? Name);
 
 /// <summary>analyze_js view=source: one original source from the map's sourcesContent, paged by the caller.</summary>
 public sealed record JsSource(string Source, int Index, string? Content);
@@ -64,7 +62,7 @@ public static class JsAnalysis
         catch (FormatException ex) { notes.Add("source map: inline data is not base64: " + ex.Message); }
         if (map == null) notes.Add("No source map (no sourceMappingURL and no sibling .map): positions stay generated.");
         if (longest > 100_000) notes.Add($"Minified: the longest line has {longest:N0} bytes.");
-        return new JsSummary(path, text.Length, lines, longest, bundlers, map, banners, notes);
+        return new JsSummary(text.Length, lines, longest, bundlers, map, notes) { Banners = banners };
     }
 
     /// <summary>The original position of generated <paramref name="line"/>:<paramref name="column"/> (both 1-based, as editors show them).</summary>
@@ -72,8 +70,8 @@ public static class JsAnalysis
     {
         if (line < 1 || column < 1) throw new ToolError(ErrorCode.InvalidArgument, "line and column are 1-based.", "pass line>=1 and column>=1");
         var map = Map(path);
-        if (map.Find(line - 1, column - 1) is not { Source: >= 0 } seg) return new JsPosition(line, column, null, null, null, null);
-        return new JsPosition(line, column, seg.Source < map.Sources.Count ? map.Sources[seg.Source] : null, seg.OriginalLine + 1, seg.OriginalColumn + 1,
+        if (map.Find(line - 1, column - 1) is not { Source: >= 0 } seg) return new JsPosition(null, null, null, null);
+        return new JsPosition(seg.Source < map.Sources.Count ? map.Sources[seg.Source] : null, seg.OriginalLine + 1, seg.OriginalColumn + 1,
             seg.Name >= 0 && seg.Name < map.Names.Count ? map.Names[seg.Name] : null);
     }
 
