@@ -1,2 +1,2 @@
 # Exemptions from: a description is at most 600 bytes (S8.1)
-# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).

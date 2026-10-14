@@ -1,5 +1,5 @@
 # Exemptions from: every tool has a minimal valid and an invalid call in the quick contract sweep (S12.1)
-# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).
 add_members_csharp # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 add_types_csharp # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 apply_edits # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it

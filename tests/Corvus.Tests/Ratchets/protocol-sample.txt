@@ -1,5 +1,5 @@
 # Exemptions from: every tool has a recorded request/response in tests/Corvus.Tests/ProtocolSamples (S12.2)
-# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).
 declare_native_types # permanent: edits an engine database (IDA); no engine in the quick set
 decompile_java # permanent: needs the JADX server (CORVUS_JAVA_DECOMPILER, a JDK)
 decompile_native # permanent: needs a decompiler engine (IDA or Ghidra)

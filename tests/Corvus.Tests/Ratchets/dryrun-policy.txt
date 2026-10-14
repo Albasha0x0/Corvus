@@ -1,2 +1,2 @@
 # Exemptions from: a tool recorded dryRun=true takes dryRun defaulting to true, and only those take it (S7.3, D7)
-# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).

@@ -14,6 +14,14 @@
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
 The full set and the real-application runs are done locally.
 
+## Layout
+
+`tests/Corvus.Tests` has one folder per tool family, so a change's tests are found by folder: `Dotnet`, `DotnetEdits`,
+`NativeAnalysis`, `NativeFormats`, `Engines` (IDA and Ghidra), `NativeEdits`, `Builds`, `Containers`, `Mobile`, `Dumps`,
+`Il2Cpp`, `NativeAot`, `Session` (workspace, notes, server, setup), `Contract` (catalog, ratchets, protocol, sweeps of the
+output contract) and `Support` (builders, fixtures and shared harnesses). Namespaces do not follow the folders.
+Long engine classes are split into nested classes (by engine and topic) because xUnit runs one class's tests in sequence.
+
 ## Test data
 
 - Real libraries come from `<PackageDownload>` items in the test project, read through `RealPackages.Lib`; tests never

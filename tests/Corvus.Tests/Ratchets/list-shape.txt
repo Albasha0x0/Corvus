@@ -1,2 +1,2 @@
 # Exemptions from: a list tool takes offset and limit and returns items, offset, limit, total, totalExact, hasMore, nextOffset (S2.1)
-# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).

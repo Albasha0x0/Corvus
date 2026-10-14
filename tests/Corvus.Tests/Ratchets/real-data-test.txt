@@ -1,5 +1,5 @@
 # Exemptions from: every tool has a full-set test on a real library that names it (S12.3)
-# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).
 get_android_device_info # permanent: needs a real device; DeviceTests cover the parsing against a fake adb
 get_android_manifest # permanent: no package ships a compiled AndroidManifest.xml; AndroidResourceTests cover built ones
 get_android_package_info # permanent: needs a real device; DeviceTests cover the parsing against a fake adb

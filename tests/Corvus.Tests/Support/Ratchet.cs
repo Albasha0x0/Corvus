@@ -43,7 +43,7 @@ internal static class Ratchet
                 ? violations.Keys.ToDictionary(k => k, string? (_) => null, StringComparer.Ordinal)
                 : entries.Where(e => violations.ContainsKey(e.Key)).ToDictionary(StringComparer.Ordinal);
             Directory.CreateDirectory(Folder);
-            File.WriteAllText(Path.Combine(Folder, name + ".txt"), $"# Exemptions from: {rule}\n# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).\n"
+            File.WriteAllText(Path.Combine(Folder, name + ".txt"), $"# Exemptions from: {rule}\n# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).\n"
                 + string.Concat(entries.OrderBy(e => e.Key, StringComparer.Ordinal).Select(e => e.Key + (e.Value is { } r ? $" # {PermanentMark} {r}" : "") + "\n")));
         }
         var exempt = entries?.Keys.ToHashSet(StringComparer.Ordinal) ?? [];

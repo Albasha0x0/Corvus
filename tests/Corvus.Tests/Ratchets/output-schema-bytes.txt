@@ -1,2 +1,2 @@
 # Exemptions from: an output schema is at most 4096 bytes in tools/list (S8.1)
-# This list may only shrink (tests/Corvus.Tests/Ratchet.cs).
+# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).
