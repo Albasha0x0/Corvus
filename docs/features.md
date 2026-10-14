@@ -65,7 +65,9 @@ Native `.exe` / `.dll` / `.sys` files, ELF (`.so`, executables) and Mach-O (`.dy
 `load_assembly` by path, or are loaded by any native tool given a path. Headerless code (shellcode, firmware, a memory
 region) loads with `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=… entry=…`: one entry per layout
 (`fw.bin[thumb@0x8000000]`), analyzed from its entry by our engine, and by IDA or Ghidra at the same base with the same
-processor (each layout keeps its own engine database). Everything below is our own analysis
+processor (each layout keeps its own engine database). A Ghidra archive (`.gzf`, from Ghidra or from
+`export_engine_database`) loads the file it was made from, checked against its recorded SHA-256, and Ghidra opens the
+archive as the database without analyzing. Everything below is our own analysis
 (PE parser, Iced disassembler, function discovery, MSVC RTTI / exception data / name demangling, PDB reader);
 only `decompile_native` needs an external engine (IDA through idalib, or Ghidra through a Java worker built on first use). Reliability runs and their numbers:
 [docs/native-maturity.md](native-maturity.md); editing contract: [docs/native-editing.md](native-editing.md).
