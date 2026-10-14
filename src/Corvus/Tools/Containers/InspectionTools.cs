@@ -18,7 +18,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("First look at any file or loaded assembly, without executing it: type, hashes, signature, container wrapping (bundles, packages, APKs, " +
                  "zips, Costura are opened), its assemblies, highlights (toolchain markers, ATT&CK features, packers), entry points and typed value counts. " +
-                 "view= gives the details: managed (identity, markers, features, values per assembly), native (ELF / Mach-O, packers, NativeAOT; " +
+                 "view= gives the details: managed (identity, markers, features, values), native (ELF / Mach-O, packers, NativeAOT; " +
                  "a loaded image's triage), android, electron, go, all; views lists those that apply.")]
     public Task<string> SummarizeFile(
         [Description("Any file (assembly, bundle, .nupkg, .apk, zip, .asar, native executable); pass this or assembly.")] string? path = null,

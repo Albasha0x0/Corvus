@@ -544,13 +544,13 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at any file or loaded assembly, without executing it: type, hashes, signature, container wrapping (bundles, packages, APKs, zips, Costura are opened), its assemblies, highlights (toolchain markers, ATT&CK features, packers), entry points and typed value counts. view= gives the details: managed (identity, markers, features, values per assembly), native (ELF / Mach-O, packers, NativeAOT; a loaded image's triage), android, electron, go, all; views lists those that apply.
+First look at any file or loaded assembly, without executing it: type, hashes, signature, container wrapping (bundles, packages, APKs, zips, Costura are opened), its assemblies, highlights (toolchain markers, ATT&CK features, packers), entry points and typed value counts. view= gives the details: managed (identity, markers, features, values), native (ELF / Mach-O, packers, NativeAOT; a loaded image's triage), android, electron, go, all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | Any file (assembly, bundle, .nupkg, .apk, zip, .asar, native executable); pass this or assembly. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, electron, go, native, wasm, all. |
+| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, electron, firmware, go, native, wasm, all. |
 
 Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`.
 
