@@ -152,10 +152,11 @@ if (-not $VerifyOnly) {
     }
     finally { Pop-Location }
 
-    # The workflow run for the tag: wait for it to appear, then for it to finish.
+    # The workflow run for the tag's commit (an earlier run of a re-pushed tag has the same branch): wait for it, then for its end.
+    $commit = git -C $root rev-parse "$tag^{commit}"
     $run = $null
     for ($i = 0; $i -lt 30 -and -not $run; $i++) {
-        $run = gh run list --repo $Repo --workflow release.yml --branch $tag --limit 1 --json databaseId --jq '.[0].databaseId'
+        $run = gh run list --repo $Repo --workflow release.yml --commit $commit --limit 1 --json databaseId --jq '.[0].databaseId'
         if (-not $run) { Start-Sleep -Seconds 10 }
     }
     if (-not $run) { Fail "no release.yml run for $tag" }
