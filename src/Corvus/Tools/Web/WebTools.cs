@@ -47,7 +47,7 @@ public sealed class WebTools(OutputPager pager)
             }
             case "modules":
             {
-                var (all, notes) = JsModules.Find(Encoding.UTF8.GetString(JsAnalysis.Read(path)), default);
+                var (all, notes) = JsModules.Of(path, default);
                 var rows = all.Where(m => query == null || m.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
                                           || m.Name?.Contains(query, StringComparison.OrdinalIgnoreCase) == true).ToList();
                 var text = $"{rows.Count} module(s)" + (rows.Count > 0 ? $" ({string.Join(", ", rows.GroupBy(m => m.Family).Select(g => $"{g.Count()} {g.Key}"))})" : "") + ":\n" +
@@ -60,7 +60,7 @@ public sealed class WebTools(OutputPager pager)
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=module needs query (the module id).", "pass query=<id> (view=modules lists them)");
                 var code = Encoding.UTF8.GetString(JsAnalysis.Read(path));
-                var m = JsModules.Find(code, default).Modules.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
+                var m = JsModules.Of(path, default).Modules.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
                         ?? throw new ToolError(ErrorCode.NotFound, $"no module '{query}' in {Path.GetFileName(path)}.", "analyze_js view=modules lists them");
                 var head = $"// module {m.Id}{(m.Name != null && m.Name != m.Id ? " (" + m.Name + ")" : "")}, {m.Family}, bytes {m.Start}-{m.End}" +
                            (m.Requires.Count > 0 ? $"\n// requires: {string.Join(", ", m.Requires.Take(50))}" : "");
@@ -83,7 +83,7 @@ public sealed class WebTools(OutputPager pager)
             case "refs":
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=refs needs query (the module id).", "pass query=<id> (view=modules lists them)");
-                var all = JsModules.Find(Encoding.UTF8.GetString(JsAnalysis.Read(path)), default).Modules;
+                var all = JsModules.Of(path, default).Modules;
                 var target = all.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
                              ?? throw new ToolError(ErrorCode.NotFound, $"no module '{query}' in {Path.GetFileName(path)}.", "analyze_js view=modules lists them");
                 var (requires, by) = JsSearch.Refs(all, target);

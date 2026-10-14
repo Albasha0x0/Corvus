@@ -44,6 +44,25 @@ public static class JsModules
         return parsed;
     }
 
+    // module tables of the last files read, by path, size and write time: a large bundle is parsed once for its views
+    private static readonly List<((string Path, long Size, DateTime Written) Key, List<JsModule> Modules, List<string> Notes)> Recent = [];
+
+    /// <summary>The module table of the file at <paramref name="path"/>, from the recent cache when the file is unchanged.</summary>
+    public static (List<JsModule> Modules, List<string> Notes) Of(string path, CancellationToken ct)
+    {
+        var info = new FileInfo(InputFiles.RequireRegularFile(path, "JavaScript file"));
+        var key = (info.FullName, info.Exists ? info.Length : -1, info.Exists ? info.LastWriteTimeUtc : default);
+        lock (Recent)
+            if (Recent.FirstOrDefault(r => r.Key == key) is { Modules: not null } hit) return (hit.Modules, hit.Notes);
+        var found = Find(System.Text.Encoding.UTF8.GetString(JsAnalysis.Read(path)), ct);
+        lock (Recent)
+        {
+            Recent.Insert(0, (key, found.Modules, found.Notes));
+            if (Recent.Count > 4) Recent.RemoveAt(Recent.Count - 1);
+        }
+        return found;
+    }
+
     public static (List<JsModule> Modules, List<string> Notes) Find(string text, CancellationToken ct)
     {
         var notes = new List<string>();

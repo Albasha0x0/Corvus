@@ -27,7 +27,7 @@ public static class JsAnalysis
     // byte signatures of bundler runtimes; the design's AST recognizers refine these into module tables
     private static readonly (string Family, string Evidence)[] Signatures =
     [
-        ("webpack", "__webpack_require__"), ("webpack", "webpackChunk"), ("webpack", "webpackJsonp"),
+        ("webpack", "__webpack_require__"), ("webpack", "__webpack_modules__"), ("webpack", "webpackChunk"), ("webpack", "webpackJsonp"),
         ("esbuild", "__commonJS("), ("esbuild", "__toESM("), ("rollup/vite", "__vitePreload"), ("rollup/vite", "__vite__mapDeps"),
         ("parcel", "parcelRegister("), ("parcel", "parcelRequire"), ("turbopack", "TURBOPACK"), ("browserify", "require,module,exports"),
         ("systemjs", "System.register("), ("metro", "__d(function"), ("amd", "define(["),
