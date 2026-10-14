@@ -2,7 +2,7 @@
 
 ## Build and test
 
-Requires the .NET 10 SDK, feature band 10.0.3xx (pinned in `global.json`, so the test fixtures and their recorded samples build the same everywhere). Warnings are errors and the recommended analyzers run on every build.
+Requires the .NET 10 SDK, feature band 10.0.4xx (pinned in `global.json`, so the test fixtures and their recorded samples build the same everywhere). Warnings are errors and the recommended analyzers run on every build.
 
 ```powershell
 dotnet build

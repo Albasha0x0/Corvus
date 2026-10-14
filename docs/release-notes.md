@@ -2,6 +2,9 @@
 
 ## 2.0.1
 
+- **Security.** Built with .NET SDK 10.0.402: the self-contained builds carry runtime 10.0.13 (the October 2026 .NET
+  security release), and `System.Security.Cryptography.Pkcs` is 10.0.13 (CVE-2026-84008, CVE-2026-70162). Update
+  framework-dependent installs (`dotnet tool`, `dnx`) to a 10.0.13 runtime.
 - **nuget.org and the MCP Registry.** The `CorvusRE` .NET tool package carries a README (with the registry's ownership
   line), so it is published on nuget.org (`dotnet tool install -g CorvusRE`, or `dnx CorvusRE --yes`) and listed in the
   MCP Registry as `io.github.Albasha0x0/corvus`.
