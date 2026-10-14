@@ -311,8 +311,19 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>
         ListFunctionsAsync(false, cancellationToken);
 
-    public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default) =>
-        NameThunks(await WorkerRows.FunctionsPaged(start => CallAsync("functions", WorkerRows.Args(("refs", withReferences), ("start", start)), cancellationToken)).ConfigureAwait(false));
+    // the function table per worker instance and program change counter: one small stamp request instead of every row per call
+    private readonly Dictionary<bool, (string Stamp, List<NativeFunctionInfo> Functions)> _functionTables = [];
+
+    public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default)
+    {
+        var s = await CallAsync("stamp", WorkerRows.Args(), cancellationToken).ConfigureAwait(false);
+        var stamp = $"{s.GetProperty("instance").GetString()}:{s.GetProperty("modification").GetInt64()}";
+        lock (_functionTables)
+            if (_functionTables.TryGetValue(withReferences, out var cached) && cached.Stamp == stamp) return cached.Functions;
+        var functions = NameThunks(await WorkerRows.FunctionsPaged(start => CallAsync("functions", WorkerRows.Args(("refs", withReferences), ("start", start)), cancellationToken)).ConfigureAwait(false));
+        lock (_functionTables) _functionTables[withReferences] = (stamp, functions);
+        return functions;
+    }
 
     /// <summary>
     /// Ghidra gives a thunk the name of the function it jumps to; a thunk sharing its name with a function is called

@@ -261,6 +261,13 @@ public class Worker implements GhidraLaunchable {
             case "hello": return hello();
             case "open": return open(r);
             case "rebase": return rebase(r);
+            // the program's change counter and this worker's identity: a caller's cached tables stay valid while both match
+            case "stamp": return read(() -> {
+                JsonObject o = new JsonObject();
+                o.addProperty("modification", program.getModificationNumber());
+                o.addProperty("instance", INSTANCE);
+                return o;
+            });
             case "functions": return read(() -> CodeOps.functions(this, r));
             case "decompile": return read(() -> CodeOps.decompile(this, r));
             case "disasm": return read(() -> CodeOps.disasm(this, r));
@@ -405,6 +412,7 @@ public class Worker implements GhidraLaunchable {
      * budget_seconds, pdb, decompilers, decompile_timeout, decompile_payload_mb, analysis ("none": load only).
      */
     // Migration only: a project saved before the rename keeps its stamps under these names and its types under /ndm.
+    private static final String INSTANCE = java.util.UUID.randomUUID().toString();
     private static final String LEGACY_STAMPS = "NetDecompilerMcp", LEGACY_KEY_PREFIX = "ndm_", LEGACY_CATEGORY = "ndm";
 
     /** Moves stamps and the data type category of a project saved before the rename to the current names. */
