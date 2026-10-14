@@ -144,14 +144,18 @@ public sealed partial class ResultStore
 
     public ResultStoreStatus Status()
     {
-        int entries = 0;
-        long bytes = 0;
-        if (Options.Root != null && Directory.Exists(Options.Root))
-            foreach (var (_, size, _) in DiskEntries())
-            {
-                entries++;
-                bytes += size;
-            }
+        var (entries, bytes) = Options.Root is { } folder ? FolderTally.Of(folder, () =>
+        {
+            int entries = 0;
+            long bytes = 0;
+            if (Directory.Exists(folder))
+                foreach (var (_, size, _) in DiskEntries())
+                {
+                    entries++;
+                    bytes += size;
+                }
+            return (entries, bytes);
+        }) : (0, 0L);
         lock (_memory)
             return new(Options.Root != null ? "disk" : "memory", Options.Root, entries, bytes, Options.MaxBytes, Options.MaxAge,
                 _memory.Count, _memoryChars, MemoryLimit, MaxResultChars, _kept, _reads, _evicted, _lastError);
@@ -161,6 +165,7 @@ public sealed partial class ResultStore
     public void Evict()
     {
         if (Options.Root is not { } root || !Directory.Exists(root)) return;
+        FolderTally.Forget(root);
         var now = DateTime.UtcNow;
         var live = new List<(string Id, long Size, DateTime Used)>();
         foreach (var entry in DiskEntries())

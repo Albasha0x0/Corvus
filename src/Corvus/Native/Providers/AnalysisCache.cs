@@ -181,6 +181,7 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
     /// </summary>
     public int Evict()
     {
+        FolderTally.Forget(Root);
         var stat = Stat;
         int evicted = 0;
         try
@@ -262,16 +263,20 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
     /// <summary>What the cache holds and how it is bounded, with this process's evictions.</summary>
     public AnalysisCacheStatus Status()
     {
-        int entries = 0;
-        long bytes = 0;
-        try
+        var (entries, bytes) = FolderTally.Of(Root, () =>
         {
-            if (Directory.Exists(Root))
-                foreach (var provider in new DirectoryInfo(Root).EnumerateDirectories())
-                    foreach (var dir in provider.EnumerateDirectories())
-                        if (dir.Name != "snapshots" && IsEntry(dir)) { entries++; bytes += Size(dir); }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            int entries = 0;
+            long bytes = 0;
+            try
+            {
+                if (Directory.Exists(Root))
+                    foreach (var provider in new DirectoryInfo(Root).EnumerateDirectories())
+                        foreach (var dir in provider.EnumerateDirectories())
+                            if (dir.Name != "snapshots" && IsEntry(dir)) { entries++; bytes += Size(dir); }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            return (entries, bytes);
+        });
         var stat = Stat;
         return new AnalysisCacheStatus(Root, entries, bytes, MaxBytes, MaxAge, Volatile.Read(ref stat.Evicted), stat.LastError);
     }
