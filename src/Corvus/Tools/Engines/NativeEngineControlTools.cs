@@ -41,6 +41,8 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         [Description("List the analyzer options and values instead of running.")] bool analyzers = false,
         [Description("With analyzers: name filter.")] string? filter = null,
         [Description("name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true').")] string[]? options = null,
+        [Description("Named option set: full (Ghidra defaults) or one in analysis-presets.json (data folder).")] string? preset = null,
+        [Description("Run with no caller waiting; other engine calls get conflict until it ends.")] bool background = false,
         [Description("Range start (default: the whole image).")] string? from = null,
         [Description("Range end (exclusive).")] string? to = null,
         [Description("Seconds (1-3600); what is left runs on the next run.")] int timeoutSeconds = 600,
@@ -59,8 +61,8 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
             if (eq <= 0) throw new ToolError(ErrorCode.InvalidArgument, $"option '{o}' is not name=value.", "options=[\"AF_FLIRT=false\"]");
             pairs.Add(new(o[..eq].Trim(), o[(eq + 1)..].Trim()));
         }
-        if (analyzers && (pairs.Count > 0 || from != null || to != null))
-            throw new ToolError(ErrorCode.InvalidArgument, "analyzers=true lists the options; it takes no options, from or to.");
+        if (analyzers && (pairs.Count > 0 || from != null || to != null || preset != null || background))
+            throw new ToolError(ErrorCode.InvalidArgument, "analyzers=true lists the options; it takes no options, preset, background, from or to.");
         if (to != null && from == null) throw new ToolError(ErrorCode.InvalidArgument, "to needs from.");
         EngineChoice.Mode(engine, engines);
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
@@ -87,9 +89,27 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
                     [.. page.Select(a => new AnalyzerEntry(a.Name, a.Value, a.Type))], offset, all.Count), "option", header);
         }
 
-        var r = await control.ReanalyzeAsync(pairs, start, start is { } s ? end ?? s + 1 : null, timeoutSeconds, cancellationToken);
-        EngineControl.Advance(session);
+        if (preset != null)
+            pairs = [.. AnalysisPresets.Options(preset, session.ProviderId).Where(p => !pairs.Any(o => o.Key == p.Key)), .. pairs];
         var scope = start is { } a ? $"{NativeAddress.Va(native.Image, a)}-{NativeAddress.Va(native.Image, end ?? a + 1)}" : null;
+        uint? stop = start is { } s ? end ?? s + 1 : null;
+        if (background)
+        {
+            if (session is not WorkerSessionBase worker) throw new ToolError(ErrorCode.Unsupported, $"{session.ProviderId} has no background reanalysis.", "omit background");
+            worker.StartBackground("reanalysis", TimeSpan.FromSeconds(timeoutSeconds), async () =>
+            {
+                var done = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, CancellationToken.None);
+                EngineControl.Advance(session);
+                return $"{(done.Complete ? "complete" : "partial, the budget ran out")}; functions {done.FunctionsBefore:N0} before, {done.FunctionsAfter:N0} after";
+            });
+            return ToolOutput.Report($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"} started in the background ({timeoutSeconds} s budget)\n" +
+                                     (pairs.Count > 0 ? $"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)\n" : "") +
+                                     "server_status shows the session busy, then the result; other engine calls on this image get conflict with retryAfterMs until it ends.\n",
+                new ReanalysisReport(native.Id, session.ProviderId, scope, null, null, null, pairs.Count > 0 ? [.. pairs.Select(p => $"{p.Key}={p.Value}")] : null,
+                    null, null, null, null));
+        }
+        var r = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, cancellationToken);
+        EngineControl.Advance(session);
         var sb = new StringBuilder($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"}; database saved\n");
         sb.Append(r.Complete ? "Complete: the analysis queue ran empty.\n" : $"Partial: the {timeoutSeconds} s budget ran out; run again to continue.\n");
         sb.Append($"Functions: {r.FunctionsBefore:N0} before, {r.FunctionsAfter:N0} after ({r.FunctionsAfter - r.FunctionsBefore:+#;-#;0})\n");

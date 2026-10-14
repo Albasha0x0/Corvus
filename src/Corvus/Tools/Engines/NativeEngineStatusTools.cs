@@ -109,7 +109,17 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             Decompiler = session.DecompilerAvailable,
             Analysis = session.AnalysisComplete ? "complete" : "partial",
         };
-        if (session is WorkerSessionBase worker) status = status with { WorkerPid = worker.WorkerProcessId, UnsavedEdits = worker.UnsavedCount };
+        if (session is WorkerSessionBase worker)
+        {
+            status = status with { WorkerPid = worker.WorkerProcessId, UnsavedEdits = worker.UnsavedCount };
+            if (worker.Background is { } job)
+                status = status with
+                {
+                    Stage = worker.BackgroundRunning ? $"background {job.What}: running {(DateTime.UtcNow - job.Started).TotalSeconds:0} of {job.Budget.TotalSeconds:0} s" : $"background {worker.BackgroundResult}",
+                };
+            // a running job holds the engine: no further questions to it
+            if (worker.BackgroundRunning) return status;
+        }
         if (session is GhidraSession g)
         {
             status = status with { Database = g.ProjectDirectory, Warnings = g.Warnings, Language = g.Language, Functions = g.FunctionCount };
@@ -163,6 +173,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             sb.AppendLine($"{name} {s.Version}: open, analysis {s.Analysis}" + (s.ReusedDatabase == true ? ", reused saved database" : ", analyzed in this session") +
                           $", opened in {s.OpenSeconds:0.#} s; profile {s.Profile}");
             if (s.OpenStages != null) sb.AppendLine($"  open stages: {EngineOpenProfile.Describe(s.OpenStages)}");
+            if (s.Stage?.StartsWith("background", StringComparison.Ordinal) == true) sb.AppendLine("  " + s.Stage);
             if (s.Analysis == "partial")
                 sb.AppendLine($"  the analysis budget ran out; reanalyze_native image={native.Id} engine={s.Engine} completes it");
             sb.AppendLine($"  {s.Processor} {s.Language}" + (s.Compiler != null ? $", compiler {s.Compiler}" : "") + $", {s.Format}, {s.PointerSize * 8}-bit {s.Endian}, base {s.ImageBase}");

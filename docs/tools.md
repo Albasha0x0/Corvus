@@ -2211,6 +2211,8 @@ Re-run IDA's or Ghidra's auto-analysis over an image (or from-to) and save; a fu
 | `analyzers` | boolean |  |  | List the analyzer options and values instead of running. |
 | `filter` | string |  |  | With analyzers: name filter. |
 | `options` | string[] |  |  | name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true'). |
+| `preset` | string |  |  | Named option set: full (Ghidra defaults) or one in analysis-presets.json (data folder). |
+| `background` | boolean |  |  | Run with no caller waiting; other engine calls get conflict until it ends. |
 | `from` | string |  |  | Range start (default: the whole image). |
 | `to` | string |  |  | Range end (exclusive). |
 | `timeoutSeconds` | integer |  | `600` | Seconds (1-3600); what is left runs on the next run. |

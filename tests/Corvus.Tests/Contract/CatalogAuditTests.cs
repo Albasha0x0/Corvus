@@ -16,8 +16,8 @@ public class CatalogAuditTests
     /// <summary>Largest input schema of one tool, compact UTF-8 JSON.</summary>
     private const int MaxInputSchemaBytes = 8 * 1024;
 
-    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas): 172,651 at 158 tools before Phase 2; 157,825 at 155 after S-TRIM (no null in input types, implied defaults left out, shorter shared texts); 159,001 at 156 with analyze_js and its module views (C-WEB2 budget +1,200 B). Trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 159_100;
+    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas): 172,651 at 158 tools before Phase 2; 157,825 at 155 after S-TRIM (no null in input types, implied defaults left out, shorter shared texts); 159,001 at 156 with analyze_js and its module views (C-WEB2 budget +1,200 B); 159,400 with reanalyze_native preset and background (C-ENG2a). Trim descriptions before raising it.</summary>
+    private const int MaxModelFacingBytes = 159_400;
 
     /// <summary>The whole tools/list result of the full profile (§5): 410 KB before Phase 1, 349,663 after Phase 2's family lanes, 296,910 after S-TRIM.</summary>
     private const int MaxToolsListBytes = 300_000;

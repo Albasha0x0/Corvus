@@ -147,7 +147,8 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         else state = "idle";
         int queued = Math.Max(0, Volatile.Read(ref _calls) - running.Count - (starting != null ? 1 : 0));
         return new EngineSessionState(ProviderId, ImagePath, WorkerProcessId, state, op, Math.Round(seconds, 1), stage, queued, UnsavedCount,
-            Volatile.Read(ref _restarts), DatabaseLocation, ReusedDatabase, Note)
+            Volatile.Read(ref _restarts), DatabaseLocation, ReusedDatabase,
+            !BackgroundRunning && BackgroundResult is { } done ? (Note is { } n ? n + "; " : "") + "background " + done : Note)
         {
             Analysis = state == "opening" && OpenTime == TimeSpan.Zero ? "running" : this is INativeDecompilerSession { AnalysisComplete: false } ? "partial" : "complete",
         };
@@ -403,10 +404,54 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     /// <summary>An engine error with what the session knows added (a partial analysis); the error itself when there is nothing to add.</summary>
     protected virtual ToolError Explain(ToolError error) => error;
 
+    /// <summary>A job that runs with no caller waiting (reanalyze_native wait=false): its start and budget.</summary>
+    internal sealed record BackgroundJob(string What, DateTime Started, TimeSpan Budget, Task Task);
+
+    /// <summary>The running or last background job; <see cref="BackgroundResult"/> is its outcome once it ended.</summary>
+    internal BackgroundJob? Background { get; private set; }
+
+    internal string? BackgroundResult { get; private set; }
+
+    // the background job's own requests pass; every other caller gets conflict until it ends
+    private static readonly AsyncLocal<bool> InBackground = new();
+
+    internal bool BackgroundRunning => Background is { Task.IsCompleted: false };
+
+    /// <summary>Starts <paramref name="run"/> with no caller; conflict when one is already running.</summary>
+    internal BackgroundJob StartBackground(string what, TimeSpan budget, Func<Task<string>> run)
+    {
+        lock (_backgroundLock)
+        {
+            if (BackgroundRunning) throw Busy();
+            BackgroundResult = null;
+            var started = DateTime.UtcNow;
+            var task = Task.Run(async () =>
+            {
+                InBackground.Value = true;
+                try { BackgroundResult = $"{what} ended in {(DateTime.UtcNow - started).TotalSeconds:0} s: {await run().ConfigureAwait(false)}"; }
+                catch (Exception e) { BackgroundResult = $"{what} failed after {(DateTime.UtcNow - started).TotalSeconds:0} s: {e.Message}"; }
+            });
+            return Background = new BackgroundJob(what, started, budget, task);
+        }
+    }
+
+    private readonly object _backgroundLock = new();
+
+    /// <summary>The error for a call made while a background job holds the engine: conflict, retry when it should have ended.</summary>
+    internal ToolError Busy()
+    {
+        var job = Background!;
+        var elapsed = DateTime.UtcNow - job.Started;
+        return new ToolError(ErrorCode.Conflict, $"A {job.What} of {Path.GetFileName(ImagePath)} is running in the background ({elapsed.TotalSeconds:0} of {job.Budget.TotalSeconds:0} s).",
+            "server_status shows the engine session busy; retry after it ends")
+        { RetryAfter = TimeSpan.FromSeconds(Math.Clamp((job.Budget - elapsed).TotalSeconds, 2, 30)), Retryable = true };
+    }
+
     /// <summary>Runs one request, restarting the worker first when it is gone.</summary>
     internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false,
         TimeSpan? timeout = null)
     {
+        if (!InBackground.Value && BackgroundRunning) throw Busy();
         EngineUse.Note(ProviderId);
         Interlocked.Increment(ref _calls);
         try { await _gate.WaitAsync(cancellationToken).ConfigureAwait(false); }
