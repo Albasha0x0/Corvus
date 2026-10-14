@@ -218,7 +218,6 @@ internal static class Tools
         // The SDK leaves folders in its temporary folder: one of its own, deleted after the call.
         var temp = Directory.CreateTempSubdirectory("corvus-dotnet-").FullName;
         foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" }) psi.Environment[name] = temp;
-        psi.Environment["UseSharedCompilation"] = "false"; // a compiler server started here would outlive the call and hold the folder
         try { return Run(psi); }
         finally
         {

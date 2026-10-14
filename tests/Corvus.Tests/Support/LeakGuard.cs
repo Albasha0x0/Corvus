@@ -84,7 +84,7 @@ internal static class LeakGuard
         for (var clock = Stopwatch.StartNew(); ; Thread.Sleep(200))
         {
             left = Directory.Exists(RunTemp)
-                ? Directory.EnumerateFileSystemEntries(RunTemp).Select(Path.GetFileName).Where(n => n != IdaSymbolStore && !RuntimeFiles.Any(n!.StartsWith)).Select(n => n!).Order().ToList()
+                ? Directory.EnumerateFileSystemEntries(RunTemp).Select(Path.GetFileName).Where(n => n != IdaSymbolStore && !RuntimeFiles.Any(n!.StartsWith) && !OnlyCompilerServerCache(Path.Combine(RunTemp, n))).Select(n => n!).Order().ToList()
                 : [];
             if (left.Count == 0 || clock.Elapsed > TimeSpan.FromSeconds(5)) break;
         }
@@ -93,6 +93,20 @@ internal static class LeakGuard
         try { Directory.Delete(RunTemp, true); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         return problems.Count == 0 ? null : string.Join("; ", problems);
+    }
+
+    /// <summary>
+    /// A folder whose files all lie in VBCSCompiler folders: the shadow copies of the C# compiler server, which a test build
+    /// starts with that build's temporary folder and which stays running (and holding them) after the build.
+    /// </summary>
+    private static bool OnlyCompilerServerCache(string path)
+    {
+        try
+        {
+            return Directory.Exists(path) && Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                .All(f => Path.GetRelativePath(path, f).Split(Path.DirectorySeparatorChar).Contains("VBCSCompiler"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
     }
 
     /// <summary>A leftover with a hint at its owner: a folder's first entries, a file's size.</summary>

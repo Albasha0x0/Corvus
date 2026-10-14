@@ -83,9 +83,8 @@ public partial class ToolPackageTests
         var version = Property("Version");
 
         // Packed with the repository's sources and package cache; installed and run in isolation from the feed alone.
-        // no shared compiler server: it would outlive the pack and hold the temporary folder
         var pack = await RunAsync("dotnet", ["pack", Path.Combine(Root, "src", "Corvus", "Corvus.csproj"), "-c", "Release", "-o", feed, "--nologo"], Root,
-            new() { ["TMP"] = temp, ["TEMP"] = temp, ["TMPDIR"] = temp, ["UseSharedCompilation"] = "false" });
+            new() { ["TMP"] = temp, ["TEMP"] = temp, ["TMPDIR"] = temp });
         Assert.True(pack.Code == 0, pack.Output);
         var nupkg = Path.Combine(feed, $"{Installation.PackageId}.{version}.nupkg");
         using (var zip = System.IO.Compression.ZipFile.OpenRead(nupkg))
