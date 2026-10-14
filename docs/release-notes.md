@@ -1,5 +1,16 @@
 # Release notes
 
+## 2.0.1
+
+- **nuget.org and the MCP Registry.** The `CorvusRE` .NET tool package carries a README (with the registry's ownership
+  line), so it is published on nuget.org (`dotnet tool install -g CorvusRE`, or `dnx CorvusRE --yes`) and listed in the
+  MCP Registry as `io.github.Albasha0x0/corvus`.
+- **Unsaved-session notice stays one line.** Loading an image with many abandoned edit or patch sessions names the
+  newest one with its replay command and counts the older ones, instead of one line per session.
+- **Release assets** ship under the `corvus` name only.
+- **Docs.** A shorter README; feature detail in [features.md](features.md), server options in
+  [installation.md](installation.md#server-options).
+
 ## 2.0.0
 
 155 tools (1.3.0 had 158): `decompile_type`, `decompile_assembly_attributes` and `find_overrides` are folded into other
