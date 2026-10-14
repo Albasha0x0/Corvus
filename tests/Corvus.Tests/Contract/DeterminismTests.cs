@@ -37,9 +37,12 @@ public class DeterminismTests
     {
         using var dir = new TempDir();
         var native = McpProtocolTests.NativeSample(dir);
+        int run = 0;
         async Task<List<string>> RunAsync()
         {
-            await using var client = await McpProtocolTests.StartServerAsync("--load", Env.FixturePath);
+            // a data folder of its own: the shared one changes under the full set's other classes
+            await using var client = await McpProtocolTests.StartServerAsync(null, null, ["--load", Env.FixturePath],
+                new Dictionary<string, string?> { [Corvus.Native.Providers.DataFolder.RootVariable] = dir.File($"data{++run}") });
             var answers = new List<string>();
             foreach (var (tool, args) in Calls(native))
             {
@@ -51,9 +54,19 @@ public class DeterminismTests
         }
         var first = await RunAsync();
         var second = await RunAsync();
-        var differing = first.Zip(second).Where(p => p.First != p.Second).Select(p => p.First.Split('\n')[0]).ToList();
+        var differing = first.Zip(second).Where(p => p.First != p.Second).Select(p => FirstDifference(p.First, p.Second)).ToList();
         Assert.True(differing.Count == 0, "answers differ between two processes: " + string.Join(", ", differing));
         Assert.All(first, a => Assert.DoesNotContain("error=True", a.Split('\n')[0]));
+    }
+
+    /// <summary>The call and its first differing line in each process.</summary>
+    private static string FirstDifference(string a, string b)
+    {
+        string[] x = a.Split('\n'), y = b.Split('\n');
+        int i = 0;
+        while (i < x.Length && i < y.Length && x[i] == y[i]) i++;
+        string Line(string[] l) => i < l.Length ? l[i][..Math.Min(l[i].Length, 300)] : "(end)";
+        return $"{x[0]} line {i}: first «{Line(x)}» second «{Line(y)}»";
     }
 
     private static async Task<List<string>> HarnessCalls(TempDir dir)
