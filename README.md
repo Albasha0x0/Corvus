@@ -8,6 +8,11 @@ install, nothing executed, nothing uploaded.
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
+> [!NOTE]
+> Corvus is under active development. Tools, parameters and output can change between releases; breaking changes are
+> listed in the [release notes](docs/release-notes.md). Bug reports and feedback are welcome in
+> [issues](https://github.com/Albasha0x0/Corvus/issues).
+
 [Quick start](#quick-start) · [How it works](#how-it-works) · [What you can analyze](#what-you-can-analyze) ·
 [Showcases](#showcases) · [Why Corvus](#why-corvus) · [Documentation](#documentation)
 
