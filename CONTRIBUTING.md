@@ -8,7 +8,9 @@ Requires the .NET 10 SDK, feature band 10.0.4xx (pinned in `global.json`, so the
 dotnet build
 dotnet test                         # quick set: everything not marked [Trait("Speed", "Slow")]; keep it near 30 s
 $env:CORVUS_ALL_TESTS=1; dotnet test   # everything (or dotnet test -p:CORVUS_ALL_TESTS=1)
-./test.ps1 -Affected                 # before a push: quick set plus the slow tests of the families you changed
+./test.ps1                           # before each commit and push: the quick set
+./test.ps1 -Full -Background         # after a push: everything on that commit, in a worktree of its own (-Status shows it)
+./test.ps1 -Affected                 # the slow tests of the families you changed, in the foreground
 ./test.ps1 -Full -IfChanged          # everything, skipped when it already passed on this exact tree
 ```
 

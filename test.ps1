@@ -6,6 +6,8 @@
 #         ./test.ps1 -Full -Exhaustive    # the real-image sweeps take every input, not a quarter (gates and releases)
 #         ./test.ps1 -Affected            # quick set plus the slow tests of the families changed since origin/main (before a push)
 #         ./test.ps1 -Filter <expr>       # any dotnet test filter, quick or full
+#         ./test.ps1 -Full -Background    # the full suite on the committed HEAD in a worktree of its own; returns at once
+#         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
 #Requires -Version 7.0
 param(
     [switch]$Full,
@@ -13,12 +15,49 @@ param(
     [switch]$Exhaustive,
     [switch]$Affected,
     [string]$Base = 'origin/main',
-    [string]$Filter
+    [string]$Filter,
+    [switch]$Background,
+    [switch]$Status
 )
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $tests = Join-Path $root 'tests/Corvus.Tests'
+# The repository's own .git (shared by its worktrees): stamps and background results land there and are never committed.
+$gitDir = [IO.Path]::GetFullPath((git -C $root rev-parse --git-common-dir).Trim(), $root)
+$result = Join-Path $gitDir 'corvus-background.result'
+$log = Join-Path $gitDir 'corvus-background.log'
+
+if ($Status) {
+    if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; exit 0 }
+    Write-Host (Get-Content $result -Raw).Trim()
+    if (Test-Path $log) { Get-Content $log -Tail 5 | Where-Object { $_ -match '\[FAIL\]|Passed!|Failed!|Stamped' } | ForEach-Object { Write-Host "  $_" } }
+    exit 0
+}
+
+# A full run on the committed HEAD in a worktree of its own, so building and testing here continue meanwhile. The worktree
+# is removed when the run ends; its stamp counts for -IfChanged and release.ps1 (same tree).
+if ($Background) {
+    $commit = (git -C $root rev-parse HEAD).Trim()
+    if (git -C $root status --porcelain) { Write-Host 'Uncommitted changes are not part of the background run (it tests HEAD).' }
+    $dir = Join-Path ([IO.Path]::GetTempPath()) "corvus-bg-$($commit.Substring(0, 8))"
+    if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+    git -C $root worktree add --detach $dir $commit | Out-Null
+    $flags = '-Full' + $(if ($Exhaustive) { ' -Exhaustive' } else { '' })
+    $short = $commit.Substring(0, 8)
+    Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
+    $script = @"
+Set-Location '$dir'
+& ./test.ps1 $flags *> '$log'
+`$code = `$LASTEXITCODE
+Set-Content -Path '$result' -Value ('$short ' + `$(if (`$code -eq 0) { 'passed' } else { 'FAILED (exit ' + `$code + ')' }) + ' at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm')) -NoNewline
+Set-Location '$root'
+git worktree remove --force '$dir'
+"@
+    Start-Process pwsh -ArgumentList '-NoProfile', '-Command', $script -WindowStyle Hidden | Out-Null
+    Write-Host "Full suite started in the background on $short ($dir); ./test.ps1 -Status shows the result."
+    exit 0
+}
 
 # The test family a changed file belongs to; '*' is shared code (every family), null a file no test reads.
 function Get-Family([string]$path) {
@@ -75,7 +114,7 @@ function Get-CleanTree {
     if (git -C $root status --porcelain) { return $null }
     return (git -C $root rev-parse 'HEAD^{tree}').Trim()
 }
-$stamp = Join-Path (git -C $root rev-parse --absolute-git-dir).Trim() 'corvus-full-suite.stamp'
+$stamp = Join-Path $gitDir 'corvus-full-suite.stamp'
 
 if ($Full -and $IfChanged) {
     $tree = Get-CleanTree

@@ -115,7 +115,7 @@ if (-not $VerifyOnly) {
 
         # test.ps1 -Full -Exhaustive stamps the clean tree it passed on; the bump below changes only version strings and generated docs,
         # whose quick run follows, so a passed tree needs no second full run.
-        $stamp = Join-Path (git rev-parse --absolute-git-dir).Trim() 'corvus-full-suite.stamp'
+        $stamp = Join-Path ([IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())) 'corvus-full-suite.stamp'
         $passed = (Test-Path $stamp) -and (Get-Content $stamp -Raw).Trim() -eq "$((git rev-parse 'HEAD^{tree}').Trim()) exhaustive"
         if ($passed) { Write-Host 'The full suite passed on this tree (test.ps1 -Full -Exhaustive); not run again.' }
 
