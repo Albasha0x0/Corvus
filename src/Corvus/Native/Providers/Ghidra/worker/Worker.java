@@ -465,21 +465,30 @@ public class Worker implements GhidraLaunchable {
                 for (JsonElement e : array(a, "loader_args"))
                     loaderArgs.add(new Pair<>(e.getAsJsonArray().get(0).getAsString(), e.getAsJsonArray().get(1).getAsString()));
                 MessageLog log = new MessageLog();
-                try (LoadResults<Program> results = ProgramLoader.builder()
+                var builder = ProgramLoader.builder()
                         .source(new File(a.get("input").getAsString()))
                         .project(project.getProject())
                         .projectFolderPath("/")
                         .name(programName)
                         .loaderArgs(loaderArgs)
                         .log(log)
-                        .monitor(r.monitor)
-                        .load()) {
+                        .monitor(r.monitor);
+                // a headerless image: the caller names the loader and the language
+                try {
+                    if (a.has("loader")) builder = builder.loaders(a.get("loader").getAsString());
+                }
+                catch (ghidra.util.exception.InvalidInputException e) {
+                    throw new WorkerError("invalid_argument", "unknown Ghidra loader: " + e.getMessage());
+                }
+                if (a.has("language")) builder = builder.language(a.get("language").getAsString());
+                try (LoadResults<Program> results = builder.load()) {
                     results.getPrimary().save(r.monitor);
                     program = results.getPrimaryDomainObject(this);
                 }
                 catch (LoadException e) {
                     throw new WorkerError("malformed_input", "Ghidra could not load the file: " + e.getMessage());
                 }
+                if (a.has("entry")) markEntry(a.get("raw_base").getAsLong(), a.get("entry").getAsLong());
                 complete = !noAuto && analyze(r, a, warnings);
             }
             base = program.getImageBase().getOffset();
@@ -499,6 +508,38 @@ public class Worker implements GhidraLaunchable {
      * (the first listing of a large program loads every function record). A change to the program while it runs drops it;
      * the live listing serves until a table exists.
      */
+    /**
+     * A raw image loaded at 0: moved to its base (memory moves with the image base, so image base and block agree), then
+     * an entry point with its function at the entry offset, where analysis starts.
+     */
+    private void markEntry(long base, long offset) {
+        int tx = program.startTransaction("raw image entry");
+        try {
+            Address start = program.getImageBase().getNewAddress(base);
+            if (!program.getImageBase().equals(start)) {
+                try {
+                    program.setImageBase(start, true);
+                }
+                catch (Exception e) {
+                    throw new WorkerError("failed", "moving the image to " + start + " failed: " + e.getMessage());
+                }
+            }
+            Address entry = start.add(offset);
+            program.getSymbolTable().addExternalEntryPoint(entry);
+            try {
+                program.getSymbolTable().createLabel(entry, "entry", ghidra.program.model.symbol.SourceType.IMPORTED);
+            }
+            catch (ghidra.util.exception.InvalidInputException e) {
+                // the name is fixed and valid
+            }
+            new ghidra.app.cmd.disassemble.DisassembleCommand(entry, null, true).applyTo(program, TaskMonitor.DUMMY);
+            new ghidra.app.cmd.function.CreateFunctionCmd(entry).applyTo(program, TaskMonitor.DUMMY);
+        }
+        finally {
+            program.endTransaction(tx, true);
+        }
+    }
+
     private void startFunctionPass() {
         Program p = program;
         Thread t = new Thread(() -> {

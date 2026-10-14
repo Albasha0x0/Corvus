@@ -304,6 +304,8 @@ public enum SymbolMode
 public sealed record NativeOpenOptions
 {
     public SymbolMode Symbols { get; init; } = SymbolMode.Default;
+    /// <summary>A headerless image's mapping: the engine loads the file as raw bytes at its base with its processor.</summary>
+    public RawLayout? Raw { get; init; }
     /// <summary>The image's PDB as located by the server (verified by GUID and age); the engine looks there first. Ignored with <see cref="SymbolMode.Off"/>.</summary>
     public string? PdbPath { get; init; }
     /// <summary>Limit for engine start plus loading or auto-analysis.</summary>

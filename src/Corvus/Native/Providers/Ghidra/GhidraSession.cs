@@ -74,16 +74,17 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
 
     protected override void PrepareOpen()
     {
-        var header = ReadHeader(Entry!.InputCopy, ImagePath);
+        var header = Options.Raw is { } raw ? new Header(raw.Arch, raw.Base, false) : ReadHeader(Entry!.InputCopy, ImagePath);
         Arch = header.Arch;
         _headerImageBase = header.ImageBase;
-        (_projectDirectory, _loaderArguments, _analyzerOptions) = Project(provider, ghidra, Entry.Directory, header, Options.Symbols, Options.Analysis);
+        (_projectDirectory, _loaderArguments, _analyzerOptions) = Project(provider, ghidra, Entry!.Directory, header, Options.Symbols, Options.Analysis, Options.Raw);
         RenameLegacyProject(_projectDirectory);
     }
 
     /// <summary>The project directory an open uses in a cache entry, with its loader and analyzer options (also found without an open).</summary>
     internal static (string Directory, List<KeyValuePair<string, string>> Loader, IReadOnlyList<KeyValuePair<string, string>> Analyzers) Project(
-        GhidraProvider provider, GhidraInstallation ghidra, string entryDirectory, Header header, SymbolMode symbols, EngineAnalysis analysis)
+        GhidraProvider provider, GhidraInstallation ghidra, string entryDirectory, Header header, SymbolMode symbols, EngineAnalysis analysis,
+        RawLayout? raw = null)
     {
         var profile = provider.Profile;
         List<KeyValuePair<string, string>> loader = [.. GhidraOptions.LoaderArguments(profile)];
@@ -92,7 +93,9 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         var analyzers = GhidraOptions.AnalyzerOptions(profile, symbols, provider.ExtraOptions);
         var key = GhidraOptions.ProfileKey(ghidra, profile, loader, analyzers, provider.Extensions);
         // a load-only project is its own profile, as in IDA
-        return (Path.Combine(entryDirectory, "p-" + key + (analysis == EngineAnalysis.None ? "-noauto" : "")), loader, analyzers);
+        // a raw layout is its own project: the same bytes at another base or processor
+        return (Path.Combine(entryDirectory, "p-" + key + (analysis == EngineAnalysis.None ? "-noauto" : "") +
+                (raw != null ? "-raw-" + raw.Key.Replace('@', '-') : "")), loader, analyzers);
     }
 
     internal readonly record struct Header(NativeArch Arch, ulong? ImageBase, bool IsElf);
@@ -235,6 +238,13 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 ("decompilers", provider.Options.Decompilers),
                 ("decompile_timeout", (int)provider.DecompileTimeout.TotalSeconds),
                 ("decompile_payload_mb", provider.DecompilePayloadMb));
+            if (Options.Raw is { } layout)
+            {
+                args["loader"] = "BinaryLoader";
+                args["language"] = GhidraOptions.RawLanguage(layout);
+                args["entry"] = layout.EntryOffset;
+                args["raw_base"] = layout.Base;
+            }
             info = await worker.RequestAsync("open", args, remaining, cancellationToken).ConfigureAwait(false);
         }
         finally

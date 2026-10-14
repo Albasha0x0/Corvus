@@ -254,17 +254,21 @@ def op_open(args):
     cmdline = " ".join(quote_arg(a) for a in extra) or None
     start = time.time()
     _state["auto"] = args.get("auto", True) is not False
-    rc = m.idapro.open_database(path, _state["auto"], cmdline)
+    raw = args.get("raw")
+    # a headerless image is set up (bitness, Thumb, base, entry) before auto-analysis sees it
+    rc = m.idapro.open_database(path, _state["auto"] and not (raw and not reuse), cmdline)
     if rc != 0:
         raise WorkerError("provider_unavailable", "open_database returned %d for %s (%d characters; database %s, %d characters)"
                           % (rc, path, len(path), idb, len(idb)))
     _state["open"] = True
     batch_mode()
+    if raw and not reuse:
+        setup_raw(m, raw)
     if _state["auto"]:
         m.ida_auto.auto_wait()
     _state["base"] = m.ida_nalt.get_imagebase()
     ftype = m.ida_ida.inf_get_filetype()
-    if ftype not in (m.ida_ida.f_PE, m.ida_ida.f_ELF, m.ida_ida.f_MACHO):
+    if ftype not in (m.ida_ida.f_PE, m.ida_ida.f_ELF, m.ida_ida.f_MACHO) and not (raw and ftype == m.ida_ida.f_BIN):
         raise WorkerError("unsupported", "IDA loaded the file with a loader other than its PE, ELF or Mach-O loader (file type %d, processor %s)"
                           % (ftype, m.ida_ida.inf_get_procname()))
     sha = args.get("sha256") or ""
@@ -298,6 +302,27 @@ def op_open(args):
 
 
 INPUT_STAMP = "input"  # SHA-256 of the input the database was made from
+
+
+def setup_raw(m, raw):
+    """A binary-file load: segment bitness, Thumb state, image base and the entry function, as load_assembly format=raw gave them."""
+    import ida_entry, ida_idp, ida_segment, ida_segregs
+    base, bits = int(raw["base"]), int(raw["bits"])
+    if bits == 64:
+        m.ida_ida.inf_set_64bit(True)
+    seg = ida_segment.get_first_seg()
+    while seg is not None:
+        ida_segment.set_segm_addressing(seg, 2 if bits == 64 else 1)
+        if raw.get("thumb"):
+            ida_segregs.split_sreg_range(seg.start_ea, ida_idp.str2reg("T"), 1, ida_segregs.SR_user)
+        seg = ida_segment.get_next_seg(seg.start_ea)
+    m.ida_nalt.set_imagebase(base)
+    entry = base + int(raw["entry"])
+    ida_entry.add_entry(entry, entry, "entry", True)
+    m.ida_funcs.add_func(entry)
+    if _state["auto"]:
+        m.ida_auto.enable_auto(True)
+        m.ida_auto.auto_mark_range(m.ida_ida.inf_get_min_ea(), m.ida_ida.inf_get_max_ea(), m.ida_auto.AU_CODE)
 
 
 def info(m, reused, seconds):

@@ -275,6 +275,7 @@ public sealed class NativeEngineService : IDisposable
         {
             OutputCache = OutputCache, OutputIdentity = OutputIdentity(id),
             Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, Analysis = _analysis,
+            Raw = (native.Image as Native.RawCodeImage)?.Layout,
             ThumbCode = native.Image.Arch == Native.NativeArch.Arm && _code != null ? ct => ThumbCode(native, ct) : null,
             KnownStart = _code != null ? async (rva, ct) => (await _code.Index(native, null, ct).ConfigureAwait(false)).FunctionByStart(rva) != null : null,
         };

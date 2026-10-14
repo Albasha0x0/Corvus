@@ -58,7 +58,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     }
     protected override string? DatabaseLocation => _databasePath.Length > 0 ? _databasePath : null;
 
-    private string Profile => (Options.Symbols == SymbolMode.Off ? "nopdb" : "default") + (Options.Analysis == EngineAnalysis.None ? "-noauto" : "");
+    // a raw layout is part of the database name: the same bytes at another base or processor are another database
+    private string Profile => (Options.Symbols == SymbolMode.Off ? "nopdb" : "default") + (Options.Analysis == EngineAnalysis.None ? "-noauto" : "") +
+                              (Options.Raw is { } raw ? "-raw-" + raw.Key.Replace('@', '-') : "");
 
     /// <summary>
     /// The image's cache entry; when another server process holds it, a read-only snapshot of its last saved database,
@@ -77,8 +79,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     protected override void PrepareOpen()
     {
-        (Arch, _headerImageBase) = ReadHeader(Entry!.InputCopy, ImagePath);
-        _databasePath = Path.Combine(Entry.Directory, IdaProvider.DatabaseFileName(ida, Profile));
+        (Arch, _headerImageBase) = Options.Raw is { } raw ? (raw.Arch, raw.Base) : ReadHeader(Entry!.InputCopy, ImagePath);
+        _databasePath = Path.Combine(Entry!.Directory, IdaProvider.DatabaseFileName(ida, Profile));
         IdaProvider.CheckPathLength(Entry.InputCopy, "input copy", provider.Cache.Root, OperatingSystem.IsWindows());
         IdaProvider.CheckPathLength(_databasePath, "IDA database", provider.Cache.Root, OperatingSystem.IsWindows());
         Adopt();
@@ -150,6 +152,15 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         Options.Progress?.Report(new NativeProviderProgress(reuse ? "load" : "analysis", clock.Elapsed));
         var idaArgs = new JsonArray();
         if (Options.Symbols == SymbolMode.Off) idaArgs.Add("-Opdb:off");
+        JsonObject? raw = null;
+        if (Options.Raw is { } layout)
+        {
+            // the binary loader with this processor, loaded at the base (-b takes 16-byte paragraphs)
+            idaArgs.Add(layout.Arch is NativeArch.Arm or NativeArch.Arm64 ? "-parm" : "-pmetapc");
+            idaArgs.Add("-b" + (layout.Base >> 4).ToString("X", System.Globalization.CultureInfo.InvariantCulture));
+            raw = IdaProvider.Args(("base", layout.Base), ("entry", layout.EntryOffset), ("bits", layout.Arch is NativeArch.X64 or NativeArch.Arm64 ? 64 : 32),
+                ("thumb", layout.Thumb));
+        }
         var remaining = Options.OpenTimeout - clock.Elapsed;
         if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
         var adopting = reuse ? _adopting : null;
@@ -159,7 +170,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         {
             info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
                 ("auto", Options.Analysis != EngineAnalysis.None), ("sha256", Entry.Sha256), ("adopted", adopting != null),
-                ("md5", adopting != null ? Md5(Entry.InputCopy) : null)), remaining, cancellationToken).ConfigureAwait(false);
+                ("md5", adopting != null ? Md5(Entry.InputCopy) : null), ("raw", raw)), remaining, cancellationToken).ConfigureAwait(false);
         }
         catch (ToolError e) when (adopting != null)
         {
