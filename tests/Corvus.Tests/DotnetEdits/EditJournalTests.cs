@@ -107,6 +107,37 @@ public sealed class EditJournalTests : IDisposable
         Assert.False(File.Exists(journalFile));
     }
 
+    /// <summary>Many abandoned sessions give one notice: the newest in full, the rest counted.</summary>
+    [Fact]
+    public void ManyLostSessionsGiveOneNoticeNamingTheNewest()
+    {
+        string newest;
+        using (var env = new Env(Copy()))
+        {
+            var journal = new EditJournal(env.Workspace, Store(), env.History);
+            env.Edit(() => env.Edits.StubMethod(env.One("Secret::Validate"), "true"));
+            journal.Sync();
+            newest = Assert.Single(Directory.GetFiles(journal.Root, "*" + EditJournal.EditsSuffix));
+        }
+        Orphan(newest);
+        var parts = Path.GetFileName(newest).Split('.');
+        for (int i = 0; i < 3; i++)
+        {
+            var doc = JsonNode.Parse(File.ReadAllText(newest))!;
+            doc["journal"]!["written"] = DateTime.UtcNow.AddDays(-1 - i);
+            parts[1] = $"old{i}";
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(newest)!, string.Join('.', parts)), doc.ToJsonString());
+        }
+
+        using var next = new Env(Copy());
+        _ = new EditJournal(next.Workspace, Store(), next.History);
+        next.Workspace.Unload(next.Fixture);
+        next.Workspace.Load(Copy());
+        var notice = Assert.Single(next.Workspace.DrainNotices(), n => n.Contains("apply_edits", StringComparison.Ordinal));
+        Assert.Contains(newest, notice);
+        Assert.Contains("3 older unsaved session(s)", notice);
+    }
+
     [Fact]
     public void SaveRevertAndUnloadRemoveTheJournal()
     {

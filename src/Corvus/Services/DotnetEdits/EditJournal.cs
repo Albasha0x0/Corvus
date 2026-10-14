@@ -247,10 +247,16 @@ public sealed class EditJournal
 
     private void Offer(string id, string sha256)
     {
-        foreach (var e in Others(sha256).Where(e => !e.Live))
+        // The newest abandoned session per kind is offered in full; older ones only counted, so the notice stays one line each.
+        foreach (var kind in Others(sha256).Where(e => !e.Live).GroupBy(e => e.Kind))
+        {
+            var all = kind.OrderByDescending(e => e.Written).ToList();
+            var e = all[0];
+            string older = all.Count > 1 ? $" {all.Count - 1} older unsaved session(s) are kept in {Root}." : "";
             _workspace.Notify(e.Kind == "edits"
-                ? $"{id}: {e.Count} unsaved edit(s) from a session that ended at {e.Written:yyyy-MM-dd HH:mm} UTC without saving; replay with apply_edits path=\"{e.Path}\" assembly={id} (dryRun=true first)."
+                ? $"{id}: {e.Count} unsaved edit(s) from a session that ended at {e.Written:yyyy-MM-dd HH:mm} UTC without saving; replay with apply_edits path=\"{e.Path}\" assembly={id} (dryRun=true first).{older}"
                 : $"{id}: {e.Count} unsaved patch(es) from a session that ended at {e.Written:yyyy-MM-dd HH:mm} UTC without saving; replay with migrate_native_patches " +
-                  $"oldImage={id} newImage={id} patchSet=\"{e.Path}\" (dryRun=true first).");
+                  $"oldImage={id} newImage={id} patchSet=\"{e.Path}\" (dryRun=true first).{older}");
+        }
     }
 }

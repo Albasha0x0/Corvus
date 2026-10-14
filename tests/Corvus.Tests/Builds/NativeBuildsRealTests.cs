@@ -100,9 +100,11 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
         var carried = await Call(server, "migrate_native_names", new() { ["oldImage"] = o, ["newImage"] = n, ["dryRun"] = false });
         var editId = carried.Record.GetProperty("editIds")[0].GetString()!;
         await Call(server, "undo_native_edit", new() { ["image"] = "e_sqlite3.dll#2", ["editId"] = editId });
-        await Call(server, "patch_bytes", new() { ["image"] = o, ["address"] = "sqlite3_libversion_number", ["hex"] = "CC", ["dryRun"] = false });
+        var patched = await Call(server, "patch_bytes", new() { ["image"] = o, ["address"] = "sqlite3_libversion_number", ["hex"] = "CC", ["dryRun"] = false });
         var patches = await Call(server, "migrate_native_patches", new() { ["oldImage"] = o, ["newImage"] = n });
         Assert.Equal(1, patches.Record.GetProperty("total").GetInt32());
         Assert.True(Corvus.Native.Diff.MigrationReasons.IsKnown(patches.Record.GetProperty("items")[0].GetProperty("reason").GetString()!));
+        // undone, so no unsaved patch journal is left in the shared data folder
+        await Call(server, "undo_native_edit", new() { ["image"] = "e_sqlite3.dll", ["editId"] = patched.Record.GetProperty("editIds")[0].GetString()! });
     }
 }
