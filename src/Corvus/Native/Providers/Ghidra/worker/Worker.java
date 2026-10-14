@@ -515,7 +515,10 @@ public class Worker implements GhidraLaunchable {
     private void markEntry(long base, long offset) {
         int tx = program.startTransaction("raw image entry");
         try {
-            Address start = program.getImageBase().getNewAddress(base);
+            // real mode: a segment start (segment = linear / 16, offset 0), as the image base must be
+            Address start = program.getImageBase().getAddressSpace() instanceof ghidra.program.model.address.SegmentedAddressSpace s
+                ? s.getAddress((int)(base >> 4), 0)
+                : program.getImageBase().getNewAddress(base);
             if (!program.getImageBase().equals(start)) {
                 try {
                     program.setImageBase(start, true);

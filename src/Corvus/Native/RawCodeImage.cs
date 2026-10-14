@@ -8,7 +8,10 @@ namespace Corvus.Native;
 /// An instruction set a headerless file can be read as, with the engines' names for it. <see cref="Thumb"/> marks ARM
 /// code as Thumb throughout (Cortex-M firmware has no A32 state). Architectures our index does not decode go to IDA or Ghidra.
 /// </summary>
-public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigEndian, int Bits, string IdaProcessor, string GhidraLanguage)
+/// <see cref="GhidraLoader"/> names a Ghidra format loader that maps the file itself (DOS MZ); otherwise the bytes load
+/// as one block at the base. An empty <see cref="IdaProcessor"/> means IDA is not used.
+public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigEndian, int Bits, string IdaProcessor, string GhidraLanguage,
+    string? GhidraLoader = null)
 {
     // The engines' processor and language ids, kept in this one table.
     public static readonly IReadOnlyList<RawArch> All =
@@ -26,12 +29,14 @@ public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigE
         new("riscv32", NativeArch.RiscV, false, false, 32, "riscv", "RISCV:LE:32:RV32GC"),
         new("riscv64", NativeArch.RiscV, false, false, 64, "riscv", "RISCV:LE:64:RV64GC"),
         new("6502", NativeArch.Other, false, false, 16, "m6502", "6502:LE:16:default"),
+        new("x86-16", NativeArch.Other, false, false, 16, "metapc", "x86:LE:16:Real Mode"),
+        new("dos-mz", NativeArch.Other, false, false, 16, "", "x86:LE:16:Real Mode", "MzLoader"),
     ];
 
     private static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["i386"] = "x86", ["x86_64"] = "x64", ["amd64"] = "x64", ["arm32"] = "arm", ["aarch64"] = "arm64", ["mipsbe"] = "mips",
-        ["mipsle"] = "mipsel", ["powerpc"] = "ppc", ["riscv"] = "riscv64",
+        ["mipsle"] = "mipsel", ["powerpc"] = "ppc", ["riscv"] = "riscv64", ["dos-com"] = "x86-16", ["x86_16"] = "x86-16",
     };
 
     public static RawArch Find(string? name)
@@ -54,7 +59,10 @@ public sealed record RawLayout(RawArch Isa, ulong Base, uint EntryOffset)
     {
         var isa = RawArch.Find(arch);
         ulong load = baseAddress is { Length: > 0 } ? Number(baseAddress, "base") : 0;
-        if (load % 0x1000 != 0)
+        // 16-bit code loads at a paragraph (a DOS .COM at 0x100)
+        if (isa.Bits == 16 && load % 16 != 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} is not a paragraph (16-byte) boundary.", "pass a base that is a multiple of 0x10, e.g. base=0x100");
+        if (isa.Bits > 16 && load % 0x1000 != 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} is not 4 KiB aligned.", "pass a page-aligned base, e.g. base=0x8000000");
         if (isa.Bits < 64 && load + (ulong)fileSize > 1UL << isa.Bits)
             throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} puts a {fileSize}-byte image past the {isa.Bits}-bit address space.", "pass a lower base");

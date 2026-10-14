@@ -79,6 +79,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     protected override void PrepareOpen()
     {
+        if (Options.Raw is { Isa.IdaProcessor: "" } unsupported)
+            throw new ToolError(ErrorCode.Unsupported, $"IDA is not used for {unsupported.Isa.Name} images.", "pass engine=ghidra");
         (Arch, _headerImageBase) = Options.Raw is { } raw ? (raw.Arch, raw.Base) : ReadHeader(Entry!.InputCopy, ImagePath);
         _databasePath = Path.Combine(Entry!.Directory, IdaProvider.DatabaseFileName(ida, Profile));
         IdaProvider.CheckPathLength(Entry.InputCopy, "input copy", provider.Cache.Root, OperatingSystem.IsWindows());

@@ -240,10 +240,14 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 ("decompile_payload_mb", provider.DecompilePayloadMb));
             if (Options.Raw is { } layout)
             {
-                args["loader"] = "BinaryLoader";
+                args["loader"] = layout.Isa.GhidraLoader ?? "BinaryLoader";
                 args["language"] = layout.Isa.GhidraLanguage;
-                args["entry"] = layout.EntryOffset;
-                args["raw_base"] = layout.Base;
+                // a format loader places the image and its entry itself
+                if (layout.Isa.GhidraLoader == null)
+                {
+                    args["entry"] = layout.EntryOffset;
+                    args["raw_base"] = layout.Base;
+                }
             }
             info = await worker.RequestAsync("open", args, remaining, cancellationToken).ConfigureAwait(false);
         }

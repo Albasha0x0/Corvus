@@ -41,6 +41,39 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         Assert.True(code.Text.Contains("0x2a", StringComparison.OrdinalIgnoreCase) || code.Text.Contains("42"), code.Text);
     }
 
+    /// <summary>DOS: a .COM file as 16-bit code at 0x100, and an MZ executable through Ghidra's MZ loader.</summary>
+    [GhidraFact]
+    public async Task Dos_in_Ghidra()
+    {
+        // mov ax, 42; ret
+        byte[] code = [0xB8, 0x2A, 0x00, 0xC3];
+        var com = _dir.File("prog.com");
+        File.WriteAllBytes(com, [.. code, .. Guid.NewGuid().ToByteArray()]);
+        // MZ header (2 paragraphs), CS:IP 0:0, then the code
+        byte[] header = new byte[32];
+        "MZ"u8.CopyTo(header);
+        int size = 32 + code.Length + 16;
+        BitConverter.GetBytes((ushort)(size % 512)).CopyTo(header, 2);
+        BitConverter.GetBytes((ushort)((size + 511) / 512)).CopyTo(header, 4);
+        BitConverter.GetBytes((ushort)2).CopyTo(header, 8);
+        BitConverter.GetBytes((ushort)0xFFFF).CopyTo(header, 12);
+        BitConverter.GetBytes((ushort)0x100).CopyTo(header, 16);
+        BitConverter.GetBytes((ushort)0x1C).CopyTo(header, 24);
+        var exe = _dir.File("prog.exe");
+        File.WriteAllBytes(exe, [.. header, .. code, .. Guid.NewGuid().ToByteArray()]);
+
+        await using var server = await InProcessServer.StartAsync();
+        Assert.False((await Call(server, "load_assembly", new() { ["path"] = com, ["format"] = "raw", ["arch"] = "dos-com", ["base"] = "0x100" })).IsError);
+        var c = await Call(server, "decompile_native", new() { ["image"] = "prog.com[x86-16@0x100]", ["address"] = "0x100", ["engine"] = "ghidra" });
+        Assert.True(!c.IsError && (c.Text.Contains("0x2a", StringComparison.OrdinalIgnoreCase) || c.Text.Contains("42")), c.Text);
+
+        Assert.False((await Call(server, "load_assembly", new() { ["path"] = exe, ["format"] = "raw", ["arch"] = "dos-mz" })).IsError);
+        var functions = await Call(server, "list_functions", new() { ["image"] = "prog.exe[dos-mz@0x0]", ["engine"] = "ghidra" });
+        Assert.False(functions.IsError, functions.Text);
+        Assert.Contains("1 function", functions.Text);
+        Assert.Contains("engine=ghidra", (await Call(server, "list_functions", new() { ["image"] = "prog.exe[dos-mz@0x0]", ["engine"] = "ida" })).Text);
+    }
+
     private async Task Engine(string engine)
     {
         // bytes of their own: the engines' databases are cached by content
