@@ -32,6 +32,9 @@ public sealed class LoadedNative
     /// <summary>The current image: the file as loaded, or, once bytes have been patched in memory, the patched image.</summary>
     public INativeImage Image { get; private set; }
 
+    /// <summary>The Ghidra archive the image was loaded from, which Ghidra opens as its database; else null.</summary>
+    public Native.Providers.PackedDatabase? EngineDatabase { get; internal set; }
+
     /// <summary>The selected slice of a universal Mach-O file, else null.</summary>
     public string? SliceName => SliceOf(Image);
 

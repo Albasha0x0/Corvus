@@ -260,6 +260,7 @@ public class Worker implements GhidraLaunchable {
         switch (r.op) {
             case "hello": return hello();
             case "open": return open(r);
+            case "gzf_original": return GzfOps.original(this, r);
             case "rebase": return rebase(r);
             // the program's change counter and this worker's identity: a caller's cached tables stay valid while both match
             case "stamp": return read(() -> {
@@ -473,8 +474,10 @@ public class Worker implements GhidraLaunchable {
                 for (JsonElement e : array(a, "loader_args"))
                     loaderArgs.add(new Pair<>(e.getAsJsonArray().get(0).getAsString(), e.getAsJsonArray().get(1).getAsString()));
                 MessageLog log = new MessageLog();
+                // a Ghidra archive given for the image is imported in its place: its analysis is the database
+                boolean packed = a.has("gzf");
                 var builder = ProgramLoader.builder()
-                        .source(new File(a.get("input").getAsString()))
+                        .source(new File(a.get(packed ? "gzf" : "input").getAsString()))
                         .project(project.getProject())
                         .projectFolderPath("/")
                         .name(programName)
@@ -483,7 +486,8 @@ public class Worker implements GhidraLaunchable {
                         .monitor(r.monitor);
                 // a headerless image: the caller names the loader and the language
                 try {
-                    if (a.has("loader")) builder = builder.loaders(a.get("loader").getAsString());
+                    if (packed) builder = builder.loaders(GzfOps.LOADER);
+                    else if (a.has("loader")) builder = builder.loaders(a.get("loader").getAsString());
                 }
                 catch (ghidra.util.exception.InvalidInputException e) {
                     throw new WorkerError("invalid_argument", "unknown Ghidra loader: " + e.getMessage());
@@ -496,8 +500,17 @@ public class Worker implements GhidraLaunchable {
                 catch (LoadException e) {
                     throw new WorkerError("malformed_input", "Ghidra could not load the file: " + e.getMessage());
                 }
-                if (a.has("entry")) markEntry(a.get("raw_base").getAsLong(), a.get("entry").getAsLong());
-                complete = !noAuto && analyze(r, a, warnings);
+                if (packed) {
+                    complete = true;
+                    int tx = program.startTransaction("archive stamp");
+                    try { program.getOptions(STAMPS).setString(ANALYSIS_STAMP, "complete"); }
+                    finally { program.endTransaction(tx, true); }
+                    program.save("Corvus", r.monitor);
+                }
+                else {
+                    if (a.has("entry")) markEntry(a.get("raw_base").getAsLong(), a.get("entry").getAsLong());
+                    complete = !noAuto && analyze(r, a, warnings);
+                }
             }
             base = program.getImageBase().getOffset();
             decompilers = new Decompilers(program, a.has("decompilers") ? a.get("decompilers").getAsInt() : 2,

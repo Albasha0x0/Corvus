@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, IndexingService indexing, UnpackService unpacker,
-    NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null)
+    NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null, NativeEngineService? engines = null)
 {
     /// <summary>
     /// A list_assemblies row: a loaded assembly or native image, or with path an assembly or file inside the container;
@@ -51,18 +51,19 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     private static string Changed(IEnumerable<string> ids, string text) => ToolOutput.With(text, new WorkspaceChange([.. ids], text));
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceChange))]
-    [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (app folder, Unity *_Data/Managed, DummyDll). " +
-                 "A native PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; " +
-                 "folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa, " +
-                 "iOS .app, memory dump) is read by the built-in reader (metadata v24-39): dummy assemblies with addresses, offsets and tokens, " +
-                 "plus the binary as a native image. Files are read into memory, never locked; loading a path twice is a no-op.")]
+    [Description("Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). " +
+                 "A PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; " +
+                 "folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, " +
+                 "memory dump) is read by the built-in reader (v24-39): dummy assemblies with addresses and offsets, " +
+                 "plus the binary as a native image. A .gzf loads its source file; Ghidra opens the archive. " +
+                 "Files are read into memory (unlocked); a repeat load is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
         [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
         [Description("For a file: also load the DLLs its imports bind to (one level, at most 16), so the call tools continue into them.")] bool loadProviders = false,
         [Description("Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a).")] string? slice = null,
         [Description("auto, or raw (headerless code).")] string format = "auto",
-        [Description("raw: x86, x64, arm, thumb, arm64; mips, mipsel, ppc, riscv64, 6502 etc. through IDA or Ghidra.")] string? arch = null,
+        [Description("raw: x86, x64, arm, thumb, arm64; mips, ppc, riscv64, 6502 etc. via IDA or Ghidra.")] string? arch = null,
         [Description("raw: load address (default 0).")] string? @base = null,
         [Description("raw: entry address or file offset (default start).")] string? entry = null,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
@@ -83,6 +84,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 break;
             default:
                 throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{format}'.", "pass format=auto or format=raw");
+        }
+        if (PackedDatabaseInput.Is(path))
+        {
+            var packed = PackedDatabaseInput.LoadAsync(workspace, engines, path, cancellationToken).GetAwaiter().GetResult();
+            return Changed([packed.Id], $"Loaded native image {packed.Id}: {Native.NativeImageExtensions.KindText(packed.Image)}\n  {packed.FilePath}\n  " +
+                   $"from {Path.GetFileName(path)}: Ghidra opens the archive as its database (no analysis); the built-in tools read the file");
         }
         if (RawIl2CppGame(path, requestedSlice) is { } game)
         {

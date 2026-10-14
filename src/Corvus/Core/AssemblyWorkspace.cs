@@ -467,7 +467,7 @@ public sealed class AssemblyWorkspace : IDisposable
             if (index < 0) throw Gone(native.Id);
             _natives.RemoveAt(index);
             native.Release();
-            var reloaded = new LoadedNative(native.Id, native.FilePath, image) { ManagedView = native.ManagedView };
+            var reloaded = new LoadedNative(native.Id, native.FilePath, image) { ManagedView = native.ManagedView, EngineDatabase = native.EngineDatabase };
             _natives.Insert(index, reloaded);
             return reloaded;
         });

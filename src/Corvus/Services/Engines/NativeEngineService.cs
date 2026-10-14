@@ -170,8 +170,14 @@ public sealed class NativeEngineService : IDisposable
     /// The first installed engine, in order of preference, that has analyzed the image's bytes: a complete analysis open
     /// in this process, or a saved one in the analysis cache (shared by every process). Never opens or asks an engine.
     /// </summary>
+    /// <summary>The Ghidra provider when this server has one set up, else null.</summary>
+    internal GhidraProvider? Ghidra => _providers.Where(p => p.Id == GhidraProvider.ProviderId).Select(p => p.Provider.Value as GhidraProvider).FirstOrDefault();
+
     public string? AnalyzedBy(LoadedNative native)
     {
+        // an image loaded from a Ghidra archive carries Ghidra's analysis
+        if (native.EngineDatabase != null && _providers.Any(p => p.Id == GhidraProvider.ProviderId) && UnavailabilityOf(GhidraProvider.ProviderId) == null)
+            return GhidraProvider.ProviderId;
         foreach (var (id, provider) in _providers)
             if ((LiveComplete(native, id) || HasSavedAnalysis(native, id)) && provider.Value.CheckAvailability().IsAvailable)
                 return id;
@@ -276,6 +282,7 @@ public sealed class NativeEngineService : IDisposable
             OutputCache = OutputCache, OutputIdentity = OutputIdentity(id),
             Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, Analysis = _analysis,
             Raw = (native.Image as Native.RawCodeImage)?.Layout,
+            GhidraDatabase = native.EngineDatabase,
             ThumbCode = native.Image.Arch == Native.NativeArch.Arm && _code != null ? ct => ThumbCode(native, ct) : null,
             KnownStart = _code != null ? async (rva, ct) => (await _code.Index(native, null, ct).ConfigureAwait(false)).FunctionByStart(rva) != null : null,
         };

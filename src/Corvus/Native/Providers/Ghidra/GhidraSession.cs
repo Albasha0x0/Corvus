@@ -77,14 +77,14 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         var header = Options.Raw is { } raw ? new Header(raw.Arch, raw.Base, false) : ReadHeader(Entry!.InputCopy, ImagePath);
         Arch = header.Arch;
         _headerImageBase = header.ImageBase;
-        (_projectDirectory, _loaderArguments, _analyzerOptions) = Project(provider, ghidra, Entry!.Directory, header, Options.Symbols, Options.Analysis, Options.Raw);
+        (_projectDirectory, _loaderArguments, _analyzerOptions) = Project(provider, ghidra, Entry!.Directory, header, Options.Symbols, Options.Analysis, Options.Raw, Options.GhidraDatabase);
         RenameLegacyProject(_projectDirectory);
     }
 
     /// <summary>The project directory an open uses in a cache entry, with its loader and analyzer options (also found without an open).</summary>
     internal static (string Directory, List<KeyValuePair<string, string>> Loader, IReadOnlyList<KeyValuePair<string, string>> Analyzers) Project(
         GhidraProvider provider, GhidraInstallation ghidra, string entryDirectory, Header header, SymbolMode symbols, EngineAnalysis analysis,
-        RawLayout? raw = null)
+        RawLayout? raw = null, PackedDatabase? packed = null)
     {
         var profile = provider.Profile;
         List<KeyValuePair<string, string>> loader = [.. GhidraOptions.LoaderArguments(profile)];
@@ -95,7 +95,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         // a load-only project is its own profile, as in IDA
         // a raw layout is its own project: the same bytes at another base or processor
         return (Path.Combine(entryDirectory, "p-" + key + (analysis == EngineAnalysis.None ? "-noauto" : "") +
-                (raw != null ? "-raw-" + raw.Key.Replace('@', '-') : "")), loader, analyzers);
+                (raw != null ? "-raw-" + raw.Key.Replace('@', '-') : "") + (packed != null ? "-gzf-" + packed.Sha256[..16] : "")), loader, analyzers);
     }
 
     internal readonly record struct Header(NativeArch Arch, ulong? ImageBase, bool IsElf);
@@ -213,7 +213,8 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         };
         await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
 
-        var reuse = DatabaseExists;
+        // an archive given for the image imports as an analyzed database
+        var reuse = DatabaseExists || Options.GhidraDatabase != null;
         ReusedDatabase = reuse;
         StartStage(reuse ? "load" : "analysis");
         Options.Progress?.Report(new NativeProviderProgress(reuse ? "load" : "analysis", clock.Elapsed));
@@ -238,6 +239,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 ("decompilers", provider.Options.Decompilers),
                 ("decompile_timeout", (int)provider.DecompileTimeout.TotalSeconds),
                 ("decompile_payload_mb", provider.DecompilePayloadMb));
+            if (Options.GhidraDatabase is { } packed) args["gzf"] = packed.Path;
             if (Options.Raw is { } layout)
             {
                 args["loader"] = layout.Isa.GhidraLoader ?? "BinaryLoader";

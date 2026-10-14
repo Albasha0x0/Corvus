@@ -173,6 +173,24 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         }
     }
 
+    /// <summary>What a Ghidra archive records of the file it was made from; <see cref="Path"/>: its bytes, when the archive keeps them.</summary>
+    internal sealed record ArchiveOriginal(string Name, string? Sha256, string? Format, string? Path);
+
+    /// <summary>Unpacks <paramref name="gzf"/> on a short-lived worker and writes its original file under <paramref name="outDirectory"/>.</summary>
+    internal async Task<ArchiveOriginal> OriginalOfAsync(string gzf, string outDirectory, CancellationToken cancellationToken)
+    {
+        var (result, ghidra, java) = Static();
+        if (!result.IsAvailable)
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"Reading a Ghidra archive (.gzf) needs Ghidra: {result.Reason}", result.Remediation);
+        using var worker = await StartWorkerAsync(ghidra!, java!, new FileInfo(gzf).Length, cancellationToken).ConfigureAwait(false);
+        await worker.WaitReadyAsync(_options.StartTimeout, cancellationToken).ConfigureAwait(false);
+        var r = await worker.RequestAsync("gzf_original", WorkerRows.Args(("gzf", gzf), ("out_dir", outDirectory),
+            ("scratch", System.IO.Path.Combine(outDirectory, "scratch"))), TimeSpan.FromMinutes(10), cancellationToken).ConfigureAwait(false);
+        await worker.ShutdownAsync("close", null, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        string? S(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String && v.GetString() is { Length: > 0 } s ? s : null;
+        return new(S("name") ?? System.IO.Path.GetFileNameWithoutExtension(gzf), S("sha256"), S("format"), S("path"));
+    }
+
     internal void Forget(GhidraSession session) => _sessions.TryRemove(session, out _);
 
     public IReadOnlyList<EngineSessionState> SessionStates() => _sessions.Keys.Select(s => s.State()).ToList();

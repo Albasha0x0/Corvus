@@ -301,8 +301,12 @@ public enum SymbolMode
     Off,
 }
 
+/// <summary>A Ghidra archive (.gzf) made from an image: Ghidra imports it as the image's database instead of analyzing.</summary>
+public sealed record PackedDatabase(string Path, string Sha256);
+
 public sealed record NativeOpenOptions
 {
+    public PackedDatabase? GhidraDatabase { get; init; }
     public SymbolMode Symbols { get; init; } = SymbolMode.Default;
     /// <summary>A headerless image's mapping: the engine loads the file as raw bytes at its base with its processor.</summary>
     public RawLayout? Raw { get; init; }
