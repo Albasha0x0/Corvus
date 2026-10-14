@@ -103,7 +103,7 @@ internal static class SetupCli
           <tool> [name=value ...]  Call a tool, e.g. corvus decompile_member --load app.dll member=Ns.T::M
           call <tool> ...       The same. Values: name=value (typed by the parameter), name:=<json>, name=@file,
                                 name=@- (stdin); or --args '<json object>' (also --json '{...}'), --args-file F|-.
-                                --load PATH preloads (repeatable); any server option applies (see the README).
+                                --load PATH preloads (repeatable); any server option applies (docs/installation.md, "Server options").
                                 --json          print {tool, isError, text, structured, error}
                                 --structured    print only the structured content
           tools [filter]        List the tools by toolset (--json for a table).

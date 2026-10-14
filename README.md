@@ -8,6 +8,9 @@ install, nothing executed, nothing uploaded.
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
+[Quick start](#quick-start) · [How it works](#how-it-works) · [What you can analyze](#what-you-can-analyze) ·
+[Showcases](#showcases) · [Why Corvus](#why-corvus) · [Documentation](#documentation)
+
 ## Quick start
 
 **Windows** (PowerShell):
@@ -54,6 +57,15 @@ when installed. Their databases and output are kept, so the second question abou
 
 Full list: [features](docs/features.md) and the [tool reference](docs/tools.md) (155 tools, 13 prompts).
 
+## Showcases
+
+- **[Decompile, rebuild, run](docs/showcase/round-trip.md):** an assembly exported as a C# project that builds with
+  warnings as errors, runs with the same output, and is measured against the original.
+- **[Inside a single-file app](docs/showcase/single-file.md):** a .NET single-file executable unpacked without running
+  it, its assemblies extracted byte for byte.
+
+Each step in the showcases and [guides](docs/guides/1-first-session.md) is checked by a test.
+
 ## Why Corvus
 
 - **Works with nothing installed.** Native analysis, .NET decompilation, containers and dumps are built in.
@@ -74,9 +86,8 @@ Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP and Pi. Any ot
 [Command line](docs/cli.md) · [Errors](docs/errors.md) · [Troubleshooting](docs/troubleshooting.md) ·
 [FAQ](docs/faq.md) · [Release notes](docs/release-notes.md)
 
-Guides, each step checked by a test: [first session](docs/guides/1-first-session.md) ·
-[decode and patch](docs/guides/2-decode-and-patch.md) · [new build](docs/guides/3-new-build.md).
-Showcases: [decompile, rebuild, run](docs/showcase/round-trip.md) · [inside a single-file app](docs/showcase/single-file.md).
+Guides: [first session](docs/guides/1-first-session.md) · [decode and patch](docs/guides/2-decode-and-patch.md) ·
+[new build](docs/guides/3-new-build.md).
 
 ## Responsible use
 

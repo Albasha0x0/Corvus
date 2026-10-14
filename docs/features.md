@@ -4,10 +4,10 @@ Everything Corvus does, tool by tool. The generated per-tool reference with ever
 
 ## Built on
 
-A headless .NET decompiler and native analyzer for AI agents, served over the [Model Context Protocol](https://modelcontextprotocol.io).
-It decompiles, searches, cross-references and patches .NET assemblies, including Unity Mono builds and
-Il2CppDumper / Cpp2IL dummy DLLs, and analyzes, diffs and patches native PE, ELF and Mach-O files (x86 / x64 / ARM64), with IDA as the
-optional decompiler for native code. No GUI, no dnSpy instance, no admin rights and no network port.
+Corvus is a reverse-engineering server for AI agents over the [Model Context Protocol](https://modelcontextprotocol.io).
+It decompiles, searches, cross-references and patches .NET assemblies (including Unity Mono, Il2Cpp games, ReadyToRun
+and NativeAOT), and analyzes, diffs and patches native PE, ELF and Mach-O binaries with its own engine (x86, x64, ARM32,
+ARM64), with IDA or Ghidra as optional decompilers. No GUI, no admin rights and no network port.
 
 - **Decompiler:** the ILSpy engine (`ICSharpCode.Decompiler`), the same engine dnSpy uses.
 - **Metadata and patching:** [dnlib](https://github.com/0xd4d/dnlib), plus a fast `System.Reflection.Metadata` IL scanner.
