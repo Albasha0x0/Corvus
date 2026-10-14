@@ -36,6 +36,7 @@ public static class JsAnalysis
     public static byte[] Read(string path)
     {
         var full = InputFiles.RequireRegularFile(path, "JavaScript file");
+        if (!File.Exists(full)) throw Targets.FileNotFound(path);
         var info = new FileInfo(full);
         if (info.Length > MaxFileBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{path} is {info.Length:N0} bytes; files up to {MaxFileBytes:N0} bytes are read.");
         return File.ReadAllBytes(full);
