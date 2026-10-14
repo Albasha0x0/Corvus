@@ -59,7 +59,10 @@ ends and r/w/x), `corvus://native/{image}/entrypoints` (entry point, TLS callbac
 ### Native images
 
 Native `.exe` / `.dll` / `.sys` files, ELF (`.so`, executables) and Mach-O (`.dylib`, executables, one slice of a universal file) images (x86, x64, ARM64 and 32-bit ARM / Thumb-2 decoded by our own engine; other instruction sets go through IDA, else Ghidra, when one is installed, marked "(via IDA)" or "(via Ghidra)") load with
-`load_assembly` by path, or are loaded by any native tool given a path. Everything below is our own analysis
+`load_assembly` by path, or are loaded by any native tool given a path. Headerless code (shellcode, firmware, a memory
+region) loads with `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=… entry=…`: one entry per layout
+(`fw.bin[thumb@0x8000000]`), analyzed from its entry by our engine, and by IDA or Ghidra at the same base with the same
+processor (each layout keeps its own engine database). Everything below is our own analysis
 (PE parser, Iced disassembler, function discovery, MSVC RTTI / exception data / name demangling, PDB reader);
 only `decompile_native` needs an external engine (IDA through idalib, or Ghidra through a Java worker built on first use). Reliability runs and their numbers:
 [docs/native-maturity.md](native-maturity.md); editing contract: [docs/native-editing.md](native-editing.md).
