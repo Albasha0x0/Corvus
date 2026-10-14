@@ -123,6 +123,8 @@ public class NativeToolSweepTests(ITestOutputHelper output)
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
+            // what earlier tests in the process keep alive is not this image's: the budget counts the growth over it
+            long before = GC.GetTotalMemory(true);
             using var harness = new NativeToolHarness();
             // Live data, not the heap: garbage awaiting collection grows with how late the GC runs on a busy machine.
             // Each full collection's survivors are a lower bound of the peak, so a reading never exceeds what the image kept alive.
@@ -153,11 +155,11 @@ public class NativeToolSweepTests(ITestOutputHelper output)
             long bytes = SafeLength(file);
             var index = harness.Calls.FirstOrDefault(c => c.Tool == "list_functions" && c.Args == "");
             output.WriteLine($"  large: {Path.GetFileName(file)} {bytes >> 20} MB: all tools {sw.Elapsed.TotalSeconds:0.0} s, index wait {index?.Elapsed.TotalSeconds:0.0} s, " +
-                             $"peak live heap {fileHeap >> 20} MB, peak private bytes {filePrivate >> 20} MB");
+                             $"peak live heap {fileHeap >> 20} MB (+{(fileHeap - before) >> 20} MB), peak private bytes {filePrivate >> 20} MB");
             perFile.Add((file, bytes, sw.Elapsed, fileHeap));
             peakWorkingSet = Math.Max(peakWorkingSet, filePrivate);
             if (fileHeap > peakHeap) { peakHeap = fileHeap; peakHeapFile = file; }
-            if (fileHeap > MaxHeapPerFileByte * bytes + (1L << 30)) runaway.Add($"{Path.GetFileName(file)}: {fileHeap >> 20} MB heap for {bytes >> 20} MB");
+            if (fileHeap - before > MaxHeapPerFileByte * bytes + (1L << 30)) runaway.Add($"{Path.GetFileName(file)}: {(fileHeap - before) >> 20} MB heap for {bytes >> 20} MB");
         }
         clock.Stop();
         GC.Collect();
