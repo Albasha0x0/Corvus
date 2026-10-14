@@ -243,7 +243,10 @@ public static class Plist
         public string? PendingKey { get; set; }
         public List<KeyValuePair<string, PlistNode>> Entries { get; } = [];
         public List<PlistNode> Items { get; } = [];
-        public PlistNode Node => IsDict ? new PlistDict(Entries) : new PlistArray(Items);
+        // {CF$UID: n} is how XML writes a keyed archive's object reference (CoreFoundation reads it as a UID)
+        public PlistNode Node => !IsDict ? new PlistArray(Items)
+            : Entries is [{ Key: "CF$UID", Value: PlistInteger { Value: var uid } }] && uid >= 0 && uid <= ulong.MaxValue ? new PlistUid((ulong)uid)
+            : new PlistDict(Entries);
     }
 
     private static PlistDocument ReadXml(string text)
