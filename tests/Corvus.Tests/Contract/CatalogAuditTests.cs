@@ -16,8 +16,8 @@ public class CatalogAuditTests
     /// <summary>Largest input schema of one tool, compact UTF-8 JSON.</summary>
     private const int MaxInputSchemaBytes = 8 * 1024;
 
-    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas): 172,651 at 158 tools before Phase 2; 157,825 at 155 after S-TRIM (no null in input types, implied defaults left out, shorter shared texts); 159,001 at 156 with analyze_js and its module views (C-WEB2 budget +1,200 B); 159,400 with reanalyze_native preset and background (C-ENG2a). Trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 159_400;
+    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas): 172,651 at 158 tools before Phase 2; 157,825 at 155 after S-TRIM (no null in input types, implied defaults left out, shorter shared texts); 159,001 at 156 with analyze_js and its module views (C-WEB2 budget +1,200 B); 159,400 with reanalyze_native preset and background (C-ENG2a); 159,600 for C-APL and C-PCAP. Trim descriptions before raising it.</summary>
+    private const int MaxModelFacingBytes = 159_600;
 
     /// <summary>The whole tools/list result of the full profile (§5): 410 KB before Phase 1, 349,663 after Phase 2's family lanes, 296,910 after S-TRIM.</summary>
     private const int MaxToolsListBytes = 300_000;
@@ -123,9 +123,9 @@ public class CatalogAuditTests
         Ratchet.Check("output-schema-bytes", $"an output schema is at most {MaxOutputSchemaBytes} bytes in tools/list (S8.1)", outputs);
     }
 
-    /// <summary>Per profile: tool count and model-facing bytes (names, descriptions, input schemas); measured 40,584 (lean) and 101,524 (core) after S-TRIM, plus about 1%.</summary>
+    /// <summary>Per profile: tool count and model-facing bytes (names, descriptions, input schemas); measured 40,584 (lean) and 101,524 (core) after S-TRIM, plus about 1%; lean 41,100 for the summarize_file views of C-APL and C-PCAP.</summary>
     [Theory]
-    [InlineData(Toolsets.Lean, 40, 41_000)]
+    [InlineData(Toolsets.Lean, 40, 41_100)]
     [InlineData(Toolsets.CoreName, 100, 102_500)]
     public void ProfilesStayWithinTheirCeilings(string profile, int maxTools, int maxModelFacing)
     {

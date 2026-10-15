@@ -19,7 +19,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     [Description("First look at a file or loaded assembly, never executed: type, hashes, signature, container wrapping (bundles, packages, APKs, " +
                  "zips, Costura opened), its assemblies, highlights (toolchain, ATT&CK features, packers), entry points, value counts. " +
                  "view= gives the details: managed (identity, markers, features, values), native (ELF/Mach-O, packers, NativeAOT; " +
-                 "a loaded image's triage), android, apple, electron, go, plist, all; views lists those that apply.")]
+                 "a loaded image's triage), android, apple, electron, go, nib, plist, all; views lists those that apply.")]
     public Task<string> SummarizeFile(
         [Description("Any file (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder; this or assembly.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
