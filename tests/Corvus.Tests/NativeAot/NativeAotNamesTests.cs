@@ -180,7 +180,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         var (path, _) = WriteImage(dir);
         var text = await tools.SearchNativeStrings(path, "hi");
         output.WriteLine(text);
-        Assert.Contains("nativeaot \"hi\"  str_0, 1 refs, first in Sample_Zoo_Dog__Speak", text);
+        Assert.Matches(@"nativeaot ""hi""  str_0, MethodTable 0x[0-9A-F]+, 1 refs, first in Sample_Zoo_Dog__Speak", text);
         Assert.DoesNotContain("L\"hi\"", text);
     }
 

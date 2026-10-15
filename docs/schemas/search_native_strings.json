@@ -29,6 +29,10 @@
           "length": {
             "description": "The full length in characters when Text is clipped.",
             "type": "integer"
+          },
+          "methodTable": {
+            "description": "nativeaot: the String MethodTable the object points to.",
+            "type": "string"
           }
         },
         "required": [

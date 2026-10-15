@@ -510,9 +510,11 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             if (query != null && !(pattern != null ? timeouts.IsMatch(pattern, o.Text!) : o.Text!.Contains(query, StringComparison.OrdinalIgnoreCase))) continue;
             var refs = index.RefsTo(o.Rva, 1);
             var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
-            rows.Add($"{NativeAddress.Va(index.Image, o.Rva)}  nativeaot \"{Show(o.Text!)}\"  {index.NameAt(o.Rva) ?? "frozen string"}, " +
+            var methodTable = NativeAddress.Va(index.Image, o.MethodTable);
+            rows.Add($"{NativeAddress.Va(index.Image, o.Rva)}  nativeaot \"{Show(o.Text!)}\"  {index.NameAt(o.Rva) ?? "frozen string"}, MethodTable {methodTable}, " +
                      $"{index.CountRefsTo(o.Rva)} refs{(first != null ? $", first in {first}" : "")}");
-            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(Entry(NativeAddress.Va(index.Image, o.Rva), "nativeaot", o.Text!, index.CountRefsTo(o.Rva), first));
+            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd)
+                items.Add(Entry(NativeAddress.Va(index.Image, o.Rva), "nativeaot", o.Text!, index.CountRefsTo(o.Rva), first) with { MethodTable = methodTable });
         }
         // the engine's strings the built-in index has not listed (unreferenced, or of other string types)
         var listed = index.Strings.Select(s => s.Rva).ToHashSet();

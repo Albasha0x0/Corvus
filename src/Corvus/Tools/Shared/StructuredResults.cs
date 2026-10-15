@@ -119,6 +119,7 @@ public sealed record NativeStringEntry(string Address, [property: Description("a
     [property: Description("Text, clipped at maxLength.")] string Text, int References, string? FirstFunction)
 {
     [Description("The full length in characters when Text is clipped.")] public int? Length { get; init; }
+    [Description("nativeaot: the String MethodTable the object points to.")] public string? MethodTable { get; init; }
 }
 
 public sealed record NativeStringList(string Image, IReadOnlyList<NativeStringEntry> Items, int Offset, int Total, bool Truncated)
