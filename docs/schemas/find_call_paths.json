@@ -35,11 +35,11 @@
                   "type": "string"
                 },
                 "edge": {
-                  "description": "Native steps: call, tail, import, virtual_exact, virtual_possible, pointer or pinvoke.",
+                  "description": "Native: call, tail, import, virtual_exact, virtual_possible, pointer or pinvoke.",
                   "type": "string"
                 },
                 "basis": {
-                  "description": "derived: reached through virtual dispatch, an engine reference, a possible virtual target or a pointer; absent: observed.",
+                  "description": "derived: via virtual dispatch, an engine reference, a virtual target or a pointer; else observed.",
                   "type": "string"
                 }
               },
@@ -56,7 +56,7 @@
             "type": "string"
           },
           "root": {
-            "description": "Native chains: why the first step is a start (entry point, export, TLS callback, address taken, no callers, from).",
+            "description": "Native: why the first step is a start (entry point, export, TLS callback, address taken, no callers, from).",
             "type": "string"
           }
         },

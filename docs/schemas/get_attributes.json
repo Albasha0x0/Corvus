@@ -15,7 +15,7 @@
             "type": "string"
           },
           "owner": {
-            "description": "The member carrying it, on the first row of each member; absent for assembly and module.",
+            "description": "The member carrying it, on its first row; absent for assembly and module.",
             "type": "string"
           },
           "arguments": {

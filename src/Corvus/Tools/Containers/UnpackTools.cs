@@ -12,9 +12,9 @@ namespace Corvus.Tools;
 public sealed class UnpackTools(UnpackService unpacker)
 {
     [McpServerTool(Name = "unpack_container", Title = "Unpack container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
-    [Description("Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, NuGet packages, Xamarin / MAUI .apk / .aab " +
-                 "(assembly stores per ABI), zips, embedded .NET images, nested containers. Electron .asar, Unity WebGL .data and HAR / mitmproxy captures " +
-                 "give every file. Nothing is executed; names stay in the output directory, runnable extensions get .bin. Nothing to extract: next names the call.")]
+    [Description("Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / " +
+                 ".aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data and HAR / mitmproxy captures give " +
+                 "every file. Nothing is executed; runnable extensions get .bin.")]
     public Task<string> UnpackContainer(
         [Description("Container file, or a Blazor _framework folder.")] string path,
         [Description("New or empty directory, or an earlier unpack of this file; default under temp.")] string? outputDirectory = null,
@@ -31,17 +31,16 @@ public sealed class UnpackTools(UnpackService unpacker)
         });
 
     [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
-    [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, " +
-                 "without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names), exact matches first; " +
-                 "kind=file matches inner file names and paths; kind=packet a pcap display filter; kind=endpoint lists the endpoints app code names (Retrofit, OkHttp, Ktor, HttpClient, Refit, gRPC, " +
-                 "URL strings; each with its method and location) or a capture's requests, and with capture= joins both.")]
+    [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, " +
+                 "nested) or an assembly, without extracting: substring or * / ? wildcards, exact first. kind=file: inner " +
+                 "file paths; packet: a pcap display filter; endpoint: endpoints the code names or a capture's requests.")]
     public async Task<string> SearchContainer(
-        [Description("Absolute path to the container or assembly file.")] string path,
+        [Description("Container or assembly file (absolute).")] string path,
         [Description("Name or part of a name.")] string query,
         [Description("Restrict to this kind; omit for all members (events included).")] string? kind = null,
         [Description(LimitDescription)] int limit = 100,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("kind=endpoint: a HAR, mitmproxy, .saz or pcap capture joined to the code's endpoints; each row says code, capture or code+capture.")] string? capture = null,
+        [Description("kind=endpoint: a HAR, mitmproxy, .saz or pcap capture to join.")] string? capture = null,
         CancellationToken cancellationToken = default)
     {
         var found = await Task.Run(() => unpacker.Search(path, query, kind, ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset, capture), cancellationToken);

@@ -37,7 +37,7 @@
             "type": "string"
           },
           "edge": {
-            "description": "virtual, delegate, external, pinvoke, native, import, ...; absent: a direct call.",
+            "description": "virtual, delegate, external, pinvoke, native, import, ...; absent: direct call.",
             "type": "string"
           },
           "flags": {
@@ -52,7 +52,7 @@
             "type": "string"
           },
           "basis": {
-            "description": "derived: through a base or interface method, a delegate field or a possible virtual target; absent: observed.",
+            "description": "derived: via a base or interface method, delegate field or virtual target; else observed.",
             "type": "string"
           }
         },

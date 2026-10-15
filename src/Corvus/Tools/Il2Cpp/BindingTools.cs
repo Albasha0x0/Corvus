@@ -11,18 +11,17 @@ namespace Corvus.Tools;
 public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerator generator, OutputPager pager, ServerOptions options)
 {
     [McpServerTool(Name = "generate_cpp_binding", Title = "Generate C++ binding", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a struct that resolves the class, field offsets, " +
-                 "static fields and methods once, with typed field accessors, property getters and invoke wrappers. style: mono (embedding API), " +
-                 "il2cpp (runtime exports and direct calls) or hostapi (a host's function table; guide il2cpp). Without style: detected from " +
-                 "projectDir, an Il2Cpp dummy assembly or --binding-style, else mono; the first line says which. A generic definition binds as a template.")]
+    [Description("Generate C++ binding code for a managed type of a Mono or Il2Cpp app: a struct resolving the class, field offsets, static " +
+                 "fields and methods once, with typed accessors, property getters and invoke wrappers. style: mono (embedding API), il2cpp " +
+                 "(runtime exports) or hostapi (a host's function table); omitted: detected, else mono.")]
     public Task<string> GenerateCppBinding(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Only these members (comma-separated names); default all but compiler-generated ones.")] string? members = null,
-        [Description("Also bind property getters inherited from base classes (base members named in members are bound anyway).")] bool includeInherited = false,
+        [Description("Comma-separated member names; default all but compiler-generated ones.")] string? members = null,
+        [Description("Also bind property getters inherited from base classes.")] bool includeInherited = false,
         [Description("Omit to detect it.")] string? style = null,
-        [Description("The C/C++ project the header is for, scanned for a host function table and helpers.")] string? projectDir = null,
-        [Description("Where the header will be saved (absolute or relative to projectDir; default projectDir); #include paths are relative to it.")] string? headerPath = null,
+        [Description("C/C++ project the header is for, scanned for a host function table and helpers.")] string? projectDir = null,
+        [Description("Header save path (absolute or under projectDir; default projectDir); #include base.")] string? headerPath = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>

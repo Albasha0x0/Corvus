@@ -93,7 +93,7 @@
       }
     },
     "exported": {
-      "description": "The first 30 exported components: kind, name, why exported, permission, launcher, deep links.",
+      "description": "First 30 exported components: kind, name, why, permission, launcher, deep links.",
       "type": "array",
       "items": {
         "type": "string"
@@ -129,7 +129,7 @@
       }
     },
     "highlights": {
-      "description": "Notable facts: debuggable, cleartext traffic, backups, exported components without permission, deep links.",
+      "description": "debuggable, cleartext traffic, backups, unguarded exported components, deep links.",
       "type": "array",
       "items": {
         "type": "string"
@@ -197,7 +197,7 @@
             }
           },
           "intentFilters": {
-            "description": "Each filter: actions, categories, then data as scheme://host:port/path and MIME type.",
+            "description": "Each filter: actions, categories, data as scheme://host:port/path and MIME type.",
             "type": "array",
             "items": {
               "type": "string"

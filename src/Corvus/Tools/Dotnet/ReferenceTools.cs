@@ -15,11 +15,11 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
 {
     [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)", UseStructuredContent = true, OutputSchemaType = typeof(ReferenceList))]
     [Description("Every usage of a symbol across loaded assemblies: a method's call sites (also through base / interface methods), a field's " +
-                 "reads, writes and address uses, a type's every use (bases, signatures, locals, casts, attributes). kind=overrides: a method's overrides. " +
-                 "A native export: its P/Invoke callers and native call sites.")]
+                 "reads, writes and address uses, a type's every use (bases, signatures, locals, casts, attributes). A native export: its " +
+                 "P/Invoke callers and native call sites.")]
     public async Task<string> FindReferences(
         [Description(SymbolOrNativeDescription)] string symbol,
-        [Description("Assembly defining the symbol (only to disambiguate; all loaded ones are searched).")] string? assembly = null,
+        [Description("Assembly defining the symbol, to disambiguate; all loaded ones are searched.")] string? assembly = null,
         [Description("Symbol kind; overrides: the method's overrides and implementations.")] string? kind = null,
         [Description("Methods: no calls through base / interface declarations.")] bool directOnly = false,
         [Description(LimitDescription)] int limit = 150,

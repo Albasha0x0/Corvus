@@ -30,14 +30,13 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     }
 
     [McpServerTool(Name = "get_il2cpp_info", Title = "Il2Cpp addresses and offsets", UseStructuredContent = true, OutputSchemaType = typeof(Il2CppInfo))]
-    [Description("Il2Cpp dummy DLLs (built-in reader, Il2CppDumper or Cpp2IL): native addresses (RVA, VA, file offset, vtable slot) of a method or every method of a type, " +
-                 "field offsets and tokens. With script.json (always for the built-in reader): function bounds, methods sharing the code, MethodInfo slot, " +
-                 "generic instantiations, a type's metadata slots (Ns.Type_TypeInfo), and names only script.json has ('List`1<int>::Add', 'Method$Ns.Type.M()'). " +
-                 "With stringliteral.json and the binary: the string literals a method's code loads.")]
+    [Description("Native addresses (RVA, VA, file offset, vtable slot) of an Il2Cpp method or every method of a type, field offsets and tokens. " +
+                 "With script.json: function bounds, methods sharing the code, MethodInfo slot, generic " +
+                 "instantiations, metadata slots (Ns.Type_TypeInfo). With stringliteral.json and the binary: the literals a method loads.")]
     public Task<string> GetIl2CppInfo(
-        [Description("Type or member ('Ns.Type', 'Ns.Type::Method(int)', short name, token), or a script.json name of an instantiation or metadata slot.")] string symbol,
+        [Description("Type or member ('Ns.Type::M(int)', short name, token) or script.json name ('List`1<int>::Add').")] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("With a type: a vtable slot number to resolve to its implementing method, or 'all'.")] string? slot = null,
+        [Description("With a type: a vtable slot number to resolve to its method, or 'all'.")] string? slot = null,
         [Description("Index of the first entry of each long list.")] int offset = 0,
         [Description("Max entries of each long list.")] int limit = DefaultListLimit,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -394,10 +393,10 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     }
 
     [McpServerTool(Name = "find_method_by_address", Title = "Native address to method", UseStructuredContent = true, OutputSchemaType = typeof(Il2CppLookup))]
-    [Description("Map a native address (from IDA, Ghidra or a crash log) of an Il2Cpp game to the method(s) whose function contains it, or the string literal, " +
-                 "type metadata or MethodInfo slot at it; generic instantiations are named with script.json (without it a containing method is a guess).")]
+    [Description("Map a native address (IDA, Ghidra, crash log) of an Il2Cpp game to the method(s) whose function contains it, or the string literal, " +
+                 "type metadata or MethodInfo slot at it; script.json names generic instantiations (without it a containing method is a guess).")]
     public Task<string> FindMethodByAddress(
-        [Description("Hex as IDA / Ghidra show it ('0x1A2B3C', '1A2B3Ch', '00000001`8001A2B3'); 'd:' prefix for decimal.")] string address,
+        [Description("Hex as IDA / Ghidra show it (0x1A2B3C, 1A2B3Ch, 00000001`8001A2B3); 'd:' for decimal.")] string address,
         [Description("auto: a VA at or above the image base, else an RVA, else a file offset.")] string kind = "auto",
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(RowOffsetDescription)] int offset = 0,
@@ -543,7 +542,7 @@ public sealed record Il2CppMatch(
     [Description("RVA of the function (or slot) start.")] public string? Function { get; init; }
     public string? Size { get; init; }
     public string? OffsetInFunction { get; init; }
-    [Description("inferred: past the function's known length or its last start, a guess; absent when within known bounds.")] public string? Basis { get; init; }
+    [Description("inferred: past the function's known end or last start, a guess; absent: in bounds.")] public string? Basis { get; init; }
     public string? Relation { get; init; }
     public string? Detail { get; init; }
 }

@@ -24,7 +24,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     /// <summary>Unavailable tools sharing one reason and fix; a tool's entry names its mode when only that mode is affected.</summary>
     public sealed record UnavailableGroup(IReadOnlyList<string> Tools, string Reason, string? Remediation);
 
-    [Description("The --tools-file whitelist in effect (list name or path) and the tools it names; the call trace file (--trace / CORVUS_TRACE).")]
+    [Description("The --tools-file list in effect and its tool count; the --trace / CORVUS_TRACE file.")]
     public sealed record CatalogFilter(string? ToolsFile, int? ToolsFileTools, string? TraceFile);
 
     public sealed record EngineSession(string Image, string Engine, int? WorkerPid,
@@ -38,7 +38,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [Description("running, complete or partial (the analysis budget ran out).")] public string? Analysis { get; init; }
     }
 
-    [Description("Seconds per IDA or Ghidra request (CORVUS_ENGINE_REQUEST_TIMEOUT) and per engine start plus analysis (CORVUS_ENGINE_OPEN_TIMEOUT).")]
+    [Description("Seconds per engine request (CORVUS_ENGINE_REQUEST_TIMEOUT) and open (CORVUS_ENGINE_OPEN_TIMEOUT).")]
     public sealed record EngineLimits(int RequestSeconds, int OpenSeconds);
 
     public sealed record ServerStatus(string Server, string Version,
@@ -46,7 +46,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         string InformationalVersion,
         [property: Description("The running server program.")]
         string Executable,
-        [property: Description("Whether Executable is expectedExecutable (also through links); null when none was given.")]
+        [property: Description("Whether Executable is expectedExecutable (links followed); null if not given.")]
         bool? ExecutableMatches,
         [property: Description("script, dotnet-tool, dnx, winget, scoop, homebrew or source.")]
         string InstallKind,
@@ -55,32 +55,32 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         string? ProtocolVersion,
         [property: Description("The client's name and version from its initialize request.")]
         Client? Client,
-        [property: Description("Digest of the tool and prompt catalog (names, schemas, descriptions, annotations; prompt arguments): t<tools>-<hash>.p<prompts>-<hash>.")]
+        [property: Description("Digest of the tool and prompt catalog: t<tools>-<hash>.p<prompts>-<hash>.")]
         string CatalogDigest,
         [property: Description("Whether CatalogDigest equals expectedCatalogDigest; null when none was given.")]
         bool? CatalogMatches,
-        [property: Description("On a mismatch, what differs as far as the digests tell (tool or prompt counts, or definitions); else null.")]
+        [property: Description("On a mismatch, what differs (tool or prompt counts, or definitions); else null.")]
         string? CatalogDifference,
         int Tools, int LoadedAssemblies, string BackgroundIndexing,
         long WorkingSetMB, IReadOnlyList<Capability> Capabilities,
         [property: Description("Tools that can take over 10 s on large inputs.")]
         IReadOnlyList<string> LongRunningTools,
-        [property: Description("Tool families and whether this server registers them; every family unless the server was started with --toolsets <list> (or CORVUS_TOOLSETS: all, core, or names such as core,dumps).")]
+        [property: Description("Tool families and whether registered; all unless --toolsets or CORVUS_TOOLSETS limits them.")]
         IReadOnlyList<Toolset> Toolsets,
-        [property: Description("Registered tools, or modes of them (e.g. engine=ida), that cannot work here: one row per reason and fix.")]
+        [property: Description("Registered tools or modes (engine=ida) that cannot work here: one row per reason and fix.")]
         IReadOnlyList<UnavailableGroup> UnavailableTools,
-        [property: Description("Analyst notes in the per-user store (record_note): open, total and the store directory.")]
+        [property: Description("Notes in the per-user store (record_note): open, total, store directory.")]
         NoteCounts? Notes,
         EngineLimits EngineTimeLimits,
         IReadOnlyList<EngineSession> EngineSessions,
         CatalogFilter ToolsFileAndTrace,
-        [property: Description("budget (profile, ceiling, deadline, delivery, with sources), results (kept-result store), caches, calls (leftover calls, lock holders), workers (child PIDs, start times), run.")]
+        [property: Description("budget, results (kept-result store), caches, calls (leftover calls, lock holders), workers (child PIDs), run.")]
         IReadOnlyList<StatusSection> Sections);
 
     [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
-    [Description("Which server runs (version, program, install kind, client), a catalog digest, what is loaded, limits, long-running tools, " +
-                 "capabilities with the fix when missing, tool families, unusable tools, and engine sessions (busy op, analysis, queue). expectedCatalogDigest " +
-                 "detects a stale server; expectedExecutable checks the registered copy.")]
+    [Description("Which server runs (version, program, install kind, client), catalog digest, what is loaded, limits, long-running tools, " +
+                 "capabilities with fixes, tool families, unusable tools, engine sessions. expectedCatalogDigest detects a stale server; " +
+                 "expectedExecutable checks the registered copy.")]
     public ServerStatus GetServerStatus(
         [Description("Catalog digest to compare (t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
         [Description("Registered server program path, compared with the running one.")] string? expectedExecutable = null,

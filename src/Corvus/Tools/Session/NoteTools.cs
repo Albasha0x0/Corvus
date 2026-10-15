@@ -14,14 +14,14 @@ namespace Corvus.Tools;
 public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, NativeCodeService code, MinidumpService dumps)
 {
     public const string AnchorDescription =
-        "'<image>@<address>', '<assembly>:<symbol or token>', an image or assembly id (the whole file), 'dump:<id or path>', or empty (session-wide).";
+        "'<image>@<address>', '<assembly>:<symbol or token>', image or assembly id, 'dump:<id or path>', or empty (session-wide).";
 
     public sealed record NoteList(
         [property: Description("Notes, newest first.")] IReadOnlyList<Note> Items,
         int Offset, int Total,
         [property: Description("How the filters were applied (e.g. the function an address was widened to).")] IReadOnlyList<string> Notes);
 
-    private const string EvidenceDescription = "Where it was seen (at most 10): {tool, args} of a call made here (its resultSha256 is filled in), or {text}.";
+    private const string EvidenceDescription = "At most 10: {tool, args} of a call made here (resultSha256 filled in) or {text}.";
 
     [McpServerTool(Name = "record_note", Title = "Record a note", UseStructuredContent = true)]
     [Description("Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per user, " +

@@ -262,11 +262,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     }
 
     [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceList))]
-    [Description("Loaded assemblies and native images with their ids (for other tools), versions, paths, Il2Cpp dummy, ReadyToRun and merged (ILMerge / ILRepack) flags and unsaved edits; " +
-                 "plus the reference search directories. With path: the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, " +
-                 "Costura host, zip) without extracting them (unpack_container extracts and loads them); archives (Electron .asar with integrity verdicts, Unity WebGL .data, HAR / mitmproxy captures) list their files.")]
+    [Description("Loaded assemblies and native images: ids, versions, paths, Il2Cpp dummy / ReadyToRun / merged flags, unsaved edits; plus " +
+                 "reference search directories. With path: the managed assemblies inside a container (bundle, .nupkg, .apk / .aab, Costura, zip), " +
+                 "not extracted; archives (.asar with integrity, WebGL .data, HAR / mitmproxy) list their files.")]
     public Task<string> ListAssemblies(
-        [Description("A container file (or Blazor _framework folder) to list instead of the workspace.")] string? path = null,
+        [Description("Container file or Blazor _framework folder to list instead of the workspace.")] string? path = null,
         [Description("Id, name or path substring (case-insensitive).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Rows per page (default 100).")] int limit = 100,

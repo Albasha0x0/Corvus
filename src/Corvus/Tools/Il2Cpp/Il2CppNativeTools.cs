@@ -16,10 +16,9 @@ namespace Corvus.Tools;
 public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeService code, Il2CppNativeNames names, Il2CppRawLoader? il2cppRaw = null)
 {
     [McpServerTool(Name = "apply_il2cpp_names", Title = "Name a native Il2Cpp binary from its metadata", UseStructuredContent = true, OutputSchemaType = typeof(Il2CppNamesResult))]
-    [Description("Name the functions and data of a native Il2Cpp binary (GameAssembly, libil2cpp.so) from the loaded dummy assemblies, script.json (function starts, " +
-                 "generic instantiations, TypeInfo and MethodInfo slots) and stringliteral.json. Functions become Ns_Type__Method (a C identifier; a duplicate " +
-                 "gets _<RVA>), commented with Ns.Type::Method(args) and the methods sharing the code; every native tool and the engines show them, below user and " +
-                 "PDB names. Saved per file hash and reapplied on load; applying again replaces them.")]
+    [Description("Name the functions and data of a native Il2Cpp binary (GameAssembly, libil2cpp.so) from the loaded dummy assemblies, script.json " +
+                 "and stringliteral.json: Ns_Type__Method (a duplicate gets _<RVA>), commented with Ns.Type::Method(args) and the methods sharing " +
+                 "the code; below user and PDB names. Saved per file hash and reapplied on load.")]
     public Task<string> ApplyIl2CppNames(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Dummy assemblies to use; omit for every loaded one with Il2Cpp metadata.")] string? assembly = null,

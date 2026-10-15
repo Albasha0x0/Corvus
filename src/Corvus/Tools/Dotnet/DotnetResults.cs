@@ -21,7 +21,7 @@ public sealed record NamespaceList(IReadOnlyList<NamespaceEntry> Items, int Offs
 
 public sealed record TypeEntry(string Token, [property: Description("Full name.")] string Name)
 {
-    [Description("struct, interface, enum, delegate, static class ... (with modifiers); absent for a plain class.")] public string? Kind { get; init; }
+    [Description("struct, interface, enum, delegate, static class ... (with modifiers); absent: class.")] public string? Kind { get; init; }
     [Description(DotnetDoc.Assembly)] public string? Assembly { get; init; }
 }
 
@@ -80,7 +80,7 @@ public sealed record AttributeEntry(
     [property: Description("type, method, field, property, event, param:<name>, return, assembly or module.")] string Target,
     [property: Description("The attribute with its arguments, as C#.")] string Attribute)
 {
-    [Description("The member carrying it, on the first row of each member; absent for assembly and module.")] public string? Owner { get; init; }
+    [Description("The member carrying it, on its first row; absent for assembly and module.")] public string? Owner { get; init; }
     [Description("Constructor arguments, then named ones.")] public IReadOnlyList<AttributeArgumentEntry>? Arguments { get; init; }
     public string? Token { get; init; }
     public string? Assembly { get; init; }
@@ -133,7 +133,7 @@ public sealed record StringEntry(
     public int? IlOffset { get; init; }
     [Description("Value was clipped.")] public bool? Clipped { get; init; }
     [Description("Il2Cpp: RVA of the literal's slot.")] public string? SlotRva { get; init; }
-    [Description("Il2Cpp: functions loading it (methods by label, else RVAs), up to usesPerLiteral.")] public IReadOnlyList<string>? LoadedBy { get; init; }
+    [Description("Il2Cpp: functions loading it (method labels, else RVAs), up to usesPerLiteral.")] public IReadOnlyList<string>? LoadedBy { get; init; }
 }
 
 public sealed record StringList(IReadOnlyList<StringEntry> Items, int Offset, int Total)
@@ -158,7 +158,7 @@ public sealed record ReferenceEntry(
     [property: Description("call, read, write, base type, attribute, override, native call, ...")] string Kind,
     [property: Description(DotnetDoc.Basis)] string Basis)
 {
-    [Description("Method, type or member containing the reference (the overriding method for kind=overrides), with its token and assembly; absent: the previous row's.")] public string? Where { get; init; }
+    [Description("Member containing the reference (kind=overrides: the override); absent: the previous row's.")] public string? Where { get; init; }
     public string? Token { get; init; }
     public string? Assembly { get; init; }
     public int? IlOffset { get; init; }
@@ -191,10 +191,10 @@ public sealed record CallTreeRow([property: Description("Method label, external 
     [Description("Managed: metadata token.")] public string? Token { get; init; }
     [Description("Assembly or image id when it differs from the root's.")] public string? Assembly { get; init; }
     [Description("Native: VA.")] public string? Address { get; init; }
-    [Description("virtual, delegate, external, pinvoke, native, import, ...; absent: a direct call.")] public string? Edge { get; init; }
+    [Description("virtual, delegate, external, pinvoke, native, import, ...; absent: direct call.")] public string? Edge { get; init; }
     [Description("repeated, recursive, more, unresolved, not-loaded.")] public IReadOnlyList<string>? Flags { get; init; }
     [Description("xN, via Base::Method, expanded under ..., binding details.")] public string? Note { get; init; }
-    [Description("derived: through a base or interface method, a delegate field or a possible virtual target; absent: observed.")] public string? Basis { get; init; }
+    [Description("derived: via a base or interface method, delegate field or virtual target; else observed.")] public string? Basis { get; init; }
 }
 
 public sealed record CallTree(
@@ -214,14 +214,14 @@ public sealed record PathStepEntry([property: Description("Method label or nativ
     [Description("Assembly or image id, when it differs from the previous step's.")] public string? Assembly { get; init; }
     [Description("Reached by virtual dispatch through this base/interface method.")] public string? Via { get; init; }
     [Description("Native steps: the call site (VA) in the previous step.")] public string? Site { get; init; }
-    [Description("Native steps: call, tail, import, virtual_exact, virtual_possible, pointer or pinvoke.")] public string? Edge { get; init; }
-    [Description("derived: reached through virtual dispatch, an engine reference, a possible virtual target or a pointer; absent: observed.")] public string? Basis { get; init; }
+    [Description("Native: call, tail, import, virtual_exact, virtual_possible, pointer or pinvoke.")] public string? Edge { get; init; }
+    [Description("derived: via virtual dispatch, an engine reference, a virtual target or a pointer; else observed.")] public string? Basis { get; init; }
 }
 
 public sealed record CallPathEntry(IReadOnlyList<PathStepEntry> Steps, int VirtualHops)
 {
     [Description("Native targets: the final P/Invoke -> native hop.")] public string? NativeHop { get; init; }
-    [Description("Native chains: why the first step is a start (entry point, export, TLS callback, address taken, no callers, from).")] public string? Root { get; init; }
+    [Description("Native: why the first step is a start (entry point, export, TLS callback, address taken, no callers, from).")] public string? Root { get; init; }
 }
 
 public sealed record CallPathList(string Target, IReadOnlyList<CallPathEntry> Items, int Offset, int Total)
@@ -242,13 +242,13 @@ public sealed record ResourceEntry(
     public bool? Public { get; init; }
     [Description("Win32: where the data is.")] public string? Rva { get; init; }
     [Description("File offset of the data.")] public string? FileOffset { get; init; }
-    [Description("Win32: end of the data in the file (exclusive); absent when it runs past the file.")] public string? FileEnd { get; init; }
+    [Description("Win32: end of the data in the file (exclusive); absent if past the file.")] public string? FileEnd { get; init; }
     [Description("Win32: the code page, when not 0.")] public int? CodePage { get; init; }
     [Description("SHA-256 of the data.")] public string? Sha256 { get; init; }
     [Description("Win32 icon groups: the RT_ICON ids.")] public IReadOnlyList<int>? Icons { get; init; }
-    [Description("Win32 icon groups: each entry with its stated size and the RT_ICON resource it names (absent: missing).")] public IReadOnlyList<IconRef>? IconEntries { get; init; }
+    [Description("Win32 icon groups: each entry with its stated size and RT_ICON resource (absent: missing).")] public IReadOnlyList<IconRef>? IconEntries { get; init; }
     [Description("Win32 icons: the groups naming them.")] public IReadOnlyList<string>? IconGroups { get; init; }
-    [Description("Win32 icons, cursors and bitmaps: the decoded header (png 256x256, dib 32x32 32bpp).")] public string? Image { get; init; }
+    [Description("Win32 icons, cursors, bitmaps: the decoded header (png 256x256, dib 32x32 32bpp).")] public string? Image { get; init; }
 }
 
 /// <summary>An icon group entry: its RT_ICON id, the size and depth the group states, and that icon's TYPE/NAME/LANGUAGE.</summary>

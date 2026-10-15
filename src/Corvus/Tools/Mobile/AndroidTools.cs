@@ -22,13 +22,12 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [property: Description("SHA-256 of the bytes written.")] string? Sha256);
 
     public const string CodeDescription = "An Android package, a .dex, or a jar with classes*.dex.";
-    private const string MappingDescription = "R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package.";
+    private const string MappingDescription = "R8 / ProGuard mapping.txt: shows and accepts original names; kept per package.";
 
     [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true, OutputSchemaType = typeof(AndroidManifestView))]
-    [Description("AndroidManifest.xml of an Android package, decoded. view=summary (default): package, versions, SDKs, permissions, application " +
-                 "flags, component counts, exported components and why, " +
-                 "queries, features, libraries, highlights. view=components: each component with intent filters, deep links, meta-data. " +
-                 "Raw XML: get_android_resource.")]
+    [Description("AndroidManifest.xml decoded. view=summary (default): package, versions, SDKs, permissions, application " +
+                 "flags, component counts, exported components and why, queries, features, libraries, highlights. view=components: each " +
+                 "component with intent filters, deep links, meta-data.")]
     public Task<string> GetAndroidManifest(
         [Description(PackageDescription)] string path,
         [Description("summary (default) or components.")] string? view = null,
@@ -101,7 +100,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [property: Description("android:exported as written.")] bool? Exported, bool EffectiveExported, string ExportedReason, string? Permission, bool? Enabled,
         string? Process, string? TargetActivity, string? Authorities, string? ReadPermission, string? WritePermission, bool? GrantUriPermissions, bool? Launcher,
         IReadOnlyList<string>? DeepLinks,
-        [property: Description("Each filter: actions, categories, then data as scheme://host:port/path and MIME type.")] IReadOnlyList<string>? IntentFilters,
+        [property: Description("Each filter: actions, categories, data as scheme://host:port/path and MIME type.")] IReadOnlyList<string>? IntentFilters,
         [property: Description("name=value or resource.")] IReadOnlyList<string>? MetaData,
         [property: Description("The .NET type implementing it (Xamarin / MAUI).")] string? DotNetType);
 
@@ -112,10 +111,10 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [property: Description("Used permissions, with maxSdk and sdk-23-only marks.")] IReadOnlyList<string>? Permissions,
         [property: Description("Declared permissions with protection level and group.")] IReadOnlyList<string>? DeclaredPermissions,
         [property: Description("Components per kind, with how many are exported.")] IReadOnlyDictionary<string, string>? ComponentCounts,
-        [property: Description("The first 30 exported components: kind, name, why exported, permission, launcher, deep links.")] IReadOnlyList<string>? Exported,
+        [property: Description("First 30 exported components: kind, name, why, permission, launcher, deep links.")] IReadOnlyList<string>? Exported,
         int? ExportedTotal, [property: Description("Packages, intents and providers it queries.")] IReadOnlyList<string>? Queries, IReadOnlyList<string>? Features,
         IReadOnlyList<string>? Libraries, [property: Description("Application meta-data, name=value.")] IReadOnlyList<string>? MetaData,
-        [property: Description("Notable facts: debuggable, cleartext traffic, backups, exported components without permission, deep links.")] IReadOnlyList<string>? Highlights,
+        [property: Description("debuggable, cleartext traffic, backups, unguarded exported components, deep links.")] IReadOnlyList<string>? Highlights,
         IReadOnlyList<string>? Issues,
         [property: Description("view=components: the page of components.")] IReadOnlyList<AndroidComponentRow>? Items, int? Offset, int? Total);
 
@@ -139,10 +138,10 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
 
     [McpServerTool(Name = "get_android_resource", Title = "Get Android resource", UseStructuredContent = true, OutputSchemaType = typeof(AndroidResourceFile))]
     [Description("One entry or resource of an Android package: an entry path (binary XML decoded, references named; text; else a hex preview), " +
-                 "or @type/name / 0x7f... for its value in every configuration. outputPath writes the raw bytes.")]
+                 "or @type/name / 0x7f... for its value in every configuration.")]
     public Task<string> GetAndroidResource(
         [Description(PackageDescription)] string path,
-        [Description("An entry path (res/xml/x.xml, assets/...), @type/name or a resource id 0x7f...")] string name,
+        [Description("Entry path (res/xml/x.xml, assets/...), @type/name or resource id 0x7f...")] string name,
         [Description("Write the entry's bytes to this file.")] string? outputPath = null,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
         [Description(CharOffsetDescription)] int offset = 0,
@@ -181,7 +180,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
 
     [McpServerTool(Name = "get_dex_class", Title = "DEX class", UseStructuredContent = true, OutputSchemaType = typeof(DexClassPage))]
     [Description("One DEX class: superclass, interfaces, generic signature, enclosing and inner classes, Kotlin @Metadata, annotations; then its " +
-                 "members, paged: fields (type, static value) and methods (exact id Lpkg/C;->name(params)ret, Java signature, code size, registers, parameter names).")]
+                 "members, paged: fields (type, static value) and methods (id, Java signature, code size, registers, parameter names).")]
     public Task<string> GetDexClass(
         [Description(CodeDescription)] string path,
         [Description("Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner.")] string @class,
@@ -232,7 +231,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     [Description("Smali (baksmali layout) of a DEX method or class; a class starts with its method ids and sizes. format=annotated adds code offsets and units.")]
     public Task<string> DisassembleDex(
         [Description(CodeDescription)] string path,
-        [Description("A method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)) or a class (pkg.C, Lpkg/C;).")] string symbol,
+        [Description("Method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)) or class (pkg.C, Lpkg/C;).")] string symbol,
         [Description("Output layout (default smali).")] string? format = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -250,7 +249,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
                  "anonymous or lambda class comes from the code JADX writes it in. Without JADX, disassemble_dex gives smali.")]
     public async Task<string> DecompileJava(
         [Description("An .apk, .aab or split set, a .dex, or a jar (DEX or .class files).")] string path,
-        [Description("A class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)).")] string symbol,
+        [Description("Class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)).")] string symbol,
         [Description("Partial Java where JADX fails; default: smali there.")] bool javaOnly = false,
         [Description("Decompiler.")] string? engine = null,
         [Description(CharOffsetDescription)] int offset = 0,
@@ -270,12 +269,11 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }
 
     [McpServerTool(Name = "map_java_dotnet", Title = "Map Java and .NET", UseStructuredContent = true, OutputSchemaType = typeof(JavaDotNetResult))]
-    [Description("Pairs across a Java / .NET bridge. .NET for Android (Xamarin / MAUI): a Java " +
-                 "wrapper class or method to its .NET type or method and back ([Register] and crc64 names). Unity Mono: the C# " +
-                 "reaching a Java class or member through AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI, and back, with a " +
-                 "confidence. A * / ? pattern lists matching pairs. Reads loaded assemblies, and the package's with path.")]
+    [Description("Pairs across a Java / .NET bridge. .NET for Android (Xamarin / MAUI): Java wrapper classes and methods to .NET types and " +
+                 "methods and back ([Register], crc64 names). Unity Mono: C# reaching Java through AndroidJavaClass / Object / Proxy / AndroidJNI, " +
+                 "and back, with a confidence. A * / ? pattern lists matching pairs.")]
     public Task<string> MapJavaDotNet(
-        [Description("A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->m(I)V), a .NET type or member, or a pattern (crc64*).")] string symbol,
+        [Description("Java class (Lpkg/C;, pkg.C) or method (Lpkg/C;->m(I)V), .NET symbol, or pattern.")] string symbol,
         [Description("The package whose assemblies to read; optional when they are loaded.")] string? path = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most pairs.")] int limit = 100,
@@ -336,7 +334,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
                  "loads. Methods match by exact id.")]
     public Task<string> FindDexReferences(
         [Description(CodeDescription)] string path,
-        [Description("A class, method (Lpkg/C;->m(I)V or pkg.C::m(int)), field (Lpkg/C;->f:I or pkg.C::f) or a \"quoted\" string.")] string target,
+        [Description("Class, method (Lpkg/C;->m(I)V, pkg.C::m(int)), field (Lpkg/C;->f:I, pkg.C::f), \"string\".")] string target,
         [Description("to (default; who refers to target) or from.")] string? direction = null,
         [Description("How to read target (default auto; string: taken literally).")] string? kind = null,
         [Description(RowOffsetDescription)] int offset = 0,

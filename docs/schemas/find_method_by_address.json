@@ -41,7 +41,7 @@
             "type": "string"
           },
           "basis": {
-            "description": "inferred: past the function's known length or its last start, a guess; absent when within known bounds.",
+            "description": "inferred: past the function's known end or last start, a guess; absent: in bounds.",
             "type": "string"
           },
           "relation": {

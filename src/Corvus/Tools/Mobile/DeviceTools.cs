@@ -18,15 +18,15 @@ public sealed class DeviceTools(DeviceService devices)
 
     [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true, OutputSchemaType = typeof(AndroidDeviceInfo))]
     [Description("Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, " +
-                 "ro.debuggable, ro.secure, emulator or not; view=: processes, features, services, settings, files; screen (PNG file), " +
-                 "window (focused activity and its DEX class), display, bugreport (zip streamed to a directory). Nothing on the device changes.")]
+                 "ro.debuggable, ro.secure, emulator; view=: processes, features, services, settings, files, screen (PNG), " +
+                 "window (focused activity, DEX class), display, bugreport (zip). Read-only.")]
     public Task<string> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
-        [Description("Rows whose name or value contains this; view=files: the directory (default /data/local/tmp); view=window: a local APK to resolve the activity in.")] string? query = null,
+        [Description("Name or value filter; view=files: directory (default /data/local/tmp); window: local APK.")] string? query = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Most rows.")] int limit = 100,
         [Description("What to read (default props).")] string view = "props",
-        [Description("view=screen: the PNG to write (never replaced); view=bugreport: a new or empty directory. Default: a new path in the temporary folder.")] string? outputPath = null,
+        [Description("view=screen: new PNG path; view=bugreport: new or empty directory; default under temp.")] string? outputPath = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         view = view.Trim().ToLowerInvariant();

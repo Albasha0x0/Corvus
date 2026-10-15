@@ -19,7 +19,7 @@
             "type": "string"
           },
           "where": {
-            "description": "Method, type or member containing the reference (the overriding method for kind=overrides), with its token and assembly; absent: the previous row's.",
+            "description": "Member containing the reference (kind=overrides: the override); absent: the previous row's.",
             "type": "string"
           },
           "token": {

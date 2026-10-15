@@ -35,7 +35,7 @@
             "type": "string"
           },
           "fileEnd": {
-            "description": "Win32: end of the data in the file (exclusive); absent when it runs past the file.",
+            "description": "Win32: end of the data in the file (exclusive); absent if past the file.",
             "type": "string"
           },
           "codePage": {
@@ -54,7 +54,7 @@
             }
           },
           "iconEntries": {
-            "description": "Win32 icon groups: each entry with its stated size and the RT_ICON resource it names (absent: missing).",
+            "description": "Win32 icon groups: each entry with its stated size and RT_ICON resource (absent: missing).",
             "type": "array",
             "items": {
               "type": "object",
@@ -91,7 +91,7 @@
             }
           },
           "image": {
-            "description": "Win32 icons, cursors and bitmaps: the decoded header (png 256x256, dib 32x32 32bpp).",
+            "description": "Win32 icons, cursors, bitmaps: the decoded header (png 256x256, dib 32x32 32bpp).",
             "type": "string"
           }
         },

@@ -16,14 +16,11 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     private const string PathParam = "A .NET assembly file to analyze without loading it; pass this or assembly.";
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
-    [Description("First look at a file or loaded assembly, never executed: type, hashes, signature, container wrapping (bundles, packages, APKs, " +
-                 "zips, Costura opened), its assemblies, highlights (toolchain, ATT&CK features, packers), entry points, value counts. " +
-                 "view= gives the details: managed (identity, markers, features, values), native (ELF/Mach-O, packers, NativeAOT; " +
-                 "a loaded image's triage), android, apple, electron, flutter, go, nib, pcap, plist, protobuf (embedded .proto files), rust, " +
-                 "sqlite (-wal applied; table= pages rows), " +
-                 "sqlite-recover (deleted rows carved), all; views lists those that apply.")]
+    [Description("First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights " +
+                 "(toolchain, ATT&CK features, packers), entry points. view=: managed, native, android, apple, electron, flutter, go, nib, pcap, " +
+                 "plist, protobuf, rust, sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.")]
     public Task<string> SummarizeFile(
-        [Description("Any file (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder; this or assembly.")] string? path = null,
+        [Description("File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("overview (default) or a view the overview lists.")] string view = "overview",
         [Description("sqlite, sqlite-recover: the table to page.")] string? table = null,
@@ -71,13 +68,13 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true, OutputSchemaType = typeof(SurveyRecord))]
-    [Description("Rule-based (capa-style) survey of the APIs an assembly calls, its P/Invokes and strings: network, execution, registry, persistence, collection, " +
-                 "anti-analysis, evasion, code loading, injection, crypto; each feature with its ATT&CK technique and match count, evidence (up to 5 locations) " +
-                 "with category=. Native images: the same rules over imports, call arguments, strings, sections and RTTI names.")]
+    [Description("Rule-based (capa-style) survey of an assembly's API calls, P/Invokes and strings: network, execution, registry, persistence, " +
+                 "collection, anti-analysis, evasion, code loading, injection, crypto; each with its ATT&CK technique and match count; category= adds " +
+                 "evidence (5 locations). Native images: imports, call arguments, strings, sections, RTTI.")]
     public async Task<string> SurveyFeatures(
         [Description(AssemblyParam)] string? assembly = null,
-        [Description("A .NET or native file to analyze without loading it; pass this, assembly or image.")] string? path = null,
-        [Description("Only this category (network, ...) or ATT&CK prefix (T1055), with evidence; all: every feature with evidence.")] string? category = null,
+        [Description("A .NET or native file, analyzed without loading; or pass assembly or image.")] string? path = null,
+        [Description("A category (network, ...) or ATT&CK prefix (T1055) with evidence; all: every feature.")] string? category = null,
         [Description("A native image, loaded or a path (instead of assembly).")] string? image = null,
         CancellationToken cancellationToken = default)
     {
@@ -90,9 +87,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true, OutputSchemaType = typeof(ValuePage))]
-    [Description("Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from an assembly's literals, constants, " +
-                 "resource text and decoded base64 / hex / compressed text, each with count, locations and the APIs it is passed to. All values are kept: " +
-                 "read_result outputPath exports them (text: CSV, json).")]
+    [Description("Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from an assembly's " +
+                 "literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and the APIs receiving them. " +
+                 "read_result outputPath exports all (text: CSV).")]
     public async Task<string> ExtractStrings(
         [Description(AssemblyParam)] string? assembly = null,
         [Description(PathParam)] string? path = null,
@@ -110,16 +107,16 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true, OutputSchemaType = typeof(EmbeddedPage))]
-    [Description("Embedded content of an assembly, or of every assembly in a container (resources, static byte arrays, long string literals) decoded through hex, " +
-                 "base64, compression and XOR (key from a known header) until a PE, archive, ELF / Mach-O or text appears, plus high-entropy blobs; each with " +
-                 "its source and encoding chain. save=true writes them all (defanged names), load=true also loads the .NET ones. Nothing is executed.")]
+    [Description("Embedded content of an assembly or of every assembly in a container (resources, byte arrays, long literals), decoded through " +
+                 "hex, base64, compression and XOR until a PE, archive, ELF / Mach-O or text appears, plus high-entropy blobs, each with its encoding " +
+                 "chain. save=true writes them (defanged names). Nothing is executed.")]
     public async Task<string> ExtractEmbedded(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("An assembly or container file, read without loading; pass this or assembly.")] string? path = null,
         [Description("Write the items to disk.")] bool save = false,
-        [Description("New or empty directory (or an earlier extraction of the same file); default under temp.")] string? outputDirectory = null,
+        [Description("New or empty directory, or an earlier extraction of this file; default under temp.")] string? outputDirectory = null,
         [Description("Load the .NET assemblies found (implies save).")] bool load = false,
-        [Description("Also brute-force 1-16 byte XOR keys over unreadable data, keeping natural text or configuration (slower).")] bool xorText = false,
+        [Description("Also brute-force 1-16 byte XOR keys over unreadable data for text (slower).")] bool xorText = false,
         [Description("Also list and save images (else counted).")] bool includeMedia = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,

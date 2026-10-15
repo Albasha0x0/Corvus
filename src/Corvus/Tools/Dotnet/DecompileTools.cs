@@ -26,7 +26,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Restrict to this kind (default any).")] string? kind = null,
         [Description(SimplifiedDescription)] bool simplified = false,
-        [Description("Start with comments pinning the output to its build: SHA-256, MVID, tokens, IL hashes (docs/il-hash.md).")] bool provenance = false,
+        [Description("Start with build-pinning comments: SHA-256, MVID, tokens, IL hashes.")] bool provenance = false,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -97,7 +97,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Source lines of the build's Portable PDB (embedded, or beside it with a matching id) at their IL offsets, local names, SourceLink URLs.")] bool source = false,
+        [Description("Portable PDB source lines at IL offsets, local names, SourceLink URLs.")] bool source = false,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>

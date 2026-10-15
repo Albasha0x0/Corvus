@@ -16,7 +16,7 @@
       "type": "string"
     },
     "executableMatches": {
-      "description": "Whether Executable is expectedExecutable (also through links); null when none was given.",
+      "description": "Whether Executable is expectedExecutable (links followed); null if not given.",
       "type": "boolean"
     },
     "installKind": {
@@ -50,7 +50,7 @@
       ]
     },
     "catalogDigest": {
-      "description": "Digest of the tool and prompt catalog (names, schemas, descriptions, annotations; prompt arguments): t<tools>-<hash>.p<prompts>-<hash>.",
+      "description": "Digest of the tool and prompt catalog: t<tools>-<hash>.p<prompts>-<hash>.",
       "type": "string"
     },
     "catalogMatches": {
@@ -58,7 +58,7 @@
       "type": "boolean"
     },
     "catalogDifference": {
-      "description": "On a mismatch, what differs as far as the digests tell (tool or prompt counts, or definitions); else null.",
+      "description": "On a mismatch, what differs (tool or prompt counts, or definitions); else null.",
       "type": "string"
     },
     "tools": {
@@ -106,7 +106,7 @@
       }
     },
     "toolsets": {
-      "description": "Tool families and whether this server registers them; every family unless the server was started with --toolsets <list> (or CORVUS_TOOLSETS: all, core, or names such as core,dumps).",
+      "description": "Tool families and whether registered; all unless --toolsets or CORVUS_TOOLSETS limits them.",
       "type": "array",
       "items": {
         "type": "object",
@@ -137,7 +137,7 @@
       }
     },
     "unavailableTools": {
-      "description": "Registered tools, or modes of them (e.g. engine=ida), that cannot work here: one row per reason and fix.",
+      "description": "Registered tools or modes (engine=ida) that cannot work here: one row per reason and fix.",
       "type": "array",
       "items": {
         "type": "object",
@@ -162,7 +162,7 @@
       }
     },
     "notes": {
-      "description": "Analyst notes in the per-user store (record_note): open, total and the store directory.",
+      "description": "Notes in the per-user store (record_note): open, total, store directory.",
       "type": "object",
       "properties": {
         "open": {
@@ -182,7 +182,7 @@
       ]
     },
     "engineTimeLimits": {
-      "description": "Seconds per IDA or Ghidra request (CORVUS_ENGINE_REQUEST_TIMEOUT) and per engine start plus analysis (CORVUS_ENGINE_OPEN_TIMEOUT).",
+      "description": "Seconds per engine request (CORVUS_ENGINE_REQUEST_TIMEOUT) and open (CORVUS_ENGINE_OPEN_TIMEOUT).",
       "type": "object",
       "properties": {
         "requestSeconds": {
@@ -264,7 +264,7 @@
       }
     },
     "toolsFileAndTrace": {
-      "description": "The --tools-file whitelist in effect (list name or path) and the tools it names; the call trace file (--trace / CORVUS_TRACE).",
+      "description": "The --tools-file list in effect and its tool count; the --trace / CORVUS_TRACE file.",
       "type": "object",
       "properties": {
         "toolsFile": {
@@ -279,7 +279,7 @@
       }
     },
     "sections": {
-      "description": "budget (profile, ceiling, deadline, delivery, with sources), results (kept-result store), caches, calls (leftover calls, lock holders), workers (child PIDs, start times), run.",
+      "description": "budget, results (kept-result store), caches, calls (leftover calls, lock holders), workers (child PIDs), run.",
       "type": "array",
       "items": {
         "type": "object",

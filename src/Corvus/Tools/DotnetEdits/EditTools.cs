@@ -52,7 +52,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     [Description("Replace a method's body with 'return <value>;' (or 'return;' for void) in memory: force a check to return true, disable a call.")]
     public Task<string> StubMethod(
         [Description(SymbolDescription)] string method,
-        [Description("true/false, an integer (decimal or 0x hex), a float, a \"quoted string\" or null; omit for void or default(T).")] string? value = null,
+        [Description("true/false, integer (decimal or 0x), float, \"string\" or null; omit for void or default(T).")] string? value = null,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
@@ -181,9 +181,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> ApplyEdits(
         [Description("The .json edit script.")] string path,
         [Description("Target assembly; omit for the one named in the script.")] string? assembly = null,
-        [Description("Default true: apply every edit (compiled, stack-checked), report, roll back; pass dryRun=false to keep them.")] bool dryRun = true,
+        [Description("Default true: apply every edit, report, roll back; pass dryRun=false to keep them.")] bool dryRun = true,
         [Description("Apply the edits that succeed; default: roll all back on the first failure.")] bool continueOnError = false,
-        [Description("same: only the script's build; other: another build, symbols re-resolved by name.")] string targetBuild = "same",
+        [Description("same: the script's build only; other: another build, symbols resolved by name.")] string targetBuild = "same",
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => WithProgress(context, () => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
     {
@@ -226,13 +226,13 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "dead code, flattened control flow), inline (forwarders, delegate call proxies). Bodies are stack-verified; what is left has a reason " +
                  "code (docs/simplify.md).")]
     public Task<string> SimplifyMethods(
-        [Description("A method or a type (nested types included): 'Ns.Type', 'Ns.Type::Method(int)', a short name or a token. Omit for the whole assembly.")] string? symbol = null,
+        [Description("Method or type (nested included): 'Ns.Type::M(int)', short name or token; omit: whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
         [Description("Passes to run; omit for all three.")] string[]? passes = null,
         [Description("Max evaluation call depth.")] int maxDepth = 8,
         [Description("Max IL instructions per evaluated call, nested calls included.")] int budget = 100_000,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
-        [Description("Fold machine reads (paths, environment, names) against fixed stand-ins (docs/simplify.md).")]
+        [Description("Fold machine reads (paths, environment, names) against fixed stand-ins.")]
         bool deterministicEnvironment = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
@@ -259,9 +259,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "Untouched bodies keep their bytes; members the writer changed are listed with reason codes (docs/saving.md).")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Output file path; a .wasm path writes Webcil (Blazor). Omit for '<original>.patched.dll'.")] string? outputPath = null,
+        [Description("Output path (.wasm writes Webcil for Blazor); default '<original>.patched.dll'.")] string? outputPath = null,
         [Description("Allow replacing an existing file.")] bool overwrite = false,
-        [Description("Write nothing when any member would be changed by the writer (default: save and list them).")] bool strict = false,
+        [Description("Write nothing if the writer would change any member (default: save and list them).")] bool strict = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var asm = workspace.Get(assembly);

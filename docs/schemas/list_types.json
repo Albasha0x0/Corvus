@@ -14,7 +14,7 @@
             "type": "string"
           },
           "kind": {
-            "description": "struct, interface, enum, delegate, static class ... (with modifiers); absent for a plain class.",
+            "description": "struct, interface, enum, delegate, static class ... (with modifiers); absent: class.",
             "type": "string"
           },
           "assembly": {

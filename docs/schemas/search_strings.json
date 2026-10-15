@@ -54,7 +54,7 @@
             "type": "string"
           },
           "loadedBy": {
-            "description": "Il2Cpp: functions loading it (methods by label, else RVAs), up to usesPerLiteral.",
+            "description": "Il2Cpp: functions loading it (method labels, else RVAs), up to usesPerLiteral.",
             "type": "array",
             "items": {
               "type": "string"
