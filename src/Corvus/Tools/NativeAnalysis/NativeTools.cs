@@ -55,7 +55,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         "Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name.";
 
     [McpServerTool(Name = "get_pe_info", Title = "Native image overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
-    [Description("Overview of a native image: headers, sections, packers, mitigations, import / export counts, TLS, PDB, load config, version, " +
+    [Description("Overview of a native image: headers, sections, packaging tools, mitigations, import / export counts, TLS, PDB, load config, version, " +
                  "manifest, rich header, overlay, signature, anomalies; ELF soname, build id, hardening; Mach-O slices, libraries, entitlements; " +
                  "Go build info; implied capabilities. view=code: code index statistics, late-bound imports.")]
     public async Task<string> GetPeInfo(

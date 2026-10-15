@@ -566,6 +566,31 @@ internal sealed class JsFlow
     }
 
     /// <summary>The Electron graph's pairing of an IPC call, over the scripts of the app the file belongs to.</summary>
+    /// <summary>The name a contextBridge.exposeInMainWorld call gives a function (api.invoke), or null.</summary>
+    private string? BridgeName(IFunction f)
+    {
+        var path = new List<string>();
+        Node n = (Node)f;
+        for (int depth = 0; depth < 4; depth++)
+        {
+            if (Up(n) is not Property { Computed: false } p || JsProgram.KeyName(p.Key) is not { } key || Up(p) is not ObjectExpression o) return null;
+            path.Insert(0, key);
+            n = o;
+            if (Up(o) is CallExpression c && JsProgram.Chain(c.Callee)?.Split('.')[^1] is "exposeInMainWorld" or "exposeInIsolatedWorld" && c.Arguments.Count >= 2
+                && ReferenceEquals(c.Arguments[^1], o) && JsProgram.Literal(c.Arguments[^2]) is { } world)
+                return world + "." + string.Join('.', path);
+        }
+        return null;
+    }
+
+    /// <summary>Where the app's pages call a bridge method, from the Electron graph.</summary>
+    private string BridgeCalls(string bridge)
+    {
+        if (_fullPath == null) return "called by the page";
+        if (_ipc == null) (_ipcFile, _ipc) = JsFlowIpc.Links(_fullPath, default);
+        return _ipc.GetValueOrDefault("bridge:" + bridge) is { } sites ? "called by the page at " + sites : "no page call found in the app's scripts";
+    }
+
     private string? IpcLink(Node call)
     {
         if (_fullPath == null) return null;
@@ -870,7 +895,8 @@ internal sealed class JsFlow
             Leaf("unknown", "unknown", $"returned from a callback passed to {Snip(up)}", node, link: "the caller is not in the tree");
             return;
         }
-        if (!any) Leaf("unknown", "unknown", $"returned from {FnName(f)}: no resolved caller", node, link: "called dynamically, exported or an event handler");
+        if (!any && BridgeName(f) is { } bridge) Leaf("unknown", "unknown", $"returned from {bridge} to the page (contextBridge)", node, link: BridgeCalls(bridge));
+        else if (!any) Leaf("unknown", "unknown", $"returned from {FnName(f)}: no resolved caller", node, link: "called dynamically, exported or an event handler");
     }
 
     private IEnumerable<(string, string)> ExportsOf(IFunction f)
@@ -1298,6 +1324,8 @@ internal sealed class JsFlow
             var site = _parent[(Node)f];
             Leaf("unknown", "unknown", $"parameter {name} of a callback passed to {Snip(site)}", site, link: "the caller is not in the tree");
         }
+        else if (!any && BridgeName(f) is { } bridge)
+            Leaf("unknown", "unknown", $"parameter {name} of {bridge}, exposed to the page by contextBridge", (Node)f, link: BridgeCalls(bridge));
         else if (!any) Leaf("unknown", "unknown", $"parameter {name} of {FnName(f)}: no resolved caller", (Node)f, link: "called dynamically, exported or an event handler");
     }
 
@@ -1596,7 +1624,11 @@ internal static class JsFlowIpc
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         foreach (var r in graph.Finish())
+        {
             if (r.Kind is "ipc-main" or "ipc-renderer" && r.Link != null) links.TryAdd(r.Site, $"{r.Call} {r.Value}: {r.Link}");
+            else if (r.Kind == "bridge-call")
+                links["bridge:" + r.Value] = links.TryGetValue("bridge:" + r.Value, out var sites) ? sites.Count(c => c == ',') < 2 ? sites + ", " + r.Site : sites : r.Site;
+        }
         return (Rel(full), links);
     }
 }

@@ -19,7 +19,7 @@ not complete, or a facet either side lacks; never as equal, removed, added or ch
 | `regex-timeouts` | The pattern ran out of time on some inputs; those inputs were skipped. |
 | `row-cap` | A scan or collection cap stopped before the end of the input; counts are lower bounds. |
 | `time-limit` | The call's time limit stopped the work; the result holds what finished. |
-| `obfuscated-names` | Names are obfuscated or compiler-generated; matches by name are unreliable. |
+| `obfuscated-names` | Names are transformed or compiler-generated; matches by name are unreliable. |
 | `no-pdb` | No symbol file was loaded; names, types and boundaries are recovered, not read. |
 | `heuristic-boundaries` | Function starts and ends come from heuristics, not from symbols or unwind data. |
 | `indirect-calls` | Calls through pointers, virtual slots or reflection are not resolved to their targets. |

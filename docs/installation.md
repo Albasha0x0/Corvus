@@ -25,7 +25,7 @@ Then restart your MCP client. The script:
 
 1. Downloads the latest release for your system (Windows, Linux glibc / musl, macOS; x64 and arm64) and checks it
    against the release's `SHA256SUMS`; a missing manifest or a mismatch stops the install.
-2. Unpacks it into a per-user folder (`%LOCALAPPDATA%\Corvus` on Windows, `~/.local/share/Corvus`
+2. Extracts it into a per-user folder (`%LOCALAPPDATA%\Corvus` on Windows, `~/.local/share/Corvus`
    elsewhere) as `versions/<version>/`, points `current` at it and puts `corvus` on PATH.
 3. Starts the server once and checks that it answers (MCP handshake and tool list).
 4. Runs `corvus install`: existing registrations are refreshed, and detected clients without one are listed
@@ -60,7 +60,7 @@ the renamed repository), run the install script above with `GITHUB_TOKEN` set; i
 
 Each release also has an MCP bundle per desktop target, `corvus-<rid>.mcpb` (win-x64, win-arm64, osx-x64, osx-arm64,
 linux-x64, linux-arm64), listed in `SHA256SUMS` like the archives. Clients that install bundles (Claude Desktop:
-open the file, or Settings, Extensions) unpack it and run the server inside; the bundle carries the same
+open the file, or Settings, Extensions) extract it and run the server inside; the bundle carries the same
 self-contained build as the archive, so it needs no .NET. A bundle is updated by installing the next release's
 bundle; `corvus update` and the install scripts manage only the script install. The bundle runs with the Claude
 Desktop profile (`--client claude-desktop`) and asks for a tool profile: `full` (default), `core` or `lean`.
@@ -319,7 +319,7 @@ options (`Name=value;...`), and `CORVUS_GHIDRA_EXTENSIONS` a directory of Ghidra
 analyzer, for example), installed into the workers' private settings; nothing is downloaded. Projects are kept per file hash
 and configuration, so a changed profile or extension set analyzes again once. `CORVUS_GHIDRA_DECOMPILE_TIMEOUT` (seconds, default 60)
 and `CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB` (default 200) bound one decompilation; a timeout or an oversized result is retried once
-with four times the time and twice the payload.
+with four times the time and twice the data.
 
 Other external programs are optional and each is found through one variable (a file or its folder), then as listed;
 `server_status` reports where each was found, its version, or the fix. They run in their own process tree with a minimal

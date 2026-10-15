@@ -32,13 +32,13 @@ What is read, and how:
 - Process identity: `QueryFullProcessImageName`, `GetProcessTimes`, `IsWow64Process2`, `GetExitCodeProcess`.
 
 What is never done: no memory write (`WriteProcessMemory`), no protection change (`VirtualProtectEx`), no allocation
-(`VirtualAllocEx`), no breakpoint, no debugger attach (`DebugActiveProcess`, DbgEng), no thread suspension or resumption
+(`VirtualAllocEx`), no stop points, no debugger connection (`DebugActiveProcess`, DbgEng), no thread suspension or resumption
 (`SuspendThread`, `NtSuspendProcess`), no context write (`SetThreadContext`), no remote thread or APC
 (`CreateRemoteThread`, `QueueUserAPC`), no handle duplication, no privilege change (SeDebugPrivilege is not enabled), no
 dump written. None of these functions is even bound: `LiveProcessTests.Handles_are_query_and_read_only_...` checks the
 P/Invoke declarations of Native/Live against that list and the two access masks.
 
-Detaching: there is no attach to undo. Every handle is a SafeHandle closed in `finally` (also on errors, cancellation and
+Disconnecting: there is no session to undo. Every handle is a SafeHandle closed in `finally` (also on errors, cancellation and
 timeouts); the report states `handlesOpened`, `handlesClosed` and `detached` (equal counts). A timeout cancels the work
 at its next check (each module, region batch, thread and frame) and the handles are closed before the error is returned.
 

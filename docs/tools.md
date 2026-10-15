@@ -230,7 +230,7 @@ Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`
 
 **Assembly overview** (read-only, idempotent)
 
-Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, obfuscator, edits; view=references: where references resolve; view=metadata: PE headers, streams, tables, heaps, metadata problems, attributes.
+Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, protection product, edits; view=references: where references resolve; view=metadata: PE headers, streams, tables, heaps, metadata problems, attributes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -553,7 +553,7 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, ATT&CK features, packers), entry points. view=: managed, native, android, apple, electron, flutter, go, nib, pcap, plist, protobuf, rust, sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.
+First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, ATT&CK features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, nib, pcap, plist, protobuf, rust, sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -571,7 +571,7 @@ Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views
 
 **Survey features** (read-only, idempotent)
 
-Capa-style rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, evasion, code loading, injection, crypto) with ATT&CK ids and counts; category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps (.apk, .ipa): MASVS findings (WebView, TLS, pinning, root / Frida, code loading, weak crypto, keys) by method offset.
+Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, evasion, code loading, injection, crypto) with ATT&CK ids; category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings (WebView, TLS, pinning, root / instrumentation, code loading, weak crypto, keys) by method offset.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -640,14 +640,14 @@ Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`
 
 ### unpack_container
 
-**Unpack container** (edit, idempotent, long-running)
+**Extract container** (edit, idempotent, long-running)
 
 Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data and HAR / mitmproxy captures give every file. Nothing is executed; runnable extensions get .bin.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | Container file, or a Blazor _framework folder. |
-| `outputDirectory` | string |  |  | New or empty directory, or an earlier unpack of this file; default under temp. |
+| `outputDirectory` | string |  |  | New or empty directory, or an earlier extract of this file; default under temp. |
 | `extractOnly` | boolean |  |  | Extract without loading the assemblies; default: loaded, ids in loadedAs. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
@@ -991,7 +991,7 @@ Native PE analysis, symbols and decompilation.
 
 **Native image overview** (read-only, idempotent)
 
-Overview of a native image: headers, sections, packers, mitigations, import / export counts, TLS, PDB, load config, version, manifest, rich header, overlay, signature, anomalies; ELF soname, build id, hardening; Mach-O slices, libraries, entitlements; Go build info; implied capabilities. view=code: code index statistics, late-bound imports.
+Overview of a native image: headers, sections, packaging tools, mitigations, import / export counts, TLS, PDB, load config, version, manifest, rich header, overlay, signature, anomalies; ELF soname, build id, hardening; Mach-O slices, libraries, entitlements; Go build info; implied capabilities. view=code: code index statistics, late-bound imports.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2807,7 +2807,7 @@ Read-only inspection of a running process.
 
 **Inspect a running process (read-only)** (read-only, idempotent, open-world)
 
-Inspects a running Windows process read-only, addresses named as in dumps. view=summary: identity, counts, main module, largest committed regions; modules (PDB, file on disk), regions, threads (TEB, stack, start), stacks (registers and frames): paged rows. Query, VM-read and get-context access only; nothing is written, suspended or attached.
+Inspects a running Windows process read-only, addresses named as in dumps. view=summary: identity, counts, main module, largest committed regions; modules (PDB, file on disk), regions, threads (TEB, stack, start), stacks (registers and frames): paged rows. Query, VM-read and get-context access only; nothing is written, suspended or connected.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -60,7 +60,7 @@ Services/NativeEditService.cs).
     `BlockEncoder` at the patch address, so near-branch sizes (short vs near), relative displacements and RIP-relative
     references are correct. A `db <hex>` escape emits raw bytes. A 16-bit operand-size form (66 prefix) is chosen only
     when an operand asks for 16 bits (a 16-bit register or `word ptr`): the shorter `pushw imm16` would push 2 bytes, or
-    truncate the value, where `push imm` means the mode's width. `int 3` assembles to the breakpoint `CC`, `xchg ax, ax`
+    truncate the value, where `push imm` means the mode's width. `int 3` assembles to the single byte `CC`, `xchg ax, ax`
     to `66 90`, and instructions whose operands are implicit (`monitorx`, `mwaitx`) accept them as printed.
   - **Errors** are typed `ToolError(InvalidArgument)` naming the offending line, never an internal exception — e.g.
     "operand size is ambiguous: add a size specifier such as 'dword ptr'" or "unknown mnemonic".

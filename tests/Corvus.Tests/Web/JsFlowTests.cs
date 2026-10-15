@@ -76,6 +76,8 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
         Assert.Contains("<- argument parameter path of getJson from getJson(\"/settings\") at 3:9", text, StringComparison.Ordinal);
         var forward = tools.AnalyzeJs(js, "flow", query: "\"/settings\"");
         Assert.Contains("sink fetch argument 1 (network) at 2:33; endpoint GET https://api.example.com/v1/settings [fetch via getJson]", forward, StringComparison.Ordinal);
+        File.WriteAllText(js + ".map", """{"version":3,"sources":["src/app.ts"],"names":[],"mappings":"AAAA;AACA;AACA"}""");
+        Assert.Contains("sink fetch argument 1 (network) at 2:33 <- src/app.ts:2:1", tools.AnalyzeJs(js, "flow", query: "\"/settings\""), StringComparison.Ordinal);
         var rows = new List<Corvus.Services.Analysis.Endpoints.CodeEndpoint>();
         var program = JsAnalysis.Program(js, default);
         Corvus.Services.Analysis.Endpoints.JsEndpoints.Scan(program, program.Path, rows, default);
@@ -173,6 +175,24 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
         output.WriteLine(Show(r));
         var sink = Ending(r, "sink", "ipcRenderer.invoke argument 1 (ipc)").Steps[^1];
         Assert.StartsWith("ipcRenderer.invoke via call wrap:get: paired with ipcMain.handle at main.js:2:", sink.Link);
+    }
+
+    /// <summary>A contextBridge method's parameter: an unknown that names the bridge key and the page calls the Electron graph pairs with it.</summary>
+    [Fact]
+    public void Bridge_parameters_name_the_page_calls()
+    {
+        File.WriteAllText(_dir.File("package.json"), "{}");
+        var preload = _dir.File("preload.js");
+        File.WriteAllText(preload, """
+            const { contextBridge, ipcRenderer } = require("electron");
+            contextBridge.exposeInMainWorld("api", { invoke: (ch, ...args) => ipcRenderer.invoke(ch, ...args) });
+            """);
+        File.WriteAllText(_dir.File("page.js"), """document.onclick = () => window.api.invoke("d:y", 1);""");
+        var p = JsProgram.Build("preload.js", File.ReadAllText(preload), [], default)!;
+        var r = new JsFlow(p, null, preload, default).Run("sink:ipc", 0, 0, true, 50, JsFlow.Budget.Default, default);
+        output.WriteLine(Show(r));
+        var leaf = Ending(r, "unknown", "parameter ch of api.invoke, exposed to the page by contextBridge").Steps[^1];
+        Assert.StartsWith("called by the page at page.js:1:", leaf.Link);
     }
 
     /// <summary>#3536: window options built from constants reach new BrowserWindow.</summary>

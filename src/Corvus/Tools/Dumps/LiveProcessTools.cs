@@ -12,7 +12,7 @@ public sealed class LiveProcessTools(LiveProcessService live)
     [McpServerTool(Name = "inspect_process", Title = "Inspect a running process (read-only)", UseStructuredContent = true, OutputSchemaType = typeof(LiveProcessService.LiveReport))]
     [Description("Inspects a running Windows process read-only, addresses named as in dumps. view=summary: identity, " +
                  "counts, main module, largest committed regions; modules (PDB, file on disk), regions, threads (TEB, stack, start), stacks " +
-                 "(registers and frames): paged rows. Query, VM-read and get-context access only; nothing is written, suspended or attached.")]
+                 "(registers and frames): paged rows. Query, VM-read and get-context access only; nothing is written, suspended or connected.")]
     public Task<string> InspectProcess(
         [Description("Process id (decimal or 0x hex) or name (notepad[.exe]); a shared name is refused with the ids.")] string process,
         [Description("summary, modules, regions, threads or stacks.")] string view = "summary",

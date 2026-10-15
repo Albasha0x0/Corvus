@@ -6,21 +6,21 @@ Report vulnerabilities in Corvus privately through the repository's **Security**
 open a public issue for a security problem. Include the version (`corvus version`), the operating system, the MCP
 client, and the smallest input or tool call that shows the problem.
 
-Before attaching anything, remove what you may not share: proprietary binaries, crash dumps (they hold process memory),
+Before sharing anything, remove what you may not keep: proprietary binaries, crash dumps (they hold process memory),
 symbol files, paths, user names and call traces (`--trace-args` traces hold tool arguments). A synthetic or public sample that
 reproduces the problem is preferred.
 
 Fixes go into the next release; the release notes name the fixed problem once a release is available.
 
-## Threat model
+## Trust model
 
-Corvus analyzes files that may be hostile: malware, tampered builds, crafted containers, dumps and symbol files. The
+Corvus analyzes files that may be untrusted: third-party programs, modified builds, crafted containers, dumps and symbol files. The
 person running the server and the MCP client it answers are trusted; the analyzed files and everything derived from
 them are not. The server analyzes files; it does not run them.
 
 ### Untrusted inputs
 
-- **Inputs are read as bytes.** Loading, decompiling, disassembling, unpacking and patching parse files in the server's
+- **Inputs are read as bytes.** Loading, decompiling, disassembling, extracting and patching parse files in the server's
   own process. Nothing from an analyzed file is executed, with the exceptions below. Malformed files are reported as
   errors; size and count limits bound what one input can make the server allocate or return. Calls that keep running
   after their deadline or a client cancel are capped per server (`CORVUS_MAX_LEFTOVER_CALLS`, default 2); past the cap
@@ -84,7 +84,7 @@ The server reaches the network only:
 ### Files written
 
 Tools write only to paths given in the call (saved assemblies and images keep a `.bak` of an original they replace and
-never overwrite without `overwrite=true`; device pulls and unpacked containers go where the call says or to a named
+never overwrite without `overwrite=true`; device pulls and extracted containers go where the call says or to a named
 folder under the temporary folder), plus per-user caches and annotation files under the data folder
 (`<LocalAppData>/Corvus`, `CORVUS_DATA_DIR`). The engine database and code index caches are bounded by size and age
 (README, "Server options"; [docs/installation.md](docs/installation.md)). `corvus install` writes only the client
@@ -115,7 +115,7 @@ Tool results quote the analyzed file: symbol and section names, strings, resourc
 an engine database, and code decompiled from it. Whoever built the file chose that text, and it can be written to look
 like instructions to an AI agent or its user ("ignore previous instructions", "run this command"). Treat everything a
 tool returns about a file as data to report, never as instructions to follow; the server's own guidance says so too.
-Hosts and hooks can key on the result itself: `_meta["corvus/provenance"]` carries `untrustedContent: true` and
+Hosts and automation can key on the result itself: `_meta["corvus/provenance"]` carries `untrustedContent: true` and
 `source: "analysis_target"` on every result that may quote a file, errors included (only `server_status` and
 `convert_number`, which never do, are unmarked).
 Agents that act on results (patching, saving, installing on a device, running scripts with `ida_python` or

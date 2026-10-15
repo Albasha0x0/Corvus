@@ -71,8 +71,8 @@ and, when the tool kept one, its partial result. Narrow the call, or start the s
 ## Windows SmartScreen or macOS blocks a downloaded archive
 
 The install scripts download with tools that do not mark files as downloaded, so this concerns archives downloaded by
-a browser. On Windows, unblock the archive before unpacking it (file properties, or `Unblock-File <archive>`). On macOS,
-remove the quarantine attribute from the unpacked folder: `xattr -dr com.apple.quarantine <folder>`. Check the
+a browser. On Windows, unblock the archive before extracting it (file properties, or `Unblock-File <archive>`). On macOS,
+remove the quarantine attribute from the extracted folder: `xattr -dr com.apple.quarantine <folder>`. Check the
 archive against the release's `SHA256SUMS` first.
 
 ## The install script or update cannot find the release

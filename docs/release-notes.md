@@ -43,7 +43,7 @@ changes; engine output stored by 2.2.0 is computed again once (the cache layout 
   Refit, gRPC) and joins them with a capture. `summarize_file view=protobuf` rebuilds embedded descriptors as `.proto`.
 - **Formats and managed code.** `get_il source=true` (Portable PDB sequence points, local names, SourceLink),
   `get_attributes` typed arguments and `[Flags]` members, FieldRVA data in `get_type_info`, Il2Cpp metadata without the
-  binary, obfuscator identification with evidence, `view=sqlite` paging and recovery, streamed reads of files over
+  binary, protection product identification with evidence, `view=sqlite` paging and recovery, streamed reads of files over
   64 MiB, Win32 resource details, `search_bytes` nibble and bit masks, R8 / ProGuard mappings for DEX, Flutter string
   pools, an Objective-C header export and Android screen and bugreport views.
 
@@ -68,7 +68,7 @@ breaking changes.
 - **Linux and Android crash dumps.** `open_minidump`, `dump_stack`, `read_dump_memory` and `bucket_minidumps` read ELF
   core files: threads, registers, the signal, modules matched by build id, and stacks unwound through `.eh_frame`.
 - **Native.** `survey_features` finds crypto and hash constants (AES, SHA-2, MD5, SHA-1, CRC-32, Blowfish, ChaCha,
-  TEA, FNV, MurmurHash3) and more anti-analysis checks (hypervisor ids, analysis-tool names).
+  TEA, FNV, MurmurHash3) and more environment-check checks (hypervisor ids, analysis-tool names).
   `search_instructions value=min..max` searches a constant range. NativeAOT frozen strings name their MethodTable.
 - **Engines.** `set_native_type` with a no-return prototype stops the callers' flow at the call in IDA and Ghidra.
   `ghidra_script` compiles a script once per source and runs installed scripts by `name=` with arguments.
@@ -363,7 +363,7 @@ paging units and record shapes changed across every family; the checklist below 
 
 - **`summarize_file`** takes `view` (default `overview`). The record is `{path, size, type, sha256, container, view,
   views, md5, sha1, entropy, signature, assemblies, highlights, highlightTotal, entryPoints, values, detail, notes}`:
-  the signature is one line, highlights are the first 25, and the typed sections (NativeAOT, native image, packers,
+  the signature is one line, highlights are the first 25, and the typed sections (NativeAOT, native image, packaging tools,
   Android, triage, Electron, Go, full assembly lists) move into `detail` under their view.
 - **`survey_features`** default rows are `{name, category, matches, attack?, basis?}` without evidence; `category=` (a
   category, technique prefix or `all`) adds `evidence[]` and `attackName`. Evidence from a string or argument constant
@@ -383,7 +383,7 @@ paging units and record shapes changed across every family; the checklist below 
 - **Unity Il2Cpp packages.** `list_assemblies path=` and `summarize_file` read a Unity Il2Cpp APK or AAB as "Android
   package (Unity Il2Cpp)" (was "(Unity Mono)"). The first page of `list_assemblies path=` is always in list order (app
   first, translations last).
-- **`--load`** of a .vsix, .nupkg or .zip unpacks it and loads the assemblies inside (was refused).
+- **`--load`** of a .vsix, .nupkg or .zip extracts it and loads the assemblies inside (was refused).
 
 #### Android
 
@@ -640,7 +640,7 @@ leftover calls, worker lifetime and logs.
 
 ### Formats and metadata
 
-- **Electron:** ASAR archives with integrity checks, unpacked entries and links; `summarize_file` reports Electron,
+- **Electron:** ASAR archives with integrity checks, extracted entries and links; `summarize_file` reports Electron,
   Chromium and Node versions, fuses, the entry point and `webPreferences` values. Node-API add-on callbacks are named
   after their JavaScript names.
 - **Unity WebGL** data files and **HAR / mitmproxy** captures open as containers.
@@ -718,7 +718,7 @@ work across the server and its engine workers.
   JDK; the worker is built on first use.
 - **Saved projects** per file SHA-256 and profile key, warm reopen, rebase, damaged-project rebuild, an analysis budget
   with a partial save that `reanalyze_native` completes, and a background function pass after the open.
-- **Large functions decompile:** 200 MB decompiler payload, one retry with four times the time on a fresh decompiler,
+- **Large functions decompile:** 200 MB decompiler data, one retry with four times the time on a fresh decompiler,
   `timeoutSeconds` per call.
 - **Ghidra's names** (loader and analysis names, function identification included) form a name layer below the others;
   `FUN_` / `LAB_` / `DAT_` and IDA default names resolve as addresses.
@@ -761,7 +761,7 @@ work across the server and its engine workers.
   1,474 s to 12 s (ARM32), over 900 s to 7 s (ARM64).
 - **Patching ELF and Mach-O:** `patch_bytes`, `patch_asm`, undo and `save_native` (universal files keep their other
   slices); bytes the loader rewrites are refused unless forced, encrypted bytes refused.
-- **Packers and protectors** reported with evidence in `summarize_file` and `get_pe_info` (detection only).
+- **Packaging tools and protectors** reported with evidence in `summarize_file` and `get_pe_info` (detection only).
 
 ### Native analysis
 
@@ -810,7 +810,7 @@ work across the server and its engine workers.
   between types, and optional C# or IL diffs; provenance (file SHA-256, MVID, IL hashes); metadata and exception-clause
   health in `get_assembly_info`.
 - **.NET export and patching:** `export_project` builds more real projects (framework inference, package references, preserialized resources);
-  Blazor WebAssembly Webcil modules load and unpack; many C# patch compile fixes; `diff_edits` first page of a
+  Blazor WebAssembly Webcil modules load and extract; many C# patch compile fixes; `diff_edits` first page of a
   whole-assembly simplify 27 s to 4 s.
 - **Sessions and notes:** `save_session` / `load_session` (files by SHA-256, edits, patches, names, notes), an edit
   journal that offers unsaved work for replay, `record_note` / `update_note` / `list_notes`, shown in IDA and Ghidra.
@@ -863,7 +863,7 @@ build migration) and a batch of usability and analysis-depth work on top of it.
   RVA, vtable slot, field and field offset matches Il2CppDumper's output. Unreadable metadata is an error with a reason;
   unreadable items are listed by reason.
 - **`unity_overview`.** One call on a Unity title: engine version per source, Mono or Il2Cpp with evidence and metadata
-  state (readable, encrypted, header tampered), toolchain and middleware markers (optional Detect
+  state (readable, encrypted, header modified), toolchain and middleware markers (optional Detect
   It Easy), and the next tool calls. Under 0.2 s on the titles tested.
 - **`inspect_process`.** Read-only view of a running local process (Windows): modules, memory regions, threads and
   stacks, named through PE, PDB, Il2Cpp and user names. Opens only query and read handles, writes and suspends nothing,
