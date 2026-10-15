@@ -52,6 +52,8 @@ internal sealed class ElfWriter
     /// <summary>Android packed relocations (APS2) instead of plain RELA/REL tables for <see cref="Relocations"/>.</summary>
     public bool PackAndroid { get; set; }
     public byte[]? BuildId { get; set; }
+    /// <summary>NT_GNU_PROPERTY_TYPE_0 entries (pr_type, a 4-byte value) in .note.gnu.property.</summary>
+    public List<(uint Type, uint Value)> GnuProperties { get; set; } = [];
     public (uint Api, string Ndk)? AndroidIdent { get; set; }
     /// <summary>Unwind ranges written as .eh_frame FDEs and indexed by .eh_frame_hdr (when <see cref="EhFrameHdr"/>).</summary>
     public List<(uint Start, uint Size)> Fdes { get; set; } = [];
@@ -238,8 +240,15 @@ internal sealed class ElfWriter
             relr.EntSize = (uint)WordSize;
         }
 
-        Sec? buildId = null, ident = null;
+        Sec? buildId = null, ident = null, property = null;
         if (BuildId != null) buildId = Table(".note.gnu.build-id", 7, 2, () => WriteNote(w, "GNU", 3, BuildId), 4);
+        if (GnuProperties.Count > 0)
+            property = Table(".note.gnu.property", 7, 2, () =>
+            {
+                var desc = new ByteWriter(BigEndian);
+                foreach (var (type, value) in GnuProperties) { desc.U32(type); desc.U32(4); desc.U32(value); desc.Align(WordSize); }
+                WriteNote(w, "GNU", 5, desc.ToArray());
+            }, WordSize);
         if (AndroidIdent is { } ai2)
             ident = Table(".note.android.ident", 7, 2, () =>
             {
@@ -444,7 +453,7 @@ internal sealed class ElfWriter
         phdrs.Add((1, 5, 0, Base, (ulong)rxEnd, (ulong)rxEnd, 0x1000));
         phdrs.Add((1, 6, (ulong)rwOffset, Base + DynamicRva, (ulong)(rwEnd - rwOffset), (ulong)(rwEnd - rwOffset), 0x1000));
         phdrs.Add((2, 6, (ulong)RwAt(DynamicRva), Base + DynamicRva, dynamicSec.Size, dynamicSec.Size, (ulong)WordSize));
-        foreach (var note in new[] { buildId, ident }) if (note != null) phdrs.Add((4, 4, note.Offset, Base + note.Rva, note.Size, note.Size, 4));
+        foreach (var note in new[] { buildId, ident, property }) if (note != null) phdrs.Add((4, 4, note.Offset, Base + note.Rva, note.Size, note.Size, note.Align));
         if (ehHdr != null) phdrs.Add((0x6474E550, 4, ehHdr.Offset, Base + ehHdr.Rva, ehHdr.Size, ehHdr.Size, 4));
         if (exidx != null) phdrs.Add((0x70000001, 4, exidx.Offset, Base + exidx.Rva, exidx.Size, exidx.Size, 4));
 

@@ -52,7 +52,7 @@ public sealed partial class ElfFile
                     log.Add($"note at file offset 0x{(long)offset + at:X} declares sizes {nameSize}/{descSize}; the rest of this note area is not read");
                     break;
                 }
-                long name = at + 12, desc = name + Align(nameSize, pad), next = desc + Align(descSize, pad);
+                long name = at + 12, desc = Align(name + nameSize, pad), next = Align(desc + descSize, pad);
                 if (desc + descSize > t.Length)
                 {
                     log.Add($"note at file offset 0x{(long)offset + at:X} extends past its area");

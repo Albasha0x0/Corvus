@@ -165,12 +165,7 @@ public sealed partial class NativeTools
         switch (image)
         {
             case ElfFile elf:
-                M("PIE", elf.Type == 3);
-                M("NX stack", elf.Segments.Any(s => s.Type == 0x6474E551 && !s.Executable));
-                M("RELRO", elf.Segments.Any(s => s.Type == 0x6474E552));
-                M("BIND_NOW", elf.BindNow);
-                M("stack protector", Imports("stack_chk_fail"));
-                M("FORTIFY_SOURCE", image.Imports.Any(i => i.Name is { } n && n.StartsWith("__", StringComparison.Ordinal) && n.EndsWith("_chk", StringComparison.Ordinal) && n != "__stack_chk_fail"));
+                foreach (var (name, value) in ElfMitigations.Of(elf)) M(name, value);
                 break;
             case MachOFile m:
                 M("PIE", (m.HeaderFlags & 0x200000) != 0 || m.FileType != 2);
