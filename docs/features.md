@@ -71,10 +71,12 @@ native image before their first analysis: `processor=` (IDA's `-p`, checked agai
 code and labels, named or not) and `disableAnalyzers=`; each set is its own engine database beside the default one, and
 `get_engine_status` and the provenance name it. A Ghidra archive (`.gzf`, from Ghidra or from
 `export_engine_database`) loads the file it was made from, checked against its recorded SHA-256, and Ghidra opens the
-archive as the database without analyzing. Everything below is our own analysis
+archive as the database without analyzing; a Ghidra project (`.gpr`, with `program=` when it holds several) is read through
+a copy in the cache and opened the same way, the project itself left unchanged. Everything below is our own analysis
 (PE parser, Iced disassembler, function discovery, MSVC RTTI / exception data / name demangling, PDB reader);
 only `decompile_native` needs an external engine (IDA through idalib, or Ghidra through a Java worker built on first use). Reliability runs and their numbers:
-[docs/native-maturity.md](native-maturity.md); editing contract: [docs/native-editing.md](native-editing.md).
+[docs/native-maturity.md](native-maturity.md); editing contract: [docs/native-editing.md](native-editing.md); engine
+databases (identity, reuse, invalidation, cold and warm times): [docs/engine-databases.md](engine-databases.md).
 
 | Area | Tools |
 |---|---|
