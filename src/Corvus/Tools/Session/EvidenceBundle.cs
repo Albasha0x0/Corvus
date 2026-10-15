@@ -103,6 +103,14 @@ public static partial class EvidenceBundle
                     ? $"input {x.i.Id} is not available here" : $"input {x.i.Id} changed: SHA-256 {x.i.Sha256[..12]}… then, {x.now[..12]}… now"))));
                 continue;
             }
+            if (ObservationTools.Contains(r.Tool))
+            {
+                var code = context.Services?.GetService(typeof(Services.NativeCodeService)) as Services.NativeCodeService;
+                checks.Add(CheckObservation(r, a => workspace.Read(() => workspace.Natives.FirstOrDefault(n => n.Id == a.Image) is { } native
+                    ? (native.OriginalSha256, code?.Ready(native)?.NameAt(a.Rva))
+                    : ((string?)null, (string?)null))));
+                continue;
+            }
             if (context.Server.ServerOptions.ToolCollection?.FirstOrDefault(t => t.ProtocolTool.Name == r.Tool) is not { } tool)
             {
                 checks.Add(new(r.Id, r.Tool, false, $"{r.Tool} is not a tool of this server"));
