@@ -96,7 +96,7 @@ The full suite before each release runs against these; older versions inside the
 | Engine | Supported | Tested |
 |---|---|---|
 | IDA Pro (idalib) | 9.0 or newer (older is refused) | 9.3, with Python 3.12 |
-| Ghidra | 12.0 or newer | 12.1.4, with JDK 22 |
+| Ghidra | 12.0 or newer | 12.1.4 and 12.0.4, with JDK 22; on 12.0 `emulate_native` reads unmapped memory as zero instead of stopping (12.1's emulator says why it reads) |
 | JADX headless server (`decompile_java`) | jadx-headless-mcp fat jar | 0.7.1, with JDK 24 |
 
 ## Limits and known gaps

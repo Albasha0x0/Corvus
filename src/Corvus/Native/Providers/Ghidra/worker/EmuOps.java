@@ -93,7 +93,11 @@ final class EmuOps {
             return a.getAddressSpace() == ram && (mem.getBlock(a) != null || inRegion(a) || userMapped.contains(a));
         }
 
-        @Override
+        // Ghidra 12.0's callback, without the read's reason (12.1 added it); no @Override on either, so both versions compile.
+        public <A, U> AddressSetView readUninitialized(PcodeThread<byte[]> thread, PcodeExecutorStatePiece<A, U> piece, AddressSetView set) {
+            return readUninitialized(thread, piece, set, null);
+        }
+
         public <A, U> AddressSetView readUninitialized(PcodeThread<byte[]> thread, PcodeExecutorStatePiece<A, U> piece, AddressSetView set, Reason reason) {
             if (set.isEmpty() || set.getMinAddress().getAddressSpace() != ram) return set;
             PcodeExecutorStatePiece<A, byte[]> bytes = PcodeStateCallbacks.checkValueDomain(piece, byte[].class);
