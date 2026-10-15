@@ -7,7 +7,8 @@
 #         ./test.ps1 -Affected            # quick set plus the slow tests of the families changed since origin/main (before a push)
 #         ./test.ps1 -Filter <expr>       # any dotnet test filter, quick or full
 #         ./test.ps1 -Full -Reuse         # only the families whose inputs changed since their last full pass (test-reuse.psm1)
-#         ./test.ps1 -Full -Background    # the full suite on the committed HEAD in a worktree of its own; returns at once
+#         ./test.ps1 -Full -Background    # after a push: exhaustive with -Reuse on the committed HEAD in a worktree of its own;
+#                                         #   returns at once (-Sampled: the routine quarter of the sweeps, no reuse)
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
 #Requires -Version 7.0
 param(
@@ -19,7 +20,8 @@ param(
     [string]$Filter,
     [switch]$Background,
     [switch]$Status,
-    [switch]$Reuse
+    [switch]$Reuse,
+    [switch]$Sampled
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,7 +47,8 @@ if ($Background) {
     $dir = Join-Path ([IO.Path]::GetTempPath()) "corvus-bg-$($commit.Substring(0, 8))"
     if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     git -C $root worktree add --detach $dir $commit | Out-Null
-    $flags = '-Full' + $(if ($Exhaustive) { ' -Exhaustive' } else { '' }) + $(if ($Reuse) { ' -Reuse' } else { '' })
+    # Release strength by default, so its family passes let a patch release skip what this run proved.
+    $flags = '-Full' + $(if ($Sampled) { '' } else { ' -Exhaustive -Reuse' })
     $short = $commit.Substring(0, 8)
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
     $script = @"
