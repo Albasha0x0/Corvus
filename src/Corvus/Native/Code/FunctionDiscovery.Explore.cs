@@ -20,7 +20,7 @@ internal sealed partial class FunctionDiscovery
     {
         if (_workers != null) return _workers.Count > 0 ? _workers : null;
         int n = _ctx.Options.MaxParallelism > 0 ? _ctx.Options.MaxParallelism : Environment.ProcessorCount;
-        _workers = n <= 1 || _ctx.ArmModes != null ? [] : [.. Enumerable.Range(0, n).Select(_ => NewWorker())];
+        _workers = n <= 1 ? [] : [.. Enumerable.Range(0, n).Select(_ => NewWorker())];
         return _workers.Count > 0 ? _workers : null;
     }
 
@@ -29,7 +29,8 @@ internal sealed partial class FunctionDiscovery
     /// <summary>The thunk slots of many starts found on several threads (a slot depends on the bytes alone), so adding them stays cheap.</summary>
     private void FindThunkSlots(IEnumerable<uint> starts)
     {
-        if (Workers() is not { } workers) return;
+        // ARM32: a slot depends on the start's state, which exploring may still learn
+        if (_ctx.ArmModes != null || Workers() is not { } workers) return;
         var list = starts.Where(s => !_thunkCache.ContainsKey(s)).Distinct().ToArray();
         if (list.Length < _ctx.Options.ParallelExploreMin) return;
         var slots = new uint?[list.Length];
@@ -75,20 +76,24 @@ internal sealed partial class FunctionDiscovery
         {
             if ((i & 255) == 0) Heartbeat();
             var (w, start, count) = runs[i];
-            if (!Commit(CollectionsMarshal.AsSpan(w.Log).Slice(start, count))) _direct.Explore(batch[i]);
+            // ARM32: the start takes its neighbour's state first, as a direct run does
+            if (_ctx.ArmModes != null) HintFromNeighbor(batch[i]);
+            if (!Commit(CollectionsMarshal.AsSpan(w.Log).Slice(start, count), w)) _direct.Explore(batch[i]);
         }
         _trackPending = false;
     }
 
     /// <summary>Applies a speculative run when every read it made still gives the same answer; false when one does not.</summary>
-    private bool Commit(ReadOnlySpan<Op> log)
+    private bool Commit(ReadOnlySpan<Op> log, Explorer worker)
     {
         int adds = 0;
+        (int From, int Count) modeOps = default;
         foreach (ref readonly var op in log)
         {
             bool stale = op.Kind switch
             {
-                OpKind.Decoded or OpKind.Invalid => _starts[op.A],
+                OpKind.Decoded => _starts[op.A] || _literals != null && LiteralIn(op.A, op.B),
+                OpKind.Invalid => _starts[op.A],
                 OpKind.NotFunction => _functions.ContainsKey((uint)op.A),
                 OpKind.NoStartBetween => AnyStartBetween((uint)op.A, op.B),
                 OpKind.NotLocalSubroutine => _ctx.LocalSubroutines.Contains((uint)op.A),
@@ -98,9 +103,12 @@ internal sealed partial class FunctionDiscovery
             };
             if (stale) return false;
             if (op.Kind == OpKind.AddFunction) adds++;
+            else if (op.Kind == OpKind.ModeOps) modeOps = ((int)op.A, (int)op.B);
         }
         // near the function limit an add may be dropped, which the run did not foresee
         if (adds > 0 && _functions.Count + adds >= _ctx.Options.MaxFunctions) return false;
+        // ARM32: the states the run read are the ones it would read now; its hints are then taken
+        if (_ctx.ArmModes is { } modes && !modes.Commit(worker.Modes!, modeOps.From, modeOps.Count)) return false;
         foreach (ref readonly var op in log)
             switch (op.Kind)
             {
@@ -119,8 +127,18 @@ internal sealed partial class FunctionDiscovery
                 case OpKind.FarJump: _farJumps.Add((uint)op.A); break;
                 case OpKind.LocalSubroutine: _ctx.LocalSubroutines.Add((uint)op.A); break;
                 case OpKind.Jump: _jumps.Add(((uint)(op.A >> 32), (uint)op.A, op.B)); break;
+                case OpKind.ArmInsn: (_armInsns ??= new CodeBitmap(_ctx.Code.TotalBytes))[op.A] = true; break;
+                case OpKind.Literal: (_literals ??= new CodeBitmap(_ctx.Code.TotalBytes))[op.A] = true; break;
             }
         return true;
+    }
+
+    /// <summary>A known literal pool entry covers a halfword of the instruction at code bit <paramref name="bit"/>.</summary>
+    private bool LiteralIn(long bit, uint length)
+    {
+        for (uint k = 0; k < length; k += 2)
+            if (_literals![bit + k]) return true;
+        return false;
     }
 
     private void SetStart(long bit, int length)
@@ -152,6 +170,8 @@ internal sealed partial class FunctionDiscovery
         Decoded, Invalid, NotFunction, NoStartBetween, NotLocalSubroutine, NotNoReturn, PendingQuery,
         // writes, replayed in order
         Covered, AddFunction, AddressCandidate, DataInCode, CodeTable, PendingAdd, PendingRemove, FarJump, LocalSubroutine, Jump,
+        // ARM32: an A32 instruction start and a literal pool halfword (code bit indexes); the run's state reads and hints (Modes)
+        ArmInsn, Literal, ModeOps,
     }
 
     /// <summary>One read or write of a speculative run: an address or bit index (an added function's thunk slot above it) and a length, bound or source.</summary>
@@ -179,8 +199,11 @@ internal sealed partial class FunctionDiscovery
         public readonly List<Op> Log = [];
         // speculative: thunk slots found by this worker during the batch (the discovery's cache is read-only meanwhile)
         private readonly Dictionary<uint, uint?> _thunkSlots = [];
+        // ARM32 speculative runs: the state reads and hints of the batch's runs
+        public readonly Arm32Modes.Speculation? Modes;
         // the run's own writes, seen by its later reads
         private readonly ScratchSet _starts = new();
+        private readonly ScratchSet _literals = new();
         private readonly ScratchSet _functions = new();
         private readonly HashSet<uint> _localSubroutines = [];
         private readonly HashSet<uint> _pendingAdded = [];
@@ -204,6 +227,7 @@ internal sealed partial class FunctionDiscovery
             _speculative = speculative;
             _anyStartBetween = AnyStartBetween;
             _inNoReturn = InNoReturn;
+            if (speculative && _ctx.ArmModes != null) Modes = new Arm32Modes.Speculation(_ctx.ArmModes);
         }
 
         public uint? FindThunkSlot(uint rva) => _thunks!.ThunkSlot(rva, _ctx.ImportSlots.ContainsKey);
@@ -212,10 +236,23 @@ internal sealed partial class FunctionDiscovery
         {
             Log.Clear();
             _thunkSlots.Clear();
+            _thunkModes.Clear();
+            Modes?.Clear();
         }
 
         /// <param name="chunk">Explores a landing pad: its callees become functions, it does not.</param>
         public void Explore(uint root, bool chunk = false)
+        {
+            if (Modes == null) { ExploreCore(root, chunk); return; }
+            int from = Modes.Count;
+            Modes.BeginRun();
+            _ctx.ArmModes!.Speculate(Modes);
+            try { ExploreCore(root, chunk); }
+            finally { _ctx.ArmModes.Speculate(null); }
+            Log.Add(new Op(OpKind.ModeOps, from, (uint)(Modes.Count - from)));
+        }
+
+        private void ExploreCore(uint root, bool chunk)
         {
             _chunk = chunk;
             if (_speculative)
@@ -225,9 +262,11 @@ internal sealed partial class FunctionDiscovery
                 _localSubroutines.Clear();
                 _pendingAdded.Clear();
                 _pendingRemoved.Clear();
+                _literals.Clear();
             }
             List<(uint Begin, uint End)>? own = _ctx.PdataRanges.TryGetValue(root, out var r) ? r : null;
-            if (_ctx.ArmModes != null) d.HintFromNeighbor(root);
+            // speculative: the neighbour's state is taken when the run commits
+            if (_ctx.ArmModes != null && !_speculative) d.HintFromNeighbor(root);
             _ctx.ArmModes?.Fix(root);
             _dec.BeginFunction(root);
             _work.Clear();
@@ -254,7 +293,7 @@ internal sealed partial class FunctionDiscovery
                     if (IsStart(bit)) break;
                     _dec.Decode(region, a, out var insn);
                     // ARM32: a literal pool known code loads ends the run (after a call that does not return)
-                    if (insn.Flow == FlowKind.Invalid || d.IsLiteralAt(bit, a, (int)Math.Min(insn.Length, region.End - a)))
+                    if (insn.Flow == FlowKind.Invalid || IsLiteralAt(bit, a, (int)Math.Min(insn.Length, region.End - a)))
                     {
                         if (_speculative) Log.Add(new Op(OpKind.Invalid, bit, 0));
                         break;
@@ -271,7 +310,7 @@ internal sealed partial class FunctionDiscovery
                         }
                     }
                     if (insn.HasImm && _ctx.Code.IsCode(insn.ImmTarget)) Write(OpKind.AddressCandidate, insn.ImmTarget);
-                    if (_ctx.ArmModes != null) d.NoteArm32(_dec, in insn, bit);
+                    if (_ctx.ArmModes != null) NoteArm32(in insn, bit);
                     if (!Follow(in insn, root, own)) break;
                     a = insn.Next;
                 }
@@ -279,6 +318,30 @@ internal sealed partial class FunctionDiscovery
         }
 
         private bool IsStart(long bit) => d._starts[bit] || (_speculative && _starts.Contains((uint)bit));
+
+        private bool IsLiteralAt(long bit, uint rva, int length)
+        {
+            if (d.IsLiteralAt(bit, rva, length)) return true;
+            if (!_speculative || _literals.Count == 0) return false;
+            for (int k = 0; k < length; k += 2)
+                if (_literals.Contains((uint)(bit + k))) return true;
+            return false;
+        }
+
+        /// <summary>ARM32: the instruction's state and the literal it loads (<see cref="FunctionDiscovery.NoteArm32"/>), logged when speculative.</summary>
+        private void NoteArm32(in Insn insn, long bit)
+        {
+            if (!_speculative) { d.NoteArm32(_dec, in insn, bit); return; }
+            if (HybridDecoder.PrimaryOf(_dec) is not Arm32Decoder arm) return;
+            if (!arm.Thumb) Log.Add(new Op(OpKind.ArmInsn, bit, 0));
+            if (insn.HasMem && arm.LastLiteralSize is > 0 and var size)
+                for (uint a = insn.MemTarget & ~1u; a < insn.MemTarget + (uint)size; a += 2)
+                    if (_ctx.Code.BitIndex(a) is var b and >= 0)
+                    {
+                        _literals.Add((uint)b);
+                        Log.Add(new Op(OpKind.Literal, b, 0));
+                    }
+        }
 
         private void SetStart(long bit, int length)
         {
@@ -357,9 +420,16 @@ internal sealed partial class FunctionDiscovery
         private uint? ThunkSlot(uint rva)
         {
             if (!_speculative) return d.ThunkSlot(rva);
-            if (d._thunkCache.TryGetValue(rva, out var slot) || _thunkSlots.TryGetValue(rva, out slot)) return slot;
+            if (d._thunkCache.TryGetValue(rva, out var slot)) return slot;
+            // ARM32: a slot found in another state is found again (the read is logged either way)
+            bool? thumb = _ctx.ArmModes?.StartMode(rva);
+            if (_thunkSlots.TryGetValue(rva, out slot) && (thumb == null || _thunkModes[rva] == thumb)) return slot;
+            if (thumb is { } t) _thunkModes[rva] = t;
             return _thunkSlots[rva] = _thunks!.ThunkSlot(rva, _ctx.ImportSlots.ContainsKey);
         }
+
+        // ARM32: the state each slot in _thunkSlots was found in
+        private readonly Dictionary<uint, bool> _thunkModes = [];
 
         private bool IsNoReturnTarget(uint target) =>
             _ctx.NoReturn.Contains(target) || (ThunkSlot(target) is { } slot && _ctx.NoReturn.Contains(slot));

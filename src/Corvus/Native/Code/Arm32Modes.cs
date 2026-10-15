@@ -83,6 +83,7 @@ internal sealed class Arm32Modes
     public void Hint(uint rva, bool thumb)
     {
         if (_allThumb || _sealed) return;
+        if (Speculating(out var spec)) { spec.Ops.Add(new(ModeOp.Hint, rva, thumb)); spec.Facts.TryAdd(rva, thumb); return; }
         if (!_facts.TryAdd(rva, thumb) && _facts.TryGetValue(rva, out bool known) && known == thumb) _unsure.TryRemove(rva, out _);
     }
 
@@ -92,9 +93,11 @@ internal sealed class Arm32Modes
     /// </summary>
     public void HintUnconfirmed(uint rva, bool thumb)
     {
-        if (_allThumb || _sealed || _facts.ContainsKey(rva)) return;
+        if (_allThumb || _sealed || HasFact(rva)) return;
         var (guess, sure) = Guess(_image, rva);
-        if (!sure || guess == thumb) Hint(rva, thumb);
+        if (sure && guess != thumb) return;
+        if (Speculating(out var spec)) { spec.Ops.Add(new(ModeOp.Unconfirmed, rva, thumb)); spec.Facts.TryAdd(rva, thumb); return; }
+        Hint(rva, thumb);
     }
 
     private volatile bool _sealed;
@@ -105,15 +108,17 @@ internal sealed class Arm32Modes
     /// <summary>Keeps the state a function is explored in, so later hints cannot change it.</summary>
     public void Fix(uint start)
     {
-        if (_allThumb || _facts.ContainsKey(start)) return;
+        if (_allThumb || HasFact(start)) return;
         var (thumb, sure) = MappingAt(start) is { } m ? (m, true) : GuessStart(start);
+        if (Speculating(out var spec)) { spec.Ops.Add(new(ModeOp.Fix, start, thumb)); spec.Facts.TryAdd(start, thumb); return; }
         if (_facts.TryAdd(start, thumb) && !sure) _unsure.TryAdd(start, 0);
     }
 
     /// <summary>A start whose bytes read in both states takes the state of the code analysis decoded right before it.</summary>
     public void HintNeighbor(uint start, bool thumb)
     {
-        if (_allThumb || _sealed || _facts.ContainsKey(start) || MappingAt(start) != null || Guess(_image, start).Sure) return;
+        if (_allThumb || _sealed || HasFact(start) || MappingAt(start) != null || Guess(_image, start).Sure) return;
+        if (Speculating(out var spec)) { spec.Ops.Add(new(ModeOp.Neighbor, start, thumb)); spec.Facts.TryAdd(start, thumb); return; }
         _facts.TryAdd(start, thumb);
     }
 
@@ -124,20 +129,109 @@ internal sealed class Arm32Modes
     public bool StartMode(uint rva)
     {
         if (_allThumb) return true;
-        if (_facts.TryGetValue(rva, out bool t)) return t;
-        return MappingAt(rva) ?? GuessStart(rva).Thumb;
+        bool thumb = TryFact(rva, out bool t) ? t : MappingAt(rva) ?? GuessStart(rva).Thumb;
+        if (Speculating(out var spec)) spec.Ops.Add(new(ModeOp.Read, rva, thumb));
+        return thumb;
     }
 
     /// <summary>The state at any code address: its function's when the functions are known.</summary>
     public bool At(uint rva)
     {
         if (_allThumb) return true;
-        if (_facts.TryGetValue(rva, out bool t)) return t;
+        bool result = AtCore(rva);
+        if (Speculating(out var spec)) spec.Ops.Add(new(ModeOp.ReadAt, rva, result));
+        return result;
+    }
+
+    private bool AtCore(uint rva)
+    {
+        if (TryFact(rva, out bool t)) return t;
         if (MappingAt(rva) is { } m) return m;
         var (starts, thumb) = _functions;
         int i = Array.BinarySearch(starts, rva);
         if (i < 0) i = ~i - 1;
         return i >= 0 ? thumb[i] : GuessStart(rva).Thumb;
+    }
+
+    internal enum ModeOp : byte { Hint, Unconfirmed, Neighbor, Fix, Read, ReadAt }
+
+    internal readonly record struct ModeEntry(ModeOp Op, uint Rva, bool Thumb);
+
+    /// <summary>
+    /// A speculative exploration on one thread: hints and fixes go to <see cref="Facts"/> (over the shared facts) and
+    /// <see cref="Ops"/> with every state read, so the run can be checked and applied later in its serial order.
+    /// </summary>
+    internal sealed class Speculation(Arm32Modes owner)
+    {
+        public readonly Arm32Modes Owner = owner;
+        public readonly Dictionary<uint, bool> Facts = [];
+        public readonly List<ModeEntry> Ops = [];
+        public int Count => Ops.Count;
+
+        /// <summary>A new run: its own hints only.</summary>
+        public void BeginRun() => Facts.Clear();
+
+        /// <summary>A new batch of runs.</summary>
+        public void Clear()
+        {
+            Facts.Clear();
+            Ops.Clear();
+        }
+    }
+
+    [ThreadStatic] private static Speculation? t_speculation;
+    // commits run on one thread: the replay's scratch
+    private Speculation? _check;
+
+    private bool Speculating(out Speculation spec)
+    {
+        spec = t_speculation!;
+        return spec != null && ReferenceEquals(spec.Owner, this);
+    }
+
+    private bool TryFact(uint rva, out bool thumb) =>
+        Speculating(out var spec) && spec.Facts.TryGetValue(rva, out thumb) || _facts.TryGetValue(rva, out thumb);
+
+    private bool HasFact(uint rva) => TryFact(rva, out _);
+
+    /// <summary>Starts (or with null ends) speculation on this thread: state changes are recorded instead of made.</summary>
+    internal void Speculate(Speculation? spec) => t_speculation = spec;
+
+    /// <summary>
+    /// Whether the recorded run [<paramref name="from"/>, + <paramref name="count"/>) of <paramref name="log"/> reads the
+    /// same states replayed now (in order, over the current facts); when it does, its hints and fixes are applied.
+    /// </summary>
+    internal bool Commit(Speculation log, int from, int count)
+    {
+        var check = _check ??= new Speculation(this);
+        check.Clear();
+        t_speculation = check;
+        try
+        {
+            for (int i = from; i < from + count; i++)
+            {
+                var e = log.Ops[i];
+                if (e.Op is ModeOp.Read or ModeOp.ReadAt)
+                {
+                    if ((e.Op == ModeOp.Read ? StartMode(e.Rva) : At(e.Rva)) != e.Thumb) return false;
+                }
+                else Apply(e);
+            }
+        }
+        finally { t_speculation = null; }
+        for (int i = from; i < from + count; i++) Apply(log.Ops[i]);
+        return true;
+    }
+
+    private void Apply(ModeEntry e)
+    {
+        switch (e.Op)
+        {
+            case ModeOp.Hint: Hint(e.Rva, e.Thumb); break;
+            case ModeOp.Unconfirmed: HintUnconfirmed(e.Rva, e.Thumb); break;
+            case ModeOp.Neighbor: HintNeighbor(e.Rva, e.Thumb); break;
+            case ModeOp.Fix: Fix(e.Rva); break;
+        }
     }
 
     /// <summary>Fixes the state of every function start for <see cref="At"/>; hints are ignored until <see cref="Open"/>.</summary>
