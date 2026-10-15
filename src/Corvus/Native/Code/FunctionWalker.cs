@@ -53,6 +53,10 @@ internal sealed class FunctionWalker
     private readonly Dictionary<uint, int> _pendingRun = [];
     /// <summary>ARM32: some return is conditional (the run goes on after it).</summary>
     private bool _conditionalReturn;
+    /// <summary>ARM32: halfwords of the literal pool entries the function loads; flow never runs into them.</summary>
+    private readonly HashSet<uint> _ownLiterals = [];
+    /// <summary>ARM32: runs that hold a literal pool a run stopped at (extended once every load is known).</summary>
+    private readonly List<int> _poolRuns = [];
 
     public FunctionWalker(CodeContext ctx)
     {
@@ -88,6 +92,8 @@ internal sealed class FunctionWalker
         _visited.Clear(); _insns.Clear(); _runs.Clear(); _leaders.Clear(); _work.Clear(); _xrefs.Clear(); _callees.Clear();
         _branches.Clear(); _conditionals.Clear(); _switches.Clear(); _unresolved.Clear(); _tails.Clear(); _fallsInto.Clear(); _pending.Clear(); _pendingRun.Clear();
         _conditionalReturn = false;
+        _ownLiterals.Clear();
+        _poolRuns.Clear();
         _dec.BeginFunction(start);
         // chained .pdata fragments only say which jumps stay inside the function: a fragment can begin with data
         // (a switch table), so fragments are reached by flow, never decoded from their begin
@@ -118,14 +124,30 @@ internal sealed class FunctionWalker
             if (++checkCounter % 256 == 0) ct.ThrowIfCancellationRequested();
             _dec.BeginRun(bound);
             var run = new Run { Start = a, FirstInsn = _insns.Count };
+            bool afterCall = false;
+            bool pool = false;
             while (true)
             {
                 if (_insns.Count >= cap) { run.EndKind = RunEnd.Truncated; result.Flags |= FunctionFlags.Truncated; break; }
+                // ARM32: a literal the function loads ends the run and stays in its extent as data; right after a direct call
+                // (and its nop) that call does not return there (error(2, ...) with the literal pool after it), as discovery reads it
+                if (_ownLiterals.Count > 0 && _ownLiterals.Contains(a & ~1u))
+                {
+                    run.EndKind = afterCall ? RunEnd.NoReturnCall : RunEnd.EndOfCode;
+                    pool = true;
+                    break;
+                }
                 if (!_dec.Decode(a, out var insn)) { run.EndKind = RunEnd.EndOfCode; break; }
                 if (insn.Flow == FlowKind.Invalid) { run.EndKind = RunEnd.Invalid; result.Flags |= FunctionFlags.InvalidCode; break; }
                 _visited.Add(a);
                 _insns.Add(a);
                 RecordData(in insn);
+                if (HybridDecoder.PrimaryOf(_dec) is Arm32Decoder arm)
+                {
+                    if (insn.HasMem && arm.LastLiteralSize is > 0 and var size)
+                        for (uint l = insn.MemTarget & ~1u; l < insn.MemTarget + (uint)size; l += 2) _ownLiterals.Add(l);
+                    if (!(afterCall && arm.Last.Mnemonic == "nop")) afterCall = insn.Flow == FlowKind.Call && insn.HasTarget;
+                }
                 bool stop = Step(in insn, root, own, ref run, result);
                 a = insn.Next;
                 if (stop) break;
@@ -153,6 +175,18 @@ internal sealed class FunctionWalker
             run.InsnCount = _insns.Count - run.FirstInsn;
             if (run.InsnCount == 0) { run.End = run.Start; }
             _runs.Add(run);
+            if (pool && !_poolRuns.Exists(k => _runs[k].Start == a))
+            {
+                _poolRuns.Add(_runs.Count);
+                _runs.Add(new Run { Start = a, End = a, FirstInsn = _insns.Count, EndKind = RunEnd.NoReturnCall });
+            }
+        }
+        // each literal pool stays in the extent as data: an extent without instructions or blocks, over the entries loaded
+        foreach (int k in _poolRuns)
+        {
+            var r = _runs[k];
+            while (_ownLiterals.Contains(r.End) && !_visited.Contains(r.End)) r.End += 2;
+            _runs[k] = r;
         }
     }
 

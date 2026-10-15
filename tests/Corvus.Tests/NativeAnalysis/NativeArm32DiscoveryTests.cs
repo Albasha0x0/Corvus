@@ -60,6 +60,28 @@ public class NativeArm32DiscoveryTests
         Assert.Equal([(Text, next)], index.Ranges(index.FunctionByStart(Text)!));
     }
 
+    /// <summary>
+    /// main: push; ldr r2, =literal; movs r0, #2; bl report (which returns); nop; its literal pool, then report:
+    /// the call does not return there (error(2, ...)), so main does not return and keeps its pool as data.
+    /// </summary>
+    [Fact]
+    public void A_literal_pool_right_after_a_call_means_the_call_does_not_return()
+    {
+        var a = new A32Code(Text);
+        uint lit = 0, report = 0;
+        a.H(A32Code.PushLr(0x10)).Later(2, at => A32Code.LdrLit(2, at, lit)).H(A32Code.MovImm(0, 2)).Later(-4, at => A32Code.Bl(at, report)).Align4();
+        lit = a.Here;
+        a.W(CodeLikeLiteral);
+        report = a.Here;
+        a.H(A32Code.MovImm(0, 0)).H(A32Code.BxLr);
+        var index = Build(a, w => w.Symbols.Add(new ElfWriter.Symbol("report", report | 1, Type: 2)));
+
+        var main = index.FunctionByStart(Text)!;
+        Assert.True((main.Flags & FunctionFlags.NoReturn) != 0);
+        Assert.Equal([(Text, report)], index.Ranges(main));
+        Assert.Equal(lit, index.GetGraph(main).Blocks.Max(b => b.End));
+    }
+
     /// <summary>A function reached only through a pointer ends in b.w to a PLT entry (Thumb bx pc; nop, then A32): a tail call, not code to verify.</summary>
     [Fact]
     public void A_tail_jump_to_a_plt_stub_verifies()
