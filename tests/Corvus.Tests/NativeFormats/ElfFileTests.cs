@@ -33,6 +33,20 @@ public sealed class ElfFileTests(ITestOutputHelper output)
                 $"0x{f:X}: {string.Join(", ", index.Functions.Select(x => $"0x{x.Start:X}"))}");
     }
 
+    /// <summary>PPC64 ELFv1: function symbols and e_entry name .opd descriptors; the code is at the descriptor's first doubleword.</summary>
+    [Fact]
+    public void Ppc64_function_descriptors_resolve_to_code()
+    {
+        var elf = ElfFile.FromBytes(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Engines", "IsaFixtures", "ppc64v1.elf")), "ppc64v1.elf");
+        var text = elf.Section(".text")!;
+        var functions = elf.Symbols.Where(s => s.Name is "_start" or "classify" or "middle" or "leaf").ToList();
+        Assert.Equal(4, functions.Count);
+        Assert.All(functions, s => Assert.InRange(elf.ImageBase + s.Rva, text.Address, text.Address + text.Size - 1));
+        Assert.All(functions, s => Assert.Equal(".text", s.Section));
+        Assert.All(functions, s => Assert.Contains(elf.DeclaredFunctions, d => d.Rva == s.Rva));
+        Assert.Equal(functions.Single(s => s.Name == "_start").Rva, elf.EntryPointRva);
+    }
+
     [Fact]
     public void SharedObject_ImageModel()
     {

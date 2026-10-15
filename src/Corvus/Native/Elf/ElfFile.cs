@@ -136,7 +136,19 @@ public sealed partial class ElfFile : INativeImage
     /// <summary>Lowest PT_LOAD address rounded down to the page size.</summary>
     public ulong ImageBase { get; private set; }
     public uint SizeOfImage { get; private set; }
-    public uint EntryPointRva => Entry >= ImageBase && Entry - ImageBase < SizeOfImage ? (uint)((Entry - ImageBase) & (Machine == ElfNames.EmArm ? ~1UL : ~0UL)) : 0;
+    public uint EntryPointRva => CodeAddress(Entry) is var e && e >= ImageBase && e - ImageBase < SizeOfImage ? (uint)((e - ImageBase) & (Machine == ElfNames.EmArm ? ~1UL : ~0UL)) : 0;
+
+    /// <summary>
+    /// The code address of a function address: on PPC64 ELFv1 function symbols and e_entry name a descriptor in .opd whose
+    /// first doubleword is the code; else the address itself. Keyed on .opd, not e_flags: ld.lld writes ABI 2 over v1 objects.
+    /// </summary>
+    public ulong CodeAddress(ulong va)
+    {
+        if (Machine != ElfNames.EmPpc64 || Section(".opd") is not { } opd || va < opd.Address || va - opd.Address + 8 > opd.Size || !TryVaToRva(va, out uint rva)) return va;
+        Span<byte> b = stackalloc byte[8];
+        if (Read(rva, b) != 8) return va;
+        return BigEndian ? System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(b) : System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(b);
+    }
 
     public IReadOnlyList<ElfSegment> Segments => segments;
     public IReadOnlyList<ElfSegment> LoadSegments => [.. segments.Where(s => s.IsLoad)];

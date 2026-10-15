@@ -35,7 +35,7 @@ public sealed partial class ElfFile
         // the linker merges neighbors with the same unwinding into one entry, so an entry may span several functions: no extent
         foreach (var (start, _) in ReadExidx(log)) Add(start, null, DeclaredSource.Unwind);
         foreach (var s in DynamicSymbols.Concat(StaticSymbols))
-            if (s.IsDefined && s.IsFunction && s.Value != 0) Add(s.Value, s.Size, DeclaredSource.Symbol);
+            if (s.IsDefined && s.IsFunction && s.Value != 0) Add(CodeAddress(s.Value), s.Size, DeclaredSource.Symbol);
         foreach (var va in Initializers(log)) Add(va, null, DeclaredSource.Initializer);
         if (found.Count >= PeLimits.MaxRuntimeFunctions) log.Add($"more than {PeLimits.MaxRuntimeFunctions} declared functions; the rest are not listed");
         var list = found.Values.ToList();

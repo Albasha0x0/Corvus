@@ -42,7 +42,8 @@ public sealed partial class ElfFile
         {
             // absolute symbols (version definitions such as V1.0 = 0) are values, not addresses in the image
             if (!s.IsDefined || s.Name.Length == 0 || s.SectionIndex == ElfSymbol.Absolute || s.Type is ElfSymbol.TypeSection or ElfSymbol.TypeFile or ElfSymbol.TypeTls) continue;
-            if (!TryVaToRva(s.Value, out uint rva)) continue;
+            var va = s.IsFunction ? CodeAddress(s.Value) : s.Value;
+            if (!TryVaToRva(va, out uint rva)) continue;
             if (Machine is ElfNames.EmArm or ElfNames.EmAarch64 && s.Name[0] == '$' && s.Name.Length >= 2 && s.Name[1] is 'a' or 't' or 'd' or 'x'
                 && (s.Name.Length == 2 || s.Name[2] == '.'))
             {
@@ -53,7 +54,7 @@ public sealed partial class ElfFile
             if (!seen.Add((s.Name, rva))) continue;
             var kind = s.IsFunction ? ImageSymbolKind.Function : s.Type is ElfSymbol.TypeObject or ElfSymbol.TypeCommon ? ImageSymbolKind.Object : ImageSymbolKind.Other;
             var binding = s.Binding switch { ElfSymbol.BindLocal => ImageSymbolBinding.Local, ElfSymbol.BindWeak => ImageSymbolBinding.Weak, _ => ImageSymbolBinding.Global };
-            string? section = s.SectionIndex < sectionHeaders.Count && s.SectionIndex is > 0 and < 0xFF00 ? sectionHeaders[s.SectionIndex].Name : SectionAt(rva)?.Name;
+            string? section = va == s.Value && s.SectionIndex < sectionHeaders.Count && s.SectionIndex is > 0 and < 0xFF00 ? sectionHeaders[s.SectionIndex].Name : SectionAt(rva)?.Name;
             result.Image.Add(new ImageSymbol(s.Name, rva, s.Size, kind, binding, section, s.Version));
         }
         result.Image.Sort((a, b) => a.Rva != b.Rva ? a.Rva.CompareTo(b.Rva) : string.CompareOrdinal(a.Name, b.Name));
@@ -63,7 +64,7 @@ public sealed partial class ElfFile
         {
             if (!s.IsDefined || s.Name.Length == 0 || s.SectionIndex == ElfSymbol.Absolute || s.Binding == ElfSymbol.BindLocal || s.Visibility is 1 or 2) continue;
             if (s.Type is ElfSymbol.TypeSection or ElfSymbol.TypeFile or ElfSymbol.TypeTls) continue;
-            if (!TryVaToRva(s.Value, out uint rva)) continue;
+            if (!TryVaToRva(s.IsFunction ? CodeAddress(s.Value) : s.Value, out uint rva)) continue;
             if (Machine == ElfNames.EmArm && s.IsFunction) rva &= ~1u;
             if (result.Exports.Count >= PeLimits.MaxExports)
             {
