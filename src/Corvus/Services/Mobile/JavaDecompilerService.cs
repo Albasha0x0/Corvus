@@ -26,12 +26,37 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     /// <summary>Extra environment for the server process (tests).</summary>
     internal IReadOnlyDictionary<string, string?>? Environment { get; init; }
 
-    public async Task<string> Decompile(string path, string symbol, bool smaliFallback, CancellationToken ct)
+    public async Task<string> Decompile(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping = null)
     {
         symbol = symbol.Trim();
         DexIndex index;
         try { index = dex.Index(path, ct); }
         catch (ToolError e) when (e.Code == ErrorCode.NotFound && ClassFileJar(path) is { } jar) { return await DecompileJar(jar, symbol, smaliFallback, ct).ConfigureAwait(false); }
+        var names = dex.Names(index, mapping, ct);
+        symbol = DexService.Resolve(index, names, symbol);
+        var source = await DecompileDex(index, symbol, smaliFallback, ct).ConfigureAwait(false);
+        return names == null ? source : Renames(names, index, symbol, ct) + source;
+    }
+
+    /// <summary>
+    /// The original names of the class decompiled and of its members, as a comment block: the JADX server takes no mapping,
+    /// so its source keeps the package's names.
+    /// </summary>
+    private static string Renames(DexNames names, DexIndex index, string symbol, CancellationToken ct)
+    {
+        bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
+        var cls = member ? index.Methods.GetValueOrDefault(index.ResolveMethod(symbol, ct)) is { } m ? new DexClassEntry(m.File, m.Class) : null : index.FindClass(symbol);
+        if (cls == null) return "";
+        var lines = new List<string>();
+        if (names.Display(cls.Class.Descriptor) is { } c) lines.Add($"// {cls.Class.Descriptor} = {c}");
+        var (fields, methods) = cls.File.ClassData(cls.Class);
+        foreach (var id in fields.Select(f => cls.File.Field(f.FieldIndex).Descriptor).Concat(methods.Select(x => cls.File.Method(x.MethodIndex).Descriptor)))
+            if (names.Member(id) != null && names.Display(id) is { } d) lines.Add($"// {id[(id.IndexOf("->", StringComparison.Ordinal) + 2)..]} = {d}");
+        return lines.Count == 0 ? "" : "// original names (mapping or recovered; JADX shows the package's own):\n" + string.Join("\n", lines.Take(400)) + "\n";
+    }
+
+    private async Task<string> DecompileDex(DexIndex index, string symbol, bool smaliFallback, CancellationToken ct)
+    {
         bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
         DexClassEntry? cls = member ? null : index.FindClass(symbol);
         DexMethodEntry? method = null;

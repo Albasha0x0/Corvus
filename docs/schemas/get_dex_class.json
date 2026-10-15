@@ -101,6 +101,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "original": {
+            "description": "Original name: mapping.txt, else recovered (marked).",
+            "type": "string"
           }
         },
         "required": [
@@ -116,6 +120,10 @@
     },
     "total": {
       "type": "integer"
+    },
+    "original": {
+      "description": "Original name: mapping.txt, else recovered (marked).",
+      "type": "string"
     },
     "limit": {
       "type": "integer"

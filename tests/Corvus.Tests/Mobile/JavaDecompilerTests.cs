@@ -56,6 +56,22 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         }
     }
 
+    [Fact]
+    public async Task Mapping_ResolvesOriginalNames_AndHeadsTheSourceWithThem()
+    {
+        var (service, env) = Fake();
+        using (env)
+        using (service)
+        {
+            var mapping = _dir.File("mapping.txt");
+            File.WriteAllText(mapping, "com.example.Original -> com.example.app.Main:\n    int realCompute(int) -> compute\n");
+            var text = await service.Decompile(Apk(), "com.example.Original", true, default, mapping);
+            Assert.StartsWith($"// original names (mapping or recovered; JADX shows the package's own):\n// {Main} = com.example.Original\n", text);
+            Assert.Contains("// compute(I)I = com.example.Original.realCompute(int) : int\n", text);
+            Assert.EndsWith($"// {Main} (JADX)\n// source of com.example.app.Main", text);
+        }
+    }
+
     /// <summary>A package with a member class, an anonymous class and a lambda class, which JADX writes inside other code.</summary>
     private string NestedApk()
     {

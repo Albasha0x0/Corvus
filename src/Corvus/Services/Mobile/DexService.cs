@@ -9,25 +9,39 @@ namespace Corvus.Services.Mobile;
 public sealed record DexClassRow(string Descriptor, string DexFile, string Access, string? Super,
     [property: Description("The first 3 interfaces.")] IReadOnlyList<string> Interfaces,
     [property: Description("How many interfaces in all, when more than 3.")] int? InterfacesTotal,
-    int Methods, int Fields, string? SourceFile);
+    int Methods, int Fields, string? SourceFile)
+{
+    [Description(DexService.OriginalDescription)]
+    public string? Original { get; init; }
+}
 
 public sealed record DexClassList(IReadOnlyList<DexClassRow> Items, int Offset, int Total, IReadOnlyList<string> Notes,
     [property: Description("Without a filter, on the first page: the packages with the most classes ('pkg n'), to narrow with package.")] IReadOnlyList<string>? Packages);
 
 public sealed record DexFieldInfo(
     [property: Description("Exact field id: Lpkg/C;->name:type.")] string Id, string Name, string Type, string Access,
-    [property: Description("Static initial value from the DEX, when it has one.")] string? Value, string? GenericSignature, IReadOnlyList<string> Annotations);
+    [property: Description("Static initial value from the DEX, when it has one.")] string? Value, string? GenericSignature, IReadOnlyList<string> Annotations)
+{
+    public string? Original { get; init; }
+}
 
 public sealed record DexMethodInfo(
     [property: Description("Exact method id: Lpkg/C;->name(params)ret, what disassemble_dex, decompile_java and find_dex_references take.")] string Id,
     string Name, [property: Description("Java form: modifiers, return type, name and parameter types.")] string Signature, string Access,
     [property: Description("16-bit code units; null for abstract and native methods.")] int? CodeUnits, int? Registers,
-    string? GenericSignature, IReadOnlyList<string> Annotations, IReadOnlyList<string?> ParameterNames);
+    string? GenericSignature, IReadOnlyList<string> Annotations, IReadOnlyList<string?> ParameterNames)
+{
+    public string? Original { get; init; }
+}
 
 public sealed record DexClassDetail(string Descriptor, string JavaName, string DexFile, string Access, string? Super, IReadOnlyList<string> Interfaces,
     string? SourceFile, string? GenericSignature, string? EnclosingClass, string? EnclosingMethod, IReadOnlyList<string> InnerClasses,
     [property: Description("Kotlin @Metadata: the kind and the names it records.")] string? Kotlin,
-    IReadOnlyList<string> Annotations, IReadOnlyList<DexFieldInfo> Fields, IReadOnlyList<DexMethodInfo> Methods);
+    IReadOnlyList<string> Annotations, IReadOnlyList<DexFieldInfo> Fields, IReadOnlyList<DexMethodInfo> Methods)
+{
+    public string? Original { get; init; }
+    public IReadOnlyList<string> Notes { get; init; } = [];
+}
 
 public sealed record DexMember(
     [property: Description("field or method.")] string Kind,
@@ -36,20 +50,34 @@ public sealed record DexMember(
     [property: Description("Java form: the field's type and name, or the method's modifiers, return type, name and parameter types.")] string Declaration,
     [property: Description("Static initial value from the DEX, when it has one.")] string? Value,
     [property: Description("16-bit code units; absent for abstract and native methods.")] int? CodeUnits, int? Registers, string? GenericSignature,
-    IReadOnlyList<string>? Annotations, IReadOnlyList<string?>? ParameterNames);
+    IReadOnlyList<string>? Annotations, IReadOnlyList<string?>? ParameterNames)
+{
+    [Description(DexService.OriginalDescription)]
+    public string? Original { get; init; }
+}
 
 /// <summary>A DEX class with one page of its members (fields first, then methods).</summary>
 public sealed record DexClassPage(string Descriptor, string JavaName, string DexFile, string Access, string? Super, IReadOnlyList<string> Interfaces,
     string? SourceFile, string? GenericSignature, string? EnclosingClass, string? EnclosingMethod, IReadOnlyList<string> InnerClasses,
     [property: Description("Kotlin @Metadata: the kind and the names it records.")] string? Kotlin,
-    IReadOnlyList<string> Annotations, int Fields, int Methods, IReadOnlyList<DexMember> Items, int Offset, int Total);
+    IReadOnlyList<string> Annotations, int Fields, int Methods, IReadOnlyList<DexMember> Items, int Offset, int Total)
+{
+    [Description(DexService.OriginalDescription)]
+    public string? Original { get; init; }
+}
 
 public sealed record DexHit(
     [property: Description("string, type, method, field, const or opcode; class for a defined class.")] string Kind,
     [property: Description("The string, descriptor or value found.")] string Value,
     [property: Description("The method containing the instruction (exact id); null for a definition.")] string? Method,
     [property: Description("Code offset in 16-bit units.")] int? Offset, string? Opcode,
-    [property: Description("Uses in code (method and field hits).")] int? Uses);
+    [property: Description("Uses in code (method and field hits).")] int? Uses)
+{
+    [Description(DexService.OriginalDescription)]
+    public string? Original { get; init; }
+
+    public string? InOriginal { get; init; }
+}
 
 public sealed record DexHitList(IReadOnlyList<DexHit> Items, int Offset, int Total, IReadOnlyList<string> Notes);
 
@@ -65,6 +93,39 @@ public sealed record DexReferenceList(string Target, string TargetKind, string D
 /// <summary>DEX classes, members, search and cross-references of Android packages; indexes are kept per file while it is unchanged.</summary>
 public sealed class DexService
 {
+    public const string OriginalDescription = "Original name: mapping.txt, else recovered (marked).";
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<DexIndex, DexNames> _names = [];
+
+    /// <summary>
+    /// The name layer of a package: <paramref name="mapping"/> read and kept for later calls on the same package, else the one
+    /// kept, else the names recovered from Kotlin metadata and source files; null when there are none.
+    /// </summary>
+    public DexNames? Names(DexIndex index, string? mapping, CancellationToken ct)
+    {
+        if (mapping is { Length: > 0 } m)
+        {
+            var full = SafeFile.FullPath(m);
+            lock (_names)
+                if (_names.TryGetValue(index, out var kept) && kept.Mapping != null && InputFiles.SamePath(kept.Mapping, full)) return kept;
+            var read = DexNames.Read(full, index, ct);
+            lock (_names) _names.AddOrUpdate(index, read);
+            return read;
+        }
+        DexNames names;
+        lock (_names)
+            if (!_names.TryGetValue(index, out names!)) _names.Add(index, names = DexNames.Recovered(index));
+        return names.IsEmpty ? null : names;
+    }
+
+    /// <summary>A class or member spec as the package's id: as given when the package defines it, else translated from original names.</summary>
+    internal static string Resolve(DexIndex index, DexNames? names, string spec)
+    {
+        if (names == null) return spec;
+        bool member = spec.Contains("->", StringComparison.Ordinal) || spec.Contains("::", StringComparison.Ordinal) || spec.Contains('(', StringComparison.Ordinal);
+        if (!member && index.FindClass(spec) != null) return spec;
+        if (member && (index.FindMethods(spec).Count > 0 || index.FindFields(spec).Count > 0)) return spec;
+        return names.Translate(spec);
+    }
     private const int CacheCapacity = 4;
     private readonly LinkedList<(string Path, long Length, DateTime Written, DexIndex Index)> _cache = new();
     private readonly object _lock = new();
@@ -107,14 +168,16 @@ public sealed class DexService
         return new Regex(body, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
     }
 
-    public DexClassList ListClasses(string path, string? query, string? package, int offset, int limit, CancellationToken ct)
+    public DexClassList ListClasses(string path, string? query, string? package, int offset, int limit, CancellationToken ct, string? mapping = null)
     {
         var index = Index(path, ct);
+        var names = Names(index, mapping, ct);
         var pattern = Pattern(query);
         var prefix = package?.Trim().Replace('.', '/').Trim('/') is { Length: > 0 } p ? "L" + p + "/" : null;
         var rows = index.Classes.Values
-            .Where(e => prefix == null || e.Class.Descriptor.StartsWith(prefix, StringComparison.Ordinal))
-            .Where(e => pattern == null || pattern.IsMatch(DexFile.JavaName(e.Class.Descriptor)) || pattern.IsMatch(e.Class.Descriptor))
+            .Where(e => prefix == null || e.Class.Descriptor.StartsWith(prefix, StringComparison.Ordinal) || names?.Descriptor(e.Class.Descriptor)?.StartsWith(prefix, StringComparison.Ordinal) == true)
+            .Where(e => pattern == null || pattern.IsMatch(DexFile.JavaName(e.Class.Descriptor)) || pattern.IsMatch(e.Class.Descriptor)
+                        || names?.Display(e.Class.Descriptor) is { } original && pattern.IsMatch(original))
             .OrderBy(e => e.Class.Descriptor, StringComparer.Ordinal).ToList();
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
@@ -127,21 +190,22 @@ public sealed class DexService
             var source = e.Class.SourceFile;
             if (source?.StartsWith("r8-map-id-", StringComparison.Ordinal) == true) { r8.Add(source); source = null; }
             return new DexClassRow(e.Class.Descriptor, e.File.Name, DexFile.Access(e.Class.Access, 0), e.Class.SuperClass,
-                [.. interfaces.Take(3)], interfaces.Count > 3 ? interfaces.Count : null, methods.Count, fields.Count, source);
+                [.. interfaces.Take(3)], interfaces.Count > 3 ? interfaces.Count : null, methods.Count, fields.Count, source) { Original = names?.Display(e.Class.Descriptor) };
         }).ToList();
         List<string>? packages = null;
         if (offset == 0 && pattern == null && prefix == null)
             packages = [.. rows.GroupBy(e => e.Class.Descriptor.LastIndexOf('/') is var slash and > 0 ? DexFile.JavaName(e.Class.Descriptor[..slash] + ";") : "(default)")
                 .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal).Take(20).Select(g => $"{g.Key} {g.Count()}")];
-        var notes = offset == 0 ? index.Notes.ToList() : [];
+        var notes = offset == 0 ? [.. index.Notes, .. names?.Notes ?? []] : new List<string>();
         if (r8.Count > 0) notes.Add($"Source file attributes {string.Join(", ", r8)} are R8 map ids, left out of the rows.");
         return new DexClassList(page, offset, rows.Count, notes, packages);
     }
 
-    public DexClassDetail GetClass(string path, string name, CancellationToken ct)
+    public DexClassDetail GetClass(string path, string name, CancellationToken ct, string? mapping = null)
     {
         var index = Index(path, ct);
-        var entry = index.FindClass(name) ?? throw index.ClassNotFound(name);
+        var names = Names(index, mapping, ct);
+        var entry = index.FindClass(Resolve(index, names, name)) ?? throw index.ClassNotFound(name);
         var (f, c) = (entry.File, entry.Class);
         var (fields, methods) = f.ClassData(c);
         var annotations = f.Annotations(c);
@@ -153,7 +217,7 @@ public sealed class DexService
             var a = annotations.Fields.GetValueOrDefault(x.FieldIndex) ?? [];
             string? value = x.IsStatic && staticIndex < statics.Count ? statics[staticIndex].ToString() : null;
             if (x.IsStatic) staticIndex++;
-            return new DexFieldInfo(r.Descriptor, r.Name, r.Type, DexFile.Access(x.Access, 1), value, Signature(a), Shown(a));
+            return new DexFieldInfo(r.Descriptor, r.Name, r.Type, DexFile.Access(x.Access, 1), value, Signature(a), Shown(a)) { Original = names?.Display(r.Descriptor) };
         }).ToList();
         var methodInfos = methods.Select(x =>
         {
@@ -162,14 +226,15 @@ public sealed class DexService
             var code = x.CodeOffset != 0 ? f.Code(x.CodeOffset) : null;
             var parameterNames = code != null ? f.Debug(code.DebugInfoOffset).ParameterNames : [];
             return new DexMethodInfo(r.Descriptor, r.Name, JavaSignature(r, x.Access), DexFile.Access(x.Access, 2), code?.Instructions.Length, code?.Registers,
-                Signature(a), Shown(a), parameterNames);
+                Signature(a), Shown(a), parameterNames) { Original = names?.Display(r.Descriptor) };
         }).ToList();
         var system = annotations.Class;
         string? Element(string type, string name) => system.FirstOrDefault(a => a.Type == type)?.Elements.FirstOrDefault(e => e.Name == name).Value?.Value?.ToString();
         var inner = system.FirstOrDefault(a => a.Type == "Ldalvik/annotation/MemberClasses;")?.Elements.FirstOrDefault().Value?.Value as IReadOnlyList<DexValue> ?? [];
         return new DexClassDetail(c.Descriptor, DexFile.JavaName(c.Descriptor), f.Name, DexFile.Access(c.Access, 0), c.SuperClass, c.Interfaces, c.SourceFile,
             Signature(system), Element("Ldalvik/annotation/EnclosingClass;", "value"), Element("Ldalvik/annotation/EnclosingMethod;", "value"),
-            [.. inner.Select(v => v.Value?.ToString() ?? "")], Kotlin(system), Shown(system), fieldInfos, methodInfos);
+            [.. inner.Select(v => v.Value?.ToString() ?? "")], Kotlin(system), Shown(system), fieldInfos, methodInfos)
+        { Original = names?.Display(c.Descriptor), Notes = names?.Notes ?? [] };
     }
 
     private static string? Signature(IReadOnlyList<DexAnnotation> annotations) =>
@@ -199,9 +264,11 @@ public sealed class DexService
         return r.Name == "<init>" ? $"{head}{DexFile.JavaName(r.Class)}({parameters})" : $"{head}{DexFile.JavaName(r.Proto.ReturnType)} {r.Name}({parameters})";
     }
 
-    public DexHitList Search(string path, string kind, string query, int offset, int limit, CancellationToken ct)
+    public DexHitList Search(string path, string kind, string query, int offset, int limit, CancellationToken ct, string? mapping = null)
     {
         var index = Index(path, ct);
+        var names = Names(index, mapping, ct);
+        bool Original(string id) => names?.Display(id) is { } o && Pattern(query)!.IsMatch(o);
         var pattern = Pattern(query) ?? throw new ToolError(ErrorCode.InvalidArgument, "query is empty.");
         index.EnsureCode(ct);
         var hits = new List<DexHit>();
@@ -223,12 +290,12 @@ public sealed class DexService
                 if (poolOnly > 0) notes.Add($"{poolOnly} more matching string(s) are in the pools but not loaded by code (names, descriptors, annotation values).");
                 break;
             case "type" or "class":
-                foreach (var c in index.Classes.Values.Where(c => pattern.IsMatch(c.Class.Descriptor) || pattern.IsMatch(DexFile.JavaName(c.Class.Descriptor))))
+                foreach (var c in index.Classes.Values.Where(c => pattern.IsMatch(c.Class.Descriptor) || pattern.IsMatch(DexFile.JavaName(c.Class.Descriptor)) || Original(c.Class.Descriptor)))
                     hits.Add(new("class", c.Class.Descriptor, null, null, null, null));
                 foreach (var r in index.Refs.Where(r => r.Kind == DexRefKind.Type))
                 {
                     var t = index.KeyText(r.Target);
-                    if (hits.Count < MaxHits && (pattern.IsMatch(t) || pattern.IsMatch(DexFile.JavaName(t)))) hits.Add(new("type", t, index.KeyText(r.From), r.Offset, Op(r.Opcode), null));
+                    if (hits.Count < MaxHits && (pattern.IsMatch(t) || pattern.IsMatch(DexFile.JavaName(t)) || Original(t))) hits.Add(new("type", t, index.KeyText(r.From), r.Offset, Op(r.Opcode), null));
                 }
                 break;
             case "method" or "field":
@@ -242,7 +309,7 @@ public sealed class DexService
                     var arrow = d.IndexOf("->", StringComparison.Ordinal);
                     var name = d[(arrow + 2)..];
                     name = name[..name.IndexOfAny(['(', ':'])];
-                    if (pattern.IsMatch(name) || pattern.IsMatch(d))
+                    if (pattern.IsMatch(name) || pattern.IsMatch(d) || Original(d))
                         hits.Add(new(method ? "method" : "field", d, null, null, null, uses.GetValueOrDefault(d)));
                 }
                 hits.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
@@ -271,6 +338,15 @@ public sealed class DexService
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
         var page = hits.Skip(offset).Take(limit).ToList();
+        if (names != null)
+        {
+            page = [.. page.Select(h => h with
+            {
+                Original = h.Kind is "class" or "type" or "method" or "field" ? names.Display(h.Value) : null,
+                InOriginal = h.Method != null ? names.Display(h.Method) : null,
+            })];
+            if (offset == 0) notes.AddRange(names.Notes);
+        }
         return new DexHitList(page, offset, hits.Count, notes);
     }
 
@@ -292,10 +368,16 @@ public sealed class DexService
     }
 
     /// <summary>Smali of one method (exact id or a single overload) or of a whole class.</summary>
-    public string Disassemble(string path, string symbol, bool annotated, CancellationToken ct)
+    public string Disassemble(string path, string symbol, bool annotated, CancellationToken ct, string? mapping = null)
     {
         var index = Index(path, ct);
-        symbol = symbol.Trim();
+        var names = Names(index, mapping, ct);
+        var text = Disassemble(index, Resolve(index, names, symbol.Trim()), annotated, ct);
+        return names == null ? text : string.Concat(names.Notes.Select(n => $"# {n}\n")) + names.Annotate(text);
+    }
+
+    private static string Disassemble(DexIndex index, string symbol, bool annotated, CancellationToken ct)
+    {
         bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
         if (!member && index.FindClass(symbol) is { } cls)
         {
@@ -325,6 +407,7 @@ public sealed class DexService
             var d => throw new ToolError(ErrorCode.InvalidArgument, $"unknown direction '{d}'; use to (who refers to the target) or from (what the target refers to)."),
         };
         index.EnsureCode(ct);
+        if (!target.Trim().StartsWith('"')) target = Resolve(index, Names(index, null, ct), target.Trim());
         var (targetKind, keys, label) = ResolveTarget(index, target.Trim(), (kind ?? "auto").Trim().ToLowerInvariant(), from);
         var notes = new List<string>();
         IEnumerable<DexRef> refs;

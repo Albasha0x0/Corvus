@@ -22,6 +22,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [property: Description("SHA-256 of the bytes written.")] string? Sha256);
 
     public const string CodeDescription = "An Android package, a .dex, or a jar with classes*.dex.";
+    private const string MappingDescription = "R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package.";
 
     [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true, OutputSchemaType = typeof(AndroidManifestView))]
     [Description("AndroidManifest.xml of an Android package, decoded. view=summary (default): package, versions, SDKs, permissions, application " +
@@ -162,10 +163,11 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Only this package and its subpackages.")] string? package = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most classes.")] int limit = 100,
+        [Description(MappingDescription)] string? mapping = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
-        var r = dex.ListClasses(path, query, package, offset, ClampLimit(limit), cancellationToken);
-        static string Row(DexClassRow c) => $"{c.Descriptor}  [{string.Join("; ", new[]
+        var r = dex.ListClasses(path, query, package, offset, ClampLimit(limit), cancellationToken, mapping);
+        static string Row(DexClassRow c) => $"{c.Descriptor}{(c.Original != null ? " = " + c.Original : "")}  [{string.Join("; ", new[]
         {
             c.Access.Length > 0 ? c.Access : null,
             c.Super is { } s && s != "Ljava/lang/Object;" ? "extends " + s : null,
@@ -187,6 +189,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Only members whose name contains this.")] string? query = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most members.")] int limit = 150,
+        [Description(MappingDescription)] string? mapping = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var (fields, methods) = (members ?? "all").Trim().ToLowerInvariant() switch
@@ -196,17 +199,17 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
             "methods" or "method" => (false, true),
             var m => throw new ToolError(ErrorCode.InvalidArgument, $"unknown members '{m}'; use all, fields or methods."),
         };
-        var c = dex.GetClass(path, @class, cancellationToken);
+        var c = dex.GetClass(path, @class, cancellationToken, mapping);
         bool Wanted(string name) => query is not { Length: > 0 } q || name.Contains(q, StringComparison.OrdinalIgnoreCase);
         static IReadOnlyList<T>? Some<T>(IReadOnlyList<T> list) => list.Count > 0 ? list : null;
         var all = (fields ? c.Fields.Where(f => Wanted(f.Name)).Select(f => new DexMember("field", f.Id, f.Access, $"{DexFile.JavaName(f.Type)} {f.Name}", f.Value, null, null,
-                       f.GenericSignature, Some(f.Annotations), null)) : [])
+                       f.GenericSignature, Some(f.Annotations), null) { Original = f.Original }) : [])
             .Concat(methods ? c.Methods.Where(m => Wanted(m.Name)).Select(m => new DexMember("method", m.Id, m.Access, m.Signature, null, m.CodeUnits, m.Registers,
-                       m.GenericSignature, Some(m.Annotations), m.ParameterNames.Any(n => n != null) ? m.ParameterNames : null)) : []).ToList();
+                       m.GenericSignature, Some(m.Annotations), m.ParameterNames.Any(n => n != null) ? m.ParameterNames : null) { Original = m.Original }) : []).ToList();
         var page = all.Skip(Math.Max(0, offset)).Take(ClampLimit(limit)).ToList();
         var record = new DexClassPage(c.Descriptor, c.JavaName, c.DexFile, c.Access, c.Super, c.Interfaces, c.SourceFile, c.GenericSignature, c.EnclosingClass,
-            c.EnclosingMethod, c.InnerClasses, c.Kotlin, c.Annotations, c.Fields.Count, c.Methods.Count, page, Math.Max(0, offset), all.Count);
-        var header = new System.Text.StringBuilder($"{c.Descriptor} ({c.DexFile}) {c.Access}");
+            c.EnclosingMethod, c.InnerClasses, c.Kotlin, c.Annotations, c.Fields.Count, c.Methods.Count, page, Math.Max(0, offset), all.Count) { Original = c.Original };
+        var header = new System.Text.StringBuilder(string.Concat(c.Notes.Select(n => $"Note: {n}\n")) + $"{c.Descriptor}{(c.Original != null ? " = " + c.Original : "")} ({c.DexFile}) {c.Access}");
         if (c.Super is { } s) header.Append($" extends {s}");
         if (c.Interfaces.Count > 0) header.Append($" implements {string.Join(", ", c.Interfaces)}");
         header.Append('\n');
@@ -219,7 +222,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         Line("Kotlin", c.Kotlin);
         foreach (var a in c.Annotations) header.Append(a).Append('\n');
         header.Append($"{c.Fields.Count} fields, {c.Methods.Count} methods\n");
-        static string Row(DexMember m) => $"{m.Kind} {m.Id}  {m.Declaration}{(m.Value != null ? " = " + m.Value : "")}"
+        static string Row(DexMember m) => $"{m.Kind} {m.Id}  {m.Declaration}{(m.Value != null ? " = " + m.Value : "")}{(m.Original != null ? "  (original " + m.Original + ")" : "")}"
             + (m.CodeUnits is { } u ? $"  [{u} units, {m.Registers} registers{(m.ParameterNames != null ? "; params " + string.Join(", ", m.ParameterNames.Select(n => n ?? "?")) : "")}]" : "")
             + (m.GenericSignature != null ? $"  signature {m.GenericSignature}" : "") + (m.Annotations != null ? "  " + string.Join(" ", m.Annotations) : "");
         return ToolOutput.List(page, record.Offset, ClampLimit(limit), all.Count, Row, rows => record with { Items = rows }, "member", header.ToString());
@@ -233,13 +236,14 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Output layout (default smali).")] string? format = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
+        [Description(MappingDescription)] string? mapping = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => pager.Page(dex.Disassemble(path, symbol, (format ?? "smali").Trim().ToLowerInvariant() switch
         {
             "smali" or "" => false,
             "annotated" => true,
             var f => throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{f}'; use smali or annotated."),
-        }, cancellationToken), offset, maxTokens), cancellationToken);
+        }, cancellationToken, mapping), offset, maxTokens), cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
     [Description("Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+). A member, " +
@@ -251,6 +255,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Decompiler.")] string? engine = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
+        [Description(MappingDescription)] string? mapping = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
@@ -259,7 +264,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         var text = await OrderedProgress.Run(context, progress =>
         {
             progress.Report(new ProgressNotificationValue { Progress = 0, Message = "JADX: starting and loading the package (once per package)" });
-            return Task.Run(() => java.Decompile(path, symbol, !javaOnly, cancellationToken), cancellationToken);
+            return Task.Run(() => java.Decompile(path, symbol, !javaOnly, cancellationToken, mapping), cancellationToken);
         }).ConfigureAwait(false);
         return pager.Page(text, offset, maxTokens);
     }
@@ -314,12 +319,14 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Case-insensitive substring or * / ? pattern; for const a number.")] string query,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most hits.")] int limit = 100,
+        [Description(MappingDescription)] string? mapping = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
         progress.Report(new ProgressNotificationValue { Progress = 0, Message = "indexing the DEX code (once per package)" });
-        var r = dex.Search(path, kind, query, offset, ClampLimit(limit), cancellationToken);
-        static string Row(DexHit h) => $"{h.Kind} {h.Value}" + (h.Method != null ? $"  in {h.Method} @{h.Offset} {h.Opcode}" : "") + (h.Uses is { } u ? $"  ({u} uses)" : "");
+        var r = dex.Search(path, kind, query, offset, ClampLimit(limit), cancellationToken, mapping);
+        static string Row(DexHit h) => $"{h.Kind} {h.Value}{(h.Original != null ? " = " + h.Original : "")}" + (h.Method != null ? $"  in {h.Method}{(h.InOriginal != null ? " (" + h.InOriginal + ")" : "")} @{h.Offset} {h.Opcode}" : "")
+                                       + (h.Uses is { } u ? $"  ({u} uses)" : "");
         return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit), r.Total, Row, rows => r with { Items = rows }, "hit", string.Concat(r.Notes.Select(n => $"Note: {n}\n")));
     }, cancellationToken));
 

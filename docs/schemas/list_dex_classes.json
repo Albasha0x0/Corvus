@@ -37,6 +37,10 @@
           },
           "sourceFile": {
             "type": "string"
+          },
+          "original": {
+            "description": "Original name: mapping.txt, else recovered (marked).",
+            "type": "string"
           }
         },
         "required": [

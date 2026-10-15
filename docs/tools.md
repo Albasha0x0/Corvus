@@ -2371,6 +2371,7 @@ Classes defined in an Android package's DEX code (every classes*.dex): descripto
 | `package` | string |  |  | Only this package and its subpackages. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Most classes. |
+| `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
 Structured output: `items`, `offset`, `total`, `notes`, `packages`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2388,8 +2389,9 @@ One DEX class: superclass, interfaces, generic signature, enclosing and inner cl
 | `query` | string |  |  | Only members whose name contains this. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `150` | Most members. |
+| `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
-Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`, `items`, `offset`, `total`, `original`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### disassemble_dex
 
@@ -2404,6 +2406,7 @@ Smali (baksmali layout) of a DEX method or class; a class starts with its method
 | `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
 | `offset` | integer |  |  | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+| `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -2421,6 +2424,7 @@ Java source of a class or method of an Android package or a jar through JADX (CO
 | `engine` | string |  |  | Decompiler. Values: jadx. |
 | `offset` | integer |  |  | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+| `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -2437,6 +2441,7 @@ Search DEX code. kind=string: literals with the method and offset of each use; t
 | `query` | string | yes |  | Case-insensitive substring or * / ? pattern; for const a number. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Most hits. |
+| `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
 Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

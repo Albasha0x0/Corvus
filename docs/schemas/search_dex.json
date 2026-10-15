@@ -28,6 +28,13 @@
           "uses": {
             "description": "Uses in code (method and field hits).",
             "type": "integer"
+          },
+          "original": {
+            "description": "Original name: mapping.txt, else recovered (marked).",
+            "type": "string"
+          },
+          "inOriginal": {
+            "type": "string"
           }
         },
         "required": [
