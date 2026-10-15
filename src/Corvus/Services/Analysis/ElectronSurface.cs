@@ -1,11 +1,19 @@
 namespace Corvus.Services.Analysis;
 
 /// <summary>
-/// One place where an Electron app's JavaScript crosses a boundary: a preload script, a key exposed through contextBridge,
-/// an IPC channel handled in main or used from a renderer, a sink (child_process, shell), or a native add-on loaded.
-/// <see cref="Value"/> is the channel or key when it is a string literal, else the expression; <see cref="Site"/> is file:line:column.
+/// One place where an Electron app's JavaScript crosses a boundary: a window and its preload script, a key or method exposed
+/// through contextBridge, an IPC channel handled in main or used from a renderer, a sink (child_process, fs, shell), or a
+/// native add-on loaded or called. <see cref="Value"/> is the channel, key or function when it resolves to a string, else
+/// the expression; <see cref="Site"/> is file:line:column.
 /// </summary>
-public sealed record ElectronRow(string Kind, string Value, string Site);
+public sealed record ElectronRow(string Kind, string Value, string Site)
+{
+    [System.ComponentModel.Description("The call: ipcMain.handle, ipcRenderer.invoke (via a wrapper or bridge method when one forwards the channel), webContents.send, new BrowserWindow, child_process.execSync...")]
+    public string? Call { get; init; }
+
+    [System.ComponentModel.Description("IPC: the other side's sites (paired) or unpaired; window: its preload; bridge-method: the channels it sends; native-call: the add-on.")]
+    public string? Link { get; init; }
+}
 
 /// <summary>The surface rows of one script, found by their call shapes (minified code keeps these property names).</summary>
 internal static class ElectronSurface

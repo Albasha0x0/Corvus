@@ -17,43 +17,81 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
 
     public IEnumerable<ContainerMatch> Search(ContainerScope scope, string kind, Func<string, bool> matches, CancellationToken ct)
     {
-        var addons = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var addons = new Dictionary<string, Addon?>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in Rows(scope, ct))
-            if (matches(row.Value) || matches(row.Kind))
+            if (matches(row.Value) || matches(row.Kind) || row.Call != null && matches(row.Call))
             {
                 var file = row.Site[..row.Site.IndexOf(':')];
-                var detail = $"{row.Kind} at {row.Site}";
-                if (row.Kind == "native-require" && Addon(scope.Source, file, row.Value, addons, ct) is { } exports) detail += "; " + exports;
+                var detail = $"{row.Kind} at {row.Site}" + (row.Call != null ? $" ({row.Call})" : "") + (row.Link != null ? "; " + row.Link : "");
+                if (row.Kind == "native-require" && Find(scope.Source, file, row.Value, addons, ct) is { } addon) detail += "; " + addon.Summary;
+                else if (row is { Kind: "native-call", Link: { } request } && Find(scope.Source, file, request, addons, ct) is { } called) detail += "; " + called.Join(row.Value);
                 yield return new ContainerMatch(file, row.Value, "electron") { Detail = detail };
             }
+    }
+
+    /// <summary>An add-on with its N-API registrations: a summary line, and the native function a JavaScript name reaches.</summary>
+    private sealed record Addon(string Path, ulong ImageBase, IReadOnlyList<Native.NodeApi.Registration> Registrations)
+    {
+        public string Summary => $"add-on {Path}: {Registrations.Count} N-API registration(s)" +
+                                 (Registrations.Count > 0 ? ": " + string.Join(", ", Registrations.Select(r => r.JsName).Distinct().Take(12)) + (Registrations.Count > 12 ? ", ..." : "") : "");
+
+        /// <summary>The registration of <paramref name="name"/> (a function, Class.method, or a class constructed with new).</summary>
+        public string Join(string name)
+        {
+            var hit = Registrations.FirstOrDefault(r => r.JsName == name) ?? Registrations.FirstOrDefault(r => r.JsName.EndsWith("." + name, StringComparison.Ordinal));
+            return hit != null
+                ? $"native {Path} 0x{ImageBase + hit.Function:X} (RVA 0x{hit.Function:X}, {hit.Kind} '{hit.JsName}')"
+                : $"add-on {Path}: no N-API registration named '{name}' read ({Registrations.Count} read)";
+        }
     }
 
     /// <summary>
     /// The add-on a require names, beside the requiring script under the app's unpacked files (app.asar.unpacked, the
     /// or resources/app.asar.unpacked beside an executable), with the JavaScript names its N-API registrations expose.
     /// </summary>
-    private static string? Addon(string source, string script, string request, Dictionary<string, string?> seen, CancellationToken ct)
+    private static Addon? Find(string source, string script, string request, Dictionary<string, Addon?> seen, CancellationToken ct)
     {
-        if (!request.EndsWith(".node", StringComparison.OrdinalIgnoreCase) || !request.StartsWith('.')) return null;
         var root = source.EndsWith(".asar", StringComparison.OrdinalIgnoreCase) ? source + ".unpacked"
             : Path.Combine(Path.GetDirectoryName(source) ?? "", "resources", "app.asar.unpacked");
-        var path = Path.GetFullPath(Path.Combine(root, Path.GetDirectoryName(script) ?? "", request));
-        if (!path.StartsWith(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase) || !File.Exists(path)) return null;
+        if (!Directory.Exists(root)) return null;
+        var path = Locate(root, script, request);
+        if (path == null || !Path.GetFullPath(path).StartsWith(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase) || !File.Exists(path)) return null;
         if (seen.TryGetValue(path, out var known)) return known;
-        string? result = null;
+        Addon? result = null;
         try
         {
             var image = Native.NativeImageLoader.Open(path);
             if (Native.NodeApi.IsAddon(image))
-            {
-                var registrations = Native.NodeApi.Find(Native.Code.NativeCodeIndex.Build(image, ct: ct), ct).Registrations;
-                result = $"add-on {Path.GetRelativePath(root, path).Replace('\\', '/')}: {registrations.Count} N-API registration(s)" +
-                         (registrations.Count > 0 ? ": " + string.Join(", ", registrations.Select(r => r.JsName).Distinct().Take(12)) + (registrations.Count > 12 ? ", ..." : "") : "");
-            }
+                result = new Addon(Path.GetRelativePath(root, path).Replace('\\', '/'), image.ImageBase,
+                    Native.NodeApi.Find(Native.Code.NativeCodeIndex.Build(image, ct: ct), ct).Registrations);
         }
         catch (ToolError) { }
         seen[path] = result;
         return result;
+    }
+
+    /// <summary>
+    /// The .node file a request names: a relative path from the requiring script, bindings('name') (build/Release, any
+    /// folder, first match), or a package under node_modules holding an add-on (the one built for this OS when several).
+    /// </summary>
+    private static string? Locate(string root, string script, string request)
+    {
+        if (request.StartsWith('.')) return Path.GetFullPath(Path.Combine(root, Path.GetDirectoryName(script) ?? "", request));
+        var options = new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 8, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true };
+        try
+        {
+            if (request.StartsWith("bindings:", StringComparison.Ordinal))
+            {
+                var name = request["bindings:".Length..];
+                if (!name.EndsWith(".node", StringComparison.OrdinalIgnoreCase)) name += ".node";
+                return Directory.EnumerateFiles(root, Path.GetFileName(name), options).OrderBy(f => f.Contains("Release", StringComparison.Ordinal) ? 0 : 1).FirstOrDefault();
+            }
+            var package = Path.Combine(root, "node_modules", request.Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(package)) return null;
+            var os = OperatingSystem.IsWindows() ? "win32" : OperatingSystem.IsMacOS() ? "darwin" : "linux";
+            return Directory.EnumerateFiles(package, "*.node", options).OrderBy(f => Path.GetFileName(f).Contains(os, StringComparison.Ordinal) ? 0 : 1).FirstOrDefault();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     private static List<ElectronRow> Rows(ContainerScope scope, CancellationToken ct)
@@ -70,6 +108,8 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
         if (Blob.Identify(head) == "zip")
         {
             using var zip = ZipFile.OpenRead(source);
+            var names = zip.Entries.Select(e => e.FullName.Replace('\\', '/')).ToHashSet(StringComparer.Ordinal);
+            var graph = new ElectronGraph { Exists = names.Contains };
             foreach (var e in zip.Entries)
             {
                 ct.ThrowIfCancellationRequested();
@@ -78,9 +118,9 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
                 using var s = e.Open();
                 using var copy = new MemoryStream();
                 s.CopyTo(copy);
-                if (!Add(path, copy.ToArray())) break;
+                graph.Add(path, Encoding.UTF8.GetString(copy.ToArray()), ct);
             }
-            return rows;
+            return graph.Finish();
         }
         // an Electron executable or .asar: the facts summarize_file reports
         try
@@ -90,12 +130,6 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         return rows;
-
-        bool Add(string path, byte[] bytes)
-        {
-            ElectronSurface.Scan(Encoding.UTF8.GetString(bytes), path, rows);
-            return rows.Count < ElectronSurface.MaxRows;
-        }
     }
 
     private static bool IsAppScript(string p) =>

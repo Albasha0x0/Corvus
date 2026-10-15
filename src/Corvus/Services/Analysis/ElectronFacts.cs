@@ -52,6 +52,8 @@ public sealed record ElectronFacts(
         if (Surface.Count > 0)
             yield return "Surface: " + string.Join(", ", Surface.GroupBy(r => r.Kind).Select(g => $"{g.Count()} {g.Key}")) +
                          " (search_container kind=electron lists them).";
+        if (ElectronGraph.Pairing(Surface) is ({ } channels and > 0, var paired))
+            yield return $"IPC: {paired} of {channels} literal channel(s) have both a sender and a listener.";
 
         static string Join(IEnumerable<Electron.Fuse> fuses) => fuses.Any() ? string.Join(", ", fuses.Select(f => f.Name)) : "none";
     }
@@ -70,7 +72,11 @@ internal static class ElectronInspector
     };
 
     /// <summary>The app's files: listing and bounded reads, from an archive or a resources/app folder.</summary>
-    private sealed record AppFiles(string Label, IReadOnlyList<(string Path, long Size)> Files, Func<string, byte[]?> Read);
+    private sealed record AppFiles(string Label, IReadOnlyList<(string Path, long Size)> Files, Func<string, byte[]?> Read)
+    {
+        /// <summary>Where the app's native add-ons are: app.asar.unpacked, or the app folder itself.</summary>
+        public string? Unpacked { get; init; }
+    }
 
     /// <summary>Facts for an Electron executable or .asar; null for anything else.</summary>
     public static ElectronFacts? Of(string path, byte[] bytes, CancellationToken ct)
@@ -122,7 +128,7 @@ internal static class ElectronInspector
                     var s = stream;
                     app = new AppFiles(Path.GetFileName(archivePath),
                         a.Entries.Where(e => e.Kind == AsarEntryKind.File && !e.UnsafeName).Select(e => (e.Path, e.Size)).ToList(),
-                        p => a.Find(p) is { Unpacked: false } e ? a.ReadPacked(s, e, MaxScriptBytes) : null);
+                        p => a.Find(p) is { Unpacked: false } e ? a.ReadPacked(s, e, MaxScriptBytes) : null) { Unpacked = archivePath + ".unpacked" };
                     notes.AddRange(a.Issues.Take(5).Select(i => "archive: " + i));
                 }
                 catch (ToolError ex) { notes.Add($"{archivePath}: {ex.Message}"); }
@@ -132,7 +138,8 @@ internal static class ElectronInspector
             var package = app != null ? Package(app, notes) : null;
             var surface = new List<ElectronRow>();
             var settings = app != null ? WebPreferences(app, package?.Main, notes, surface, ct) : [];
-            surface.InsertRange(0, settings.Where(s => s.Setting == "preload").Select(s => new ElectronRow("preload", s.Value, s.Site)));
+            if (!surface.Any(r => r.Kind == "preload"))
+                surface.InsertRange(0, settings.Where(s => s.Setting == "preload").Select(s => new ElectronRow("preload", s.Value, s.Site)));
             return new ElectronFacts(binary?.Path, binary?.ElectronVersion, binary?.ChromiumVersion, binary?.NodeVersion, binary?.Evidence ?? [],
                 binary?.FuseWireVersion, binary?.Fuses ?? [], archive, package, settings, surface, notes);
         }
@@ -160,7 +167,7 @@ internal static class ElectronInspector
                 return Blob.ReadBounded(s, MaxScriptBytes);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError) { return null; }
-        });
+        }) { Unpacked = root };
     }
 
     private static ElectronPackage? Package(AppFiles app, List<string> notes)
@@ -195,6 +202,8 @@ internal static class ElectronInspector
         var scripts = app.Files.Where(f => IsScript(f.Path) && !f.Path.StartsWith("node_modules/", StringComparison.Ordinal) && !f.Path.Contains("/node_modules/", StringComparison.Ordinal))
             .OrderBy(f => main != null && (f.Path == main || f.Path == main + ".js") ? 0 : 1).ThenBy(f => f.Path, StringComparer.Ordinal).ToList();
         var result = new List<ElectronSetting>();
+        var paths = app.Files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+        var graph = new ElectronGraph { AddonPackages = app.Unpacked != null ? ElectronGraph.Addons(app.Unpacked) : new HashSet<string>(), Exists = paths.Contains };
         long scanned = 0;
         int files = 0;
         foreach (var (path, size) in scripts)
@@ -212,8 +221,10 @@ internal static class ElectronInspector
             scanned += bytes.Length;
             var text = Encoding.UTF8.GetString(bytes);
             Scan(text, path, result);
-            ElectronSurface.Scan(text, path, surface);
+            graph.Add(path, text, ct);
         }
+        surface.AddRange(graph.Finish());
+        notes.AddRange(graph.Notes.Take(5));
         return result;
     }
 
