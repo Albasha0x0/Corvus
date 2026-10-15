@@ -19,25 +19,36 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     [Description("First look at a file or loaded assembly, never executed: type, hashes, signature, container wrapping (bundles, packages, APKs, " +
                  "zips, Costura opened), its assemblies, highlights (toolchain, ATT&CK features, packers), entry points, value counts. " +
                  "view= gives the details: managed (identity, markers, features, values), native (ELF/Mach-O, packers, NativeAOT; " +
-                 "a loaded image's triage), android, apple, electron, flutter, go, nib, pcap, plist, rust, sqlite, all; views lists those that apply.")]
+                 "a loaded image's triage), android, apple, electron, flutter, go, nib, pcap, plist, rust, sqlite (-wal applied; table= pages rows), " +
+                 "sqlite-recover (deleted rows carved), all; views lists those that apply.")]
     public Task<string> SummarizeFile(
         [Description("Any file (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder; this or assembly.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("overview (default) or a view the overview lists.")] string view = "overview",
+        [Description("sqlite, sqlite-recover: the table to page.")] string? table = null,
+        [Description("With table=: these columns (rowid too).")] string[]? columns = null,
+        [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
+        [Description(ToolSupport.LimitDescription)] int? limit = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
+            var name = string.IsNullOrWhiteSpace(view) ? "overview" : view.Trim().ToLowerInvariant();
+            if ((table != null || columns != null || offset != 0 || limit != null) && name is not ("sqlite" or "sqlite-recover"))
+                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover.",
+                    "pass view=sqlite with table=, or drop them");
+            if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
+            var options = new FileViewOptions(name, table, columns, offset, limit);
             var native = NativeNamed(assembly, path);
             InspectionService.FileSummary summary;
-            if (native == null || code == null) summary = await Task.Run(() => inspection.Summarize(assembly, path, cancellationToken), cancellationToken);
+            if (native == null || code == null) summary = await Task.Run(() => inspection.Summarize(assembly, path, cancellationToken, options), cancellationToken);
             else
             {
                 var index = await code.Index(native, new Progress<Corvus.Native.Code.CodeIndexProgress>(p => progress.Report(new ProgressNotificationValue
                     { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), cancellationToken);
-                summary = await Task.Run(() => inspection.Summarize(null, native.FilePath, cancellationToken), cancellationToken);
+                summary = await Task.Run(() => inspection.Summarize(null, native.FilePath, cancellationToken, options), cancellationToken);
                 summary = summary with { Triage = await Task.Run(() => NativeTriageBuilder.Build(index, cancellationToken), cancellationToken) };
             }
-            var record = ContainerText.Summary(summary, string.IsNullOrWhiteSpace(view) ? "overview" : view);
+            var record = ContainerText.Summary(summary, name);
             return ToolOutput.Report(ContainerText.Summary(record), record);
         });
 

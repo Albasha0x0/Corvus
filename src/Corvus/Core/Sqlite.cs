@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO.MemoryMappedFiles;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -14,15 +15,104 @@ public sealed record SqliteBlob(long Length, byte[] Head);
 public sealed record SqliteRow(long? RowId, IReadOnlyList<object?> Values);
 
 /// <summary>
-/// A SQLite 3 database file read through its own B-tree reader: header, sqlite_schema, row counts and the first rows
-/// of a table. No SQL is run and no native library is used; a -wal file is not read. Every walk is bounded (page visits,
-/// cells, payload bytes) and a page reached twice in one walk ends it, so a malformed file gives issues, never an exception.
+/// A table's shape from its CREATE TABLE: columns in declaration order with their type affinity, the INTEGER PRIMARY KEY
+/// column (a rowid alias, -1 when none) and, for a WITHOUT ROWID table, the column each stored value belongs to
+/// (primary key columns are stored first).
 /// </summary>
-public sealed class SqliteDatabase
+public sealed record SqliteTable(string Name, long RootPage, IReadOnlyList<string> Columns, IReadOnlyList<char> Affinities, int RowIdAlias, bool WithoutRowId,
+    IReadOnlyList<int> StoredOrder)
+{
+    /// <summary>The values of a stored row in declaration order, the rowid alias filled in.</summary>
+    public object?[] Shape(SqliteRow row)
+    {
+        var values = new object?[Math.Max(Columns.Count, row.Values.Count)];
+        for (int i = 0; i < row.Values.Count; i++)
+        {
+            int c = i < StoredOrder.Count ? StoredOrder[i] : i;
+            // a REAL column stores an integral value as an integer; it reads back as a real
+            values[c] = row.Values[i] is long l && c < Affinities.Count && Affinities[c] == 'R' ? (double)l : row.Values[i];
+        }
+        if (RowIdAlias >= 0 && values[RowIdAlias] == null && row.RowId is { } id) values[RowIdAlias] = id;
+        return values;
+    }
+}
+
+/// <summary>Bytes read by offset: a byte array, or a read-only memory-mapped file read in place without a copy of the file.</summary>
+public abstract class SqliteSource : IDisposable
+{
+    public abstract long Length { get; }
+
+    /// <summary>Reads up to <paramref name="into"/>.Length bytes at <paramref name="offset"/>; the count read.</summary>
+    public abstract int Read(long offset, Span<byte> into);
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing) { }
+
+    public static SqliteSource Of(byte[] data) => new ArraySource(data);
+
+    /// <summary>The file mapped read-only (other writers allowed); null when it is missing or empty.</summary>
+    public static SqliteSource? Map(string path)
+    {
+        if (!File.Exists(path) || new FileInfo(path).Length == 0) return null;
+        var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        try
+        {
+            var map = MemoryMappedFile.CreateFromFile(file, null, 0, MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
+            return new MappedSource(map, map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read), file.Length);
+        }
+        catch { file.Dispose(); throw; }
+    }
+
+    private sealed class ArraySource(byte[] data) : SqliteSource
+    {
+        public override long Length => data.Length;
+
+        public override int Read(long offset, Span<byte> into)
+        {
+            if (offset < 0 || offset >= data.Length) return 0;
+            int n = (int)Math.Min(into.Length, data.Length - offset);
+            data.AsSpan((int)offset, n).CopyTo(into);
+            return n;
+        }
+    }
+
+    private sealed class MappedSource(MemoryMappedFile map, MemoryMappedViewAccessor view, long length) : SqliteSource
+    {
+        public override long Length => length;
+
+        public override int Read(long offset, Span<byte> into)
+        {
+            if (offset < 0 || offset >= length) return 0;
+            int n = (int)Math.Min(into.Length, length - offset);
+            view.SafeMemoryMappedViewHandle.ReadSpan((ulong)(offset + view.PointerOffset), into[..n]);
+            return n;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            view.Dispose();
+            map.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+}
+
+/// <summary>
+/// A SQLite 3 database file read through its own B-tree reader: header, sqlite_schema, row counts and rows by position,
+/// with the committed frames of a -wal file applied when one is given. No SQL is run and no native library is used. Pages
+/// are read on demand (a small cache), so a large file is never held whole. Every walk is bounded (page visits, cells,
+/// payload bytes) and a page reached twice in one walk ends it, so a malformed file gives issues, never an exception.
+/// </summary>
+public sealed partial class SqliteDatabase
 {
     public int PageSize { get; private set; }
     public int ReservedBytes { get; private set; }
-    /// <summary>Pages in the database: the header's count when valid, else the file length over the page size.</summary>
+    /// <summary>Pages in the database: the last WAL commit's count, else the header's count when valid, else the file length over the page size.</summary>
     public long PageCount { get; private set; }
     public long FileLength { get; private set; }
     public string TextEncoding { get; private set; } = "UTF-8";
@@ -30,11 +120,14 @@ public sealed class SqliteDatabase
     public bool Wal { get; private set; }
     public uint SchemaFormat { get; private set; }
     public uint FreelistPages { get; private set; }
+    public uint FirstFreelistTrunk { get; private set; }
     public uint UserVersion { get; private set; }
     public uint ApplicationId { get; private set; }
     public bool AutoVacuum { get; private set; }
     /// <summary>SQLITE_VERSION_NUMBER of the library that last wrote the file, as 3.x.y.</summary>
     public string? WriterVersion { get; private set; }
+    /// <summary>The -wal file given to <see cref="Open(SqliteSource, SqliteSource?, CancellationToken)"/>; its committed frames are applied.</summary>
+    public SqliteWalLog? WalLog { get; private set; }
     public List<SqliteSchemaEntry> Schema { get; } = [];
     public List<string> Issues { get; } = [];
 
@@ -42,58 +135,81 @@ public sealed class SqliteDatabase
     private const int MaxSchemaRows = 10_000;
     private const int MaxPayload = 64 * 1024;
     private const int MaxColumns = 2_000;
+    private const int CachePages = 512;
 
-    private readonly byte[] _data;
+    private readonly SqliteSource _db;
+    private SqliteSource? _wal, _walFile;
+    private readonly Dictionary<long, byte[]> _cache = [];
+    private readonly Queue<long> _cached = new();
+    private readonly Dictionary<long, long> _counts = [];
     private Encoding _text = Encoding.UTF8;
     private int _usable;
     private long _visits;
 
-    private SqliteDatabase(byte[] data) => _data = data;
+    private SqliteDatabase(SqliteSource db) => _db = db;
 
     public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 100 && b[..16].SequenceEqual("SQLite format 3\0"u8);
 
     /// <summary>The database, or null without the SQLite magic or with an impossible page size.</summary>
-    public static SqliteDatabase? Open(byte[] data, CancellationToken ct = default)
+    public static SqliteDatabase? Open(byte[] data, CancellationToken ct = default) => Open(SqliteSource.Of(data), null, ct);
+
+    /// <summary>
+    /// The database read from <paramref name="db"/> with the committed frames of <paramref name="wal"/> (its -wal file) applied;
+    /// null without the SQLite magic or with an impossible page size. The sources stay owned by the caller.
+    /// </summary>
+    public static SqliteDatabase? Open(SqliteSource db, SqliteSource? wal, CancellationToken ct = default)
     {
-        if (!Looks(data)) return null;
-        var db = new SqliteDatabase(data) { FileLength = data.Length };
-        int pageSize = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(16));
+        var head = new byte[100];
+        if (db.Read(0, head) < 100 || !Looks(head)) return null;
+        int pageSize = BinaryPrimitives.ReadUInt16BigEndian(head.AsSpan(16));
         if (pageSize == 1) pageSize = 65536;
         if (pageSize < 512 || pageSize > 65536 || (pageSize & (pageSize - 1)) != 0) return null;
-        db.PageSize = pageSize;
-        db.ReservedBytes = data[20];
-        db._usable = pageSize - db.ReservedBytes;
-        if (db._usable < 480) { db.Issues.Add($"usable page size {db._usable} is below 480"); return db; }
-        db.Wal = data[18] == 2 || data[19] == 2;
-        uint headerPages = Be32(data, 28), changeCounter = Be32(data, 24), validFor = Be32(data, 92);
-        long filePages = data.Length / pageSize;
-        if (headerPages != 0 && changeCounter == validFor && headerPages <= filePages) db.PageCount = headerPages;
+        var d = new SqliteDatabase(db) { FileLength = db.Length, PageSize = pageSize, ReservedBytes = head[20] };
+        d._usable = pageSize - d.ReservedBytes;
+        if (d._usable < 480) { d.Issues.Add($"usable page size {d._usable} is below 480"); return d; }
+        if (wal != null && SqliteWalLog.Read(wal, ct) is { } log)
+        {
+            d.WalLog = log;
+            if (log.PageSize != pageSize) d.Issues.Add($"the -wal file's page size {log.PageSize} differs from the database's {pageSize}: not applied");
+            else
+            {
+                d._walFile = wal;
+                if (log.Committed > 0) d._wal = wal;
+            }
+        }
+        if (d.Raw(1) is { } first) first.AsSpan(0, 100).CopyTo(head); // page 1 as of the last WAL commit
+        d.Wal = head[18] == 2 || head[19] == 2;
+        uint headerPages = Be32(head, 28), changeCounter = Be32(head, 24), validFor = Be32(head, 92);
+        long filePages = db.Length / pageSize;
+        if (d._wal != null) d.PageCount = d.WalLog!.DatabasePages;
+        else if (headerPages != 0 && changeCounter == validFor && headerPages <= filePages) d.PageCount = headerPages;
         else
         {
-            db.PageCount = filePages;
-            if (headerPages > filePages) db.Issues.Add($"header names {headerPages:N0} pages; the file holds {filePages:N0}");
+            d.PageCount = filePages;
+            if (headerPages > filePages) d.Issues.Add($"header names {headerPages:N0} pages; the file holds {filePages:N0}");
         }
-        if (data.Length % pageSize != 0) db.Issues.Add($"file length {data.Length:N0} is not a multiple of the page size");
-        db.FreelistPages = Be32(data, 36);
-        db.SchemaFormat = Be32(data, 44);
-        db.AutoVacuum = Be32(data, 52) != 0;
-        db.UserVersion = Be32(data, 60);
-        db.ApplicationId = Be32(data, 68);
-        uint version = Be32(data, 96);
-        if (version is >= 3_000_000 and < 4_000_000) db.WriterVersion = $"{version / 1_000_000}.{version / 1000 % 1000}.{version % 1000}";
-        (db.TextEncoding, db._text) = Be32(data, 56) switch
+        if (db.Length % pageSize != 0) d.Issues.Add($"file length {db.Length:N0} is not a multiple of the page size");
+        d.FirstFreelistTrunk = Be32(head, 32);
+        d.FreelistPages = Be32(head, 36);
+        d.SchemaFormat = Be32(head, 44);
+        d.AutoVacuum = Be32(head, 52) != 0;
+        d.UserVersion = Be32(head, 60);
+        d.ApplicationId = Be32(head, 68);
+        uint version = Be32(head, 96);
+        if (version is >= 3_000_000 and < 4_000_000) d.WriterVersion = $"{version / 1_000_000}.{version / 1000 % 1000}.{version % 1000}";
+        (d.TextEncoding, d._text) = Be32(head, 56) switch
         {
             2 => ("UTF-16le", (Encoding)Encoding.Unicode),
             3 => ("UTF-16be", Encoding.BigEndianUnicode),
             _ => ("UTF-8", Encoding.UTF8),
         };
-        db.ReadSchema(ct);
-        return db;
+        d.ReadSchema(ct);
+        return d;
     }
 
     private void ReadSchema(CancellationToken ct)
     {
-        foreach (var row in Rows(1, index: false, MaxSchemaRows, ct))
+        foreach (var row in Rows(1, index: false, 0, MaxSchemaRows, ct))
         {
             var v = row.Values;
             string Text(int i) => i < v.Count && v[i] is string s ? s : "";
@@ -102,34 +218,63 @@ public sealed class SqliteDatabase
         }
     }
 
+    /// <summary>The stored tables (not views or virtual tables) with their shapes.</summary>
+    public IEnumerable<SqliteTable> Tables() => Schema.Where(e => e.Type == "table" && e.RootPage > 0).Select(TableOf);
+
+    /// <summary>A table by name (case-insensitive, as SQL compares names), or null.</summary>
+    public SqliteTable? Table(string name) =>
+        Schema.FirstOrDefault(e => e.Type == "table" && e.RootPage > 0 && e.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } e ? TableOf(e) : null;
+
+    private static SqliteTable TableOf(SqliteSchemaEntry e)
+    {
+        var shape = Shape(e.Sql);
+        var order = Enumerable.Range(0, shape.Columns.Count).ToList();
+        if (shape.WithoutRowId && shape.PrimaryKey.Count > 0)
+        {
+            var pk = shape.PrimaryKey.Select(k => shape.Columns.FindIndex(c => c.Name.Equals(k, StringComparison.OrdinalIgnoreCase))).Where(i => i >= 0).Distinct().ToList();
+            order = [.. pk, .. order.Where(i => !pk.Contains(i))];
+        }
+        return new SqliteTable(e.Name, e.RootPage, [.. shape.Columns.Select(c => c.Name)], [.. shape.Columns.Select(c => Affinity(c.Type))],
+            shape.WithoutRowId ? -1 : shape.Alias, shape.WithoutRowId, order);
+    }
+
+    /// <summary>Type affinity by SQLite's rules: I(nteger), T(ext), B(lob or none), R(eal), N(umeric).</summary>
+    private static char Affinity(string type)
+    {
+        var t = type.ToUpperInvariant();
+        if (t.Contains("INT", StringComparison.Ordinal)) return 'I';
+        if (t.Contains("CHAR", StringComparison.Ordinal) || t.Contains("CLOB", StringComparison.Ordinal) || t.Contains("TEXT", StringComparison.Ordinal)) return 'T';
+        if (t.Length == 0 || t.Contains("BLOB", StringComparison.Ordinal)) return 'B';
+        if (t.Contains("REAL", StringComparison.Ordinal) || t.Contains("FLOA", StringComparison.Ordinal) || t.Contains("DOUB", StringComparison.Ordinal)) return 'R';
+        return 'N';
+    }
+
     /// <summary>The root page's kind: true for an index B-tree (an index or a WITHOUT ROWID table), false for a table B-tree, null when unreadable.</summary>
     public bool? IsIndexTree(long root)
     {
         if (Page(root) is not { } p) return null;
-        return _data[p.Header] switch { 2 or 10 => true, 5 or 13 => false, _ => null };
+        return p.Type switch { 2 or 10 => true, 5 or 13 => false, _ => null };
     }
 
     /// <summary>Entries in the B-tree at <paramref name="root"/>; null when the walk ended early (issue recorded).</summary>
     public long? CountRows(long root, CancellationToken ct = default)
     {
         if (IsIndexTree(root) == null) { Issues.Add($"page {root}: not a B-tree page"); return null; }
-        long count = 0;
-        bool complete = Walk(root, ct, (page, type, cells) =>
-        {
-            if (type is 13 or 10 or 2) count += cells;
-            return true;
-        });
-        return complete ? count : null;
+        return Count(root, ct);
     }
 
     /// <summary>The first <paramref name="limit"/> rows of the B-tree at <paramref name="root"/> in key order.</summary>
-    public List<SqliteRow> Rows(long root, int limit, CancellationToken ct = default) =>
-        IsIndexTree(root) is { } index ? Rows(root, index, limit, ct) : [];
+    public List<SqliteRow> Rows(long root, int limit, CancellationToken ct = default) => Rows(root, 0, limit, ct);
 
-    private List<SqliteRow> Rows(long root, bool index, int limit, CancellationToken ct)
+    /// <summary>Up to <paramref name="limit"/> rows of the B-tree at <paramref name="root"/> in key order, from position <paramref name="offset"/>.</summary>
+    public List<SqliteRow> Rows(long root, long offset, int limit, CancellationToken ct = default) =>
+        IsIndexTree(root) is { } index ? Rows(root, index, offset, limit, ct) : [];
+
+    private List<SqliteRow> Rows(long root, bool index, long offset, int limit, CancellationToken ct)
     {
         var rows = new List<SqliteRow>();
         if (limit <= 0) return rows;
+        long skip = Math.Max(0, offset);
         var seen = new HashSet<long>();
         // A node is a page to open, or (Page, Cell >= 0) an interior index cell whose entry comes between its children.
         var stack = new Stack<(long Page, int Cell)>();
@@ -141,40 +286,97 @@ public sealed class SqliteDatabase
             if (Page(pageNo) is not { } p) { Issues.Add($"page {pageNo} is outside the file"); break; }
             if (cell >= 0)
             {
+                if (skip > 0) { skip--; continue; }
                 if (Entry(p, cell, interiorIndex: true) is { } e) rows.Add(e);
                 continue;
             }
+            // a whole subtree before the offset is skipped by its entry count
+            if (skip > 0 && Count(pageNo, ct) is { } n && n <= skip) { skip -= n; continue; }
             if (!seen.Add(pageNo)) { Issues.Add($"page {pageNo} is reached twice (a cycle)"); break; }
             if (++_visits > MaxPageVisits) { Issues.Add($"page visit limit {MaxPageVisits:N0} reached"); break; }
-            byte type = _data[p.Header];
             int cells = CellCount(p);
-            switch (type)
+            switch (p.Type)
             {
                 case 13 or 10:
-                    for (int i = 0; i < cells && rows.Count < limit; i++)
+                    int first = (int)Math.Min(skip, cells);
+                    skip -= first;
+                    for (int i = first; i < cells && rows.Count < limit; i++)
                         if (Entry(p, i, interiorIndex: false) is { } e) rows.Add(e);
                     break;
                 case 5 or 2:
-                    if ((type == 2) != index) { Issues.Add($"page {pageNo}: page type {type} in a {(index ? "index" : "table")} B-tree"); return rows; }
-                    stack.Push((Be32(_data, p.Header + 8), -1));
+                    if ((p.Type == 2) != index) { Issues.Add($"page {pageNo}: page type {p.Type} in a {(index ? "index" : "table")} B-tree"); return rows; }
+                    stack.Push((Be32(p.Data, p.Header + 8), -1));
                     for (int i = cells - 1; i >= 0; i--)
                     {
                         if (CellOffset(p, i) is not { } at) continue;
-                        if (type == 2) stack.Push((pageNo, i));
-                        stack.Push((Be32(_data, at), -1));
+                        if (p.Type == 2) stack.Push((pageNo, i));
+                        stack.Push((Be32(p.Data, at), -1));
                     }
                     break;
                 default:
-                    Issues.Add($"page {pageNo}: not a B-tree page (type {type})");
+                    Issues.Add($"page {pageNo}: not a B-tree page (type {p.Type})");
                     return rows;
             }
         }
         return rows;
     }
 
-    /// <summary>Visits every page of a B-tree once; false when it ended early (cycle, bad page, limit), with the issue recorded.</summary>
-    private bool Walk(long root, CancellationToken ct, Func<long, byte, int, bool> visit)
+    /// <summary>Entries under a B-tree page (leaf cells and interior index cells), memoized; null when the walk ended early.</summary>
+    private long? Count(long top, CancellationToken ct)
     {
+        if (_counts.TryGetValue(top, out var known)) return known;
+        var onPath = new HashSet<long>();
+        var stack = new Stack<(long Page, bool Expanded)>();
+        stack.Push((top, false));
+        while (stack.Count > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+            var (pageNo, expanded) = stack.Pop();
+            if (!expanded && _counts.ContainsKey(pageNo)) continue;
+            // a leaf's count is in its header: read 8 bytes, not the page
+            if (LeafCells(pageNo) is { } leaf) { _counts[pageNo] = leaf; continue; }
+            if (Page(pageNo) is not { } p) { Issues.Add($"page {pageNo} is outside the file"); return null; }
+            if (p.Type is not (5 or 2)) { Issues.Add($"page {pageNo}: not a B-tree page (type {p.Type})"); return null; }
+            var children = Children(p);
+            if (!expanded)
+            {
+                if (!onPath.Add(pageNo)) { Issues.Add($"page {pageNo} is reached twice (a cycle)"); return null; }
+                if (++_visits > MaxPageVisits) { Issues.Add($"page visit limit {MaxPageVisits:N0} reached"); return null; }
+                stack.Push((pageNo, true));
+                foreach (var c in children)
+                {
+                    if (onPath.Contains(c)) { Issues.Add($"page {c} is reached twice (a cycle)"); return null; }
+                    if (!_counts.ContainsKey(c)) stack.Push((c, false));
+                }
+                continue;
+            }
+            long sum = p.Type == 2 ? CellCount(p) : 0;
+            foreach (var c in children)
+            {
+                if (!_counts.TryGetValue(c, out var n)) return null;
+                sum += n;
+            }
+            _counts[pageNo] = sum;
+            onPath.Remove(pageNo);
+        }
+        return _counts.TryGetValue(top, out var count) ? count : null;
+    }
+
+    /// <summary>The child pages of an interior page, left to right.</summary>
+    private List<long> Children(PageRef p)
+    {
+        var children = new List<long>();
+        int cells = CellCount(p);
+        for (int i = 0; i < cells; i++)
+            if (CellOffset(p, i) is { } at) children.Add(Be32(p.Data, at));
+        children.Add(Be32(p.Data, p.Header + 8));
+        return children;
+    }
+
+    /// <summary>The leaf pages of a B-tree in key order (bounded like every walk).</summary>
+    internal List<long> LeafPages(long root, CancellationToken ct)
+    {
+        var leaves = new List<long>();
         var seen = new HashSet<long>();
         var stack = new Stack<long>();
         stack.Push(root);
@@ -182,71 +384,102 @@ public sealed class SqliteDatabase
         {
             ct.ThrowIfCancellationRequested();
             long pageNo = stack.Pop();
-            if (Page(pageNo) is not { } p) { Issues.Add($"page {pageNo} is outside the file"); return false; }
-            if (!seen.Add(pageNo)) { Issues.Add($"page {pageNo} is reached twice (a cycle)"); return false; }
-            if (++_visits > MaxPageVisits) { Issues.Add($"page visit limit {MaxPageVisits:N0} reached"); return false; }
-            byte type = _data[p.Header];
-            if (type is not (2 or 5 or 10 or 13)) { Issues.Add($"page {pageNo}: not a B-tree page (type {type})"); return false; }
-            int cells = CellCount(p);
-            if (!visit(pageNo, type, cells)) return false;
-            if (type is 2 or 5)
-            {
-                stack.Push(Be32(_data, p.Header + 8));
-                for (int i = cells - 1; i >= 0; i--)
-                    if (CellOffset(p, i) is { } at) stack.Push(Be32(_data, at));
-            }
+            if (Page(pageNo) is not { } p || !seen.Add(pageNo) || ++_visits > MaxPageVisits) break;
+            if (p.Type is 13 or 10) { leaves.Add(pageNo); continue; }
+            if (p.Type is not (5 or 2)) break;
+            var children = Children(p);
+            for (int i = children.Count - 1; i >= 0; i--) stack.Push(children[i]);
         }
-        return true;
+        return leaves;
     }
 
-    private readonly record struct PageRef(long Number, int Start, int Header);
+    /// <summary>A page: its bytes (from the -wal file when a committed frame holds it), the B-tree header's offset and page type.</summary>
+    internal readonly record struct PageRef(long Number, byte[] Data, int Header)
+    {
+        public byte Type => Data[Header];
+    }
 
-    private PageRef? Page(long number)
+    internal PageRef? Page(long number)
+    {
+        if (number < 1 || number > PageCount || Raw(number) is not { } data) return null;
+        return new PageRef(number, data, number == 1 ? 100 : 0);
+    }
+
+    /// <summary>A page's bytes as of the last committed WAL frame, else from the database file; null past its end.</summary>
+    internal byte[]? Raw(long number)
+    {
+        if (_cache.TryGetValue(number, out var hit)) return hit;
+        var data = new byte[PageSize];
+        if (_wal != null && WalLog!.Latest.TryGetValue(number, out long at))
+        {
+            if (_wal.Read(at, data) < PageSize) return null;
+        }
+        else if (number < 1 || _db.Read((number - 1) * PageSize, data) < PageSize) return null;
+        if (_cached.Count >= CachePages) _cache.Remove(_cached.Dequeue());
+        _cache[number] = data;
+        _cached.Enqueue(number);
+        return data;
+    }
+
+    /// <summary>The cell count of a leaf page read from its header alone (as <see cref="CellCount"/> caps it); null for any other page.</summary>
+    private int? LeafCells(long number)
     {
         if (number < 1 || number > PageCount) return null;
-        long start = (number - 1) * PageSize;
-        if (start + PageSize > _data.Length) return null;
-        return new PageRef(number, (int)start, (int)start + (number == 1 ? 100 : 0));
+        if (_cache.TryGetValue(number, out var cached))
+        {
+            var p = new PageRef(number, cached, number == 1 ? 100 : 0);
+            return p.Type is 13 or 10 ? CellCount(p) : null;
+        }
+        int header = number == 1 ? 100 : 0;
+        Span<byte> h = stackalloc byte[8];
+        long at = _wal != null && WalLog!.Latest.TryGetValue(number, out long frame) ? frame + header : (number - 1) * PageSize + header;
+        if ((_wal != null && WalLog!.Latest.ContainsKey(number) ? _wal : _db).Read(at, h) < 8 || h[0] is not (13 or 10)) return null;
+        int n = BinaryPrimitives.ReadUInt16BigEndian(h[3..]);
+        return Math.Clamp(n, 0, Math.Max(0, (_usable - (header + 8)) / 2));
     }
 
     /// <summary>Cells on the page, capped by what its cell pointer array can hold.</summary>
-    private int CellCount(PageRef p)
+    internal int CellCount(PageRef p)
     {
-        int n = BinaryPrimitives.ReadUInt16BigEndian(_data.AsSpan(p.Header + 3));
-        int headerSize = _data[p.Header] is 2 or 5 ? 12 : 8;
-        int room = (p.Start + _usable - (p.Header + headerSize)) / 2;
+        int n = BinaryPrimitives.ReadUInt16BigEndian(p.Data.AsSpan(p.Header + 3));
+        int room = (_usable - (p.Header + HeaderSize(p))) / 2;
         return Math.Clamp(n, 0, Math.Max(0, room));
     }
 
-    private int? CellOffset(PageRef p, int i)
+    internal static int HeaderSize(PageRef p) => p.Type is 2 or 5 ? 12 : 8;
+
+    internal int? CellOffset(PageRef p, int i)
     {
-        int headerSize = _data[p.Header] is 2 or 5 ? 12 : 8;
-        int at = BinaryPrimitives.ReadUInt16BigEndian(_data.AsSpan(p.Header + headerSize + 2 * i));
-        if (at < (p.Header - p.Start) + headerSize || at + 4 > _usable) return null;
-        return p.Start + at;
+        int headerSize = HeaderSize(p);
+        int at = BinaryPrimitives.ReadUInt16BigEndian(p.Data.AsSpan(p.Header + headerSize + 2 * i));
+        if (at < p.Header + headerSize || at + 4 > _usable) return null;
+        return at;
     }
 
     /// <summary>The row of leaf cell <paramref name="i"/> (or of an interior index cell); null for an unreadable cell.</summary>
-    private SqliteRow? Entry(PageRef p, int i, bool interiorIndex)
+    internal SqliteRow? Entry(PageRef p, int i, bool interiorIndex)
     {
         if (CellOffset(p, i) is not { } at) return null;
-        int end = p.Start + _usable;
-        byte type = _data[p.Header];
-        bool table = type == 13;
+        return CellAt(p.Data, at, p.Type == 13, interiorIndex);
+    }
+
+    /// <summary>A table-leaf (<paramref name="table"/>) or index cell at <paramref name="at"/> in a page's bytes.</summary>
+    internal SqliteRow? CellAt(byte[] page, int at, bool table, bool interiorIndex = false)
+    {
         if (interiorIndex) at += 4;
-        if (!Varint(_data, ref at, end, out long payload) || payload < 0) return null;
+        if (!Varint(page, ref at, _usable, out long payload) || payload < 0) return null;
         long? rowid = null;
         if (table)
         {
-            if (!Varint(_data, ref at, end, out long r)) return null;
+            if (!Varint(page, ref at, _usable, out long r)) return null;
             rowid = r;
         }
-        var bytes = Payload(at, end, payload, table);
+        var bytes = Payload(page, at, payload, table);
         return bytes == null ? null : new SqliteRow(rowid, Record(bytes));
     }
 
     /// <summary>The first <see cref="MaxPayload"/> bytes of a payload, following its overflow chain.</summary>
-    private byte[]? Payload(int at, int end, long size, bool table)
+    private byte[]? Payload(byte[] page, int at, long size, bool table)
     {
         int u = _usable;
         long x = table ? u - 35 : (u - 12) * 64 / 255 - 23;
@@ -257,28 +490,28 @@ public sealed class SqliteDatabase
             long k = m + (size - m) % (u - 4);
             local = k <= x ? k : m;
         }
-        if (at + local > end) return null;
+        if (at + local > u) return null;
         var buffer = new byte[(int)Math.Min(size, MaxPayload)];
         int take = (int)Math.Min(local, buffer.Length);
-        _data.AsSpan(at, take).CopyTo(buffer);
+        page.AsSpan(at, take).CopyTo(buffer);
         int filled = take;
         if (local >= size || filled >= buffer.Length) return buffer;
-        if (at + local + 4 > end) return null;
-        long next = Be32(_data, at + (int)local);
+        if (at + local + 4 > u) return null;
+        long next = Be32(page, at + (int)local);
         long maxPages = (size - local) / (u - 4) + 1;
         for (long n = 0; filled < buffer.Length && n < maxPages; n++)
         {
-            if (Page(next) is not { } o) { Issues.Add($"overflow page {next} is outside the file"); return buffer[..filled]; }
+            if (next < 1 || next > PageCount || Raw(next) is not { } o) { Issues.Add($"overflow page {next} is outside the file"); return buffer[..filled]; }
             int chunk = Math.Min(u - 4, buffer.Length - filled);
-            _data.AsSpan(o.Start + 4, chunk).CopyTo(buffer.AsSpan(filled));
+            o.AsSpan(4, chunk).CopyTo(buffer.AsSpan(filled));
             filled += chunk;
-            next = Be32(_data, o.Start);
+            next = Be32(o, 0);
         }
         return buffer[..filled];
     }
 
     /// <summary>Record format: a header of serial types, then the values; values past the bytes read are clipped or null.</summary>
-    private List<object?> Record(byte[] b)
+    internal List<object?> Record(byte[] b)
     {
         var values = new List<object?>();
         int p = 0;
@@ -294,7 +527,7 @@ public sealed class SqliteDatabase
         return values;
     }
 
-    private static long SerialSize(long serial) => serial switch
+    internal static long SerialSize(long serial) => serial switch
     {
         >= 12 => (serial - 12) / 2,
         5 => 6,
@@ -340,17 +573,25 @@ public sealed class SqliteDatabase
         return true;
     }
 
-    private static uint Be32(byte[] b, int at) => BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(at));
+    internal static uint Be32(byte[] b, int at) => BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(at));
 
     /// <summary>Column names of a CREATE TABLE statement, with the INTEGER PRIMARY KEY column (a rowid alias) when there is one.</summary>
     public static (List<string> Columns, int RowIdAlias) Columns(string? sql)
     {
-        var columns = new List<string>();
-        int alias = -1;
-        if (sql == null) return (columns, alias);
+        var shape = Shape(sql);
+        return ([.. shape.Columns.Select(c => c.Name)], shape.Alias);
+    }
+
+    private sealed record TableShape(List<(string Name, string Type)> Columns, int Alias, List<string> PrimaryKey, bool WithoutRowId);
+
+    /// <summary>Columns with declared types, the rowid alias, the primary key's columns and WITHOUT ROWID, from CREATE TABLE.</summary>
+    private static TableShape Shape(string? sql)
+    {
+        var shape = new TableShape([], -1, [], false);
+        if (sql == null) return shape;
         int open = sql.IndexOf('(');
-        if (open < 0) return (columns, alias);
-        int depth = 0, start = open + 1;
+        if (open < 0) return shape;
+        int depth = 0, start = open + 1, close = -1;
         char quote = '\0';
         var parts = new List<string>();
         for (int i = open; i < sql.Length; i++)
@@ -363,27 +604,51 @@ public sealed class SqliteDatabase
                 case '[': quote = ']'; break;
                 case '(': depth++; break;
                 case ')':
-                    if (--depth == 0) { parts.Add(sql[start..i]); i = sql.Length; }
+                    if (--depth == 0) { parts.Add(sql[start..i]); close = i; i = sql.Length; }
                     break;
                 case ',' when depth == 1: parts.Add(sql[start..i]); start = i + 1; break;
             }
         }
+        int alias = -1;
         foreach (var raw in parts)
         {
             var part = raw.Trim();
-            if (TableConstraint.IsMatch(part)) continue;
+            if (TableConstraint.IsMatch(part))
+            {
+                if (TablePrimaryKey.Match(part) is { Success: true } pk)
+                    shape.PrimaryKey.AddRange(pk.Groups[1].Value.Split(',').Select(k => Unquote(ColumnName.Match(k.Trim()).Value)).Where(k => k.Length > 0));
+                continue;
+            }
             var m = ColumnName.Match(part);
             if (!m.Success) continue;
-            string name = m.Groups[1].Value;
-            if (name.Length >= 2 && name[0] is '"' or '`' or '[') name = name[1..^1];
-            if (name.Length >= 2 && name[0] == '\'') name = name[1..^1];
-            if (alias < 0 && IntegerPrimaryKey.IsMatch(part[m.Length..])) alias = columns.Count;
-            columns.Add(name);
+            string name = Unquote(m.Groups[1].Value);
+            var rest = part[m.Length..];
+            if (alias < 0 && IntegerPrimaryKey.IsMatch(rest)) alias = shape.Columns.Count;
+            if (ColumnPrimaryKey.IsMatch(rest)) shape.PrimaryKey.Add(name);
+            shape.Columns.Add((name, DeclaredType.Match(rest).Value.Trim()));
         }
-        return (columns, alias);
+        bool withoutRowId = close > 0 && WithoutRowIdClause.IsMatch(sql[(close + 1)..]);
+        // a table-level PRIMARY KEY(x) on an INTEGER column is also a rowid alias
+        if (alias < 0 && !withoutRowId && shape.PrimaryKey.Count == 1)
+        {
+            int i = shape.Columns.FindIndex(c => c.Name.Equals(shape.PrimaryKey[0], StringComparison.OrdinalIgnoreCase));
+            if (i >= 0 && shape.Columns[i].Type.Equals("INTEGER", StringComparison.OrdinalIgnoreCase)) alias = i;
+        }
+        return shape with { Alias = alias, WithoutRowId = withoutRowId };
+    }
+
+    private static string Unquote(string name)
+    {
+        if (name.Length >= 2 && name[0] is '"' or '`' or '[' or '\'') return name[1..^1];
+        return name;
     }
 
     private static readonly Regex TableConstraint = new(@"^(?:CONSTRAINT|PRIMARY\s+KEY|UNIQUE|CHECK|FOREIGN\s+KEY)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+    private static readonly Regex TablePrimaryKey = new(@"PRIMARY\s+KEY\s*\(([^)]*)\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
     private static readonly Regex ColumnName = new(@"^(""(?:[^""]|"""")*""|`[^`]*`|\[[^\]]*\]|'[^']*'|[^\s(,]+)", RegexOptions.CultureInvariant, RegexTimeouts.Limit);
     private static readonly Regex IntegerPrimaryKey = new(@"^\s*INTEGER\s+(?:CONSTRAINT\s+\S+\s+)?PRIMARY\s+KEY(?!\s+DESC)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+    private static readonly Regex ColumnPrimaryKey = new(@"\bPRIMARY\s+KEY\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+    private static readonly Regex DeclaredType = new(@"^\s*(?:(?!(?:CONSTRAINT|PRIMARY|NOT|NULL|UNIQUE|CHECK|DEFAULT|COLLATE|REFERENCES|GENERATED|AS)\b)[A-Za-z_][\w]*\s*)*(?:\([^)]*\))?",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+    private static readonly Regex WithoutRowIdClause = new(@"\bWITHOUT\s+ROWID\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
 }

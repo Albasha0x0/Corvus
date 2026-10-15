@@ -343,7 +343,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         _ => ".bin",
     };
 
-    public FileSummary Summarize(string? assembly, string? path, CancellationToken ct)
+    public FileSummary Summarize(string? assembly, string? path, CancellationToken ct, FileViewOptions? options = null)
     {
         if ((assembly == null) == (path == null))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass either assembly (an assembly loaded in the workspace) or path (a file).");
@@ -363,6 +363,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         // an .app, .appex or .framework folder: its main executable, whose apple view describes the bundle
         if (AppleFileView.MainExecutable(path!) is { } executable) path = executable;
         var input = OpenInput(path!);
+        input.Options = options ?? FileViewOptions.None;
         var full = input.Path;
         var facts = Facts(input, ct);
         var fileHighlights = new List<string>();
@@ -452,6 +453,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             try
             {
                 if (provider.Inspect(file, ct) is { } view) views[provider.Name] = view;
+            }
+            catch (ToolError ex) when (file.Options.View == provider.Name && ex.Code is ErrorCode.InvalidArgument or ErrorCode.NotFound)
+            {
+                throw; // a wrong table= or columns= for the view asked for
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

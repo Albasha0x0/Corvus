@@ -47,6 +47,9 @@ public sealed class FileInput
     /// <summary>True when the file was opened as a stream (over <see cref="StreamAbove"/>); <see cref="Bytes"/> may still read it whole.</summary>
     public bool Streamed { get; }
 
+    /// <summary>The view asked for and its paging (summarize_file view=, table=, columns=, offset=, limit=).</summary>
+    public FileViewOptions Options { get; set; } = FileViewOptions.None;
+
     /// <summary>The whole file, read on first use when streamed.</summary>
     public byte[] Bytes => _bytes ??= ReadWhole();
 
@@ -131,4 +134,16 @@ public sealed class FileInput
         return (Convert.ToHexStringLower(md5.GetHashAndReset()), Convert.ToHexStringLower(sha1.GetHashAndReset()),
             Convert.ToHexStringLower(sha256.GetHashAndReset()), e);
     }
+}
+
+/// <summary>
+/// What summarize_file asked for beyond the file: the view, and for a view that lists rows a table, its columns, the first
+/// row and the row count. A view does its costly work only when it is the one asked for (or all).
+/// </summary>
+public sealed record FileViewOptions(string View = "overview", string? Table = null, IReadOnlyList<string>? Columns = null, long Offset = 0, int? Limit = null)
+{
+    public static readonly FileViewOptions None = new();
+
+    /// <summary>Whether <paramref name="view"/> is the one asked for (view=all asks for every view).</summary>
+    public bool Wants(string view) => View == view || View == "all";
 }

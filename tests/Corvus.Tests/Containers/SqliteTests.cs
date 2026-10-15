@@ -21,6 +21,8 @@ public sealed class SqliteTests
         "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 500) INSERT INTO kv SELECT printf('key%04d', 501 - i), i FROM n;",
         "INSERT INTO notes VALUES (replace(hex(zeroblob(2500)), '0', 'x'));"));
 
+    internal static byte[] FixtureBytes => Fixture.Value;
+
     private static SqliteFileView.Facts View(byte[] bytes) =>
         (SqliteFileView.Facts)new SqliteFileView().Inspect(new FileInput("app.db", bytes, Blob.Identify(bytes)), default)!.Detail;
 
@@ -100,7 +102,7 @@ public sealed class SqliteTests
     }
 }
 
-/// <summary>Writes a database with the e_sqlite3 library of the SQLitePCLRaw package for this platform.</summary>
+/// <summary>Writes and queries databases with the e_sqlite3 library of the SQLitePCLRaw package for this platform (the oracle).</summary>
 internal static class NativeSqlite
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -111,6 +113,24 @@ internal static class NativeSqlite
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int Close(IntPtr db);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int Prepare(IntPtr db, [MarshalAs(UnmanagedType.LPUTF8Str)] string sql, int bytes, out IntPtr stmt, IntPtr tail);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int Stmt(IntPtr stmt);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int Column(IntPtr stmt, int i);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate long ColumnInt64(IntPtr stmt, int i);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate double ColumnDouble(IntPtr stmt, int i);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate IntPtr ColumnPointer(IntPtr stmt, int i);
 
     private static readonly Lazy<IntPtr> Library = new(() => NativeLibrary.Load(LibraryPath()));
 
@@ -128,15 +148,61 @@ internal static class NativeSqlite
         var path = Path.Combine(Path.GetTempPath(), "corvus-sqlite-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            Assert.Equal(0, Fn<Open>("sqlite3_open")(path, out var db));
-            try
-            {
-                foreach (var sql in statements)
-                    Assert.True(Fn<Exec>("sqlite3_exec")(db, sql, IntPtr.Zero, IntPtr.Zero, out _) == 0, sql);
-            }
-            finally { Fn<Close>("sqlite3_close")(db); }
+            Write(path, statements);
             return File.ReadAllBytes(path);
         }
         finally { File.Delete(path); }
+    }
+
+    /// <summary>Runs the statements on the database at <paramref name="path"/>; <paramref name="whileOpen"/> runs before it is closed.</summary>
+    public static void Write(string path, string[] statements, Action? whileOpen = null)
+    {
+        Assert.Equal(0, Fn<Open>("sqlite3_open")(path, out var db));
+        try
+        {
+            foreach (var sql in statements)
+                Assert.True(Fn<Exec>("sqlite3_exec")(db, sql, IntPtr.Zero, IntPtr.Zero, out _) == 0, sql);
+            whileOpen?.Invoke();
+        }
+        finally { Fn<Close>("sqlite3_close")(db); }
+    }
+
+    /// <summary>The rows of a query: long, double, string, byte[] or null per column, as the library returns them.</summary>
+    public static List<object?[]> Query(string path, string sql)
+    {
+        Assert.Equal(0, Fn<Open>("sqlite3_open")(path, out var db));
+        var rows = new List<object?[]>();
+        try
+        {
+            Assert.Equal(0, Fn<Prepare>("sqlite3_prepare_v2")(db, sql, -1, out var stmt, IntPtr.Zero));
+            try
+            {
+                int columns = Fn<Stmt>("sqlite3_column_count")(stmt);
+                while (Fn<Stmt>("sqlite3_step")(stmt) == 100)
+                {
+                    var row = new object?[columns];
+                    for (int i = 0; i < columns; i++)
+                        row[i] = Fn<Column>("sqlite3_column_type")(stmt, i) switch
+                        {
+                            1 => Fn<ColumnInt64>("sqlite3_column_int64")(stmt, i),
+                            2 => Fn<ColumnDouble>("sqlite3_column_double")(stmt, i),
+                            3 => Marshal.PtrToStringUTF8(Fn<ColumnPointer>("sqlite3_column_text")(stmt, i), Fn<Column>("sqlite3_column_bytes")(stmt, i)),
+                            4 => Blob(Fn<ColumnPointer>("sqlite3_column_blob")(stmt, i), Fn<Column>("sqlite3_column_bytes")(stmt, i)),
+                            _ => null,
+                        };
+                    rows.Add(row);
+                }
+            }
+            finally { Fn<Stmt>("sqlite3_finalize")(stmt); }
+        }
+        finally { Fn<Close>("sqlite3_close")(db); }
+        return rows;
+
+        static byte[] Blob(IntPtr p, int n)
+        {
+            var b = new byte[n];
+            if (n > 0) Marshal.Copy(p, b, 0, n);
+            return b;
+        }
     }
 }
