@@ -78,9 +78,9 @@ public sealed class ExportDirectory : IDisposable
             // The check at Begin may be stale: something written since then is not deleted.
             if (Replace && Foreign(Final) is { } other)
                 throw new ToolError(ErrorCode.Conflict, $"Output directory changed during the export ({other} appeared): {Final}.", "export again");
-            Directory.Delete(Final, recursive: true);
+            SafeFile.WhenReleased(() => Directory.Delete(Final, recursive: true));
         }
-        Directory.Move(Staging, Final);
+        SafeFile.WhenReleased(() => Directory.Move(Staging, Final));
         _committed = true;
         return files;
     }

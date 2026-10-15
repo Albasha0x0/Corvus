@@ -140,4 +140,18 @@ public static class SafeFile
 
     private static ToolError Exists(string full) =>
         new(ErrorCode.Conflict, $"{full} exists: pass overwrite=true to replace it.");
+
+    /// <summary>
+    /// Runs a move or delete of files just written, retrying for up to <paramref name="patience"/> (default 2 s): on Windows
+    /// a virus scanner or the search indexer holds a new file open for a moment and the move fails with "access denied".
+    /// </summary>
+    public static void WhenReleased(Action action, TimeSpan? patience = null)
+    {
+        var until = Environment.TickCount64 + (long)(patience ?? TimeSpan.FromSeconds(2)).TotalMilliseconds;
+        for (int delay = 25; ; delay = Math.Min(delay * 2, 250))
+        {
+            try { action(); return; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && Environment.TickCount64 < until) { Thread.Sleep(delay); }
+        }
+    }
 }

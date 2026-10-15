@@ -12,6 +12,21 @@ namespace Corvus.Tests;
 public sealed class ExportProjectTests
 {
     [Fact]
+    public async Task ACommitWaitsForAFileHeldOpenForAMoment()
+    {
+        using var dir = new TempDir();
+        using var export = ExportDirectory.Begin(dir.File("out"), overwrite: false);
+        var file = Path.Combine(export.Staging, "a.cs");
+        File.WriteAllText(file, "class A {}");
+        // As a virus scanner or indexer does with a new file; on Windows the folder cannot move while it is open.
+        var held = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
+        var release = Task.Delay(300).ContinueWith(_ => held.Dispose());
+        Assert.Contains("a.cs", export.Commit());
+        await release;
+        Assert.True(File.Exists(Path.Combine(dir.File("out"), "a.cs")));
+    }
+
+    [Fact]
     public void OverwriteReplacesOnlyAPreviousExport()
     {
         using var env = new Env();
