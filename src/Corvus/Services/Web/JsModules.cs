@@ -180,6 +180,29 @@ public static class JsModules
         return found.Distinct().ToList();
     }
 
+    /// <summary>Offsets where each line starts.</summary>
+    internal static List<int> LineStarts(string text)
+    {
+        var starts = new List<int> { 0 };
+        for (int i = 0; i < text.Length; i++)
+            if (text[i] == '\n') starts.Add(i + 1);
+        return starts;
+    }
+
+    /// <summary>The original source most of three probes inside the module map to (at a quarter, half and three quarters of it).</summary>
+    internal static string? OriginalSource(SourceMap map, List<int> lines, JsModule m)
+    {
+        var votes = new List<string>();
+        foreach (var fraction in new[] { 0.25, 0.5, 0.75 })
+        {
+            int offset = m.Start + (int)((m.End - m.Start) * fraction);
+            int line = lines.BinarySearch(offset);
+            if (line < 0) line = ~line - 1;
+            if (map.Find(line, offset - lines[line]) is { Source: >= 0 } seg && seg.Source < map.Sources.Count) votes.Add(map.Sources[seg.Source]);
+        }
+        return votes.GroupBy(v => v).OrderByDescending(g => g.Count()).FirstOrDefault()?.Key;
+    }
+
     private static List<string> Strings(ArrayExpression a) => a.Elements.OfType<StringLiteral>().Select(s => s.Value).ToList();
 
     private static string? Key(Property p) => p.Key switch

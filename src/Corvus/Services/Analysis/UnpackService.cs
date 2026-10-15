@@ -478,8 +478,10 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// Breadth-first walk of nested containers; duplicate content (same hash) appears once, except files of an archive
     /// container (ASAR, UnityWebData, HAR, flows), which keep their own paths. allFiles extracts every archive file.
     /// </summary>
+    /// <remarks>A JavaScript bundle opens as one file per module only when every file is asked for (unpack, listing), never nested.</remarks>
     private static Walked Walk(byte[] data, string sha, string source, AnalysisLimits limits, CancellationToken ct, bool allFiles = false, Action<string>? progress = null) =>
-        Walk(Containers.Open(data, Path.GetFileName(source), limits, ct, source, allFiles), sha, limits, ct, allFiles, progress);
+        Walk((allFiles && Web.JsBundleFiles.Looks(data, source) ? Web.JsBundleFiles.Open(data, source, ct) : null)
+             ?? Containers.Open(data, Path.GetFileName(source), limits, ct, source, allFiles), sha, limits, ct, allFiles, progress);
 
     /// <summary>The walk below a top level already opened (from the bytes or a stream).</summary>
     private static Walked Walk(ContainerContents top, string sha, AnalysisLimits limits, CancellationToken ct, bool allFiles = false, Action<string>? progress = null)

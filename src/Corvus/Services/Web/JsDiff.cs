@@ -107,7 +107,7 @@ internal static partial class JsDiff
         catch (FormatException) { }
         var facts = modules.Select(m => new Facts(m) { Path = m.Name }).ToList();
         var byStart = facts.GroupBy(f => f.Module.Start).ToDictionary(g => g.Key, g => g.First());
-        var lines = LineStarts(text);
+        var lines = JsModules.LineStarts(text);
         var stack = new Stack<Node>();
         stack.Push(tree);
         while (stack.Count > 0)
@@ -117,26 +117,12 @@ internal static partial class JsDiff
             if (byStart.TryGetValue(node.Start, out var f) && f.Module.End == node.End && f.Hash == 0)
             {
                 Fingerprint(node, f);
-                if (f.Path == null && map != null) f.Path = Original(map, lines, f.Module);
+                if (f.Path == null && map != null) f.Path = JsModules.OriginalSource(map, lines, f.Module);
             }
             foreach (var c in node.ChildNodes)
                 if (c != null) stack.Push(c);
         }
         return (text, facts);
-    }
-
-    /// <summary>The original source most of three probes inside the module map to.</summary>
-    private static string? Original(SourceMap map, List<int> lines, JsModule m)
-    {
-        var votes = new List<string>();
-        foreach (var fraction in new[] { 0.25, 0.5, 0.75 })
-        {
-            int offset = m.Start + (int)((m.End - m.Start) * fraction);
-            int line = lines.BinarySearch(offset);
-            if (line < 0) line = ~line - 1;
-            if (map.Find(line, offset - lines[line]) is { Source: >= 0 } seg && seg.Source < map.Sources.Count) votes.Add(map.Sources[seg.Source]);
-        }
-        return votes.GroupBy(v => v).OrderByDescending(g => g.Count()).FirstOrDefault()?.Key;
     }
 
     /// <summary>XxHash64 of the module's tree: node types, property names and literals; other names by first use; required ids as #.</summary>
@@ -275,14 +261,6 @@ internal static partial class JsDiff
 
     /// <summary>The module's tokens one per line, for a line diff that reads as a token diff.</summary>
     private static string Tokens(string code) => string.Join('\n', Token().Matches(code).Select(m => m.Value));
-
-    private static List<int> LineStarts(string text)
-    {
-        var starts = new List<int> { 0 };
-        for (int i = 0; i < text.Length; i++)
-            if (text[i] == '\n') starts.Add(i + 1);
-        return starts;
-    }
 
     [GeneratedRegex(@"""(?:\\.|[^""\\\n])*""|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|[A-Za-z_$][\w$]*|\d[\w.]*|\S", RegexOptions.None, 1000)]
     private static partial Regex Token();
