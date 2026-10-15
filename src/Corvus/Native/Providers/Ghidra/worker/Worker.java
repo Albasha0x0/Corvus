@@ -152,6 +152,8 @@ public class Worker implements GhidraLaunchable {
     }
     Decompilers decompilers;
     int decompileTimeout = 60;
+    /** Signatures committed from the decompiler's view by local edits: callers' output may change. */
+    int signatureCommits;
 
     @Override
     public void launch(GhidraApplicationLayout layout, String[] args) throws Exception {

@@ -213,7 +213,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         DiscardLeftovers();
         var reuse = DatabaseExists;
         // read before the engine opens it: an open may touch the database's files
-        var saved = reuse && firstOpen && !ReadOnlySnapshot && DatabaseLocation is { } db ? EngineOutputCache.ReadState(db) : null;
+        var saved = reuse && firstOpen && !ReadOnlySnapshot && DatabaseLocation is { } db ? EngineOutputCache.ReadChains(db) : null;
         bool fresh = !reuse;
         try
         {
@@ -246,9 +246,11 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         bool complete = this is not INativeDecompilerSession { AnalysisComplete: false };
         var start = ReadOnlySnapshot ? UnknownState()
             : fresh ? (complete ? EngineOutputCache.Key("fresh", Options.OutputIdentity, Sha256) : UnknownState())
-            : saved ?? UnknownState();
+            : saved?.Global ?? UnknownState();
         SetState(start, offSetup: false);
-        OpenState = start;
+        if (!fresh && !ReadOnlySnapshot && saved is { } chains)
+            lock (_sync) _functions = chains.Functions;
+        OpenState = DatabaseState;
         if (fresh) Saved();
     }
 
@@ -261,11 +263,27 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     private int _offSetup;
     private int _writesInFlight;
 
+    /// <summary>Chains of the changes confined to one function's output (function start → chain), on top of the global chain.</summary>
+    private Dictionary<uint, string> _functions = [];
+    private int _functionChanges;
+
     /// <summary>
     /// What the database holds: a chain over the requests that changed it since it was created (or loaded from a saved
-    /// state); one starting "u" is unknown (not reproducible elsewhere: a worker restart, a snapshot, a partial analysis).
+    /// state), combined with the per-function chains; one starting "u" is unknown (not reproducible elsewhere: a worker
+    /// restart, a snapshot, a partial analysis).
     /// </summary>
-    internal string DatabaseState => Volatile.Read(ref _state);
+    internal string DatabaseState
+    {
+        get
+        {
+            lock (_sync)
+            {
+                var global = Volatile.Read(ref _state);
+                return _functions.Count == 0 || global.StartsWith('u') ? global
+                    : EngineOutputCache.Key(global, string.Join(",", _functions.OrderBy(f => f.Key).Select(f => $"{f.Key:X}={f.Value}")));
+            }
+        }
+    }
 
     /// <summary>The state the session opened at.</summary>
     internal string OpenState { get; private set; } = "";
@@ -286,8 +304,42 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     private void SetState(string state, bool offSetup)
     {
-        Volatile.Write(ref _state, state);
+        lock (_sync)
+        {
+            Volatile.Write(ref _state, state);
+            _functions = [];
+            _functionChanges++;
+        }
         Volatile.Write(ref _offSetup, offSetup ? 1 : 0);
+    }
+
+    /// <summary>
+    /// The functions whose output alone a change affects, by the starts the engine reported: user-type requests that only
+    /// rename locals and stack members without committing a signature; none for one that only stamps. Null for any other change.
+    /// </summary>
+    internal static HashSet<uint>? FunctionScope(string op, JsonObject args, JsonElement result)
+    {
+        if (op != "apply_user_types" || result.ValueKind != JsonValueKind.Object || !result.TryGetProperty("items", out var items)) return null;
+        if (result.TryGetProperty("signatures", out var signatures) && signatures.GetInt32() > 0) return null;
+        foreach (var (key, value) in args)
+        {
+            bool confined = key switch
+            {
+                "stamp_key" or "stamp" or "save" => true,
+                // a retype or a storage can change the prototype callers see
+                "locals" => value is JsonArray rows && rows.All(r => r is JsonArray { Count: 5 } row && row[4] == null),
+                "stack" => value is JsonArray rows && rows.All(r => r is JsonArray { Count: 4 } row && row[3] == null),
+                _ => value is JsonArray { Count: 0 },
+            };
+            if (!confined) return null;
+        }
+        return items.EnumerateArray().Select(i => i[1].GetUInt32()).ToHashSet();
+    }
+
+    /// <summary>A function's chain; empty when no change was confined to it.</summary>
+    private string FunctionChain(uint start)
+    {
+        lock (_sync) return _functions.GetValueOrDefault(start, "");
     }
 
     /// <summary>The state after <paramref name="op"/> changed the database.</summary>
@@ -297,10 +349,17 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         // a patch sync that found the database as wanted changed nothing
         if (op == "sync_patches" && result.ValueKind == JsonValueKind.Object && result.TryGetProperty("patched", out var p) && result.TryGetProperty("reverted", out var r)
             && p.GetInt32() + r.GetInt32() == 0) return;
+        var scope = FunctionScope(op, args, result);
         lock (_sync)
         {
             var now = Volatile.Read(ref _state);
-            Volatile.Write(ref _state, OpaqueOps.Contains(op) || now.StartsWith('u') ? UnknownState() : EngineOutputCache.Key(now, op, args.ToJsonString()));
+            if (scope != null && !now.StartsWith('u'))
+            {
+                var change = args.ToJsonString();
+                foreach (var f in scope) _functions[f] = EngineOutputCache.Key(_functions.GetValueOrDefault(f, ""), op, change);
+                if (scope.Count > 0) _functionChanges++;
+            }
+            else Volatile.Write(ref _state, OpaqueOps.Contains(op) || now.StartsWith('u') ? UnknownState() : EngineOutputCache.Key(now, op, args.ToJsonString()));
             if (!SetupOps.Contains(op)) Volatile.Write(ref _offSetup, 1);
         }
     }
@@ -313,7 +372,10 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     {
         if (ReadOnlySnapshot || Options.OutputCache == null || DatabaseLocation is not { } db) return;
         var state = DatabaseState;
-        if (!state.StartsWith('u') && Volatile.Read(ref _writesInFlight) == own) EngineOutputCache.WriteState(db, state);
+        Dictionary<uint, string> functions;
+        string global;
+        lock (_sync) (global, functions) = (Volatile.Read(ref _state), new(_functions));
+        if (!state.StartsWith('u') && Volatile.Read(ref _writesInFlight) == own) EngineOutputCache.WriteState(db, state, global, functions);
         else EngineOutputCache.ClearState(db);
     }
 
@@ -324,11 +386,18 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     internal bool TryCached<T>(string what, string key, out T value, out string state)
     {
         value = default!;
-        state = DatabaseState;
-        if (Options.OutputCache is not { } cache || state.StartsWith('u') || Volatile.Read(ref _writesInFlight) != 0) return false;
-        if (cache.Get(EngineOutputCache.OutputKey(Options.OutputIdentity, ProviderId, Sha256, state, what, key)) is not { } hit) return false;
-        try { value = JsonSerializer.Deserialize<T>(hit, EngineOutputCache.Json)!; }
-        catch (JsonException) { return false; }
+        string global;
+        lock (_sync) (global, state) = (Volatile.Read(ref _state), $"{Volatile.Read(ref _state)}#{_functionChanges}");
+        if (Options.OutputCache is not { } cache || global.StartsWith('u') || Volatile.Read(ref _writesInFlight) != 0) return false;
+        if (cache.Get(EngineOutputCache.OutputKey(Options.OutputIdentity, ProviderId, Sha256, global, what, key)) is not { } hit) return false;
+        try
+        {
+            // the entry holds its function's chain when made: a later change confined to that function makes it stale
+            if (JsonNode.Parse(hit) is not JsonObject entry || entry["value"] is not { } stored) return false;
+            value = stored.Deserialize<T>(EngineOutputCache.Json)!;
+            if (value == null || (string?)entry["function"] != FunctionChain(StartOf(value) ?? uint.MaxValue)) return false;
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException) { return false; }
         EngineUse.Note(ProviderId);
         EngineUse.Cached();
         return value != null;
@@ -337,9 +406,21 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     /// <summary>Stores an answer made in <paramref name="state"/> when the database is still in it and no change is in flight.</summary>
     internal void StoreCached<T>(string what, string key, string state, T value)
     {
-        if (Options.OutputCache is not { } cache || state.StartsWith('u') || DatabaseState != state || Volatile.Read(ref _writesInFlight) != 0) return;
-        cache.Put(EngineOutputCache.OutputKey(Options.OutputIdentity, ProviderId, Sha256, state, what, key), JsonSerializer.Serialize(value, EngineOutputCache.Json));
+        string global, now, chain;
+        lock (_sync) (global, now) = (Volatile.Read(ref _state), $"{Volatile.Read(ref _state)}#{_functionChanges}");
+        if (Options.OutputCache is not { } cache || global.StartsWith('u') || now != state || Volatile.Read(ref _writesInFlight) != 0 || StartOf(value) is not { } start) return;
+        chain = FunctionChain(start);
+        var entry = new JsonObject { ["function"] = chain, ["value"] = JsonSerializer.SerializeToNode(value, EngineOutputCache.Json) };
+        cache.Put(EngineOutputCache.OutputKey(Options.OutputIdentity, ProviderId, Sha256, global, what, key), entry.ToJsonString());
     }
+
+    /// <summary>The function a stored answer is of.</summary>
+    private static uint? StartOf(object? value) => value switch
+    {
+        DecompiledFunction d => d.StartRva,
+        NativeFrame f => f.StartRva,
+        _ => null,
+    };
 
     /// <summary>Several functions' pseudocode: those stored come from the output cache, the rest from one request to <paramref name="ask"/> (and are stored).</summary>
     internal async Task<IReadOnlyList<DecompileOutcome>> CachedManyAsync(IReadOnlyList<uint> rvas, Func<IReadOnlyList<uint>, Task<IReadOnlyList<DecompileOutcome>>> ask)

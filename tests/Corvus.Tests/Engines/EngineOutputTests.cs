@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Native;
@@ -248,6 +250,54 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             File.WriteAllText(file, File.ReadAllText(file)[..^3]);
             Assert.Null(cache.Get(key));
             Assert.Null(cache.Get(EngineOutputCache.Key("other")));
+        }
+
+        [Fact]
+        public void Only_renames_of_locals_and_stack_members_are_confined_to_their_function()
+        {
+            JsonObject Args(string locals, string stack = "[]", string decls = "[]") =>
+                (JsonObject)JsonNode.Parse($$"""{"decls":{{decls}},"types":[],"stack":{{stack}},"locals":{{locals}},"stamp_key":"k","stamp":"s","save":false}""")!;
+            JsonElement Result(int signatures = 0) => JsonDocument.Parse($$"""{"items":[["local",4096,"v1",true,null,"v1",null,"int a"]],"signatures":{{signatures}}}""").RootElement;
+            Assert.Equal([0x1000u], WorkerSessionBase.FunctionScope("apply_user_types", Args("""[[4096,"v1",null,"a",null]]"""), Result()));
+            Assert.Equal([0x1000u], WorkerSessionBase.FunctionScope("apply_user_types", Args("[]", """[[4096,8,"slot",null]]"""), Result()));
+            Assert.Null(WorkerSessionBase.FunctionScope("apply_user_types", Args("""[[4096,"v1",null,null,"int"]]"""), Result()));
+            Assert.Null(WorkerSessionBase.FunctionScope("apply_user_types", Args("""[[4096,"v1",null,null,null,"r10"]]"""), Result()));
+            Assert.Null(WorkerSessionBase.FunctionScope("apply_user_types", Args("""[[4096,"v1",null,"a",null]]""", decls: """["struct S { int a; };"]"""), Result()));
+            Assert.Null(WorkerSessionBase.FunctionScope("apply_user_types", Args("""[[4096,"v1",null,"a",null]]"""), Result(signatures: 1)));
+            Assert.Null(WorkerSessionBase.FunctionScope("set_name", Args("[]"), Result()));
+            Assert.Empty(WorkerSessionBase.FunctionScope("apply_user_types", Args("[]"), JsonDocument.Parse("""{"items":[]}""").RootElement)!);
+
+            var db = _dir.File("chains.i64");
+            File.WriteAllBytes(db, [1]);
+            EngineOutputCache.WriteState(db, "combined", "global", new Dictionary<uint, string> { [0x1000] = "c1" });
+            Assert.Equal("combined", EngineOutputCache.ReadState(db));
+            var chains = EngineOutputCache.ReadChains(db)!.Value;
+            Assert.Equal("global", chains.Global);
+            Assert.Equal("c1", chains.Functions[0x1000]);
+        }
+
+        /// <summary>A local renamed in one function: that function's stored answer is stale, another function's is still served.</summary>
+        [Trait("Speed", "Slow")]
+        [IdaFact]
+        public async Task A_local_rename_keeps_the_other_functions_answers()
+        {
+            var rig = Server();
+            rig.Workspace.LoadAny(Image);
+            var native = NativeOf(rig);
+            var session = (INativeDecompilerSession)await rig.Engines.Session(native, "ida", null, default);
+            var cache = rig.Engines.OutputCache!;
+            var edited = native.Image.Exports.First(e => e.Name == Function).Rva;
+            var other = (await session.ListFunctionsAsync()).First(f => f.StartRva != edited && f.EndRva - f.StartRva > 0x40).StartRva;
+            await session.DecompileAsync(edited);
+            var otherText = (await session.DecompileAsync(other)).Text;
+            var local = (await session.GetFrameAsync(edited, true, default)).Locals.First(l => !l.IsArgument && l.Name.Length > 0).Name;
+            var types = new NativeTypeTools(rig.Workspace, rig.Engines, new NativeUserTypePush(rig.Code), rig.Code, new NativeNamePush(rig.Code), new NativeTypePush());
+            await types.SetNativeLocal(Image, Function, local, "corvus_kept", engine: "ida");
+
+            int hits = cache.Hits;
+            Assert.Equal(otherText, (await session.DecompileAsync(other)).Text);
+            Assert.Equal(hits + 1, cache.Hits);
+            Assert.Contains("corvus_kept", (await session.DecompileAsync(edited)).Text);
         }
 
         [Fact]

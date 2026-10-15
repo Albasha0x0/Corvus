@@ -37,7 +37,8 @@ open took (`openSeconds`), the profile and the import overrides in effect.
   `corvus <tool> --load <file>` call, finds it by the input's SHA-256 and opens it without analysis.
 - **Within a session.** One worker per image and engine; reads run concurrently (Ghidra) or in order (IDA). Answers
   the output cache holds are keyed by the database's state: any change to the database makes new keys, so a stale
-  answer is never served.
+  answer is never served. A change confined to one function (a local or stack member renamed, with no signature
+  committed) makes only that function's answers stale; the other functions' stay.
 - **Two processes, one image.** The cache entry is locked by the process using it. IDA in a second process opens a
   read-only snapshot of the last saved database (edits are neither journaled nor saved; status says so); Ghidra
   answers `conflict` naming the owning process.

@@ -386,7 +386,10 @@ final class FrameOps {
             }
         }
         try {
-            if (paramsDiffer(s, hf)) HighFunctionDBUtil.commitParamsToDatabase(hf, false, ReturnCommitOption.NO_COMMIT, f.getSignatureSource());
+            if (paramsDiffer(s, hf)) {
+                HighFunctionDBUtil.commitParamsToDatabase(hf, false, ReturnCommitOption.NO_COMMIT, f.getSignatureSource());
+                w.signatureCommits++;
+            }
             HighFunctionDBUtil.updateDBVariable(s, name, dt, SourceType.USER_DEFINED);
         }
         catch (Exception e) {

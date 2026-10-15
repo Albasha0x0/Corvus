@@ -10,7 +10,8 @@ namespace Corvus.Native.Providers;
 /// its decompiler locals) stored under the engine's build, the input's SHA-256, the database state and the request.
 /// The database state is a chain of the requests that changed the database since it was created (see
 /// <see cref="WorkerSessionBase"/>), saved beside the database when it is saved; so any change makes new keys, and a
-/// stale answer cannot be served. Entries are files under <c>root/engine-output</c>, written whole (temporary file,
+/// stale answer cannot be served. A change confined to one function's output chains that function only: entries carry
+/// their function's chain, and other functions' answers stay valid. Entries are files under <c>root/engine-output</c>, written whole (temporary file,
 /// then rename) with a checksum: a damaged entry is a miss. The least recently used go beyond <see cref="MaxBytes"/>.
 /// </summary>
 /// <summary>What the output cache keeps: pseudocode and frames with decompiler locals, by the address asked.</summary>
@@ -55,7 +56,7 @@ public sealed class EngineOutputCache
     }
 
     /// <summary>Output entries are this layout's: a change of what is stored changes the version.</summary>
-    private const string Layout = "engine-output-1";
+    private const string Layout = "engine-output-2";
 
     /// <summary>The key of an engine answer: what was asked (decompile, frame) and of what, in a database state of an engine build and input.</summary>
     public static string OutputKey(string? identity, string engine, string sha256, string state, string what, string key) =>
@@ -186,6 +187,21 @@ public sealed class EngineOutputCache
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or FormatException) { return null; }
     }
 
+    /// <summary>The saved global chain and per-function chains (see <see cref="WriteState"/>), or null.</summary>
+    internal static (string Global, Dictionary<uint, string> Functions)? ReadChains(string database)
+    {
+        try
+        {
+            if (ReadState(database) is not { } state) return null;
+            var o = (JsonObject)JsonNode.Parse(File.ReadAllText(StateFile(database)))!;
+            var functions = new Dictionary<uint, string>();
+            if (o["functions"] is JsonObject f)
+                foreach (var (k, v) in f) functions[uint.Parse(k, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture)] = (string)v!;
+            return ((string?)o["global"] ?? state, functions);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or FormatException or InvalidCastException) { return null; }
+    }
+
     /// <summary>Forgets the saved state (the database was saved in a state that cannot be named).</summary>
     internal static void ClearState(string database)
     {
@@ -193,15 +209,24 @@ public sealed class EngineOutputCache
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
-    /// <summary>Records <paramref name="state"/> as the state of the database as saved now.</summary>
-    internal static void WriteState(string database, string state)
+    /// <summary>
+    /// Records <paramref name="state"/> as the state of the database as saved now, with the global and per-function chains
+    /// it combines when there are function chains.
+    /// </summary>
+    internal static void WriteState(string database, string state, string? global = null, IReadOnlyDictionary<uint, string>? functions = null)
     {
         try
         {
             if (Identity(database) is not { } identity) return;
             var file = StateFile(database);
             var temp = file + ".tmp";
-            File.WriteAllText(temp, new JsonObject { ["state"] = state, ["identity"] = identity }.ToJsonString());
+            var o = new JsonObject { ["state"] = state, ["identity"] = identity };
+            if (functions is { Count: > 0 })
+            {
+                o["global"] = global;
+                o["functions"] = new JsonObject(functions.OrderBy(f => f.Key).Select(f => KeyValuePair.Create(OutputCacheKinds.At(f.Key), (JsonNode?)f.Value)));
+            }
+            File.WriteAllText(temp, o.ToJsonString());
             File.Move(temp, file, overwrite: true);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }

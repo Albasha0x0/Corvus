@@ -554,6 +554,7 @@ final class TypeOps {
      */
     static JsonObject applyUserTypes(Worker w, Worker.Request r) throws Exception {
         long start = System.nanoTime();
+        int commits = w.signatureCommits;
         JsonObject a = r.args;
         int errors = 0;
         JsonArray messages = new JsonArray(), declared = new JsonArray(), items = new JsonArray();
@@ -599,6 +600,7 @@ final class TypeOps {
         o.add("decl_messages", messages);
         o.add("declared", declared);
         o.add("items", items);
+        o.addProperty("signatures", w.signatureCommits - commits);
         o.addProperty("seconds", Math.round((System.nanoTime() - start) / 1e6) / 1000.0);
         return o;
     }
