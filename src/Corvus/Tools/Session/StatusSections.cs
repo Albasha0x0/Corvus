@@ -57,7 +57,7 @@ internal sealed class ResultsStatus : IStatusSection
         if (s.Root != null)
         {
             yield return new("folder", StatusPaths.Short(s.Root), source);
-            yield return new("disk", $"{s.Entries} results, {Megabytes(s.Bytes)} of {s.MaxBytes >> 20} MB, unused results kept {s.MaxAge.TotalDays:0} days",
+            yield return new("disk", $"{Core.FolderTally.Text(s.Entries, s.Bytes, Megabytes, "results")} of {s.MaxBytes >> 20} MB, unused results kept {s.MaxAge.TotalDays:0} days",
                 $"{ResultCacheOptions.MaxMegabytesVariable}, {ResultCacheOptions.MaxDaysVariable}");
         }
         yield return new("memory", $"{s.MemoryEntries} results, {s.MemoryChars.ToString("N0", CultureInfo.InvariantCulture)} of {s.MaxMemoryChars.ToString("N0", CultureInfo.InvariantCulture)} characters");
@@ -79,7 +79,7 @@ internal sealed class CachesStatus : IStatusSection
         var engines = services.GetService<NativeEngineService>();
         var code = services.GetService<NativeCodeService>();
         if (engines?.CacheStatus() is { } db)
-            yield return new("engineDatabases", $"{StatusPaths.Short(db.Root)}: {db.Entries} entries, {ResultsStatus.Megabytes(db.Bytes)} of {db.MaxBytes >> 20} MB, unused entries kept {db.MaxAge.TotalDays:0} days; " +
+            yield return new("engineDatabases", $"{StatusPaths.Short(db.Root)}: {Core.FolderTally.Text(db.Entries, db.Bytes, ResultsStatus.Megabytes)} of {db.MaxBytes >> 20} MB, unused entries kept {db.MaxAge.TotalDays:0} days; " +
                 $"this session {db.Evicted} evicted" + (db.LastError != null ? $"; last problem: {db.LastError}" : ""),
                 $"{Native.Providers.AnalysisCache.RootVariable}, {Native.Providers.AnalysisCache.MaxMegabytesVariable}, _DAYS");
         if (code != null)
