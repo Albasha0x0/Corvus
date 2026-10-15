@@ -61,4 +61,7 @@ public interface IContainerReader
     /// archive, every entry. With <paramref name="allFiles"/> false, items may be limited to assemblies and nested packages.
     /// </summary>
     ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct);
+
+    /// <summary>The same level read from a seekable stream without holding the file; null when the format needs the bytes.</summary>
+    ContainerContents? Open(Stream stream, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) => null;
 }

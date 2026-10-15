@@ -25,9 +25,15 @@ internal sealed class ArchiveReader : IContainerReader
         return null;
     }
 
-    public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
+        Open(new MemoryStream(data, writable: false), name, allFiles, limits, ct)!;
+
+    public ContainerContents? Open(Stream stream, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
-        var format = Format(data)!;
+        Span<byte> head = stackalloc byte[263];
+        int got = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+        stream.Position = 0;
+        var format = Format(head[..got])!;
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();
         var notes = new List<string>();
@@ -51,13 +57,13 @@ internal sealed class ArchiveReader : IContainerReader
         {
             if (format is "7z" or "rar")
             {
-                using var archive = ArchiveFactory.OpenArchive(new MemoryStream(data, writable: false));
+                using var archive = ArchiveFactory.OpenArchive(stream);
                 foreach (var e in archive.Entries)
                     if (!e.IsDirectory && e.Key is { } key) Take(key.Replace('\\', '/'), e.Size, e.OpenEntryStream);
             }
             else
             {
-                using var reader = ReaderFactory.OpenReader(new MemoryStream(data, writable: false));
+                using var reader = ReaderFactory.OpenReader(stream);
                 // a compressed tar reports its inner archive type
                 kind = reader is SharpCompress.Readers.Tar.TarReader && format != "tar" ? "tar." + format switch { "gzip" => "gz", "bzip2" => "bz2", var f => f } : format;
                 while (reader.MoveToNextEntry())

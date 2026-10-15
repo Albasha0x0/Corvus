@@ -21,8 +21,9 @@ internal sealed class PcapFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        if (!PcapReader.Looks(file.Bytes)) return null;
-        var c = CaptureAnalysis.Read(file.Bytes, ct);
+        if (!PcapReader.Looks(file.Head)) return null;
+        CaptureAnalysis c;
+        using (var s = file.OpenRead()) c = CaptureAnalysis.Read(s, ct);
         var dns = c.DnsNames().ToList();
         var tls = c.ServerNames().ToList();
         var http = Requests(c).ToList();

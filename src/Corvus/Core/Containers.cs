@@ -232,6 +232,49 @@ public static class Containers
         || entry.EndsWith("libassembly-store.so", StringComparison.Ordinal)
         || entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || entry.EndsWith(".blob", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// One container level read from a stream instead of the whole file: zip (and SAZ, APK, NuGet), HAR, and the archives of an
+    /// <see cref="IContainerReader"/> that streams; a pcap or SQLite file is no container. Null for any other format and for a
+    /// zip without a readable central directory (local-header recovery needs the bytes).
+    /// </summary>
+    public static ContainerContents? OpenStream(Func<Stream> open, ReadOnlySpan<byte> head, string name, AnalysisLimits limits, CancellationToken ct)
+    {
+        var kind = Blob.Identify(head);
+        if (Pcap.PcapReader.Looks(head) || SqliteDatabase.Looks(head))
+            return new ContainerContents("none", [], [$"A {(SqliteDatabase.Looks(head) ? "SQLite database" : "packet capture")}, read as a stream: not a container, not carved."]);
+        if (kind == "text" && Captures.LooksLikeHar(head))
+        {
+            using var s = open();
+            return Captures.OpenHar(s, allFiles: false, limits, ct);
+        }
+        if (kind == "zip")
+        {
+            var s = open();
+            ZipArchive zip;
+            IReadOnlyCollection<ZipArchiveEntry> entries;
+            try
+            {
+                zip = new ZipArchive(s, ZipArchiveMode.Read);
+                entries = zip.Entries;
+            }
+            catch (InvalidDataException) { s.Dispose(); return null; }
+            using (zip) return ReadZipEntries(ZipReaders(entries, limits), limits, ct);
+        }
+        if (ReaderFor(head, name) is { } reader)
+        {
+            using var s = open();
+            return reader.Open(s, name, allFiles: false, limits, ct);
+        }
+        return null;
+    }
+
+    private static List<(string FullName, Func<byte[]?> Read)> ZipReaders(IEnumerable<ZipArchiveEntry> entries, AnalysisLimits limits) =>
+        [.. entries.Select(e => (e.FullName, (Func<byte[]?>)(() =>
+        {
+            using var s = e.Open();
+            return Blob.ReadBounded(s, limits.MaxItemBytes);
+        })))];
+
     private static ContainerContents OpenZip(byte[] data, string name, AnalysisLimits limits, CancellationToken ct)
     {
         ZipArchive zip;
@@ -253,11 +296,7 @@ public static class Containers
             return contents;
         }
         using (zip)
-            return ReadZipEntries(entries.Select(e => (e.FullName, (Func<byte[]?>)(() =>
-            {
-                using var s = e.Open();
-                return Blob.ReadBounded(s, limits.MaxItemBytes);
-            }))).ToList(), limits, ct);
+            return ReadZipEntries(ZipReaders(entries, limits), limits, ct);
     }
 
     private static ContainerContents ReadZipEntries(List<(string FullName, Func<byte[]?> Read)> entries, AnalysisLimits limits, CancellationToken ct)

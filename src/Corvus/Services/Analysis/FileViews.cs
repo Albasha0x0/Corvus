@@ -11,7 +11,8 @@ internal sealed class AndroidFileView : IFileSummaryView
     public string Name => "android";
 
     public FileView? Inspect(FileInput file, CancellationToken ct) =>
-        file.Kind == "zip" && Mobile.AndroidPackageService.Facts(file.Path, file.Bytes, ct) is { } facts ? new FileView(facts, facts.Highlights) : null;
+        file.Kind == "zip" && file.HasZipEntry(n => n is "AndroidManifest.xml" or "base/manifest/AndroidManifest.xml" || n.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
+        && Mobile.AndroidPackageService.Facts(file.Path, file.Bytes, ct) is { } facts ? new FileView(facts, facts.Highlights) : null;
 }
 
 /// <summary>view=electron: versions, fuses, archive integrity, package.json entry, webPreferences values.</summary>
@@ -20,7 +21,7 @@ internal sealed class ElectronFileView : IFileSummaryView
     public string Name => "electron";
 
     public FileView? Inspect(FileInput file, CancellationToken ct) =>
-        ElectronInspector.Of(file.Path, file.Bytes, ct) is { } facts ? new FileView(facts, [.. facts.Highlights()]) : null;
+        file.Kind is "asar" or "native PE" or "elf" or "mach-o" && ElectronInspector.Of(file.Path, file.Bytes, ct) is { } facts ? new FileView(facts, [.. facts.Highlights()]) : null;
 }
 
 /// <summary>view=go: toolchain, main package and module, dependencies and build settings.</summary>
@@ -29,7 +30,7 @@ internal sealed class GoFileView : IFileSummaryView
     public string Name => "go";
 
     public FileView? Inspect(FileInput file, CancellationToken ct) =>
-        InspectionService.GoBuildFacts.Of(file.Path, file.Bytes) is { } go ? new FileView(go, [go.Highlight()]) : null;
+        Native.NativeImageLoader.Detect(file.Head) != Native.NativeFileKind.Unknown && InspectionService.GoBuildFacts.Of(file.Path, file.Bytes) is { } go ? new FileView(go, [go.Highlight()]) : null;
 }
 
 /// <summary>view=native: ELF / Mach-O facts, packers and protectors, NativeAOT recovery counts.</summary>
@@ -41,6 +42,7 @@ internal sealed class NativeFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
+        if (Native.NativeImageLoader.Detect(file.Head) == Native.NativeFileKind.Unknown) return null;
         var image = NativeImageFacts.Of(file.Path, file.Bytes);
         var packers = Native.PackerDetection.OfFile(file.Path, file.Bytes);
         var aot = NativeAot(file.Kind, file.Bytes, ct);

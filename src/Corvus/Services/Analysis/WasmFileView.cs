@@ -15,7 +15,7 @@ internal sealed class WasmFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        if (!WasmModule.IsWasm(file.Bytes)) return null;
+        if (!WasmModule.IsWasm(file.Head)) return null;
         var m = WasmModule.Read(file.Bytes);
         var toolchain = Toolchain(m);
         var facts = new Facts(m.Version, toolchain, [.. m.Producers.Select(p => $"{p.Field}: {p.Value}")],

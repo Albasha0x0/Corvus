@@ -17,7 +17,7 @@ internal sealed class PlistFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        var head = file.Bytes.AsSpan(0, Math.Min(file.Bytes.Length, 512));
+        var head = file.Head.AsSpan(0, Math.Min(file.Head.Length, 512));
         if (!Plist.IsBinary(head) && head.IndexOf("<plist"u8) < 0) return null;
         var doc = Plist.Read(file.Bytes);
         if (doc.Root is not { } root) return null;

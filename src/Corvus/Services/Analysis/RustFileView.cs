@@ -17,7 +17,7 @@ internal sealed class RustFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        if (NativeImageLoader.Detect(file.Bytes) == NativeFileKind.Unknown || file.Bytes.AsSpan().IndexOf(".dep-v0"u8) < 0) return null;
+        if (NativeImageLoader.Detect(file.Head) == NativeFileKind.Unknown || file.Bytes.AsSpan().IndexOf(".dep-v0"u8) < 0) return null;
         RustAudit? audit;
         try { audit = RustAudit.Of(NativeImageLoader.FromBytes(file.Bytes, file.Path), file.Bytes); }
         catch (ToolError) { return null; }

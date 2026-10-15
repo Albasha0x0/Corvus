@@ -45,8 +45,8 @@ internal sealed class AppleFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         Source? source = null;
-        if (file.Kind == "zip") source = Source.Ipa(file.Bytes);
-        else if (Blob.Identify(file.Bytes) == "mach-o")
+        if (file.Kind == "zip") source = file.HasZipEntry(n => n.StartsWith("Payload/", StringComparison.Ordinal)) ? Source.Ipa(file.Bytes) : null;
+        else if (file.Kind == "mach-o")
             for (var dir = Path.GetDirectoryName(file.Path); dir != null && source == null; dir = Path.GetDirectoryName(dir))
                 if (IsBundleName(dir)) source = Source.Folder(dir);
         if (source == null || source.Read(source.InfoPlist, 4 << 20) is not { } plistBytes || Plist.Read(plistBytes).Root is not PlistDict info) return null;

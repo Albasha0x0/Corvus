@@ -5,9 +5,6 @@ namespace Corvus.Services.Analysis;
 
 // Provider interfaces of the containers family, found by Core.Providers (type scan): a new view, search kind or rule set is a class in its own file.
 
-/// <summary>A file as summarize_file reads it; <see cref="Kind"/> is Blob.Identify of the bytes.</summary>
-public sealed record FileInput(string Path, byte[] Bytes, string Kind);
-
 /// <summary>A view's facts: <see cref="Detail"/> is its record (serialized as the view's detail), highlights feed the overview.</summary>
 public sealed record FileView(object Detail, IReadOnlyList<string> Highlights);
 

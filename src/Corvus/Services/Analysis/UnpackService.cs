@@ -309,20 +309,38 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             return (folder.Source, folder.Walked.Container,
                 folder.Walked.Items.Select(i => new ManagedAssembly(i.Relative, i.Bytes, i.Sha256, i.Origin)).ToList(), folder.Walked.Notes, null);
         var (source, data, sha) = ReadSource(path, limits);
-        var walked = Walk(data, sha, source, limits, ct);
+        return Managed(source, data, sha, Walk(data, sha, source, limits, ct), limits);
+    }
+
+    /// <summary>
+    /// Managed assemblies in a file summarize_file has open (<paramref name="sha"/> is its SHA-256): a streamed file's top level
+    /// is read from a stream when its format allows (zip, HAR, archives; a capture or database is no container), else from its bytes.
+    /// </summary>
+    internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) Managed(
+        FileInput input, string sha, AnalysisLimits limits, CancellationToken ct)
+    {
+        if (input.Streamed && Containers.OpenStream(input.OpenRead, input.Head, Path.GetFileName(input.Path), limits, ct) is { } top)
+            return Managed(input.Path, null, sha, Walk(top, sha, limits, ct), limits);
+        return Managed(input.Path, input.Bytes, sha, Walk(input.Bytes, sha, input.Path, limits, ct), limits);
+    }
+
+    private static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) Managed(
+        string source, byte[]? data, string sha, Walked walked, AnalysisLimits limits)
+    {
         var assemblies = walked.Items.Where(i => i.Kind == DotNet)
             .Select(i => new ManagedAssembly(i.Relative.Replace(System.IO.Path.DirectorySeparatorChar, '/'), i.Bytes, i.Sha256, i.Origin)).ToList();
         var container = walked.Container;
-        if (container == "none" && Blob.Identify(data) == DotNet)
+        bool dotNet = data != null && Blob.Identify(data) == DotNet;
+        if (container == "none" && dotNet)
         {
             container = "none (plain .NET assembly)";
-            assemblies = [new ManagedAssembly(Path.GetFileName(source), data, sha, "the file itself")];
+            assemblies = [new ManagedAssembly(Path.GetFileName(source), data!, sha, "the file itself")];
             walked.Notes.RemoveAll(n => n.StartsWith("A plain .NET assembly", StringComparison.Ordinal));
         }
-        else if (Blob.Identify(data) == DotNet)
+        else if (dotNet)
         {
             // A managed host's own code comes first.
-            assemblies.Insert(0, new ManagedAssembly(Path.GetFileName(source), data, sha, HostOrigin));
+            assemblies.Insert(0, new ManagedAssembly(Path.GetFileName(source), data!, sha, HostOrigin));
         }
         else if (AppNextToApphost(source, container, limits) is { } app)
         {
@@ -455,14 +473,17 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// Breadth-first walk of nested containers; duplicate content (same hash) appears once, except files of an archive
     /// container (ASAR, UnityWebData, HAR, flows), which keep their own paths. allFiles extracts every archive file.
     /// </summary>
-    private static Walked Walk(byte[] data, string sha, string source, AnalysisLimits limits, CancellationToken ct, bool allFiles = false, Action<string>? progress = null)
+    private static Walked Walk(byte[] data, string sha, string source, AnalysisLimits limits, CancellationToken ct, bool allFiles = false, Action<string>? progress = null) =>
+        Walk(Containers.Open(data, Path.GetFileName(source), limits, ct, source, allFiles), sha, limits, ct, allFiles, progress);
+
+    /// <summary>The walk below a top level already opened (from the bytes or a stream).</summary>
+    private static Walked Walk(ContainerContents top, string sha, AnalysisLimits limits, CancellationToken ct, bool allFiles = false, Action<string>? progress = null)
     {
         var notes = new List<string>();
         var found = new List<Found>();
         var seen = new HashSet<string> { sha };
         long total = 0;
 
-        var top = Containers.Open(data, Path.GetFileName(source), limits, ct, source, allFiles);
         notes.AddRange(top.Notes);
         var queue = new Queue<(ExtractedItem Item, string Prefix, int Depth, bool Archived)>(top.Items.Select(i => (i, "", 1, top.Entries != null)));
         while (queue.Count > 0)

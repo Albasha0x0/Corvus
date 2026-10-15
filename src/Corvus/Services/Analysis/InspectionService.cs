@@ -18,6 +18,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     private const int MaxSummaryEmbeddedAssemblies = 10;
     private const int TopValues = 10;
 
+    /// <summary>summarize_file streams a file above this size (<see cref="FileInput.StreamAbove"/>; lower in tests).</summary>
+    public long StreamAbove { get; init; } = FileInput.StreamAbove;
+
     public sealed record FeatureReport(string Assembly, int MethodsScanned, IReadOnlyList<Feature> Features, IReadOnlyList<string> Notes);
 
     public sealed record ValueReport(string Assembly, int Total, IReadOnlyList<ExtractedValue> Values, IReadOnlyList<string> Notes);
@@ -154,6 +157,15 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var length = new FileInfo(full).Length;
         if (length > Math.Min(Limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError(ErrorCode.LimitExceeded, $"{full} is too large to analyze ({length:N0} bytes).");
         return (full, File.ReadAllBytes(full));
+    }
+
+    /// <summary>The file for summarize_file: any size, streamed above <see cref="FileInput.StreamAbove"/>.</summary>
+    private FileInput OpenInput(string path)
+    {
+        if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
+        var full = InputFiles.RequireRegularFile(path);
+        if (!File.Exists(full)) throw Targets.FileNotFound(path);
+        return FileInput.Open(full, StreamAbove);
     }
 
     private static ModuleDefMD LoadModule(byte[] bytes, string label)
@@ -350,13 +362,14 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         // an .app, .appex or .framework folder: its main executable, whose apple view describes the bundle
         if (AppleFileView.MainExecutable(path!) is { } executable) path = executable;
-        var (full, bytes) = ReadFile(path!);
-        var facts = Facts(full, bytes);
+        var input = OpenInput(path!);
+        var full = input.Path;
+        var facts = Facts(input, ct);
         var fileHighlights = new List<string>();
         if (facts.Certificate is { Present: true } fileSig) fileHighlights.AddRange(SignatureHighlights(fileSig, "the file"));
-        if (UnityLayout.FileHint(full, bytes) is { } layout) fileHighlights.Add(layout);
+        if (UnityLayout.FileHint(full, input.Streamed ? input.Head : input.Bytes) is { } layout) fileHighlights.Add(layout);
         var viewNotes = new List<string>();
-        var views = Views(new FileInput(full, bytes, facts.Type), viewNotes, ct);
+        var views = Views(input, viewNotes, ct);
         foreach (var v in views.Values) fileHighlights.AddRange(v.Highlights);
         FileSummary WithViews(FileSummary s)
         {
@@ -371,13 +384,14 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             };
         }
         (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) managed;
-        try { managed = UnpackService.Managed(full, Limits, ct); }
+        try { managed = UnpackService.Managed(input, facts.Sha256, Limits, ct); }
         catch (ToolError ex)
         {
             return WithViews(new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message, .. viewNotes]));
         }
         var reportNotes = new List<string>(managed.Notes);
-        reportNotes.AddRange(MappingNotes(bytes));
+        if (!input.Streamed) reportNotes.AddRange(MappingNotes(input.Bytes));
+        else reportNotes.Add($"Read as a stream ({input.Length:N0} bytes): hashes, captures, databases, zip, HAR and archives in bounded memory.");
         var summarized = new List<AssemblySummary>();
         // Order: host, main, libraries, framework; satellite assemblies are skipped.
         var ranked = managed.Assemblies.Select((a, i) => (a, i, Rank: Rank(a, full))).ToList();
@@ -499,6 +513,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         h.StartsWith("Processed with", StringComparison.Ordinal) || h.Contains("does not match", StringComparison.Ordinal)
         || h.Contains("does not verify", StringComparison.Ordinal) || h.Contains("unreadable", StringComparison.Ordinal)
         || h.StartsWith("High-entropy", StringComparison.Ordinal) || h.Contains("not valid IL", StringComparison.Ordinal);
+
+    private static FileFacts Facts(FileInput input, CancellationToken ct)
+    {
+        if (!input.Streamed) return Facts(input.Path, input.Bytes);
+        var (md5, sha1, sha256, entropy) = input.Hashes(ct);
+        return new(input.Path, input.Length, md5, sha1, sha256, input.Kind, Math.Round(entropy, 2), new CertificateInfo(false));
+    }
 
     private static FileFacts Facts(string path, byte[] bytes) =>
         new(path, bytes.Length, Blob.Md5(bytes), Blob.Sha1(bytes), Blob.Sha256(bytes), Blob.Identify(bytes), Math.Round(Blob.Entropy(bytes), 2),

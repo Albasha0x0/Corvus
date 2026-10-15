@@ -42,47 +42,127 @@ public static class Captures
     public static List<CapturedResponse>? ReadHar(byte[] data)
     {
         var result = new List<CapturedResponse>();
-        JsonDocument doc;
-        try { doc = JsonDocument.Parse(data, new JsonDocumentOptions { MaxDepth = 64 }); }
-        catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"Damaged HAR file: {ex.Message}"); }
-        using (doc)
+        using var s = new MemoryStream(data, writable: false);
+        return ReadHar(s, result.Add, AnalysisLimits.Default.MaxItemBytes, default) ? result : null;
+    }
+
+    /// <summary>
+    /// Streams a HAR file: each element of log.entries is parsed on its own and handed to <paramref name="response"/>, so memory
+    /// holds one entry (at most <paramref name="maxEntryBytes"/> of JSON) rather than the document. False when there is no
+    /// log.entries array.
+    /// </summary>
+    public static bool ReadHar(Stream stream, Action<CapturedResponse> response, long maxEntryBytes, CancellationToken ct)
+    {
+        var buffer = new byte[1 << 16];
+        int length = 0;
+        bool final = false, sawEntries = false, inLog = false, inEntries = false;
+        bool rootIsLog = false, logIsEntries = false;
+        var state = new JsonReaderState(new JsonReaderOptions { MaxDepth = 64 });
+        long offset = 0;
+        try
         {
-            if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("log", out var log) || log.ValueKind != JsonValueKind.Object
-                || !log.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array)
-                return null;
-            foreach (var e in entries.EnumerateArray())
+            while (true)
             {
-                if (e.ValueKind != JsonValueKind.Object) continue;
-                var request = e.TryGetProperty("request", out var rq) && rq.ValueKind == JsonValueKind.Object ? rq : default;
-                var response = e.TryGetProperty("response", out var rs) && rs.ValueKind == JsonValueKind.Object ? rs : default;
-                string method = Str(request, "method") ?? "?", url = Str(request, "url") ?? "";
-                int status = response.ValueKind == JsonValueKind.Object && response.TryGetProperty("status", out var st) && st.TryGetInt32(out var s) ? s : 0;
-                string? encoding = HarHeader(response, "content-encoding");
-                byte[]? body = null;
-                string? mime = null, problem = null;
-                if (response.ValueKind == JsonValueKind.Object && response.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Object)
+                ct.ThrowIfCancellationRequested();
+                int read = stream.Read(buffer, length, buffer.Length - length);
+                if (read == 0) final = true;
+                length += read;
+                if (offset == 0 && length >= 3 && buffer.AsSpan(0, 3).SequenceEqual((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]))
                 {
-                    mime = Str(content, "mimeType");
-                    if (Str(content, "text") is { } text)
+                    Array.Copy(buffer, 3, buffer, 0, length -= 3);
+                    offset = 3;
+                }
+                var reader = new Utf8JsonReader(buffer.AsSpan(0, length), final, state);
+                long consumed = 0;
+                var resume = state;
+                while (true)
+                {
+                    var before = reader.CurrentState;
+                    long at = reader.BytesConsumed;
+                    if (!reader.Read()) { consumed = at; resume = before; break; }
+                    int depth = reader.CurrentDepth;
+                    switch (reader.TokenType)
                     {
-                        if (Str(content, "encoding") is { } enc && enc.Equals("base64", StringComparison.OrdinalIgnoreCase))
-                        {
-                            try { body = Convert.FromBase64String(text); }
-                            catch (FormatException) { problem = "invalid base64 body"; }
-                        }
-                        else
-                        {
-                            body = Encoding.UTF8.GetBytes(text);
-                            encoding = null; // HAR text is the decoded body
-                        }
+                        case JsonTokenType.PropertyName when depth == 1:
+                            rootIsLog = reader.ValueTextEquals("log"u8);
+                            break;
+                        case JsonTokenType.PropertyName when depth == 2 && inLog:
+                            logIsEntries = reader.ValueTextEquals("entries"u8);
+                            break;
+                        case JsonTokenType.StartObject when depth == 1 && rootIsLog:
+                            inLog = true;
+                            break;
+                        case JsonTokenType.EndObject when depth == 1 && inLog:
+                            inLog = false;
+                            break;
+                        case JsonTokenType.StartArray when depth == 2 && inLog && logIsEntries:
+                            inEntries = sawEntries = true;
+                            break;
+                        case JsonTokenType.EndArray when depth == 2 && inEntries:
+                            inEntries = false;
+                            break;
+                        case JsonTokenType.StartObject when depth == 3 && inEntries:
+                            var probe = reader;
+                            if (!probe.TrySkip()) { consumed = at; resume = before; goto refill; }
+                            using (var entry = JsonDocument.ParseValue(ref reader)) response(Response(entry.RootElement));
+                            break;
+                        case JsonTokenType.StartArray or JsonTokenType.String or JsonTokenType.Number or JsonTokenType.True or JsonTokenType.False or JsonTokenType.Null
+                            when depth == 0:
+                            return false; // the root is not an object
                     }
                 }
-                result.Add(new CapturedResponse(method, url, status, mime, encoding, body, problem));
+                refill:
+                if (final) break;
+                offset += consumed;
+                state = resume;
+                Array.Copy(buffer, consumed, buffer, 0, length - consumed);
+                length -= (int)consumed;
+                if (length == buffer.Length)
+                {
+                    if (buffer.Length >= maxEntryBytes)
+                        throw new ToolError(ErrorCode.LimitExceeded, $"A HAR entry at byte {offset:N0} is larger than {maxEntryBytes:N0} bytes.");
+                    Array.Resize(ref buffer, (int)Math.Min(Math.Min((long)buffer.Length * 2, maxEntryBytes), Array.MaxLength));
+                }
             }
         }
-        return result;
+        catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"Damaged HAR file: {ex.Message}"); }
+        return sawEntries;
+    }
 
-        static string? Str(JsonElement e, string name) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+    private static CapturedResponse Response(JsonElement e)
+    {
+        var request = e.TryGetProperty("request", out var rq) && rq.ValueKind == JsonValueKind.Object ? rq : default;
+        var response = e.TryGetProperty("response", out var rs) && rs.ValueKind == JsonValueKind.Object ? rs : default;
+        string method = Str(request, "method") ?? "?", url = Str(request, "url") ?? "";
+        int status = response.ValueKind == JsonValueKind.Object && response.TryGetProperty("status", out var st) && st.TryGetInt32(out var s) ? s : 0;
+        string? encoding = HarHeader(response, "content-encoding");
+        byte[]? body = null;
+        string? mime = null, problem = null;
+        if (response.ValueKind == JsonValueKind.Object && response.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Object)
+        {
+            mime = Str(content, "mimeType");
+            if (Str(content, "text") is { } text)
+            {
+                if (Str(content, "encoding") is { } enc && enc.Equals("base64", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { body = Convert.FromBase64String(text); }
+                    catch (FormatException) { problem = "invalid base64 body"; }
+                }
+                else
+                {
+                    body = Encoding.UTF8.GetBytes(text);
+                    encoding = null; // HAR text is the decoded body
+                }
+            }
+        }
+        return new CapturedResponse(method, url, status, mime, encoding, body, problem);
+
+        static string? Str(JsonElement e, string name)
+        {
+            if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.String) return null;
+            try { return v.GetString(); }
+            catch (InvalidOperationException) { return null; } // invalid UTF-8 in the string
+        }
 
         static string? HarHeader(JsonElement response, string name)
         {
@@ -137,16 +217,34 @@ public static class Captures
     /// <summary>The capture as a container; null for JSON that is not HAR.</summary>
     public static ContainerContents? Open(byte[] data, bool flows, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
-        var notes = new List<string>();
-        var responses = flows ? ReadFlows(data, notes, ct) : ReadHar(data);
-        if (responses == null) return null;
-        var entries = new List<ContainerEntry>();
-        var items = new List<ExtractedItem>();
-        long total = 0;
-        int empty = 0;
-        foreach (var r in responses)
+        if (!flows) return OpenHar(new MemoryStream(data, writable: false), allFiles, limits, ct);
+        var collector = new Collector(true, allFiles, limits, ct);
+        foreach (var r in ReadFlows(data, collector.Notes, ct)) collector.Add(r);
+        return collector.Contents();
+    }
+
+    /// <summary>A HAR file read from a stream as a container (one entry in memory at a time); null for JSON that is not HAR.</summary>
+    public static ContainerContents? OpenHar(Stream stream, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    {
+        var collector = new Collector(false, allFiles, limits, ct);
+        return ReadHar(stream, collector.Add, Math.Min(limits.MaxItemBytes * 2, Array.MaxLength), ct) ? collector.Contents() : null;
+    }
+
+    /// <summary>Responses turned into entries and, for the interesting ones (all with allFiles), extracted bodies.</summary>
+    private sealed class Collector(bool flows, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    {
+        public List<string> Notes { get; } = [];
+        private readonly List<ContainerEntry> _entries = [];
+        private readonly List<ExtractedItem> _items = [];
+        private long _total;
+        private int _responses, _empty;
+        private bool _stopped;
+
+        public void Add(CapturedResponse r)
         {
             ct.ThrowIfCancellationRequested();
+            _responses++;
+            if (_stopped) return;
             var path = PathOf(r);
             var detail = new StringBuilder($"{r.Method} {r.Status}");
             if (r.MimeType != null) detail.Append(' ').Append(r.MimeType.Split(';')[0].Trim());
@@ -158,18 +256,23 @@ public static class Captures
                 else detail.Append($", {enc} body not decoded");
             }
             if (r.Problem != null) detail.Append(", ").Append(r.Problem);
-            if (body == null || body.Length == 0) { empty++; detail.Append(", no body"); }
-            entries.Add(new ContainerEntry(path, body?.Length ?? 0, $"{detail}; {Clip(r.Url)}"));
-            if (body is not { Length: > 0 } || !(allFiles || Containers.IsInteresting(path))) continue;
-            if (items.Count >= limits.MaxItems || body.Length > limits.MaxItemBytes || (total += body.Length) > limits.MaxTotalBytes)
+            if (body == null || body.Length == 0) { _empty++; detail.Append(", no body"); }
+            _entries.Add(new ContainerEntry(path, body?.Length ?? 0, $"{detail}; {Clip(r.Url)}"));
+            if (body is not { Length: > 0 } || !(allFiles || Containers.IsInteresting(path))) return;
+            if (_items.Count >= limits.MaxItems || body.Length > limits.MaxItemBytes || (_total += body.Length) > limits.MaxTotalBytes)
             {
-                notes.Add("Stopped: the extraction limit was reached.");
-                break;
+                Notes.Add("Stopped: the extraction limit was reached.");
+                _stopped = true;
+                return;
             }
-            items.Add(new ExtractedItem(path, body, $"{(flows ? "flow" : "HAR")} response {r.Method} {Clip(r.Url)}"));
+            _items.Add(new ExtractedItem(path, body, $"{(flows ? "flow" : "HAR")} response {r.Method} {Clip(r.Url)}"));
         }
-        notes.Insert(0, $"{responses.Count} response(s), {responses.Count - empty} with a body; files are named host/path, the query folded into a short hash.");
-        return new ContainerContents(flows ? FlowKind : HarKind, items, notes) { Entries = entries };
+
+        public ContainerContents Contents()
+        {
+            Notes.Insert(0, $"{_responses} response(s), {_responses - _empty} with a body; files are named host/path, the query folded into a short hash.");
+            return new ContainerContents(flows ? FlowKind : HarKind, _items, Notes) { Entries = _entries };
+        }
     }
 
     private static string Clip(string url) => url.Length > 200 ? url[..197] + "..." : url;

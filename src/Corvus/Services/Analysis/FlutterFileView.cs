@@ -15,7 +15,7 @@ internal sealed class FlutterFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        if (NativeImageLoader.Detect(file.Bytes) == NativeFileKind.Unknown) return null;
+        if (NativeImageLoader.Detect(file.Head) == NativeFileKind.Unknown) return null;
         var snapshots = DartScan.Snapshots(file.Bytes, ct);
         if (snapshots.Count > 0)
         {
