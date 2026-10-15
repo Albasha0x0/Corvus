@@ -101,8 +101,24 @@ public sealed class UnityOverviewTests : IDisposable
             Entry("assets/bin/Data/Managed/Metadata/global-metadata.dat", Metadata(27, ["Player"]));
             Entry("assets/bin/Data/data.unity3d", [.. "UnityFS\0"u8, 0, 0, 0, 8, .. "5.x.x\0"u8, .. "2021.1.5f1\0"u8, 0, 0, 0, 0]);
         }
+        byte[] header = [.. "UnityFS\0"u8, 0, 0, 0, 8, .. "5.x.x\0"u8, .. "2021.1.5f1\0"u8, 0, 0, 0, 0];
+        void Zip(string path, params (string Name, byte[] Bytes)[] entries)
+        {
+            using var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create);
+            foreach (var (name, bytes) in entries)
+            {
+                using var s = zip.CreateEntry(name).Open();
+                s.Write(bytes);
+            }
+        }
+        var assembly = File.ReadAllBytes(Env.FixturePath);
         var mono = Path.Combine(_dir.Path, "mono.apk");
-        using (var zip = System.IO.Compression.ZipFile.Open(mono, System.IO.Compression.ZipArchiveMode.Create)) zip.CreateEntry("assets/bin/Data/Managed/Assembly-CSharp.dll");
+        Zip(mono, ("assets/bin/Data/Managed/Assembly-CSharp.dll", assembly), ("assets/bin/Data/data.unity3d", header),
+            ("lib/arm64-v8a/libunity.so", [0x7F, 0x45, 0x4C, 0x46, 2]), ("lib/arm64-v8a/libmonobdwgc-2.0.so", [0x7F, 0x45, 0x4C, 0x46, 2]));
+        // a zipped Windows title: the folder above <Game>_Data becomes the game root
+        var desktop = Path.Combine(_dir.Path, "title.zip");
+        Zip(desktop, ("Title v1.0/Title.exe", File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(Env.FixturePath)!, "Corvus.Tests.dll"))),
+            ("Title v1.0/Title_Data/data.unity3d", header), ("Title v1.0/Title_Data/Managed/Assembly-CSharp.dll", assembly));
         var previous = Environment.GetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable);
         Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, Path.Combine(_dir.Path, "cache"));
         try
@@ -110,8 +126,11 @@ public sealed class UnityOverviewTests : IDisposable
             var r = UnityOverview.Inspect(apk, false, default);
             Assert.Equal(("il2cpp", "readable", "2021.1.5f1"), (r.Backend.Kind, r.Backend.MetadataState, r.Engine.Version));
             Assert.Contains(r.Notes, n => n.StartsWith($"Read from the game files of {apk}", StringComparison.Ordinal));
-            var error = Assert.Throws<ToolError>(() => UnityOverview.Inspect(mono, false, default));
-            Assert.Contains("unpack_container", error.Remediation);
+            var m = UnityOverview.Inspect(mono, false, default);
+            Assert.Equal(("mono", "android", "2021.1.5f1"), (m.Backend.Kind, m.Platform, m.Engine.Version));
+            var d = UnityOverview.Inspect(desktop, false, default);
+            Assert.Equal(("mono", "2021.1.5f1"), (d.Backend.Kind, d.Engine.Version));
+            Assert.EndsWith("Title.exe", d.Executable);
         }
         finally { Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, previous); }
     }

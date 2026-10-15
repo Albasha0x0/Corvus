@@ -11,7 +11,7 @@ namespace Corvus.Services;
 /// one ABI, global-metadata.dat and the Unity version files) into a per-user cache keyed by the package's SHA-256, laid out as
 /// the extracted package would be, so <see cref="Il2CppGameFiles.Find"/> reads it.
 /// </summary>
-public static class Il2CppPackages
+public static partial class Il2CppPackages
 {
     public const string FolderName = "packages";
     private const string MarkerFileName = "package.json";
@@ -27,11 +27,15 @@ public static class Il2CppPackages
 
     public static bool IsPackage(string path) => Extensions.Contains(Path.GetExtension(path).ToLowerInvariant()) && File.Exists(path);
 
+    /// <summary>A package unity_overview reads in place: the Il2Cpp packages, plus zipped desktop titles.</summary>
+    public static bool IsUnityPackage(string path) => IsPackage(path) || Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase) && File.Exists(path);
+
     /// <summary>
     /// The extracted game root of the Il2Cpp game in <paramref name="package"/>, or null when the package holds none
-    /// (no global-metadata.dat). <paramref name="slice"/> picks the Android ABI.
+    /// (no global-metadata.dat). <paramref name="slice"/> picks the Android ABI. <paramref name="anyBackend"/> (unity_overview):
+    /// a Mono game's assemblies and libraries too, and zipped desktop titles.
     /// </summary>
-    public static string? Extract(string package, string? slice, string? cacheRoot = null, CancellationToken ct = default)
+    public static string? Extract(string package, string? slice, string? cacheRoot = null, CancellationToken ct = default, bool anyBackend = false)
     {
         var full = Path.GetFullPath(package);
         string sha;
@@ -43,7 +47,7 @@ public static class Il2CppPackages
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ToolError(ErrorCode.IoError, $"Cannot read {full}: {ex.Message}"); }
         var abi = slice != null ? Il2CppGameFiles.AndroidAbi(slice) : null;
         var root = Path.Combine(Path.GetFullPath(cacheRoot ?? Il2CppRawLoader.DefaultRoot), FolderName);
-        var dir = Path.Combine(root, $"{sha[..16]}-{ExtractFormat}" + (abi != null ? "-" + abi : ""));
+        var dir = Path.Combine(root, $"{sha[..16]}-{ExtractFormat}" + (abi != null ? "-" + abi : "") + (anyBackend ? "-u" : ""));
         if (File.Exists(Path.Combine(dir, MarkerFileName)))
         {
             Touch(dir);
@@ -58,7 +62,7 @@ public static class Il2CppPackages
             bool found;
             var splits = Path.Combine(staging, "splits");
             using (var zip = OpenZip(full))
-                found = ExtractGame(zip, IsAppBundle(zip) ? ".aab" : Path.GetExtension(full).ToLowerInvariant(), game, splits, abi, ct);
+                found = ExtractGame(zip, IsAppBundle(zip) ? ".aab" : Path.GetExtension(full).ToLowerInvariant(), game, splits, abi, ct, anyBackend);
             TryDelete(splits);
             if (!found) Directory.Delete(game, true);
             File.WriteAllText(Path.Combine(staging, MarkerFileName), JsonSerializer.Serialize(new Marker(full, sha, abi, DateTime.UtcNow)));
@@ -92,7 +96,7 @@ public static class Il2CppPackages
     /// <summary>A file of the app as the package lays it out: its path inside the app, and how to open it.</summary>
     private sealed record Item(string Path, ZipArchiveEntry Entry);
 
-    private static bool ExtractGame(ZipArchive zip, string extension, string game, string splits, string? abi, CancellationToken ct)
+    private static bool ExtractGame(ZipArchive zip, string extension, string game, string splits, string? abi, CancellationToken ct, bool anyBackend = false)
     {
         var items = new List<Item>();
         var nested = new List<ZipArchive>();
@@ -118,7 +122,12 @@ public static class Il2CppPackages
                 extension == ".aab" && e.FullName.StartsWith("base/", StringComparison.Ordinal) ? e.FullName["base/".Length..]
                 : extension == ".ipa" && e.FullName.StartsWith("Payload/", StringComparison.Ordinal) ? e.FullName["Payload/".Length..] : e.FullName, e)));
 
-            var wanted = extension == ".ipa" ? AppleFiles(items) : AndroidFiles(items, abi);
+            var wanted = extension switch
+            {
+                ".ipa" => AppleFiles(items),
+                ".zip" => DesktopFiles(items),
+                _ => AndroidFiles(items, abi) is { Count: > 0 } il2cpp ? il2cpp : anyBackend ? MonoAndroidFiles(items) : [],
+            };
             if (wanted.Count == 0) return false;
             foreach (var (item, limit) in wanted)
             {
@@ -169,6 +178,47 @@ public static class Il2CppPackages
         Version(items, data, wanted);
         return wanted;
     }
+
+    /// <summary>Android Mono: the assemblies under assets/bin/Data/Managed, libunity and libmono of one ABI, and the version files.</summary>
+    private static List<(Item, int)> MonoAndroidFiles(List<Item> items)
+    {
+        const string data = "assets/bin/Data/";
+        var wanted = items.Where(i => i.Path.StartsWith(data + "Managed/", StringComparison.Ordinal) && i.Path.EndsWith(".dll", StringComparison.Ordinal)
+                                      && i.Path.Count(c => c == '/') == 4).Select(i => (i, 0)).ToList();
+        if (wanted.Count == 0) return [];
+        var abis = items.Where(i => i.Path.StartsWith("lib/", StringComparison.Ordinal) && i.Path.EndsWith("/libunity.so", StringComparison.Ordinal)).Select(i => i.Path.Split('/')[1]).ToHashSet();
+        if ((Il2CppGameFiles.AndroidAbis.FirstOrDefault(abis.Contains) ?? abis.FirstOrDefault()) is { } abi)
+            wanted.AddRange(items.Where(i => i.Path.StartsWith($"lib/{abi}/lib", StringComparison.Ordinal) && (i.Path.EndsWith("/libunity.so", StringComparison.Ordinal)
+                || i.Path.Contains("/libmono", StringComparison.Ordinal))).Select(i => (i, 0)));
+        Version(items, data, wanted);
+        return wanted;
+    }
+
+    /// <summary>
+    /// A zipped Windows or Linux title: the folder holding &lt;Game&gt;_Data becomes the game root (its paths shortened to
+    /// that), with the executable, UnityPlayer, GameAssembly, the managed assemblies or the Il2Cpp metadata, and the version files.
+    /// </summary>
+    private static List<(Item, int)> DesktopFiles(List<Item> items)
+    {
+        var markers = items.Select(i => (i, m: DataMarker().Match(i.Path))).Where(x => x.m.Success).OrderBy(x => x.i.Path.Length).ToList();
+        if (markers.Count == 0) return [];
+        var top = markers[0].m.Groups[1].Value;
+        var data = top + markers[0].m.Groups[2].Value + "_Data/";
+        var under = items.Where(i => i.Path.StartsWith(top, StringComparison.Ordinal)).Select(i => new Item(i.Path[top.Length..], i.Entry)).ToList();
+        var dataRel = data[top.Length..];
+        bool Root(Item i) => !i.Path.Contains('/');
+        var wanted = under.Where(i => Root(i) && (i.Path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || i.Path is "UnityPlayer.dll" or "UnityPlayer.so"
+                || i.Path is "GameAssembly.dll" or "GameAssembly.so" || i.Path == markers[0].m.Groups[2].Value + ".x86_64"))
+            .Concat(under.Where(i => i.Path.StartsWith(dataRel + "Managed/", StringComparison.Ordinal) && i.Path.EndsWith(".dll", StringComparison.Ordinal)))
+            .Concat(under.Where(i => i.Path == dataRel + "il2cpp_data/Metadata/" + Il2CppGameFiles.MetadataFileName))
+            .Select(i => (i, 0)).ToList();
+        Version(under, dataRel, wanted);
+        return wanted;
+    }
+
+    // "<top>/<Game>_Data/globalgamemanagers" (or data.unity3d, mainData)
+    [System.Text.RegularExpressions.GeneratedRegex(@"^((?:[^/]+/)*?)([^/]+)_Data/(?:globalgamemanagers|data\.unity3d|mainData)$")]
+    private static partial System.Text.RegularExpressions.Regex DataMarker();
 
     /// <summary>iOS: the .app's UnityFramework (or main executable), the metadata and the version files under Data.</summary>
     private static List<(Item, int)> AppleFiles(List<Item> items)

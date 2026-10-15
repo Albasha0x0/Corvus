@@ -114,13 +114,13 @@ public static class UnityOverview
                 "set CORVUS_DIE to the Detect It Easy folder (or diec.exe), or call again with detectItEasy=false");
 
         string? package = null;
-        if (Il2CppPackages.IsPackage(full))
+        if (Il2CppPackages.IsUnityPackage(full))
         {
-            // Packages: the Il2Cpp game files load_assembly extracts (binary, metadata, the data folder's version files).
+            // Packages and zipped titles: the game files the overview reads (binaries, metadata or assemblies, version files), in a short cache path.
             package = full;
-            full = Il2CppPackages.Extract(full, null, ct: ct) ?? throw new ToolError(ErrorCode.Unsupported,
-                $"{package} holds no Il2Cpp game: reason not_a_unity_title (a Unity Mono package keeps its assemblies under assets/bin/Data/Managed).",
-                "unpack_container (or list_assemblies with path) extracts a Mono package's assemblies; unity_overview then reads the extracted folder");
+            full = Il2CppPackages.Extract(full, null, ct: ct, anyBackend: true) ?? throw new ToolError(ErrorCode.Unsupported,
+                $"{package} holds no Unity title (no Il2Cpp metadata, Managed assemblies or <Game>_Data folder): reason not_a_unity_title.",
+                "pass the title's package, zip or folder");
         }
         var layout = Resolve(full, ct) ?? throw new ToolError(ErrorCode.Unsupported,
             $"{full} is not a Unity title (no UnityPlayer, libunity, GameAssembly or data folder in it or 4 folders above): reason not_a_unity_title.",
@@ -129,7 +129,7 @@ public static class UnityOverview
             Details = new { reason = "not_a_unity_title", path = full, lookedFor = LookedFor },
         };
         var notes = new List<string>(layout.Notes);
-        if (package != null) notes.Add($"Read from the game files of {package}, extracted to {full} (the libraries of one ABI and the data folder's version files).");
+        if (package != null) notes.Add($"Read from the game files of {package}, extracted to {full} (binaries, metadata or assemblies, and the data folder's version files).");
         var markers = new List<MarkerFact>();
         ct.ThrowIfCancellationRequested();
         var engine = Engine(layout, ct);
