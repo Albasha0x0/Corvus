@@ -18,23 +18,30 @@ public sealed class DeviceTools(DeviceService devices)
 
     [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true, OutputSchemaType = typeof(AndroidDeviceInfo))]
     [Description("Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, " +
-                 "ro.debuggable, ro.secure, emulator or not; view=: processes, features, services, settings or files.")]
+                 "ro.debuggable, ro.secure, emulator or not; view=: processes, features, services, settings, files; screen (PNG file), " +
+                 "window (focused activity and its DEX class), display, bugreport (zip streamed to a directory). Nothing on the device changes.")]
     public Task<string> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
-        [Description("Rows whose name or value contains this; view=files: the directory (default /data/local/tmp).")] string? query = null,
+        [Description("Rows whose name or value contains this; view=files: the directory (default /data/local/tmp); view=window: a local APK to resolve the activity in.")] string? query = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Most rows.")] int limit = 100,
-        [Description("props (default), processes, features, services, settings or files.")] string view = "props",
+        [Description("What to read (default props).")] string view = "props",
+        [Description("view=screen: the PNG to write (never replaced); view=bugreport: a new or empty directory. Default: a new path in the temporary folder.")] string? outputPath = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         view = view.Trim().ToLowerInvariant();
-        var r = devices.DeviceInfo(serial, query, offset, ToolSupport.ClampLimit(limit), cancellationToken, view);
+        var r = devices.DeviceInfo(serial, query, offset, ToolSupport.ClampLimit(limit), cancellationToken, view, outputPath);
         var s = r.Summary;
         var header = $"{r.Serial}: Android {s.Release} (SDK {s.Sdk}), {s.Manufacturer} {s.Model}, ABIs {string.Join(", ", s.Abis)}; {s.BuildType}"
                      + $"{(s.Debuggable == true ? ", ro.debuggable=1" : "")}{(s.Secure == false ? ", ro.secure=0" : "")}; patch {s.SecurityPatch}"
                      + $"{(s.Emulator ? $"; emulator ({string.Join(", ", s.EmulatorEvidence)})" : "")}\nfingerprint {s.Fingerprint}\n";
-        return ToolOutput.List(r.Properties, r.Offset, ToolSupport.ClampLimit(limit), r.Total, p => view == "props" || view == "settings" ? $"{p.Name} = {p.Value}" : $"{p.Name}  {p.Value}",
-            rows => r with { Properties = rows }, view switch { "processes" => "process", "features" => "feature", "services" => "service", "settings" => "setting", "files" => "entry", _ => "property" }, header);
+        bool pairs = view is "props" or "settings" or "screen" or "window" or "display" or "bugreport";
+        return ToolOutput.List(r.Properties, r.Offset, ToolSupport.ClampLimit(limit), r.Total, p => pairs ? $"{p.Name} = {p.Value}" : $"{p.Name}  {p.Value}",
+            rows => r with { Properties = rows }, view switch
+            {
+                "processes" => "process", "features" => "feature", "services" => "service", "settings" => "setting", "files" => "entry",
+                "screen" or "window" or "display" or "bugreport" => "fact", _ => "property",
+            }, header);
     }, cancellationToken);
 
     [McpServerTool(Name = "list_android_packages", Title = "List installed packages", UseStructuredContent = true, OutputSchemaType = typeof(AndroidPackageList))]

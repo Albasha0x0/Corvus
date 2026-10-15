@@ -2501,17 +2501,18 @@ Structured output: `items`, `unparsed`.
 
 ### get_android_device_info
 
-**Android device info** (read-only, idempotent, open-world)
+**Android device info** (edit, open-world, long-running)
 
-Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator or not; view=: processes, features, services, settings or files.
+Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator or not; view=: processes, features, services, settings, files; screen (PNG file), window (focused activity and its DEX class), display, bugreport (zip streamed to a directory). Nothing on the device changes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `serial` | string |  |  | Device serial; optional with one device ready. |
-| `query` | string |  |  | Rows whose name or value contains this; view=files: the directory (default /data/local/tmp). |
+| `query` | string |  |  | Rows whose name or value contains this; view=files: the directory (default /data/local/tmp); view=window: a local APK to resolve the activity in. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Most rows. |
-| `view` | string |  | `props` | props (default), processes, features, services, settings or files. Values: props, processes, features, services, settings, files. |
+| `view` | string |  | `props` | What to read (default props). Values: props, processes, features, services, settings, files, screen, window, display, bugreport. |
+| `outputPath` | string |  |  | view=screen: the PNG to write (never replaced); view=bugreport: a new or empty directory. Default: a new path in the temporary folder. |
 
 Structured output: `serial`, `summary`, `properties`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

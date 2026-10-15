@@ -58,6 +58,71 @@ public sealed class DeviceTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => Rows("radio")).Code);
     }
 
+    private static Dictionary<string, string> Facts(AndroidDeviceInfo info) => info.Properties.ToDictionary(p => p.Name, p => p.Value);
+
+    [Fact]
+    public void Screen_WritesTheExecOutPng_WithItsSize_AndNeverReplacesAFile()
+    {
+        var path = Path.GetFullPath(_dir.File("shots/screen.png"));
+        var facts = Facts(Service().DeviceInfo(null, null, 0, 100, default, "screen", path));
+        Assert.Equal((path, "1080x2400", FakeDevice.Screen.Length.ToString()), (facts["file"], facts["size"], facts["bytes"]));
+        Assert.Equal(FakeDevice.Screen, File.ReadAllBytes(path));
+        Assert.Equal(["-s", FakeDevice.Serial, "exec-out", "screencap", "-p"], _fake.ArgumentLists.Last());
+        Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => Service().DeviceInfo(null, null, 0, 100, default, "screen", path)).Code);
+        Assert.Equal(["screen.png"], Directory.EnumerateFiles(_dir.File("shots")).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void Window_ResolvesTheFocusedActivityToItsDexClass()
+    {
+        var apk = AndroidSamples.Save(_dir, "app.apk", AndroidSamples.Apk(30, ("classes.dex", AndroidSamples.Dex())));
+        var dex = new DexService();
+        var service = new DeviceService(new ServerOptions(), dex) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable };
+        var unread = Facts(service.DeviceInfo(null, null, 0, 100, default, "window"));
+        Assert.Equal(("com.example.app", "com.example.app.Main"), (unread["package"], unread["activity"]));
+        Assert.StartsWith("no package read", unread["dex class"]);
+        dex.ListClasses(apk, null, null, 0, 1, default); // a package read by a DEX tool is used without query
+        var facts = Facts(service.DeviceInfo(null, null, 0, 100, default, "window"));
+        Assert.StartsWith($"{AndroidSamples.Main} in {apk}", facts["dex class"]);
+        Assert.Equal("Landroid/app/Activity;", facts["extends"]);
+        Assert.Contains("ActivityRecord{9f8e u0 com.example.app/.Main t12}", facts["focused app"]);
+    }
+
+    [Fact]
+    public void Display_SizesDensityScreenStateAndDisplayDevices()
+    {
+        var facts = Facts(Service().DeviceInfo(null, null, 0, 100, default, "display"));
+        Assert.Equal(("1080x2400", "720x1600", "420", "ON"), (facts["physical size"], facts["override size"], facts["physical density"], facts["screen state"]));
+        Assert.StartsWith("uniqueId=\"local:4619827259835644672\", 1080 x 2400", facts["display \"Built-in Screen\""]);
+    }
+
+    [Fact]
+    public void Bugreport_StreamsTheZip_FallsBackToAPulledZip_AndKeepsNothingPastTheBudget()
+    {
+        var streamed = Facts(Service().DeviceInfo(null, null, 0, 100, default, "bugreport", _dir.File("br")));
+        Assert.Equal("bugreportz -s (streamed)", streamed["method"]);
+        using (var zip = System.IO.Compression.ZipFile.OpenRead(streamed["file"]))
+        using (var entry = new StreamReader(zip.GetEntry("bugreport-sdk_gphone64.txt")!.Open()))
+            Assert.Equal("== dumpstate ==\n", entry.ReadToEnd());
+
+        using var old = FakeDevice.Configure(new FakeTool()
+            .On(@"exec-out bugreportz -s$", "Usage: bugreportz [-hpv]\n", exit: 1)
+            .On(@"shell bugreportz$", "BEGIN:/bugreports/br.zip\nOK:/bugreports/br.zip\n")
+            .On(@"stat -c %s /bugreports/br\.zip$", "2048\n")
+            .On(@"pull /bugreports/br\.zip ", file: ContainerFixtures.Zip(("main_entry.txt", "x"u8.ToArray()))), AndroidSamples.Apk());
+        DeviceService Old(long budget) => new(new ServerOptions()) { Environment = old.Environment, AdbOverride = FakeTool.Executable, MaxBugreportBytes = budget };
+        var pulled = Facts(Old(1 << 20).DeviceInfo(null, null, 0, 100, default, "bugreport", _dir.File("br-old")));
+        Assert.Equal("bugreportz, pulled from /bugreports/br.zip", pulled["method"]);
+        Assert.True(File.Exists(pulled["file"]));
+        var over = Assert.Throws<ToolError>(() => Old(1024).DeviceInfo(null, null, 0, 100, default, "bugreport", _dir.File("br-over")));
+        Assert.Equal(ErrorCode.LimitExceeded, over.Code);
+        Assert.Contains("pull_android_file", over.Remediation);
+        var small = new DeviceService(new ServerOptions()) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable, MaxBugreportBytes = 16 };
+        var cut = Assert.Throws<ToolError>(() => small.DeviceInfo(null, null, 0, 100, default, "bugreport", _dir.File("br-cut")));
+        Assert.Equal(ErrorCode.LimitExceeded, cut.Code);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(_dir.File("br-cut")));
+    }
+
     [Fact]
     public void Packages_PathsUidsInstallers_AndPackageInfoFromDumpsys()
     {

@@ -24,7 +24,7 @@ public static partial class ToolEffects
 
         // Android devices through adb (open-world: they reach a device); install and uninstall need --allow-device-changes
         ["list_android_devices"] = Reads(openWorld: true),
-        ["get_android_device_info"] = Reads(openWorld: true),
+        ["get_android_device_info"] = Changes(destructive: false, idempotent: false, longRunning: true, openWorld: true), // view=screen and bugreport write a new local file
         ["list_android_packages"] = Reads(openWorld: true),
         ["get_android_package_info"] = Reads(openWorld: true),
         ["read_android_log"] = Reads(openWorld: true),
@@ -69,7 +69,7 @@ public sealed partial record ToolContract
         ["map_java_dotnet"] = Row(O.List, L.Interactive, sort: "discovery order"),
         ["list_jni_bindings"] = Row(O.List, L.Interactive, sort: "library, export order"),
         ["list_android_devices"] = Row(O.Report, L.Interactive),
-        ["get_android_device_info"] = Row(O.Report, L.Interactive),
+        ["get_android_device_info"] = Row(O.Report, L.Interactive, noDryRun: "writes only for view=screen or bugreport, to a new file or an empty directory; the device is only read"),
         ["list_android_packages"] = Row(O.List, L.Interactive, sort: "package name"),
         ["get_android_package_info"] = Row(O.Report, L.Interactive),
         ["pull_android_package"] = Row(O.Edit, L.Long, noDryRun: "writes only into a new or empty directory"),

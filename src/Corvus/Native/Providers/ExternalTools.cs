@@ -65,6 +65,15 @@ public static partial class ExternalTools
             ("stat", ["-s", "{serial}", "shell", "stat", "-c", "%F", "{remote}"]),
             ("pull", ["-s", "{serial}", "pull", "{remote}", "{local}"]),
             ("logcat", ["-s", "{serial}", "logcat", "-d", "-v", "threadtime"]),
+            ("screencap", ["-s", "{serial}", "exec-out", "screencap", "-p"]),
+            ("window", ["-s", "{serial}", "shell", "dumpsys", "window", "windows"]),
+            ("activities", ["-s", "{serial}", "shell", "dumpsys", "activity", "activities"]),
+            ("wm", ["-s", "{serial}", "shell", "wm", "{what}"]),
+            ("display", ["-s", "{serial}", "shell", "dumpsys", "display"]),
+            ("bugreport-stream", ["-s", "{serial}", "exec-out", "bugreportz", "-s"]),
+            ("bugreport-zip", ["-s", "{serial}", "shell", "bugreportz"]),
+            ("bugreport-text", ["-s", "{serial}", "shell", "bugreport"]),
+            ("size", ["-s", "{serial}", "shell", "stat", "-c", "%s", "{remote}"]),
             ("install", ["-s", "{serial}", "install-multiple"]),
             ("uninstall", ["-s", "{serial}", "uninstall"])))
     {
@@ -224,9 +233,10 @@ public static partial class ExternalTools
     /// <summary>
     /// Runs a program to completion in its own job with a minimal environment. Stdout is kept up to <paramref name="maxOutputBytes"/>;
     /// past that the tree is stopped and <see cref="RunResult.Truncated"/> set. Cancellation and the timeout stop the tree too.
+    /// With <paramref name="sink"/>, stdout streams there instead (same budget) and <see cref="RunResult.Output"/> is empty.
     /// </summary>
     public static RunResult Run(string exe, IReadOnlyList<string> args, TimeSpan timeout, long maxOutputBytes, CancellationToken ct,
-        IReadOnlyDictionary<string, string?>? environment = null, string? workingDirectory = null)
+        IReadOnlyDictionary<string, string?>? environment = null, string? workingDirectory = null, Stream? sink = null)
     {
         ChildProcess child;
         try
@@ -247,14 +257,17 @@ public static partial class ExternalTools
             Thread[] readers = [ChildProcess.StartReader(() =>
             {
                 var buffer = new MemoryStream();
+                var target = sink ?? buffer;
                 var chunk = new byte[64 * 1024];
+                long written = 0;
                 try
                 {
                     int n;
                     while ((n = child.StandardOutput.Read(chunk, 0, chunk.Length)) > 0)
                     {
-                        int keep = (int)Math.Min(n, Math.Max(0, maxOutputBytes - buffer.Length));
-                        buffer.Write(chunk, 0, keep);
+                        int keep = (int)Math.Min(n, Math.Max(0, maxOutputBytes - written));
+                        target.Write(chunk, 0, keep);
+                        written += keep;
                         if (keep < n) { truncated = true; child.Kill(); break; }
                     }
                 }

@@ -45,10 +45,12 @@ internal sealed class FakeTool : IDisposable
     public IReadOnlyDictionary<string, string?> Environment => new Dictionary<string, string?> { [ScriptVariable] = ScriptPath };
 
     /// <summary>Adds a rule: the first whose regex finds the joined arguments answers.</summary>
-    public FakeTool On(string match, string? stdout = null, string? stderr = null, int exit = 0, byte[]? file = null, int? repeat = null, int? sleepMs = null, string? printEnv = null)
+    public FakeTool On(string match, string? stdout = null, string? stderr = null, int exit = 0, byte[]? file = null, int? repeat = null, int? sleepMs = null, string? printEnv = null,
+        byte[]? bytes = null)
     {
         var rule = new JsonObject { ["match"] = match, ["exit"] = exit };
         if (stdout != null) rule["stdout"] = stdout;
+        if (bytes != null) rule["bytes"] = Convert.ToBase64String(bytes);
         if (stderr != null) rule["stderr"] = stderr;
         if (file != null) rule["file"] = Convert.ToBase64String(file);
         if (repeat != null) rule["repeat"] = repeat;

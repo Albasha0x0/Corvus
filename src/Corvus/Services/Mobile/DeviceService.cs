@@ -57,7 +57,7 @@ public sealed record PulledPackage(string Serial, string Package, IReadOnlyList<
 /// Android devices through adb (CORVUS_ADB, else PATH, else the SDK's platform-tools), one short-lived call per operation with the
 /// device serial pinned. Reading is always allowed; installing and uninstalling need the server option --allow-device-changes.
 /// </summary>
-public sealed partial class DeviceService(ServerOptions options)
+public sealed partial class DeviceService(ServerOptions options, DexService? dex = null)
 {
     private static readonly TimeSpan Short = TimeSpan.FromSeconds(30), Long = TimeSpan.FromMinutes(10);
     private const long MaxTextBytes = 16L << 20;
@@ -166,10 +166,10 @@ public sealed partial class DeviceService(ServerOptions options)
         };
     }
 
-    /// <summary>The device views of get_android_device_info: props, processes, features, services, settings, files.</summary>
-    public static readonly string[] DeviceViews = ["props", "processes", "features", "services", "settings", "files"];
+    /// <summary>The device views of get_android_device_info.</summary>
+    public static readonly string[] DeviceViews = ["props", "processes", "features", "services", "settings", "files", "screen", "window", "display", "bugreport"];
 
-    public AndroidDeviceInfo DeviceInfo(string? serial, string? query, int offset, int limit, CancellationToken ct, string view = "props")
+    public AndroidDeviceInfo DeviceInfo(string? serial, string? query, int offset, int limit, CancellationToken ct, string view = "props", string? outputPath = null)
     {
         var s = Serial(serial, ct);
         var text = Check(Run(ExternalTools.Arguments(Adb, "getprop", ("serial", s)), Short, MaxTextBytes, ct), "reading properties");
@@ -200,10 +200,14 @@ public sealed partial class DeviceService(ServerOptions options)
                 .Select(l => l.Split('=', 2)).Where(kv => kv.Length == 2).Select(kv => new AndroidProperty($"{ns}/{kv[0]}", kv[1])))],
             "files" => Lines(s, "ls", "listing files", ("remote", query is { Length: > 0 } dir ? dir : "/data/local/tmp")).Select(l => LsLine().Match(l)).Where(m => m.Success)
                 .Select(m => new AndroidProperty(m.Groups[6].Value, $"{m.Groups[1].Value} {m.Groups[4].Value} bytes, {m.Groups[5].Value}, {m.Groups[2].Value}:{m.Groups[3].Value}")).ToList(),
+            "screen" => Screen(s, outputPath, ct),
+            "window" => Window(s, query, ct),
+            "display" => Display(s, ct),
+            "bugreport" => Bugreport(s, outputPath, ct),
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", $"view is one of {string.Join(", ", DeviceViews)}"),
         };
-        // files: query names the directory
-        var filtered = view != "files" && query is { Length: > 0 } q
+        // files: query names the directory; window: a package to resolve against
+        var filtered = view is not ("files" or "window") && query is { Length: > 0 } q
             ? rows.Where(p => p.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || p.Value.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList()
             : rows;
         limit = Math.Clamp(limit, 1, 5_000);

@@ -43,6 +43,13 @@ internal static class FakeDevice
         Queries:
         """;
 
+    /// <summary>A 1080x2400 PNG as screencap -p writes it: signature, IHDR and IEND.</summary>
+    public static readonly byte[] Screen =
+    [
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, (byte)'I', (byte)'H', (byte)'D', (byte)'R', 0, 0, 0x04, 0x38, 0, 0, 0x09, 0x60, 8, 6, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, (byte)'I', (byte)'E', (byte)'N', (byte)'D', 0xAE, 0x42, 0x60, 0x82,
+    ];
+
     /// <summary>Adds the emulator's answers to <paramref name="fake"/>; <paramref name="apk"/> is what pulling base.apk yields.</summary>
     public static FakeTool Configure(FakeTool fake, byte[] apk)
     {
@@ -80,6 +87,15 @@ internal static class FakeDevice
         fake.On(@"logcat -d -v threadtime --pid=999", "01-02 03:04:05.678  999  999 I App: only pid\n");
         fake.On(@"logcat .*Flood:V", "01-02 03:04:05.678  1  1 W Flood: " + new string('x', 200) + "\n", repeat: 5_000);
         fake.On(@"logcat -d -v threadtime", "01-02 03:04:05.678  123  456 I ActivityManager: Start proc\n01-02 03:04:05.679  123  456 E App: boom\n");
+        fake.On(@"exec-out screencap -p$", bytes: Screen);
+        fake.On(@"shell dumpsys window windows$", "WINDOW MANAGER WINDOWS (dumpsys window windows)\n  Window #3 Window{1c2d u0 com.example.app/com.example.app.Main}:\n" +
+                                                   "  mCurrentFocus=Window{1c2d u0 com.example.app/com.example.app.Main}\n  mFocusedApp=ActivityRecord{9f8e u0 com.example.app/.Main t12}\n");
+        fake.On(@"shell wm size$", "Physical size: 1080x2400\nOverride size: 720x1600\n");
+        fake.On(@"shell wm density$", "Physical density: 420\n");
+        fake.On(@"shell dumpsys display$", "DISPLAY MANAGER (dumpsys display)\n  mScreenState=ON\n" +
+                                          "  DisplayDeviceInfo{\"Built-in Screen\": uniqueId=\"local:4619827259835644672\", 1080 x 2400, modeId 1, renderFrameRate 60.0, density 420}\n" +
+                                          "    mScreenState=ON\n");
+        fake.On(@"exec-out bugreportz -s$", bytes: ContainerFixtures.Zip(("main_entry.txt", "bugreport-sdk_gphone64.txt"u8.ToArray()), ("bugreport-sdk_gphone64.txt", "== dumpstate ==\n"u8.ToArray())));
         fake.On(@"install-multiple .*old\.apk", "Performing Incremental Install\nFailure [INSTALL_FAILED_VERSION_DOWNGRADE: Downgrade detected]\n", exit: 1);
         fake.On(@"install-multiple", "Success\n");
         fake.On(@"uninstall .*com\.missing", "Failure [DELETE_FAILED_INTERNAL_ERROR]\n", exit: 1);

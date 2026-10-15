@@ -5,8 +5,8 @@ using System.Text.RegularExpressions;
 
 // Modes: "-version" answers like a JDK; "version" like adb; "... -jar <jar> ..." serves MCP over stdio like the JADX server;
 // anything else follows the rules of the JSON script named by ADB_FAKE_SCRIPT: the first rule whose "match" regex finds the
-// joined arguments prints "stdout" ("repeat" times), "printEnv" (a variable) and "stderr", writes "file" (base64) to the last
-// argument, and exits with "exit".
+// joined arguments prints "stdout" ("repeat" times), "bytes" (base64, "repeat" times), "printEnv" (a variable) and "stderr",
+// writes "file" (base64) to the last argument, and exits with "exit".
 var script = Environment.GetEnvironmentVariable("ADB_FAKE_SCRIPT") is { Length: > 0 } path && File.Exists(path)
     ? JsonNode.Parse(File.ReadAllText(path))!.AsObject()
     : new JsonObject();
@@ -37,6 +37,12 @@ foreach (var rule in script["rules"]?.AsArray() ?? [])
     {
         using var stdout = Console.OpenStandardOutput();
         var bytes = Encoding.UTF8.GetBytes(text);
+        for (int i = 0, n = rule["repeat"]?.GetValue<int>() ?? 1; i < n; i++) stdout.Write(bytes);
+    }
+    if (rule["bytes"]?.GetValue<string>() is { } binary)
+    {
+        using var stdout = Console.OpenStandardOutput();
+        var bytes = Convert.FromBase64String(binary);
         for (int i = 0, n = rule["repeat"]?.GetValue<int>() ?? 1; i < n; i++) stdout.Write(bytes);
     }
     if (rule["stderr"]?.GetValue<string>() is { } error) Console.Error.Write(error);

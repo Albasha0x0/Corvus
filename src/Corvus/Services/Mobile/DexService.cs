@@ -91,6 +91,12 @@ public sealed class DexService
         return index;
     }
 
+    /// <summary>The indexes read so far and still cached, most recent first.</summary>
+    public IReadOnlyList<DexIndex> Cached()
+    {
+        lock (_lock) return [.. _cache.Select(n => n.Index)];
+    }
+
     private static Regex? Pattern(string? query)
     {
         if (query is not { Length: > 0 }) return null;
