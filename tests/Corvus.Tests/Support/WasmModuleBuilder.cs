@@ -98,6 +98,9 @@ internal sealed class WasmModuleBuilder
         return (uint)(_importedFuncs + _funcs.Count - 1);
     }
 
+    /// <summary>A function section entry without a body.</summary>
+    public void DeclareOnly(uint type) => _funcs.Add(type);
+
     /// <summary>A function section entry and code entry given as raw bytes (for bodies that are deliberately malformed).</summary>
     public void RawFunc(uint type, byte[] code) { _funcs.Add(type); _codes.Add([.. WasmAsm.Leb((ulong)code.Length), .. code]); }
 

@@ -36,6 +36,91 @@ internal static class WasmFixtures
         ("locals", Locals()),
     ];
 
+    /// <summary>A module of one function of type <paramref name="parameters"/> → <paramref name="results"/> with <paramref name="body"/>, a memory and a funcref table.</summary>
+    private static byte[] One(WasmType[] parameters, WasmType[] results, WasmAsm body, Action<WasmModuleBuilder>? more = null, bool memory = true, params (uint, WasmType)[] locals)
+    {
+        var b = new WasmModuleBuilder();
+        uint t = b.Type(parameters, results);
+        if (memory) b.Memory(1, 2);
+        more?.Invoke(b);
+        b.Func(t, body.Bytes, locals);
+        return b.Build();
+    }
+
+    private static WasmAsm A => new();
+
+    /// <summary>Modules broken in one way each: type errors, bad indexes, limits, constant expressions, structure.</summary>
+    public static IEnumerable<(string Name, byte[] Bytes)> Invalid()
+    {
+        yield return ("operand type", One(None, None, A.I32(1).I64(2).Op(0x6A).Op(0x1A)));
+        yield return ("stack underflow", One(None, None, A.I32(1).Op(0x6A).Op(0x1A)));
+        yield return ("result missing", One(None, [I32], A));
+        yield return ("result type", One(None, [I32], A.I64(1)));
+        yield return ("values left", One(None, None, A.I32(1)));
+        yield return ("unknown local", One([I32], None, A.Op(0x20).U(3).Op(0x1A)));
+        yield return ("local set type", One([I32], None, A.F32(1).Op(0x21).U(0)));
+        yield return ("unknown global", One(None, None, A.Op(0x23).U(0).Op(0x1A)));
+        yield return ("immutable global set", One(None, None, A.I32(1).Op(0x24).U(0), b => b.Global(I32, false, A.I32(0).Bytes)));
+        yield return ("unknown function", One(None, None, A.Op(0x10).U(9)));
+        yield return ("call arguments", One(None, None, A.Op(0x10).U(0), b => b.ImportFunc("env", "f", b.Type([I32], None))));
+        yield return ("branch depth", One(None, None, A.Op(0x02, 0x40).Op(0x0C).U(2).End()));
+        yield return ("branch values", One(None, None, A.Op(0x02, 0x7F).Op(0x0C).U(0).End().Op(0x1A)));
+        yield return ("if without else results", One(None, None, A.I32(1).Op(0x04, 0x7F).I32(2).End().Op(0x1A)));
+        yield return ("if condition", One(None, None, A.F32(1).Op(0x04, 0x40).End()));
+        yield return ("br_table arity", One(None, None, A.Op(0x02, 0x40).Op(0x02, 0x7F).I32(0).I32(0).Op(0x0E).U(1).U(0).U(1).End().Op(0x1A).End()));
+        yield return ("alignment", One(None, None, A.I32(0).Op(0x28).U(3).U(0).Op(0x1A)));
+        yield return ("no memory", One(None, None, A.I32(0).Op(0x28).U(2).U(0).Op(0x1A), memory: false));
+        yield return ("no table", One(None, None, A.I32(0).Op(0x11).U(0).U(0)));
+        yield return ("select references", One(None, None, A.Op(0xD0, 0x70).Op(0xD0, 0x70).I32(1).Op(0x1B).Op(0x1A)));
+        yield return ("select operands", One(None, None, A.I32(1).I64(1).I32(1).Op(0x1B).Op(0x1A)));
+        yield return ("undeclared ref.func", One(None, None, A.Op(0xD2).U(0).Op(0x1A)));
+        yield return ("lane index", One(None, None, A.Prefixed(0xFD, 12).Raw(new byte[16]).Prefixed(0xFD, 27).Op(4).Op(0x1A)));
+        yield return ("shuffle lane", One(None, None, A.Prefixed(0xFD, 12).Raw(new byte[16]).Prefixed(0xFD, 12).Raw(new byte[16]).Prefixed(0xFD, 13).Raw([.. new byte[15], 32]).Op(0x1A)));
+        yield return ("data.drop without data count", One(None, None, A.Prefixed(0xFC, 9).U(0), b => b.PassiveData([1])));
+        yield return ("memory limits", One(None, None, A, b => b.Memory(5, 2), memory: false));
+        yield return ("memory too large", One(None, None, A, b => b.Memory(70000), memory: false));
+        yield return ("shared memory without maximum", One(None, None, A, b => b.Memory(1, null, shared: true), memory: false));
+        yield return ("duplicate export", One(None, None, A, b => { b.Export("x", WasmExternal.Memory, 0); b.Export("x", WasmExternal.Memory, 0); }));
+        yield return ("export index", One(None, None, A, b => b.Export("f", WasmExternal.Func, 5)));
+        yield return ("start type", One([I32], None, A, b => b.Start(0)));
+        yield return ("global initializer type", One(None, None, A, b => b.Global(I32, false, A.I64(0).Bytes)));
+        yield return ("global initializer not constant", One(None, None, A, b => b.Global(I32, false, A.I32(1).Op(0x45).Bytes)));
+        yield return ("global initializer mutable global", One(None, None, A, b => { b.ImportGlobal("env", "g", I32, true); b.Global(I32, false, A.Op(0x23).U(0).Bytes); }));
+        yield return ("element function index", One(None, None, A, b => { b.Table(FuncRef, 1); b.Element(0, 7); }));
+        yield return ("data count mismatch", One(None, None, A, b => { b.DataCount(2); b.Data(0, [1]); }));
+        yield return ("atomic alignment", One(None, None, A.I32(0).Prefixed(0xFE, 0x10).U(0).U(0).Op(0x1A), b => b.Memory(1, 1, shared: true), memory: false));
+        yield return ("tag with results", One(None, None, A, b => { uint t = b.Type(None, [I32]); b.Tag(t); }));
+        yield return ("throw arguments", One(None, None, A.Op(0x08).U(0), b => { uint t = b.Type([I32], None); b.Tag(t); }));
+        yield return ("rethrow outside catch", One(None, None, A.Op(0x06, 0x40).Op(0x09).U(0).End()));
+        yield return ("function and code counts", Counts());
+        yield return ("unknown opcode", One(None, None, A.Op(0xFF)));
+        yield return ("missing end", Truncated());
+        yield return ("block type index", One(None, None, A.Op(0x02).S(40).End()));
+        yield return ("tail call results", One(None, None, A.Op(0x12).U(0), b => { uint t = b.Type(None, [I32]); b.Func(t, A.I32(1).Bytes); }));
+        yield return ("typed references", One(None, None, A.Op(0xD0, 0x70).Op(0xD3).Op(0x1A)));
+        yield return ("element into an externref table", One(None, None, A, b => { b.Table(ExternRef, 2); b.Element(0, 0); }));
+        yield return ("i64 address on a 32-bit memory", One(None, None, A.I64(0).Op(0x28).U(2).U(0).Op(0x1A)));
+        yield return ("unreachable then mismatch", One(None, [I32], A.Op(0x00).I64(1)));
+    }
+
+    /// <summary>Two functions declared, one body.</summary>
+    private static byte[] Counts()
+    {
+        var b = new WasmModuleBuilder();
+        uint t = b.Type(None, None);
+        b.Func(t, []);
+        b.DeclareOnly(t);
+        return b.Build();
+    }
+
+    private static byte[] Truncated()
+    {
+        var b = new WasmModuleBuilder();
+        uint t = b.Type(None, None);
+        b.RawFunc(t, [0, 0x01]);
+        return b.Build();
+    }
+
     /// <summary>Every opcode without immediates whose operands are numbers: constants in, the op, results dropped.</summary>
     private static byte[] Numeric(bool simd)
     {
