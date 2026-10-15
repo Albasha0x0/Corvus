@@ -355,7 +355,11 @@ public sealed record NativeOpenOptions
 /// <summary>Full: the engine's auto-analysis. None: load only, functions made where they are asked for (huge or hostile inputs).</summary>
 public enum EngineAnalysis { Full, None }
 
-public sealed record NativeProviderProgress(string Stage, TimeSpan Elapsed);
+/// <summary>An open's stage; <see cref="Analyzers"/>: the engine's exact seconds per analyzer, once its analysis ended.</summary>
+public sealed record NativeProviderProgress(string Stage, TimeSpan Elapsed)
+{
+    public IReadOnlyList<KeyValuePair<string, double>>? Analyzers { get; init; }
+}
 
 [Flags]
 public enum NativeFunctionFlags

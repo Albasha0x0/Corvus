@@ -29,6 +29,7 @@ public sealed class EngineOpenProfile
     private readonly List<(string Stage, double At)> _marks = [];
     private double? _end;
     private readonly List<EngineOpenStage> _after = [];
+    private IReadOnlyList<KeyValuePair<string, double>>? _analyzers;
 
     /// <summary>A stage reported <paramref name="at"/> seconds after the open started; repeats of the current one are ignored, "ready" ends the open.</summary>
     public void Mark(string stage, double at)
@@ -84,6 +85,8 @@ public sealed class EngineOpenProfile
                     p[key] = p.GetValueOrDefault(key) + took;
                 }
             }
+            // the engine's own task times, when it gave them, replace the parts sampled from its messages
+            if (_analyzers != null && seconds.ContainsKey("analysis")) parts["analysis"] = _analyzers.ToDictionary(a => a.Key, a => a.Value);
             var result = order.Select(s => new EngineOpenStage(s, Math.Round(seconds[s], 2))
             {
                 Parts = parts.TryGetValue(s, out var p)
@@ -114,6 +117,11 @@ public sealed class EngineOpenProfile
     {
         public void Report(NativeProviderProgress value)
         {
+            if (value.Analyzers != null)
+            {
+                lock (profile._gate) profile._analyzers = value.Analyzers;
+                return;
+            }
             profile.Mark(value.Stage, clock());
             next?.Report(value.Stage == "ready" ? value with { Stage = "ready (" + Describe(profile.Stages(clock())) + ")" } : value);
         }

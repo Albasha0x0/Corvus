@@ -311,6 +311,11 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         foreach (var x in provider.Extensions.Where(x => !loaded.Contains(x.Name)))
             warnings.Add($"the extension {x.Name} ({x.Source}) was not loaded by Ghidra {ghidra.Version}");
         Warnings = warnings;
+        if (info.TryGetProperty("analyzer_seconds", out var times) && times.GetArrayLength() > 0)
+            Options.Progress?.Report(new NativeProviderProgress("analyzers", clock.Elapsed)
+            {
+                Analyzers = [.. times.EnumerateArray().Select(t => KeyValuePair.Create(t[0].GetString() ?? "", t[1].GetDouble()))],
+            });
         if (Arch == NativeArch.Unknown) Arch = ArchOf(Language);
         if (Options.Analysis == EngineAnalysis.None && Arch == NativeArch.Arm && Options.ThumbCode is { } thumb)
         {

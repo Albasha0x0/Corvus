@@ -134,6 +134,9 @@ public class Worker implements GhidraLaunchable {
     private PrintStream out;
     final ConcurrentHashMap<Long, Request> running = new ConcurrentHashMap<>();
     volatile CompletionPass completion;
+    /** Seconds per analyzer of this process's first analysis, [[name, seconds]] longest first; empty after a reuse. */
+    private final JsonArray analyzerSeconds = new JsonArray();
+    private static final java.util.regex.Pattern TASK_TIME = java.util.regex.Pattern.compile("^\\s*(.+?)\\s+([0-9.]+) secs\\s*$");
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "worker request");
         t.setDaemon(true);
@@ -751,6 +754,7 @@ public class Worker implements GhidraLaunchable {
             mgr.reAnalyzeAll(null);
             mgr.startAnalysis(r.monitor);
             complete = !r.monitor.isCancelled();
+            recordAnalyzerSeconds(mgr);
             if (complete) GhidraProgramUtilities.markProgramAnalyzed(program);
             program.getOptions(STAMPS).setString(ANALYSIS_STAMP, complete ? "complete" : "partial");
         }
@@ -800,6 +804,22 @@ public class Worker implements GhidraLaunchable {
         throw new IllegalArgumentException("not a value of " + current.getDeclaringClass().getSimpleName());
     }
 
+    /** The analysis manager's task times ("    Name<pad>12.3 secs" lines), longest first. */
+    private void recordAnalyzerSeconds(AutoAnalysisManager mgr) {
+        List<Pair<String, Double>> rows = new ArrayList<>();
+        for (String line : mgr.getTaskTimesString().split("\\R")) {
+            var m = TASK_TIME.matcher(line);
+            if (m.matches() && !m.group(1).startsWith("Total")) rows.add(new Pair<>(m.group(1).trim(), Double.parseDouble(m.group(2))));
+        }
+        rows.sort((a, b) -> Double.compare(b.second, a.second));
+        for (var row : rows) {
+            JsonArray a = new JsonArray();
+            a.add(row.first);
+            a.add(row.second);
+            analyzerSeconds.add(a);
+        }
+    }
+
     private JsonObject info(boolean reused, boolean complete, List<String> warnings, double seconds) {
         JsonObject o = new JsonObject();
         o.add("imagebase", u64(program.getImageBase().getOffset()));
@@ -813,6 +833,7 @@ public class Worker implements GhidraLaunchable {
         o.addProperty("analysis_complete", complete);
         o.addProperty("decompiler", decompilerPresent());
         o.addProperty("seconds", Math.round(seconds * 1000) / 1000.0);
+        o.add("analyzer_seconds", analyzerSeconds);
         o.add("extensions", extensions());
         JsonArray w = new JsonArray();
         for (String s : warnings) w.add(s);

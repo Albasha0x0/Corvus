@@ -36,6 +36,22 @@ public sealed class EngineOpenProfileTests : IDisposable
         Assert.Equal("prepare 0.5 s, start 3.0 s, analysis 8.5 s (Decompiler Parameter ID 3.0 s), pdb types 1.2 s", EngineOpenProfile.Describe(p.Stages(99)));
     }
 
+    /// <summary>The engine's exact analyzer times, when it reports them, replace the parts sampled from its messages.</summary>
+    [Fact]
+    public void Engine_analyzer_times_replace_the_sampled_parts()
+    {
+        var p = new EngineOpenProfile();
+        double now = 0;
+        var progress = p.Recording(() => now, null);
+        progress.Report(new NativeProviderProgress("analysis", TimeSpan.Zero));
+        now = 4;
+        progress.Report(new NativeProviderProgress("Stack f", TimeSpan.Zero));
+        now = 10;
+        progress.Report(new NativeProviderProgress("analyzers", TimeSpan.Zero) { Analyzers = [new("Stack", 2.5), new("Decompiler Switch Analysis", 6.0)] });
+        progress.Report(new NativeProviderProgress("ready", TimeSpan.Zero));
+        Assert.Equal("analysis 10.0 s (Decompiler Switch Analysis 6.0 s, Stack 2.5 s)", EngineOpenProfile.Describe(p.Stages(10)));
+    }
+
     [Fact]
     public void Engine_steps_are_parts_of_their_stage_grouped_and_the_longest_kept()
     {
