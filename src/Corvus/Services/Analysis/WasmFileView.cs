@@ -11,7 +11,11 @@ internal sealed class WasmFileView : IFileSummaryView
     public sealed record Facts(int Version, string? Toolchain, IReadOnlyList<string> Producers, int ImportedFunctions, int DefinedFunctions, int Globals,
         IReadOnlyList<string> Memories, int DataSegments, IReadOnlyDictionary<string, int> ImportsByModule, IReadOnlyList<string> Imports,
         IReadOnlyList<string> Exports, int NamedFunctions, IReadOnlyList<string> Sections, IReadOnlyList<string> Issues, string Validation,
-        IReadOnlyList<string> ValidationErrors);
+        IReadOnlyList<string> ValidationErrors)
+    {
+        /// <summary>The JS glue beside the module joined to its imports by name (the first 100 bindings); null when none names an import.</summary>
+        public Core.WebAssembly.WasmGlueLink? Glue { get; init; }
+    }
 
     public string Name => "wasm";
 
@@ -19,7 +23,9 @@ internal sealed class WasmFileView : IFileSummaryView
     {
         if (!WasmModule.IsWasm(file.Head)) return null;
         var m = WasmModule.Read(file.Bytes);
-        var validation = Core.WebAssembly.WasmValidator.Validate(Core.WebAssembly.WasmBinary.Read(file.Bytes, ct), ct);
+        var binary = Core.WebAssembly.WasmBinary.Read(file.Bytes, ct);
+        var validation = Core.WebAssembly.WasmValidator.Validate(binary, ct);
+        var glue = Core.WebAssembly.WasmGlue.Beside(binary, file.Path, ct);
         var toolchain = Toolchain(m);
         var facts = new Facts(m.Version, toolchain, [.. m.Producers.Select(p => $"{p.Field}: {p.Value}")],
             m.Imports.Count(i => i.Kind == "func"), m.DefinedFunctions, m.Globals,
@@ -27,7 +33,13 @@ internal sealed class WasmFileView : IFileSummaryView
             m.Imports.GroupBy(i => i.Module ?? "").ToDictionary(g => g.Key, g => g.Count()),
             [.. m.Imports.Take(MaxListed).Select(i => $"{i.Module}.{i.Name} ({i.Kind})")],
             [.. m.Exports.Take(MaxListed).Select(e => $"{e.Name} ({e.Kind})")], m.FunctionNames.Count,
-            [.. m.Sections.Select(s => $"{s.Name} ({s.Size:N0} bytes)")], m.Issues, validation.Verdict, [.. validation.Errors.Take(20)]);
+            [.. m.Sections.Select(s => $"{s.Name} ({s.Size:N0} bytes)")], m.Issues, validation.Verdict, [.. validation.Errors.Take(20)])
+        {
+            Glue = glue == null ? null : glue with
+            {
+                Imports = [.. glue.Imports.Where(b => b.Value == null).Take(50), .. glue.Imports.Where(b => b.Value != null).Take(100 - Math.Min(50, glue.Total - glue.Matched))],
+            },
+        };
         var highlights = new List<string>
         {
             $"WebAssembly module: {m.DefinedFunctions:N0} functions, {m.Imports.Count} imports from {facts.ImportsByModule.Count} module(s), {m.Exports.Count} exports" +
@@ -35,6 +47,9 @@ internal sealed class WasmFileView : IFileSummaryView
         };
         if (m.FunctionNames.Count > 0) highlights.Add($"Name section: {m.FunctionNames.Count:N0} function names (debug names kept).");
         if (m.Issues.Count > 0) highlights.Add($"{m.Issues.Count} structure issue(s): {m.Issues[0]}.");
+        if (glue != null)
+            highlights.Add($"JS glue {glue.File} ({glue.Toolchain}): {glue.Matched} of {glue.Total} imports bound by name, {glue.ExportsUsed} of {m.Exports.Count} exports read" +
+                           (glue.Instantiate.Count > 0 ? $"; {glue.Instantiate[0]}" : "") + ".");
         if (!validation.Valid) highlights.Add($"Validation: {validation.Verdict}" + (validation.Errors.Count > 0 ? $" ({validation.Errors[0]})." : "."));
         return new FileView(facts, highlights);
     }
