@@ -19,25 +19,28 @@ public sealed partial class WebTools(OutputPager pager)
         public IReadOnlyList<JsSecret>? Secrets { get; init; }
         public JsDiffResult? Diff { get; init; }
         public JsRuntimeFacts? Runtime { get; init; }
+        public JsFlowResult? Flow { get; init; }
     }
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
-    [Description("Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, " +
-                 "Metro); module; search; refs: a module's users; position: to the original; sources, source; endpoints; secrets (masked); " +
-                 "diff: against source=; runtime: webpack chunks; Hermes: functions, decompile, disassemble, xrefs.")]
+    [Description("Bundler, modules and source map of a JavaScript file, statically. position: to the original; diff: with source=; runtime: " +
+                 "webpack chunks; flow: values through calls, returns, closures, promises to effects, origins: back, unknowns marked. Hermes too.")]
     public string AnalyzeJs(
-        [Description("Absolute path to a .js or Hermes bundle, or an APK/.ipa.")] string path,
-        [Description("View; default summary.")] string view = "summary",
-        [Description("position: generated line and column, 1-based.")] int line = 0,
-        [Description("position: see line.")] int column = 0,
-        [Description("source: path or index; diff: the old bundle's path.")] string? source = null,
-        [Description("module, refs, diff: a module id; search: a filter; decompile, disassemble, xrefs: #id or a name.")] string? query = null,
+        [Description("A .js or Hermes bundle, or an APK/.ipa.")] string path,
+        [Description("View.")] string view = "summary",
+        [Description("position, flow: 1-based generated line.")] int? line = null,
+        [Description("See line.")] int? column = null,
+        [Description("source: path or index; diff: old bundle.")] string? source = null,
+        [Description("Module id; search filter; Hermes #id or name; flow: name, quoted literal, sinks, sink:KIND or module:ID.")] string? query = null,
+        [Description("flow: max flows (50).")] int? limit = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
     {
         if (view.Trim().ToLowerInvariant() is not ("position" or "sources" or "source") && HermesBundles.Applies(path)) return AnalyzeHermes(path, view, query, offset, maxTokens);
         switch (view.Trim().ToLowerInvariant())
         {
+            case "flow" or "origins":
+                return Flow(path, query, line ?? 0, column ?? 0, view.Trim().Equals("origins", StringComparison.OrdinalIgnoreCase), limit ?? 50, offset, maxTokens);
             case "summary":
             {
                 var s = JsAnalysis.Summary(path);
@@ -102,10 +105,10 @@ public sealed partial class WebTools(OutputPager pager)
             }
             case "position":
             {
-                var p = JsAnalysis.Position(path, line, column);
+                var p = JsAnalysis.Position(path, line ?? 0, column ?? 0);
                 var text = p.Source == null
-                    ? $"{line}:{column} has no mapping."
-                    : $"{line}:{column} -> {p.Source}:{p.OriginalLine}:{p.OriginalColumn}" + (p.Name != null ? $" ({p.Name})" : "");
+                    ? $"{line ?? 0}:{column ?? 0} has no mapping."
+                    : $"{line ?? 0}:{column ?? 0} -> {p.Source}:{p.OriginalLine}:{p.OriginalColumn}" + (p.Name != null ? $" ({p.Name})" : "");
                 return ToolOutput.With(text, new JsResult("position", Position: p));
             }
             case "sources":
@@ -129,11 +132,7 @@ public sealed partial class WebTools(OutputPager pager)
                 var map = JsAnalysis.TryMap(path);
                 var found = new List<Corvus.Services.Analysis.Endpoints.CodeEndpoint>();
                 Corvus.Services.Analysis.Endpoints.JsEndpoints.Scan(program, program.Path, found, default);
-                var rows = found.Select(e =>
-                {
-                    var at = e.Location!.Split(':');
-                    return new JsEndpoint(e.Verb, e.Url, e.Client, e.Location, e.Member, JsAnalysis.Original(map, int.Parse(at[0], System.Globalization.CultureInfo.InvariantCulture), int.Parse(at[1], System.Globalization.CultureInfo.InvariantCulture)));
-                }).Where(e => query == null || e.Url.Contains(query, StringComparison.OrdinalIgnoreCase) || e.Client.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+                var rows = found.Select(e => JsAnalysis.Endpoint(e, map)).Where(e => query == null || e.Url.Contains(query, StringComparison.OrdinalIgnoreCase) || e.Client.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
                 var text = $"{rows.Count} endpoint(s)" + (rows.Count > 0 ? $" ({string.Join(", ", rows.GroupBy(e => e.Client.Split(' ')[0]).Select(g => $"{g.Count()} {g.Key}"))})" : "") + ":\n" +
                            string.Join("\n", rows.Select(e => $"  {e.Verb} {e.Url}  [{e.Client}] {e.Site}" + (e.Module != null ? $" {e.Module}" : "") + (e.Original != null ? $"  <- {e.Original}" : ""))) +
                            "\nsearch_container kind=endpoint capture=<HAR or pcap> joins these to a capture (seen in code, in the capture, or both).";
@@ -175,7 +174,7 @@ public sealed partial class WebTools(OutputPager pager)
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("secrets", Total: rows.Count) { Secrets = rows.Take(500).ToList() });
             }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff or runtime");
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow or origins");
         }
     }
 }

@@ -109,6 +109,14 @@ public static class JsAnalysis
     internal static string? Original(SourceMap? map, int line, int column) =>
         map?.Find(line - 1, column - 1) is { Source: >= 0 } seg && seg.Source < map.Sources.Count ? $"{map.Sources[seg.Source]}:{seg.OriginalLine + 1}:{seg.OriginalColumn + 1}" : null;
 
+    /// <summary>A code endpoint as view=endpoints shows it, with its original position.</summary>
+    internal static JsEndpoint Endpoint(Corvus.Services.Analysis.Endpoints.CodeEndpoint e, SourceMap? map)
+    {
+        var at = e.Location!.Split(':');
+        return new JsEndpoint(e.Verb, e.Url, e.Client, e.Location, e.Member,
+            Original(map, int.Parse(at[0], System.Globalization.CultureInfo.InvariantCulture), int.Parse(at[1], System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
     internal static SourceMap? TryMap(string path)
     {
         try { return SourceMap.Locate(path, Read(path))?.Map; }

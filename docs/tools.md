@@ -2832,17 +2832,18 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro); module; search; refs: a module's users; position: to the original; sources, source; endpoints; secrets (masked); diff: against source=; runtime: webpack chunks; Hermes: functions, decompile, disassemble, xrefs.
+Bundler, modules and source map of a JavaScript file, statically. position: to the original; diff: with source=; runtime: webpack chunks; flow: values through calls, returns, closures, promises to effects, origins: back, unknowns marked. Hermes too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | Absolute path to a .js or Hermes bundle, or an APK/.ipa. |
-| `view` | string |  | `summary` | View; default summary. Values: summary, modules, module, search, refs, position, sources, source. |
-| `line` | integer |  | `0` | position: generated line and column, 1-based. |
-| `column` | integer |  | `0` | position: see line. |
-| `source` | string |  |  | source: path or index; diff: the old bundle's path. |
-| `query` | string |  |  | module, refs, diff: a module id; search: a filter; decompile, disassemble, xrefs: #id or a name. |
+| `path` | string | yes |  | A .js or Hermes bundle, or an APK/.ipa. |
+| `view` | string |  | `summary` | View. Values: summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins, functions, decompile, disassemble, xrefs. |
+| `line` | integer |  |  | position, flow: 1-based generated line. |
+| `column` | integer |  |  | See line. |
+| `source` | string |  |  | source: path or index; diff: old bundle. |
+| `query` | string |  |  | Module id; search filter; Hermes #id or name; flow: name, quoted literal, sinks, sink:KIND or module:ID. |
+| `limit` | integer |  |  | flow: max flows (50). |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `view`, `summary`, `position`, `modules`, `total`, `hermes`, `functions`, `endpoints`, `secrets`, `diff`, `runtime`.
+Structured output: `view`, `summary`, `position`, `modules`, `total`, `hermes`, `functions`, `endpoints`, `secrets`, `diff`, `runtime`, `flow`.

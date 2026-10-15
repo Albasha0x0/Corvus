@@ -293,15 +293,36 @@ internal sealed class JsProgram
     /// <summary>module.exports = v (the factory's first parameter) and exports.name = v (its second).</summary>
     private void Export(JsModule module, MemberExpression left, Node right, JsScope scope)
     {
-        if (left is { Object: Identifier obj, Computed: false, Property: Identifier { Name: var prop } } && scope.Lookup(obj.Name) is { ParamIndex: var index } b
-            && b.Scope.Factory == module)
-        {
-            if (index == 0 && prop == "exports") _exports[module.Id] = (right, scope);
-            else if (index == 1) Getters(module.Id)[prop] = (right, scope);
-        }
-        else if (left is { Object: MemberExpression { Object: Identifier o2, Property: Identifier { Name: "exports" } }, Property: Identifier { Name: var key }, Computed: false }
-                 && scope.Lookup(o2.Name) is { ParamIndex: 0 } m && m.Scope.Factory == module)
-            Getters(module.Id)[key] = (right, scope);
+        if (ExportKey(left, scope) is not { } at || at.Module != module.Id) return;
+        if (at.Key.Length == 0) _exports[module.Id] = (right, scope);
+        else Getters(module.Id)[at.Key] = (right, scope);
+    }
+
+    /// <summary>The module export an assignment target names: Key "" for module.exports itself, else the export's name.</summary>
+    public (string Module, string Key)? ExportKey(MemberExpression left, JsScope scope)
+    {
+        if (left is { Object: Identifier obj, Computed: false, Property: Identifier { Name: var prop } } && scope.Lookup(obj.Name) is { ParamIndex: var index, Scope.Factory: { } m })
+            return index == 0 && prop == "exports" ? (m.Id, "") : index == 1 ? (m.Id, prop) : null;
+        if (left is { Object: MemberExpression { Object: Identifier o2, Property: Identifier { Name: "exports" } }, Property: Identifier { Name: var key }, Computed: false }
+            && scope.Lookup(o2.Name) is { ParamIndex: 0, Scope.Factory: { } m2 })
+            return (m2.Id, key);
+        return null;
+    }
+
+    /// <summary>Every export expression of the bundled modules: module.exports (Key ""), exports.name and webpack getter results.</summary>
+    public IEnumerable<(string Module, string Key, Node Expr, JsScope Scope)> Exports()
+    {
+        foreach (var (id, e) in _exports) yield return (id, "", e.Expr, e.Scope);
+        foreach (var (id, g) in _getters)
+            foreach (var (key, e) in g) yield return (id, key, e.Expr, e.Scope);
+    }
+
+    /// <summary>The module id a bundle-internal require call names (webpack's factory or runtime require), or null.</summary>
+    public string? BundledId(CallExpression c, JsScope scope)
+    {
+        if (c.Arguments.Count < 1 || Literal(c.Arguments[0]) is not { } id || Unwrap(c.Callee) is not Identifier ci || !_byId.ContainsKey(id)) return null;
+        var b = scope.Lookup(ci.Name);
+        return b is { ParamIndex: 2 } && b.Scope.Factory != null || RuntimeRequire.Contains(ci.Name) && b?.Fixed is JsFunction ? id : null;
     }
 
     private Dictionary<string, (Node, JsScope)> Getters(string id) =>

@@ -168,6 +168,9 @@ public static class RealData
     /// <summary>A folder of folders, each an app's extracted webpack output (runtime and chunk files side by side).</summary>
     public const string WebpackApps = "CORVUS_WEBPACK_APPS";
 
+    /// <summary>A folder holding extracted pdfjs-dist packages (npm): wasm/openjpeg_nowasm_fallback.js and build/*.mjs are measured for data flow.</summary>
+    public const string Pdfjs = "CORVUS_PDFJS";
+
     /// <summary>A folder of folders, each holding two builds of one JavaScript bundle as old.* and new.*.</summary>
     public const string BundlePairs = "CORVUS_BUNDLE_PAIRS";
 

@@ -434,6 +434,120 @@
         "asyncLoads"
       ]
     },
+    "flow": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "seeds": {
+          "type": "integer"
+        },
+        "steps": {
+          "type": "integer"
+        },
+        "sinks": {
+          "type": "integer"
+        },
+        "unknowns": {
+          "type": "integer"
+        },
+        "origins": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "partial": {
+          "type": "string"
+        },
+        "flows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "end": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "site": {
+                      "type": "string"
+                    },
+                    "module": {
+                      "type": "string"
+                    },
+                    "original": {
+                      "type": "string"
+                    },
+                    "endpoint": {
+                      "type": "object",
+                      "properties": {
+                        "verb": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        },
+                        "client": {
+                          "type": "string"
+                        },
+                        "site": {
+                          "type": "string"
+                        },
+                        "module": {
+                          "type": "string"
+                        },
+                        "original": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "url",
+                        "client",
+                        "site"
+                      ]
+                    },
+                    "link": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "text",
+                    "site"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "end",
+              "steps"
+            ]
+          }
+        }
+      },
+      "required": [
+        "query",
+        "seeds",
+        "steps",
+        "sinks",
+        "unknowns",
+        "origins",
+        "total",
+        "flows"
+      ]
+    },
     "notices": {
       "type": "array",
       "items": {
