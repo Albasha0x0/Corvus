@@ -18,12 +18,13 @@ public class LockedJsonFileTests : IDisposable
         {
             for (int i = 0; i < 25; i++)
             {
+                // the records, not the wait limit, are under test: a loaded machine can hold the lock past the 2 s default
                 var (_, problem) = LockedJsonFile.Update<Dictionary<string, int>>(Records, current =>
                 {
                     var next = current ?? [];
                     next[$"{writer}-{i}"] = i;
                     return next;
-                });
+                }, timeout: TimeSpan.FromSeconds(60));
                 Assert.Null(problem);
             }
         });
