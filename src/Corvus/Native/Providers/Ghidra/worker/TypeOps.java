@@ -200,6 +200,7 @@ final class TypeOps {
         java.util.regex.Matcher noReturn = NO_RETURN.matcher(t);
         boolean exits = noReturn.find();
         if (exits) t = noReturn.replaceAll(" ").replaceAll("\\s+", " ").trim();
+        PARSE_ERROR.remove();
         try {
             FunctionDefinitionDataType sig = CParserUtils.parseSignature((ghidra.app.services.DataTypeManagerService) null, program, t, false);
             if (sig != null && exits) sig.setNoReturn(true);
@@ -207,8 +208,31 @@ final class TypeOps {
         }
         catch (Throwable e) {
             if (e instanceof VirtualMachineError) throw (VirtualMachineError) e;
+            PARSE_ERROR.set(e.getMessage());
             return null;
         }
+    }
+
+    private static final ThreadLocal<String> PARSE_ERROR = new ThreadLocal<>();
+
+    private static final java.util.regex.Pattern CONVENTION =
+        java.util.regex.Pattern.compile("\\b__(cdecl|stdcall|fastcall|thiscall|vectorcall|pascal|regcall|swiftcall|usercall|userpurge)\\b");
+
+    /**
+     * Why a prototype was refused: a calling convention the compiler spec lacks (with the ones it has), else the parser's
+     * message from the last prototype() on this thread, else null.
+     */
+    static String prototypeError(Program program, String text) {
+        var names = new java.util.TreeSet<String>();
+        for (var model : program.getCompilerSpec().getCallingConventions()) names.add(model.getName());
+        java.util.regex.Matcher m = CONVENTION.matcher(text);
+        while (m.find())
+            if (!names.contains(m.group()))
+                return "unknown calling convention " + m.group() + " for " + program.getCompilerSpec().getCompilerSpecID() + "; it has " + String.join(", ", names);
+        String parser = PARSE_ERROR.get();
+        if (parser == null) return null;
+        parser = parser.replaceAll("\\s+", " ").trim();
+        return parser.length() > 300 ? parser.substring(0, 300) + "..." : parser;
     }
 
     private static final java.util.regex.Pattern NO_RETURN =
@@ -626,11 +650,14 @@ final class TypeOps {
         }
         if (function) {
             FunctionDefinitionDataType sig = prototype(w.program, decl);
+            String why = prototypeError(w.program, decl);
+            // Ghidra applies a convention its compiler spec lacks as an unknown one: refused instead
+            if (why != null && why.startsWith("unknown calling convention")) return FrameOps.item("type", rva, decl, false, why, null, null, null);
             if (sig == null)
-                return FrameOps.item("type", rva, decl, false, "rva 0x" + hex(rva) + " starts a function: give a prototype such as 'int __fastcall f(int a)' " +
-                    "(types it names must be declared first)", null, null, null);
+                return FrameOps.item("type", rva, decl, false, why != null ? "the prototype does not parse: " + why
+                    : "rva 0x" + hex(rva) + " starts a function: give a prototype such as 'int __fastcall f(int a)' (types it names must be declared first)", null, null, null);
             String error = applyPrototype(w, a, sig, SourceType.USER_DEFINED, r);
-            if (error != null) return FrameOps.item("type", rva, decl, false, error, null, null, null);
+            if (error != null) return FrameOps.item("type", rva, decl, false, why != null ? error + "; " + why : error, null, null, null);
             user.add(rva);
             return FrameOps.item("type", rva, decl, true, null, null, null, w.program.getFunctionManager().getFunctionAt(a).getPrototypeString(false, true));
         }

@@ -134,6 +134,20 @@ public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposa
         }
 
         [GhidraFact]
+        public async Task A_refused_prototype_names_the_parser_message_or_the_conventions_Ghidra_has()
+        {
+            var rig = Setup("ghidra-t");
+            var path = Image();
+            var unknown = await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeType(path, Function, "int __pascal f(int a)", engine: "ghidra"));
+            Output.WriteLine(unknown.Message);
+            Assert.Contains("unknown calling convention __pascal", unknown.Message);
+            Assert.Contains("__fastcall", unknown.Message);
+            var broken = await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeType(path, Function, "int f(int a,, int b)", engine: "ghidra"));
+            Output.WriteLine(broken.Message);
+            Assert.Contains("does not parse:", broken.Message);
+        }
+
+        [GhidraFact]
         public async Task A_flow_override_is_set_and_cleared_with_the_function_repaired_in_Ghidra()
         {
             var rig = Setup("ghidra-f");
