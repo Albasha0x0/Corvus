@@ -1,5 +1,11 @@
 # Release notes
 
+## 2.4.0
+
+- **Fixes.** `corvus update` on Linux and macOS deleted the version it was running from and then failed while refreshing
+  client registrations (the update itself was installed); it now keeps that version until the next update. Updating
+  from 2.3.0 or older still shows the failure once: run `corvus install --refresh-only` afterwards.
+
 ## 2.3.0
 
 156 tools and 15 prompts, as in 2.2.0: everything new is a parameter, a view or a kind of an existing tool. No breaking

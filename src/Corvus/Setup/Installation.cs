@@ -205,7 +205,7 @@ internal static class Installation
         }
         Directory.Move(staging, target);
         PointCurrent(root, target);
-        RemoveUnusedVersions(root, target);
+        RemoveUnusedVersions(root, target, AppContext.BaseDirectory);
 
         output.WriteLine($"Updated {Version} -> {latest}.");
         var exe = Path.Combine(root, "current", ExeName);
@@ -263,11 +263,15 @@ internal static class Installation
     }
 
     /// <summary>Deletes versions other than the active one; those still running stay until a later update.</summary>
-    public static void RemoveUnusedVersions(string root, string active)
+    /// <summary>Deletes every version but <paramref name="active"/> and the running one: on Linux and macOS its deletion succeeds and the
+    /// process then fails to load its next assembly; the next update removes it.</summary>
+    public static void RemoveUnusedVersions(string root, string active, string running)
     {
+        static string Full(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         foreach (var dir in Directory.EnumerateDirectories(Path.Combine(root, "versions")))
         {
-            if (Path.GetFullPath(dir).Equals(Path.GetFullPath(active), StringComparison.OrdinalIgnoreCase)) continue;
+            if (Full(dir).Equals(Full(active), StringComparison.OrdinalIgnoreCase)) continue;
+            if (Full(running).StartsWith(Full(dir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || Full(running).Equals(Full(dir), StringComparison.OrdinalIgnoreCase)) continue;
             try { Directory.Delete(dir, recursive: true); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }

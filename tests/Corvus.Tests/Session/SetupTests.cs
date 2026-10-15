@@ -375,6 +375,15 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
+    public void An_update_keeps_the_running_version_until_the_next_one()
+    {
+        var root = FakeInstall(Home("Local", "Corvus"), Home("Local", "Corvus"));
+        Directory.CreateDirectory(Path.Combine(root, "versions", "0.9.0"));
+        Installation.RemoveUnusedVersions(root, Path.Combine(root, "versions", "1.1.0"), Path.Combine(root, "versions", "1.0.0") + Path.DirectorySeparatorChar);
+        Assert.Equal(["1.0.0", "1.1.0"], Directory.GetDirectories(Path.Combine(root, "versions")).Select(Path.GetFileName).Order());
+    }
+
+    [Fact]
     public void Uninstall_RemovesProgramFiles_AndKeepsDataInASharedRoot()
     {
         var root = FakeInstall(Home("Local", "Corvus"), Home("Local", "Corvus"));
