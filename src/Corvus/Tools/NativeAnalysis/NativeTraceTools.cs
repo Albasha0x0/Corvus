@@ -24,24 +24,24 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("location, argument, parameter, result or global.")] string Kind,
         [property: Description("VA of the instruction, call, function or global.")] string Address,
         [property: Description("The function and offset, null for a global.")] string? Function,
-        [property: Description("The register or slot (for arguments and parameters: at the callee's entry), null for results and globals.")] string? Location,
+        [property: Description("Register or slot (arguments, parameters: at callee entry); null for results, globals.")] string? Location,
         [property: Description("The seed in words.")] string Description);
 
     [Description("A node: a value (backward) or a use (forward).")]
     public sealed record TraceNodeRecord(
         int Id,
-        [property: Description("seed, const, address, string, function, import (pointer of an imported function), api_result, call_result, parameter, global, " +
-                               "field ([base+off] load), stack_local, merge (paths with different values), loop, unknown; forward: argument (into a callee of " +
-                               "the image), sink (argument of an API or unresolved callee), store, field_store, return, compare, switch, dereference, call_target.")]
+        [property: Description("seed, const, address, string, function, import (its pointer), api_result, call_result, parameter, global, field ([base+off] " +
+                               "load), stack_local, merge (differing paths), loop, unknown; forward: argument (into an image callee), sink (API or unresolved " +
+                               "callee argument), store, field_store, return, compare, switch, dereference, call_target.")]
         string Kind,
-        [property: Description("VA of the defining or using instruction (the function for parameters, the global for initial contents).")] string Address,
-        [property: Description("The loaded image Address is in when it is not the seed's (reached through an import or export).")] string? Image,
+        [property: Description("Defining or using instruction (VA); parameters: the function; initial contents: the global.")] string Address,
+        [property: Description("Loaded image of Address when not the seed's (reached via an import or export).")] string? Image,
         [property: Description("Function and offset of Address.")] string? Function,
         [property: Description("Register or slot, when the node has one.")] string? Location,
         [property: Description("The value or use as text (quoted strings, names, decoded constants).")] string Text,
         [property: Description("The number, for constants and compares (hex).")] string? Value,
         [property: Description("The address the value is: string, function, global (VA).")] string? ValueAddress,
-        [property: Description("The value named by the API parameter or return it meets (GENERIC_READ|GENERIC_WRITE, WAIT_TIMEOUT).")] string? Decoded,
+        [property: Description("Named by the API parameter or return it meets (GENERIC_READ|GENERIC_WRITE).")] string? Decoded,
         [property: Description("Function boundaries crossed from the seed.")] int Depth,
         [property: Description("The node it was reached from (-1 for the seed).")] int Parent,
         [property: Description("backward (a value reaching the seed) or forward (a use of the seed's value).")] string Direction,
@@ -49,7 +49,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
 
     [Description("A data-flow edge, From's value flows to To.")]
     public sealed record TraceEdgeRecord(int From, int To,
-        [property: Description("copy, merge, loop, field, use, argument (caller's argument to a parameter), parameter (into a callee), return, store, load.")] string Kind,
+        [property: Description("copy, merge, loop, field, use, argument (caller to parameter), parameter (into a callee), return, store, load.")] string Kind,
         [property: Description("The call, store or load instruction (VA), when the edge crosses one.")] string? Site);
 
     [Description("Something a budget left unexplored.")]
@@ -59,9 +59,9 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         string Detail,
         [property: Description("The call that continues there.")] string Next);
 
-    [Description("A distinct value reaching the seed (backward), or an API argument or switch case the seed's value reaches (forward).")]
+    [Description("A distinct value reaching the seed (backward), or an API argument or switch case reached (forward).")]
     public sealed record TraceValueRecord(string Text,
-        [property: Description("const, string, function, address, import, api_result, sink, or switch (the case a constant selects).")] string Kind,
+        [property: Description("const, string, function, address, import, api_result, sink, switch (a constant's case).")] string Kind,
         [property: Description("VA, for strings, functions and addresses.")] string? Address,
         [property: Description("The node.")] int Node);
 
@@ -70,7 +70,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("Engine of the per-function slices.")] string Engine,
         TraceSeedRecord Seed,
         [property: Description("backward, forward or both.")] string Direction,
-        [property: Description("The answer: distinct values (backward) or API arguments reached (forward), over the whole graph.")] IReadOnlyList<TraceValueRecord> Values,
+        [property: Description("Whole graph: distinct values (backward) or API arguments reached (forward).")] IReadOnlyList<TraceValueRecord> Values,
         [property: Description("Nodes of this page, in discovery order.")] IReadOnlyList<TraceNodeRecord> Nodes,
         [property: Description("Edges with either end on this page.")] IReadOnlyList<TraceEdgeRecord> Edges,
         [property: Description("Unexplored items, each with its follow-up call.")] IReadOnlyList<TraceFrontierRecord> Frontier,
@@ -85,15 +85,14 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                                         "or result (the call's return)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
-    [Description("Traces a value through native code (x86 / x64 / ARM) across functions. Backward: constants, strings, function pointers, API " +
-                 "results, through copies, stack slots, merges and loops; parameters bind to every caller's argument, call results to the callee's " +
-                 "returns, globals to their writers. Forward: API arguments, callees' parameters, globals and their readers, returns, compares, " +
-                 "switch indexes, dereferences. Crosses loaded images; what the budgets leave out is a frontier entry with the follow-up call.")]
+    [Description("Traces a value through native code (x86 / x64 / ARM) across functions and images. Backward: constants, strings, function " +
+                 "pointers, API results, via copies, stack, merges, loops; parameters bind to callers' arguments, results to returns, globals to " +
+                 "writers. Forward: API and callee arguments, global readers, returns, compares, switches, dereferences.")]
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("An instruction, a call, a function start (with argument) or a writable global. " + NativeTools.AddressDescription)] string address,
+        [Description("An instruction, call, function start (with argument) or writable global: " + NativeTools.AddressDescription)] string address,
         [Description("The value at address: " + LocationHelp + ".")] string? location = null,
-        [Description("An argument of the call at address, or a parameter of the function starting there: 1-based position or API parameter name.")]
+        [Description("Argument of the call or parameter of the function at address: 1-based or API name.")]
         string? argument = null,
         [Description("backward (default: the values that reach it), forward (its uses) or both.")] string? direction = null,
         [Description("Function boundaries to cross (0-8).")] int maxDepth = 3,
@@ -104,8 +103,8 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Stop at writable globals, not following their writers / readers.")] bool stopAtGlobals = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Nodes per page (max 1000).")] int limit = 200,
-        [Description("Slices: ours, ida or ghidra (its IR, started when needed; ours where it cannot place the seed), or auto (default: an " +
-                     "engine that analyzed the bytes, else ours).")] string? engine = null,
+        [Description("ours, ida or ghidra (its IR; ours where it cannot place the seed), or auto (default: an " +
+                     "analyzing engine, else ours).")] string? engine = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

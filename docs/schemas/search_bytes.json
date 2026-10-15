@@ -24,7 +24,7 @@
             "type": "string"
           },
           "fixed": {
-            "description": "memory=engine: the engine's bytes of this hit differ from the file's (a relocation or loader fixup).",
+            "description": "memory=engine: the engine's bytes differ from the file's (relocation or fixup).",
             "type": "boolean"
           }
         },

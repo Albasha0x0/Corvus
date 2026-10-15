@@ -17,7 +17,7 @@ namespace Corvus.Tools;
 public sealed record InstructionReport(string Image, string Engine, string? EngineNote, IReadOnlyList<InstructionItem> Items, IReadOnlyList<string> Notes);
 
 public sealed record InstructionItem(
-    [property: Description("decoded, mid_instruction, data, not_in_function, unmapped, outside_image or invalid.")] string Status,
+    [property: Description("decoded, mid_instruction, data, not_in_function, unmapped, outside_image, invalid.")] string Status,
     string Address,
     string Rva,
     [property: Description("Containing function as name+0xN.")] string? Function,
@@ -29,7 +29,7 @@ public sealed record InstructionItem(
     string? Note);
 
 public sealed record InstructionDataItem(
-    [property: Description("string, iat_slot, jump_table, index_table, pointer, pe_directory, headers, section, data_in_code or literal.")] string Kind,
+    [property: Description("string, iat_slot, jump_table, index_table, pointer, pe_directory, headers, section, data_in_code, literal.")] string Kind,
     string Start,
     [property: Description("Exclusive.")] string End,
     string Text);
@@ -60,12 +60,12 @@ public sealed record InstructionEntry(
     InstructionSwitch? Switch,
     string? Name,
     string? UserComment,
-    [property: Description("ARM: the other instruction of the address-forming pair (ARM64 adrp + add / load / store; ARM32 the literal load, movw or adr the base register comes from).")] string? Pair = null,
+    [property: Description("ARM: the address-forming partner (ARM64 adrp + add/ldr/str; ARM32 literal load, movw, adr).")] string? Pair = null,
     [property: Description("ARM: the address the pair, adr or literal load forms.")] string? FormedAddress = null);
 
 public sealed record OperandEntry(
     int Index,
-    [property: Description("register, immediate, memory, near_branch or far_branch; ARM also pc_relative, shift, extend, condition, enum, system_register, register_list.")] string Kind,
+    [property: Description("register, immediate, memory, near_branch, far_branch; ARM: pc_relative, shift, extend, condition, enum, system_register, register_list.")] string Kind,
     string Text,
     [property: Description("Bytes accessed.")] int? Size,
     [property: Description("read, write, read_write, cond_read, cond_write, read_cond_write or none.")] string? Access,
@@ -77,16 +77,16 @@ public sealed record OperandEntry(
     string? Base,
     string? IndexRegister,
     int? Scale,
-    [property: Description("Signed hex; RIP-relative: from the next instruction; ARM64 pc-relative: from the instruction (adrp: its page).")] string? Displacement,
+    [property: Description("Signed hex; from the next instruction (RIP) or this one (ARM64; adrp: its page).")] string? Displacement,
     bool RipRelative,
-    [property: Description("Branch target or effective address (absolute or RIP-relative) inside the image, as a VA.")] string? Target,
+    [property: Description("VA of the branch target or effective address (absolute or RIP-relative).")] string? Target,
     string? TargetName,
-    [property: Description("The data item or function at the target, with its read / write reference counts for data.")] string? TargetItem,
-    [property: Description("ARM: the memory index extend or shift (lsl #3, uxtw #2), a shifted register's shift, or the kind of a shift / extend operand.")] string? Extend = null,
+    [property: Description("The data item (with read / write counts) or function at the target.")] string? TargetItem,
+    [property: Description("ARM: index extend or shift (lsl #3, uxtw #2), register shift, or shift / extend kind.")] string? Extend = null,
     [property: Description("ARM: base register writeback, pre or post.")] string? Writeback = null);
 
 public sealed record InstructionFlow(
-    [property: Description("next, call, indirect_call, jump, indirect_jump, conditional_jump, return, trap or invalid.")] string Kind,
+    [property: Description("next, call, indirect_call, jump, indirect_jump, conditional_jump, return, trap, invalid.")] string Kind,
     string? Condition,
     string? Target,
     string? TargetName,
@@ -101,10 +101,9 @@ public sealed partial class NativeCodeTools
     private const int MaxInspectCount = 64;
 
     [McpServerTool(Name = "inspect_instruction", Title = "Inspect native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionReport))]
-    [Description("What is at an address of a native image, instruction by instruction: decoded, mid_instruction (with the covering one), data " +
-                 "(string, IAT / GOT slot, switch table, pointer, literal), not_in_function, unmapped, outside_image or invalid. An instruction: " +
-                 "bytes, prefixes, encoding; operands (kind, size, access, registers, memory parts); registers and flags read and written; memory " +
-                 "accesses; stack change; flow; references; a call's arguments; a switch's table. limit > 1 walks forward.")]
+    [Description("What is at an address of a native image, instruction by instruction (decoded, mid_instruction, data...). An instruction: bytes, " +
+                 "prefixes, encoding; operands (kind, size, access, registers, memory parts); registers and flags read and written; memory " +
+                 "accesses; stack change; flow; references; call arguments; switch table. limit > 1 walks forward.")]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,

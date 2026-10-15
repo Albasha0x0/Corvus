@@ -122,7 +122,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Start addresses below this one.")] string? to = null,
         [Description("Engines: true keeps functions with a prototype, false those without.")] bool? hasType = null,
         [Description("Sort direction instead of the sort's default.")] bool? descending = null,
-        [Description("functions (default), or candidates: IDA or Ghidra code in no function, most referenced first.")] string? view = null,
+        [Description("functions (default) or candidates (engine code in no function, by references).")] string? view = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -182,9 +182,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code", UseStructuredContent = true, OutputSchemaType = typeof(DisassemblyPage))]
     [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +
-                 "when it is in no function or fromAddress=true. References and NativeAOT loads are named, strings shown as comments, calls commented " +
-                 "with their recovered arguments. Data in the way (strings, pointers, IAT slots, switch tables, gaps) is rendered as data; warnings " +
-                 "(mid-instruction, data, bss) repeat in a footer.")]
+                 "when in no function or fromAddress=true. References named, strings as comments, calls with recovered arguments; data in the way " +
+                 "(strings, pointers, IAT slots, switch tables) shown as data; warnings repeat in a footer.")]
     public Task<string> Disassemble(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -335,11 +334,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private static partial Regex XrefRow();
 
     [McpServerTool(Name = "native_call_tree", Title = "Native call tree", UseStructuredContent = true, OutputSchemaType = typeof(NativeCallTreeResult))]
-    [Description("Callers or callees of a native function, several levels deep, through thunks and import slots, as nodes paged in tree order. " +
-                 "Callers of module!import: the functions calling through it. Imports continue into loaded providers' exports; callers span " +
-                 "loaded images. Callees include GetProcAddress pointers ([dynamic]) and RTTI virtual targets " +
-                 "([virtual], [virtual?: one of n]). Repeats are not expanded; frontier lists nodes cut by depth or maxNodes. " +
-                 "direction=both: one level each way by call site.")]
+    [Description("Callers or callees of a native function, several levels deep, through thunks and import slots, as nodes paged in tree order; " +
+                 "module!import gives its callers. Crosses loaded images. Callees include GetProcAddress pointers ([dynamic]) and RTTI virtual " +
+                 "targets ([virtual], [virtual?: one of n]). Repeats are not expanded.")]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,

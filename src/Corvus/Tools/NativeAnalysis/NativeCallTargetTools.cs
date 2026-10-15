@@ -18,11 +18,11 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
 {
     [Description("One target of a call site.")]
     public sealed record CallTargetRecord(
-        [property: Description("VA of the target (the import slot for imports, the pointer global for late-bound imports).")] string Address,
+        [property: Description("Target VA (imports: the import slot; late-bound imports: the pointer global).")] string Address,
         string Name,
-        [property: Description("How it was found: direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible, " +
+        [property: Description("direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible, " +
                                "global_writers, initial_contents, pointer_table, caller_argument, interface_dispatch_cell, ida_xref, hexrays_direct, ghidra_xref, ghidra_direct.")] string Basis,
-        [property: Description("exact, possible, or candidate (from an incomplete set, or only another engine's view).")] string Confidence,
+        [property: Description("exact, possible, or candidate (incomplete set, or another engine's view only).")] string Confidence,
         string Evidence);
 
     [Description("One call or tail-jump site.")]
@@ -31,8 +31,8 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         [property: Description("Function and offset.")] string Function,
         [property: Description("The instruction.")] string Text,
         [property: Description("direct, import_slot, thunk, register, memory_pointer, vftable_slot, cfg_dispatch, tail_jump, pointer_table or interface_dispatch.")] string Mechanism,
-        [property: Description("direct, import, resolved (the complete set), possible (several, or not proven complete), virtual_exact, virtual_possible, " +
-                               "ambiguous (engines disagree) or unresolved.")] string Status,
+        [property: Description("direct, import, resolved (complete set), possible (several or unproven), virtual_exact, virtual_possible, " +
+                               "ambiguous (engines disagree), unresolved.")] string Status,
         [property: Description("Distinct targets (all of them; at most 64 listed).")] int TargetCount,
         IReadOnlyList<CallTargetRecord> Targets,
         [property: Description("Why unresolved, or why the set may be incomplete.")] string? Reason,
@@ -52,14 +52,13 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "resolve_call_targets", Title = "Native call targets", UseStructuredContent = true, OutputSchemaType = typeof(CallTargetsReport))]
-    [Description("Targets of call and tail-jump sites in native code (x86 / x64 / ARM) with basis and confidence: direct branches, import and GOT " +
-                 "slots, thunks, constant pointers (also through CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT dispatch cells, " +
-                 "global function pointers' writers, pointer tables; deep=true: pointers callers pass in. Unresolved sites carry the reason and the " +
-                 "trace_native_values call to follow. engine=ida or ghidra merges that engine's targets.")]
+    [Description("Targets of call and tail-jump sites in native code (x86 / x64 / ARM) with basis and confidence: branches, import and GOT slots, " +
+                 "thunks, constant pointers (also CFG dispatch), GetProcAddress, RTTI virtual calls, NativeAOT dispatch cells, global writers, " +
+                 "pointer tables. Unresolved: reason, trace_native_values call. engine= merges its targets.")]
     public Task<string> ResolveCallTargets(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("A call instruction, or an address in a function (its sites): " + NativeTools.AddressDescription)] string? address = null,
-        [Description("Default: site at a call, else function; image (every indirect site) without address.")] string? scope = null,
+        [Description("A call, or an address in a function (its sites): " + NativeTools.AddressDescription)] string? address = null,
+        [Description("site, function or image (all indirect sites); default: site at a call, else function.")] string? scope = null,
         [Description("Default all; indirect: all but direct branches.")] string? status = null,
         [Description("Trace pointers that arrive as parameters back into the callers (slower).")] bool deep = false,
         [Description(NativeCodeTools.EngineDescription)] string? engine = null,

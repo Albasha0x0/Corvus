@@ -143,7 +143,7 @@
         "type": "object",
         "properties": {
           "group": {
-            "description": "files, registry, network, crypto, process_thread, ui, services, com, debug or dynamic_loading.",
+            "description": "files, registry, network, crypto, process_thread, ui, services, com, debug, dynamic_loading.",
             "type": "string"
           },
           "count": {

@@ -20,15 +20,15 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
     public sealed record VirtualCallRow(
         [property: Description("VA of the call (or tail jump) instruction.")] string Address,
         [property: Description("The calling function and offset.")] string Function,
-        [property: Description("exact (one implementation: a virtual_exact edge), possible (several: virtual_possible edges) or unresolved.")] string Status,
-        [property: Description("Why unresolved: receiver_unknown, no_vftable_at_offset, slot_out_of_range, only_pure_targets, too_many_targets; null otherwise.")] string? Reason,
-        [property: Description("How the receiver's class was found: this (of a virtual method of the class), vftable (stored into the object, or by a constructor called on it) or unknown.")] string Receiver,
+        [property: Description("exact (one implementation), possible (several) or unresolved.")] string Status,
+        [property: Description("receiver_unknown, no_vftable_at_offset, slot_out_of_range, only_pure_targets, too_many_targets.")] string? Reason,
+        [property: Description("this (in a virtual method), vftable (stored into the object or by its constructor), unknown.")] string Receiver,
         [property: Description("The receiver's class (static type), null when unknown.")] string? Class,
         [property: Description("vftable slot index.")] int Slot,
-        [property: Description("Offset of the vfptr in the receiver object (the subobject the call goes through).")] int VfptrOffset,
+        [property: Description("vfptr offset in the receiver (the subobject the call goes through).")] int VfptrOffset,
         [property: Description("VA of the receiver class's vftable the slot is read from, null when unknown.")] string? Vftable,
         [property: Description("A jump (tail call) rather than a call.")] bool TailCall,
-        [property: Description("A derived class reaches the class through a virtual base: its overrides are not included.")] bool Incomplete,
+        [property: Description("A derived class reaches it via a virtual base; its overrides are not included.")] bool Incomplete,
         [property: Description("Distinct implementations found (pure virtual stubs excluded).")] int TargetCount,
         [property: Description("The implementations, \"name @ VA\" (at most 16).")] IReadOnlyList<string> Targets);
 
@@ -49,17 +49,16 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [property: Description("Coverage notes.")] IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_virtual_calls", Title = "Native virtual calls", UseStructuredContent = true, OutputSchemaType = typeof(VirtualCallReport))]
-    [Description("Virtual call sites resolved through RTTI (MSVC or Itanium) or NativeAOT MethodTables: calls through a vftable slot, also through " +
-                 "stack spills, this adjustments and CFG dispatch. The receiver's class comes from a vftable stored into the object, this of a virtual " +
-                 "method, or decorated names; the slot's implementations are the targets: one is exact, several possible, else unresolved with the " +
-                 "reason. crossCheck=true compares a sample with IDA (else Ghidra).")]
+    [Description("Virtual call sites resolved through RTTI (MSVC, Itanium) or NativeAOT MethodTables: calls through a vftable slot, also via stack " +
+                 "spills, this adjustments, CFG dispatch. Receiver class: a stored vftable, this of a virtual method, or decorated names; the " +
+                 "slot's implementations are the targets: one exact, several possible, else unresolved.")]
     public async Task<string> FindVirtualCalls(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only sites in this function: " + NativeTools.AddressDescription)] string? function = null,
         [Description("Only sites with this status.")] string? status = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max sites (max 1000).")] int limit = 100,
-        [Description("Compare a sample with the engine's view (runs IDA or Ghidra; minutes on a large image the first time).")] bool crossCheck = false,
+        [Description("Compare a sample with IDA (else Ghidra); minutes on a large image at first.")] bool crossCheck = false,
         [Description("Cross-check: functions to sample.")] int sampleFunctions = 100,
         [Description("Cross-check: time budget in seconds.")] int timeoutSeconds = 300,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,

@@ -52,9 +52,9 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         IReadOnlyList<CppClass> Items, int Offset, int Total, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI", UseStructuredContent = true, OutputSchemaType = typeof(CppClassList))]
-    [Description("C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, base classes (offsets, virtual and multiple " +
-                 "inheritance) and vftables with slot targets; rejects are counted with the reason. Mach-O: also ObjC classes, categories, protocols and Swift types. engine=ghidra lists Ghidra's class namespaces " +
-                 "instead (PDB classes too), ida its C++ structs.")]
+    [Description("C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, bases (offsets, virtual and multiple " +
+                 "inheritance), vftables with slot targets; rejects counted by reason. Mach-O: also ObjC classes, categories, protocols, Swift " +
+                 "types. engine=ghidra: Ghidra's class namespaces (PDB too); ida: its C++ structs.")]
     public async Task<string> ListCppClasses(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name substring (case-insensitive).")] string? filter = null,
@@ -194,14 +194,12 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", UseStructuredContent = true, OutputSchemaType = typeof(NativeImportReport))]
-    [Description("Check imports against library exports. A .NET assembly: each P/Invoke declaration with the runtime's lookup rules " +
-                 "(search order, API sets, A/W, stdcall names, ordinals, forwarders; .so/.dylib by RID, Il2Cpp __Internal), " +
-                 "plus run-time loading in IL. A loaded Mach-O: each load command as dyld resolves it (@rpath, @loader_path), slice, version, " +
-                 "bound symbols. Verdict, reason: verified, contradicted (missing_export, arch_mismatch), unresolved (dll_not_found, places " +
-                 "searched), dynamic_only, not_checked.")]
+    [Description("Check imports against library exports. .NET: each P/Invoke by the runtime's lookup (search order, API sets, A/W, stdcall names, " +
+                 "ordinals, forwarders, RID, __Internal) and run-time loading in IL. Mach-O: each load command as dyld resolves it. Verdicts: " +
+                 "verified, contradicted (missing_export, arch_mismatch), unresolved, dynamic_only, not_checked.")]
     public Task<string> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Only declarations with this status or reason code (e.g. contradicted, missing_export).")] string? status = null,
+        [Description("Only this verdict or reason (contradicted, missing_export...).")] string? status = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows (default 100, max 5000).")] int limit = 100,
         [Description("Target platform (default auto).")] string? platform = null,

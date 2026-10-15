@@ -15,14 +15,14 @@ namespace Corvus.Tools;
 
 /// <summary>A handler, funclet or landing pad of a function's exception metadata.</summary>
 public sealed record EhHandler(
-    [property: Description("catch, unwind, destructor, filter, except, finally, landing_pad, or a chunk kind.")] string Kind,
+    [property: Description("catch, unwind, destructor, filter, except, finally, landing_pad, or chunk kind.")] string Kind,
     string Address,
     [property: Description("The function name at the address, when it has one.")] string? Name,
     [property: Description("catch: the caught type (... for all); landing_pad: the actions.")] string? Detail);
 
 /// <summary>A protected range: an SEH __try scope or an Itanium call site.</summary>
 public sealed record EhRange(string Start, string End,
-    [property: Description("The handler (__except / __finally block or landing pad); absent when it unwinds through.")] string? Handler,
+    [property: Description("__except / __finally block or landing pad; absent when it unwinds through.")] string? Handler,
     [property: Description("finally, except (with its filter) or call_site.")] string Kind,
     string? Filter);
 
@@ -43,10 +43,9 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
     private const int MaxIpStates = 64;
 
     [McpServerTool(Name = "get_exception_info", Title = "Native exception handling", UseStructuredContent = true, OutputSchemaType = typeof(ExceptionReport))]
-    [Description("Exception handling of the native function containing an address. ELF / Mach-O: FDE, compact unwind or ARM EHABI entry, personality, LSDA call " +
-                 "sites with landing pads and caught types. MSVC: the handler, try blocks with caught types, unwind map, SEH scopes, IP-to-state " +
-                 "map, and the catch blocks, funclets, filters and chained fragments it reaches. Without an address: image counts and the metadata " +
-                 "that failed its checks.")]
+    [Description("Exception handling of the native function at an address. ELF / Mach-O: FDE, compact unwind or EHABI entry, personality, LSDA " +
+                 "call sites, landing pads, caught types. MSVC: handler, try blocks, caught types, unwind map, SEH scopes, IP-to-state, catch " +
+                 "blocks, funclets, filters, chained fragments. No address: image counts, failed metadata checks.")]
     public Task<string> GetExceptionInfo(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Omit for an image summary.")] string? address = null,

@@ -21,7 +21,7 @@ public sealed record GlobalEntry(
     [property: Description("C type when a source records one (PDB, the user's types, define_native data).")] string? Type,
     [property: Description("Size in bytes when known; -1 otherwise.")] long Size,
     string? Section,
-    [property: Description("Where it is named or typed: user, pdb, nativeaot, il2cpp, objc, swift, ida, ghidra, export, symbol.")] IReadOnlyList<string> Sources)
+    [property: Description("user, pdb, nativeaot, il2cpp, objc, swift, ida, ghidra, export or symbol.")] IReadOnlyList<string> Sources)
 {
     [Description("The engine's text of the value (engine=ida or ghidra).")] public string? Value { get; init; }
 }

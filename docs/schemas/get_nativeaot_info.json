@@ -95,14 +95,14 @@
       ]
     },
     "coverage": {
-      "description": "view=summary: function starts (unwind table) and those named; with the code index, its functions and those named.",
+      "description": "view=summary: function starts (unwind table, or code index) and those named.",
       "type": "object",
       "additionalProperties": {
         "type": "integer"
       }
     },
     "items": {
-      "description": "List views: their rows; view=type: its vtable slots, then the interface methods it implements.",
+      "description": "List views: rows; view=type: vtable slots, then implemented interface methods.",
       "type": "array",
       "items": {
         "type": "object",
@@ -114,7 +114,7 @@
             "type": "string"
           },
           "kind": {
-            "description": "section, MethodTable kind, method origin, string, slot, interface or statics kind.",
+            "description": "section, MethodTable kind, method origin, string, slot, interface, statics kind.",
             "type": "string"
           },
           "detail": {

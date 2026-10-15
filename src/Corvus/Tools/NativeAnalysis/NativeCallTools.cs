@@ -19,23 +19,23 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     public sealed record CallArgumentRecord(
         [property: Description("0-based position.")] int Index,
         [property: Description("Parameter name from the API signature; null for callees without one.")] string? Name,
-        [property: Description("Parameter type (str, int, ptr, an enumeration or flags name...); null without a signature.")] string? Type,
-        [property: Description("Where it is passed: rcx, rdi, xmm0, [rsp+20h], [esp+4h], ecx; ARM64 x0-x7, s0-s7 / d0-d7, stack.")] string Location,
-        [property: Description("immediate, string, address, name, result (of an earlier call), global (contents of a variable) or unknown.")] string Kind,
-        [property: Description("The value as shown in the call: decoded flags, quoted string, name, ? when unknown.")] string Text,
+        [property: Description("Parameter type (str, int, ptr, enum or flags name...); null without a signature.")] string? Type,
+        [property: Description("Register or slot: rcx, rdi, xmm0, [rsp+20h], [esp+4h]; ARM64 x0-x7, s0-s7, d0-d7.")] string Location,
+        [property: Description("immediate, string, address, name, result (of a call), global (contents), unknown.")] string Kind,
+        [property: Description("The value as shown: decoded flags, quoted string, name, or ? when unknown.")] string Text,
         [property: Description("The number for immediates (hex).")] string? Value,
         [property: Description("The address (VA) for strings, addresses, names and globals.")] string? Address,
-        [property: Description("How it was derived: the instructions from the call back to the definition, or why it is unknown.")] string Derivation);
+        [property: Description("The instructions from the call back to the definition, or why it is unknown.")] string Derivation);
 
     [Description("One call site.")]
     public sealed record CallSiteRecord(
         [property: Description("VA of the call instruction.")] string Address,
         [property: Description("The calling function.")] string Function,
-        [property: Description("Callee: module!name for imports and late-bound imports, a function name, or the pointer for indirect calls.")] string Callee,
-        [property: Description("import, function, dynamic (GetProcAddress / dlsym pointer), virtual_exact (a virtual call with one implementation, resolved through RTTI), " +
-                               "virtual_possible (one of several implementations, listed in Callee) or indirect.")] string CalleeKind,
+        [property: Description("module!name for imports (also late-bound), a function, or the indirect pointer.")] string Callee,
+        [property: Description("import, function, dynamic (GetProcAddress / dlsym), virtual_exact (one RTTI target), " +
+                               "virtual_possible (several, listed in Callee), indirect.")] string CalleeKind,
         [property: Description("A jump to the callee (tail call) rather than a call.")] bool TailCall,
-        [property: Description("The callee's signature is known (parameter names, count and constant decoding); otherwise the arguments are the registers / stack slots set just before the call.")] bool SignatureKnown,
+        [property: Description("Callee signature known (names, count, decoding); else the slots set before the call.")] bool SignatureKnown,
         IReadOnlyList<CallArgumentRecord> Arguments);
 
     public sealed record CallArgumentsReport(
@@ -59,13 +59,13 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true, OutputSchemaType = typeof(CallArgumentsReport))]
-    [Description("Call sites of a native image (x86 / x64 / ARM) with their argument values, recovered by constant propagation in the caller under " +
-                 "the platform calling convention: immediates, strings, named addresses, earlier call results, globals (differing merges are " +
-                 "unknown). Known Win32 / CRT / libc APIs give parameter names and decoded constants. Pass address and/or callee.")]
+    [Description("Call sites of a native image (x86 / x64 / ARM) with argument values, by constant propagation under the calling convention: " +
+                 "immediates, strings, named addresses, earlier call results, globals (differing merges are unknown). Known Win32 / CRT / " +
+                 "libc APIs give parameter names and decoded constants. Pass address and/or callee.")]
     public Task<string> GetCallArguments(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("A call instruction, or an address in a function (all calls in it): " + NativeTools.AddressDescription)] string? address = null,
-        [Description("Only calls to this API, module!name or function; without address, every call to it in the image.")] string? callee = null,
+        [Description("A call, or an address in a function (all its calls): " + NativeTools.AddressDescription)] string? address = null,
+        [Description("Only calls to this API, module!name or function; without address, image-wide.")] string? callee = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max call sites (default 50, max 1000).")] int limit = 50,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,

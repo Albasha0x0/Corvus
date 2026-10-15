@@ -20,7 +20,7 @@ public sealed record CfgReport(
     IReadOnlyList<CfgUnresolvedJump> UnresolvedJumps,
     [property: Description("Targets of tail calls (VA); first page.")] IReadOnlyList<string> TailCalls,
     [property: Description("The function was cut at the instruction limit.")] bool Cut,
-    [property: Description("Edges, switches, unresolved jumps and cyclomatic complexity of the whole function.")] CfgSummary Summary);
+    [property: Description("Whole function: edges, switches, unresolved jumps, cyclomatic complexity.")] CfgSummary Summary);
 
 public sealed record CfgSummary(int Blocks, int Edges, int Switches, int UnresolvedJumps, int Cyclomatic);
 
@@ -28,7 +28,7 @@ public sealed record CfgBlock(
     [property: Description("VA.")] string Start,
     [property: Description("Exclusive end (VA).")] string End,
     int Instructions,
-    [property: Description("How the block ends: Return, Jump, ConditionalJump, Switch, IndirectJump, TailCall, NoReturnCall, FallThrough, ...")] string EndKind,
+    [property: Description("Return, Jump, ConditionalJump, Switch, IndirectJump, TailCall, NoReturnCall, FallThrough...")] string EndKind,
     IReadOnlyList<CfgSuccessor> Successors);
 
 public sealed record CfgSuccessor([property: Description("VA.")] string To, [property: Description("FallThrough, Jump, ConditionalTaken, ConditionalFallThrough, Switch or TailCall.")] string Kind);
@@ -36,15 +36,15 @@ public sealed record CfgSuccessor([property: Description("VA.")] string To, [pro
 public sealed record CfgSwitch(
     [property: Description("The indirect jump (VA).")] string Jump,
     [property: Description("Jump table (VA); null when the engine does not say.")] string? Table,
-    [property: Description("absolute, rva, table_relative, base_relative (ARM: base + entry << shift) or indexed (ARM32 branch run: base + index * 4).")] string? TableKind,
+    [property: Description("absolute, rva, table_relative, base_relative (ARM: base + entry << shift), indexed (ARM32: base + index * 4).")] string? TableKind,
     int? EntrySize,
     int? Entries,
     [property: Description("Byte index table in front of the jump table (VA).")] string? IndexTable,
     int? IndexEntries,
     [property: Description("Switched value = table index + bias.")] long Bias,
-    [property: Description("Target of out-of-range values (VA); null when the index is masked rather than compared.")] string? Default,
+    [property: Description("VA for out-of-range values; null when the index is masked, not compared.")] string? Default,
     [property: Description("Values whose table entry is the default target, as ranges (\"5..9\").")] IReadOnlyList<string> DefaultValues,
-    [property: Description("False when the values are table indexes not bounded by a compare (masked index or assumed base).")] bool ValuesExact,
+    [property: Description("False: table indexes not bounded by a compare (masked or assumed base).")] bool ValuesExact,
     IReadOnlyList<CfgCase> Cases);
 
 public sealed record CfgCase([property: Description("VA.")] string Target, string? TargetName, [property: Description("Switched values as ranges (\"5..9\").")] IReadOnlyList<string> Values);

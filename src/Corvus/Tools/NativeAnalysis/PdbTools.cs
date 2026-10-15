@@ -39,16 +39,15 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
     }
 
     [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Load a native image's debug symbols: its PDB (GUID and age checked), or DWARF for ELF and Mach-O (own sections, a debug file by " +
-                 "build-id or .gnu_debuglink, a dSYM): names, types, source lines. Searched: path, the image's folder, symbol paths and caches, " +
-                 "CORVUS_DEBUG_DIRS; download=true asks a symbol server or debuginfod. Names show as source 'pdb' (user names win); missed functions " +
-                 "become function starts. Matching local symbols load automatically; saved names are reapplied; clear=true removes them.")]
+    [Description("Load a native image's debug symbols: PDB (GUID and age checked), or DWARF for ELF and Mach-O (own sections, build-id or " +
+                 ".gnu_debuglink, dSYM): names, types, source lines. Searched: path, image folder, symbol paths and caches, CORVUS_DEBUG_DIRS. " +
+                 "Names have source 'pdb' (user names win); adds missed function starts. Local matches load automatically.")]
     public Task<string> LoadPdb(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("PDB or debug file, dSYM, or a folder (or symbol store) to look in first.")] string? path = null,
         [Description("Download when nothing local matches: symbol server (PDB), debuginfod (ELF).")] bool download = false,
-        [Description("Server URL for download (PDB: _NT_SYMBOL_PATH servers, else Microsoft's; DWARF: CORVUS_DEBUGINFOD_URLS).")] string? server = null,
-        [Description("Use the file at path even when its GUID/age or build-id differs (names may be wrong).")] bool allowMismatch = false,
+        [Description("Default: PDB _NT_SYMBOL_PATH servers, else Microsoft's; DWARF CORVUS_DEBUGINFOD_URLS.")] string? server = null,
+        [Description("Use path's file even if GUID/age or build-id differs (names may be wrong).")] bool allowMismatch = false,
         [Description("Download time limit in seconds.")] int timeoutSeconds = 120,
         [Description("Download size limit in MB.")] int maxMegabytes = 2048,
         [Description("Remove the PDB names and their saved copy instead (not read again this session).")] bool clear = false,

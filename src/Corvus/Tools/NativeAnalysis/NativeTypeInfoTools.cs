@@ -22,7 +22,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         [property: Description("The type found; null when the name matched several candidates or none.")] NativeTypeView? Type,
         [property: Description("Types whose name contains the query (no exact match), one page of them.")] IReadOnlyList<NativeTypeCandidate> Candidates,
         int TotalCandidates,
-        [property: Description("For address=: the typed item the address is in (a PDB global, a vftable, a metadata slot) and where it starts.")] string? Owner,
+        [property: Description("address=: the typed item containing it (PDB global, vftable, metadata slot).")] string? Owner,
         string? OwnerAddress,
         [property: Description("The field path(s) at the address or at=.")] IReadOnlyList<NativeFieldPath> Paths,
         [property: Description("Index of the first returned field, enumerator, slot or candidate.")] int Offset,
@@ -36,16 +36,15 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
     }
 
     [McpServerTool(Name = "get_native_type", Title = "Native type layout", UseStructuredContent = true, OutputSchemaType = typeof(NativeTypeReport))]
-    [Description("Layout of a native type (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI " +
-                 "(vftables with named slots), Il2Cpp, ObjC and Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, " +
-                 "substring candidates, or a glob listing matches), id, or typed address (a PDB global gives the field path, e.g. g.players[3].pos.y). " +
-                 "read=true adds each field's value from the image's bytes.")]
+    [Description("Layout of a native type (fields with offset, size, bits; bases, padding; enums by value) from the PDB, RTTI (vftables, named " +
+                 "slots), Il2Cpp, ObjC or Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, else substring " +
+                 "candidates), id, or typed address (PDB global: field path g.players[3].pos.y). read=true adds values.")]
     public Task<string> GetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Type name (Packet, ns::Widget, Ns.Type for Il2Cpp), or a glob listing the matches (_IMAGE_*, *Widget*).")] string? name = null,
+        [Description("Type name (Packet, ns::Widget, Il2Cpp Ns.Type), or a glob listing matches (*Widget*).")] string? name = null,
         [Description("Type id from a result (pdb:0x1A2B, rtti:0x140012000, il2cpp:Ns.Type).")] string? id = null,
         [Description("A typed address: " + NativeTools.AddressDescription)] string? address = null,
-        [Description("Hex offset of a field to name (all union members); 0x48.0x10 reads through the pointer at 0x48.")] string? at = null,
+        [Description("Hex field offset to name (all union members); 0x48.0x10 goes through the pointer at 0x48.")] string? at = null,
         [Description("Levels of by-value members to inline (0-4).")] int depth = 0,
         [Description("Type source (default auto).")] string? source = null,
         [Description("table (default) or c (a C declaration).")] string? format = null,

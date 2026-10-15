@@ -75,7 +75,7 @@
       "type": "integer"
     },
     "frontier": {
-      "description": "VAs of this page's nodes not expanded (depth or maxNodes reached): pass one as function to continue there.",
+      "description": "VAs of nodes cut by depth or maxNodes: pass one as function to continue there.",
       "type": "array",
       "items": {
         "type": "string"

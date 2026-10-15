@@ -16,7 +16,7 @@
         "type": "object",
         "properties": {
           "status": {
-            "description": "decoded, mid_instruction, data, not_in_function, unmapped, outside_image or invalid.",
+            "description": "decoded, mid_instruction, data, not_in_function, unmapped, outside_image, invalid.",
             "type": "string"
           },
           "address": {
@@ -43,7 +43,7 @@
             "type": "object",
             "properties": {
               "kind": {
-                "description": "string, iat_slot, jump_table, index_table, pointer, pe_directory, headers, section, data_in_code or literal.",
+                "description": "string, iat_slot, jump_table, index_table, pointer, pe_directory, headers, section, data_in_code, literal.",
                 "type": "string"
               },
               "start": {
@@ -109,7 +109,7 @@
                       "type": "integer"
                     },
                     "kind": {
-                      "description": "register, immediate, memory, near_branch or far_branch; ARM also pc_relative, shift, extend, condition, enum, system_register, register_list.",
+                      "description": "register, immediate, memory, near_branch, far_branch; ARM: pc_relative, shift, extend, condition, enum, system_register, register_list.",
                       "type": "string"
                     },
                     "text": {
@@ -148,25 +148,25 @@
                       "type": "integer"
                     },
                     "displacement": {
-                      "description": "Signed hex; RIP-relative: from the next instruction; ARM64 pc-relative: from the instruction (adrp: its page).",
+                      "description": "Signed hex; from the next instruction (RIP) or this one (ARM64; adrp: its page).",
                       "type": "string"
                     },
                     "ripRelative": {
                       "type": "boolean"
                     },
                     "target": {
-                      "description": "Branch target or effective address (absolute or RIP-relative) inside the image, as a VA.",
+                      "description": "VA of the branch target or effective address (absolute or RIP-relative).",
                       "type": "string"
                     },
                     "targetName": {
                       "type": "string"
                     },
                     "targetItem": {
-                      "description": "The data item or function at the target, with its read / write reference counts for data.",
+                      "description": "The data item (with read / write counts) or function at the target.",
                       "type": "string"
                     },
                     "extend": {
-                      "description": "ARM: the memory index extend or shift (lsl #3, uxtw #2), a shifted register's shift, or the kind of a shift / extend operand.",
+                      "description": "ARM: index extend or shift (lsl #3, uxtw #2), register shift, or shift / extend kind.",
                       "type": "string"
                     },
                     "writeback": {
@@ -254,7 +254,7 @@
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "description": "next, call, indirect_call, jump, indirect_jump, conditional_jump, return, trap or invalid.",
+                    "description": "next, call, indirect_call, jump, indirect_jump, conditional_jump, return, trap, invalid.",
                     "type": "string"
                   },
                   "condition": {
@@ -343,7 +343,7 @@
                 "type": "string"
               },
               "pair": {
-                "description": "ARM: the other instruction of the address-forming pair (ARM64 adrp + add / load / store; ARM32 the literal load, movw or adr the base register comes from).",
+                "description": "ARM: the address-forming partner (ARM64 adrp + add/ldr/str; ARM32 literal load, movw, adr).",
                 "type": "string"
               },
               "formedAddress": {

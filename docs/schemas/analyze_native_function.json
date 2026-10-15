@@ -25,7 +25,7 @@
         "type": "object",
         "properties": {
           "name": {
-            "description": "identity, signature, frame, callers, callees, data, flow, annotations, params or pseudocode.",
+            "description": "identity, signature, frame, callers, callees, data, constants, flow, annotations, params, pseudocode.",
             "type": "string"
           },
           "total": {
@@ -45,7 +45,7 @@
                   "type": "string"
                 },
                 "kind": {
-                  "description": "What the fact is within its section (caller, call, string, read, write, switch, loop, ...).",
+                  "description": "Kind in its section (caller, call, string, read, write, switch, loop...).",
                   "type": "string"
                 }
               },
@@ -74,7 +74,7 @@
       }
     },
     "batch": {
-      "description": "Several addresses: the dossiers after the first, and the addresses that are in no function; null for one.",
+      "description": "Several addresses: the dossiers after the first, and addresses in no function.",
       "type": "array",
       "items": {
         "description": "A further dossier of a batch, or an address that could not be analyzed (Error).",
@@ -144,7 +144,7 @@
                 "type": "integer"
               },
               "interface": {
-                "description": "Called, referenced or exported from outside the set; false: only the set reaches it.",
+                "description": "Reached from outside the set (called, referenced, exported); false: only the set.",
                 "type": "boolean"
               }
             },
@@ -182,7 +182,7 @@
           }
         },
         "sharedGlobals": {
-          "description": "Data (not strings) that two or more of the functions read, write or take the address of.",
+          "description": "Data (not strings) that 2+ functions read, write or take the address of.",
           "type": "array",
           "items": {
             "type": "object",

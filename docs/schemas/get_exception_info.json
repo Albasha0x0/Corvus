@@ -29,7 +29,7 @@
         "type": "object",
         "properties": {
           "kind": {
-            "description": "catch, unwind, destructor, filter, except, finally, landing_pad, or a chunk kind.",
+            "description": "catch, unwind, destructor, filter, except, finally, landing_pad, or chunk kind.",
             "type": "string"
           },
           "address": {
@@ -62,7 +62,7 @@
             "type": "string"
           },
           "handler": {
-            "description": "The handler (__except / __finally block or landing pad); absent when it unwinds through.",
+            "description": "__except / __finally block or landing pad; absent when it unwinds through.",
             "type": "string"
           },
           "kind": {

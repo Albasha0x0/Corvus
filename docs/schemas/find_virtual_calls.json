@@ -56,15 +56,15 @@
             "type": "string"
           },
           "status": {
-            "description": "exact (one implementation: a virtual_exact edge), possible (several: virtual_possible edges) or unresolved.",
+            "description": "exact (one implementation), possible (several) or unresolved.",
             "type": "string"
           },
           "reason": {
-            "description": "Why unresolved: receiver_unknown, no_vftable_at_offset, slot_out_of_range, only_pure_targets, too_many_targets; null otherwise.",
+            "description": "receiver_unknown, no_vftable_at_offset, slot_out_of_range, only_pure_targets, too_many_targets.",
             "type": "string"
           },
           "receiver": {
-            "description": "How the receiver's class was found: this (of a virtual method of the class), vftable (stored into the object, or by a constructor called on it) or unknown.",
+            "description": "this (in a virtual method), vftable (stored into the object or by its constructor), unknown.",
             "type": "string"
           },
           "class": {
@@ -76,7 +76,7 @@
             "type": "integer"
           },
           "vfptrOffset": {
-            "description": "Offset of the vfptr in the receiver object (the subobject the call goes through).",
+            "description": "vfptr offset in the receiver (the subobject the call goes through).",
             "type": "integer"
           },
           "vftable": {
@@ -88,7 +88,7 @@
             "type": "boolean"
           },
           "incomplete": {
-            "description": "A derived class reaches the class through a virtual base: its overrides are not included.",
+            "description": "A derived class reaches it via a virtual base; its overrides are not included.",
             "type": "boolean"
           },
           "targetCount": {

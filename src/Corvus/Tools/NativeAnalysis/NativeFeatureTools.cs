@@ -26,7 +26,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         [property: Description("References followed from it.")] int References, [property: Description("Why following it failed; the trace went on.")] string? Error);
 
     public sealed record FeatureEvidenceRecord(string Site,
-        [property: Description("string, table, named, data, call, pointer, resolve, exported, vftable, method, constant, engine_xref or pseudocode.")] string Kind,
+        [property: Description("string, table, named, data, call, pointer, resolve, exported, vftable, method, constant, engine_xref, pseudocode.")] string Kind,
         string Detail, int Seed);
 
     public sealed record FeatureFunctionRecord(string Address, string Name, int Score, IReadOnlyList<int> Seeds, [property: Description("The first 20.")] IReadOnlyList<FeatureEvidenceRecord> Evidence,
@@ -41,15 +41,14 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         IReadOnlyList<FeatureHubRecord> Hubs, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "trace_native_feature", Title = "Trace a native feature", UseStructuredContent = true, OutputSchemaType = typeof(FeatureReport))]
-    [Description("Finds the native code behind a behaviour from a text or value: strings, function and data names, imports (also late-bound), " +
-                 "exports, RTTI classes and, for a number, constants matching query (\"quoted\": exact) are followed to their references (with " +
-                 "decoded API arguments), grouped by function and ranked; hubs are callers within callerDepth reaching several of them. An engine " +
-                 "(engine=, or auto: one that analyzed these bytes) adds its strings, references and matching pseudocode lines. Pages reuse the trace.")]
+    [Description("Native code behind a behaviour, from a text or value: strings, names, imports (also late-bound), exports, RTTI classes and " +
+                 "constants matching query (\"quoted\": exact) lead to their references, ranked by function; hubs: callers within callerDepth " +
+                 "reaching several. An engine (auto: one that analyzed the bytes) adds strings, references, pseudocode.")]
     public Task<string> TraceNativeFeature(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Case-insensitive substring, or a regex with regex=true.")] string query,
         [Description("Treat query as a regular expression.")] bool regex = false,
-        [Description("Seed kinds, comma-separated: strings, names, imports, exports, classes, constants (default all).")] string? kinds = null,
+        [Description("Comma-separated: strings, names, imports, exports, classes, constants (default all).")] string? kinds = null,
         [Description("Matches followed (1-500); the rest are counted.")] int maxSeeds = 50,
         [Description("Caller levels searched for hubs (0-3).")] int callerDepth = 1,
         [Description(RowOffsetDescription)] int offset = 0,

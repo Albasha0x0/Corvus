@@ -26,7 +26,7 @@
           "type": "string"
         },
         "location": {
-          "description": "The register or slot (for arguments and parameters: at the callee's entry), null for results and globals.",
+          "description": "Register or slot (arguments, parameters: at callee entry); null for results, globals.",
           "type": "string"
         },
         "description": {
@@ -45,17 +45,17 @@
       "type": "string"
     },
     "values": {
-      "description": "The answer: distinct values (backward) or API arguments reached (forward), over the whole graph.",
+      "description": "Whole graph: distinct values (backward) or API arguments reached (forward).",
       "type": "array",
       "items": {
-        "description": "A distinct value reaching the seed (backward), or an API argument or switch case the seed's value reaches (forward).",
+        "description": "A distinct value reaching the seed (backward), or an API argument or switch case reached (forward).",
         "type": "object",
         "properties": {
           "text": {
             "type": "string"
           },
           "kind": {
-            "description": "const, string, function, address, import, api_result, sink, or switch (the case a constant selects).",
+            "description": "const, string, function, address, import, api_result, sink, switch (a constant's case).",
             "type": "string"
           },
           "address": {
@@ -85,15 +85,15 @@
             "type": "integer"
           },
           "kind": {
-            "description": "seed, const, address, string, function, import (pointer of an imported function), api_result, call_result, parameter, global, field ([base+off] load), stack_local, merge (paths with different values), loop, unknown; forward: argument (into a callee of the image), sink (argument of an API or unresolved callee), store, field_store, return, compare, switch, dereference, call_target.",
+            "description": "seed, const, address, string, function, import (its pointer), api_result, call_result, parameter, global, field ([base+off] load), stack_local, merge (differing paths), loop, unknown; forward: argument (into an image callee), sink (API or unresolved callee argument), store, field_store, return, compare, switch, dereference, call_target.",
             "type": "string"
           },
           "address": {
-            "description": "VA of the defining or using instruction (the function for parameters, the global for initial contents).",
+            "description": "Defining or using instruction (VA); parameters: the function; initial contents: the global.",
             "type": "string"
           },
           "image": {
-            "description": "The loaded image Address is in when it is not the seed's (reached through an import or export).",
+            "description": "Loaded image of Address when not the seed's (reached via an import or export).",
             "type": "string"
           },
           "function": {
@@ -117,7 +117,7 @@
             "type": "string"
           },
           "decoded": {
-            "description": "The value named by the API parameter or return it meets (GENERIC_READ|GENERIC_WRITE, WAIT_TIMEOUT).",
+            "description": "Named by the API parameter or return it meets (GENERIC_READ|GENERIC_WRITE).",
             "type": "string"
           },
           "depth": {
@@ -163,7 +163,7 @@
             "type": "integer"
           },
           "kind": {
-            "description": "copy, merge, loop, field, use, argument (caller's argument to a parameter), parameter (into a callee), return, store, load.",
+            "description": "copy, merge, loop, field, use, argument (caller to parameter), parameter (into a callee), return, store, load.",
             "type": "string"
           },
           "site": {

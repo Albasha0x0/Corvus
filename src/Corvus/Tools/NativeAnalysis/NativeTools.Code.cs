@@ -35,7 +35,7 @@ public sealed record CodeOverview(
 
 [Description("A capability the imports imply.")]
 public sealed record CapabilityEntry(
-    [property: Description("files, registry, network, crypto, process_thread, ui, services, com, debug or dynamic_loading.")] string Group,
+    [property: Description("files, registry, network, crypto, process_thread, ui, services, com, debug, dynamic_loading.")] string Group,
     [property: Description("Distinct APIs in the group.")] int Count,
     IReadOnlyList<string> Apis);
 

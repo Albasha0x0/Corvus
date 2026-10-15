@@ -15,7 +15,7 @@ public sealed record NativeCallTreeResult(
     [property: Description("Root function (or import) and its VA.")] string Root,
     [property: Description("callers, callees or both (one level: each node's site is its call instruction).")] string Direction,
     IReadOnlyList<NativeTreeNode> Items, int Offset, int Total,
-    [property: Description("VAs of this page's nodes not expanded (depth or maxNodes reached): pass one as function to continue there.")] IReadOnlyList<string>? Frontier,
+    [property: Description("VAs of nodes cut by depth or maxNodes: pass one as function to continue there.")] IReadOnlyList<string>? Frontier,
     [property: Description(EngineDoc.Engine)] string Engine,
     [property: Description(EngineDoc.Note)] string? EngineNote);
 

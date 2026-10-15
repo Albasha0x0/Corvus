@@ -26,27 +26,27 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 {
     [Description("One fact of a section.")]
     public sealed record DossierItem([property: Description("VA, when the fact has an address.")] string? Address, string Text,
-        [property: Description("What the fact is within its section (caller, call, string, read, write, switch, loop, ...).")] string? Kind);
+        [property: Description("Kind in its section (caller, call, string, read, write, switch, loop...).")] string? Kind);
 
     [Description("One section; Total counts every fact, Items holds at most maxItems.")]
     public sealed record DossierSection(
-        [property: Description("identity, signature, frame, callers, callees, data, flow, annotations, params or pseudocode.")] string Name,
+        [property: Description("identity, signature, frame, callers, callees, data, constants, flow, annotations, params, pseudocode.")] string Name,
         int Total, IReadOnlyList<DossierItem> Items, [property: Description("Why the section is missing or partial; the other sections are unaffected.")] string? Error);
 
     public sealed record FunctionDossier(string Image, string Address, string Name, [property: Description("Bytes of code in its blocks.")] long Size,
         [property: Description("Exclusive end of its highest range (VA).")] string End, IReadOnlyList<DossierSection> Sections,
         [property: Description("Follow-up calls.")] IReadOnlyList<string> Next,
-        [property: Description("Several addresses: the dossiers after the first, and the addresses that are in no function; null for one.")] IReadOnlyList<DossierPart>? Batch,
+        [property: Description("Several addresses: the dossiers after the first, and addresses in no function.")] IReadOnlyList<DossierPart>? Batch,
         [property: Description("component=true: how the functions work together.")] ComponentView? Component = null);
 
     [Description("A set of functions as one component.")]
     public sealed record ComponentView(IReadOnlyList<ComponentFunction> Functions,
         [property: Description("Calls between functions of the set.")] IReadOnlyList<ComponentEdge> Edges,
-        [property: Description("Data (not strings) that two or more of the functions read, write or take the address of.")] IReadOnlyList<SharedItem> SharedGlobals,
+        [property: Description("Data (not strings) that 2+ functions read, write or take the address of.")] IReadOnlyList<SharedItem> SharedGlobals,
         [property: Description("Strings two or more of the functions use.")] IReadOnlyList<SharedItem> SharedStrings);
 
     public sealed record ComponentFunction(string Address, string Name, long Size, int? Blocks, int? Complexity, int Callers, int Callees,
-        [property: Description("Called, referenced or exported from outside the set; false: only the set reaches it.")] bool Interface);
+        [property: Description("Reached from outside the set (called, referenced, exported); false: only the set.")] bool Interface);
 
     public sealed record ComponentEdge(string From, string To, int Sites);
 
@@ -65,17 +65,16 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     private const int MaxBatch = 16;
 
     [McpServerTool(Name = "analyze_native_function", Title = "Native function dossier", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDossier))]
-    [Description("Everything known about one native function, in sections bounded by maxItems with totals: identity (names, ranges, flags, " +
-                 "prototypes, vftable slots), signature (parameters, this class, result use), frame (unwind, saved registers, locals, EH), callers, " +
-                 "callees (targets, basis, arguments), data (strings, globals, import slots), flow (blocks, loops, switches), annotations. Optional: " +
-                 "constants, params (values callers pass), pseudocode. Several addresses: a dossier each, or component=true for how they interact.")]
+    [Description("Everything known about one native function, in sections of at most maxItems facts: identity, signature (parameters, this class, " +
+                 "result use), frame (unwind, locals, EH), callers, callees (targets, arguments), data (strings, globals, imports), flow (blocks, " +
+                 "loops, switches), annotations; optional constants, params (values callers pass), pseudocode.")]
     public Task<string> AnalyzeNativeFunction(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("An address inside the function, or up to 16 comma-separated: " + NativeTools.AddressDescription)] string address,
-        [Description("Comma-separated section names (default all but constants, params and pseudocode).")] string? sections = null,
+        [Description("In the function; up to 16 comma-separated (a dossier each): " + NativeTools.AddressDescription)] string address,
+        [Description("Comma-separated sections (default all but constants, params, pseudocode).")] string? sections = null,
         [Description("Facts per section (1-500).")] int maxItems = 40,
         [Description("Add the pseudocode section.")] bool pseudocode = false,
-        [Description("With several addresses: one component view (internal calls, shared data, interface).")] bool component = false,
+        [Description("Several addresses: one component view (internal calls, shared data, interface).")] bool component = false,
         [Description("Pseudocode engine (default auto).")] string? engine = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,

@@ -23,20 +23,19 @@ public sealed partial class NativeCodeTools
     };
 
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
-    [Description("What references a native address: calls (also via import slots and thunks), jumps, data reads/writes, address-taken uses, " +
-                 "switch tables, relocated pointers, each with its function and, for calls, recovered arguments; RTTI virtual call sites. An " +
-                 "import (module!name): call sites and binding; an export: also callers in other loaded images. direction=from: what it " +
-                 "references. A struct member (Type::member, Type+0x18): its uses in typed pseudocode, via IDA or Ghidra.")]
+    [Description("What references a native address: calls (also via import slots, thunks), jumps, reads/writes, address uses, switch tables, " +
+                 "relocations, RTTI virtual calls; each with its function and call arguments. Imports: call sites, binding; exports: also other " +
+                 "loaded images. direction=from: what it references. Struct members: IDA / Ghidra pseudocode uses.")]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description(NativeTools.AddressDescription + " Or a struct member: Type::member, Type.member, Type+0xOFFSET.")] string? address = null,
+        [Description(NativeTools.AddressDescription + " Or Type::member, Type.member, Type+0xOFFSET.")] string? address = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 200,
         [Description("Instead of address: up to 100 targets.")] string[]? addresses = null,
         [Description(EngineDescription + " Adds RTTI virtual calls.")]
         string? engine = null,
         [Description("to (default), from or both.")] string? direction = null,
-        [Description("any, code (calls, jumps), data (reads, writes, pointers) or metadata (.pdata, CFG, export tables).")] string? kind = null,
+        [Description("any, code (calls, jumps), data (reads, writes, pointers), metadata (.pdata, CFG, exports).")] string? kind = null,
         [Description("Struct member: typed (default) or all (every function; call again to continue).")] string? scope = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,

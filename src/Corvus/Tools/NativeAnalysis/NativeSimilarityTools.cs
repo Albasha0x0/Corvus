@@ -20,9 +20,9 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
     private const int MaxMembers = 50;
 
     public sealed record SimilarMatch(string Image, string Address, string Name, double Score,
-        [property: Description("identical (same bytes, addresses masked), same_shape (same graph and instruction shapes; registers, offsets or constants differ), " +
-                               "contains (holds most of the query's code) or similar.")] string Kind,
-        [property: Description("Jaccard of the instruction-shape 3-grams (registers, addresses and immediates ignored).")] double Code,
+        [property: Description("identical (same bytes, addresses masked), same_shape (same graph and shapes; registers, offsets or " +
+                               "constants differ), contains (most of the query's code), similar.")] string Kind,
+        [property: Description("Jaccard of instruction-shape 3-grams (registers, addresses, immediates ignored).")] double Code,
         [property: Description("Share of the query's 3-grams found in this function.")] double Containment,
         int Instructions, int Blocks,
         [property: Description("Blocks and edges, query -> this function; same_graph when the CFG shapes match.")] string Cfg,
@@ -43,8 +43,8 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         string? Function, string? Address,
         [property: Description("Functions scanned (similar) or candidate pairs scored (clusters).")] int Compared,
         int Offset, int Total, bool Truncated,
-        [property: Description("view=similar: SimilarMatch rows (image, address, name, score, kind, code, containment, instructions, blocks, cfg, shared*); " +
-                               "duplicates and clusters: FunctionGroup rows (id, kind, members, redundantBytes, functions).")] IReadOnlyList<object> Items,
+        [property: Description("view=similar: matches (image, address, name, score, kind, code, containment, cfg...); " +
+                               "else groups (id, kind, members, redundantBytes, functions).")] IReadOnlyList<object> Items,
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_similar_functions", Title = "Find similar functions", UseStructuredContent = true, OutputSchemaType = typeof(SimilarityReport))]

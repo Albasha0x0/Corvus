@@ -25,7 +25,7 @@
       "type": "integer"
     },
     "items": {
-      "description": "view=similar: SimilarMatch rows (image, address, name, score, kind, code, containment, instructions, blocks, cfg, shared*); duplicates and clusters: FunctionGroup rows (id, kind, members, redundantBytes, functions).",
+      "description": "view=similar: matches (image, address, name, score, kind, code, containment, cfg...); else groups (id, kind, members, redundantBytes, functions).",
       "type": "array",
       "items": {}
     },

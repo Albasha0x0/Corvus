@@ -14,10 +14,9 @@ namespace Corvus.Tools;
 public sealed partial class NativeTools
 {
     [McpServerTool(Name = "get_nativeaot_info", Title = "NativeAOT metadata", UseStructuredContent = true, OutputSchemaType = typeof(NativeAotInfo))]
-    [Description("What a NativeAOT image's own metadata recovers (.NET 7-10; PE, ELF, Mach-O). view=summary: versions, header, recovery stages " +
-                 "and counts. sections: module sections. types: MethodTables (name, origin, kind, base). type: one MethodTable's " +
-                 "flags, bases, interfaces and slots. methods: named method bodies. strings: frozen strings with references. statics: statics " +
-                 "bases with known fields. Its names apply on load as the nativeaot layer.")]
+    [Description("What a NativeAOT image's metadata recovers (.NET 7-10; PE, ELF, Mach-O). view=summary: versions, header, stages, " +
+                 "counts. sections. types: MethodTables (name, origin, kind, base). type: one's flags, bases, interfaces, slots. methods: " +
+                 "named bodies. strings: frozen strings, references. statics: bases, known fields. Names apply as the nativeaot layer.")]
     public Task<string> GetNativeAotInfo(
         [Description(ImageDescription)] string image,
         [Description("What to show (default summary).")] string? view = null,
@@ -202,10 +201,10 @@ public sealed partial class NativeTools
 }
 
 /// <summary>One row of a get_nativeaot_info list view.</summary>
-public sealed record NativeAotRow(string Address, string Name, [property: Description("section, MethodTable kind, method origin, string, slot, interface or statics kind.")] string Kind,
+public sealed record NativeAotRow(string Address, string Name, [property: Description("section, MethodTable kind, method origin, string, slot, interface, statics kind.")] string Kind,
     string? Detail);
 
 public sealed record NativeAotInfo(string Image, string View,
     [property: Description("view=summary: versions, sections, stages and counts.")] NativeAotSummary? Summary,
-    [property: Description("view=summary: function starts (unwind table) and those named; with the code index, its functions and those named.")] IReadOnlyDictionary<string, int>? Coverage,
-    [property: Description("List views: their rows; view=type: its vtable slots, then the interface methods it implements.")] IReadOnlyList<NativeAotRow> Items, int Offset, int Total);
+    [property: Description("view=summary: function starts (unwind table, or code index) and those named.")] IReadOnlyDictionary<string, int>? Coverage,
+    [property: Description("List views: rows; view=type: vtable slots, then implemented interface methods.")] IReadOnlyList<NativeAotRow> Items, int Offset, int Total);

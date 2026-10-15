@@ -24,11 +24,11 @@
             "type": "string"
           },
           "callee": {
-            "description": "Callee: module!name for imports and late-bound imports, a function name, or the pointer for indirect calls.",
+            "description": "module!name for imports (also late-bound), a function, or the indirect pointer.",
             "type": "string"
           },
           "calleeKind": {
-            "description": "import, function, dynamic (GetProcAddress / dlsym pointer), virtual_exact (a virtual call with one implementation, resolved through RTTI), virtual_possible (one of several implementations, listed in Callee) or indirect.",
+            "description": "import, function, dynamic (GetProcAddress / dlsym), virtual_exact (one RTTI target), virtual_possible (several, listed in Callee), indirect.",
             "type": "string"
           },
           "tailCall": {
@@ -36,7 +36,7 @@
             "type": "boolean"
           },
           "signatureKnown": {
-            "description": "The callee's signature is known (parameter names, count and constant decoding); otherwise the arguments are the registers / stack slots set just before the call.",
+            "description": "Callee signature known (names, count, decoding); else the slots set before the call.",
             "type": "boolean"
           },
           "arguments": {
@@ -54,19 +54,19 @@
                   "type": "string"
                 },
                 "type": {
-                  "description": "Parameter type (str, int, ptr, an enumeration or flags name...); null without a signature.",
+                  "description": "Parameter type (str, int, ptr, enum or flags name...); null without a signature.",
                   "type": "string"
                 },
                 "location": {
-                  "description": "Where it is passed: rcx, rdi, xmm0, [rsp+20h], [esp+4h], ecx; ARM64 x0-x7, s0-s7 / d0-d7, stack.",
+                  "description": "Register or slot: rcx, rdi, xmm0, [rsp+20h], [esp+4h]; ARM64 x0-x7, s0-s7, d0-d7.",
                   "type": "string"
                 },
                 "kind": {
-                  "description": "immediate, string, address, name, result (of an earlier call), global (contents of a variable) or unknown.",
+                  "description": "immediate, string, address, name, result (of a call), global (contents), unknown.",
                   "type": "string"
                 },
                 "text": {
-                  "description": "The value as shown in the call: decoded flags, quoted string, name, ? when unknown.",
+                  "description": "The value as shown: decoded flags, quoted string, name, or ? when unknown.",
                   "type": "string"
                 },
                 "value": {
@@ -78,7 +78,7 @@
                   "type": "string"
                 },
                 "derivation": {
-                  "description": "How it was derived: the instructions from the call back to the definition, or why it is unknown.",
+                  "description": "The instructions from the call back to the definition, or why it is unknown.",
                   "type": "string"
                 }
               },

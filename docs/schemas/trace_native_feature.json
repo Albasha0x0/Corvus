@@ -79,7 +79,7 @@
                   "type": "string"
                 },
                 "kind": {
-                  "description": "string, table, named, data, call, pointer, resolve, exported, vftable, method, constant, engine_xref or pseudocode.",
+                  "description": "string, table, named, data, call, pointer, resolve, exported, vftable, method, constant, engine_xref, pseudocode.",
                   "type": "string"
                 },
                 "detail": {

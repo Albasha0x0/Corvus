@@ -342,7 +342,7 @@
       "type": "integer"
     },
     "owner": {
-      "description": "For address=: the typed item the address is in (a PDB global, a vftable, a metadata slot) and where it starts.",
+      "description": "address=: the typed item containing it (PDB global, vftable, metadata slot).",
       "type": "string"
     },
     "ownerAddress": {

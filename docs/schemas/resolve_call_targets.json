@@ -65,7 +65,7 @@
             "type": "string"
           },
           "status": {
-            "description": "direct, import, resolved (the complete set), possible (several, or not proven complete), virtual_exact, virtual_possible, ambiguous (engines disagree) or unresolved.",
+            "description": "direct, import, resolved (complete set), possible (several or unproven), virtual_exact, virtual_possible, ambiguous (engines disagree), unresolved.",
             "type": "string"
           },
           "targetCount": {
@@ -79,18 +79,18 @@
               "type": "object",
               "properties": {
                 "address": {
-                  "description": "VA of the target (the import slot for imports, the pointer global for late-bound imports).",
+                  "description": "Target VA (imports: the import slot; late-bound imports: the pointer global).",
                   "type": "string"
                 },
                 "name": {
                   "type": "string"
                 },
                 "basis": {
-                  "description": "How it was found: direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible, global_writers, initial_contents, pointer_table, caller_argument, interface_dispatch_cell, ida_xref, hexrays_direct, ghidra_xref, ghidra_direct.",
+                  "description": "direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible, global_writers, initial_contents, pointer_table, caller_argument, interface_dispatch_cell, ida_xref, hexrays_direct, ghidra_xref, ghidra_direct.",
                   "type": "string"
                 },
                 "confidence": {
-                  "description": "exact, possible, or candidate (from an incomplete set, or only another engine's view).",
+                  "description": "exact, possible, or candidate (incomplete set, or another engine's view only).",
                   "type": "string"
                 },
                 "evidence": {

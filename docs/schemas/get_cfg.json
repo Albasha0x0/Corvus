@@ -34,7 +34,7 @@
             "type": "integer"
           },
           "endKind": {
-            "description": "How the block ends: Return, Jump, ConditionalJump, Switch, IndirectJump, TailCall, NoReturnCall, FallThrough, ...",
+            "description": "Return, Jump, ConditionalJump, Switch, IndirectJump, TailCall, NoReturnCall, FallThrough...",
             "type": "string"
           },
           "successors": {
@@ -88,7 +88,7 @@
             "type": "string"
           },
           "tableKind": {
-            "description": "absolute, rva, table_relative, base_relative (ARM: base + entry << shift) or indexed (ARM32 branch run: base + index * 4).",
+            "description": "absolute, rva, table_relative, base_relative (ARM: base + entry << shift), indexed (ARM32: base + index * 4).",
             "type": "string"
           },
           "entrySize": {
@@ -109,7 +109,7 @@
             "type": "integer"
           },
           "default": {
-            "description": "Target of out-of-range values (VA); null when the index is masked rather than compared.",
+            "description": "VA for out-of-range values; null when the index is masked, not compared.",
             "type": "string"
           },
           "defaultValues": {
@@ -120,7 +120,7 @@
             }
           },
           "valuesExact": {
-            "description": "False when the values are table indexes not bounded by a compare (masked index or assumed base).",
+            "description": "False: table indexes not bounded by a compare (masked or assumed base).",
             "type": "boolean"
           },
           "cases": {
@@ -190,7 +190,7 @@
       "type": "boolean"
     },
     "summary": {
-      "description": "Edges, switches, unresolved jumps and cyclomatic complexity of the whole function.",
+      "description": "Whole function: edges, switches, unresolved jumps, cyclomatic complexity.",
       "type": "object",
       "properties": {
         "blocks": {
