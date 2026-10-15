@@ -72,14 +72,25 @@ public sealed partial class NativeCodeTools
         else if (!string.IsNullOrWhiteSpace(to)) throw new ToolError(ErrorCode.InvalidArgument, "to needs from.");
         else if (!choice.External) foreach (var f in index.Functions.OrderBy(f => f.Start)) ranges.AddRange(index.Ranges(f).Select(r => (r.Start, r.End, (NativeFunction?)f)));
 
-        var state = new ScanState(query, index.Image.ImageBase, offset, offset + limit + 1, budget);
+        // a later page of the same built-in scan starts where an earlier one recorded its position, not from the first range
+        string key = $"{mnemonic}|{operands}|{text}|{value}|{function}|{from}|{to}";
+        var resume = choice.External ? default : Resumes(index, key).Before(offset);
+        int based = resume.Matches;
+        var state = new ScanState(query, index.Image.ImageBase, offset - based, offset - based + limit + 1, budget);
         var scan = choice.External
             ? await ScanEngine(native, index, ranges, functionRva, state, choice, progress, cancellationToken)
-            : await Task.Run(() => ScanIndex(index, ranges, state, cancellationToken), cancellationToken);
+            : await Task.Run(() => ScanIndex(index, ranges, state, resume.Range, resume.Rva, cancellationToken), cancellationToken);
+        if (!choice.External)
+        {
+            if (scan.Matches.Count > offset - based + limit && scan.Matches[offset - based + limit] is var first)
+                Resumes(index, key).Record(offset + limit, first.Range, first.Rva);
+            if (scan.StoppedAt is { } at && scan.StoppedRange is { } atRange) Resumes(index, key).Record(based + scan.Matches.Count, atRange, at);
+        }
 
         var head = new StringBuilder($"; {choice.Line}\n{Plural(scan.Scanned, "instruction")} scanned\n");
         // a budget stop after a match past offset continues at nextOffset (the next page rescans to there); without one, at from=
-        bool resumable = scan.Matches.Count > offset;
+        int total = based + scan.Matches.Count;
+        bool resumable = total > offset;
         if (scan.StoppedAt is { } stop)
         {
             var at = NativeAddress.Va(index.Image, stop);
@@ -96,11 +107,11 @@ public sealed partial class NativeCodeTools
             }
         }
         // the scan stops one match past the page: more matches make the total a lower bound
-        bool exact = scan.Matches.Count <= offset + limit && scan.StoppedAt == null;
+        bool exact = total <= offset + limit && scan.StoppedAt == null;
         bool more = !exact && resumable;
-        var page = scan.Matches.Skip(offset).Take(limit).Select(m => new InstructionMatch(NativeAddress.Va(index.Image, m.Rva), m.Where, m.Text)).ToList();
-        return ToolOutput.List(page, offset, limit, scan.Matches.Count, m => $"{m.Address}  {m.Function}  {m.Text}",
-            rows => new InstructionMatchList(native.Id, rows.ToList(), offset, scan.Matches.Count, scan.Scanned, choice.Engine, choice.Note)
+        var page = scan.Matches.Skip(offset - based).Take(limit).Select(m => new InstructionMatch(NativeAddress.Va(index.Image, m.Rva), m.Where, m.Text)).ToList();
+        return ToolOutput.List(page, offset, limit, total, m => $"{m.Address}  {m.Function}  {m.Text}",
+            rows => new InstructionMatchList(native.Id, rows.ToList(), offset, total, scan.Scanned, choice.Engine, choice.Note)
                 { TotalExact = exact ? null : false, Truncated = more ? true : null }, "matching instruction",
             head.ToString(), exact);
     });
@@ -119,9 +130,52 @@ public sealed partial class NativeCodeTools
         public bool? Truncated { get; init; }
     }
 
-    private sealed record InstructionScan(List<ScanMatch> Matches, int Scanned, uint? StoppedAt);
+    private sealed record InstructionScan(List<ScanMatch> Matches, int Scanned, uint? StoppedAt, int? StoppedRange);
 
-    private sealed record ScanMatch(uint Rva, string Where, string Text);
+    /// <summary>A match and the index of the scanned range it is in.</summary>
+    private sealed record ScanMatch(uint Rva, string Where, string Text, int Range);
+
+    /// <summary>Where earlier pages of one built-in scan stopped: the number of matches before a position, by range and address.</summary>
+    private sealed class ScanResumes
+    {
+        private readonly SortedList<int, (int Range, uint Rva)> _at = [];
+
+        public (int Matches, int Range, uint Rva) Before(int offset)
+        {
+            lock (_at)
+            {
+                int best = -1;
+                foreach (var k in _at.Keys) if (k <= offset) best = k; else break;
+                return best < 0 ? default : (best, _at[best].Range, _at[best].Rva);
+            }
+        }
+
+        public void Record(int matches, int range, uint rva)
+        {
+            lock (_at)
+            {
+                if (_at.Count >= 256) _at.RemoveAt(0);
+                _at[matches] = (range, rva);
+            }
+        }
+    }
+
+    // per index, so a rebuilt index (patches, a reload) starts over
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<NativeCodeIndex, Dictionary<string, ScanResumes>> _resumes = [];
+
+    private static ScanResumes Resumes(NativeCodeIndex index, string key)
+    {
+        var byKey = _resumes.GetOrCreateValue(index);
+        lock (byKey)
+        {
+            if (!byKey.TryGetValue(key, out var r))
+            {
+                if (byKey.Count >= 64) byKey.Clear();
+                byKey[key] = r = new ScanResumes();
+            }
+            return r;
+        }
+    }
 
     /// <summary>
     /// One page's scan: the first <paramref name="skip"/> matches (the earlier pages) are found again outside the budget, so
@@ -133,6 +187,8 @@ public sealed partial class NativeCodeTools
         public const int MaxBudget = 5_000_000;
         public readonly List<ScanMatch> Matches = [];
         public int Scanned;
+        /// <summary>The index of the range being scanned.</summary>
+        public int Range;
         private int _past;
 
         /// <summary>The budget is spent before the next instruction.</summary>
@@ -144,11 +200,11 @@ public sealed partial class NativeCodeTools
             Scanned++;
             if (Matches.Count >= skip) _past++;
             if (!query.Matches(text, imageBase, targets)) return false;
-            Matches.Add(new(rva, where(), text));
+            Matches.Add(new(rva, where(), text, Range));
             return Matches.Count >= wanted;
         }
 
-        public InstructionScan Done(uint? stoppedAt = null) => new(Matches, Scanned, stoppedAt);
+        public InstructionScan Done(uint? stoppedAt = null) => new(Matches, Scanned, stoppedAt, stoppedAt != null ? Range : null);
     }
 
     private static Regex? Pattern(string? text, string name)
@@ -234,12 +290,15 @@ public sealed partial class NativeCodeTools
 
     private static string Where(NativeFunction? f, uint rva) => f != null ? $"{f.Name}+0x{rva - f.Start:X}" : "-";
 
-    private static InstructionScan ScanIndex(NativeCodeIndex index, List<(uint Start, uint End, NativeFunction? Function)> ranges, ScanState state, CancellationToken ct)
+    private static InstructionScan ScanIndex(NativeCodeIndex index, List<(uint Start, uint End, NativeFunction? Function)> ranges, ScanState state,
+        int fromRange, uint fromRva, CancellationToken ct)
     {
         var dis = index.CreateDisassembler();
-        foreach (var (start, end, fn) in ranges)
+        for (int r = fromRange; r < ranges.Count; r++)
         {
-            uint at = start;
+            var (start, end, fn) = ranges[r];
+            state.Range = r;
+            uint at = r == fromRange && fromRva > start ? fromRva : start;
             while (at < end)
             {
                 ct.ThrowIfCancellationRequested();

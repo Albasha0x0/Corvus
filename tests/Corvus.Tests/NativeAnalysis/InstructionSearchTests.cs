@@ -91,7 +91,7 @@ public sealed class InstructionSearchTests : IDisposable
             ["from"] = from, ["to"] = from == null ? null : $"rva:0x{0x1000 + 16 * Functions:X}",
         };
         var seen = new List<string>();
-        int pages = 0;
+        int pages = 0, scanned = 0;
         for (int offset = 0; ; pages++)
         {
             Assert.True(pages < 3 * Functions, "the walk does not end");
@@ -100,6 +100,7 @@ public sealed class InstructionSearchTests : IDisposable
             Assert.True(r.IsError != true, text);
             var record = r.StructuredContent!.Value;
             seen.AddRange(record.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("address").GetString()!));
+            scanned += record.GetProperty("scanned").GetInt32();
             bool more = record.GetProperty("hasMore").GetBoolean();
             var footer = System.Text.RegularExpressions.Regex.Match(text, @"\[More: offset=(\d+)\]");
             Assert.Equal(more, footer.Success);
@@ -116,6 +117,8 @@ public sealed class InstructionSearchTests : IDisposable
             offset = next;
         }
         Assert.True(pages > 2, $"{pages} pages: the budget should stop the scan");
+        // each page goes on where the last stopped: the walk scans each instruction about once (mov, ret; the range adds 10 int3 each)
+        Assert.InRange(scanned, 1, (from == null ? 2 : 12) * Functions + pages);
         Assert.Equal(Functions, seen.Count);
         Assert.Equal(Enumerable.Range(0, Functions).Select(i => $"0x{0x180001005L + 16 * i:X}"), seen);
     }
