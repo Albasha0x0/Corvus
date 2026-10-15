@@ -2141,13 +2141,14 @@ Rename and/or retype a stack frame member, by its get_native_frame name (var_28)
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `variable` | string | yes |  | The member: its name, or its frame offset (hex). |
+| `variable` | string |  |  | The member: its name, or its frame offset (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
 | `type` | string |  |  | New C type. |
 | `delete` | boolean |  |  | Delete the member. |
 | `clear` | boolean |  |  | Drop the user's edit, restoring the engine's member. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+| `items` | string |  |  | Instead of variable: lines 'member = newName', or JSON [{variable, newName?, type?, delete?, clear?}]. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
@@ -2261,10 +2262,11 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | The instruction: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `operand` | integer | yes |  | Operand index, 0 for the first. |
-| `display` | string | yes |  | How to display it (see the description). Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
+| `operand` | integer |  | `0` | Operand index, 0 for the first. |
+| `display` | string |  |  | How to display it (see the description). Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
 | `type` | string |  |  | display=enum or struct: the type's name (struct: optionally +delta). |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+| `items` | string |  |  | Instead: lines 'address operand display [type]', or JSON [{address, operand, display, type?}]; address is then any. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 

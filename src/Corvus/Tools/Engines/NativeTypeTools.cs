@@ -145,16 +145,24 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     public Task<string> SetNativeStackVar(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
-        [Description("The member: its name, or its frame offset (hex).")] string variable,
+        [Description("The member: its name, or its frame offset (hex).")] string? variable = null,
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type.")] string? type = null,
         [Description("Delete the member.")] bool delete = false,
         [Description("Drop the user's edit, restoring the engine's member.")] bool clear = false,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
+        [Description("Instead of variable: lines 'member = newName', or JSON [{variable, newName?, type?, delete?, clear?}].")] string? items = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        if (items != null)
+        {
+            if (variable != null || newName != null || type != null || delete || clear)
+                throw new ToolError(ErrorCode.InvalidArgument, "Pass items, or variable with newName/type/delete/clear, not both.");
+            return await SetStackVars(image, function, items, DecompileDiff.Parse(showDecompile), engine, progress, cancellationToken);
+        }
+        if (variable == null) throw new ToolError(ErrorCode.InvalidArgument, "Pass variable, or items.");
         var name = string.IsNullOrWhiteSpace(newName) ? null : newName.Trim();
         var decl = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
         if ((delete || clear) && (name != null || decl != null || (delete && clear)))
@@ -168,10 +176,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return await WithDecompile(show, session, rva, async () =>
         {
         var frame = await session.GetFrameAsync(rva, false, cancellationToken);
-        var v = (variable ?? "").Trim();
-        int offset = frame.Members.FirstOrDefault(m => m.Name == v) is { } byName ? byName.Offset
-            : NativeAddress.Number(v.TrimStart('+')) is { } n && n <= int.MaxValue ? (int)n
-            : throw MissingMember(frame, v);
+        int offset = MemberOffset(frame, variable);
         var edit = new NativeStackVarEdit(frame.StartRva, offset, name, decl) { Delete = delete, Clear = clear };
         var (result, id) = await Apply(native, session, "set_native_stack_var", new NativeUserTypeBatch([], [], [edit], []),
             (r, layer) => r.Items is not [{ Applied: true } item] ? null
@@ -817,20 +822,21 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     public Task<string> SetNativeOperand(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The instruction: " + NativeTools.AddressDescription)] string address,
-        [Description("Operand index, 0 for the first.")] int operand,
-        [Description("How to display it (see the description).")] string display,
+        [Description("Operand index, 0 for the first.")] int operand = 0,
+        [Description("How to display it (see the description).")] string? display = null,
         [Description("display=enum or struct: the type's name (struct: optionally +delta).")] string? type = null,
         [Description(EngineDescription)] string? engine = null,
+        [Description("Instead: lines 'address operand display [type]', or JSON [{address, operand, display, type?}]; address is then any.")] string? items = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var d = (display ?? "").Trim().ToLowerInvariant();
-        if (!NativeOperandEdit.Displays.Contains(d))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown display '{display}'.", $"use {string.Join(", ", NativeOperandEdit.Displays)}");
-        if (operand is < 0 or > 7) throw new ToolError(ErrorCode.InvalidArgument, $"operand must be 0-7, not {operand}.");
-        var t = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
-        if (d is "enum" or "struct" && t == null) throw new ToolError(ErrorCode.InvalidArgument, $"display={d} needs the type's name.", "pass type");
-        if (d is not ("enum" or "struct") && t != null) throw new ToolError(ErrorCode.InvalidArgument, $"type applies to display=enum or struct, not {d}.", "drop type");
+        if (items != null)
+        {
+            if (display != null || type != null || operand != 0)
+                throw new ToolError(ErrorCode.InvalidArgument, "Pass items, or operand with display/type, not both.");
+            return await SetOperands(image, address, items, engine, progress, cancellationToken);
+        }
+        var (d, t) = OperandRequest(operand, display, type);
         var (native, rva, session) = await Open(image, address, engine, progress, cancellationToken);
         var edit = new NativeOperandEdit(rva, operand, d, t);
         var (result, id) = await Apply(native, session, "set_native_operand", NativeUserTypeBatch.Empty with { Operands = [edit] },
@@ -839,6 +845,171 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return Edited($"Operand {operand} at {Va(native, rva)} shows as {d}{(t != null ? " " + t : "")} ({session.ProviderId}): {done.Text}", id,
             new EditChange("operand", $"{Va(native, rva)}#{operand}", null, d + (t != null ? " " + t : "")));
     });
+
+    /// <summary>A checked display and type for an operand edit.</summary>
+    private static (string Display, string? Type) OperandRequest(int operand, string? display, string? type)
+    {
+        var d = (display ?? "").Trim().ToLowerInvariant();
+        if (!NativeOperandEdit.Displays.Contains(d))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown display '{display}'.", $"use {string.Join(", ", NativeOperandEdit.Displays)}");
+        if (operand is < 0 or > 7) throw new ToolError(ErrorCode.InvalidArgument, $"operand must be 0-7, not {operand}.");
+        var t = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
+        if (d is "enum" or "struct" && t == null) throw new ToolError(ErrorCode.InvalidArgument, $"display={d} needs the type's name.", "pass type");
+        if (d is not ("enum" or "struct") && t != null) throw new ToolError(ErrorCode.InvalidArgument, $"type applies to display=enum or struct, not {d}.", "drop type");
+        return (d, t);
+    }
+
+    /// <summary>
+    /// Batch rows: a JSON array of objects, or one row per line; each row parsed by <paramref name="json"/> or
+    /// <paramref name="line"/>, a row that does not parse reported in <paramref name="problems"/>.
+    /// </summary>
+    private static List<T> BatchRows<T>(string items, Func<Func<string, string?>, Func<string, bool>, Func<string, int?>, T> json, Func<string, T> line, List<string> problems)
+    {
+        var rows = new List<T>();
+        var text = items.Trim();
+        if (text.StartsWith('['))
+        {
+            System.Text.Json.JsonElement root;
+            try { root = System.Text.Json.JsonDocument.Parse(text).RootElement; }
+            catch (System.Text.Json.JsonException e) { throw new ToolError(ErrorCode.InvalidArgument, $"items is not valid JSON: {e.Message}"); }
+            foreach (var o in root.EnumerateArray())
+            {
+                bool obj = o.ValueKind == System.Text.Json.JsonValueKind.Object;
+                string? Str(string key) => obj && o.TryGetProperty(key, out var v) ? v.ValueKind switch
+                {
+                    System.Text.Json.JsonValueKind.String => v.GetString(),
+                    System.Text.Json.JsonValueKind.Number => v.GetRawText(),
+                    _ => null,
+                } : null;
+                bool Flag(string key) => obj && o.TryGetProperty(key, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.True;
+                int? Int(string key) => obj && o.TryGetProperty(key, out var v) && v.TryGetInt32(out var n) ? n : null;
+                try { rows.Add(json(Str, Flag, Int)); }
+                catch (ToolError e) { problems.Add($"{o}: {e.Message}"); }
+            }
+        }
+        else
+            foreach (var l in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                try { rows.Add(line(l)); }
+                catch (ToolError e) { problems.Add($"'{l}': {e.Message}"); }
+            }
+        if (rows.Count + problems.Count > MaxTypeItems) throw new ToolError(ErrorCode.InvalidArgument, $"At most {MaxTypeItems} items per call.", "split the items");
+        return rows;
+    }
+
+    /// <summary>The outcome of a batch: applied and refused items, one editId for the applied ones.</summary>
+    private static string BatchOutcome(string what, IReadOnlyList<(NativeUserTypeOutcome? Outcome, string Label, EditChange? Change)> rows, List<string> problems, EditId? id, string engine)
+    {
+        int applied = rows.Count(r => r.Outcome is { Applied: true }), total = rows.Count + problems.Count;
+        if (applied == 0 && total > 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"None of the {total} {what}(s) was applied: " +
+                string.Join("; ", rows.Select(r => $"{r.Label}: {r.Outcome?.Error ?? "no outcome"}").Concat(problems).Take(5)), Refusal(rows.FirstOrDefault().Outcome?.Error, engine));
+        var sb = new System.Text.StringBuilder($"{applied} of {total} {what}(s) applied\n");
+        foreach (var (o, label, _) in rows) sb.Append($"  {label}  ").Append(o is { Applied: true } ? o.Text : "not applied: " + (o?.Error ?? "no outcome")).Append('\n');
+        foreach (var p in problems) sb.Append($"  not applied: {p}\n");
+        return Edited(sb.ToString(), id, [.. rows.Where(r => r.Outcome is { Applied: true } && r.Change != null).Select(r => r.Change!)], total - applied);
+    }
+
+    /// <summary>A frame member's offset from its name or a hex offset.</summary>
+    private static int MemberOffset(NativeFrame frame, string variable)
+    {
+        var v = variable.Trim();
+        return frame.Members.FirstOrDefault(m => m.Name == v) is { } byName ? byName.Offset
+            : NativeAddress.Number(v.TrimStart('+')) is { } n && n <= int.MaxValue ? (int)n
+            : throw MissingMember(frame, v);
+    }
+
+    /// <summary>set_native_stack_var items: one engine request; outcomes matched by offset.</summary>
+    private async Task<string> SetStackVars(string image, string function, string items, string? show, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var problems = new List<string>();
+        var rows = BatchRows(items, (str, flag, _) => StackRow(str("variable") ?? "", str("newName") ?? str("name"), str("type"), flag("delete"), flag("clear")),
+            l => l.IndexOf('=', StringComparison.Ordinal) is var eq and > 0 ? StackRow(l[..eq], l[(eq + 1)..], null, false, false)
+                : throw new ToolError(ErrorCode.InvalidArgument, "not 'member = newName'"), problems);
+        var (native, rva, session) = await Open(image, function, engine, progress, ct);
+        return await WithDecompile(show, session, rva, async () =>
+        {
+        var frame = await session.GetFrameAsync(rva, false, ct);
+        var edits = new List<NativeStackVarEdit>();
+        foreach (var r in rows)
+        {
+            try
+            {
+                int offset = MemberOffset(frame, r.Variable);
+                if (edits.Any(e => e.Offset == offset)) throw new ToolError(ErrorCode.InvalidArgument, $"+0x{offset:X} is edited twice");
+                edits.Add(new NativeStackVarEdit(frame.StartRva, offset, r.Name, r.Type) { Delete = r.Delete, Clear = r.Clear });
+            }
+            catch (ToolError e) { problems.Add($"{r.Variable}: {e.Message}"); }
+        }
+        if (edits.Count == 0) return BatchOutcome("stack edit", [], problems, null, session.ProviderId);
+        var (result, id) = await Apply(native, session, "set_native_stack_var", new NativeUserTypeBatch([], [], edits, []), (r, layer) =>
+        {
+            foreach (var e in edits)
+                if (r.Items.FirstOrDefault(i => i.Stack == e.Offset) is { Applied: true } item)
+                    layer = e.Clear ? layer.WithoutStackVar(item.Rva, e.Offset) : layer.WithStackVar(e with { Function = item.Rva });
+            return layer;
+        }, ct);
+        return BatchOutcome("stack edit", [.. edits.Select(e => (result.Items.FirstOrDefault(i => i.Stack == e.Offset), $"+0x{e.Offset:X}",
+            (EditChange?)new EditChange("stack_var", $"{Va(native, frame.StartRva)}+0x{e.Offset:X}", null, e.Clear ? "(engine's)" : e.Delete ? null : e.Type ?? e.Name)))],
+            problems, id, session.ProviderId);
+        }, ct);
+    }
+
+    private sealed record StackChange(string Variable, string? Name, string? Type, bool Delete, bool Clear);
+
+    private static StackChange StackRow(string variable, string? newName, string? type, bool delete, bool clear)
+    {
+        var name = string.IsNullOrWhiteSpace(newName) ? null : newName.Trim();
+        var decl = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
+        if (variable.Trim().Length == 0) throw new ToolError(ErrorCode.InvalidArgument, "no variable");
+        if ((delete || clear) && (name != null || decl != null || (delete && clear))) throw new ToolError(ErrorCode.InvalidArgument, "delete and clear take no newName or type");
+        if (!delete && !clear && name == null && decl == null) throw new ToolError(ErrorCode.InvalidArgument, "nothing to change");
+        if (name != null && !Identifier(name)) throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier");
+        return new(variable.Trim(), name, decl, delete, clear);
+    }
+
+    /// <summary>set_native_operand items: one engine request over any instructions; outcomes matched by address and operand.</summary>
+    private async Task<string> SetOperands(string image, string address, string items, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var problems = new List<string>();
+        var rows = BatchRows(items, (str, _, num) => OperandRow(str("address") ?? "", num("operand") ?? -1, str("display"), str("type")), l =>
+        {
+            var p = l.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return p.Length >= 3 && int.TryParse(p[1], out var n) ? OperandRow(p[0], n, p[2], p.Length > 3 ? p[3] : null)
+                : throw new ToolError(ErrorCode.InvalidArgument, "not 'address operand display [type]'");
+        }, problems);
+        var (native, _, session) = await Open(image, address, engine, progress, ct);
+        var edits = new List<NativeOperandEdit>();
+        foreach (var r in rows)
+        {
+            try
+            {
+                var (_, at) = NativeAnalysisTools.Resolve(workspace, code, native.Id, r.Address);
+                if (edits.Any(e => e.Rva == at && e.Operand == r.Operand)) throw new ToolError(ErrorCode.InvalidArgument, "the operand is edited twice");
+                edits.Add(new NativeOperandEdit(at, r.Operand, r.Display, r.Type));
+            }
+            catch (ToolError e) { problems.Add($"{r.Address}: {e.Message}"); }
+        }
+        if (edits.Count == 0) return BatchOutcome("operand edit", [], problems, null, session.ProviderId);
+        NativeUserTypeOutcome? Of(UserTypeResult r, NativeOperandEdit e) => r.Items.FirstOrDefault(i => i.Rva == e.Rva && i.Stack == e.Operand);
+        var (result, id) = await Apply(native, session, "set_native_operand", NativeUserTypeBatch.Empty with { Operands = edits }, (r, layer) =>
+        {
+            foreach (var e in edits)
+                if (Of(r, e) is { Applied: true }) layer = layer.WithOperand(e);
+            return layer;
+        }, ct);
+        return BatchOutcome("operand edit", [.. edits.Select(e => (Of(result, e), $"{Va(native, e.Rva)}#{e.Operand}",
+            (EditChange?)new EditChange("operand", $"{Va(native, e.Rva)}#{e.Operand}", null, e.Display + (e.Detail != null ? " " + e.Detail : ""))))], problems, id, session.ProviderId);
+    }
+
+    private sealed record OperandChange(string Address, int Operand, string Display, string? Type);
+
+    private static OperandChange OperandRow(string address, int operand, string? display, string? type)
+    {
+        if (address.Trim().Length == 0) throw new ToolError(ErrorCode.InvalidArgument, "no address");
+        var (d, t) = OperandRequest(operand, display, type);
+        return new(address.Trim(), operand, d, t);
+    }
 
     [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types", UseStructuredContent = true, OutputSchemaType = typeof(TypeListReport))]
     [Description("Named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member " +

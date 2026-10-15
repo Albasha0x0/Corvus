@@ -72,6 +72,32 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
     [GhidraFact]
     public Task Struct_layout_edits_in_Ghidra() => StructLayout("ghidra");
 
+    /// <summary>Stack members and operands in one call each: per-item refusals, one editId whose undo takes back every applied item.</summary>
+    [IdaFact]
+    public async Task Stack_and_operand_batches_in_IDA()
+    {
+        var rig = Setup("ida");
+        var native = rig.Native;
+        var fn = native.Image.Exports.First(e => e.Name == Function).Rva;
+        var session = await rig.Engines.Session(native, "ida", null, default);
+        var members = (await session.GetFrameAsync(fn, false, default)).Members.Where(m => m.Kind != "special" && m.Name.Length > 0).Take(2).ToList();
+        Assert.Equal(2, members.Count);
+        var (text, id) = await Edit(() => rig.Types.SetNativeStackVar(native.Id, Function, engine: "ida",
+            items: $"{members[0].Name} = corvus_a\n{members[1].Name} = corvus_b\nno_such_member = x"));
+        output.WriteLine(text);
+        Assert.Contains("2 of 3 stack edit(s) applied", text);
+        Assert.Equal(2, (await session.GetFrameAsync(fn, false, default)).Members.Count(m => m.Name.StartsWith("corvus_", StringComparison.Ordinal)));
+        await rig.Journal.UndoAsync(native, id, default);
+        Assert.DoesNotContain((await session.GetFrameAsync(fn, false, default)).Members, m => m.Name.StartsWith("corvus_", StringComparison.Ordinal));
+
+        var constants = (await session.DisassembleAsync(fn)).Instructions.Where(i => i.Text.Contains(", 0x", StringComparison.OrdinalIgnoreCase) || i.Text.Contains(", 1", StringComparison.Ordinal)).Take(2).ToList();
+        Assert.Equal(2, constants.Count);
+        var json = "[" + string.Join(",", constants.Select(i => $$"""{"address":"0x{{native.Image.ImageBase + i.Rva:X}}","operand":1,"display":"dec"}""")) + """,{"address":"0x1","operand":9,"display":"dec"}]""";
+        var (ops, _) = await Edit(() => rig.Types.SetNativeOperand(native.Id, $"0x{native.Image.ImageBase + fn:X}", engine: "ida", items: json));
+        output.WriteLine(ops);
+        Assert.Contains("2 of 3 operand edit(s) applied", ops);
+    }
+
     [IdaFact]
     public Task Argument_storage_in_IDA() => ArgumentStorage("ida");
 
