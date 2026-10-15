@@ -160,6 +160,8 @@ public static class RealData
     public const string HostApiProjectDir = "CORVUS_HOSTAPI_PROJECT_DIR";
     /// <summary>A real Android package (.apk, .aab or split set).</summary>
     public const string AndroidPackage = "CORVUS_ANDROID_PACKAGE";
+    /// <summary>A folder of app packages (.apk, .ipa), searched two levels deep.</summary>
+    public const string MobileApps = "CORVUS_MOBILE_APPS";
     /// <summary>A large native image (100 MB or more) for speed measurements.</summary>
     public const string LargeNativeImage = "CORVUS_LARGE_NATIVE_IMAGE";
 

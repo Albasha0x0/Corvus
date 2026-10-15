@@ -58,7 +58,11 @@ public interface IContainerSearchKind
 }
 
 /// <summary>What survey_features rules run over: a managed module's scan or a native image's code index.</summary>
-public sealed record SurveySubject(ModuleScan? Managed, NativeCodeIndex? Native);
+public sealed record SurveySubject(ModuleScan? Managed, NativeCodeIndex? Native)
+{
+    /// <summary>An Android app's DEX code and package files, or an Apple app's Info.plist; selects the platform's rules.</summary>
+    public MobileSubject? Mobile { get; init; }
+}
 
 /// <summary>
 /// survey_features rules beyond the built-in set (<see cref="Features.Rules"/>), in the same feature syntax; a provider may

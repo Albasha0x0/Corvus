@@ -39,6 +39,26 @@ internal sealed class AppleFileView : IFileSummaryView
                && source.Executable(exe) is { } relative && File.Exists(Path.Combine(full, relative)) ? Path.Combine(full, relative) : null;
     }
 
+    /// <summary>An .ipa's Info.plist and main executable (path in the app, bytes up to <paramref name="max"/>), or null.</summary>
+    internal static (PlistDict Info, string Executable, byte[] Bytes)? IpaApp(byte[] ipa, long max)
+    {
+        if (Source.Ipa(ipa) is not { } source || source.Read(source.InfoPlist, 4 << 20) is not { } plist || Plist.Read(plist).Root is not PlistDict info
+            || Str(info, "CFBundleExecutable") is not { } exe || source.Read(exe, max) is not { } bytes) return null;
+        return (info, $"Payload/{source.Root}/{exe}", bytes);
+    }
+
+    /// <summary>The Info.plist of the .app, .appex or .framework folder a file sits in, or null.</summary>
+    internal static PlistDict? BundleInfo(string path)
+    {
+        for (var dir = Path.GetDirectoryName(Path.GetFullPath(path)); dir != null; dir = Path.GetDirectoryName(dir))
+            if (IsBundleName(dir))
+            {
+                var plist = new[] { Path.Combine(dir, "Info.plist"), Path.Combine(dir, "Contents", "Info.plist") }.FirstOrDefault(File.Exists);
+                return plist != null && new FileInfo(plist).Length <= 4 << 20 && Plist.Read(File.ReadAllBytes(plist)).Root is PlistDict info ? info : null;
+            }
+        return null;
+    }
+
     private static bool IsBundleName(string path) =>
         path.EndsWith(".app", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".appex", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".framework", StringComparison.OrdinalIgnoreCase);
 

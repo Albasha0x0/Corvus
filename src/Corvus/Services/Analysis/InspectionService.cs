@@ -10,7 +10,7 @@ namespace Corvus.Services.Analysis;
 /// Static analyses of a loaded assembly or a file: features, typed values, embedded content and a combined summary.
 /// <see cref="Summarize"/> also opens containers and summarizes the assemblies inside.
 /// </summary>
-public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeService? code = null)
+public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeService? code = null, Mobile.DexService? dex = null)
 {
     private static AnalysisLimits Limits => AnalysisLimits.Default;
     private const int MaxSummarizedAssemblies = 8;
@@ -176,6 +176,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct)
     {
+        if (assembly == null && path != null && AppSurvey(path, ct) is { } app) return Filter(app, category);
         if (NativeSurvey(assembly, path, ct) is { } native) return Filter(native, category);
         return WithAssembly(assembly, path, s => Filter(new FeatureReport(s.Label, s.Scan.MethodsScanned, Features.Detect(s.Scan, ct), s.Scan.Notes), category), ct);
     }
@@ -184,7 +185,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         category == null || category.Equals("all", StringComparison.OrdinalIgnoreCase) ? report : report with
         {
             Features = [.. report.Features.Where(c => c.Category.Equals(category, StringComparison.OrdinalIgnoreCase)
-                                                     || (c.Attack?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false))],
+                                                     || (c.Attack?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false)
+                                                     || (c.Rule?.Masvs?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false))],
         };
 
     /// <summary>
@@ -236,13 +238,101 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 label = Path.GetFileName(full);
             }
         }
+        var plist = index.Image is Native.MachO.MachOFile ? AppleFileView.BundleInfo(index.Image.Path) : null;
+        return NativeReport(index, label, plist, ct);
+    }
+
+    /// <summary>The rules over a native image's code index; a Mach-O image also gets the Apple app rules (with its bundle's Info.plist).</summary>
+    private static FeatureReport NativeReport(NativeCodeIndex index, string label, Core.Mobile.PlistDict? plist, CancellationToken ct)
+    {
         var scan = new NativeFeatureScan(index, ct);
-        var found = Features.Detect(scan, ct);
+        var mobile = index.Image is Native.MachO.MachOFile ? new MobileSubject { Platform = "apple", InfoPlist = plist } : null;
+        var found = Features.Detect(scan, ct, mobile);
         var notes = new List<string> { "native image: rules over static and late-bound imports, call arguments, strings, sections and RTTI class names" };
+        if (mobile != null) notes.Add($"Apple app rules (MASVS) over Objective-C references, symbols and strings{(plist != null ? " and Info.plist" : "; no bundle Info.plist found")}");
         if (index.Support != CodeSupport.Full) notes.Add(index.SupportNote ?? "instructions are not decoded: imports, strings and sections only");
         notes.AddRange(index.Truncations);
         notes.AddRange(scan.Notes);
         return new FeatureReport(label, index.Functions.Count, found, notes);
+    }
+
+    /// <summary>
+    /// The survey of an app package: an Android package or DEX file (android rules over its code, manifest and network
+    /// security config) or an .ipa (its main executable with the Apple rules); null for any other file.
+    /// </summary>
+    private FeatureReport? AppSurvey(string path, CancellationToken ct)
+    {
+        var full = Path.GetFullPath(path);
+        if (!File.Exists(full)) return null;
+        var head = new byte[Math.Min(Core.Mobile.DexFile.HeaderSize, new FileInfo(full).Length)];
+        using (var f = File.OpenRead(full)) f.ReadExactly(head);
+        if (Core.Mobile.DexFile.IsDex(head)) return AndroidSurvey(full, false, ct);
+        if (!Blob.StartsWith(head, "PK\x03\x04"u8)) return null;
+        bool android = false, ipa = false;
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(full);
+            foreach (var e in zip.Entries)
+            {
+                var n = e.FullName;
+                ipa |= n.StartsWith("Payload/", StringComparison.Ordinal) && n.EndsWith(".app/Info.plist", StringComparison.Ordinal);
+                android |= n is "AndroidManifest.xml" or "base/manifest/AndroidManifest.xml" || (!n.Contains('/') && n.StartsWith("classes", StringComparison.Ordinal) && n.EndsWith(".dex", StringComparison.Ordinal))
+                           || n.EndsWith(".apk", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        catch (InvalidDataException) { return null; }
+        if (ipa) return IpaSurvey(full, ct);
+        return android ? AndroidSurvey(full, true, ct) : null;
+    }
+
+    private FeatureReport AndroidSurvey(string full, bool package, CancellationToken ct)
+    {
+        var index = dex?.Index(full, ct) ?? Mobile.DexIndex.Load(full, Limits, ct);
+        var notes = new List<string> { "Android app: MASVS rules over DEX code, the manifest and the network security config; library packages counted apart" };
+        Core.Mobile.AndroidManifestSummary? manifest = null;
+        Core.Mobile.AndroidNetworkSecurityConfig? config = null;
+        string? configFile = null;
+        if (package)
+            try
+            {
+                using var apk = Core.Mobile.AndroidPackage.Open(full, Limits);
+                manifest = Core.Mobile.AndroidManifestSummary.Of(apk.Manifest, apk.Resources);
+                if (manifest.Application.NetworkSecurityConfig is { } reference && reference.IndexOf(" = res/", StringComparison.Ordinal) is var at and > 0
+                    && apk.Read(reference[(at + 3)..]) is { } xml)
+                {
+                    configFile = reference[(at + 3)..];
+                    var doc = Core.Mobile.AxmlDocument.IsAxml(xml) ? Core.Mobile.AxmlDocument.Read(xml) : Core.Mobile.AabProto.ReadXml(xml);
+                    config = Core.Mobile.AndroidNetworkSecurityConfig.Of(doc, apk.Resources == null ? null : apk.Resources.Name);
+                }
+            }
+            catch (ToolError e) { notes.Add($"manifest not read: {e.Message}"); }
+        var subject = new MobileSubject { Platform = "android", Dex = index, Manifest = manifest, NetworkConfig = config, NetworkConfigFile = configFile };
+        var found = Features.Detect(subject, ct);
+        return MobileReport(Path.GetFileName(full), index.Methods.Count, found, [.. notes, .. index.Notes.Take(5)]);
+    }
+
+    private FeatureReport IpaSurvey(string full, CancellationToken ct)
+    {
+        var (_, bytes) = ReadFile(full);
+        if (AppleFileView.IpaApp(bytes, Limits.MaxItemBytes) is not { } app)
+            throw new ToolError(ErrorCode.MalformedInput, $"{full}: no readable Payload/*.app main executable.", $"summarize_file path={full} view=apple describes the bundle");
+        Native.INativeImage image;
+        try { image = Native.NativeImageLoader.FromBytes(app.Bytes, app.Executable); }
+        catch (Exception ex) when (ex is ToolError or InvalidOperationException or ArgumentException)
+        {
+            throw new ToolError(ErrorCode.MalformedInput, $"{app.Executable}: not a readable Mach-O image ({ex.Message}).");
+        }
+        var report = NativeReport(NativeCodeIndex.Build(image, ct: ct), app.Executable, app.Info, ct);
+        return report with { Notes = [$"{app.Executable}: the app's main executable; frameworks are not scanned", .. report.Notes] };
+    }
+
+    /// <summary>Drops weakness findings seen only in library code, naming them in a note.</summary>
+    private static FeatureReport MobileReport(string label, int methods, List<Feature> found, List<string> notes)
+    {
+        var libraryOnly = found.Where(f => f.Rule != null && f.Evidence.All(e => e.Count == 0)).ToList();
+        if (libraryOnly.Count > 0)
+            notes.Add("In library code only, left out: " + string.Join(", ", libraryOnly.Select(f => $"{f.Rule!.Id} ({f.Evidence.Sum(e => e.Library ?? 0)})")));
+        return new FeatureReport(label, methods, [.. found.Except(libraryOnly)], notes);
     }
 
     /// <summary>Typed values sorted by type (in <see cref="Values.Types"/> order), count descending, then value.</summary>

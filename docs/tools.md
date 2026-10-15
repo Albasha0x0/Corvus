@@ -571,13 +571,13 @@ Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views
 
 **Survey features** (read-only, idempotent)
 
-Rule-based (capa-style) survey of an assembly's API calls, P/Invokes and strings: network, execution, registry, persistence, collection, anti-analysis, evasion, code loading, injection, crypto; each with its ATT&CK technique and match count; category= adds evidence (5 locations). Native images: imports, call arguments, strings, sections, RTTI.
+Capa-style rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, evasion, code loading, injection, crypto) with ATT&CK ids and counts; category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps (.apk, .ipa): MASVS findings (WebView, TLS, pinning, root / Frida, code loading, weak crypto, keys) by method offset.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `path` | string |  |  | A .NET or native file, analyzed without loading; or pass assembly or image. |
-| `category` | string |  |  | A category (network, ...) or ATT&CK prefix (T1055) with evidence; all: every feature. |
+| `path` | string |  |  | A .NET, native or app file, read without loading. |
+| `category` | string |  |  | Category, ATT&CK (T1055) or MASVS prefix: with evidence; all: everything. |
 | `image` | string |  |  | A native image, loaded or a path (instead of assembly). |
 
 Structured output: `assembly`, `methodsScanned`, `features`, `category`, `notes`.

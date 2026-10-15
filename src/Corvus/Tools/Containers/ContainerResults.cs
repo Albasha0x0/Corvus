@@ -22,6 +22,13 @@ public sealed record SurveyFeature(string Name, string Category, int Matches)
     public string? AttackName { get; init; }
     public string? Basis { get; init; }
     public IReadOnlyList<Evidence>? Evidence { get; init; }
+
+    /// <summary>App rules: rule id, MASVS control, severity, matches in library code (not in Matches) and what to review.</summary>
+    public string? Rule { get; init; }
+    public string? Masvs { get; init; }
+    public string? Severity { get; init; }
+    public int? Library { get; init; }
+    public string? Review { get; init; }
 }
 
 /// <summary>extract_strings: one page of values; valuesResultId keeps all of them (read_result text is CSV, json the items).</summary>
@@ -292,6 +299,11 @@ internal static class ContainerText
             AttackName = category != null ? f.AttackName : null,
             Basis = f.Evidence.Count > 0 && f.Evidence.All(e => e.Basis == "derived") ? "derived" : null,
             Evidence = category != null ? f.Evidence : null,
+            Rule = f.Rule?.Id,
+            Masvs = f.Rule?.Masvs,
+            Severity = f.Rule?.Severity,
+            Library = f.Evidence.Sum(e => e.Library ?? 0) is > 0 and var library ? library : null,
+            Review = category != null ? f.Rule?.Review : null,
         }).ToList();
         return new SurveyRecord(report.Assembly, report.MethodsScanned, features)
         {
@@ -305,7 +317,7 @@ internal static class ContainerText
         var sb = new StringBuilder();
         sb.Append($"{Escape(r.Assembly)}: {r.Features.Count} feature(s){(r.Category is { } c && !c.Equals("all", StringComparison.OrdinalIgnoreCase) ? $" in {Escape(c)}" : "")}, " +
                   $"{r.MethodsScanned:N0} methods or functions scanned.\n");
-        if (r.Category == null && r.Features.Count > 0) sb.Append("Evidence: category=<category>, a technique (T1055) or all.\n");
+        if (r.Category == null && r.Features.Count > 0) sb.Append("Evidence: category=<category>, a technique (T1055), a MASVS id or all.\n");
         foreach (var group in r.Features.GroupBy(f => f.Category))
         {
             sb.Append(group.Key).Append('\n');
@@ -313,7 +325,10 @@ internal static class ContainerText
             {
                 sb.Append("  ").Append(f.Name);
                 if (f.Attack != null) sb.Append($" [{f.Attack}{(f.AttackName != null ? " " + f.AttackName : "")}]");
-                sb.Append($", {f.Matches} match{(f.Matches == 1 ? "" : "es")}{(f.Basis != null ? " (derived from strings or constants)" : "")}\n");
+                if (f.Masvs != null) sb.Append($" [{f.Masvs} {f.Rule}, {f.Severity}]");
+                sb.Append($", {f.Matches} match{(f.Matches == 1 ? "" : "es")}{(f.Library is { } lib ? $" (+{lib} in libraries)" : "")}" +
+                          $"{(f.Basis != null ? " (derived from strings or constants)" : "")}\n");
+                if (f.Review != null) sb.Append("    review: ").Append(f.Review).Append('\n');
                 foreach (var e in f.Evidence ?? [])
                 {
                     sb.Append($"    {Escape(e.Feature)} x{e.Count}{(e.Basis != null ? " (derived)" : "")}\n");

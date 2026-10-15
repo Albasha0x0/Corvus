@@ -4,13 +4,20 @@ using Corvus.Core;
 namespace Corvus.Services.Analysis;
 
 /// <summary>A matched rule with its optional MITRE ATT&amp;CK technique and evidence.</summary>
-public sealed record Feature(string Name, string Category, string? Attack, string? AttackName, IReadOnlyList<Evidence> Evidence);
+public sealed record Feature(string Name, string Category, string? Attack, string? AttackName, IReadOnlyList<Evidence> Evidence)
+{
+    /// <summary>The mobile rule that matched (one with a MASVS id), else null.</summary>
+    public Features.Rule? Rule { get; init; }
+}
 
 /// <summary>A matched feature pattern, its match count and up to 5 locations.</summary>
 public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> Locations)
 {
     /// <summary>"derived" when a string or argument constant suggests the operation; null when an import or call site shows it.</summary>
     public string? Basis { get; init; }
+
+    /// <summary>Mobile rules: matches in library code, not counted in <see cref="Count"/>.</summary>
+    public int? Library { get; init; }
 }
 
 /// <summary>
@@ -25,7 +32,17 @@ public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> L
 public static class Features
 {
     /// <summary>All groups must match; within a group, any feature.</summary>
-    public sealed record Rule(string Name, string Category, string? Attack, string? AttackName, string[][] Groups);
+    public sealed record Rule(string Name, string Category, string? Attack, string? AttackName, string[][] Groups)
+    {
+        /// <summary>Mobile rules: a stable id, the MASVS control, a severity (high, medium, low, info) and what to check.</summary>
+        public string? Id { get; init; }
+        public string? Masvs { get; init; }
+        public string? Severity { get; init; }
+        public string? Review { get; init; }
+
+        /// <summary>"android" (DEX subjects only) or "apple" (Mach-O images); null: .NET assemblies and native images.</summary>
+        public string? Platform { get; init; }
+    }
 
     private static Rule Any(string name, string category, string? attack, string? attackName, params string[] features) =>
         new(name, category, attack, attackName, [features]);
@@ -223,7 +240,11 @@ public static class Features
     public static List<Feature> Detect(ModuleScan scan, CancellationToken ct) => Detect(feature => Evaluate(scan, feature), new SurveySubject(scan, null), ct);
 
     /// <summary>Rules over a native image (<see cref="NativeFeatureScan"/>).</summary>
-    internal static List<Feature> Detect(NativeFeatureScan scan, CancellationToken ct) => Detect(scan.Evaluate, new SurveySubject(null, scan.Index), ct);
+    internal static List<Feature> Detect(NativeFeatureScan scan, CancellationToken ct, MobileSubject? mobile = null) =>
+        Detect(scan.Evaluate, new SurveySubject(null, scan.Index) { Mobile = mobile }, ct);
+
+    /// <summary>The android rules over an app's DEX code, manifest and network security config.</summary>
+    internal static List<Feature> Detect(MobileSubject mobile, CancellationToken ct) => Detect(_ => null, new SurveySubject(null, null) { Mobile = mobile }, ct);
 
     /// <summary>The built-in rules, then each <see cref="ISurveyRuleProvider"/>'s.</summary>
     public static IEnumerable<Rule> AllRules => Rules.Concat(Providers.Of<ISurveyRuleProvider>().SelectMany(p => p.Rules));
@@ -248,9 +269,11 @@ public static class Features
         }
 
         var found = new List<Feature>();
+        var platform = subject.Mobile?.Platform;
         foreach (var rule in AllRules)
         {
             ct.ThrowIfCancellationRequested();
+            if (rule.Platform != null ? rule.Platform != platform : platform == "android") continue;
             var evidence = new List<Evidence>();
             bool all = true;
             foreach (var group in rule.Groups)
@@ -259,7 +282,7 @@ public static class Features
                 if (hits.Count == 0) { all = false; break; }
                 evidence.AddRange(hits.Where(h => !evidence.Any(x => x.Feature == h.Feature)));
             }
-            if (all) found.Add(new Feature(rule.Name, rule.Category, rule.Attack, rule.AttackName, evidence));
+            if (all) found.Add(new Feature(rule.Name, rule.Category, rule.Attack, rule.AttackName, evidence) { Rule = rule.Masvs != null ? rule : null });
         }
         return found;
     }

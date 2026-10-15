@@ -49,6 +49,9 @@
                 },
                 "basis": {
                   "type": "string"
+                },
+                "library": {
+                  "type": "integer"
                 }
               },
               "required": [
@@ -57,6 +60,21 @@
                 "locations"
               ]
             }
+          },
+          "rule": {
+            "type": "string"
+          },
+          "masvs": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "library": {
+            "type": "integer"
+          },
+          "review": {
+            "type": "string"
           }
         },
         "required": [

@@ -68,13 +68,14 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true, OutputSchemaType = typeof(SurveyRecord))]
-    [Description("Rule-based (capa-style) survey of an assembly's API calls, P/Invokes and strings: network, execution, registry, persistence, " +
-                 "collection, anti-analysis, evasion, code loading, injection, crypto; each with its ATT&CK technique and match count; category= adds " +
-                 "evidence (5 locations). Native images: imports, call arguments, strings, sections, RTTI.")]
+    [Description("Capa-style rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, " +
+                 "evasion, code loading, injection, crypto) with ATT&CK ids and counts; category= adds evidence. Native: imports, call " +
+                 "arguments, strings, sections, RTTI. Apps (.apk, .ipa): MASVS findings (WebView, TLS, pinning, root / Frida, " +
+                 "code loading, weak crypto, keys) by method offset.")]
     public async Task<string> SurveyFeatures(
         [Description(AssemblyParam)] string? assembly = null,
-        [Description("A .NET or native file, analyzed without loading; or pass assembly or image.")] string? path = null,
-        [Description("A category (network, ...) or ATT&CK prefix (T1055) with evidence; all: every feature.")] string? category = null,
+        [Description("A .NET, native or app file, read without loading.")] string? path = null,
+        [Description("Category, ATT&CK (T1055) or MASVS prefix: with evidence; all: everything.")] string? category = null,
         [Description("A native image, loaded or a path (instead of assembly).")] string? image = null,
         CancellationToken cancellationToken = default)
     {
