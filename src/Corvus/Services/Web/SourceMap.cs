@@ -233,6 +233,7 @@ public sealed class SourceMap
         if (!File.Exists(candidate)) return null;
         var info = new FileInfo(candidate);
         if (info.Length > MaxBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{candidate} is {info.Length:N0} bytes; maps up to {MaxBytes:N0} bytes are decoded.");
+        candidate = Path.GetFullPath(candidate);
         return (Parse(File.ReadAllBytes(candidate)), url != null ? candidate : candidate + " (no sourceMappingURL comment)");
     }
 
