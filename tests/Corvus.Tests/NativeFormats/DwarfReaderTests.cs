@@ -83,6 +83,7 @@ public class DwarfReaderTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(DwarfReader))]
     public void Damaged_debug_files_are_read_without_exceptions()
     {
         var image = NativeImageLoader.Open(Elf("libSystem.Net.Security.Native.so"));

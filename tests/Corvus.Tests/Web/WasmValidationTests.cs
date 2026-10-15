@@ -44,6 +44,7 @@ public sealed class WasmValidationTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    [FuzzEntry(typeof(WasmBinary))]
     public void Fuzzed_modules_never_throw_in_validation()
     {
         var seed = WasmFixtures.Valid().Single(f => f.Name == "control").Bytes;

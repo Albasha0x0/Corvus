@@ -35,6 +35,7 @@ public sealed class WasmTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(WasmModule))]
     public void Fuzzed_modules_never_throw()
     {
         var failures = FormatFuzz.Run(Sample(), b => WasmModule.Read(b), 2000);

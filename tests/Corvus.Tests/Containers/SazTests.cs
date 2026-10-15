@@ -62,6 +62,7 @@ public sealed class SazTests : IDisposable
     public void Other_zips_are_not_saz() => Assert.False(Saz.Looks(Archive(("a.txt", "x"))));
 
     [Fact]
+    [FuzzEntry(typeof(Saz))]
     public void Fuzzed_saz_never_throws()
     {
         var failures = FormatFuzz.Run(Sessions(), b => Saz.Read(b), 1500);

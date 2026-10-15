@@ -48,6 +48,7 @@ public sealed class JsModulesTests
 
     /// <summary>Mutated source maps and bundles: typed errors or results, never a crash or a hang.</summary>
     [Fact]
+    [FuzzEntry(typeof(SourceMap))]
     public void Fuzzed_maps_and_bundles_never_throw()
     {
         var map = System.Text.Encoding.UTF8.GetBytes("""{"version":3,"sources":["a.ts","b.ts"],"names":["x","y"],"mappings":"AAAA,IAAMA;ACAA,CAACC,GAAG;;AAAA"}""");

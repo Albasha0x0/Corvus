@@ -943,6 +943,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(PeFile), typeof(PeVersionInfo))]
     public void MutatedImages_QuickFuzz()
     {
         var seeds = new List<(string, byte[])> { ("kitchen sink x64", KitchenSink(true)), ("kitchen sink x86", KitchenSink(false)) };

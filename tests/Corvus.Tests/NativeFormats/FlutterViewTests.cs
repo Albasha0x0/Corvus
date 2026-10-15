@@ -81,6 +81,7 @@ public sealed class FlutterViewTests
     public void Other_images_do_not_apply() => Assert.Null(View(new ElfWriter().Build(), "libc.so"));
 
     [Fact]
+    [FuzzEntry(typeof(FlutterFileView), typeof(DartPoolScan))]
     public void Fuzzed_snapshot_image_never_throws()
     {
         var failures = FormatFuzz.Run([App(), PoolApp()], 1500, 11, b => View(b));

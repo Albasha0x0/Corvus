@@ -438,6 +438,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     }
 
     [Fact]
+    [FuzzEntry(typeof(ElfFile))]
     public void MutatedImages_NeverThrow()
     {
         var seeds = new List<byte[]> { SampleElf().Build(), SampleElf(false, ElfWriter.EmArm).Build(), File.ReadAllBytes(NativeFixtures.LinuxArm64DbgShim) };

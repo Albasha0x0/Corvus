@@ -211,6 +211,7 @@ public class ApkSigningTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(ApkSigning))]
     public void MutatedApks_NeverThrow() => Fuzz(60, 120);
 
     [Fact]

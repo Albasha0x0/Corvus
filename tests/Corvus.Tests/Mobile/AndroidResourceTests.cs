@@ -154,6 +154,7 @@ public class AndroidResourceTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(AxmlDocument), typeof(ArscTable), typeof(ResStringPool), typeof(ResValue))]
     public void MutatedInput_NeverThrows()
     {
         var (manifest, table) = Sample();

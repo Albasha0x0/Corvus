@@ -258,6 +258,7 @@ public sealed class AppleObjcTests
     public void Header_PropertiesAsClassDump(string attributes, string line) => Assert.Equal(line, ObjcHeader.Property(new ObjcProperty("title", attributes)));
 
     [Fact]
+    [FuzzEntry(typeof(AppleObjcMetadata))]
     public void Fuzzed_Header_NeverThrows()
     {
         var failures = FormatFuzz.Run([Sample().Bytes], 600, 17, b => ObjcHeader.Render(AppleObjcMetadata.Read(MachOFile.FromBytes(b)), null, "fuzz"));

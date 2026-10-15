@@ -197,6 +197,7 @@ public sealed class PacketProtocolTests
         Assert.Equal(frames, Frames(ProtocolCaptures.Kerberos(), filter));
 
     [Fact]
+    [FuzzEntry(typeof(KerberosReader))]
     public void Fuzzed_protocol_captures_never_throw()
     {
         var filter = PacketFilter.Parse(string.Join(" or ", PacketFields.Names));

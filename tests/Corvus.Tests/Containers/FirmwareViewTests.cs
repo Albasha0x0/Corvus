@@ -41,6 +41,7 @@ public sealed class FirmwareViewTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(FirmwareFileView))]
     public void Fuzzed_images_never_throw()
     {
         var failures = FormatFuzz.Run(Image(), b => Facts(b), 300);

@@ -127,6 +127,7 @@ public sealed class ProtobufTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(ProtoFile))]
     public void Fuzzed_descriptors_never_throw()
     {
         var failures = FormatFuzz.Run(ProtoWriter.Demo(), b =>

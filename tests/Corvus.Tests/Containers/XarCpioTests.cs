@@ -56,6 +56,7 @@ public sealed class XarCpioTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(Core.Archives.XarReader), typeof(Core.Archives.CpioReader))]
     public void Fuzzed_archives_never_crash()
     {
         var cpio = Cpio("a.bin", new byte[64]);

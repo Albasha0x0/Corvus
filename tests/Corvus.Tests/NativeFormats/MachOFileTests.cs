@@ -437,6 +437,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     }
 
     [Fact]
+    [FuzzEntry(typeof(MachOFile))]
     public void MutatedImages_NeverThrow()
     {
         var withSignature = SampleMachO();

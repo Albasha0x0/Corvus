@@ -95,6 +95,7 @@ public sealed class SqliteTests
         Assert.Null(new SqliteFileView().Inspect(new FileInput("x.bin", new byte[200], "data"), default));
 
     [Fact]
+    [FuzzEntry(typeof(SqliteFileView), typeof(SqliteDatabase))]
     public void Fuzzed_database_never_throws()
     {
         var failures = FormatFuzz.Run(Fixture.Value, b => new SqliteFileView().Inspect(new FileInput("app.db", b, "data"), default), 1500);

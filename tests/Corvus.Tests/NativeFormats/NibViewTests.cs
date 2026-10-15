@@ -93,6 +93,7 @@ public sealed class NibViewTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    [FuzzEntry(typeof(NibFileView), typeof(Core.Mobile.NibArchive))]
     public void Fuzzed_nibs_never_crash()
     {
         var nib = Nib(("UIButton", [("UILabel", "go:"), ("UITag", 3L)]), ("UIRuntimeEventConnection", [("UILabel", "go:"), ("UISource", 0), ("UIDestination", 0)]));

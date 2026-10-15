@@ -72,6 +72,7 @@ public sealed class RustAuditTests
     public void Images_without_the_section_do_not_apply() => Assert.Null(View(new ElfWriter().Build()));
 
     [Fact]
+    [FuzzEntry(typeof(RustFileView), typeof(RustAudit))]
     public void Fuzzed_section_never_throws()
     {
         var failures = FormatFuzz.Run([Elf(Zlib(Json))], 1500, 13, b => View(b));

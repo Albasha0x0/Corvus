@@ -191,6 +191,7 @@ public class PlistTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(Plist))]
     public void MutatedInput_NeverThrows()
     {
         var binary = BplistWriter.Write(Archive());

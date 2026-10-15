@@ -209,6 +209,7 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    [FuzzEntry(typeof(SqliteDatabase))]
     public void Fuzzed_wal_and_carving_never_throw()
     {
         WalDatabase();

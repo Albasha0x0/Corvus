@@ -274,6 +274,7 @@ public sealed class PcapTests : IDisposable
     }
 
     [Fact]
+    [FuzzEntry(typeof(CaptureAnalysis))]
     public void Fuzzed_pcap_never_throws()
     {
         var failures = FormatFuzz.Run(Pcap(EthernetFrames(splitHello: true)), b => CaptureAnalysis.Read(b, default), 1500);
@@ -281,6 +282,7 @@ public sealed class PcapTests : IDisposable
     }
 
     [Fact]
+    [FuzzEntry(typeof(PcapFileView))]
     public void Fuzzed_pcapng_never_throws()
     {
         var seed = PcapNg(EthernetFrames(splitHello: true), Sll(Udp(Resolver, 53, Client, 40000, DnsResponse())));

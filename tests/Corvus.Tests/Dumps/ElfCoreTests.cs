@@ -374,6 +374,7 @@ public sealed class ElfCoreTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(ElfCoreFile), typeof(ElfMemoryHeader))]
     public void Fuzzed_cores_never_throw()
     {
         var failures = FormatFuzz.Run(SyntheticCore.Core(arm64: false), b =>
