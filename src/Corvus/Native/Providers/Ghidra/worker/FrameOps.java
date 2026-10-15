@@ -20,6 +20,12 @@ import ghidra.program.model.listing.VariableStorage;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
 import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
+import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.util.FillOutStructureHelper;
+import ghidra.program.model.data.DataTypeComponent;
+import ghidra.program.model.data.Pointer;
+import ghidra.program.model.data.Structure;
+import ghidra.program.model.data.Undefined;
 import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.program.model.symbol.SourceType;
@@ -192,6 +198,65 @@ final class FrameOps {
             if (v.getStackOffset() == at)
                 return item("stack", rva, target, true, null, old, offset, v.getDataType().getDisplayName() + " " + v.getName());
         return item("stack", rva, target, false, "the stack member is gone after the edit", old, offset, null);
+    }
+
+    /**
+     * The struct a pointer local is used as, from its loads and stores (Ghidra's FillOutStructureHelper), as a C
+     * declaration other engines parse too: undefinedN become plain integer types, gaps become char arrays. Nothing in the
+     * program changes; the tool declares the struct and retypes the local as kept edits. Args: rva, local, stack, name.
+     */
+    static JsonElement inferStruct(Worker w, Worker.Request r) throws Exception {
+        long rva = r.args.get("rva").getAsLong();
+        String local = r.args.get("local").getAsString(), name = r.args.get("name").getAsString();
+        Integer stack = r.args.has("stack") && !r.args.get("stack").isJsonNull() ? r.args.get("stack").getAsInt() : null;
+        Function f = w.program.getFunctionManager().getFunctionAt(w.space().getAddress(w.base + rva));
+        if (f == null) throw new Worker.WorkerError("not_found", "no function at rva 0x" + Long.toHexString(rva).toUpperCase());
+        HighFunction hf = high(w, f, r);
+        HighSymbol s = find(hf, low(f.getStackFrame()), local, stack, null);
+        if (s == null || s.getHighVariable() == null) throw new Worker.WorkerError("not_found", f.getName() + " has no local '" + local + "'");
+        long deadline = System.nanoTime() + w.decompileTimeout * 1_000_000_000L;
+        DecompInterface d = w.decompilers.acquire(deadline);
+        Structure st;
+        try {
+            st = new FillOutStructureHelper(w.program, r.monitor).processStructure(s.getHighVariable(), f, true, false, d);
+        }
+        finally {
+            w.decompilers.release(d);
+        }
+        if (st == null || st.getNumDefinedComponents() == 0)
+            throw new Worker.WorkerError("not_found", local + " in " + f.getName() + " is not used as a pointer to fields");
+        StringBuilder sb = new StringBuilder("struct ").append(name).append(" {\n");
+        int at = 0, fields = 0;
+        for (DataTypeComponent c : st.getDefinedComponents()) {
+            if (c.getOffset() < at) continue;
+            if (c.getOffset() > at) sb.append("  char gap_").append(Integer.toHexString(at).toUpperCase()).append('[').append(c.getOffset() - at).append("];\n");
+            String field = c.getFieldName() != null ? c.getFieldName() : "field_0x" + Integer.toHexString(c.getOffset());
+            sb.append("  ").append(cType(c.getDataType())).append(' ').append(field).append(";\n");
+            at = c.getOffset() + c.getLength();
+            fields++;
+        }
+        if (st.getLength() > at) sb.append("  char gap_").append(Integer.toHexString(at).toUpperCase()).append('[').append(st.getLength() - at).append("];\n");
+        sb.append("};");
+        JsonObject o = new JsonObject();
+        o.addProperty("declaration", sb.toString());
+        o.addProperty("fields", fields);
+        o.addProperty("size", st.getLength());
+        o.addProperty("local", s.getName());
+        return o;
+    }
+
+    /** A C spelling of a field type that another engine parses. */
+    private static String cType(DataType dt) {
+        if (dt instanceof Pointer p) return p.getDataType() == null || p.getDataType() instanceof Undefined ? "void *" : cType(p.getDataType()) + " *";
+        if (dt instanceof Undefined || dt.getName().startsWith("undefined"))
+            return switch (dt.getLength()) {
+                case 1 -> "unsigned char";
+                case 2 -> "unsigned short";
+                case 4 -> "unsigned int";
+                case 8 -> "unsigned long long";
+                default -> "char[" + dt.getLength() + "]";
+            };
+        return dt.getDisplayName();
     }
 
     /** A decompiler local by stack offset (stable over renames), else by the name it had when first edited, else by the name it got. */

@@ -323,7 +323,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or " +
-                 "stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused." + KeptNote)]
+                 "stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused. " +
+                 "inferStruct (Ghidra) declares a struct from the local's field accesses and types the local as a pointer to it." + KeptNote)]
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
@@ -334,9 +335,17 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("Instead of local: lines 'local = newName', or JSON [{local, newName?, type?, clear?}].")] string? items = null,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
+        [Description("A struct name: infer it from the local's loads and stores (Ghidra).")] string? inferStruct = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        if (inferStruct != null)
+        {
+            if (items != null || newName != null || type != null || clear)
+                throw new ToolError(ErrorCode.InvalidArgument, "inferStruct goes with local alone.", "rename or retype in another call");
+            return await InferStruct(image, function, local ?? throw new ToolError(ErrorCode.InvalidArgument, "inferStruct needs local, the pointer variable."),
+                inferStruct.Trim(), engine, progress, cancellationToken);
+        }
         if (items != null)
         {
             if (local != null || newName != null || type != null || clear)
@@ -357,6 +366,33 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             new EditChange("local", $"{Va(native, done.Rva)}:{done.Resolved}", done.Resolved, done.Text));
         }, cancellationToken);
     });
+
+    /// <summary>
+    /// A struct inferred from a pointer local's field accesses in Ghidra, then declared and the local typed as a pointer to it,
+    /// both as kept edits, so other engines and new builds get them too.
+    /// </summary>
+    private async Task<string> InferStruct(string image, string function, string local, string name, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        if (!Identifier(name)) throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a type name.", "e.g. inferStruct=Packet");
+        var (native, rva, session) = await Open(image, function, engine, progress, ct);
+        if (session is not Native.Providers.Ghidra.GhidraSession ghidra)
+            throw new ToolError(ErrorCode.Unsupported, $"Struct inference is Ghidra's; {NativeEngineService.DisplayName(session.ProviderId)} has none.",
+                "engine=ghidra; the declared struct and the typed local then reach IDA as kept edits");
+        var request = LocalRequest(local, null, name + " *", false);
+        var args = WorkerRows.Args(("rva", rva), ("local", request.Target), ("name", name));
+        if (request.Stack is { } stack) args["stack"] = stack;
+        var inferred = await ghidra.CallAsync("infer_struct", args, ct);
+        var declaration = inferred.GetProperty("declaration").GetString()!;
+        var edits = LocalEdits(native, rva, [request]);
+        var (result, id) = await Apply(native, session, "set_native_local", new NativeUserTypeBatch([declaration], [], [], edits),
+            (r, layer) => r.DeclarationErrors > 0 ? null : RecordLocals(r, layer.WithDeclarations(declaration, r.DeclaredTypes), edits), ct);
+        if (result.DeclarationErrors > 0)
+            throw new ToolError(ErrorCode.Failed, $"The inferred declaration did not parse: {string.Join("; ", result.DeclarationMessages)}", "declare_native_types with an edited copy of it");
+        if (result.Items.FirstOrDefault(i => !i.Applied) is { } failed) Outcome(result with { Items = [failed] }, session.ProviderId);
+        return Edited($"Inferred {name} ({inferred.GetProperty("fields").GetInt32()} fields, {inferred.GetProperty("size").GetInt32()} bytes) from " +
+                      $"{inferred.GetProperty("local").GetString()} in the function at {Va(native, rva)}; the local is now {name} *:\n{declaration}", id,
+            new EditChange("declaration", name, null, name), new EditChange("local", $"{Va(native, rva)}:{local}", local, name + " *"));
+    }
 
     /// <summary>set_native_local items: the requests that parse in one engine request; every outcome and refusal reported.</summary>
     private async Task<string> SetLocals(string image, string function, string items, string? show, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)

@@ -111,6 +111,29 @@ public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposa
         }
 
         [GhidraFact]
+        public async Task A_struct_is_inferred_from_a_pointer_argument_declared_and_the_argument_typed_in_Ghidra()
+        {
+            var rig = Setup("ghidra-i");
+            var path = Image();
+            var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
+            var ghidra = await rig.Session("ghidra");
+            string? text = null;
+            foreach (var arg in (await ghidra.GetFrameAsync(fn, true)).Locals.Where(l => l.IsArgument))
+            {
+                try { text = await rig.Types.SetNativeLocal(path, Function, arg.Name, engine: "ghidra", inferStruct: "CorvusInferred"); break; }
+                catch (ToolError e) when (e.Code == ErrorCode.NotFound) { Output.WriteLine($"{arg.Name}: {e.Message}"); }
+            }
+            Output.WriteLine(text ?? "(no argument used as a struct pointer)");
+            Assert.NotNull(text);
+            Assert.Contains("struct CorvusInferred {", text);
+            Assert.Contains("the local is now CorvusInferred *", text);
+            Assert.True((await ghidra.GetTypeAsync("CorvusInferred")).Members.Count > 0);
+            Assert.Contains("CorvusInferred *", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
+            Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(path, Function, "param_1", newName: "p", engine: "ghidra", inferStruct: "X"))).Code);
+            Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(path, Function, "param_1", engine: "ghidra", inferStruct: "not a name"))).Code);
+        }
+
+        [GhidraFact]
         public async Task A_flow_override_is_set_and_cleared_with_the_function_repaired_in_Ghidra()
         {
             var rig = Setup("ghidra-f");

@@ -2112,7 +2112,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 **Rename or retype a decompiler local** (destructive, idempotent, open-world, long-running)
 
-Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused. Kept with the image's annotations.
+Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused. inferStruct (Ghidra) declares a struct from the local's field accesses and types the local as a pointer to it. Kept with the image's annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2125,6 +2125,7 @@ Rename and/or retype a local or argument in a native function's pseudocode, name
 | `items` | string |  |  | Instead of local: lines 'local = newName', or JSON [{local, newName?, type?, clear?}]. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+| `inferStruct` | string |  |  | A struct name: infer it from the local's loads and stores (Ghidra). |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
