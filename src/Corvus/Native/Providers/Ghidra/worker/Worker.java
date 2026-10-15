@@ -266,6 +266,7 @@ public class Worker implements GhidraLaunchable {
             case "hello": return hello();
             case "open": return open(r);
             case "gzf_original": return GzfOps.original(this, r);
+            case "gpr_pack": return GzfOps.packProject(this, r);
             case "completion": return completionStatus();
             case "rebase": return rebase(r);
             // the program's change counter and this worker's identity: a caller's cached tables stay valid while both match

@@ -55,7 +55,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                  "A PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; " +
                  "folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, " +
                  "memory dump) is read by the built-in reader (v24-39): dummy assemblies with addresses and offsets, " +
-                 "plus the binary as a native image. A .gzf loads its source file; Ghidra opens the archive. " +
+                 "plus the binary as a native image. A .gzf or a .gpr's program (copied) opens in Ghidra. " +
                  "Files are read into memory (unlocked); a repeat load is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
@@ -71,10 +71,13 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         [Description("Ghidra compiler spec (also IDA's compiler): windows, gcc, borlandcpp, borlanddelphi ...")] string? compilerSpec = null,
         [Description("Starts before analysis: [function|code|label:]address[=name].")] string[]? seeds = null,
         [Description("Analyzers off at import (AF_FLIRT, 'Decompiler Switch Analysis').")] string[]? disableAnalyzers = null,
+        [Description("A .gpr's program path, e.g. /app.exe (default: its only one).")] string? program = null,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
         var requestedSlice = string.IsNullOrWhiteSpace(slice) ? null : slice.Trim();
+        if (program != null && !path.EndsWith(".gpr", StringComparison.OrdinalIgnoreCase))
+            throw new ToolError(ErrorCode.InvalidArgument, "program applies to a Ghidra project (.gpr).", "omit program, or pass the project's .gpr as path");
         // import overrides: their form and the installed engines' names are checked before the load, seeds against the image in it
         bool overriding = new[] { processor, language, compilerSpec }.Any(v => !string.IsNullOrWhiteSpace(v)) || seeds is { Length: > 0 } || disableAnalyzers is { Length: > 0 };
         Func<Native.INativeImage, Native.EngineOverrides?>? overrides = overriding
@@ -104,6 +107,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 break;
             default:
                 throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{format}'.", "pass format=auto or format=raw");
+        }
+        if (PackedDatabaseInput.IsProject(path))
+        {
+            var (native, at) = PackedDatabaseInput.LoadProjectAsync(workspace, engines, path, program, cancellationToken).GetAwaiter().GetResult();
+            return Changed([native.Id], $"Loaded native image {native.Id}: {Native.NativeImageExtensions.KindText(native.Image)}\n  {native.FilePath}\n  " +
+                   $"from {Path.GetFileName(path)}:{at}, read from a copy (the project is not changed): Ghidra opens the program as its database (no analysis); the built-in tools read the file");
         }
         if (PackedDatabaseInput.Is(path))
         {

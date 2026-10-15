@@ -31,7 +31,7 @@ Workspace and server state.
 
 **Load assembly** (edit, idempotent, long-running)
 
-Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). A PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) is read by the built-in reader (v24-39): dummy assemblies with addresses and offsets, plus the binary as a native image. A .gzf loads its source file; Ghidra opens the archive. Files are read into memory (unlocked); a repeat load is a no-op.
+Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). A PE, ELF or Mach-O file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) is read by the built-in reader (v24-39): dummy assemblies with addresses and offsets, plus the binary as a native image. A .gzf or a .gpr's program (copied) opens in Ghidra. Files are read into memory (unlocked); a repeat load is a no-op.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -48,6 +48,7 @@ Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Man
 | `compilerSpec` | string |  |  | Ghidra compiler spec (also IDA's compiler): windows, gcc, borlandcpp, borlanddelphi ... |
 | `seeds` | string[] |  |  | Starts before analysis: [function\|code\|label:]address[=name]. |
 | `disableAnalyzers` | string[] |  |  | Analyzers off at import (AF_FLIRT, 'Decompiler Switch Analysis'). |
+| `program` | string |  |  | A .gpr's program path, e.g. /app.exe (default: its only one). |
 
 Structured output: `ids`, `text`.
 

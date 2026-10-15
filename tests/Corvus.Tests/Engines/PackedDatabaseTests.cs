@@ -60,4 +60,54 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
             Assert.Contains("\"reusedDatabase\":true", s.GetRawText().Replace(" ", ""));
         }
     }
+
+    [GhidraFact, Trait("Speed", "Slow")]
+    public async Task A_users_Ghidra_project_opens_from_a_copy_and_stays_unchanged()
+    {
+        var image = _dir.File("jitinterface_x64.dll");
+        File.Copy(RealPackages.File("runtime.win-x64.Microsoft.DotNet.ILCompiler", "10.0.11", "tools", "jitinterface_x64.dll"), image);
+        await using (var c = await McpProtocolTests.StartServerAsync(_dir.Path, null, [], Cache))
+        {
+            await Call(c, "load_assembly", new() { ["path"] = image });
+            await Call(c, "list_functions", new() { ["image"] = "jitinterface_x64.dll", ["engine"] = "ghidra", ["limit"] = 1 });
+        }
+        // a project made by Ghidra stands in for the user's: copied out of the first server's cache, with a lock file of an open session
+        var made = Directory.GetFiles(_dir.File("cache"), GhidraSession.ProjectName + ".gpr", SearchOption.AllDirectories).Single();
+        var user = Directory.CreateDirectory(_dir.File("user")).FullName;
+        File.Copy(made, Path.Combine(user, "corvus.gpr"));
+        CopyTree(Path.ChangeExtension(made, ".rep"), Path.Combine(user, "corvus.rep"));
+        File.WriteAllText(Path.Combine(user, "corvus.lock"), "");
+        File.Delete(image);
+        var before = Snapshot(user);
+        // a fresh cache: the database can only come from the project
+        var fresh = new Dictionary<string, string?> { [Corvus.Native.Providers.AnalysisCache.RootVariable] = _dir.File("cache2") };
+        await using (var c = await McpProtocolTests.StartServerAsync(_dir.Path, null, [], fresh))
+        {
+            var missing = await c.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = Path.Combine(user, "corvus.gpr"), ["program"] = "/other.dll" });
+            Assert.True(missing.IsError);
+            Assert.Contains("/jitinterface_x64.dll", Text(missing));
+            var (loaded, _) = await Call(c, "load_assembly", new() { ["path"] = Path.Combine(user, "corvus.gpr") });
+            output.WriteLine(loaded);
+            Assert.Contains("corvus.gpr:/jitinterface_x64.dll, read from a copy", loaded);
+            var (code, _) = await Call(c, "decompile_native", new() { ["image"] = "jitinterface_x64.dll", ["address"] = "AllocException" });
+            Assert.Contains("(ghidra)", code);
+            var (_, s) = await Call(c, "get_engine_status", new() { ["image"] = "jitinterface_x64.dll" });
+            Assert.Contains("\"reusedDatabase\":true", s.GetRawText().Replace(" ", ""));
+        }
+        Assert.Equal(before, Snapshot(user));
+    }
+
+    private static void CopyTree(string from, string to)
+    {
+        foreach (var f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(to, Path.GetRelativePath(from, f));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(f, target);
+        }
+    }
+
+    /// <summary>Every file under <paramref name="dir"/> with its size, write time and SHA-256.</summary>
+    private static string Snapshot(string dir) => string.Join("\n", Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+        .Select(f => $"{Path.GetRelativePath(dir, f)} {new FileInfo(f).Length} {File.GetLastWriteTimeUtc(f).Ticks} {Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(f)))}"));
 }

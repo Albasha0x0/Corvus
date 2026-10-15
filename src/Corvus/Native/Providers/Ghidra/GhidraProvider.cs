@@ -198,6 +198,20 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         return new(S("name") ?? System.IO.Path.GetFileNameWithoutExtension(gzf), S("sha256"), S("format"), S("path"));
     }
 
+    /// <summary>Packs the program at <paramref name="program"/> (null: the only one) of the project copy in <paramref name="projectDirectory"/> into <paramref name="gzf"/>; returns its path in the project.</summary>
+    internal async Task<string> PackProjectAsync(string projectDirectory, string name, string? program, string gzf, CancellationToken cancellationToken)
+    {
+        var (result, ghidra, java) = Static();
+        if (!result.IsAvailable)
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"Reading a Ghidra project (.gpr) needs Ghidra: {result.Reason}", result.Remediation);
+        using var worker = await StartWorkerAsync(ghidra!, java!, 0, cancellationToken).ConfigureAwait(false);
+        await worker.WaitReadyAsync(_options.StartTimeout, cancellationToken).ConfigureAwait(false);
+        var r = await worker.RequestAsync("gpr_pack", WorkerRows.Args(("project_dir", projectDirectory), ("name", name), ("program", program), ("out", gzf)),
+            TimeSpan.FromMinutes(10), cancellationToken).ConfigureAwait(false);
+        await worker.ShutdownAsync("close", null, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        return r.GetProperty("program").GetString()!;
+    }
+
     internal void Forget(GhidraSession session) => _sessions.TryRemove(session, out _);
 
     public IReadOnlyList<EngineSessionState> SessionStates() => _sessions.Keys.Select(s => s.State()).ToList();

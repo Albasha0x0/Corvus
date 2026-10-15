@@ -2,6 +2,7 @@ package corvus.ghidra;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.util.ArrayList;
 import java.util.List;
 
 import com.google.gson.JsonElement;
@@ -12,10 +13,12 @@ import ghidra.app.util.importer.ProgramLoader;
 import ghidra.app.util.opinion.LoadException;
 import ghidra.app.util.opinion.LoadResults;
 import ghidra.base.project.GhidraProject;
+import ghidra.framework.model.DomainFile;
+import ghidra.framework.model.DomainFolder;
 import ghidra.program.database.mem.FileBytes;
 import ghidra.program.model.listing.Program;
 
-/** Ghidra archives (.gzf) as inputs: the file a program was imported from, recovered from the bytes the program keeps. */
+/** Ghidra archives (.gzf) and projects (.gpr) as inputs: the file a program was imported from, recovered from the bytes the program keeps. */
 final class GzfOps {
     private GzfOps() {}
 
@@ -77,5 +80,56 @@ final class GzfOps {
         finally {
             project.close();
         }
+    }
+
+    /**
+     * Opens the project copy project_dir/name.gpr and packs its program at program (the only one when absent) into out as a
+     * Ghidra archive (gpr_pack). Result: program, programs. The copy is the caller's: a user's project is never opened here.
+     */
+    static JsonElement packProject(Worker w, Worker.Request r) throws Exception {
+        String dir = r.args.get("project_dir").getAsString();
+        String name = r.args.get("name").getAsString();
+        String wanted = r.args.has("program") && !r.args.get("program").isJsonNull() ? r.args.get("program").getAsString() : null;
+        File out = new File(r.args.get("out").getAsString());
+        GhidraProject project;
+        try {
+            project = GhidraProject.openProject(dir, name, false);
+        }
+        catch (Exception e) {
+            throw new Worker.WorkerError("malformed_input", "Ghidra could not open the project: " + e);
+        }
+        try {
+            List<DomainFile> programs = new ArrayList<>();
+            collect(project.getRootFolder(), programs, r);
+            List<String> paths = new ArrayList<>();
+            for (DomainFile f : programs) paths.add(f.getPathname());
+            DomainFile chosen = null;
+            if (wanted != null) {
+                String path = wanted.startsWith("/") ? wanted : "/" + wanted;
+                for (DomainFile f : programs) if (f.getPathname().equals(path) || f.getName().equals(wanted)) { chosen = f; break; }
+                if (chosen == null) throw new Worker.WorkerError("not_found", "the project has no program " + wanted + "; its programs: " + String.join(", ", paths));
+            }
+            else if (programs.size() == 1) chosen = programs.get(0);
+            else if (programs.isEmpty()) throw new Worker.WorkerError("not_found", "the project holds no program");
+            else throw new Worker.WorkerError("ambiguous", "the project holds " + programs.size() + " programs: " + String.join(", ", paths));
+            if (out.exists() && !out.delete()) throw new Worker.WorkerError("io_error", "cannot replace " + out);
+            chosen.packFile(out, r.monitor);
+            JsonObject o = new JsonObject();
+            o.addProperty("program", chosen.getPathname());
+            com.google.gson.JsonArray all = new com.google.gson.JsonArray();
+            for (String p : paths) all.add(p);
+            o.add("programs", all);
+            return o;
+        }
+        finally {
+            project.close();
+        }
+    }
+
+    private static void collect(DomainFolder folder, List<DomainFile> into, Worker.Request r) throws Exception {
+        r.monitor.checkCancelled();
+        for (DomainFile f : folder.getFiles())
+            if ("Program".equals(f.getContentType())) into.add(f);
+        for (DomainFolder sub : folder.getFolders()) collect(sub, into, r);
     }
 }
