@@ -28,6 +28,11 @@ public enum PdbSymbolKind
 /// </summary>
 public sealed record PdbSymbol(PdbSymbolKind Kind, string Name, ushort Segment, uint Offset, uint? Rva, uint Size, int Module, uint TypeIndex = 0)
 {
+    /// <summary>DWARF: the linkage (mangled) name, when there is one.</summary>
+    public string? LinkageName { get; init; }
+    /// <summary>DWARF: a function's parameter names in order (null where unnamed).</summary>
+    public IReadOnlyList<string?>? ParameterNames { get; init; }
+
     public bool IsFunction => Kind is PdbSymbolKind.GlobalProc or PdbSymbolKind.LocalProc or PdbSymbolKind.PublicFunction or PdbSymbolKind.Thunk;
     public bool IsPublic => Kind is PdbSymbolKind.PublicFunction or PdbSymbolKind.PublicData;
 }
@@ -37,6 +42,29 @@ public sealed record PdbTypedef(string Name, uint TypeIndex);
 
 /// <summary>A compiland of the DBI module list.</summary>
 public sealed record PdbModule(int Index, string Name, string ObjectFile, int SymbolStream, uint SymbolBytes);
+
+/// <summary>Where debug information came from: a PDB, or DWARF (an ELF or Mach-O image, a separate debug file, a dSYM).</summary>
+public enum DebugInfoFormat { Pdb, Dwarf }
+
+/// <summary>A source position in <see cref="Function"/> (an inlined function in a frame).</summary>
+public sealed record DebugSourceFrame(string Function, string? File, int Line);
+
+/// <summary>
+/// What debug information says about an address: its source line and the functions there, innermost first; an
+/// inlined frame's line is its call site in the next frame. The last frame is the function itself.
+/// </summary>
+public sealed record DebugSourceInfo(string? File, int Line, IReadOnlyList<DebugSourceFrame> Frames);
+
+/// <summary>Source lines and inlined functions by address, read on demand (debug files can be large).</summary>
+public interface IDebugSourceLookup
+{
+    /// <summary>One answer per RVA; null where the debug information has none.</summary>
+    IReadOnlyList<DebugSourceInfo?> Lookup(IReadOnlyList<uint> rvas, CancellationToken ct = default);
+    /// <summary>Units with a line table.</summary>
+    int LineTables { get; }
+    /// <summary>Inlined function instances.</summary>
+    int InlinedInstances { get; }
+}
 
 /// <summary>A section of the image as the PDB recorded it (IMAGE_SECTION_HEADER).</summary>
 public sealed record PdbSection(string Name, uint VirtualAddress, uint VirtualSize, uint Characteristics);
@@ -75,6 +103,13 @@ public sealed class PdbFile
     /// <summary>Everything a limit cut short.</summary>
     public IReadOnlyList<string> Truncations => _truncations;
     public IReadOnlyList<ParseIssue> Issues { get; private set; } = [];
+    public DebugInfoFormat Format { get; private init; }
+    /// <summary>DWARF: the debug file's GNU build-id or Mach-O UUID (lowercase hex), else null.</summary>
+    public string? BuildId { get; private init; }
+    /// <summary>DWARF: source lines and inlined functions; null for a PDB.</summary>
+    public IDebugSourceLookup? Source { get; private init; }
+    /// <summary>DWARF: its types as CodeView records (TPI body, record offsets, notes); null for a PDB, whose types are read from its file.</summary>
+    internal (byte[] Bytes, int[] Offsets, IReadOnlyList<string> Notes)? TypeRecords { get; private init; }
 
     private readonly List<string> _truncations = [];
     private readonly List<PdbTypedef> _typedefs = [];
@@ -83,6 +118,27 @@ public sealed class PdbFile
     private readonly IssueLog _log = new("pdb");
     private (uint From, uint To)[] _omap = [];
     private IReadOnlyList<PdbSection> _addressSections = [];
+
+    private PdbFile(string path, long fileSize)
+    {
+        Path = path;
+        FileSize = fileSize;
+    }
+
+    /// <summary>Debug information of another format (DWARF) in the PDB model: symbols with RVAs, units as modules, type records.</summary>
+    internal static PdbFile FromDebugInfo(string path, long fileSize, string? buildId, IReadOnlyList<PdbModule> modules, List<PdbSymbol> symbols,
+        IEnumerable<PdbTypedef> typedefs, (byte[] Bytes, int[] Offsets, IReadOnlyList<string> Notes) types, IReadOnlyList<ParseIssue> issues,
+        IEnumerable<string> truncations, IDebugSourceLookup? source)
+    {
+        symbols.Sort((a, b) => a.Rva is { } x ? b.Rva is { } y ? x.CompareTo(y) : -1 : b.Rva is null ? 0 : 1);
+        var pdb = new PdbFile(path, fileSize)
+        {
+            Format = DebugInfoFormat.Dwarf, BuildId = buildId, Modules = modules, Symbols = symbols, Issues = issues, TypeRecords = types, Source = source,
+        };
+        pdb._typedefs.AddRange(typedefs);
+        foreach (var t in truncations) pdb.AddTruncation(t);
+        return pdb;
+    }
 
     private PdbFile(string path, MsfFile msf)
     {
@@ -120,7 +176,7 @@ public sealed class PdbFile
     }
 
     /// <summary>Whether this PDB belongs to an image with CodeView record <paramref name="cv"/> (RSDS: GUID and age).</summary>
-    public bool Matches(PeCodeView cv) => cv.Format == "RSDS" && cv.Guid == Guid && cv.Age == (DbiAge != 0 ? DbiAge : InfoAge);
+    public bool Matches(PeCodeView cv) => Format == DebugInfoFormat.Pdb && cv.Format == "RSDS" && cv.Guid == Guid && cv.Age == (DbiAge != 0 ? DbiAge : InfoAge);
 
     private static PdbFile Read(MsfFile msf, string path, IReadOnlyList<NativeSection>? imageSections, CancellationToken ct)
     {

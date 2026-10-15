@@ -97,9 +97,10 @@ public sealed class PdbTypes
     /// <summary>
     /// <paramref name="declarator"/> declared with type <paramref name="index"/> ("int *x", "struct S (*p)[4]"); null
     /// when the type cannot be written (unsupported leaf, a struct without a definition used by value).
-    /// <paramref name="thisName"/> names a member function's this parameter (prototypes only).
+    /// <paramref name="thisName"/> names a member function's this parameter, <paramref name="parameterNames"/> its other
+    /// parameters (prototypes only).
     /// </summary>
-    private string? Declare(uint index, string declarator, int depth = 0, string? thisName = null)
+    private string? Declare(uint index, string declarator, int depth = 0, string? thisName = null, IReadOnlyList<string?>? parameterNames = null)
     {
         if (depth > MaxDepth) return null;
         if (index < 0x1000)
@@ -179,7 +180,8 @@ public sealed class PdbTypes
                     {
                         uint t = U32(ad, 4 + 4 * i);
                         if (t == 0) { args.Add("..."); continue; }
-                        args.Add(Declare(t, "", depth + 1) ?? (_model.SizeOf(t) is var s and > 0 ? IntOfSize(s) : "int"));
+                        var name = parameterNames?.ElementAtOrDefault(i) is { Length: > 0 } n ? Identifier(n) : "";
+                        args.Add(Declare(t, name, depth + 1) ?? (_model.SizeOf(t) is var s and > 0 ? Join(IntOfSize(s), name) : Join("int", name)));
                     }
                 }
                 if (args.Count == 0) args.Add("void");
@@ -336,7 +338,8 @@ public sealed class PdbTypes
             if (prototypes.Count >= MaxPrototypes) { _notes.Add($"prototypes beyond {MaxPrototypes:N0} are not written"); break; }
             uint type = _model.FunctionTypeOf(s.TypeIndex);
             if (type == 0) { Skip("prototype_not_a_function_type"); continue; }
-            var decl = Declare(type, "f", thisName: "this");
+            var names = s.ParameterNames is { } list && list.Where(n => n != null).Distinct(StringComparer.Ordinal).Count() == list.Count(n => n != null) ? list : null;
+            var decl = Declare(type, "f", thisName: "this", parameterNames: names);
             if (decl == null) { Skip("prototype_unwritable"); continue; }
             prototypes.Add((rva, decl + ";"));
         }

@@ -116,7 +116,13 @@ public sealed class PdbTypeModel
     {
         var notes = new List<string>();
         Stream tpi, ipi;
-        if (pdb.Path.Length == 0)
+        if (pdb.TypeRecords is { } records)
+        {
+            notes.AddRange(records.Notes);
+            tpi = new Stream(records.Bytes, 0x1000, records.Offsets);
+            ipi = new Stream([], 0x1000, []);
+        }
+        else if (pdb.Path.Length == 0)
         {
             notes.Add("the PDB was read from memory: its type streams are not available");
             tpi = ipi = new Stream([], 0x1000, []);
@@ -320,7 +326,7 @@ public sealed class PdbTypeModel
         0x33 => "unsigned __int64",
         0x40 => "float",
         0x41 => "double",
-        0x42 => "long double",
+        0x42 or 0x43 => "long double", // 80- and 128-bit
         0x46 => "unsigned short", // 16-bit float
         _ => null,
     };
@@ -333,7 +339,7 @@ public sealed class PdbTypeModel
         0x08 or 0x12 or 0x22 or 0x74 or 0x75 or 0x7B or 0x32 or 0x40 => 4,
         0x13 or 0x23 or 0x76 or 0x77 or 0x33 or 0x41 => 8,
         0x42 => 10,
-        0x14 or 0x24 or 0x78 or 0x79 => 16,
+        0x14 or 0x24 or 0x78 or 0x79 or 0x43 => 16,
         _ => -1,
     };
 

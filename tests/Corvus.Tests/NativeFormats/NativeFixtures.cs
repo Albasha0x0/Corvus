@@ -24,6 +24,12 @@ public static class NativeFixtures
     public static string AndroidArmTracing => RealPackages.File("Microsoft.Android.Runtime.35.android-arm", "35.0.105", "runtimes", "android-arm", "native", "libxamarin-native-tracing.so");
     public static string WinArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.win-arm64", DbgShim, "runtimes/win-arm64/native/dbgshim.dll");
     public static string OsxArm64AppHost => RealPackages.File("Microsoft.NETCore.App.Host.osx-arm64", "10.0.11", "runtimes/osx-arm64/native/apphost");
+    /// <summary>
+    /// A stripped library of a NativeAOT runtime pack (linux-x64, osx-arm64; four more Linux targets in the slow set) and,
+    /// beside it, its separate DWARF: &lt;file&gt;.dbg (ELF, linked by .gnu_debuglink and build-id) or &lt;file&gt;.dwarf (Mach-O, by UUID).
+    /// </summary>
+    public static string NativeAotLib(string rid, string file) => RealPackages.File("Microsoft.NETCore.App.Runtime.NativeAOT." + rid, "10.0.11", "runtimes", rid, "native", file);
+
     /// <summary>Universal x86_64 + arm64 dylib with classic dyld info opcodes.</summary>
     public static string OsxFatSkia => RealPackages.File("SkiaSharp.NativeAssets.macOS", "2.88.9", "runtimes/osx/native/libSkiaSharp.dylib");
 }

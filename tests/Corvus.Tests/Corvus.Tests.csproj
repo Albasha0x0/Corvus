@@ -93,6 +93,9 @@
     <PackageDownload Include="SwiftBindings.Stripe.UICore" Version="[26.11.0]" />
     <!-- Quick-set tests read these too (Apple bundles, code signatures, rpath checks; SQLite oracle, crypto constants, showcases). -->
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[10.0.11]" />
+    <!-- Stripped ELF and Mach-O libraries with their separate DWARF (.so.dbg, .dylib.dwarf): load_pdb on ELF and Mach-O. -->
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.NativeAOT.linux-x64" Version="[10.0.11]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.NativeAOT.osx-arm64" Version="[10.0.11]" />
     <PackageDownload Include="SQLitePCLRaw.lib.e_sqlite3" Version="[2.1.2];[2.1.11]" />
     <PackageDownload Include="SkiaSharp.NativeAssets.Win32" Version="[2.88.9]" />
   </ItemGroup>
