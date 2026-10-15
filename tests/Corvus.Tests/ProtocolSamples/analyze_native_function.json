@@ -143,6 +143,15 @@
     ],
     "offset": 0,
     "totalChars": "<chars>",
+    "coverage": {
+      "status": "complete",
+      "facets": {
+        "callees": "available",
+        "callers": "available",
+        "cfg": "available",
+        "strings": "available"
+      }
+    },
     "notices": [
       "loaded sample-build-a.dll from <fixtures>/sample-build-a.dll"
     ]

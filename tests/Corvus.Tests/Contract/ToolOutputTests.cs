@@ -338,6 +338,25 @@ public class ToolOutputTests
         Assert.InRange(p.ToJsonString().Length, 1, 1_024);
     }
 
+    /// <summary>MM-9 and E6: a record's stop flag makes coverage partial; facets reach the provenance, the record and the text.</summary>
+    [Fact]
+    public async Task A_stop_flag_makes_coverage_partial_and_facets_reach_every_part()
+    {
+        using var services = Services();
+        var r = await Call(services, "get_pe_info", _ =>
+        {
+            ToolOutput.Facet("callers", "not decoded");
+            ToolOutput.Facet("pseudocode");
+            return new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.With("summary\n", new { name = "x", truncated = true }) }] };
+        }, new() { ["path"] = Env.FixturePath });
+        var p = r.Meta![ToolOutput.ProvenanceKey]!.AsObject();
+        Assert.Equal("partial", (string)p["coverage"]!);
+        Assert.Equal("unavailable: not decoded", (string)p["facets"]!["callers"]!);
+        Assert.Equal("available", (string)p["facets"]!["pseudocode"]!);
+        Assert.Equal("unavailable: not decoded", Record(r).GetProperty("coverage").GetProperty("facets").GetProperty("callers").GetString());
+        Assert.Contains("[Unavailable: callers (not decoded)]", ((TextContentBlock)r.Content[0]).Text);
+    }
+
     /// <summary>An error carries provenance too (inputs, tool, arguments, version), without a result hash or coverage.</summary>
     [Fact]
     public async Task ErrorsCarryProvenance()

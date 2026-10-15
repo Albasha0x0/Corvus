@@ -3,7 +3,13 @@
 <!-- Generated from Core/Limitations.cs by ErrorContractTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
 A result whose coverage is not complete names why in the `limitations` list of its provenance record
-(`_meta["corvus/provenance"]`). The list uses only these ids; details are in the result's text.
+(`_meta["corvus/provenance"]`). The list uses only these ids; details are in the result's text. A record that says it
+stopped early (`truncated`, `cut`, `incomplete`, or a `partial` reason) has coverage `partial` too.
+
+Function results also name their facets (`pseudocode`, `callers`, `callees`, `xrefs`, `strings`, `cfg`) as `available`
+or `unavailable: why`, in the provenance and in the record's `coverage.facets`. Comparisons of kept results
+(`oldResult` / `newResult`) report what a side does not show as `unknown`: a page of a longer result, a result that is
+not complete, or a facet either side lacks; never as equal, removed, added or changed.
 
 | Id | Meaning |
 |---|---|

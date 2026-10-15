@@ -71,9 +71,11 @@ public static class EvidenceInput
     public static (EvidenceSummary EvidenceSummary, IReadOnlyList<EvidenceChange> Changes) Compare(Item a, Item b)
     {
         var (ra, rb) = (Parse(a.Record), Parse(b.Record));
+        // a facet either side lacks: what it would show is unknown on both
+        var gaps = FacetGaps(ra, rb);
         if (ra?["items"] is JsonArray ia && rb?["items"] is JsonArray ib)
         {
-            bool partial = Partial(ra, ia) || Partial(rb, ib);
+            bool partial = Partial(ra, ia) || Partial(rb, ib) || gaps.Count > 0;
             var by = KeyFields.FirstOrDefault(k => ia.Concat(ib).All(x => x is JsonObject o && o[k] is JsonValue));
             var oldItems = Keyed(ia, by);
             var newItems = Keyed(ib, by);
@@ -81,12 +83,12 @@ public static class EvidenceInput
             int same = 0;
             foreach (var (key, x) in oldItems)
             {
-                if (!newItems.TryGetValue(key, out var y)) changes.Add(new(Partial(rb, ib) ? "unknown" : "removed", key, Clip(x), null, null));
+                if (!newItems.TryGetValue(key, out var y)) changes.Add(new(Partial(rb, ib) || gaps.Count > 0 ? "unknown" : "removed", key, Clip(x), null, null));
                 else if (ResultHashes.Canonical(x) == ResultHashes.Canonical(y)) same++;
-                else changes.Add(new("changed", key, Clip(x), Clip(y), Fields(x, y)));
+                else changes.Add(new(gaps.Count > 0 ? "unknown" : "changed", key, Clip(x), Clip(y), Fields(x, y)));
             }
             foreach (var (key, y) in newItems.Where(n => !oldItems.ContainsKey(n.Key)))
-                changes.Add(new(Partial(ra, ia) ? "unknown" : "added", key, null, Clip(y), null));
+                changes.Add(new(Partial(ra, ia) || gaps.Count > 0 ? "unknown" : "added", key, null, Clip(y), null));
             return Result("items", by, partial, same, changes);
         }
         var lines = TextDiff.Unified(Code(a), Code(b), a.Source.Ref, b.Source.Ref, 0).ReplaceLineEndings("\n").TrimEnd('\n').Split('\n')
@@ -103,7 +105,8 @@ public static class EvidenceInput
             else if (l.StartsWith('-')) rows.Add(new("removed", $"line {at++}", l[1..], null, null));
             else if (l.StartsWith('+')) rows.Add(new("added", $"line {bt++}", null, l[1..], null));
         }
-        bool paged = (ra?["nextOffset"] is JsonValue) || (rb?["nextOffset"] is JsonValue);
+        if (gaps.Count > 0) rows = [.. rows.Select(r => r with { Kind = "unknown" })];
+        bool paged = (ra?["nextOffset"] is JsonValue) || (rb?["nextOffset"] is JsonValue) || gaps.Count > 0 || Incomplete(ra) || Incomplete(rb);
         int oldLines = Code(a).ReplaceLineEndings("\n").TrimEnd('\n').Split('\n').Length;
         return Result("text", null, paged, Math.Max(0, oldLines - rows.Count(r => r.Kind == "removed")), rows);
 
@@ -117,7 +120,7 @@ public static class EvidenceInput
         var sb = new System.Text.StringBuilder($"{c.Old.Tool} results compared by {(c.Basis == "items" ? c.By != null ? $"item {c.By}" : "whole item" : "line")}:\n" +
             $"  old: {Describe(c.Old)}\n  new: {Describe(c.New)}\n" +
             $"{c.Same} same, {c.Changed} changed, {c.Removed} removed, {c.Added} added{(c.Unknown > 0 ? $", {c.Unknown} unknown" : "")}; {c.Completeness}.\n");
-        if (c.Completeness == "partial") sb.Append("Note: a side holds one page of its result; items absent from it are unknown, not removed or added.\n");
+        if (c.Completeness == "partial") sb.Append("Note: a side holds one page of its result, is not complete, or lacks a facet; what it does not show is unknown, not removed, added or changed.\n");
         return sb.ToString();
     }
 
@@ -154,10 +157,22 @@ public static class EvidenceInput
         catch (JsonException) { return null; }
     }
 
-    // one page of a longer result: the items past it are not known
+    // one page of a longer result, or a result that says it is not complete: the items past it are not known
     private static bool Partial(JsonObject record, JsonArray items) =>
         (record["total"] is JsonValue t && t.TryGetValue(out int total) && total > items.Count) ||
-        (record["hasMore"] is JsonValue h && h.TryGetValue(out bool more) && more) || record["nextOffset"] is JsonValue;
+        (record["hasMore"] is JsonValue h && h.TryGetValue(out bool more) && more) || record["nextOffset"] is JsonValue || Incomplete(record);
+
+    private static bool Incomplete(JsonObject? record) =>
+        record?["coverage"]?["status"] is JsonValue s && s.TryGetValue(out string? status) && status != "complete";
+
+    /// <summary>Facets unavailable on either side (by name).</summary>
+    internal static IReadOnlyList<string> FacetGaps(JsonObject? a, JsonObject? b)
+    {
+        static Dictionary<string, string> Of(JsonObject? r) => r?["coverage"]?["facets"] is JsonObject f
+            ? f.Where(x => x.Value is JsonValue).ToDictionary(x => x.Key, x => x.Value!.ToString(), StringComparer.Ordinal) : [];
+        var (fa, fb) = (Of(a), Of(b));
+        return [.. fa.Keys.Union(fb.Keys).Where(k => fa.GetValueOrDefault(k, "available") != "available" || fb.GetValueOrDefault(k, "available") != "available").Order()];
+    }
 
     private static Dictionary<string, JsonNode?> Keyed(JsonArray items, string? by)
     {

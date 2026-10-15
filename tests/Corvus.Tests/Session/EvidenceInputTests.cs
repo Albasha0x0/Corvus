@@ -78,4 +78,24 @@ public sealed class EvidenceInputTests(ITestOutputHelper output) : IDisposable
         var rerun = Text(await Call(server, "read_result", new() { ["id"] = "last:1", ["format"] = "verify" }));
         Assert.Contains("1 verified, 0 differ (each call re-run)", rerun);
     }
+
+    /// <summary>E6: a facet either side lacks, or a side that is not complete, makes the comparison's verdicts unknown.</summary>
+    [Fact]
+    public void A_missing_facet_or_an_incomplete_side_is_unknown_not_equal_or_changed()
+    {
+        Corvus.Tools.EvidenceInput.Item Side(string record) =>
+            new(new Corvus.Core.EvidenceSource("r-1", "kept", "analyze_native_function", null, [], null), "", record);
+        const string Two = """{"address":"0x1","name":"a"},{"address":"0x2","name":"b"}""";
+        var whole = Side("""{"items":[""" + Two + """],"offset":0,"total":2}""");
+        var noCallers = Side("""{"items":[""" + Two.Replace("\"b\"", "\"c\"") +
+            """],"offset":0,"total":2,"coverage":{"status":"complete","facets":{"callers":"unavailable: not decoded"}}}""");
+        var (gap, changes) = Corvus.Tools.EvidenceInput.Compare(whole, noCallers);
+        Assert.Equal("partial", gap.Completeness);
+        Assert.Equal(["unknown"], changes.Select(c => c.Kind).Distinct());
+        Assert.Equal(["callers"], Corvus.Tools.EvidenceInput.FacetGaps(null, System.Text.Json.Nodes.JsonNode.Parse("""{"coverage":{"facets":{"callers":"unavailable: x","cfg":"available"}}}""")!.AsObject()));
+
+        var stopped = Side("""{"items":[{"address":"0x1","name":"a"}],"offset":0,"total":1,"coverage":{"status":"partial"}}""");
+        var (_, absent) = Corvus.Tools.EvidenceInput.Compare(whole, stopped);
+        Assert.Equal("unknown", Assert.Single(absent).Kind);
+    }
 }

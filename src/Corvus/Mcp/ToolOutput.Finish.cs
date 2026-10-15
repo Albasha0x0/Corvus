@@ -225,6 +225,7 @@ public static partial class ToolOutput
             text = text.TrimEnd('\n') + "\n" + string.Join("\n", call.Warnings.Select(w => "Warning: " + w)) + "\n";
             if (record != null) record["warnings"] = new JsonArray(call.Warnings.Select(w => (JsonNode)JsonValue.Create(w)!).ToArray());
         }
+        if (call.Coverage == null && record != null && Stopped(record) is { } why) call.Coverage = ("partial", why, ["row-cap"]);
         if (call.Coverage is { } c)
         {
             text = $"[{(c.Status == "partial" ? "Partial" : "Coverage unknown")}: {c.Reason}]\n" + text;
@@ -236,12 +237,35 @@ public static partial class ToolOutput
                     ["limitations"] = new JsonArray(c.Limitations.Select(l => (JsonNode)JsonValue.Create(l)!).ToArray()),
                 };
         }
+        if (call.Facets is { Count: > 0 } facets)
+        {
+            var missing = facets.Where(f => f.Value != null).ToList();
+            if (missing.Count > 0) text = $"[Unavailable: {string.Join("; ", missing.Select(f => $"{f.Key} ({f.Value})"))}]\n" + text;
+            if (record != null)
+            {
+                var cov = record["coverage"] as JsonObject ?? new JsonObject { ["status"] = "complete" };
+                cov["facets"] = Facets(facets);
+                record["coverage"] = cov;
+            }
+        }
         if (call.Engine is { } en && record != null)
         {
             record["engine"] ??= en.Engine;
             if (en.Note != null) record["engineNote"] ??= en.Note;
         }
     }
+
+    /// <summary>Why a record says it stopped early (truncated, cut, incomplete, or a partial reason), else null.</summary>
+    private static string? Stopped(JsonObject record)
+    {
+        foreach (var flag in (string[])["truncated", "cut", "incomplete"])
+            if (record[flag] is JsonValue v && v.TryGetValue(out bool b) && b) return $"the result is {(flag == "cut" ? "cut short" : flag)} (its {flag} field)";
+        return record["partial"] is JsonValue p && p.TryGetValue(out string? s) && !string.IsNullOrEmpty(s) ? s : null;
+    }
+
+    /// <summary>Facets as {name: "available" or "unavailable: why"}.</summary>
+    internal static JsonObject Facets(IEnumerable<KeyValuePair<string, string?>> facets) =>
+        new(facets.Select(f => KeyValuePair.Create(f.Key, (JsonNode?)JsonValue.Create(f.Value == null ? "available" : "unavailable: " + f.Value))));
 
     /// <summary>
     /// The last guard: a part still over the budget keeps its head (text) or its first rows (record) and both name the whole

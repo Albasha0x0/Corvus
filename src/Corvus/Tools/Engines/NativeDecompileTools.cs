@@ -190,6 +190,7 @@ public sealed partial class NativeAnalysisTools
             ? await References(native!, session, TextKey(native!, session, rva, addresses) + "|refs", functionStart ?? rva, cancellationToken)
             : null;
         var item = SingleItem(native!, address!, rva, functionStart, name, single) with { Refs = objects?.Items };
+        ToolOutput.Facet("pseudocode");
         return NotesHeader(native!, rva, offset) + pushed + ToolOutput.Text(pager, single, offset, new DecompileReport(native!.Id, session.ProviderId, [item], 1, 1, 0, 0, null)
             { EngineNote = choice.Note }, maxTokens) + (offset == 0 && objects != null ? objects.Value.Text : "");
     });
@@ -420,6 +421,7 @@ public sealed partial class NativeAnalysisTools
             {
                 case "ok":
                     sb.Append(head).Append('\n').Append(texts[i]).Append('\n');
+                    ToolOutput.Facet("pseudocode");
                     break;
                 case "duplicate":
                     var first = Array.FindIndex(starts, x => x == starts[i]);
@@ -428,6 +430,7 @@ public sealed partial class NativeAnalysisTools
                 default:
                     (code, message) = errors[i] ?? (o?.ErrorCode ?? "failed", o?.Error ?? "failed");
                     sb.Append($"{head}: error {code}: {message}").Append('\n');
+                    if (status[i] == "error") ToolOutput.Facet("pseudocode", $"{inputs[i]}: {message}");
                     break;
             }
             items.Add(new DecompileItem(inputs[i], rvas[i] is { } a ? Va(a) : null, starts[i] is { } fs ? Va(fs) : null, name, status[i], code, message,

@@ -84,6 +84,18 @@ public static partial class ToolOutput
     /// <summary>The result is not complete: <paramref name="status"/> is partial or unknown; limitations are from the closed vocabulary.</summary>
     public static void Coverage(string status, string reason, params string[] limitations) => OutputCall.Current?.Coverage = (status, reason, limitations);
 
+    /// <summary>The facets a function result can have; comparisons treat a facet missing on either side as unknown.</summary>
+    public static readonly IReadOnlyList<string> FacetNames = ["pseudocode", "callers", "callees", "xrefs", "strings", "cfg"];
+
+    /// <summary>Records whether a facet of the result is available (<paramref name="unavailable"/> null) or why it is not.</summary>
+    public static void Facet(string name, string? unavailable = null)
+    {
+        if (OutputCall.Current is not { } call) return;
+        call.Facets ??= new(StringComparer.Ordinal);
+        // unavailable on any part of a batch stays unavailable
+        if (!call.Facets.TryGetValue(name, out var was) || was == null) call.Facets[name] = unavailable;
+    }
+
     /// <summary>Which engine answered, and why.</summary>
     public static void Engine(string engine, string? note) => OutputCall.Current?.Engine = (engine, note);
 

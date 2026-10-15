@@ -96,6 +96,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         {
             notes.Add(index.SupportNote ?? "instructions are not decoded for this architecture");
             ToolOutput.Coverage("partial", $"{index.Image.ArchName()} instructions are not decoded: declared functions only", "architecture-undecoded");
+            foreach (var facet in (string[])["callers", "callees", "xrefs", "cfg"]) ToolOutput.Facet(facet, $"{index.Image.ArchName()} instructions are not decoded");
         }
         if (index.AbsoluteRefsUnconfirmed) notes.Add("no relocations: absolute data references are accepted by address range alone");
         if (index.PointersUnconfirmed) notes.Add("no relocations: data pointers are runs of values that are function starts, unconfirmed");

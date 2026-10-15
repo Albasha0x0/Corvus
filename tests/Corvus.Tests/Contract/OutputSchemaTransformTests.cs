@@ -12,6 +12,30 @@ public class OutputSchemaTransformTests
     /// <summary>Output schemas in tools/list: 194.6 KB for 87 tools before the compact form (SC-11); 102,565 B for 152 tools as fields and types to depth 2; 103,008 at 156 with analyze_js; 103,300 with read_result verify checks; 103,600 for C-ENG2b; 104,000 for ARCH-1 (row types inlined instead of $ref); 104,100 for ARCH-2 (measured 104,094); 104,400 for NATIVE-1 (measured 104,351); 104,700 for WEB-1 and MANAGED-1 (measured 104,680); 105,200 for EM-3 (measured 105,143); 107,100 for DF-2 and ARCH-3 (measured 107,076); 107,200 for SL-4 and X4 (measured 107,157); 107,250 for SL-4 storage and X3 (measured 107,237); 107,300 for OI-E5 batches (measured 107,294) (Phase 4 target 110 KB).</summary>
     private const int MaxOutputSchemaTotalBytes = 107_300;
 
+    /// <summary>
+    /// MM-9: a record field that says a result stopped early is one coverage reads (truncated, cut, incomplete, partial), so
+    /// the provenance says partial; the others named here mean something else.
+    /// </summary>
+    [Fact]
+    public void Stop_fields_are_ones_coverage_reads()
+    {
+        string[] read = ["truncated", "cut", "incomplete", "partial"];
+        var other = new Dictionary<string, string>
+        {
+            ["hasMore"] = "another page exists",
+            ["complete"] = "reanalyze_native: whether the reanalysis finished",
+            ["stoppedAt"] = "emulate_native: where the emulation halted",
+            ["stoppedBy"] = "search_decompiled sets coverage itself",
+        };
+        var stopLike = new System.Text.RegularExpressions.Regex("truncat|capped|stopped|incomplete|partial|^cut$|limited|hasmore|exhaust|timedout|complete",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var unknown = new List<string>();
+        foreach (var tool in Catalog.OfThisBuild(Corvus.Core.Toolsets.All).Tools)
+            if (tool["outputSchema"]?["properties"] is JsonObject props)
+                unknown.AddRange(props.Select(p => p.Key).Where(k => stopLike.IsMatch(k) && !read.Contains(k) && !other.ContainsKey(k)).Select(k => $"{tool["name"]}.{k}"));
+        Assert.True(unknown.Count == 0, "stop-like fields coverage does not read: " + string.Join(", ", unknown));
+    }
+
     [Fact]
     public void CatalogOutputSchemasAreCompact()
     {

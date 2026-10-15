@@ -196,6 +196,15 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     }
 
     /// <summary>Collects one section's facts; an exception becomes the section's error.</summary>
+    /// <summary>The facet a dossier section shows.</summary>
+    private static string? FacetOf(string section) => section switch
+    {
+        "callers" or "callees" or "pseudocode" => section,
+        "data" => "strings",
+        "flow" => "cfg",
+        _ => null,
+    };
+
     private sealed class Section(string name, int max)
     {
         public readonly List<DossierItem> Items = [];
@@ -282,6 +291,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                 section.Error = e.Message;
             }
             built.Add(section);
+            if (FacetOf(s) is { } facet) ToolOutput.Facet(facet, section.Error);
         }
 
         var next = new List<string>

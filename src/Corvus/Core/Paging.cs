@@ -64,6 +64,9 @@ public sealed class OutputCall
 
     public (string Status, string Reason, IReadOnlyList<string> Limitations)? Coverage { get; set; }
 
+    /// <summary>Facets of a function result (pseudocode, callers, callees, xrefs, strings, cfg): null when available, else why not.</summary>
+    public SortedDictionary<string, string?>? Facets { get; set; }
+
     public (string Engine, string? Note)? Engine { get; set; }
 
     /// <summary>Cancelled by the client only; the tool's own token also ends at the call's deadline (long work can go on past it).</summary>
