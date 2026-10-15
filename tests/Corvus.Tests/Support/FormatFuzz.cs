@@ -6,8 +6,12 @@ namespace Corvus.Tests;
 /// </summary>
 internal static class FormatFuzz
 {
+    /// <summary>The quick set runs a tenth of each entry's iterations (at least 25); the full set (full.runsettings) runs them all.</summary>
+    private static readonly bool Full = Environment.GetEnvironmentVariable("CORVUS_ALL_TESTS") == "1";
+
     public static List<string> Run(byte[] seed, Action<byte[]> read, int iterations, int baseSeed = 20261011)
     {
+        if (!Full) iterations = Math.Min(iterations, Math.Max(25, iterations / 10));
         var failures = new List<string>();
         for (int i = 0; i < iterations; i++)
         {

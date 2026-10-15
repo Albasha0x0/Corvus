@@ -87,7 +87,7 @@ public sealed class StreamedSummaryTests : IDisposable
     [Fact]
     public void Har_streamed_lists_the_entries_of_the_bytes()
     {
-        var body = Convert.ToBase64String(File.ReadAllBytes(typeof(StreamedSummaryTests).Assembly.Location));
+        var body = Convert.ToBase64String(File.ReadAllBytes(Env.FixturePath));
         var har = JsonSerializer.SerializeToUtf8Bytes(new
         {
             log = new

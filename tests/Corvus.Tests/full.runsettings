@@ -2,6 +2,12 @@
 <!-- CORVUS_ALL_TESTS=1: the sweeps spread their own work over every processor and run alone in SweepCollection, after the
      parallel classes; the other classes mostly wait on engine processes and real-data reads, so several run at once (12 overloaded the engines and shared folders). -->
 <RunSettings>
+  <!-- Tells the tests they run in the full set, however it was started (fuzz entries then run every iteration). -->
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <CORVUS_ALL_TESTS>1</CORVUS_ALL_TESTS>
+    </EnvironmentVariables>
+  </RunConfiguration>
   <xUnit>
     <MaxParallelThreads>8</MaxParallelThreads>
   </xUnit>
