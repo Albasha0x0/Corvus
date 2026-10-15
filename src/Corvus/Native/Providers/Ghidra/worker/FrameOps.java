@@ -56,6 +56,27 @@ final class FrameOps {
         return sf.isParameterOffset(stackOffset) ? "arg" : "local";
     }
 
+    /** Frames of several functions (args rvas, locals) in the order asked; a function that fails is {rva, error}. */
+    static JsonElement frames(Worker w, Worker.Request r) throws Exception {
+        JsonArray out = new JsonArray();
+        for (JsonElement rva : Worker.array(r.args, "rvas")) {
+            r.monitor.checkCancelled();
+            r.args.add("rva", rva);
+            try {
+                out.add(frame(w, r));
+            }
+            catch (Worker.WorkerError e) {
+                JsonObject x = new JsonObject();
+                x.add("rva", rva);
+                x.addProperty("error", e.getMessage());
+                out.add(x);
+            }
+        }
+        JsonObject o = new JsonObject();
+        o.add("frames", out);
+        return o;
+    }
+
     /**
      * members [offset, name, type, size, kind (local, arg, special)]; locals [name, type, location, stack offset or
      * null, argument, user name, user type]; Ghidra keeps saved registers among the locals, so saved_regs is 0.

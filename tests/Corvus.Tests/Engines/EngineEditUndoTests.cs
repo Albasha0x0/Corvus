@@ -99,6 +99,35 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
     }
 
     [IdaFact]
+    public Task Frames_of_50_functions_in_IDA() => Frames("ida");
+
+    [GhidraFact]
+    public Task Frames_of_50_functions_in_Ghidra() => Frames("ghidra");
+
+    /// <summary>50 frames in one call, each row marked with its function; an address without a function is reported, not fatal.</summary>
+    private async Task Frames(string engine)
+    {
+        var rig = Setup(engine);
+        var native = rig.Native;
+        var session = await rig.Engines.Session(native, engine, null, default);
+        var fns = (await session.ListFunctionsAsync()).Where(f => f.EndRva - f.StartRva > 0x20).Take(50).ToList();
+        Assert.Equal(50, fns.Count);
+        var one = System.Diagnostics.Stopwatch.StartNew();
+        await rig.Types.GetNativeFrame(native.Id, $"0x{native.Image.ImageBase + fns[^1].StartRva:X}", engine: engine);
+        one.Stop();
+        var list = string.Join(",", fns.Select(f => $"0x{native.Image.ImageBase + f.StartRva:X}")) + ",0x1";
+        var all = System.Diagnostics.Stopwatch.StartNew();
+        var (text, call) = await EngineMeta.Run(() => rig.Types.GetNativeFrame(native.Id, list, engine: engine, limit: 5000));
+        all.Stop();
+        output.WriteLine($"one frame {one.ElapsedMilliseconds} ms, 50 frames {all.ElapsedMilliseconds} ms");
+        output.WriteLine(string.Join("\n", text.Split('\n').Where(l => !l.StartsWith("Frame of", StringComparison.Ordinal)).Take(4)));
+        var report = Assert.IsType<NativeTypeTools.FrameReport>(call.Record);
+        Assert.Equal(50, report.Frames);
+        Assert.Equal(50, report.Items.Select(r => r.Function).Distinct().Count(f => f != null) + fns.Count(f => !report.Items.Any(r => r.Function == $"0x{native.Image.ImageBase + f.StartRva:X}")));
+        Assert.Contains("no function contains rva 0x1", text);
+    }
+
+    [IdaFact]
     public Task Argument_storage_in_IDA() => ArgumentStorage("ida");
 
     [GhidraFact]

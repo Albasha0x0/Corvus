@@ -534,6 +534,9 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
 
     public Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) => GetFrameAsync(rva, true, cancellationToken);
 
+    public Task<IReadOnlyList<NativeFrameOutcome>> GetFramesAsync(IReadOnlyList<uint> rvas, bool locals, CancellationToken cancellationToken = default) =>
+        FramesAsync(rvas, locals, cancellationToken);
+
     public Task<NativeFrame> GetFrameAsync(uint rva, bool locals, CancellationToken cancellationToken = default) => locals
         ? CachedAsync(OutputCacheKinds.Frame, OutputCacheKinds.At(rva), () => FrameAsync(rva, true, cancellationToken))
         : FrameAsync(rva, false, cancellationToken);

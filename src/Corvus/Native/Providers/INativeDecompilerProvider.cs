@@ -188,6 +188,18 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     /// <summary>The frame, with the decompiler's locals only when <paramref name="locals"/> (without them nothing is decompiled).</summary>
     Task<NativeFrame> GetFrameAsync(uint rva, bool locals, CancellationToken cancellationToken = default) => GetFrameAsync(rva, cancellationToken);
 
+    /// <summary>Frames of several functions, in order; a function that fails carries its error. The engines answer in one request.</summary>
+    async Task<IReadOnlyList<NativeFrameOutcome>> GetFramesAsync(IReadOnlyList<uint> rvas, bool locals, CancellationToken cancellationToken = default)
+    {
+        var frames = new List<NativeFrameOutcome>();
+        foreach (var rva in rvas)
+        {
+            try { frames.Add(new(rva, await GetFrameAsync(rva, locals, cancellationToken).ConfigureAwait(false), null)); }
+            catch (Corvus.Core.ToolError e) { frames.Add(new(rva, null, e.Message)); }
+        }
+        return frames;
+    }
+
     /// <summary>Named types whose name contains <paramref name="filter"/> (case-insensitive), of <paramref name="kind"/> when given, paged.</summary>
     Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list types.");
@@ -665,6 +677,8 @@ public sealed record NativeTypeDetail(string Name, string Kind, long Size, strin
 public sealed record NativeFrameMember(int Offset, string Name, string Type, int Size, string Kind);
 
 /// <summary>A decompiler local: where it lives (a register, "stack" with its <see cref="Stack"/> offset), and whether the user named or typed it.</summary>
+public sealed record NativeFrameOutcome(uint Rva, NativeFrame? Frame, string? Error);
+
 public sealed record NativeLocal(string Name, string Type, string Location, int? Stack, bool IsArgument, bool UserName, bool UserType);
 
 /// <summary>

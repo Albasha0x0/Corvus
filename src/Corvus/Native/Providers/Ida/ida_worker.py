@@ -1291,6 +1291,17 @@ def frame_kind(f, frame, i, offset):
     return "arg" if ida_frame.is_funcarg_off(f, offset) else "local"
 
 
+def op_frames(args):
+    # frames of several functions in the order asked; a function that fails is {"rva", "error"}
+    out = []
+    for rva in args.get("rvas") or []:
+        try:
+            out.append(op_frame({"rva": rva, "locals": args.get("locals", True)}))
+        except Exception as e:
+            out.append({"rva": rva, "error": str(e)})
+    return {"frames": out}
+
+
 def op_frame(args):
     # members: [offset, name, type, size, kind (local, arg, special)];
     # locals: [name, type, location, stack offset or null, argument, user name, user type]
@@ -2816,7 +2827,7 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_to_many": op_xrefs_to_many, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
-       "apply_user_types": op_apply_user_types, "frame": op_frame, "types": op_types, "type": op_type, "field_xrefs": op_field_xrefs,
+       "apply_user_types": op_apply_user_types, "frame": op_frame, "frames": op_frames, "types": op_types, "type": op_type, "field_xrefs": op_field_xrefs,
        "python": op_python, "close": op_close, "sleep": op_sleep, "insn": op_insn}
 OPS.update({"pseudo_comments": op_pseudo_comments, "type_guess": op_type_guess})
 

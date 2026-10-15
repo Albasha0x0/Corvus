@@ -67,12 +67,13 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         string? Location,
         bool? Argument,
         bool? UserName,
-        bool? UserType);
+        bool? UserType,
+        string? Function = null);
 
     public sealed record FrameReport(string Image, string Engine, string Function, string Name,
         int LocalSize, int SavedRegisters, int ReturnAddressOffset, int Members, int Locals,
         string? LocalsNote,
-        IReadOnlyList<FrameRow> Items, int Offset, int Total);
+        IReadOnlyList<FrameRow> Items, int Offset, int Total, int? Frames = null);
 
     [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals", UseStructuredContent = true, OutputSchemaType = typeof(FrameReport))]
     [Description("Stack frame of a native function as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as " +
@@ -80,7 +81,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                  "address; brackets from the return address.")]
     public Task<string> GetNativeFrame(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("The function: " + NativeTools.AddressDescription)] string function,
+        [Description("The function: " + NativeTools.AddressDescription + "; several, comma-separated, in one engine request.")] string function,
         [Description(EngineDescription)] string? engine = null,
         [Description("Decompile for the locals too.")] bool locals = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
@@ -88,6 +89,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        if (function.Contains(',', StringComparison.Ordinal))
+            return await GetFrames(image, function, engine, locals, offset, limit, progress, cancellationToken);
         string? setup = null;
         if (locals && engines.OutputCache != null)
         {
@@ -112,24 +115,72 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return FrameResult(native, f, session.ProviderId, locals, offset, limit);
     });
 
-    private static string FrameResult(LoadedNative native, NativeFrame f, string engine, bool locals, int offset, int limit)
+    private const int MaxFrames = 100;
+
+    /// <summary>get_native_frame of several functions: one engine request, the rows of each frame marked with its function.</summary>
+    private async Task<string> GetFrames(string image, string function, string? engine, bool locals, int offset, int limit,
+        IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var parts = function.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length > MaxFrames) throw new ToolError(ErrorCode.InvalidArgument, $"At most {MaxFrames} functions per call, not {parts.Length}.", "split the list");
+        var (native, _, session) = await Open(image, parts[0], engine, progress, ct);
+        var rvas = new List<uint>();
+        var header = new System.Text.StringBuilder();
+        foreach (var p in parts)
+        {
+            try { rvas.Add(NativeAnalysisTools.Resolve(workspace, code, native.Id, p).Rva); }
+            catch (ToolError e) { header.Append($"{p}: {e.Message}\n"); }
+        }
+        IReadOnlyList<NativeFrameOutcome> frames;
+        using (EngineReport.Heartbeat(progress, $"{session.ProviderId} reading {Plural(rvas.Count, "frame")}"))
+            frames = await session.GetFramesAsync(rvas, locals, ct);
+        var rows = new List<FrameRow>();
+        NativeFrame? first = null;
+        foreach (var o in frames)
+        {
+            if (o.Frame is not { } f)
+            {
+                header.Append($"{Va(native, o.Rva)}: {o.Error}\n");
+                continue;
+            }
+            first ??= f;
+            var (frameRows, line, _, _) = FrameRows(native, f, session.ProviderId, locals, Va(native, f.StartRva));
+            rows.AddRange(frameRows);
+            header.Append(line);
+        }
+        if (first == null) throw new ToolError(ErrorCode.NotFound, "None of the functions has a frame: " + header.ToString().TrimEnd(), "pass function addresses or names");
+        offset = Math.Max(0, offset);
+        return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, r => $"{r.Function}  " + Row(r),
+            page => new FrameReport(native.Id, session.ProviderId, Va(native, first.StartRva), first.Name, first.LocalSize, first.SavedRegisters, first.ReturnAddressOffset,
+                first.Members.Count, first.Locals.Count, null, page, offset, rows.Count, frames.Count(f => f.Frame != null)), "row", header.ToString());
+    }
+
+    /// <summary>A frame's rows (marked with <paramref name="function"/> when several frames are listed) and its header line.</summary>
+    private static (List<FrameRow> Rows, string Header, int Named, string? LocalsNote) FrameRows(LoadedNative native, NativeFrame f, string engine, bool locals, string? function)
     {
         var (display, symbol) = NativeTools.Named(f.Name, native.Image.Format);
         var rows = new List<FrameRow>();
         foreach (var m in f.Members)
-            rows.Add(new FrameRow("member", m.Name, m.Type, m.Offset, m.Offset - f.ReturnAddressOffset, m.Size, m.Kind, null, null, null, null));
+            rows.Add(new FrameRow("member", m.Name, m.Type, m.Offset, m.Offset - f.ReturnAddressOffset, m.Size, m.Kind, null, null, null, null, function));
         var named = f.Locals.Where(l => l.Name.Length > 0).ToList();
         foreach (var l in named)
             rows.Add(new FrameRow("local", l.Name, l.Type, l.Stack, null, null, null, l.Stack is { } ? "stack" : l.Location, l.IsArgument ? true : null,
-                l.UserName ? true : null, l.UserType ? true : null));
+                l.UserName ? true : null, l.UserType ? true : null, function));
         string? localsNote = !locals ? "not asked (locals=true adds them)" : f.DecompilerError;
         var header = $"Frame of {display} at {Va(native, f.StartRva)}{(symbol.Length > 0 ? $" ({symbol[2..]})" : "")} ({engine}): {f.LocalSize} bytes of " +
                      $"locals, {f.SavedRegisters} of saved registers; return address at +0x{f.ReturnAddressOffset:X}; {Plural(f.Members.Count, "member")}, " +
                      (localsNote != null ? $"no decompiler locals ({localsNote})" : Plural(named.Count, "decompiler local")) + "\n";
+        return (rows, header, named.Count, localsNote);
+    }
+
+    private static string FrameResult(LoadedNative native, NativeFrame f, string engine, bool locals, int offset, int limit)
+    {
+        var (display, _) = NativeTools.Named(f.Name, native.Image.Format);
+        var (rows, header, namedCount, localsNote) = FrameRows(native, f, engine, locals, null);
         offset = Math.Max(0, offset);
         return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, Row,
             page => new FrameReport(native.Id, engine, Va(native, f.StartRva), display, f.LocalSize, f.SavedRegisters, f.ReturnAddressOffset,
-                f.Members.Count, named.Count, localsNote, page, offset, rows.Count), "row", header);
+                f.Members.Count, namedCount, localsNote, page, offset, rows.Count), "row", header);
     }
 
     private static string Row(FrameRow r) => r.Kind == "member"

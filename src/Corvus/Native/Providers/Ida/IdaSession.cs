@@ -484,6 +484,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     public Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) => GetFrameAsync(rva, true, cancellationToken);
 
+    public Task<IReadOnlyList<NativeFrameOutcome>> GetFramesAsync(IReadOnlyList<uint> rvas, bool locals, CancellationToken cancellationToken = default) =>
+        FramesAsync(rvas, locals, cancellationToken);
+
     // the decompiler's locals are the slow part (a decompile): only that frame is kept across processes
     public Task<NativeFrame> GetFrameAsync(uint rva, bool withLocals, CancellationToken cancellationToken = default) => withLocals
         ? CachedAsync(OutputCacheKinds.Frame, OutputCacheKinds.At(rva), () => FrameAsync(rva, true, cancellationToken))

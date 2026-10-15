@@ -446,6 +446,37 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         return results.Select(r => r!).ToList();
     }
 
+    /// <summary>Several frames: with locals, those stored come from the output cache; the rest from one "frames" request (and are stored).</summary>
+    internal async Task<IReadOnlyList<NativeFrameOutcome>> FramesAsync(IReadOnlyList<uint> rvas, bool locals, CancellationToken cancellationToken)
+    {
+        var results = new NativeFrameOutcome?[rvas.Count];
+        var missing = new List<int>();
+        string state = "";
+        for (int i = 0; i < rvas.Count; i++)
+            if (locals && TryCached<NativeFrame>(OutputCacheKinds.Frame, OutputCacheKinds.At(rvas[i]), out var cached, out state)) results[i] = new(rvas[i], cached, null);
+            else missing.Add(i);
+        if (missing.Count > 0)
+        {
+            bool quiet = Volatile.Read(ref _writesInFlight) == 0;
+            var r = await CallAsync("frames", WorkerRows.Args(("rvas", new JsonArray([.. missing.Select(i => (JsonNode)rvas[i])])), ("locals", locals)),
+                cancellationToken).ConfigureAwait(false);
+            var rows = r.GetProperty("frames").EnumerateArray().ToList();
+            for (int k = 0; k < missing.Count; k++)
+            {
+                int i = missing[k];
+                if (k >= rows.Count) results[i] = new(rvas[i], null, "the engine gave no answer");
+                else if (rows[k].TryGetProperty("error", out var error)) results[i] = new(rvas[i], null, error.GetString());
+                else
+                {
+                    var frame = WorkerRows.Frame(rows[k]);
+                    results[i] = new(rvas[i], frame, null);
+                    if (locals && quiet && state.Length > 0) StoreCached(OutputCacheKinds.Frame, OutputCacheKinds.At(rvas[i]), state, frame);
+                }
+            }
+        }
+        return [.. results.Select(r => r!)];
+    }
+
     /// <summary>An engine answer from the output cache, else from <paramref name="ask"/> and stored.</summary>
     internal async Task<T> CachedAsync<T>(string what, string key, Func<Task<T>> ask)
     {
