@@ -49,7 +49,7 @@ internal sealed class Smb2Tracker
                 }
                 facts ??= new Smb2Facts([], [], [], [], [], []);
                 uint next = BinaryPrimitives.ReadUInt32LittleEndian(smb[20..]);
-                Message(c, next > 0 && next <= smb.Length ? smb[..(int)next] : smb, facts);
+                Message(c, next >= 64 && next <= smb.Length ? smb[..(int)next] : smb, facts);
                 if (next < 64 || next > smb.Length) break;
                 m += (int)next;
             }
