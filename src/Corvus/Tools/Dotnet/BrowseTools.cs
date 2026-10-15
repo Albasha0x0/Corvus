@@ -204,7 +204,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         $"{(m.Kind != null ? $"{m.Kind,-8} " : "")}{m.Token}  {m.Signature}{(m.Il is { } n ? $"  IL {n} instr" : "")}{(m.Il2Cpp is { } s ? $"  [{s}]" : "")}";
 
     [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy", UseStructuredContent = true, OutputSchemaType = typeof(TypeHierarchy))]
-    [Description("Returns a type's base chain, all implemented interfaces, and the types deriving from (or implementing) it directly across loaded assemblies.")]
+    [Description("Base chain, interfaces and directly derived or implementing loaded types of a type.")]
     public Task<string> GetTypeHierarchy(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -308,7 +308,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     }
 
     [McpServerTool(Name = "resolve_symbol", Title = "Resolve symbol", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
-    [Description("What a symbol string or token resolves to: every match with kind, assembly, token and signature, to disambiguate before other calls.")]
+    [Description("Every match of a symbol string or token, with kind, assembly, token and signature: disambiguate before other calls.")]
     public Task<string> ResolveSymbol(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,

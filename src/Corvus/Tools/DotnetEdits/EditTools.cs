@@ -19,7 +19,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     EditJournal? journal = null, ResultStore? results = null)
 {
     [McpServerTool(Name = "rename_symbol", Title = "Rename symbol", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Rename a type, method, field, property (with its accessors) or event in memory. Other assemblies referencing the old name are not updated.")]
+    [Description("Rename a type, method, field, property (and accessors) or event in memory; references in other assemblies keep the old name.")]
     public Task<string> RenameSymbol(
         [Description(SymbolDescription)] string symbol,
         [Description("New name (for a type: the simple name without namespace).")] string newName,
@@ -154,7 +154,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, cancellationToken);
 
     [McpServerTool(Name = "diff_edits", Title = "Diff edits (before/after C#)", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Unified diff of the decompiled C# of every member the edits touched (or one edit's), before and after. Review before save_assembly.")]
+    [Description("Unified diff of the decompiled C# of each member the edits (or one edit) touched, before and after; review before save_assembly.")]
     public Task<string> DiffEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only this edit (number from list_edits).")] int? number = null,

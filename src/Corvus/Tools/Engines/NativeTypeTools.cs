@@ -1070,6 +1070,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("Show this one type in full instead of a list.")] string? name = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max rows (max 5000).")] int limit = 200,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description(EngineDescription)] string? engine = null,
         [Description("name (default), size, or ordinal (the engine's order).")] string? sort = null,
         [Description("Reverse the order.")] bool descending = false,

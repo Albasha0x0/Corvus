@@ -565,6 +565,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("Instead: matching names and comments: " + NameFilter.Description + ".")] string? search = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Rows per page (default 100).")] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

@@ -52,6 +52,7 @@ public sealed class DeviceTools(DeviceService devices)
         [Description("Android user id (default: the current one).")] int? user = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Most packages.")] int limit = 150,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var r = devices.Packages(serial, query, user, offset, ToolSupport.ClampLimit(limit), cancellationToken);
@@ -128,7 +129,7 @@ public sealed class DeviceTools(DeviceService devices)
         ToolOutput.Edit(new EditOutcome(true, false, [new EditChange(c.Kind, c.Package != null ? $"{c.Serial}:{c.Package}" : c.Serial, null, c.VersionCode)], []), c.Text);
 
     [McpServerTool(Name = "uninstall_android_package", Title = "Uninstall package from device", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Removes an app from a device, with its data unless keepData. Changes the device: needs the server option --allow-device-changes.")]
+    [Description("Remove an app (and its data unless keepData) from a device; needs the server option --allow-device-changes.")]
     public Task<string> UninstallAndroidPackage(
         [Description("Package name, e.g. com.example.app.")] string package,
         [Description("Keep the app's data and cache.")] bool keepData = false,

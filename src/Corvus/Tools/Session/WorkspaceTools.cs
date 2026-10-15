@@ -274,6 +274,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         [Description("Id, name or path substring (case-insensitive).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Rows per page (default 100).")] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         offset = Math.Max(0, offset);
@@ -374,7 +375,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }, cancellationToken);
 
     [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceChange))]
-    [Description("Add a directory for resolving referenced assemblies that are not loaded (an application or framework folder), for decompilation, navigation and C# patching.")]
+    [Description("Add a folder (application or framework) where unloaded referenced assemblies are resolved for decompilation, navigation and C# patching.")]
     public Task<string> AddSearchDirectory([Description("Directory path.")] string directory, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {

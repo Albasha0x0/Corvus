@@ -129,7 +129,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     }
 
     [McpServerTool(Name = "search_constants", Title = "Search numeric constants", UseStructuredContent = true, OutputSchemaType = typeof(ConstantList))]
-    [Description("Find a numeric constant (magic number, opcode id, flag, crypto constant) in IL literals, const and enum values, attribute arguments and static array data (lookup and crypto tables, read as the array's element type).")]
+    [Description("Find a number (magic, opcode id, flag, crypto constant) in IL literals, const and enum values, attribute arguments and static arrays (read as their element type).")]
     public Task<string> SearchConstants(
         [Description("Decimal, 0x hex, negative or floating-point.")] string value,
         [Description(AssemblyFilterDescription)] string? assembly = null,

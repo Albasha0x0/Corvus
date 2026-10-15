@@ -76,6 +76,7 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
         [Description("Text substring (case-insensitive).")] string? text = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Notes per page (default 50).")] int limit = 50,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var st = string.IsNullOrWhiteSpace(status) ? "open" : status.Trim().ToLowerInvariant();

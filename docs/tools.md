@@ -80,7 +80,7 @@ Structured output: `ids`, `text`.
 
 **Add reference search directory** (edit, idempotent)
 
-Add a directory for resolving referenced assemblies that are not loaded (an application or framework folder), for decompilation, navigation and C# patching.
+Add a folder (application or framework) where unloaded referenced assemblies are resolved for decompilation, navigation and C# patching.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -100,6 +100,7 @@ Loaded assemblies and native images: ids, versions, paths, Il2Cpp dummy / ReadyT
 | `filter` | string |  |  | Id, name or path substring (case-insensitive). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Rows per page (default 100). |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `searchDirectories`, `backgroundIndexing`, `container`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -260,7 +261,7 @@ Structured output: `items`, `offset`, `total`, `code`, `nextOffset`, `totalChars
 
 **Type hierarchy** (read-only, idempotent)
 
-Returns a type's base chain, all implemented interfaces, and the types deriving from (or implementing) it directly across loaded assemblies.
+Base chain, interfaces and directly derived or implementing loaded types of a type.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -276,7 +277,7 @@ Structured output: `type`, `baseChain`, `interfaces`, `items`, `offset`, `total`
 
 **Resolve symbol** (read-only, idempotent)
 
-What a symbol string or token resolves to: every match with kind, assembly, token and signature, to disambiguate before other calls.
+Every match of a symbol string or token, with kind, assembly, token and signature: disambiguate before other calls.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -364,7 +365,7 @@ Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `li
 
 **Search numeric constants** (read-only, idempotent)
 
-Find a numeric constant (magic number, opcode id, flag, crypto constant) in IL literals, const and enum values, attribute arguments and static array data (lookup and crypto tables, read as the array's element type).
+Find a number (magic, opcode id, flag, crypto constant) in IL literals, const and enum values, attribute arguments and static arrays (read as their element type).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -594,6 +595,7 @@ Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mute
 | `types` | string[] |  |  | Only these types. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResultId`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -614,6 +616,7 @@ Embedded content of an assembly or of every assembly in a container (resources, 
 | `includeMedia` | boolean |  |  | Also list and save images (else counted). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -629,6 +632,7 @@ Find types and members by name in every managed assembly inside a container (bun
 | `query` | string | yes |  | Name or part of a name. |
 | `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, dart, electron, endpoint, file, packet. |
 | `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
 | `capture` | string |  |  | kind=endpoint: a HAR, mitmproxy, .saz or pcap capture to join. |
 
@@ -671,7 +675,7 @@ Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `com
 
 **Rename symbol** (destructive)
 
-Rename a type, method, field, property (with its accessors) or event in memory. Other assemblies referencing the old name are not updated.
+Rename a type, method, field, property (and accessors) or event in memory; references in other assemblies keep the old name.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -811,7 +815,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `limit`, `totalExact`
 
 **Diff edits (before/after C#)** (read-only, idempotent)
 
-Unified diff of the decompiled C# of every member the edits touched (or one edit's), before and after. Review before save_assembly.
+Unified diff of the decompiled C# of each member the edits (or one edit) touched, before and after; review before save_assembly.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1521,6 +1525,7 @@ Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pse
 | `timeoutSeconds` | integer |  | `60` | Max 600. |
 | `offset` | integer |  |  | First function (nextOffset). |
 | `limit` | integer |  | `100` | Max hits (max 2000). |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `engine`, `pattern`, `items`, `functionsTotal`, `offset`, `functionsSearched`, `failed`, `nextOffset`, `hasMore`, `totalExact`, `stoppedBy`, `engineNote`.
 
@@ -1732,6 +1737,7 @@ Native edits of an image in the order made, each with the editId undo_native_edi
 | `search` | string |  |  | Instead: matching names and comments: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Rows per page (default 100). |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `items`, `total`, `layers`, `offset`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2069,6 +2075,7 @@ Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists 
 | `text` | string |  |  | Text substring (case-insensitive). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` | Notes per page (default 50). |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2204,6 +2211,7 @@ Named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare
 | `name` | string |  |  | Show this one type in full instead of a list. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Max rows (max 5000). |
+| `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `sort` | string |  |  | name (default), size, or ordinal (the engine's order). Values: name, size. |
 | `descending` | boolean |  |  | Reverse the order. |
@@ -2356,6 +2364,7 @@ Compiled resources of an Android package (resources.arsc, or a bundle's resource
 | `config` | string |  |  | Only this configuration (pt-rBR, or default). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most rows. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `types`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2389,6 +2398,7 @@ Classes defined in an Android package's DEX code (every classes*.dex): descripto
 | `package` | string |  |  | Only this package and its subpackages. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most classes. |
+| `maxTokens` | integer |  |  |  |
 | `mapping` | string |  |  | R8 / ProGuard mapping.txt: shows and accepts original names; kept per package. |
 
 Structured output: `items`, `offset`, `total`, `notes`, `packages`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2415,7 +2425,7 @@ Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `inte
 
 **Disassemble DEX** (read-only, idempotent)
 
-Smali (baksmali layout) of a DEX method or class; a class starts with its method ids and sizes. format=annotated adds code offsets and units.
+Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2459,6 +2469,7 @@ Search DEX code. kind=string: literals with the method and offset of each use; t
 | `query` | string | yes |  | Case-insensitive substring or * / ? pattern; for const a number. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most hits. |
+| `maxTokens` | integer |  |  |  |
 | `mapping` | string |  |  | R8 / ProGuard mapping.txt: shows and accepts original names; kept per package. |
 
 Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2477,6 +2488,7 @@ Cross-references in DEX code, with the method and code offset of each instructio
 | `kind` | string |  |  | How to read target (default auto; string: taken literally). Values: auto, class, method, field, string. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most references. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2492,6 +2504,7 @@ Pairs across a Java / .NET bridge. .NET for Android (Xamarin / MAUI): Java wrapp
 | `path` | string |  |  | The package whose assemblies to read; optional when they are loaded. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most pairs. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `query`, `direction`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2509,6 +2522,7 @@ Java native methods of an Android package paired with their code in lib/<abi>/*.
 | `kind` | string |  |  | Only this kind. Values: static_export, registered, unresolved, export_only. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `75` | Most rows. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `libraries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2552,6 +2566,7 @@ Packages installed on a device (pm list packages -f -U -i): name, APK path, uid 
 | `user` | integer |  |  | Android user id (default: the current one). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `150` | Most packages. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `serial`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2636,7 +2651,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`,
 
 **Uninstall package from device** (destructive, idempotent, open-world)
 
-Removes an app from a device, with its data unless keepData. Changes the device: needs the server option --allow-device-changes.
+Remove an app (and its data unless keepData) from a device; needs the server option --allow-device-changes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -60,6 +60,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         [Description("Max 600.")] int timeoutSeconds = 60,
         [Description("First function (nextOffset).")] int offset = 0,
         [Description("Max hits (max 2000).")] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

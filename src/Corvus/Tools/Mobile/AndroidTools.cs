@@ -128,6 +128,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Only this configuration (pt-rBR, or default).")] string? config = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most rows.")] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var r = packages.Resources(path, type, name, config, offset, ClampLimit(limit));
@@ -162,6 +163,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Only this package and its subpackages.")] string? package = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most classes.")] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description(MappingDescription)] string? mapping = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
@@ -228,7 +230,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "disassemble_dex", Title = "Disassemble DEX", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Smali (baksmali layout) of a DEX method or class; a class starts with its method ids and sizes. format=annotated adds code offsets and units.")]
+    [Description("Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets.")]
     public Task<string> DisassembleDex(
         [Description(CodeDescription)] string path,
         [Description("Method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)) or class (pkg.C, Lpkg/C;).")] string symbol,
@@ -277,6 +279,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("The package whose assemblies to read; optional when they are loaded.")] string? path = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most pairs.")] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var r = map.Map(symbol, path, cancellationToken);
@@ -296,6 +299,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Only this kind.")] string? kind = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most rows.")] int limit = JniBindings.DefaultLimit,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
@@ -317,6 +321,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Case-insensitive substring or * / ? pattern; for const a number.")] string query,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most hits.")] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description(MappingDescription)] string? mapping = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
@@ -339,6 +344,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("How to read target (default auto; string: taken literally).")] string? kind = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most references.")] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {

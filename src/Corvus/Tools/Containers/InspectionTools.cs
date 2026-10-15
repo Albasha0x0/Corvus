@@ -96,6 +96,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("Only these types.")] string[]? types = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
         var report = await Task.Run(() => inspection.ExtractStrings(assembly, path, types, cancellationToken), cancellationToken);
@@ -120,6 +121,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("Also list and save images (else counted).")] bool includeMedia = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
         var report = await Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText, includeMedia), cancellationToken);

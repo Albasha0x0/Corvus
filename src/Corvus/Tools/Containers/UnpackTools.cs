@@ -39,6 +39,7 @@ public sealed class UnpackTools(UnpackService unpacker)
         [Description("Name or part of a name.")] string query,
         [Description("Restrict to this kind; omit for all members (events included).")] string? kind = null,
         [Description(LimitDescription)] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("kind=endpoint: a HAR, mitmproxy, .saz or pcap capture to join.")] string? capture = null,
         CancellationToken cancellationToken = default)
