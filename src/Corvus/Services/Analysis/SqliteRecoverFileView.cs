@@ -3,8 +3,8 @@ using Corvus.Core;
 namespace Corvus.Services.Analysis;
 
 /// <summary>
-/// view=sqlite-recover: deleted rows carved from a SQLite database (freed cells in live pages, freelist pages, -wal frames
-/// that are not the applied copy of their page), each validated by its record header against a table's columns and
+/// view=sqlite-recover: deleted rows carved from a SQLite database (freed cells in live pages of rowid and WITHOUT ROWID
+/// tables, freelist pages, -wal frames that are not the applied copy of their page, overflow chains), each validated by its record header against a table's columns and
 /// marked as a recovered candidate with its source. table= keeps one table's rows; offset= and limit= page them. The carving
 /// runs only when this view is asked for; otherwise the view says where deleted rows may be.
 /// </summary>

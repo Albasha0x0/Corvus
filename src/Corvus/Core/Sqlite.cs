@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.IO.MemoryMappedFiles;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -16,13 +17,19 @@ public sealed record SqliteRow(long? RowId, IReadOnlyList<object?> Values);
 
 /// <summary>
 /// A table's shape from its CREATE TABLE: columns in declaration order with their type affinity, the INTEGER PRIMARY KEY
-/// column (a rowid alias, -1 when none) and, for a WITHOUT ROWID table, the column each stored value belongs to
-/// (primary key columns are stored first).
+/// column (a rowid alias, -1 when none) and the column each stored value belongs to: primary key columns first in a
+/// WITHOUT ROWID table, VIRTUAL generated columns left out (they are computed, not stored).
 /// </summary>
 public sealed record SqliteTable(string Name, long RootPage, IReadOnlyList<string> Columns, IReadOnlyList<char> Affinities, int RowIdAlias, bool WithoutRowId,
     IReadOnlyList<int> StoredOrder)
 {
-    /// <summary>The values of a stored row in declaration order, the rowid alias filled in.</summary>
+    /// <summary>Each column's DEFAULT literal (null when none or not a literal): a row stored before ALTER TABLE ADD COLUMN reads it.</summary>
+    public IReadOnlyList<object?> Defaults { get; init; } = [];
+
+    /// <summary>Generated columns by declaration index: 'V' (VIRTUAL, not stored) or 'S' (STORED).</summary>
+    public IReadOnlyDictionary<int, char> Generated { get; init; } = new Dictionary<int, char>();
+
+    /// <summary>The values of a stored row in declaration order: the rowid alias filled in, fields past a short record read as their default.</summary>
     public object?[] Shape(SqliteRow row)
     {
         var values = new object?[Math.Max(Columns.Count, row.Values.Count)];
@@ -32,6 +39,8 @@ public sealed record SqliteTable(string Name, long RootPage, IReadOnlyList<strin
             // a REAL column stores an integral value as an integer; it reads back as a real
             values[c] = row.Values[i] is long l && c < Affinities.Count && Affinities[c] == 'R' ? (double)l : row.Values[i];
         }
+        for (int i = row.Values.Count; i < StoredOrder.Count; i++)
+            if (StoredOrder[i] < Defaults.Count) values[StoredOrder[i]] = Defaults[StoredOrder[i]];
         if (RowIdAlias >= 0 && values[RowIdAlias] == null && row.RowId is { } id) values[RowIdAlias] = id;
         return values;
     }
@@ -228,14 +237,19 @@ public sealed partial class SqliteDatabase
     private static SqliteTable TableOf(SqliteSchemaEntry e)
     {
         var shape = Shape(e.Sql);
-        var order = Enumerable.Range(0, shape.Columns.Count).ToList();
+        var order = Enumerable.Range(0, shape.Columns.Count).Where(i => shape.Columns[i].Generated != 'V').ToList();
         if (shape.WithoutRowId && shape.PrimaryKey.Count > 0)
         {
             var pk = shape.PrimaryKey.Select(k => shape.Columns.FindIndex(c => c.Name.Equals(k, StringComparison.OrdinalIgnoreCase))).Where(i => i >= 0).Distinct().ToList();
             order = [.. pk, .. order.Where(i => !pk.Contains(i))];
         }
-        return new SqliteTable(e.Name, e.RootPage, [.. shape.Columns.Select(c => c.Name)], [.. shape.Columns.Select(c => Affinity(c.Type))],
-            shape.WithoutRowId ? -1 : shape.Alias, shape.WithoutRowId, order);
+        var affinities = shape.Columns.Select(c => Affinity(c.Type)).ToList();
+        return new SqliteTable(e.Name, e.RootPage, [.. shape.Columns.Select(c => c.Name)], affinities,
+            shape.WithoutRowId ? -1 : shape.Alias, shape.WithoutRowId, order)
+        {
+            Defaults = [.. shape.Columns.Select((c, i) => c.Default is { } d ? WithAffinity(d, affinities[i]) : null)],
+            Generated = shape.Columns.Select((c, i) => (c.Generated, i)).Where(g => g.Generated != '\0').ToDictionary(g => g.i, g => g.Generated),
+        };
     }
 
     /// <summary>Type affinity by SQLite's rules: I(nteger), T(ext), B(lob or none), R(eal), N(umeric).</summary>
@@ -478,18 +492,25 @@ public sealed partial class SqliteDatabase
         return bytes == null ? null : new SqliteRow(rowid, Record(bytes));
     }
 
-    /// <summary>The first <see cref="MaxPayload"/> bytes of a payload, following its overflow chain.</summary>
-    private byte[]? Payload(byte[] page, int at, long size, bool table)
+    /// <summary>The bytes of a payload of <paramref name="size"/> kept on its B-tree page (the rest is on overflow pages).</summary>
+    internal long Local(long size, bool table)
     {
         int u = _usable;
         long x = table ? u - 35 : (u - 12) * 64 / 255 - 23;
+        if (size <= x) return size;
         long m = (u - 12) * 32 / 255 - 23;
-        long local = size;
-        if (size > x)
-        {
-            long k = m + (size - m) % (u - 4);
-            local = k <= x ? k : m;
-        }
+        long k = m + (size - m) % (u - 4);
+        return k <= x ? k : m;
+    }
+
+    /// <summary>
+    /// The first <see cref="MaxPayload"/> bytes of a payload, following its overflow chain; a chain that leaves the file is
+    /// an issue, or with <paramref name="carved"/> (a freed cell) ends the payload there, or null at its first page.
+    /// </summary>
+    internal byte[]? Payload(byte[] page, int at, long size, bool table, bool carved = false)
+    {
+        int u = _usable;
+        long local = Local(size, table);
         if (at + local > u) return null;
         var buffer = new byte[(int)Math.Min(size, MaxPayload)];
         int take = (int)Math.Min(local, buffer.Length);
@@ -501,7 +522,11 @@ public sealed partial class SqliteDatabase
         long maxPages = (size - local) / (u - 4) + 1;
         for (long n = 0; filled < buffer.Length && n < maxPages; n++)
         {
-            if (next < 1 || next > PageCount || Raw(next) is not { } o) { Issues.Add($"overflow page {next} is outside the file"); return buffer[..filled]; }
+            if (next < 1 || next > PageCount || Raw(next) is not { } o)
+            {
+                if (!carved) Issues.Add($"overflow page {next} is outside the file");
+                return carved && n == 0 ? null : buffer[..filled];
+            }
             int chunk = Math.Min(u - 4, buffer.Length - filled);
             o.AsSpan(4, chunk).CopyTo(buffer.AsSpan(filled));
             filled += chunk;
@@ -582,9 +607,9 @@ public sealed partial class SqliteDatabase
         return ([.. shape.Columns.Select(c => c.Name)], shape.Alias);
     }
 
-    private sealed record TableShape(List<(string Name, string Type)> Columns, int Alias, List<string> PrimaryKey, bool WithoutRowId);
+    private sealed record TableShape(List<(string Name, string Type, object? Default, char Generated)> Columns, int Alias, List<string> PrimaryKey, bool WithoutRowId);
 
-    /// <summary>Columns with declared types, the rowid alias, the primary key's columns and WITHOUT ROWID, from CREATE TABLE.</summary>
+    /// <summary>Columns with declared types, defaults and generated kinds, the rowid alias, the primary key's columns and WITHOUT ROWID, from CREATE TABLE.</summary>
     private static TableShape Shape(string? sql)
     {
         var shape = new TableShape([], -1, [], false);
@@ -625,7 +650,8 @@ public sealed partial class SqliteDatabase
             var rest = part[m.Length..];
             if (alias < 0 && IntegerPrimaryKey.IsMatch(rest)) alias = shape.Columns.Count;
             if (ColumnPrimaryKey.IsMatch(rest)) shape.PrimaryKey.Add(name);
-            shape.Columns.Add((name, DeclaredType.Match(rest).Value.Trim()));
+            var (dflt, generated) = Clauses(rest);
+            shape.Columns.Add((name, DeclaredType.Match(rest).Value.Trim(), dflt, generated));
         }
         bool withoutRowId = close > 0 && WithoutRowIdClause.IsMatch(sql[(close + 1)..]);
         // a table-level PRIMARY KEY(x) on an INTEGER column is also a rowid alias
@@ -635,6 +661,77 @@ public sealed partial class SqliteDatabase
             if (i >= 0 && shape.Columns[i].Type.Equals("INTEGER", StringComparison.OrdinalIgnoreCase)) alias = i;
         }
         return shape with { Alias = alias, WithoutRowId = withoutRowId };
+    }
+
+    /// <summary>A column definition's DEFAULT literal (null when absent or not a literal) and generated kind ('V', 'S', or '\0').</summary>
+    private static (object? Default, char Generated) Clauses(string rest)
+    {
+        // quoted text blanked, so keywords inside strings and names are not matched
+        var blank = rest.ToCharArray();
+        char quote = '\0';
+        for (int i = 0; i < blank.Length; i++)
+        {
+            char c = blank[i];
+            if (quote != '\0') { if (c == quote) quote = '\0'; else blank[i] = ' '; continue; }
+            if (c is '\'' or '"' or '`') quote = c;
+            else if (c == '[') quote = ']';
+        }
+        var b = new string(blank);
+        object? dflt = DefaultClause.Match(b) is { Success: true } d ? Literal(rest, d.Index + d.Length) : null;
+        char generated = '\0';
+        if (GeneratedClause.Match(b) is { Success: true } g)
+        {
+            int depth = 0, at = g.Index + g.Length - 1;
+            for (; at < b.Length; at++)
+                if (b[at] == '(') depth++;
+                else if (b[at] == ')' && --depth == 0) break;
+            generated = at < b.Length && StoredKeyword.IsMatch(b[(at + 1)..]) ? 'S' : 'V';
+        }
+        return (dflt, generated);
+    }
+
+    /// <summary>A literal at <paramref name="at"/> (a signed number, string, blob, NULL, TRUE or FALSE, optionally in parentheses); null otherwise.</summary>
+    private static object? Literal(string s, int at)
+    {
+        var m = DefaultLiteral.Match(s, at);
+        if (!m.Success || m.Index != at) return null;
+        if (m.Groups["str"].Success) return m.Groups["str"].Value.Replace("''", "'", StringComparison.Ordinal);
+        if (m.Groups["dq"].Success) return m.Groups["dq"].Value.Replace("\"\"", "\"", StringComparison.Ordinal);
+        if (m.Groups["blob"].Success)
+        {
+            var hex = m.Groups["blob"].Value;
+            if (hex.Length % 2 != 0) return null;
+            var bytes = Convert.FromHexString(hex);
+            return new SqliteBlob(bytes.Length, bytes[..Math.Min(bytes.Length, 64)]);
+        }
+        if (m.Groups["kw"].Success)
+            return m.Groups["kw"].Value.ToUpperInvariant() switch { "TRUE" => 1L, "FALSE" => 0L, _ => null };
+        var num = m.Groups["num"].Value.Replace(" ", "", StringComparison.Ordinal);
+        bool negative = num.StartsWith('-');
+        var digits = num.TrimStart('+', '-');
+        var inv = CultureInfo.InvariantCulture;
+        if (digits.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return ulong.TryParse(digits[2..], NumberStyles.HexNumber, inv, out var h) ? negative ? -(long)h : (long)h : null;
+        if (!digits.Contains('.') && !digits.Contains('e') && !digits.Contains('E') && long.TryParse(num, NumberStyles.AllowLeadingSign, inv, out var l))
+            return l;
+        return double.TryParse(num, NumberStyles.Float, inv, out var x) ? x : null;
+    }
+
+    /// <summary>A default value converted by the column's affinity, as SQLite converts it when it reads the default.</summary>
+    private static object? WithAffinity(object value, char affinity)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        switch (affinity, value)
+        {
+            case ('I' or 'N', string s) when long.TryParse(s.Trim(), NumberStyles.AllowLeadingSign, inv, out var l): return l;
+            case ('I' or 'N', string s) when double.TryParse(s.Trim(), NumberStyles.Float, inv, out var x): return WithAffinity(x, affinity);
+            case ('I' or 'N', double x) when x == Math.Floor(x) && Math.Abs(x) < 9.2e18: return (long)x;
+            case ('R', long l): return (double)l;
+            case ('R', string s) when double.TryParse(s.Trim(), NumberStyles.Float, inv, out var x): return x;
+            case ('T', long l): return l.ToString(inv);
+            case ('T', double x): return x.ToString("R", inv);
+            default: return value;
+        }
     }
 
     private static string Unquote(string name)
@@ -650,5 +747,11 @@ public sealed partial class SqliteDatabase
     private static readonly Regex ColumnPrimaryKey = new(@"\bPRIMARY\s+KEY\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
     private static readonly Regex DeclaredType = new(@"^\s*(?:(?!(?:CONSTRAINT|PRIMARY|NOT|NULL|UNIQUE|CHECK|DEFAULT|COLLATE|REFERENCES|GENERATED|AS)\b)[A-Za-z_][\w]*\s*)*(?:\([^)]*\))?",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+    private static readonly Regex DefaultClause = new(@"\bDEFAULT\s*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+    private static readonly Regex DefaultLiteral = new(
+        @"\(?\s*(?:'(?<str>(?:[^']|'')*)'|""(?<dq>(?:[^""]|"""")*)""|[xX]'(?<blob>[0-9a-fA-F]*)'|(?<kw>NULL|TRUE|FALSE)\b|(?<num>[+-]?\s*(?:0[xX][0-9a-fA-F]+|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)))",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+    private static readonly Regex GeneratedClause = new(@"(?:\bGENERATED\s+ALWAYS\s+)?\bAS\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+    private static readonly Regex StoredKeyword = new(@"^\s*STORED\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
     private static readonly Regex WithoutRowIdClause = new(@"\bWITHOUT\s+ROWID\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
 }

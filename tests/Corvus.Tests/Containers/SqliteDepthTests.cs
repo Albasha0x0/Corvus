@@ -41,7 +41,8 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
             Assert.Equal(expected.Count, ours.Count);
             for (int i = 0; i < expected.Count; i++)
                 for (int c = 0; c < expected[i].Length; c++)
-                    Assert.True(Same(expected[i][c], ours[i][c]), $"{t.Name} row {i} column {t.Columns[c]}: {expected[i][c]} vs {ours[i][c]}");
+                    if (t.Generated.GetValueOrDefault(c) == 'V') Assert.Null(ours[i][c]); // computed, not stored
+                    else Assert.True(Same(expected[i][c], ours[i][c]), $"{t.Name} row {i} column {t.Columns[c]}: {expected[i][c]} vs {ours[i][c]}");
         }
         Assert.Empty(db.Issues);
     }
@@ -117,6 +118,32 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
             "UPDATE log SET level = 9 WHERE id % 10 = 0 AND id < 480;",
         ], whileOpen: () => CopyOpen(live, copy));
         return copy;
+    }
+
+    [Fact]
+    public void Added_columns_read_their_defaults_and_generated_columns_their_stored_values()
+    {
+        var path = Database("altered.db",
+            "CREATE TABLE p(id INTEGER PRIMARY KEY, name TEXT, qty INTEGER, price REAL, total REAL GENERATED ALWAYS AS (qty * price) STORED, " +
+            "label TEXT AS (upper(name)) VIRTUAL, note TEXT DEFAULT 'none');",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 400) INSERT INTO p(name, qty, price) SELECT 'item ' || i, i % 9, i * 0.25 FROM n;",
+            "ALTER TABLE p ADD COLUMN flag INTEGER DEFAULT 7;",
+            "ALTER TABLE p ADD COLUMN tag TEXT DEFAULT 'it''s';",
+            "ALTER TABLE p ADD COLUMN ratio REAL DEFAULT -2;",
+            "ALTER TABLE p ADD COLUMN raw BLOB DEFAULT x'00ff';",
+            "ALTER TABLE p ADD COLUMN num NUMERIC DEFAULT '12';",
+            "ALTER TABLE p ADD COLUMN twice INTEGER AS (id * 2) VIRTUAL;",
+            "ALTER TABLE p ADD COLUMN plain;",
+            "INSERT INTO p(name, qty, price, flag, tag, plain) VALUES ('late', 3, 1.5, 0, 'new', 'x');",
+            "CREATE TABLE w(k TEXT, v INTEGER, PRIMARY KEY(k)) WITHOUT ROWID;",
+            "INSERT INTO w VALUES ('a', 1), ('b', 2);",
+            "ALTER TABLE w ADD COLUMN z DEFAULT 3.5;",
+            "INSERT INTO w VALUES ('c', 3, 'zz');");
+        var db = OpenFile(path, out var sources);
+        using (sources) AssertTablesMatch(db, path);
+        var p = db.Table("p")!;
+        Assert.Equal(["label", "twice"], p.Generated.Where(g => g.Value == 'V').Select(g => p.Columns[g.Key]).Order());
+        Assert.Equal('S', p.Generated[p.Columns.ToList().IndexOf("total")]);
     }
 
     [Fact]
@@ -196,6 +223,51 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
         Assert.All(facts.Rows, r => Assert.Equal("msg", r.Table));
     }
 
+    [Fact]
+    public void Deleted_rows_are_carved_from_without_rowid_tables_overflow_pages_and_rows_before_added_columns()
+    {
+        string[] build =
+        [
+            "PRAGMA secure_delete=OFF;",
+            "CREATE TABLE kv(k TEXT, n INTEGER, v TEXT, PRIMARY KEY(k, n)) WITHOUT ROWID;",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 3000) INSERT INTO kv SELECT 'key' || (i % 50), i, 'value ' || i || substr('lorem ipsum dolor sit amet consectetur', 1, i % 30) FROM n;",
+            "CREATE TABLE doc(id INTEGER PRIMARY KEY, title TEXT, body TEXT);",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 300) INSERT INTO doc(title, body) SELECT 'doc ' || i, 'doc ' || i || ' ' || replace(hex(zeroblob(3000 + i * 7)), '00', 'ab') FROM n;",
+            "CREATE TABLE note(id INTEGER PRIMARY KEY, text TEXT);",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1000) INSERT INTO note(text) SELECT 'note ' || i FROM n;",
+            "ALTER TABLE note ADD COLUMN pinned INTEGER DEFAULT 0;",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200) INSERT INTO note(text, pinned) SELECT 'late note ' || i, 1 FROM n;",
+        ];
+        var path = Database("carve.db", build);
+        var gone = new Dictionary<string, List<object?[]>>
+        {
+            ["kv"] = NativeSqlite.Query(path, "SELECT k, n, v FROM kv WHERE n % 10 = 3"),
+            ["doc"] = NativeSqlite.Query(path, "SELECT title, body FROM doc WHERE id % 5 = 0"),
+            ["note"] = NativeSqlite.Query(path, "SELECT text, pinned FROM note WHERE id % 10 = 7"),
+        };
+        NativeSqlite.Write(path, ["PRAGMA secure_delete=OFF;", "DELETE FROM kv WHERE n % 10 = 3;", "DELETE FROM doc WHERE id % 5 = 0;", "DELETE FROM note WHERE id % 10 = 7;"]);
+        var bytes = File.ReadAllBytes(path);
+        var db = SqliteDatabase.Open(bytes)!;
+        var notes = new List<string>();
+        var rows = db.Recover(notes);
+        output.WriteLine(string.Join("; ", notes));
+        var skip = new Dictionary<string, int> { ["kv"] = 0, ["doc"] = 1, ["note"] = 1 }; // the rowid alias
+        foreach (var (table, deleted) in gone)
+        {
+            // a row can come back only while its bytes are in the file: B-tree rebalancing rewrites pages and drops freed cells
+            var expected = deleted.Select(Key).ToHashSet();
+            var present = deleted.Where(r => bytes.AsSpan().IndexOf(System.Text.Encoding.UTF8.GetBytes(((string)r[table == "kv" ? 2 : table == "doc" ? 1 : 0]!)[..Math.Min(24, ((string)r[table == "kv" ? 2 : table == "doc" ? 1 : 0]!).Length)])) >= 0)
+                .Select(Key).ToHashSet();
+            var carved = rows.Where(r => r.Table == table).Select(r => Key([.. r.Values.Skip(skip[table])])).ToList();
+            int found = expected.Count(carved.Contains);
+            output.WriteLine($"{table}: {found} of {expected.Count} deleted rows recovered ({present.Count} still in the file); {carved.Count} candidates; " +
+                             string.Join(", ", rows.Where(r => r.Table == table).GroupBy(r => r.Method).Select(g => $"{g.Key} {g.Count()}")));
+            Assert.True(found >= present.Count * 0.9, $"{table}: {found} of {present.Count}");
+            Assert.True(carved.Count(expected.Contains) >= carved.Count * 0.95, $"{table}: {carved.Count(expected.Contains)} of {carved.Count} candidates are deleted rows");
+        }
+        Assert.Contains(rows, r => r.Method == "record, overflow pages");
+    }
+
     private static string Key(object?[] row) => string.Join("|", row.Select(v => v is double d ? d.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : v?.ToString() ?? "NULL"));
 
     [Fact]
@@ -228,6 +300,11 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
             d?.Recover([]);
             if (d?.Table("msg") is { } t) d.Rows(t.RootPage, 150, 20);
         }, 1000));
+        var spilled = NativeSqlite.Build("PRAGMA page_size=512;", "PRAGMA secure_delete=OFF;", "CREATE TABLE kv(k TEXT, n INTEGER, v TEXT, PRIMARY KEY(k, n)) WITHOUT ROWID;",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) INSERT INTO kv SELECT 'k' || (i % 7), i, 'v' || i FROM n;",
+            "CREATE TABLE doc(id INTEGER PRIMARY KEY, body TEXT);", "INSERT INTO doc(body) VALUES (hex(zeroblob(700))), (hex(zeroblob(900))), ('short');",
+            "ALTER TABLE doc ADD COLUMN pinned INTEGER DEFAULT 0;", "DELETE FROM kv WHERE n % 4 = 1;", "DELETE FROM doc WHERE id < 3;");
+        failures.AddRange(FormatFuzz.Run(spilled, b => SqliteDatabase.Open(b)?.Recover([]), 500));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
     }
 }
