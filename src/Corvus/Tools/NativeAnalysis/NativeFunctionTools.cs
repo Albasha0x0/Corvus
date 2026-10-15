@@ -56,7 +56,8 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     public sealed record DossierPart(string Query, string? Address, string? Name, long Size, string? End, IReadOnlyList<DossierSection> Sections, string? Error);
 
     /// <summary>Records of the dossiers whose text the pager holds, by the same key, with the warnings and coverage a hit replays.</summary>
-    private static readonly Dictionary<string, (FunctionDossier Report, string[] Warnings, (string, string, IReadOnlyList<string>)? Coverage)> Reports = [];
+    private static readonly Dictionary<string, (FunctionDossier Report, string[] Warnings, (string, string, IReadOnlyList<string>)? Coverage,
+        KeyValuePair<string, string?>[] Facets)> Reports = [];
 
     private static readonly string[] AllSections = ["identity", "signature", "frame", "callers", "callees", "data", "constants", "flow", "annotations", "params", "pseudocode"];
     private static readonly string[] DefaultSections = ["identity", "signature", "frame", "callers", "callees", "data", "flow", "annotations"];
@@ -126,6 +127,8 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                 {
                     foreach (var w in hit.Warnings) ToolOutput.Warn(w);
                     if (hit.Coverage is { } c) call?.Coverage = c;
+                    // the facets the build reported, so a repeat answers the same record
+                    foreach (var (name, unavailable) in hit.Facets) ToolOutput.Facet(name, unavailable);
                     return (cached, hit.Report);
                 }
             int warned = call?.Warnings.Count ?? 0;
@@ -147,7 +150,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             lock (Reports)
             {
                 if (Reports.Count >= 64) Reports.Clear();
-                Reports[key] = (built.Report, call?.Warnings.Skip(warned).ToArray() ?? [], call?.Coverage);
+                Reports[key] = (built.Report, call?.Warnings.Skip(warned).ToArray() ?? [], call?.Coverage, call?.Facets?.ToArray() ?? []);
             }
             return built;
         }, cancellationToken);

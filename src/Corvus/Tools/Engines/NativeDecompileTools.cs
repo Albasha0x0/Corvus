@@ -132,6 +132,7 @@ public sealed partial class NativeAnalysisTools
         {
             EngineReport.Answered(choice, engines);
             EngineReport.Cached(1, 0);
+            ToolOutput.Facet("pseudocode");
             return NotesHeader(native!, rva, offset) + answered.Header + ToolOutput.Text(pager, answered.Text, offset,
                 new DecompileReport(native!.Id, choice.Engine, [SingleItem(native, address!, rva, answered.Start, answered.Name, answered.Text)], 1, 1, 0, 0, null)
                     { EngineNote = choice.Note }, maxTokens);

@@ -197,6 +197,19 @@ public sealed class FunctionDossierTests : IDisposable
     }
 
     [Fact]
+    public async Task A_repeated_call_answers_the_same_record_with_its_facets()
+    {
+        var path = Sample(_dir);
+        await using var server = await InProcessServer.StartAsync();
+        await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = path });
+        var args = new Dictionary<string, object?> { ["image"] = path, ["address"] = "Helper" };
+        var first = (await server.Client.CallToolAsync("analyze_native_function", args)).StructuredContent!.Value.GetRawText();
+        var again = (await server.Client.CallToolAsync("analyze_native_function", args)).StructuredContent!.Value.GetRawText();
+        Assert.Contains("\"facets\"", first);
+        Assert.Equal(first, again);
+    }
+
+    [Fact]
     public async Task Every_section_reports_its_facts_with_totals()
     {
         var (ws, tools) = Rig();
