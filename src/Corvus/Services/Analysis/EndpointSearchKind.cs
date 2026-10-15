@@ -5,7 +5,7 @@ using Corvus.Core.Pcap;
 namespace Corvus.Services.Analysis;
 
 /// <summary>
-/// search_container kind=endpoint on a HAR, mitmproxy or pcap / pcapng capture: each request template once (method, host, path with
+/// search_container kind=endpoint on a HAR, mitmproxy, Fiddler .saz or pcap / pcapng capture: each request template once (method, host, path with
 /// numeric and id segments as {n} / {id}, query names), with its request count and statuses. Values are never shown.
 /// </summary>
 internal sealed partial class EndpointSearchKind : IContainerSearchKind
@@ -38,9 +38,9 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
             yield break;
         }
         List<CapturedResponse>? requests = Captures.LooksLikeHar(data) ? Captures.ReadHar(data)
-            : Captures.LooksLikeFlows(data) ? Captures.ReadFlows(data, [], ct) : null;
+            : Captures.LooksLikeFlows(data) ? Captures.ReadFlows(data, [], ct) : Saz.Looks(data) ? Saz.Read(data, ct) : null;
         if (requests == null) yield break;
-        var groups = requests.GroupBy(r => Template(r.Method, r.Url)).OrderBy(g => g.Key.Host, StringComparer.Ordinal).ThenBy(g => g.Key.Text, StringComparer.Ordinal);
+        var groups = requests.GroupBy(r => r.Method == "CONNECT" ? (Host: r.Url, Text: $"CONNECT {r.Url}") : Template(r.Method, r.Url)).OrderBy(g => g.Key.Host, StringComparer.Ordinal).ThenBy(g => g.Key.Text, StringComparer.Ordinal);
         foreach (var g in groups)
         {
             ct.ThrowIfCancellationRequested();
