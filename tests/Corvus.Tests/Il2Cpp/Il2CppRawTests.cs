@@ -362,6 +362,50 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         return result;
     }
 
+    [Fact]
+    public void MetadataAloneIsTakenWithoutABinary_AndAnUnreadableOneSaysWhy()
+    {
+        Directory.CreateDirectory(_dir.File("alone"));
+        var path = Metadata(Path.Combine("alone", "global-metadata.dat"), 0xFAB11BAF, 29, 0x400);
+        Assert.Throws<ToolError>(() => Il2CppGameFiles.Find(path));
+        var files = Assert.IsType<Il2CppGameFiles>(Il2CppGameFiles.Find(path, metadataOnly: true));
+        Assert.Equal("", files.Binary);
+        using var ws = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
+        var error = Assert.Throws<ToolError>(() => new Il2CppRawLoader(ws).Load(files, loadBinary: true, null, default, _dir.File("cache")));
+        Assert.Equal(ErrorCode.MalformedInput, error.Code);
+        Assert.Contains("could not be read without the binary", error.Message);
+        Assert.Contains("Tried: Unity", error.Message);
+        Assert.Empty(ws.Assemblies);
+    }
+
+    /// <summary>The real game's metadata copied alone: the same images, types, methods and fields as the read with the binary.</summary>
+    [RequiresRealDataFact(GameVariable)]
+    [Trait("Speed", "Slow")]
+    public void RealMetadataAloneMatchesTheReadWithTheBinary()
+    {
+        var files = Il2CppGameFiles.Find(RealData.Path(GameVariable)) ?? throw new InvalidOperationException("not an Il2Cpp game");
+        var alone = _dir.File(Path.Combine("alone-real", Il2CppGameFiles.MetadataFileName));
+        Directory.CreateDirectory(Path.GetDirectoryName(alone)!);
+        File.Copy(files.Metadata, alone);
+        var cache = _dir.File("il2cpp-cache");
+        using var metaWs = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
+        var watch = Stopwatch.StartNew();
+        var meta = new Il2CppRawLoader(metaWs).Load(Il2CppGameFiles.Find(alone, metadataOnly: true)!, loadBinary: true, null, default, cache);
+        output.WriteLine($"metadata alone: {watch.Elapsed.TotalSeconds:0.0} s\n{Il2CppRawLoader.Describe(meta)}");
+        using var fullWs = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
+        var full = new Il2CppRawLoader(fullWs).Load(files, loadBinary: false, null, default, cache);
+        Assert.Null(meta.Binary);
+        Assert.Empty(meta.Model.Unreadables);
+        Assert.Equal((full.Model.Images, full.Model.Types, full.Model.MethodDefinitions, full.Model.Fields),
+            (meta.Model.Images, meta.Model.Types, meta.Model.MethodDefinitions, meta.Model.Fields));
+        Assert.Equal(full.Model.LiteralValues.Length, meta.Model.LiteralValues.Length);
+        // Simple names: nesting comes from the declaring type index with the binary and from the nestedTypes section without it.
+        List<string> Names(AssemblyWorkspace ws, bool full) => ws.Read(() => ws.Assemblies.Where(a => a.Module.Assembly?.Name != Il2CppDummyBuilder.AttributeAssembly)
+            .SelectMany(a => a.Module.GetTypes()).Select(t => full ? t.FullName : t.Name.String).Order(StringComparer.Ordinal).ToList());
+        Assert.Equal(Names(fullWs, false), Names(metaWs, false));
+        output.WriteLine("nested differently: " + string.Join(", ", Names(fullWs, true).Except(Names(metaWs, true)).Take(10)));
+    }
+
     private const string GameVariable = "CORVUS_IL2CPP_GAME";
     private const string DumpVariable = "CORVUS_IL2CPP_GAME_DUMP";
 

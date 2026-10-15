@@ -7,6 +7,8 @@ No external dumper is needed: load_assembly the game folder or its global-metada
 dump of it works too), or a mobile build: an .apk/.xapk/.aab (libil2cpp.so; slice= picks the ABI), an .ipa or .app (UnityFramework),
 macOS .app or Linux GameAssembly.so. The built-in reader (metadata v24-39) makes dummy assemblies plus the script and literal data, cached
 per user. Unreadable metadata is an error with a reason; items it could not read are listed by reason in the load report.
+global-metadata.dat with no binary beside it still loads: images, types, nesting, methods with parameter names, fields,
+properties, events, tokens and searchable string literals; signature types show as TypeInBinary, with no addresses.
 Dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets; slot=N for the method implementing a vtable slot),
 find_method_by_address (native address -> method), export_il2cpp_symbols (IDA/Ghidra scripts + C struct header).
 With Il2CppDumper's script.json next to a DummyDll folder, functions are bounded by the next function start, generic

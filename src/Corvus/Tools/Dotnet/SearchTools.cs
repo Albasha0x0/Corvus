@@ -75,7 +75,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
             AppendLiteral(text, l, inScope, uses);
             page.Add((new StringEntry(Format.Clip(l.Value, ValueClip), "il2cpp")
             {
-                SlotRva = $"0x{l.Address:X}",
+                SlotRva = l.Address != 0 ? $"0x{l.Address:X}" : null,
                 Clipped = l.Value.Length > ValueClip ? true : null,
                 LoadedBy = l.Uses?.SelectMany(u => u.Methods.Count > 0 ? u.Methods.Take(3).Select(m => Format.MemberLabel(m.Method)) : [$"RVA 0x{u.Function:X}"]).Take(uses).ToList(),
             }, text.ToString().ReplaceLineEndings("\n").TrimEnd('\n').TrimStart(' ').Replace("\n      ", "\n  ")));
@@ -101,7 +101,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     private static void AppendLiteral(StringBuilder sb, Il2CppStringService.LiteralMatch l, HashSet<LoadedAssembly> scope, int maxUses)
     {
         sb.AppendLine($"  {Format.Literal(Format.Clip(l.Value, 200))}");
-        sb.Append($"      Il2Cpp literal, slot RVA 0x{l.Address:X}");
+        sb.Append(l.Address != 0 ? $"      Il2Cpp literal, slot RVA 0x{l.Address:X}" : "      Il2Cpp literal (metadata read without the binary: no slot)");
         if (l.Uses == null) { sb.AppendLine(); return; }
         if (l.Uses.Count == 0) { sb.AppendLine("; no code loads it"); return; }
         sb.AppendLine($"; loaded by {Plural(l.Uses.Count, "function")}:");

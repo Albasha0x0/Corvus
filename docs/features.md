@@ -133,6 +133,15 @@ cache), an extracted Android package, an `.ipa` or iOS `.app` (`UnityFramework`;
 does not find the code registration, it is found from the module list (Unity 6 armeabi-v7a), or built from the module array when
 the game fills it at run time (Unity 2021.3 armeabi-v7a, 2023.2 Linux; no generic method bodies then); 32-bit ARM builds that still
 fail report `registration_not_found_armv7` / `armv7_unreadable` and point to the arm64-v8a build.
+
+`global-metadata.dat` loaded with no binary beside it (a file pulled from a device or a memory dump of the metadata alone)
+still gives the inventory, in the same dummy-assembly form the other tools read: images, types with flags, nesting (from the
+metadata's nested-type table), value type or enum, generic parameters; methods with flags and parameter names; fields,
+properties, events and metadata tokens; and every string literal for `search_strings`. Each Unity sub-version layout of the
+header version is tried and the first whose names and ranges read back consistently is kept. Types a signature names live
+in the binary, so they show as `TypeInBinary`, and there are no addresses or field offsets. On a v31 title (159 images,
+31,540 types, 230,177 methods) the read takes 6 s and gives the same images, types, methods, fields and literals as the read
+with the binary.
 Il2CppDumper / Cpp2IL output folders keep working as below.
 
 With only the dummy DLLs, the known function starts are the dummy methods' `[Address]` RVAs; `find_method_by_address`

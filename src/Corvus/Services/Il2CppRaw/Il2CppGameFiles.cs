@@ -32,9 +32,9 @@ public sealed record Il2CppGameFiles(string Binary, string Metadata, string? Uni
     /// (Frameworks/UnityFramework.framework/UnityFramework or the main executable, Data/Managed/Metadata), or the metadata
     /// with the binary beside it. The path is the game folder, the metadata or the binary. <paramref name="slice"/> is the
     /// Android ABI (default arm64-v8a, armeabi-v7a, x86_64, x86) or the Mach-O slice. Throws NotFound when one half is
-    /// there and the other is not.
+    /// there and the other is not, unless <paramref name="metadataOnly"/> takes metadata without a binary (Binary is then "").
     /// </summary>
-    public static Il2CppGameFiles? Find(string path, string? slice = null)
+    public static Il2CppGameFiles? Find(string path, string? slice = null, bool metadataOnly = false)
     {
         var full = Path.GetFullPath(path);
         Candidate? found = null;
@@ -64,6 +64,8 @@ public sealed record Il2CppGameFiles(string Binary, string Metadata, string? Uni
         if (metadata == null)
             throw new ToolError(ErrorCode.NotFound, $"Found {binary} but no {MetadataFileName} (looked in <Game>_Data/il2cpp_data/Metadata, assets/bin/Data/Managed/Metadata, Data/Managed/Metadata and beside it).",
                 $"pass the {MetadataFileName} path, with the binary beside it or in its game folder");
+        if (binary == null && metadataOnly)
+            return new Il2CppGameFiles("", metadata, null, data ?? DataDirectoryOf(metadata)) { Platform = platform };
         if (binary == null)
             throw new ToolError(ErrorCode.NotFound, $"Found {metadata} but no game binary ({string.Join(", ", BinaryNames)}) beside it or in the game folder.",
                 "put the game binary (or a memory dump of it under its name) beside the metadata, or pass the game folder");

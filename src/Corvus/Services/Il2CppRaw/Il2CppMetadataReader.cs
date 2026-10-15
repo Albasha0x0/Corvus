@@ -24,7 +24,7 @@ public static class Il2CppMetadataReader
 {
     public const int MinVersion = 24, MaxVersion = 39;
     private const uint Magic = 0xFAB11BAF;
-    private static readonly object Gate = new();
+    internal static readonly object Gate = new();
     private const int MaxLibraryMessages = 50;
 
     /// <param name="BinaryIdentity">The binary's build id (ELF build-id, Mach-O UUID), else the SHA-256 of its file.</param>
@@ -240,7 +240,7 @@ public static class Il2CppMetadataReader
     }
 
     /// <summary>The Unity versions to read the metadata as: the game's own when found, else every sub-version layout of the header version.</summary>
-    private static List<(UnityVersion, string)> UnityVersions(Il2CppGameFiles files, int headerVersion, List<string> notes)
+    internal static List<(UnityVersion, string)> UnityVersions(Il2CppGameFiles files, int headerVersion, List<string> notes)
     {
         var list = new List<(UnityVersion, string)>();
         try

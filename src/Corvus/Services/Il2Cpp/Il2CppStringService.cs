@@ -67,7 +67,8 @@ public sealed class Il2CppStringService
         if (dir == null) return null;
         if (!_located.TryGetValue(dir, out var files))
             _located[dir] = files = Il2CppDumpFiles.Locate(dir);
-        if (files == null || _il2cpp.GetIndex(asm).Count == 0) return null;
+        // A built-in read names its model; metadata read without the binary has no addresses but still has literals.
+        if (files == null || (_il2cpp.GetIndex(asm).Count == 0 && files.Model == null)) return null;
         if (!_dumps.TryGetValue(files.Directory, out var dump) || dump.Stamp != files.Stamp)
             _dumps[files.Directory] = dump = new Il2CppStringIndex(files);
         return dump;
@@ -281,17 +282,19 @@ public sealed class Il2CppStringIndex
             else if (Files.ScriptJson != null) new ScriptJsonReader { String = list.Add }.Read(source);
             else
             {
-                // Literals without a slot cannot be tied to code; the model lists them as unreadable items.
+                // Literals without a slot cannot be tied to code; the model lists them as unreadable items. Metadata read
+                // without the binary has no slots at all: every literal is kept, at slot 0.
                 var model = Il2CppRawLoader.Model(source);
+                bool metadataOnly = model.BinaryPath.Length == 0;
                 for (int i = 0; i < model.LiteralValues.Length; i++)
-                    if (model.LiteralSlots[i] != 0) list.Add(new ScriptString(model.LiteralSlots[i], model.LiteralValues[i]));
+                    if (model.LiteralSlots[i] != 0 || metadataOnly) list.Add(new ScriptString(model.LiteralSlots[i], model.LiteralValues[i]));
             }
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
         {
             throw new ToolError(ErrorCode.IoError, $"Cannot read {source}: {ex.Message}");
         }
-        list.Sort((a, b) => a.Address.CompareTo(b.Address));
+        list = list.OrderBy(s => s.Address).ToList(); // stable: slotless literals keep metadata order
         var values = list.Select(s => s.Value).ToArray();
         var addresses = list.Select(s => s.Address).ToArray();
         var bySlot = new Dictionary<ulong, int>(addresses.Length);

@@ -145,7 +145,7 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
         foreach (var (entry, marker) in games)
         {
             string input = marker.Package ?? marker.Metadata;
-            if (SessionFileOf("il2cpp", input, dir) is { } file && Sha256(marker.Binary) is { } binarySha)
+            if (marker.Binary.Length > 0 && SessionFileOf("il2cpp", input, dir) is { } file && Sha256(marker.Binary) is { } binarySha)
             {
                 il2cpp.Add(new SessionIl2Cpp(file, marker.Binary, binarySha, marker.Slice));
                 continue;

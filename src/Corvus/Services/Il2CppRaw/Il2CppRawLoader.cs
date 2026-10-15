@@ -59,11 +59,11 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
         return read;
     }
 
-    private static string Stamp(string path) => new FileInfo(path) is { Exists: true } f ? $"{f.Length}:{f.LastWriteTimeUtc.Ticks}" : "-";
+    private static string Stamp(string path) => path.Length > 0 && new FileInfo(path) is { Exists: true } f ? $"{f.Length}:{f.LastWriteTimeUtc.Ticks}" : "-";
 
     private static string Key(Il2CppGameFiles files)
     {
-        var text = $"{CacheFormat}|{Path.GetFullPath(files.Binary).ToLowerInvariant()}|{Stamp(files.Binary)}|{Path.GetFullPath(files.Metadata).ToLowerInvariant()}|{Stamp(files.Metadata)}|{files.Slice}";
+        var text = $"{CacheFormat}|{(files.Binary.Length > 0 ? Path.GetFullPath(files.Binary).ToLowerInvariant() : "")}|{Stamp(files.Binary)}|{Path.GetFullPath(files.Metadata).ToLowerInvariant()}|{Stamp(files.Metadata)}|{files.Slice}";
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
     }
 
@@ -105,7 +105,8 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
             try
             {
                 Directory.CreateDirectory(staging);
-                var output = Il2CppMetadataReader.Read(files, Path.Combine(staging, DummyFolder), progress, ct);
+                var output = files.Binary.Length == 0 ? Il2CppMetadataOnly.Read(files, Path.Combine(staging, DummyFolder), progress, ct)
+                    : Il2CppMetadataReader.Read(files, Path.Combine(staging, DummyFolder), progress, ct);
                 model = output.Model;
                 notes.AddRange(output.Notes);
                 progress?.Invoke("saving the model");
@@ -141,7 +142,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
         var report = workspace.LoadDirectory(dummy, recursive: false);
         LoadedNative? native = null;
         string? binaryProblem = null;
-        if (loadBinary)
+        if (loadBinary && files.Binary.Length > 0)
         {
             try { native = workspace.LoadAny(files.Binary, files.Slice).Native; }
             catch (ToolError ex) { binaryProblem = ex.Message; }
@@ -186,6 +187,19 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     {
         var m = r.Model;
         var sb = new StringBuilder();
+        if (r.Files.Binary.Length == 0)
+        {
+            sb.AppendLine($"Read Il2Cpp metadata {r.Files.Metadata} without the game binary{(r.FromCache ? " — from the cache" : "")}:");
+            sb.AppendLine($"  metadata v{m.HeaderVersion} (read as {m.MetadataVersion:0.##}, layout of Unity {m.UnityVersion}, {m.UnityVersionSource})");
+            sb.AppendLine($"  {m.Images} images, {m.Types} types, {m.MethodDefinitions} methods, {m.Fields} fields, {m.LiteralValues.Length} string literals");
+            sb.AppendLine($"  dummy assemblies: loaded {r.Load.Loaded.Count} from {r.DummyDirectory}" + (r.Load.Skipped.Count > 0 ? $", {r.Load.Skipped.Count} not loaded" : ""));
+            sb.AppendLine($"  names, flags, nesting, generic and parameter names and tokens are the metadata's; every type a signature names is " +
+                          $"{Il2CppMetadataOnly.Placeholder} (those types, method addresses and field offsets are in the binary)");
+            sb.AppendLine(m.Unreadables.Count == 0 ? "  unreadable items: none" : $"  unreadable items: {m.Unreadables.Count} (e.g. {string.Join("; ", m.Unreadables.Take(3).Select(u => $"{u.Item}: {u.Reason}"))})");
+            foreach (var note in r.Notes.Take(12)) sb.AppendLine($"  note: {Format.Clip(note, 400)}");
+            sb.Append("Next: list_types / search_symbols / get_type_info / search_strings on these assemblies; load the game binary beside the metadata for types, addresses and offsets.");
+            return sb.ToString();
+        }
         sb.AppendLine($"Read Il2Cpp game {r.Files.Binary}{(r.Files.Slice != null ? $" [{r.Files.Slice}]" : "")} + {r.Files.Metadata} with the built-in reader (LibCpp2IL){(r.FromCache ? " — from the cache" : "")}:");
         if (r.Files.Package != null) sb.AppendLine($"  {r.Files.Platform} build extracted from {r.Files.Package}");
         else if (r.Files.Platform != "windows") sb.AppendLine($"  {r.Files.Platform} build");

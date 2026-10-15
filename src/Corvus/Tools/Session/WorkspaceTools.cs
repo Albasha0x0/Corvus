@@ -149,7 +149,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                            "summarize_file tells what it holds; list_assemblies with path lists the .NET assemblies a Xamarin / MAUI / Unity Mono package carries");
             return (Il2CppGameFiles.Find(root, slice) ?? throw new ToolError(ErrorCode.NotFound, $"{full} holds Il2Cpp metadata but no game binary.")) with { Package = full };
         }
-        if (File.Exists(full)) return Il2CppGameFiles.IsMetadataFile(full) ? Il2CppGameFiles.Find(full, slice) : null;
+        // The metadata file itself also reads alone; a folder with only metadata stays an ordinary folder load.
+        if (File.Exists(full)) return Il2CppGameFiles.IsMetadataFile(full) ? Il2CppGameFiles.Find(full, slice, metadataOnly: true) : null;
         if (!Directory.Exists(full)) return null;
         try { return Il2CppGameFiles.Find(full, slice); }
         catch (ToolError e) when (e.Code == ErrorCode.NotFound) { return null; } // half a game: an ordinary folder load, with the layout hints
