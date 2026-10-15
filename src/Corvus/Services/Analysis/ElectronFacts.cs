@@ -179,7 +179,7 @@ internal static class ElectronInspector
             int deps = root.TryGetProperty("dependencies", out var d) && d.ValueKind == JsonValueKind.Object ? d.EnumerateObject().Count() : 0;
             return new ElectronPackage(Str("name"), Str("productName"), Str("version"), main, found, deps);
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException) // InvalidOperationException: invalid UTF-8 in a string
         {
             notes.Add($"package.json is not valid JSON ({ex.Message}).");
             return null;

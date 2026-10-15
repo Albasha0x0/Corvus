@@ -3,14 +3,5 @@
 Native.Annotations.SavedNameLayer
 Native.ApiSetSchema
 Native.Patching.NativePatchSet
-Services.Analysis.AndroidFileView
-Services.Analysis.AppleFileView
-Services.Analysis.ElectronFileView
-Services.Analysis.GoFileView
-Services.Analysis.NativeFileView
-Services.Analysis.PlistFileView
-Services.Analysis.ProtobufFileView
-Services.Analysis.SqliteRecoverFileView
-Services.Analysis.WasmFileView
 Services.Il2CppBinaryLayout
 Services.MappedPeLayout

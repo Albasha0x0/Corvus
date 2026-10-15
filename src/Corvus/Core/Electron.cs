@@ -216,7 +216,7 @@ public static class Electron
                 if (item.ValueKind == JsonValueKind.Object && Str(item, "file") is { } file && Str(item, "value") is { } hash)
                     result.Add(new DeclaredHash(source, file, Str(item, "alg") ?? "SHA256", hash));
         }
-        catch (JsonException) { }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException) { } // InvalidOperationException: invalid UTF-8 in a string
         return result;
 
         static string? Str(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

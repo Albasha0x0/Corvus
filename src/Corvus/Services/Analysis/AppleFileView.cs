@@ -216,10 +216,14 @@ internal sealed class AppleFileView : IFileSummaryView
                 Read = (relative, max) =>
                 {
                     if (!entries.TryGetValue(relative, out var e) || (e.Length > max && max > 64)) return null;
-                    using var s = e.Open();
-                    var buffer = new byte[Math.Min(e.Length, max)];
-                    s.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
-                    return buffer;
+                    try
+                    {
+                        using var s = e.Open();
+                        var buffer = new byte[Math.Min(e.Length, max)];
+                        s.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+                        return buffer;
+                    }
+                    catch (InvalidDataException) { return null; } // a damaged entry reads as a missing one
                 },
             };
         }
