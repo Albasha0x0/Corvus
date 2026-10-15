@@ -582,10 +582,13 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     /// Runs a script in one transaction within <paramref name="seconds"/>, committed only when it returns normally, and saves
     /// the program after it: the script is not journaled (a restart could not replay it), its committed changes are on disk.
     /// </summary>
-    internal async Task<NativeScriptResult> RunJavaAsync(string code, double seconds, CancellationToken cancellationToken = default)
+    internal async Task<NativeScriptResult> RunJavaAsync(string code, double seconds, CancellationToken cancellationToken = default,
+        string? name = null, IReadOnlyList<string>? args = null, string? userDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(code);
-        var r = await CallAsync("script", WorkerRows.Args(("code", code), ("timeout", seconds)), cancellationToken, saves: true,
+        var request = WorkerRows.Args(("code", code), ("timeout", seconds), ("name", name), ("user_dir", userDirectory));
+        if (args is { Count: > 0 }) request["args"] = new System.Text.Json.Nodes.JsonArray([.. args.Select(a => (System.Text.Json.Nodes.JsonNode?)a)]);
+        var r = await CallAsync("script", request, cancellationToken, saves: true,
             timeout: TimeSpan.FromSeconds(seconds + 30)).ConfigureAwait(false);
         return new NativeScriptResult(null, WorkerRows.Text(r.GetProperty("stdout")) ?? "", WorkerRows.Text(r.GetProperty("stderr")) ?? "",
             WorkerRows.Text(r.GetProperty("error")));

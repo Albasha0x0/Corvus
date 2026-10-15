@@ -59,6 +59,14 @@ final class ScriptOps {
      */
     static JsonElement run(Worker w, Worker.Request r) throws Exception {
         String code = r.args.has("code") ? r.args.get("code").getAsString() : "";
+        String[] scriptArgs = new String[0];
+        if (r.args.has("args") && r.args.get("args").isJsonArray()) {
+            var list = r.args.getAsJsonArray("args");
+            scriptArgs = new String[list.size()];
+            for (int i = 0; i < scriptArgs.length; i++) scriptArgs[i] = list.get(i).getAsString();
+        }
+        if (r.args.has("name") && !r.args.get("name").isJsonNull()) code = installed(r.args.get("name").getAsString(),
+            r.args.has("user_dir") && !r.args.get("user_dir").isJsonNull() ? r.args.get("user_dir").getAsString() : null);
         double timeout = r.args.has("timeout") ? r.args.get("timeout").getAsDouble() : 120;
         String key = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(code.getBytes(StandardCharsets.UTF_8))).substring(0, 16);
         File dir = new File(System.getProperty("user.home"), "scripts" + File.separator + key);
@@ -94,6 +102,7 @@ final class ScriptOps {
                 if (compiled == null) throw new CompileError(error.substring("compile: ".length()));
                 GhidraScript script = (GhidraScript) compiled.getDeclaredConstructor().newInstance();
                 script.setSourceFile(new ResourceFile(file));
+                script.setScriptArgs(scriptArgs);
                 GhidraState state = new GhidraState(null, w.project.getProject(), w.program, new ProgramLocation(w.program, w.program.getImageBase()), null, null);
                 script.execute(state, new ScriptControls(outWriter, errWriter, r.monitor));
                 committed = true;
@@ -129,6 +138,26 @@ final class ScriptOps {
         o.add("result", null);
         o.addProperty("committed", committed);
         return o;
+    }
+
+    /**
+     * The source of an installed script: by file name in Ghidra's script directories, then in the user's; a Python script is
+     * unsupported (PyGhidra runs Python only in a JVM it starts itself).
+     */
+    private static String installed(String name, String userDir) throws Exception {
+        String file = name.trim();
+        if (file.contains("/") || file.contains("\\") || file.contains("..")) throw new Worker.WorkerError("invalid_argument", "name is a script file name, not a path: " + name);
+        if (file.endsWith(".py"))
+            throw new Worker.WorkerError("unsupported", "Python scripts run through PyGhidra, which needs the JVM it starts; this worker runs Java scripts (" + file + ")");
+        if (!file.endsWith(".java")) file += ".java";
+        java.util.List<File> dirs = new java.util.ArrayList<>();
+        for (ResourceFile d : ghidra.app.script.GhidraScriptUtil.getSystemScriptDirectories()) dirs.add(d.getFile(false));
+        if (userDir != null) dirs.add(new File(userDir));
+        for (File d : dirs) {
+            File f = d == null ? null : new File(d, file);
+            if (f != null && f.isFile()) return Files.readString(f.toPath(), StandardCharsets.UTF_8);
+        }
+        throw new Worker.WorkerError("not_found", "no script " + file + " in Ghidra's script directories" + (userDir != null ? " or " + userDir : ""));
     }
 
     /** A GhidraScript class around a run() body; import lines move to the top of the file. */

@@ -96,12 +96,15 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     private const int MaxScriptBytes = 1 << 20;
 
     [McpServerTool(Name = "ghidra_script", Title = "Run a Ghidra script on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
-    [Description("Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first " +
-                 "(currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved; an exception rolls it back. " +
+    [Description("Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, run()'s body with imports first " +
+                 "(currentProgram, println, FlatProgramAPI), or name= an installed script (Ghidra's script folders, then <data>/ghidra_scripts) " +
+                 "with args. One transaction, committed when the script returns, then saved; an exception rolls it back; a repeat skips compiling. " +
                  "Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.")]
     public Task<string> GhidraScript(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Java source: a class extending GhidraScript, or statements for run().")] string code,
+        [Description("Java source: a class extending GhidraScript, or statements for run().")] string? code = null,
+        [Description("Instead of code: an installed script's file name, e.g. CountFunctions.java.")] string? name = null,
+        [Description("With name: the script's arguments (getScriptArgs).")] string[]? args = null,
         [Description("Seconds before the script is cancelled (1-3600).")] int timeoutSeconds = 120,
         [Description("Default auto.")] string? engine = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
@@ -112,6 +115,8 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         if (!options.GhidraScripting)
             throw new ToolError(ErrorCode.Unsupported, "ghidra_script is disabled on this server.",
                 $"start the server with {ServerOptions.GhidraScriptingOption} or set {ServerOptions.GhidraScriptingVariable}=1 to allow scripts");
+        if (string.IsNullOrWhiteSpace(code) == string.IsNullOrWhiteSpace(name))
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass code or name.", "code=<Java>, or name=<installed script file>");
         if (timeoutSeconds is < 1 or > 3600)
             throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {timeoutSeconds} is outside 1-3600.", "timeoutSeconds=120");
         var id = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? "ghidra" : engine.Trim();
@@ -126,7 +131,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         if (types != null) await types.EnsureAsync(native, session, cancellationToken);
         if (userTypes != null) await userTypes.EnsureAsync(native, session, cancellationToken);
         var r = session is Native.Providers.Ghidra.GhidraSession ghidra
-            ? await ghidra.RunJavaAsync(code ?? "", timeoutSeconds, cancellationToken)
+            ? await ghidra.RunJavaAsync(code ?? "", timeoutSeconds, cancellationToken, name, args, Native.Providers.DataFolder.Combine("ghidra_scripts"))
             : await session.RunScriptAsync(code ?? "", false, cancellationToken);
         NativeUserTypePush.Touch(session);
         return Outcome(native.Id, "ghidra", r, r.Error == null, allowError, "the script failed (changes rolled back)");

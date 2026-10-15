@@ -2263,12 +2263,14 @@ Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `sa
 
 **Run a Ghidra script on a native image** (destructive, open-world, long-running)
 
-Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first (currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved; an exception rolls it back. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.
+Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, run()'s body with imports first (currentProgram, println, FlatProgramAPI), or name= an installed script (Ghidra's script folders, then <data>/ghidra_scripts) with args. One transaction, committed when the script returns, then saved; an exception rolls it back; a repeat skips compiling. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
-| `code` | string | yes |  | Java source: a class extending GhidraScript, or statements for run(). |
+| `code` | string |  |  | Java source: a class extending GhidraScript, or statements for run(). |
+| `name` | string |  |  | Instead of code: an installed script's file name, e.g. CountFunctions.java. |
+| `args` | string[] |  |  | With name: the script's arguments (getScriptArgs). |
 | `timeoutSeconds` | integer |  | `120` | Seconds before the script is cancelled (1-3600). |
 | `engine` | string |  |  | Default auto. Values: auto, ghidra. |
 | `maxTokens` | integer |  |  | Page size in tokens. |

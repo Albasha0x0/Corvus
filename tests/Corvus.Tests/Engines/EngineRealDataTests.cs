@@ -73,6 +73,14 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
         await Log(c, "ghidra_script", script);
         output.WriteLine($"script first {first.TotalMilliseconds:0} ms, repeat {clock.Elapsed.TotalMilliseconds:0} ms");
         Assert.True(clock.Elapsed < first / 2, $"repeat {clock.Elapsed} not under half of the first {first}");
+        // installed scripts: one of Ghidra's, and one from the user folder with arguments
+        await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "CountSymbolsScript.java", ["engine"] = "ghidra" });
+        var userScripts = Directory.CreateDirectory(Path.Combine(Corvus.Native.Providers.DataFolder.Root, "ghidra_scripts")).FullName;
+        File.WriteAllText(Path.Combine(userScripts, "EchoArgs.java"),
+            "import ghidra.app.script.GhidraScript;\npublic class EchoArgs extends GhidraScript {\n    @Override\n    public void run() throws Exception { println(\"args \" + String.join(\"|\", getScriptArgs())); }\n}\n");
+        Assert.Contains("args a|b c", await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "EchoArgs", ["args"] = new[] { "a", "b c" }, ["engine"] = "ghidra" }));
+        var python = await c.CallToolAsync("ghidra_script", new Dictionary<string, object?> { ["image"] = image, ["name"] = "Example.py", ["engine"] = "ghidra" });
+        Assert.Contains("unsupported", string.Concat(python.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text)));
         var pcode = await Log(c, "decompile_native", new() { ["image"] = image, ["address"] = function, ["view"] = "pcode", ["engine"] = "ghidra" });
         Assert.Contains("block 0", pcode);
         Assert.Contains("RETURN", pcode);
