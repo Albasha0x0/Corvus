@@ -88,7 +88,8 @@ public partial class DocFactsTests
         var version = ProjectVersion().Match(Read("src/Corvus/Corvus.csproj")).Groups[1].Value;
         var first = ReleaseHeading().Match(Read("docs/release-notes.md"));
         Assert.True(first.Success, "docs/release-notes.md has no '## <version>' heading");
-        Assert.Equal(version, first.Groups[1].Value);
+        // the notes of the release being cut lead: release.ps1 bumps the project version after the suite passes
+        Assert.True(Version.Parse(first.Groups[1].Value) >= Version.Parse(version), $"the notes head {first.Groups[1].Value}, older than the project's {version}");
     }
 
     [Fact]
