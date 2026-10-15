@@ -476,13 +476,16 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine; a type of the same name is replaced, and " +
                  "declarations win over recovered types. Errors carry the engine's messages and are not saved. typeName with members upserts or " +
-                 "removes enum members, with fields struct or union members; delete or rename edits a named type." + KeptNote)]
+                 "removes enum members, with fields struct or union members (+name@0x10 inserts, moving later members down), resize and " +
+                 "nameGaps change a struct's layout; delete or rename edits a named type." + KeptNote)]
     public Task<string> DeclareNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("C declarations; types they name must exist or be declared too.")] string? declarations = null,
         [Description("Enum, struct or union to edit.")] string? typeName = null,
         [Description("Enum: 'NAME=value, ...' (hex or decimal; or lines); 'NAME=' removes.")] string? members = null,
-        [Description("Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes.")] string? fields = null,
+        [Description("Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes; '+name@0x10: type' inserts.")] string? fields = null,
+        [Description("Struct: its new size (hex or decimal); goes alone.")] string? resize = null,
+        [Description("Struct: name its unnamed gaps gap_<offset>.")] bool nameGaps = false,
         [Description("A type to delete.")] string? delete = null,
         [Description("'Old=New'; kept edits naming it follow.")] string? rename = null,
         [Description(EngineDescription)] string? engine = null,
@@ -492,8 +495,20 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var text = (declarations ?? "").Trim();
         if (!string.IsNullOrWhiteSpace(members) && !string.IsNullOrWhiteSpace(fields))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass members (an enum) or fields (a struct or union), not both.");
-        var enumMembers = string.IsNullOrWhiteSpace(fields) ? EnumMembers(typeName, members) : [];
+        bool layout = !string.IsNullOrWhiteSpace(resize) || nameGaps;
+        if (layout && !string.IsNullOrWhiteSpace(members)) throw new ToolError(ErrorCode.InvalidArgument, "resize and nameGaps change a struct; members edits an enum.", "make them in separate calls");
+        var enumMembers = string.IsNullOrWhiteSpace(fields) && !layout ? EnumMembers(typeName, members) : [];
         var fieldEdits = string.IsNullOrWhiteSpace(fields) ? [] : FieldEdits(typeName, fields);
+        if (nameGaps) fieldEdits.Add(new NativeFieldEdit(StructName(typeName, "nameGaps"), null, null, "char") { Op = NativeFieldEdit.Gaps });
+        int? newSize = null;
+        if (!string.IsNullOrWhiteSpace(resize))
+        {
+            if (text.Length > 0 || enumMembers.Count > 0 || fieldEdits.Count > 0)
+                throw new ToolError(ErrorCode.InvalidArgument, "resize goes alone.", "make the other changes in another call");
+            newSize = NativeAddress.Number(resize.Trim()) is { } n and > 0 and <= int.MaxValue ? (int)n
+                : throw new ToolError(ErrorCode.InvalidArgument, $"'{resize.Trim()}' is not a size.", "e.g. resize=0x40");
+            fieldEdits.Add(new NativeFieldEdit(StructName(typeName, "resize"), null, newSize, null) { Op = NativeFieldEdit.Resize });
+        }
         var typeEdit = TypeEditRequest(delete, rename);
         if (typeEdit != null)
         {
@@ -505,6 +520,10 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             throw new ToolError(ErrorCode.InvalidArgument, "Nothing to declare.", "pass C declarations such as 'struct S { int a; };', or typeName with members or fields");
         var (native, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
         var edits = userTypes.Layer(native).TypeEdits;
+        // a resize is undone by the size the struct has now
+        NativeUserTypeBatch? resizeInverse = newSize != null
+            ? NativeUserTypeBatch.Empty with { Fields = [fieldEdits[0] with { Offset = (int)(await session.GetTypeAsync(fieldEdits[0].Type, cancellationToken)).Size }] }
+            : null;
         // the engine replaces a type of the same name: the undo puts back the earlier declarations and deletes the new types
         NativeUserTypeBatch? inverse = null;
         if (text.Length > 0 && enumMembers.Count == 0 && fieldEdits.Count == 0)
@@ -521,7 +540,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var (result, id) = await Apply(native, session, "declare_native_types",
             new NativeUserTypeBatch(text.Length > 0 ? [text] : [], [], [], []) { EnumMembers = enumMembers, Fields = fieldEdits },
             (r, layer) => r.DeclarationErrors > 0 ? null : RecordMembers(r, text.Length > 0 ? layer.WithDeclarations(text, r.DeclaredTypes) : layer, enumMembers, fieldEdits),
-            cancellationToken, inverse);
+            cancellationToken, inverse ?? resizeInverse);
         if (result.DeclarationErrors > 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"{result.DeclarationErrors} error(s) in the declarations" +
                 (result.DeclarationMessages.Count > 0 ? ": " + string.Join("; ", result.DeclarationMessages) : "."), "fix the declarations and declare them again");
@@ -567,7 +586,17 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return layer;
     }
 
-    /// <summary>"len: int; data@0x8: char[16]; @0x20: int; old:" for a struct or union: members to set, an empty type removing one.</summary>
+    /// <summary>The struct a layout parameter names: typeName, checked.</summary>
+    private static string StructName(string? typeName, string parameter)
+    {
+        var type = (typeName ?? "").Trim();
+        return Identifier(type) ? type : throw new ToolError(ErrorCode.InvalidArgument, $"{parameter} needs typeName, the struct to change.", $"e.g. typeName=Packet {parameter}=...");
+    }
+
+    /// <summary>
+    /// "len: int; data@0x8: char[16]; @0x20: int; old:" for a struct or union: members to set, an empty type removing one;
+    /// "+name@0x10: type" inserts, moving the later members down ("+name:" cuts it and moves them back).
+    /// </summary>
     internal static List<NativeFieldEdit> FieldEdits(string? typeName, string? fields)
     {
         var type = (typeName ?? "").Trim();
@@ -579,6 +608,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             int colon = entry.IndexOf(':', StringComparison.Ordinal);
             if (colon < 0) throw new ToolError(ErrorCode.InvalidArgument, $"'{entry}' has no ':'.", "write 'name: type', 'name@0x10: type', or 'name:' to remove it");
             var head = entry[..colon].Trim();
+            bool insert = head.StartsWith('+');
+            if (insert) head = head[1..].Trim();
             var fieldType = entry[(colon + 1)..].Trim();
             int at = head.IndexOf('@', StringComparison.Ordinal);
             var name = (at < 0 ? head : head[..at]).Trim();
@@ -588,7 +619,9 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                     : throw new ToolError(ErrorCode.InvalidArgument, $"'{head[(at + 1)..].Trim()}' is not an offset.", "use @0x10 or @16");
             if (name.Length > 0 && !Identifier(name)) throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier.");
             if (name.Length == 0 && offset == null) throw new ToolError(ErrorCode.InvalidArgument, $"'{entry}' names no member.", "give a name, an @offset or both");
-            result.Add(new NativeFieldEdit(type, name.Length > 0 ? name : null, offset, fieldType.Length > 0 ? fieldType : null));
+            if (insert && offset == null && fieldType.Length > 0)
+                throw new ToolError(ErrorCode.InvalidArgument, $"'{entry}' inserts without an offset.", "write '+name@0x10: type'");
+            result.Add(new NativeFieldEdit(type, name.Length > 0 ? name : null, offset, fieldType.Length > 0 ? fieldType : null) { Op = insert ? NativeFieldEdit.Insert : null });
         }
         return result;
     }

@@ -96,6 +96,8 @@ public sealed class AnnotationDocument
         [JsonPropertyName("offset"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Offset { get; set; }
         /// <summary>Null: the member is removed.</summary>
         [JsonPropertyName("fieldType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? FieldType { get; set; }
+        /// <summary>A layout edit (insert, resize, gaps; see NativeFieldEdit); null for a member edit.</summary>
+        [JsonPropertyName("op"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Op { get; set; }
     }
 
     /// <summary>Holds what format 4 added (pseudocode comments, comment kinds, type and member edits); older builds must leave such a file alone.</summary>

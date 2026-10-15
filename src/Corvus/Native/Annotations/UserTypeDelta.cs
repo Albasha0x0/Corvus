@@ -86,7 +86,9 @@ public sealed record UserTypeDelta(IReadOnlyList<UserTypeDelta.Item> Items)
                     enums.Add(item.Before as NativeEnumMemberEdit ?? e with { Value = null });
                     break;
                 case NativeFieldEdit f:
-                    fields.Add(item.Before as NativeFieldEdit ?? f with { FieldType = null });
+                    // an insert or gap naming is undone by its own removal; a first resize does not know the earlier size
+                    if (item.Before == null && f.Op == NativeFieldEdit.Resize) lost.Add($"resize of '{f.Type}' (the earlier size is not kept)");
+                    else fields.Add(item.Before as NativeFieldEdit ?? f with { FieldType = null });
                     break;
                 case NativeOperandEdit o:
                     operands.Add(item.Before as NativeOperandEdit ?? o with { Display = "default", Detail = null });
@@ -145,7 +147,13 @@ public sealed record UserTypeDelta(IReadOnlyList<UserTypeDelta.Item> Items)
         NativeLocalEdit l => l.Clear ? "(cleared)" : string.Join(" ", new[] { l.Type, l.Name }.Where(x => x != null)),
         NativeStackVarEdit s => s.Delete ? "(deleted)" : s.Clear ? "(cleared)" : string.Join(" ", new[] { s.Type, s.Name }.Where(x => x != null)),
         NativeEnumMemberEdit e => e.Value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "(removed)",
-        NativeFieldEdit f => f.FieldType ?? "(removed)",
+        NativeFieldEdit f => f.Op switch
+        {
+            NativeFieldEdit.Resize => FormattableString.Invariant($"size 0x{f.Offset:X}"),
+            NativeFieldEdit.Gaps => f.FieldType != null ? "gaps named" : "gap names removed",
+            NativeFieldEdit.Insert => f.FieldType != null ? $"inserted {f.FieldType}" : "(cut)",
+            _ => f.FieldType ?? "(removed)",
+        },
         NativeOperandEdit o => o.Detail is { } d ? $"{o.Display} {d}" : o.Display,
         NativeAnalysisEdit a => a.Kind + (a.Type is { } t ? $" {t}" : "") + (a.End is { } e ? $" to rva 0x{e:X}" : ""),
         NativeTypeEdit t => t.NewName ?? "(deleted)",

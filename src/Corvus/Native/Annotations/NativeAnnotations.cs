@@ -88,8 +88,8 @@ public sealed class NativeAnnotations
         foreach (var e in doc.EnumMembers ?? [])
             if (e.Enum.Length > 0 && e.Member.Length > 0) enums[(e.Enum, e.Member)] = new NativeEnumMemberEdit(e.Enum, e.Member, e.Value);
         var typeEdits = (doc.TypeEdits ?? []).Where(e => e.Name.Length > 0).Select(e => new NativeTypeEdit(e.Name, e.NewName)).ToList();
-        var fields = (doc.Fields ?? []).Where(f => f.Type.Length > 0 && (f.Name != null || f.Offset != null))
-            .Select(f => new NativeFieldEdit(f.Type, f.Name, f.Offset, f.FieldType)).ToList();
+        var fields = (doc.Fields ?? []).Where(f => f.Type.Length > 0 && (f.Name != null || f.Offset != null || f.Op != null))
+            .Select(f => new NativeFieldEdit(f.Type, f.Name, f.Offset, f.FieldType) { Op = f.Op }).ToList();
         return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack, analysis, operands, enums, typeEdits, fields);
     }
 
@@ -97,7 +97,7 @@ public sealed class NativeAnnotations
 
     private static string EnumKey(AnnotationDocument.EnumMemberEntry e) => e.Enum + "::" + e.Member;
 
-    private static string FieldKey(AnnotationDocument.FieldEntry f) => f.Type + "::" + new NativeFieldEdit(f.Type, f.Name, f.Offset, null).Key;
+    private static string FieldKey(AnnotationDocument.FieldEntry f) => f.Type + "::" + new NativeFieldEdit(f.Type, f.Name, f.Offset, null) { Op = f.Op }.Key;
 
     private static AnnotationDocument.AnalysisEntry Entry(NativeAnalysisEdit a) =>
         new() { Rva = Hex(a.Rva), Kind = a.Kind, End = a.End is { } e ? Hex(e) : null, Type = a.Type };
@@ -362,7 +362,7 @@ public sealed class NativeAnnotations
                 .Select(e => new AnnotationDocument.EnumMemberEntry { Enum = e.Enum, Member = e.Member, Value = e.Value }).ToList();
         if (u.TypeEdits.Count > 0) doc.TypeEdits = u.TypeEdits.Select(e => new AnnotationDocument.TypeEditEntry { Name = e.Name, NewName = e.NewName }).ToList();
         if (u.Fields.Count > 0)
-            doc.Fields = u.Fields.Select(f => new AnnotationDocument.FieldEntry { Type = f.Type, Name = f.Name, Offset = f.Offset, FieldType = f.FieldType }).ToList();
+            doc.Fields = u.Fields.Select(f => new AnnotationDocument.FieldEntry { Type = f.Type, Name = f.Name, Offset = f.Offset, FieldType = f.FieldType, Op = f.Op }).ToList();
         if (u.Analysis.Count > 0) doc.Analysis = u.Analysis.Select(Entry).ToList();
         if (u.Operands.Count > 0)
             doc.Operands = u.Operands.OrderBy(o => o.Key).Select(o => new AnnotationDocument.OperandEntry

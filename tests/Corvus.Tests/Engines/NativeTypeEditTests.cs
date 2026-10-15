@@ -166,6 +166,16 @@ public sealed class NativeTypeEditTests : IDisposable
     }
 
     [Fact]
+    public void Inserts_parse_with_their_own_keys_and_need_an_offset()
+    {
+        var edits = NativeTypeTools.FieldEdits("Packet", "+ins@0x8: int; +ins:");
+        Assert.Equal([new NativeFieldEdit("Packet", "ins", 8, "int") { Op = NativeFieldEdit.Insert }, new("Packet", "ins", null, null) { Op = NativeFieldEdit.Insert }], edits);
+        Assert.Equal("+ins", edits[0].Key);
+        Assert.Equal("!resize", new NativeFieldEdit("Packet", null, 0x40, null) { Op = NativeFieldEdit.Resize }.Key);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NativeTypeTools.FieldEdits("Packet", "+ins: int")).Code);
+    }
+
+    [Fact]
     public void Field_edits_replace_by_member_follow_renames_drop_with_deletions_and_round_trip()
     {
         var layer = Seeded().WithField(new("Packet", "len", null, "int")).WithField(new("Packet", null, 8, "PacketSize"))

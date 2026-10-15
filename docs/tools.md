@@ -2159,7 +2159,7 @@ Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedReg
 
 **Declare C types in the engine** (destructive, idempotent, open-world, long-running)
 
-Declare C types (structs, unions, enums, typedefs, function types) in the engine; a type of the same name is replaced, and declarations win over recovered types. Errors carry the engine's messages and are not saved. typeName with members upserts or removes enum members, with fields struct or union members; delete or rename edits a named type. Kept with the image's annotations.
+Declare C types (structs, unions, enums, typedefs, function types) in the engine; a type of the same name is replaced, and declarations win over recovered types. Errors carry the engine's messages and are not saved. typeName with members upserts or removes enum members, with fields struct or union members (+name@0x10 inserts, moving later members down), resize and nameGaps change a struct's layout; delete or rename edits a named type. Kept with the image's annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2167,7 +2167,9 @@ Declare C types (structs, unions, enums, typedefs, function types) in the engine
 | `declarations` | string |  |  | C declarations; types they name must exist or be declared too. |
 | `typeName` | string |  |  | Enum, struct or union to edit. |
 | `members` | string |  |  | Enum: 'NAME=value, ...' (hex or decimal; or lines); 'NAME=' removes. |
-| `fields` | string |  |  | Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes. |
+| `fields` | string |  |  | Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes; '+name@0x10: type' inserts. |
+| `resize` | string |  |  | Struct: its new size (hex or decimal); goes alone. |
+| `nameGaps` | boolean |  |  | Struct: name its unnamed gaps gap_<offset>. |
 | `delete` | string |  |  | A type to delete. |
 | `rename` | string |  |  | 'Old=New'; kept edits naming it follow. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |

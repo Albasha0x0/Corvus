@@ -550,12 +550,30 @@ public sealed record NativeTypeEdit(string Name, string? NewName);
 /// <summary>
 /// A member of struct or union <see cref="Type"/>, by <see cref="Name"/> and/or byte <see cref="Offset"/>, gets
 /// <see cref="FieldType"/>: placed at Offset (replacing what overlaps), else retyped where the named member is, else
-/// appended; a null FieldType removes the member.
+/// appended; a null FieldType removes the member. With <see cref="Op"/> it is a layout edit of a struct instead (see
+/// <see cref="Insert"/>, <see cref="Resize"/>, <see cref="Gaps"/>).
 /// </summary>
 public sealed record NativeFieldEdit(string Type, string? Name, int? Offset, string? FieldType)
 {
-    /// <summary>The member as kept: its name, else @0x and its offset.</summary>
-    public string Key => Name ?? FormattableString.Invariant($"@0x{Offset:X}");
+    /// <summary>Insert the member at Offset and move the later members down; a null FieldType cuts it and moves them back.</summary>
+    public const string Insert = "insert";
+    /// <summary>Set the struct's size to Offset bytes.</summary>
+    public const string Resize = "resize";
+    /// <summary>Name the unnamed gaps gap_&lt;offset&gt; (char arrays); a null FieldType removes those names.</summary>
+    public const string Gaps = "gaps";
+
+    /// <summary>Null for a member edit, else the layout edit.</summary>
+    public string? Op { get; init; }
+
+    /// <summary>The edit as kept, one per type and key: the member's name (else @0x and its offset); +member for an insert; !resize, !gaps.</summary>
+    public string Key
+    {
+        get
+        {
+            var member = Name ?? FormattableString.Invariant($"@0x{Offset:X}");
+            return Op switch { null => member, Insert => "+" + member, _ => "!" + Op };
+        }
+    }
 }
 
 /// <summary>

@@ -286,7 +286,8 @@ internal static class WorkerRows
         if (batch.TypeEdits != null)
             args["type_edits"] = new JsonArray(batch.TypeEdits.Select(e => (JsonNode)new JsonArray(e.Name, e.NewName)).ToArray());
         if (batch.Fields.Count > 0)
-            args["fields"] = new JsonArray(batch.Fields.Select(f => (JsonNode)new JsonArray(f.Type, f.Name, f.Offset, f.FieldType)).ToArray());
+            args["fields"] = new JsonArray(batch.Fields.Select(f => (JsonNode)(f.Op != null ? new JsonArray(f.Type, f.Name, f.Offset, f.FieldType, f.Op)
+                : new JsonArray(f.Type, f.Name, f.Offset, f.FieldType))).ToArray());
         if (deletes.Count > 0) args["stack_deletes"] = deletes;
         if (localClears.Count > 0) args["local_clears"] = localClears;
         if (stackClears.Count > 0) args["stack_clears"] = stackClears;

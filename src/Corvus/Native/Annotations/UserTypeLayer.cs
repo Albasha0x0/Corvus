@@ -91,7 +91,7 @@ public sealed class UserTypeLayer
         foreach (var d in Declarations) Add("D" + d);
         foreach (var r in TypeEdits) Add($"R{r.Name}:{r.NewName}");
         foreach (var e in EnumMembers.OrderBy(e => e.Key, KeyOrder).Select(e => e.Value)) Add(FormattableString.Invariant($"E{e.Enum}:{e.Member}:{e.Value}"));
-        foreach (var f in Fields) Add(FormattableString.Invariant($"F{f.Type}:{f.Name}:{f.Offset}:{f.FieldType}"));
+        foreach (var f in Fields) Add(FormattableString.Invariant($"F{f.Type}:{f.Name}:{f.Offset}:{f.FieldType}:{f.Op}"));
         foreach (var a in Analysis) Add(FormattableString.Invariant($"A{a.Rva:X}:{a.Kind}:{a.End:X}:{a.Type}"));
         foreach (var (rva, type) in Types.OrderBy(t => t.Key)) Add(FormattableString.Invariant($"T{rva:X}:{type}"));
         foreach (var s in StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value))

@@ -2322,15 +2322,18 @@ def user_fields():
 
 
 def apply_fields(m, ti, fields):
-    # fields: [[type, member name or null, offset or null, type or null]]
+    # fields: [[type, member name or null, offset or null, type or null, op or null]]; op as in edit_layout
     items = []
-    for tname, name, offset, typ in fields:
-        item = edit_field(m, ti, tname, name, offset, typ)
+    for f in fields:
+        tname, name, offset, typ = f[:4]
+        op = f[4] if len(f) > 4 else None
+        item = edit_field(m, ti, tname, name, offset, typ) if op is None else edit_layout(ti, tname, name, offset, typ, op)
         if item[3]:
             kept = user_fields()
-            key = "%s::%s" % (tname, name if name else "@0x%X" % offset)
+            member = name if name else "@0x%X" % (offset or 0)
+            key = "%s::%s" % (tname, member if op is None else "+" + member if op == "insert" else "!" + op)
             kept.pop(key, None)
-            kept[key] = [name, offset, typ]
+            kept[key] = [name, offset, typ, op]
             user_node(True).setblob(json.dumps(kept).encode("utf-8"), 0, "F")
         items.append(item)
     return items
@@ -2341,8 +2344,109 @@ def reapply_user_fields():
     if kept:
         import ida_typeinf as ti
         m = ida()
-        for key, (name, offset, typ) in kept.items():
-            edit_field(m, ti, key.partition("::")[0], name, offset, typ)
+        for key, v in kept.items():
+            name, offset, typ = v[:3]
+            op = v[3] if len(v) > 3 else None
+            if op is None:
+                edit_field(m, ti, key.partition("::")[0], name, offset, typ)
+            else:
+                edit_layout(ti, key.partition("::")[0], name, offset, typ, op)
+
+
+def edit_layout(ti, tname, name, offset, typ, op):
+    # op insert moves later members down (typ None: the member is cut and they move back), resize sets the size to offset
+    # (the struct becomes fixed-layout, as IDA requires), gaps names the unnamed gaps gap_<offset> (typ None: removes those
+    # names); each is a no-op when its result is already there, as kept edits replay
+    import re
+    target = "%s.%s" % (tname, (name if name else "+0x%X" % offset) if op == "insert" else op)
+
+    def item(applied, error, text=None):
+        return ["field", 0, target, applied, error, None, offset, text]
+
+    def load():
+        t = ti.tinfo_t()
+        return t if t.get_named_type(None, tname) else None
+
+    def members(t):
+        d = ti.udt_type_data_t()
+        t.get_udt_details(d)
+        return d
+
+    t = load()
+    if t is None:
+        return item(False, "no struct named %s" % tname)
+    if not t.is_struct():
+        return item(False, "%s is a %s, not a struct" % (tname, type_kind(ti, t)))
+    if op == "resize":
+        was = t.get_size()
+        if offset == was:
+            return item(True, None, "%s is 0x%X bytes" % (tname, was))
+        for u in members(t):
+            if not u.is_gap() and (u.offset + u.size) // 8 > offset:
+                return item(False, "%s.%s ends at +0x%X, past the new size; remove it first" % (tname, u.name, (u.offset + u.size) // 8))
+        t.set_fixed_struct(True)
+        code = t.set_struct_size(offset)
+        if code != ti.TERR_OK:
+            return item(False, "IDA refused %s: %s" % (target, ti.tinfo_errstr(code)))
+        return item(True, None, "%s is 0x%X bytes (was 0x%X)" % (tname, load().get_size(), was))
+    if op == "insert":
+        d = members(t)
+        at = next((i for i, u in enumerate(d) if not u.is_gap() and (u.name == name if name else u.offset // 8 == offset)), -1)
+        if typ is None:
+            if at < 0:
+                return item(True, None, "no member %s" % target)
+            old, start, size = d[at].name, d[at].offset // 8, d[at].size // 8
+            code = t.del_udm(at)
+            if code == ti.TERR_OK:
+                t = load()
+                nxt = next((i for i, u in enumerate(members(t)) if u.offset // 8 >= start and not u.is_gap()), -1)
+                if nxt >= 0:
+                    code = t.expand_udt(nxt, -size)
+            if code != ti.TERR_OK:
+                return item(False, "IDA refused %s: %s" % (target, ti.tinfo_errstr(code)))
+            return item(True, None, "cut %s; the members after it moved back %d bytes" % (old, size))
+        ft = parse_type(ti, typ, False)
+        if ft is None:
+            return item(False, "the type %r does not parse (types it names must be declared first)" % typ)
+        size = ft.get_size()
+        if at >= 0 and d[at].offset // 8 == offset and str(d[at].type) == str(ft):
+            return item(True, None, "%s.%s is already at +0x%X" % (tname, d[at].name, offset))
+        first = next((i for i, u in enumerate(d) if u.offset // 8 >= offset), -1)
+        code = t.expand_udt(first, size) if first >= 0 else ti.TERR_OK
+        if code == ti.TERR_OK:
+            t = load()
+            code = t.add_udm(name or "field_%X" % offset, ft, offset * 8, ti.ETF_MAY_DESTROY)
+        if code != ti.TERR_OK:
+            return item(False, "IDA refused %s: %s" % (target, ti.tinfo_errstr(code)))
+        return item(True, None, "%s.%s: %s at +0x%X; the members after it moved down %d bytes" % (tname, name or "field_%X" % offset, typ, offset, size))
+    if op == "gaps":
+        count = 0
+        if typ is None:
+            for gap in [u.name for u in members(t) if not u.is_gap() and re.fullmatch(r"gap_[0-9A-F]+", u.name or "")]:
+                code = t.del_udm(t.get_udm(gap)[0])
+                if code != ti.TERR_OK:
+                    return item(False, "IDA did not remove %s: %s" % (gap, ti.tinfo_errstr(code)))
+                t = load()
+                count += 1
+            return item(True, None, "%d named gap(s) of %s cleared" % (count, tname))
+        holes, pos = [], 0
+        for u in members(t):
+            start, end = u.offset // 8, (u.offset + u.size) // 8
+            if u.is_gap():
+                holes.append((start, end - start))
+            elif start > pos:
+                holes.append((pos, start - pos))
+            pos = max(pos, end)
+        if t.get_size() > pos:
+            holes.append((pos, t.get_size() - pos))
+        for start, n in holes:
+            arr = ti.tinfo_t()
+            arr.create_array(ti.tinfo_t(ti.BTF_CHAR), n)
+            t = load()
+            if t.add_udm("gap_%X" % start, arr, start * 8, ti.ETF_MAY_DESTROY) == ti.TERR_OK:
+                count += 1
+        return item(True, None, "%d gap(s) of %s named gap_<offset>" % (count, tname))
+    return item(False, "unknown layout edit %r" % op)
 
 
 def edit_field(m, ti, tname, name, offset, typ):

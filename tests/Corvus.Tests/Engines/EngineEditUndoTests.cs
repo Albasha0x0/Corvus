@@ -66,6 +66,51 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
     [GhidraFact]
     public Task Engine_edits_undo_in_Ghidra() => EngineEditsUndo("ghidra");
 
+    [IdaFact]
+    public Task Struct_layout_edits_in_IDA() => StructLayout("ida");
+
+    [GhidraFact]
+    public Task Struct_layout_edits_in_Ghidra() => StructLayout("ghidra");
+
+    /// <summary>On a 40-field struct: one field retyped keeps the rest; an insert moves the later fields and its undo moves them back; resize and gap names undo.</summary>
+    private async Task StructLayout(string engine)
+    {
+        var rig = Setup(engine);
+        var native = rig.Native;
+        var session = await rig.Engines.Session(native, engine, null, default);
+        async Task<Dictionary<string, long>> Offsets() => (await session.GetTypeAsync("Corvus40")).Members.Where(m => !m.Name.StartsWith("gap", StringComparison.Ordinal))
+            .ToDictionary(m => m.Name, m => m.Offset);
+        async Task<long> Size() => (await session.GetTypeAsync("Corvus40")).Size;
+
+        await Edit(() => rig.Types.DeclareNativeTypes(native.Id, "struct Corvus40 { " + string.Concat(Enumerable.Range(0, 40).Select(i => $"int f{i}; ")) + "};", engine: engine));
+        var before = await Offsets();
+        await Edit(() => rig.Types.DeclareNativeTypes(native.Id, typeName: "Corvus40", fields: "f20: short", engine: engine));
+        var after = await Offsets();
+        Assert.Equal(before, after);
+        Assert.Equal(2, (await session.GetTypeAsync("Corvus40")).Members.Single(m => m.Name == "f20").Size);
+
+        var (inserted, insert) = await Edit(() => rig.Types.DeclareNativeTypes(native.Id, typeName: "Corvus40", fields: "+ins@0x8: int", engine: engine));
+        Assert.Contains("moved down 4 bytes", inserted);
+        var shifted = await Offsets();
+        Assert.Equal(8, shifted["ins"]);
+        Assert.Equal(12, shifted["f2"]);
+        Assert.Equal(before["f39"] + 4, shifted["f39"]);
+        await rig.Journal.UndoAsync(native, insert, default);
+        Assert.Equal(before, await Offsets());
+
+        var size = await Size();
+        var (_, resized) = await Edit(() => rig.Types.DeclareNativeTypes(native.Id, typeName: "Corvus40", resize: "0x100", engine: engine));
+        Assert.Equal(0x100, await Size());
+        await rig.Journal.UndoAsync(native, resized, default);
+        Assert.Equal(size, await Size());
+
+        await Edit(() => rig.Types.DeclareNativeTypes(native.Id, typeName: "Corvus40", fields: "f30:", engine: engine));
+        var (_, named) = await Edit(() => rig.Types.DeclareNativeTypes(native.Id, typeName: "Corvus40", nameGaps: true, engine: engine));
+        Assert.Contains((await session.GetTypeAsync("Corvus40")).Members, m => m.Name == $"gap_{before["f30"]:X}");
+        await rig.Journal.UndoAsync(native, named, default);
+        Assert.DoesNotContain((await session.GetTypeAsync("Corvus40")).Members, m => m.Name.StartsWith("gap_", StringComparison.Ordinal));
+    }
+
     private async Task EngineEditsUndo(string engine)
     {
         var rig = Setup(engine);

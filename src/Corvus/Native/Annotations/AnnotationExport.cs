@@ -67,7 +67,7 @@ public static class AnnotationExport
             foreach (var e in batch.EnumMembers)
                 sb.AppendLine($"apply_enum({Py(e.Enum)}, {Py(e.Member)}, {(e.Value is { } v ? v.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")})");
             foreach (var f in types.Fields)
-                sb.AppendLine($"apply_field({Py(f.Type)}, {PyOrNone(f.Name)}, {(f.Offset is { } o ? o.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")}, {PyOrNone(f.FieldType)})");
+                sb.AppendLine($"apply_{(f.Op != null ? "layout" : "field")}({Py(f.Type)}, {PyOrNone(f.Name)}, {(f.Offset is { } o ? o.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")}, {PyOrNone(f.FieldType)}{(f.Op != null ? $", {Py(f.Op)}" : "")})");
             foreach (var a in types.Analysis)
                 sb.AppendLine($"apply_analysis(0x{a.Rva:X}, {Py(a.Kind)}, {(a.End is { } e ? $"0x{e:X}" : "None")}, {PyOrNone(a.Type)})");
             foreach (var (rva, t) in types.Types.OrderBy(t => t.Key)) sb.AppendLine($"apply_type(0x{rva:X}, {Py(t)})");
@@ -177,6 +177,28 @@ public static class AnnotationExport
                 at = 0 if t.is_union() else offset if offset is not None else t.get_size()
                 ok = t.add_udm(name or 'field_%X' % at, ft, at * 8, ida_typeinf.ETF_MAY_DESTROY) == 0
             if not ok: failures.append('member %s.%s' % (tname, name or offset))
+        def apply_layout(tname, name, offset, text, op):
+            t = ida_typeinf.tinfo_t()
+            if not t.get_named_type(None, tname) or not t.is_struct(): failures.append('layout %s' % tname); return
+            udt = ida_typeinf.udt_type_data_t(); t.get_udt_details(udt)
+            ok = True
+            if op == 'resize':
+                t.set_fixed_struct(True); ok = t.set_struct_size(offset) == 0
+            elif op == 'insert' and text is not None:
+                ft = parse_type(text)
+                first = next((i for i, u in enumerate(udt) if u.offset // 8 >= offset), -1)
+                ok = ft is not None and (first < 0 or t.expand_udt(first, ft.get_size()) == 0)
+                if ok: t = ida_typeinf.tinfo_t(); t.get_named_type(None, tname); ok = t.add_udm(name or 'field_%X' % offset, ft, offset * 8, ida_typeinf.ETF_MAY_DESTROY) == 0
+            elif op == 'gaps' and text is not None:
+                pos = 0
+                for u in list(udt):
+                    start, end = u.offset // 8, (u.offset + u.size) // 8
+                    hole = (start, end - start) if u.is_gap() else (pos, start - pos) if start > pos else None
+                    if hole:
+                        arr = ida_typeinf.tinfo_t(); arr.create_array(ida_typeinf.tinfo_t(ida_typeinf.BTF_CHAR), hole[1])
+                        t = ida_typeinf.tinfo_t(); t.get_named_type(None, tname); t.add_udm('gap_%X' % hole[0], arr, hole[0] * 8, ida_typeinf.ETF_MAY_DESTROY)
+                    pos = max(pos, end)
+            if not ok: failures.append('layout %s %s' % (tname, op))
         def apply_enum(enum, member, value):
             t = ida_typeinf.tinfo_t()
             if not t.get_named_type(None, enum):
@@ -308,7 +330,7 @@ public static class AnnotationExport
             operands = ann.UserTypes.Operands.OrderBy(o => o.Key).Select(o => new { rva = o.Value.Rva, operand = o.Value.Operand, display = o.Value.Display, detail = o.Value.Detail }),
             enumMembers = ann.UserTypes.ToBatch().EnumMembers.Select(e => new { @enum = e.Enum, member = e.Member, value = e.Value }),
             typeEdits = ann.UserTypes.TypeEdits.Select(e => new { name = e.Name, newName = e.NewName }),
-            fields = ann.UserTypes.Fields.Select(f => new { type = f.Type, name = f.Name, offset = f.Offset, fieldType = f.FieldType }),
+            fields = ann.UserTypes.Fields.Select(f => new { type = f.Type, name = f.Name, offset = f.Offset, fieldType = f.FieldType, op = f.Op }),
             imported = imported.Entries.Select(e => new { rva = e.Rva, name = e.Name, comment = e.Comment, source = e.Source }),
         };
         return JsonSerializer.Serialize(doc, IndentedJson);

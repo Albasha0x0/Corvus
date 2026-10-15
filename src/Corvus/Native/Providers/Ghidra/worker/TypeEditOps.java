@@ -11,6 +11,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import ghidra.program.model.data.ArrayDataType;
+import ghidra.program.model.data.CharDataType;
 import ghidra.program.model.data.Composite;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeComponent;
@@ -117,7 +119,11 @@ final class TypeEditOps {
         return kept == null || kept.isEmpty() ? new JsonObject() : JsonParser.parseString(kept).getAsJsonObject();
     }
 
-    /** fields [[type, member name or null, offset or null, type or null]]; the applied ones are kept. */
+    /**
+     * fields [[type, member name or null, offset or null, type or null, op or null]]; the applied ones are kept. op insert
+     * moves later members down (no type: the member is cut and they move back), resize sets the size to offset, gaps names
+     * the unnamed gaps (no type: removes those names).
+     */
     static void fields(Worker w, Worker.Request r, JsonArray items) {
         for (JsonElement e : Worker.array(r.args, "fields")) {
             JsonArray f = e.getAsJsonArray();
@@ -125,15 +131,18 @@ final class TypeEditOps {
             String name = f.get(1).isJsonNull() ? null : f.get(1).getAsString();
             Integer offset = f.get(2).isJsonNull() ? null : f.get(2).getAsInt();
             String fieldType = f.get(3).isJsonNull() ? null : f.get(3).getAsString();
-            JsonArray item = field(w, type, name, offset, fieldType);
+            String op = f.size() > 4 && !f.get(4).isJsonNull() ? f.get(4).getAsString() : null;
+            JsonArray item = op == null ? field(w, type, name, offset, fieldType) : layout(w, type, name, offset, fieldType, op);
             if (item.get(3).getAsBoolean()) {
                 JsonObject kept = userFields(w);
-                String key = type + "::" + (name != null ? name : "@0x" + Integer.toHexString(offset).toUpperCase());
+                String member = name != null ? name : "@0x" + Integer.toHexString(offset == null ? 0 : offset).toUpperCase();
+                String key = type + "::" + (op == null ? member : op.equals("insert") ? "+" + member : "!" + op);
                 kept.remove(key);
                 JsonArray value = new JsonArray();
                 value.add(name);
                 value.add(offset);
                 value.add(fieldType);
+                value.add(op);
                 kept.add(key, value);
                 w.program.getOptions(Worker.STAMPS).setString(USER_FIELDS, kept.toString());
             }
@@ -146,8 +155,14 @@ final class TypeEditOps {
         for (Map.Entry<String, JsonElement> e : userFields(w).entrySet()) {
             int sep = e.getKey().indexOf("::");
             JsonArray v = e.getValue().getAsJsonArray();
-            if (sep > 0) field(w, e.getKey().substring(0, sep), v.get(0).isJsonNull() ? null : v.get(0).getAsString(),
-                v.get(1).isJsonNull() ? null : v.get(1).getAsInt(), v.get(2).isJsonNull() ? null : v.get(2).getAsString());
+            String type = sep > 0 ? e.getKey().substring(0, sep) : null, name = v.get(0).isJsonNull() ? null : v.get(0).getAsString();
+            Integer offset = v.get(1).isJsonNull() ? null : v.get(1).getAsInt();
+            String fieldType = v.get(2).isJsonNull() ? null : v.get(2).getAsString();
+            String op = v.size() > 3 && !v.get(3).isJsonNull() ? v.get(3).getAsString() : null;
+            if (type != null) {
+                if (op == null) field(w, type, name, offset, fieldType);
+                else layout(w, type, name, offset, fieldType, op);
+            }
         }
     }
 
@@ -213,6 +228,91 @@ final class TypeEditOps {
         catch (IllegalArgumentException | IndexOutOfBoundsException e) {
             return fieldItem(target, offset, false, "Ghidra refused " + target + ": " + e.getMessage(), null);
         }
+    }
+
+    /** A layout edit of a struct (see fields); each is a no-op when its result is already there, as kept edits replay. */
+    static JsonArray layout(Worker w, String typeName, String name, Integer offset, String type, String op) {
+        String target = typeName + "." + (op.equals("insert") ? (name != null ? name : "+0x" + Integer.toHexString(offset).toUpperCase()) : op);
+        Structure s = null;
+        for (DataType dt : named(w, typeName))
+            if (dt instanceof Structure found) {
+                s = found;
+                break;
+            }
+        if (s == null) return fieldItem(target, offset, false, "no struct named " + typeName, null);
+        try {
+            if (s.isPackingEnabled()) s.setPackingEnabled(false);
+            switch (op) {
+                case "resize": {
+                    int was = s.getLength();
+                    if (offset == was) return fieldItem(target, offset, true, null, typeName + " is 0x" + Integer.toHexString(was).toUpperCase() + " bytes");
+                    if (offset > was) s.growStructure(offset - was);
+                    else {
+                        for (DataTypeComponent m : s.getDefinedComponents())
+                            if (m.getEndOffset() >= offset)
+                                return fieldItem(target, offset, false, typeName + "." + label(m) + " ends at +0x" + Integer.toHexString(m.getEndOffset() + 1).toUpperCase() +
+                                    ", past the new size; remove it first", null);
+                        s.setLength(offset);
+                    }
+                    return fieldItem(target, offset, true, null, typeName + " is 0x" + Integer.toHexString(s.getLength()).toUpperCase() + " bytes (was 0x" +
+                        Integer.toHexString(was).toUpperCase() + ")");
+                }
+                case "insert": {
+                    DataTypeComponent at = null;
+                    for (DataTypeComponent m : s.getDefinedComponents())
+                        if (name != null ? name.equals(m.getFieldName()) : m.getOffset() == offset) at = m;
+                    if (type == null) {
+                        if (at == null) return fieldItem(target, offset, true, null, "no member " + target);
+                        String old = label(at);
+                        int len = at.getLength();
+                        s.deleteAtOffset(at.getOffset());
+                        return fieldItem(target, offset, true, null, "cut " + old + "; the members after it moved back " + len + " bytes");
+                    }
+                    DataType dt = TypeOps.parseType(w, type);
+                    if (dt == null) return fieldItem(target, offset, false, "the type '" + type + "' does not parse (types it names must be declared first)", null);
+                    int len = dt.getLength();
+                    if (len <= 0) return fieldItem(target, offset, false, type + " has no fixed size", null);
+                    if (at != null && at.getOffset() == offset && at.getDataType().isEquivalent(dt))
+                        return fieldItem(target, offset, true, null, typeName + "." + label(at) + " is already at +0x" + Integer.toHexString(offset).toUpperCase());
+                    DataTypeComponent made = s.insertAtOffset(offset, dt, len, name, null);
+                    return fieldItem(target, offset, true, null, typeName + "." + made.getFieldName() + ": " + made.getDataType().getDisplayName() + " at +0x" +
+                        Integer.toHexString(made.getOffset()).toUpperCase() + "; the members after it moved down " + len + " bytes");
+                }
+                case "gaps": {
+                    int count = 0;
+                    if (type == null) {
+                        for (DataTypeComponent m : s.getDefinedComponents())
+                            if (m.getFieldName() != null && m.getFieldName().matches("gap_[0-9A-F]+")) {
+                                s.clearComponent(m.getOrdinal());
+                                count++;
+                            }
+                        return fieldItem(target, offset, true, null, count + " named gap(s) of " + typeName + " cleared");
+                    }
+                    int start = -1;
+                    for (int o = 0; o <= s.getLength(); o++) {
+                        DataTypeComponent m = o < s.getLength() ? s.getComponentContaining(o) : null;
+                        boolean undefined = o < s.getLength() && (m == null || m.getDataType() == DataType.DEFAULT);
+                        if (undefined && start < 0) start = o;
+                        if (!undefined && start >= 0) {
+                            int n = o - start;
+                            s.replaceAtOffset(start, new ArrayDataType(CharDataType.dataType, n, 1), n, "gap_" + Integer.toHexString(start).toUpperCase(), null);
+                            count++;
+                            start = -1;
+                        }
+                    }
+                    return fieldItem(target, offset, true, null, count + " gap(s) of " + typeName + " named gap_<offset>");
+                }
+                default:
+                    return fieldItem(target, offset, false, "unknown layout edit '" + op + "'", null);
+            }
+        }
+        catch (IllegalArgumentException | IndexOutOfBoundsException e) {
+            return fieldItem(target, offset, false, "Ghidra refused " + target + ": " + e.getMessage(), null);
+        }
+    }
+
+    private static String label(DataTypeComponent m) {
+        return m.getFieldName() != null ? m.getFieldName() : m.getDefaultFieldName();
     }
 
     private static JsonArray fieldItem(String target, Integer offset, boolean applied, String error, String text) {
