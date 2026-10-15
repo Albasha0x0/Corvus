@@ -1,7 +1,3 @@
 # Exemptions from: every format reader has a quick fuzz entry, a [FuzzEntry] test in the quick set (S12.5)
 # This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).
-Native.Annotations.SavedNameLayer
-Native.ApiSetSchema
-Native.Patching.NativePatchSet
-Services.Il2CppBinaryLayout
-Services.MappedPeLayout
+Native.Patching.NativePatchSet # permanent: re-reads an image's own bytes after the server patched them, through PeFile, ElfFile and MachOFile, whose entries fuzz those readers

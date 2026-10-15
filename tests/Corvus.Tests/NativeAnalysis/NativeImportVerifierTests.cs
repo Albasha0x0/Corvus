@@ -190,6 +190,50 @@ public class NativeImportVerifierTests
         Assert.Equal(["Foo"], NativeImportVerifier.Candidates("Foo", "Unicode", true, null).Select(c => c.Name));
     }
 
+    /// <summary>A version 6 API set map: one contract with a default host, one with a host for a single importer.</summary>
+    private static byte[] ApiSetMap()
+    {
+        var strings = new List<byte>();
+        (uint, uint) Str(string s)
+        {
+            uint at = 28 + 2 * 24 + 2 * 20 + (uint)strings.Count;
+            var bytes = System.Text.Encoding.Unicode.GetBytes(s);
+            strings.AddRange(bytes);
+            return (at, (uint)bytes.Length);
+        }
+        var map = new byte[28 + 2 * 24 + 2 * 20];
+        void U32(int at, uint v) => System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(map.AsSpan(at), v);
+        U32(0, 6); U32(12, 2); U32(16, 28);
+        int values = 28 + 2 * 24;
+        string[] names = ["api-ms-win-core-file-l1-1-0", "ext-ms-win-shell-l1-1-0"];
+        for (int i = 0; i < 2; i++)
+        {
+            int e = 28 + i * 24;
+            var (offset, length) = Str(names[i]);
+            U32(e + 4, offset); U32(e + 8, length); U32(e + 12, length - 4); U32(e + 16, (uint)(values + i * 20)); U32(e + 20, 1);
+            var (importer, importerLength) = i == 0 ? (0u, 0u) : Str("app.exe");
+            var (host, hostLength) = Str(i == 0 ? "kernel32.dll" : "shell32.dll");
+            U32(values + i * 20 + 4, importer); U32(values + i * 20 + 8, importerLength); U32(values + i * 20 + 12, host); U32(values + i * 20 + 16, hostLength);
+        }
+        return [.. map, .. strings];
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(ApiSetSchema))]
+    public void Fuzzed_api_set_maps_never_throw()
+    {
+        var seed = ApiSetMap();
+        var schema = ApiSetSchema.Parse(seed)!;
+        Assert.Equal("kernel32.dll", schema.Resolve("api-ms-win-core-file-l1-1-1.dll"));
+        Assert.Equal("shell32.dll", schema.Resolve("ext-ms-win-shell-l1-1-0.dll", "app.exe"));
+        var failures = FormatFuzz.Run(seed, b =>
+        {
+            var map = ApiSetSchema.Parse(b);
+            _ = (map?.Resolve("api-ms-win-core-file-l1-1-0.dll"), map?.Resolve("ext-ms-win-shell-l1-1-0.dll", "app.exe"));
+        }, 2000);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
+
     [WindowsFact]
     public void ApiSetMapResolvesContractsToHostDlls()
     {
