@@ -146,6 +146,17 @@ public sealed class StreamedSummaryTests : IDisposable
     }
 
     [Fact]
+    public void Hermes_view_reads_a_package_whole_only_when_it_names_a_bundle()
+    {
+        var path = _dir.File("app.apk");
+        File.WriteAllBytes(path, AndroidSamples.Apk());
+        var input = FileInput.Open(path, streamAbove: 64);
+        Assert.True(input.Streamed);
+        Assert.Null(new HermesFileView().Inspect(input, default));
+        Assert.Null(typeof(FileInput).GetField("_bytes", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(input));
+    }
+
+    [Fact]
     public void Har_reader_refills_across_small_reads()
     {
         var har = Encoding.UTF8.GetBytes("""{"other":{"log":1},"log":{"creator":{"name":"x"},"entries":[{"request":{"method":"GET","url":"https://a/1"},"response":{"status":200,"content":{"text":"one"}}},7,{"request":{"method":"POST","url":"https://a/2"},"response":{"status":201}}]}}""");

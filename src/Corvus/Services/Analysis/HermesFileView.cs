@@ -11,10 +11,16 @@ internal sealed class HermesFileView : IFileSummaryView
 {
     public string Name => "hermes";
 
+    /// <summary>The entry names <see cref="HermesBundles.Entry"/> looks in.</summary>
+    internal static bool IsBundleName(string name) =>
+        name.EndsWith(".bundle", StringComparison.Ordinal) || name.EndsWith(".jsbundle", StringComparison.Ordinal) || name.EndsWith(".hbc", StringComparison.Ordinal);
+
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         string? inner = null;
-        byte[]? bytes = file.Kind == "zip" ? HermesBundles.FromPackage(file.Bytes, out inner) : HermesFile.Looks(file.Head) ? file.Bytes : null;
+        // a package is read whole only when its directory names a bundle
+        byte[]? bytes = file.Kind == "zip" ? file.HasZipEntry(IsBundleName) ? HermesBundles.FromPackage(file.Bytes, out inner) : null
+            : HermesFile.Looks(file.Head) ? file.Bytes : null;
         if (bytes == null) return null;
         var hbc = HermesFile.Read(bytes);
         var index = hbc.Opcodes != null ? new HermesIndex(hbc, ct) : null;
