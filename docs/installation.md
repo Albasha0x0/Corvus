@@ -313,7 +313,7 @@ saved yet, a conflict naming the owning process.
 Ghidra (12.0 or newer) is found through `CORVUS_GHIDRA_DIR` (else `GHIDRA_INSTALL_DIR`) and a JDK through `CORVUS_GHIDRA_JAVA` (else
 `JAVA_HOME`, else `PATH`); the worker is compiled from its embedded sources on first use. `CORVUS_GHIDRA_ANALYSIS` picks the
 analysis profile (`standard`, `full` or `minimal`); after a `standard` analysis a background completion pass runs the analyzers
-it caps again uncapped while the worker is idle, reads continuing beside it, and status then reads `standard→full`
+it caps again uncapped, and the stack analysis it leaves to the pass, while the worker is idle, reads continuing beside it, and status then reads `standard→full`
 (`CORVUS_GHIDRA_COMPLETION=off` skips it). `CORVUS_GHIDRA_MAXMEM` the JVM heap, `CORVUS_GHIDRA_OPTIONS` extra analyzer
 options (`Name=value;...`), and `CORVUS_GHIDRA_EXTENSIONS` a directory of Ghidra extension zips built for that Ghidra (a NativeAOT
 analyzer, for example), installed into the workers' private settings; nothing is downloaded. Projects are kept per file hash

@@ -117,6 +117,9 @@ public class GhidraSetupTests
         var standard = GhidraOptions.AnalyzerOptions(GhidraAnalysisProfile.Standard, SymbolMode.Default, null);
         Assert.Contains(standard, o => o.Key == "Decompiler Parameter ID.Analysis Decompiler Timeout (sec)" && o.Value == "10");
         Assert.Contains(standard, o => o.Key == "WindowsResourceReference" && o.Value == "false");
+        // stack analysis waits for the completion pass, when one follows
+        Assert.DoesNotContain(standard, o => o.Key == "Stack");
+        Assert.Contains(GhidraOptions.AnalyzerOptions(GhidraAnalysisProfile.Standard, SymbolMode.Default, null, completion: true), o => o.Key == "Stack" && o.Value == "false");
         Assert.Empty(GhidraOptions.AnalyzerOptions(GhidraAnalysisProfile.Full, SymbolMode.Default, null));
         Assert.Contains(GhidraOptions.AnalyzerOptions(GhidraAnalysisProfile.Full, SymbolMode.Off, null), o => o.Key == "PDB Universal" && o.Value == "false");
         Assert.Contains(GhidraOptions.AnalyzerOptions(GhidraAnalysisProfile.Minimal, SymbolMode.Default, null), o => o.Key == "Decompiler Switch Analysis" && o.Value == "false");

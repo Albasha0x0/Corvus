@@ -101,7 +101,8 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         List<KeyValuePair<string, string>> loader = [.. GhidraOptions.LoaderArguments(profile)];
         if (header.IsElf && header.ImageBase is { } elfBase)
             loader.Add(new(GhidraOptions.ElfImageBaseArgument, elfBase.ToString("x", CultureInfo.InvariantCulture)));
-        var analyzers = GhidraOptions.AnalyzerOptions(profile, symbols, provider.ExtraOptions);
+        var analyzers = GhidraOptions.AnalyzerOptions(profile, symbols, provider.ExtraOptions,
+            completion: provider.CompletionPass && analysis != EngineAnalysis.None && packed == null);
         var key = GhidraOptions.ProfileKey(ghidra, profile, loader, analyzers, provider.Extensions);
         // turned off at import: in the project name through the overrides key
         if (overrides is { DisabledAnalyzers.Count: > 0 })

@@ -76,6 +76,7 @@ public static class GhidraOptions
     private const string CallConventionId = "Call Convention ID";
     private const string ResourceReference = "WindowsResourceReference";
     private const string PdbAnalyzer = "PDB Universal";
+    private const string StackAnalyzer = "Stack";
 
     /// <summary>Loader arguments; ones a loader does not offer are skipped by the worker.</summary>
     public static IReadOnlyList<KeyValuePair<string, string>> LoaderArguments(GhidraAnalysisProfile profile) => profile == GhidraAnalysisProfile.Full
@@ -89,7 +90,8 @@ public static class GhidraOptions
     public const string ElfImageBaseArgument = "-loader-imagebase";
 
     /// <summary>Analyzer options set before the first analysis; names the program does not register are reported and skipped.</summary>
-    public static IReadOnlyList<KeyValuePair<string, string>> AnalyzerOptions(GhidraAnalysisProfile profile, SymbolMode symbols, string? extra)
+    /// <param name="completion">a completion pass follows the standard profile's analysis: the analyzers it runs instead are off</param>
+    public static IReadOnlyList<KeyValuePair<string, string>> AnalyzerOptions(GhidraAnalysisProfile profile, SymbolMode symbols, string? extra, bool completion = false)
     {
         var list = new List<KeyValuePair<string, string>>();
         switch (profile)
@@ -100,6 +102,8 @@ public static class GhidraOptions
                 list.Add(new($"{SwitchAnalysis}.{DecompilerTimeout}", "10"));
                 list.Add(new($"{CallConventionId}.{DecompilerTimeout}", "10"));
                 list.Add(new(ResourceReference, "false")); // compiles a script per import: 35-42 s
+                // stack variables change no function, call or data reference: 95-123 s of libSkiaSharp's first answer, run by the completion pass
+                if (completion) list.Add(new(StackAnalyzer, "false"));
                 break;
             case GhidraAnalysisProfile.Minimal:
                 list.Add(new(ParameterId, "false"));

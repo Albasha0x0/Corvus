@@ -16,7 +16,8 @@ import ghidra.util.classfinder.ClassSearcher;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * After a standard-profile open: the analyzers that profile caps at a 10 s decompiler timeout run again at 60 s, a slice of
+ * After a standard-profile open: the analyzers that profile caps at a 10 s decompiler timeout run again at 60 s, and stack
+ * analysis, which it leaves out, runs; a slice of
  * functions at a time. A slice starts when the worker is idle and holds the read lock, so reads run beside it as they do
  * beside the GUI's analysis; a request for the write lock cancels it once it is GRACE old, and it is redone. Slices are
  * large because each one starts the analyzers' decompilers (seconds). Measured on e_sqlite3: 773 to 789 references to
@@ -24,7 +25,8 @@ import ghidra.util.task.TaskMonitor;
  */
 final class CompletionPass {
     static final String STAMP = "completion";
-    private static final Set<String> ANALYZERS = Set.of("Decompiler Parameter ID", "Decompiler Switch Analysis", "Call Convention ID");
+    // Stack is off in the first analysis when this pass follows (GhidraOptions.AnalyzerOptions)
+    private static final Set<String> ANALYZERS = Set.of("Decompiler Parameter ID", "Decompiler Switch Analysis", "Call Convention ID", "Stack");
     private static final String TIMEOUT = ".Analysis Decompiler Timeout (sec)";
     private static final int SLICE = 64;
     private static final long IDLE_NANOS = 300_000_000L, GRACE_NANOS = 500_000_000L, SAVE_NANOS = 60_000_000_000L;
