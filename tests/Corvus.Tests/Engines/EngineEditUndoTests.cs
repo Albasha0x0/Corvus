@@ -72,6 +72,33 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
     [GhidraFact]
     public Task Struct_layout_edits_in_Ghidra() => StructLayout("ghidra");
 
+    [IdaFact]
+    public Task Argument_storage_in_IDA() => ArgumentStorage("ida");
+
+    [GhidraFact]
+    public Task Argument_storage_in_Ghidra() => ArgumentStorage("ghidra");
+
+    /// <summary>The first argument moved to r10, then undone to where the convention puts it; a non-argument is refused.</summary>
+    private async Task ArgumentStorage(string engine)
+    {
+        var rig = Setup(engine);
+        var native = rig.Native;
+        var fn = native.Image.Exports.First(e => e.Name == Function).Rva;
+        var session = await rig.Engines.Session(native, engine, null, default);
+        async Task<NativeLocal> First() => (await session.GetFrameAsync(fn, true, default)).Locals.Where(l => l.IsArgument).OrderBy(l => l.Name, StringComparer.Ordinal).First();
+        var arg = await First();
+        output.WriteLine($"{arg.Name} {arg.Type} in {arg.Location}");
+        var (moved, edit) = await Edit(() => rig.Types.SetNativeLocal(native.Id, Function, arg.Name, engine: engine, storage: "r10"));
+        output.WriteLine(moved);
+        Assert.Contains(" in r10", moved);
+        Assert.Equal("r10", (await First()).Location, ignoreCase: true);
+        await rig.Journal.UndoAsync(native, edit, default);
+        Assert.Equal(arg.Location, (await First()).Location, ignoreCase: true);
+
+        var local = (await session.GetFrameAsync(fn, true, default)).Locals.First(l => !l.IsArgument && l.Name.Length > 0);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(native.Id, Function, local.Name, engine: engine, storage: "r10"))).Code);
+    }
+
     /// <summary>On a 40-field struct: one field retyped keeps the rest; an insert moves the later fields and its undo moves them back; resize and gap names undo.</summary>
     private async Task StructLayout(string engine)
     {

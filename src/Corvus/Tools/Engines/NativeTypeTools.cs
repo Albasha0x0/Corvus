@@ -323,8 +323,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or " +
-                 "stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused. " +
-                 "inferStruct (Ghidra) declares a struct from the local's field accesses and types the local as a pointer to it." + KeptNote)]
+                 "stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused." + KeptNote)]
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
@@ -335,10 +334,18 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("Instead of local: lines 'local = newName', or JSON [{local, newName?, type?, clear?}].")] string? items = null,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
-        [Description("A struct name: infer it from the local's loads and stores (Ghidra).")] string? inferStruct = null,
+        [Description("Declare this struct from the local's loads and stores; the local points to it (Ghidra).")] string? inferStruct = null,
+        [Description("Move an argument to this register, or auto: the convention's place.")] string? storage = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        if (storage != null)
+        {
+            if (items != null || inferStruct != null || clear)
+                throw new ToolError(ErrorCode.InvalidArgument, "storage goes with local, and newName or type.", "clear or infer in another call");
+            return await SetStorage(image, function, local ?? throw new ToolError(ErrorCode.InvalidArgument, "storage needs local, the argument."),
+                newName, type, storage.Trim().ToLowerInvariant(), engine, progress, cancellationToken);
+        }
         if (inferStruct != null)
         {
             if (items != null || newName != null || type != null || clear)
@@ -392,6 +399,32 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return Edited($"Inferred {name} ({inferred.GetProperty("fields").GetInt32()} fields, {inferred.GetProperty("size").GetInt32()} bytes) from " +
                       $"{inferred.GetProperty("local").GetString()} in the function at {Va(native, rva)}; the local is now {name} *:\n{declaration}", id,
             new EditChange("declaration", name, null, name), new EditChange("local", $"{Va(native, rva)}:{local}", local, name + " *"));
+    }
+
+    /// <summary>
+    /// An argument moved to a register, or back to its calling convention's place; undone to the storage it had, read from the
+    /// frame before the edit.
+    /// </summary>
+    private async Task<string> SetStorage(string image, string function, string local, string? newName, string? type, string storage, string? engine,
+        IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        if (storage != NativeLocalEdit.AutoStorage && !Identifier(storage))
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{storage}' is not a register name.", "e.g. storage=ecx, or storage=auto");
+        var request = newName != null || type != null ? LocalRequest(local, newName, type, false) : new LocalChange(LocalTarget(local).Local, LocalTarget(local).Stack, null, null, false);
+        var (native, rva, session) = await Open(image, function, engine, progress, ct);
+        var frame = await session.GetFrameAsync(rva, true, ct);
+        var arg = frame.Locals.FirstOrDefault(l => l.Name == request.Target || (request.Stack != null && l.Stack == request.Stack))
+            ?? throw new ToolError(ErrorCode.NotFound, $"The function has no local {local}.", "get_native_frame locals=true lists them");
+        if (!arg.IsArgument) throw new ToolError(ErrorCode.InvalidArgument, $"{arg.Name} is not an argument; storage applies to arguments.", "pass an argument's name");
+        var kept = (code?.Annotations(native).UserTypes ?? UserTypeLayer.Empty).LocalEdit(rva, request.Target, request.Stack);
+        var edit = new NativeLocalEdit(rva, request.Target, request.Stack, request.Name, request.Type) { Storage = storage };
+        var undo = new NativeLocalEdit(rva, request.Name ?? request.Target, request.Stack, null, null) { Storage = kept?.Storage ?? NativeLocalEdit.AutoStorage };
+        var (result, id) = await Apply(native, session, "set_native_local", new NativeUserTypeBatch([], [], [], [edit]), (r, layer) => RecordLocals(r, layer, [edit]), ct,
+            new NativeUserTypeBatch([], [], [], [undo]));
+        if (result.Items.FirstOrDefault(i => !i.Applied) is { } failed) Outcome(result with { Items = [failed] }, session.ProviderId);
+        var done = result.Items.Count > 0 ? result.Items[^1] : throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
+        return Edited($"Argument {done.Resolved} of the function at {Va(native, done.Rva)} was in {arg.Location}; it is now: {done.Text}", id,
+            new EditChange("local", $"{Va(native, done.Rva)}:{done.Resolved}", arg.Location, done.Text));
     }
 
     /// <summary>set_native_local items: the requests that parse in one engine request; every outcome and refusal reported.</summary>
@@ -502,8 +535,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                 continue;
             }
             var first = firstNames.GetValueOrDefault((item.Rva, item.Stack)) ?? item.Resolved ?? edit.Local;
-            layer = layer.WithLocal(new NativeLocalEdit(item.Rva, first, item.Stack, edit.Name, edit.Type));
-            if (layer.LocalEdit(item.Rva, first, item.Stack) is { Type: null } merged && (merged.Name == null || merged.Name == merged.Local))
+            layer = layer.WithLocal(new NativeLocalEdit(item.Rva, first, item.Stack, edit.Name, edit.Type) { Storage = edit.Storage });
+            if (layer.LocalEdit(item.Rva, first, item.Stack) is { Type: null, Storage: null } merged && (merged.Name == null || merged.Name == merged.Local))
                 layer = layer.WithoutLocal(merged);
         }
         return layer;

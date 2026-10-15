@@ -278,7 +278,8 @@ internal static class WorkerRows
         var localClears = new JsonArray();
         foreach (var l in batch.Locals)
             if (l.Clear) localClears.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name));
-            else locals.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name, l.Type));
+            else if (l.Storage == null) locals.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name, l.Type));
+            else locals.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name, l.Type, l.Storage));
         var args = Args(("decls", new JsonArray(batch.Declarations.Select(d => (JsonNode)d).ToArray())), ("types", types), ("stack", stack),
             ("locals", locals), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
         if (batch.EnumMembers.Count > 0)

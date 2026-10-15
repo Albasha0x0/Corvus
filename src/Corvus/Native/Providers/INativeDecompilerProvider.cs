@@ -524,10 +524,15 @@ public sealed record NativeCallTargets(IReadOnlyList<NativeCallTarget> Targets, 
 /// A decompiler local of the function at <see cref="Function"/>, found by its stack offset when it has one, else by
 /// <see cref="Local"/> (its name when first edited), else by <see cref="Name"/>; gets <see cref="Name"/> and/or <see cref="Type"/>.
 /// With <see cref="Clear"/> the user's settings of the variable are dropped instead (the decompiler's own name and type return).
+/// <see cref="Storage"/> moves an argument to a register, or back to the calling convention's place (<see cref="AutoStorage"/>).
 /// </summary>
 public sealed record NativeLocalEdit(uint Function, string Local, int? Stack, string? Name, string? Type)
 {
+    public const string AutoStorage = "auto";
+
     public bool Clear { get; init; }
+
+    public string? Storage { get; init; }
 }
 
 /// <summary>

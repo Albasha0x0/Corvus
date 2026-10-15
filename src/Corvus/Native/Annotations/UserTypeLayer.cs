@@ -96,7 +96,7 @@ public sealed class UserTypeLayer
         foreach (var (rva, type) in Types.OrderBy(t => t.Key)) Add(FormattableString.Invariant($"T{rva:X}:{type}"));
         foreach (var s in StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value))
             Add(FormattableString.Invariant($"S{s.Function:X}:{s.Offset}:{s.Name}:{s.Type}") + (s.Delete ? ":delete" : ""));
-        foreach (var l in Locals.OrderBy(l => l.Key).SelectMany(l => l.Value)) Add(FormattableString.Invariant($"L{l.Function:X}:{l.Local}:{l.Stack}:{l.Name}:{l.Type}"));
+        foreach (var l in Locals.OrderBy(l => l.Key).SelectMany(l => l.Value)) Add(FormattableString.Invariant($"L{l.Function:X}:{l.Local}:{l.Stack}:{l.Name}:{l.Type}") + (l.Storage != null ? "@" + l.Storage : ""));
         foreach (var o in Operands.OrderBy(o => o.Key).Select(o => o.Value)) Add(FormattableString.Invariant($"O{o.Rva:X}:{o.Operand}:{o.Display}:{o.Detail}"));
         return Convert.ToHexString(hash.GetHashAndReset());
     }
@@ -184,15 +184,19 @@ public sealed class UserTypeLayer
 
     /// <summary>
     /// With a local edit merged into the edit of the same variable (same stack offset, or a name it had or got), whose
-    /// identity is kept; fields the new edit leaves null keep their value.
+    /// identity is kept; fields the new edit leaves null keep their value, and auto storage drops a kept register.
     /// </summary>
     public UserTypeLayer WithLocal(NativeLocalEdit edit)
     {
         var list = Locals.TryGetValue(edit.Function, out var existing) ? existing.ToList() : [];
         int i = list.FindIndex(e => (edit.Stack != null && e.Stack == edit.Stack) || e.Local == edit.Local || (e.Name != null && e.Name == edit.Local));
         if (i >= 0)
-            list[i] = list[i] with { Stack = list[i].Stack ?? edit.Stack, Name = edit.Name ?? list[i].Name, Type = edit.Type ?? list[i].Type };
-        else list.Add(edit);
+            list[i] = list[i] with
+            {
+                Stack = list[i].Stack ?? edit.Stack, Name = edit.Name ?? list[i].Name, Type = edit.Type ?? list[i].Type,
+                Storage = edit.Storage == NativeLocalEdit.AutoStorage ? null : edit.Storage ?? list[i].Storage,
+            };
+        else list.Add(edit.Storage == NativeLocalEdit.AutoStorage ? edit with { Storage = null } : edit);
         return With(locals: new Dictionary<uint, IReadOnlyList<NativeLocalEdit>>(Locals) { [edit.Function] = list });
     }
 

@@ -590,7 +590,7 @@ final class TypeOps {
         for (int i = 0; i < locals.size(); i++) {
             JsonArray l = locals.get(i).getAsJsonArray();
             items.add(FrameOps.applyLocal(w, r, l.get(0).getAsLong(), l.get(1).getAsString(), l.get(2).isJsonNull() ? null : l.get(2).getAsInt(),
-                text(l.get(3)), text(l.get(4)), pins[i]));
+                text(l.get(3)), text(l.get(4)), pins[i], l.size() > 5 ? text(l.get(5)) : null));
         }
         EditOps.after(w, r, items);
         w.setStamp(a);

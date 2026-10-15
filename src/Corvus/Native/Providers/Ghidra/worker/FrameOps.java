@@ -13,7 +13,11 @@ import com.google.gson.JsonObject;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.lang.PrototypeModel;
+import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.Parameter;
+import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.listing.StackFrame;
 import ghidra.program.model.listing.Variable;
 import ghidra.program.model.listing.VariableStorage;
@@ -325,11 +329,11 @@ final class FrameOps {
     }
 
     static JsonArray applyLocal(Worker w, Worker.Request r, long rva, String local, Integer stack, String name, String type) throws Exception {
-        return applyLocal(w, r, rva, local, stack, name, type, null);
+        return applyLocal(w, r, rva, local, stack, name, type, null, null);
     }
 
     /** Renames and/or retypes a decompiler local or parameter (found by its pin when given); the decompiler's view after the edit is the check. */
-    static JsonArray applyLocal(Worker w, Worker.Request r, long rva, String local, Integer stack, String name, String type, String pinned) throws Exception {
+    static JsonArray applyLocal(Worker w, Worker.Request r, long rva, String local, Integer stack, String name, String type, String pinned, String storage) throws Exception {
         Function f = w.program.getFunctionManager().getFunctionContaining(w.space().getAddress(w.base + rva));
         if (f == null) return item("local", rva, local, false, "no function contains rva 0x" + Long.toHexString(rva).toUpperCase(), null, stack, null);
         rva = w.rva(f.getEntryPoint());
@@ -370,6 +374,17 @@ final class FrameOps {
             dt = TypeOps.parseType(w, type);
             if (dt == null) return item("local", rva, local, false, "the type does not parse (types it names must be declared first)", resolved, stk, null);
         }
+        if (storage != null) {
+            try {
+                return applyStorage(w, r, f, hf, s, rva, local, stk, name, dt, storage);
+            }
+            catch (Worker.WorkerError e) {
+                return item("local", rva, local, false, e.getMessage(), resolved, stk, null);
+            }
+            catch (Exception e) {
+                return item("local", rva, local, false, "Ghidra did not move " + resolved + ": " + e.getMessage(), resolved, stk, null);
+            }
+        }
         try {
             if (paramsDiffer(s, hf)) HighFunctionDBUtil.commitParamsToDatabase(hf, false, ReturnCommitOption.NO_COMMIT, f.getSignatureSource());
             HighFunctionDBUtil.updateDBVariable(s, name, dt, SourceType.USER_DEFINED);
@@ -399,6 +414,44 @@ final class FrameOps {
             return item("local", rva, local, false, "the decompiler kept " + now.getName() + " as " + now.getDataType().getDisplayName() + " (it did not accept " + type + ")",
                 resolved, stk, null);
         return item("local", rva, local, true, null, resolved, stk, now.getDataType().getDisplayName() + " " + now.getName());
+    }
+
+    /** An argument moved to a register, or to its calling convention's place (auto); the function gets custom storage. */
+    private static JsonArray applyStorage(Worker w, Worker.Request r, Function f, HighFunction hf, HighSymbol s, long rva, String local, Integer stk,
+            String name, DataType dt, String storage) throws Exception {
+        String resolved = s.getName();
+        if (!s.isParameter()) return item("local", rva, local, false, resolved + " is not an argument; storage applies to arguments", resolved, stk, null);
+        int index = s.getCategoryIndex();
+        if (index >= f.getParameterCount() || paramsDiffer(s, hf))
+            HighFunctionDBUtil.commitParamsToDatabase(hf, true, ReturnCommitOption.NO_COMMIT, SourceType.USER_DEFINED);
+        if (index < 0 || index >= f.getParameterCount()) return item("local", rva, local, false, f.getName() + " has no parameter " + index, resolved, stk, null);
+        Parameter p = f.getParameter(index);
+        DataType type = dt != null ? dt : p.getDataType();
+        VariableStorage at;
+        if (storage.equals("auto")) {
+            PrototypeModel cc = f.getCallingConvention() != null ? f.getCallingConvention() : w.program.getCompilerSpec().getDefaultCallingConvention();
+            at = cc.getArgLocation(index, f.getParameters(), type, w.program);
+        }
+        else {
+            Register reg = w.program.getRegister(storage);
+            if (reg == null) reg = w.program.getRegister(storage.toUpperCase());
+            if (reg == null) return item("local", rva, local, false, "the processor has no register " + storage, resolved, stk, null);
+            int len = type.getLength();
+            if (len > reg.getMinimumByteSize())
+                return item("local", rva, local, false, reg.getName() + " is " + reg.getMinimumByteSize() + " bytes; " + resolved + " needs " + len, resolved, stk, null);
+            Address a = reg.isBigEndian() ? reg.getAddress().add(reg.getMinimumByteSize() - len) : reg.getAddress();
+            at = new VariableStorage(w.program, new Varnode(a, len));
+        }
+        f.setCustomVariableStorage(true);
+        p = f.getParameter(index);
+        if (name != null) p.setName(name, SourceType.USER_DEFINED);
+        p.setDataType(type, at, true, SourceType.USER_DEFINED);
+        w.decompilers.flush();
+        HighSymbol now = high(w, f, r).getLocalSymbolMap().getParamSymbol(index);
+        if (now == null) return item("local", rva, local, false, "the argument is gone after the edit", resolved, stk, null);
+        VariableStorage got = now.getStorage();
+        String where = got.isStackStorage() ? "stack" : got.isRegisterStorage() ? got.getRegister().getName().toLowerCase() : got.toString();
+        return item("local", rva, local, true, null, resolved, stk, now.getDataType().getDisplayName() + " " + now.getName() + " in " + where);
     }
 
     // ---- clearing user edits ----

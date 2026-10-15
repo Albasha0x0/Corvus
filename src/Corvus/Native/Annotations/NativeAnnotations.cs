@@ -73,7 +73,7 @@ public sealed class NativeAnnotations
         var locals = new Dictionary<uint, IReadOnlyList<NativeLocalEdit>>();
         foreach (var (k, list) in doc.Locals ?? [])
             if (Rva(k) is { } f && list is { Count: > 0 })
-                locals[f] = list.Where(e => e.Local.Length > 0).Select(e => new NativeLocalEdit(f, e.Local, e.Stack, e.Name, e.Type)).ToList();
+                locals[f] = list.Where(e => e.Local.Length > 0).Select(e => new NativeLocalEdit(f, e.Local, e.Stack, e.Name, e.Type) { Storage = e.Storage }).ToList();
         var stack = new Dictionary<uint, IReadOnlyList<NativeStackVarEdit>>();
         foreach (var (k, list) in doc.StackVars ?? [])
             if (Rva(k) is { } f && list is { Count: > 0 }) stack[f] = list.Select(e => new NativeStackVarEdit(f, e.Offset, e.Name, e.Type) { Delete = e.Delete }).ToList();
@@ -353,7 +353,7 @@ public sealed class NativeAnnotations
         if (u.Declarations.Count > 0) doc.Declarations = [.. u.Declarations];
         if (u.Types.Count > 0) doc.Types = u.Types.ToDictionary(t => Hex(t.Key), t => t.Value);
         if (u.Locals.Count > 0)
-            doc.Locals = u.Locals.ToDictionary(l => Hex(l.Key), l => l.Value.Select(e => new AnnotationDocument.LocalEntry { Local = e.Local, Stack = e.Stack, Name = e.Name, Type = e.Type }).ToList());
+            doc.Locals = u.Locals.ToDictionary(l => Hex(l.Key), l => l.Value.Select(e => new AnnotationDocument.LocalEntry { Local = e.Local, Stack = e.Stack, Name = e.Name, Type = e.Type, Storage = e.Storage }).ToList());
         if (u.StackVars.Count > 0)
             doc.StackVars = u.StackVars.ToDictionary(s => Hex(s.Key), s => s.Value.Select(e => new AnnotationDocument.StackVarEntry
                 { Offset = e.Offset, Name = e.Name, Type = e.Type, Delete = e.Delete }).ToList());

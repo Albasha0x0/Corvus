@@ -35,6 +35,7 @@ public sealed class AnnotationDocument
         [JsonPropertyName("stack")] public int? Stack { get; set; }
         [JsonPropertyName("name")] public string? Name { get; set; }
         [JsonPropertyName("type")] public string? Type { get; set; }
+        [JsonPropertyName("storage"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Storage { get; set; }
     }
 
     public sealed class StackVarEntry

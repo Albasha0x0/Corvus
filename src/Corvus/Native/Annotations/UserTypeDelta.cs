@@ -145,7 +145,7 @@ public sealed record UserTypeDelta(IReadOnlyList<UserTypeDelta.Item> Items)
     {
         null => null,
         string s => Clip(s),
-        NativeLocalEdit l => l.Clear ? "(cleared)" : string.Join(" ", new[] { l.Type, l.Name }.Where(x => x != null)),
+        NativeLocalEdit l => l.Clear ? "(cleared)" : string.Join(" ", new[] { l.Type, l.Name, l.Storage is { } at ? "@" + at : null }.Where(x => x != null)),
         NativeStackVarEdit s => s.Delete ? "(deleted)" : s.Clear ? "(cleared)" : string.Join(" ", new[] { s.Type, s.Name }.Where(x => x != null)),
         NativeEnumMemberEdit e => e.Value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "(removed)",
         NativeFieldEdit f => f.Op switch

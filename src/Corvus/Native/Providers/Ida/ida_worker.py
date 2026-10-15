@@ -1180,6 +1180,91 @@ def apply_local(m, ti, rva, local, stack, name, typ):
     return ["local", rva, local, True, None, resolved, stk, "%s %s" % (now.type(), now.name)]
 
 
+def _cc(ftd):
+    return ftd.get_cc() if hasattr(ftd, "get_cc") else ftd.cc
+
+
+def _set_cc(ftd, cc):
+    if hasattr(ftd, "set_cc"):
+        ftd.set_cc(cc)
+    else:
+        ftd.cc = cc
+
+
+def apply_storage(m, ti, rva, local, stack, name, typ, storage):
+    # an argument moved to a register (the prototype becomes __usercall), or to its calling convention's place (auto);
+    # when every argument is back in its place the prototype returns to the convention
+    import ida_typeinf as t
+    hr = m.ida_hexrays
+    f = m.ida_funcs.get_func(_state["base"] + rva)
+    if f is None:
+        return ["local", rva, local, False, "no function contains rva 0x%X" % rva, None, stack, None]
+    rva = rva_of(f.start_ea)
+    cf, why = decompile_function(m, f.start_ea)
+    if cf is None:
+        return ["local", rva, local, False, why, None, stack, None]
+    lvars = list(cf.get_lvars())
+    lv = find_lvar(lvars, local, stack, name)
+    if lv is None:
+        return ["local", rva, local, False, "the function has no local %s" % local, None, stack, None]
+    resolved = lv.name
+    if not lv.is_arg_var:
+        return ["local", rva, local, False, "%s is not an argument; storage applies to arguments" % resolved, resolved, None, None]
+    index = [i for i, v in enumerate(lvars) if v.name == resolved][0]
+    argidx = list(cf.argidx)
+    if index not in argidx:
+        return ["local", rva, local, False, "%s is not in the prototype" % resolved, resolved, None, None]
+    pos = argidx.index(index)
+    ftif = t.tinfo_t()
+    ftd = t.func_type_data_t()
+    if not cf.get_func_type(ftif) or not ftif.get_func_details(ftd, t.GTD_CALC_ARGLOCS) or pos >= ftd.size():
+        return ["local", rva, local, False, "IDA has no prototype for the function", resolved, None, None]
+    if typ:
+        tif = parse_type(ti, typ, False)
+        if tif is None:
+            return ["local", rva, local, False, "the type does not parse (types it names must be declared first)", resolved, None, None]
+        ftd[pos].type = tif
+    if name:
+        ftd[pos].name = name
+    # the convention's places: the same arguments under the plain convention
+    base = _cc(ftd) & t.CM_CC_MASK
+    if base in (t.CM_CC_SPECIAL, t.CM_CC_SPECIALE, t.CM_CC_SPECIALP):
+        base = m.ida_ida.inf_get_cc_cm() & t.CM_CC_MASK
+    plain_ftd = t.func_type_data_t()
+    ftif.get_func_details(plain_ftd)
+    for i in range(plain_ftd.size()):
+        plain_ftd[i].type, plain_ftd[i].name = ftd[i].type, ftd[i].name
+    _set_cc(plain_ftd, (_cc(plain_ftd) & ~t.CM_CC_MASK) | base)
+    plain = t.tinfo_t()
+    places = t.func_type_data_t()
+    if not plain.create_func(plain_ftd) or not plain.get_func_details(places, t.GTD_CALC_ARGLOCS):
+        return ["local", rva, local, False, "IDA did not compute the convention's places", resolved, None, None]
+    if storage == "auto":
+        ftd[pos].argloc = places[pos].argloc
+    else:
+        reg = __import__("ida_idp").str2reg(storage)
+        if reg is None or reg < 0:
+            return ["local", rva, local, False, "the processor has no register %s" % storage, resolved, None, None]
+        ftd[pos].argloc.set_reg1(reg)
+    width = lambda a: a.type.get_size()
+    if all(argloc_text(m, ftd[i].argloc, width(ftd[i])) == argloc_text(m, places[i].argloc, width(places[i])) for i in range(ftd.size())):
+        new = plain
+    else:
+        _set_cc(ftd, (_cc(ftd) & ~t.CM_CC_MASK) | t.CM_CC_SPECIAL)
+        new = t.tinfo_t()
+        if not new.create_func(ftd):
+            return ["local", rva, local, False, "IDA rejected the prototype with %s in %s" % (resolved, storage), resolved, None, None]
+    if not t.apply_tinfo(f.start_ea, new, t.TINFO_DEFINITE):
+        return ["local", rva, local, False, "IDA did not apply the prototype", resolved, None, None]
+    hr.mark_cfunc_dirty(f.start_ea, False)
+    cf, why = decompile_function(m, f.start_ea)
+    if cf is None or pos >= len(cf.argidx):
+        return ["local", rva, local, False, why or "the argument is gone after the edit", resolved, None, None]
+    now = cf.get_lvars()[cf.argidx[pos]]
+    where = "stack" if now.is_stk_var() else (hr.get_mreg_name(now.get_reg1(), now.width) or "register") if now.is_reg_var() else ""
+    return ["local", rva, local, True, None, resolved, None, "%s %s in %s" % (now.type(), now.name, where)]
+
+
 class FrameMember:
     # a copy: udm_t proxies die with their udt_type_data_t
     def __init__(self, index, u):
@@ -1575,8 +1660,10 @@ def op_apply_user_types(args):
         result["items"].append(apply_user_type(m, ti, rva, decl or ""))
     for rva, offset, name, typ in args.get("stack") or []:
         result["items"].append(apply_stack(m, ti, rva, offset, name, typ))
-    for rva, local, stack, name, typ in args.get("locals") or []:
-        result["items"].append(apply_local(m, ti, rva, local, stack, name, typ))
+    for row in args.get("locals") or []:
+        rva, local, stack, name, typ = row[:5]
+        storage = row[5] if len(row) > 5 else None
+        result["items"].append(apply_storage(m, ti, rva, local, stack, name, typ, storage) if storage else apply_local(m, ti, rva, local, stack, name, typ))
     result["items"] += apply_edits_after(m, ti, args)
     changed(m)
     key = args.get("stamp_key")
