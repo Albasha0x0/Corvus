@@ -156,6 +156,16 @@ if ($wholeSuite -and (Get-CleanTree)) {
 }
 elseif ($Reuse) { Write-Host 'Reuse needs a clean tree and the whole suite: nothing is reused.' }
 
+# Engine tests skip silently without their engine; a full run names the missing ones before and after it runs.
+$missingEngines = @()
+if ($Full) {
+    if (-not ($env:CORVUS_GHIDRA_DIR -or $env:GHIDRA_INSTALL_DIR)) { $missingEngines += 'Ghidra (set CORVUS_GHIDRA_DIR)' }
+    $idaUser = @($env:IDAUSR -split [IO.Path]::PathSeparator | Where-Object { $_ }) +
+        $(if ($IsWindows) { Join-Path $env:APPDATA 'Hex-Rays/IDA Pro' } else { Join-Path $HOME '.idapro' })
+    if (-not $env:CORVUS_IDA_DIR -and -not ($idaUser | Where-Object { Test-Path (Join-Path $_ 'ida-config.json') })) { $missingEngines += 'IDA (set CORVUS_IDA_DIR)' }
+    if ($missingEngines) { Write-Host "Engine tests will be skipped: $($missingEngines -join ', ')." -ForegroundColor Yellow }
+}
+
 $arguments = @('test', $tests, '--nologo')
 if ($Filter) { $arguments += @('--filter', $Filter) }
 $results = Join-Path ([IO.Path]::GetTempPath()) "corvus-trx-$PID"
@@ -183,6 +193,7 @@ try {
         Write-Host "Recorded $mode passes for $($passed.Count) families."
     }
     if (Test-Path $results) { Remove-Item -Recurse -Force $results }
+    if ($missingEngines) { Write-Host "Engine tests were skipped: $($missingEngines -join ', ')." -ForegroundColor Yellow }
     if ($code -ne 0) { exit $code }
     if ($tree) { $value = "$tree $mode"; Set-Content -Path $stamp -Value $value -NoNewline; Write-Host "Stamped $value." }
 }
