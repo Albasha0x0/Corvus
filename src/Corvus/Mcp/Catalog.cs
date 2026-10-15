@@ -150,7 +150,8 @@ public static partial class Catalog
 
     /// <summary>
     /// Removes "null" from input parameter types and enums (C# nullables): an optional parameter is left out, not sent as
-    /// null, and the union cost about 6 KB of the model-facing catalog. A null sent anyway still binds as omitted.
+    /// null, and the union cost about 6 KB of the model-facing catalog. A null sent anyway still binds as omitted. Open
+    /// array items get a type.
     /// </summary>
     private static void DropNullableInputs(IEnumerable<McpServerTool> tools)
     {
@@ -175,6 +176,9 @@ public static partial class Catalog
                 if (o["enum"] is JsonArray values)
                     for (int i = values.Count - 1; i >= 0; i--)
                         if (values[i] is null) { values.RemoveAt(i); changed = true; }
+                // An open item ({}, a converter-read type such as note evidence) is rejected by strict gateways (SchemaGate);
+                // the items are objects, and a string a converter also takes still binds.
+                if (o["items"] is JsonObject { Count: 0 }) { o["items"] = new JsonObject { ["type"] = "object" }; changed = true; }
                 foreach (var (_, child) in o) changed |= Drop(child);
             }
             else if (node is JsonArray a)

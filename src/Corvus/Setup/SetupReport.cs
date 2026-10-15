@@ -67,7 +67,8 @@ internal sealed class ClientReport
 }
 
 /// <summary>A server start and handshake, and how its catalog compares with this build's.</summary>
-internal sealed record ServerReport(bool Ok, string Detail, double Seconds, string? Version, int? Tools, string? Digest, bool? MatchesThisBuild, IReadOnlyList<string> Differences)
+internal sealed record ServerReport(bool Ok, string Detail, double Seconds, string? Version, int? Tools, string? Digest, bool? MatchesThisBuild, IReadOnlyList<string> Differences,
+    IReadOnlyList<string>? SchemaProblems = null)
 {
     public static ServerReport From(SelfTest.Result test)
     {
@@ -90,8 +91,15 @@ internal sealed record ServerReport(bool Ok, string Detail, double Seconds, stri
             Compare("tools", Corvus.Mcp.Catalog.ToolHashes(tools), Corvus.Mcp.Catalog.ToolHashes(test.ToolList));
             Compare("prompts", Corvus.Mcp.Catalog.PromptHashes(prompts), Corvus.Mcp.Catalog.PromptHashes(test.PromptList ?? []));
         }
-        return new ServerReport(true, test.Detail, test.Seconds, test.Version, test.ToolList.Count, installed, expected == installed, differences);
+        return new ServerReport(true, test.Detail, test.Seconds, test.Version, test.ToolList.Count, installed, expected == installed, differences,
+            [.. Corvus.Mcp.SchemaGate.Check(test.ToolList).Select(p => p.ToString())]);
     }
+
+    /// <summary>The schema line of the text output: tools a strict model gateway would reject, each with the path and keyword.</summary>
+    public string SchemaLine() => SchemaProblems is not { Count: > 0 } problems
+        ? "Tool schemas: inside the strict gateway subset"
+        : $"Tool schemas: {problems.Count} outside the strict gateway subset (a gateway may reject every request): " +
+          string.Join("; ", problems.Take(10)) + (problems.Count > 10 ? $" and {problems.Count - 10} more" : "");
 
     /// <summary>The catalog line of the text output.</summary>
     public string CatalogLine()

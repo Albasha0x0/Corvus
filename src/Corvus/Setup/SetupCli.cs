@@ -580,7 +580,7 @@ internal static class SetupCli
         {
             var server = report.Server = Doctor.Test(launch, new Dictionary<string, string>(), tests);
             text.WriteLine(server.Ok ? $"Server check: OK ({server.Detail})" : $"Server check FAILED: {server.Detail}");
-            if (server.Ok) text.WriteLine(server.CatalogLine());
+            if (server.Ok) { text.WriteLine(server.CatalogLine()); text.WriteLine(server.SchemaLine()); }
             failed |= !server.Ok || server.MatchesThisBuild != true;
         }
 

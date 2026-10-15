@@ -37,7 +37,37 @@ public static class OutputSchemas
                 if (root["required"] is not JsonArray required || required.All(r => (string?)r != name)) properties.Remove(name);
         if (strip && root is JsonObject top) top.Remove("required");
         DropDanglingReferences(root, root);
+        if (strip) InlineReferences(root, root, 0);
         return JsonSerializer.SerializeToElement(root);
+    }
+
+    /// <summary>
+    /// Replaces each local $ref (the SDK's pointer to a row type it already wrote) with a copy of its target: gateways that
+    /// check output schemas reject $ref (SchemaGate). A reference cycle ends in an open object.
+    /// </summary>
+    private static void InlineReferences(JsonNode? node, JsonNode root, int hops)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                if (o["$ref"] is JsonValue r)
+                {
+                    o.Remove("$ref");
+                    if (hops < 8 && Resolve(root, (string?)r) is JsonObject target)
+                    {
+                        var copy = target.DeepClone().AsObject();
+                        InlineReferences(copy, root, hops + 1);
+                        foreach (var (key, value) in copy.ToList())
+                            if (!o.ContainsKey(key)) { copy.Remove(key); o[key] = value; }
+                    }
+                    else if (!o.ContainsKey("type")) o["type"] = "object";
+                }
+                foreach (var (_, child) in o.ToList()) InlineReferences(child, root, hops);
+                break;
+            case JsonArray a:
+                foreach (var child in a) InlineReferences(child, root, hops);
+                break;
+        }
     }
 
     /// <summary>

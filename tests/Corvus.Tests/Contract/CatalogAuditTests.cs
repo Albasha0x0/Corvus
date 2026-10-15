@@ -68,6 +68,28 @@ public class CatalogAuditTests
         }
     }
 
+    /// <summary>E1: every tool, in every toolset, stays inside the schema subset the strictest model gateways accept.</summary>
+    [Fact]
+    public void SchemasPassTheStrictestGateways()
+    {
+        var problems = SchemaGate.Check(Catalog.OfThisBuild(Toolsets.All).Tools);
+        Assert.True(problems.Count == 0, string.Join("\n", problems.Take(30)));
+    }
+
+    [Fact]
+    public void SchemaGateNamesTheToolAndKeyword()
+    {
+        var tool = JsonNode.Parse("""
+            {"name":"t","inputSchema":{"type":"object","properties":{"a":{"anyOf":[{"type":"string"}]},"b":{"type":"array"},"c":{"type":["string","null"]}}},
+             "outputSchema":{"type":"object","properties":{"rows":{"type":"array","items":{"$ref":"#/properties/x"}}}}}
+            """);
+        var problems = SchemaGate.Check([tool]).Select(p => p.ToString()).ToList();
+        Assert.Contains("t/a: keyword anyOf", problems);
+        Assert.Contains("t/b: array without items", problems);
+        Assert.Contains("t/c: type is a union", problems);
+        Assert.Contains("t#output/rows/items: keyword $ref", problems);
+    }
+
     [Fact]
     public void SchemasCarryNoNullDefaults()
     {
