@@ -33,7 +33,7 @@ public sealed class UnpackTools(UnpackService unpacker)
     [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
     [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, " +
                  "without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names), exact matches first; " +
-                 "kind=file matches inner file names and paths; kind=endpoint lists the endpoints app code names (Retrofit, OkHttp, Ktor, HttpClient, Refit, gRPC, " +
+                 "kind=file matches inner file names and paths; kind=packet a pcap display filter; kind=endpoint lists the endpoints app code names (Retrofit, OkHttp, Ktor, HttpClient, Refit, gRPC, " +
                  "URL strings; each with its method and location) or a capture's requests, and with capture= joins both.")]
     public async Task<string> SearchContainer(
         [Description("Absolute path to the container or assembly file.")] string path,

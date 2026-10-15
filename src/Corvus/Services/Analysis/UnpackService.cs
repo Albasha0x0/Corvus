@@ -193,7 +193,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             throw new ToolError(ErrorCode.InvalidArgument, "capture applies to kind=endpoint only.", "pass kind=endpoint, or omit capture");
         if (capture != null) capture = InputFiles.RequireRegularFile(capture, "capture");
         var provider = name is null or "" ? null : Providers.Of<IContainerSearchKind>().FirstOrDefault(p => p.Kinds.Contains(name));
-        return provider == null ? Search(path, query, ParseSearchKind(kind), limit, limits, ct, offset) : SearchFiles(path, query, provider, name!, limit, limits, ct, offset, capture);
+        if (provider == null) return Search(path, query, ParseSearchKind(kind), limit, limits, ct, offset);
+        return provider.SearchFile(path, query, Math.Max(0, offset), limit, ct) ?? SearchFiles(path, query, provider, name!, limit, limits, ct, offset, capture);
     }
 
     private static ContainerSearch SearchFiles(string path, string query, IContainerSearchKind provider, string kind, int limit, AnalysisLimits limits,

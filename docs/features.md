@@ -261,7 +261,17 @@ mapped back through Retrofit's own parser) joined to `baseUrl` through `create(A
 and C#, every gRPC method of an embedded descriptor, Mach-O URL strings with the functions that load them, and absolute
 URL literals no call consumes (XML namespaces left out). `capture=` (HAR, mitmproxy, `.saz`, pcap) joins both sides:
 a code row a captured request instantiates is marked `code+capture` and names the requests, captured templates no code
-explains are marked `capture`. `kind=dart` on a Flutter app
+explains are marked `capture`. `kind=packet` on a pcap or pcapng
+capture takes a Wireshark display filter as the query and lists the matching frames in capture order: frame number, time,
+source and destination with ports, the top protocol decoded, and the values of the fields the filter names. The filter
+compares with `==`, `!=`, `>`, `<`, `>=`, `<=`, `contains`, `matches` (case-insensitive regex) and `in {…}`, takes networks
+(`ip.addr==10.0.0.0/8`), bare fields and protocols as presence tests and `and` / `or` / `not` with parentheses. Fields
+decoded in-process, with no TShark: `frame.number` / `len`, `ip.addr` / `src` / `dst` / `proto`, the same for `ipv6`,
+`tcp` and `udp` ports, `tcp.flags.*`, `tcp.len`, `dns.qry.name` / `type`, `dns.a` / `aaaa` / `cname`,
+`dns.flags.response`, `http.host`, `http.request.method` / `uri`, `http.user_agent`, `http.response.code`, and
+`tls.handshake.extensions_server_name` (`tls.sni`) and `_alpn_str` (`tls.alpn`), a ClientHello split over in-order
+segments joined. The capture is streamed, so its size is not limited (a 1 GiB pcapng filters at disk speed); `total`
+counts every match and `offset` / `limit` page them. `kind=dart` on a Flutter app
 (`libapp.so`, `App.framework/App`, or an APK or `.ipa` holding one) lists the Dart AOT isolate snapshot's string pool: every
 distinct `package:` and `dart:` URI and identifier token with its offset (the query matches the string or its kind,
 e.g. `identifier`). `compare_folders` compares two

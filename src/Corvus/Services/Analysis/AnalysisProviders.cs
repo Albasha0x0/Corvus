@@ -52,6 +52,9 @@ public interface IContainerSearchKind
 
     /// <summary>Matches of <paramref name="kind"/>; <paramref name="matches"/> tests a name against the query.</summary>
     IEnumerable<ContainerMatch> Search(ContainerScope scope, string kind, Func<string, bool> matches, CancellationToken ct);
+
+    /// <summary>A kind that reads the file itself, streamed at any size, and pages its own rows in file order; null searches the container's files.</summary>
+    UnpackService.ContainerSearch? SearchFile(string path, string query, int offset, int limit, CancellationToken ct) => null;
 }
 
 /// <summary>What survey_features rules run over: a managed module's scan or a native image's code index.</summary>

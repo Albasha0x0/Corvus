@@ -316,7 +316,7 @@ public sealed class CaptureAnalysis
     }
 
     /// <summary>A DNS name with compression pointers followed (backwards only, so a loop cannot form); null when malformed.</summary>
-    private static string? Name(ReadOnlySpan<byte> m, ref int at)
+    internal static string? Name(ReadOnlySpan<byte> m, ref int at)
     {
         var sb = new StringBuilder();
         int pos = at, jumps = 0;
@@ -352,7 +352,7 @@ public sealed class CaptureAnalysis
     };
 
     /// <summary>ASCII with control and non-ASCII bytes as '?', so names from the capture print safely.</summary>
-    private static string Printable(ReadOnlySpan<byte> b) => string.Create(b.Length, b.ToArray(), (chars, bytes) =>
+    internal static string Printable(ReadOnlySpan<byte> b) => string.Create(b.Length, b.ToArray(), (chars, bytes) =>
     {
         for (int i = 0; i < bytes.Length; i++) chars[i] = bytes[i] is >= 0x20 and < 0x7F ? (char)bytes[i] : '?';
     });

@@ -13,12 +13,12 @@ public sealed class PcapTests : IDisposable
     private readonly AssemblyWorkspace _ws = new();
     public void Dispose() { _ws.Dispose(); _dir.Dispose(); }
 
-    private static readonly byte[] Client = [10, 0, 0, 2], Web = [93, 184, 216, 34], Resolver = [8, 8, 8, 8];
-    private const long T0 = 1_700_000_000;
+    internal static readonly byte[] Client = [10, 0, 0, 2], Web = [93, 184, 216, 34], Resolver = [8, 8, 8, 8];
+    internal const long T0 = 1_700_000_000;
 
     // ---- packet builders ----
 
-    private static byte[] Ipv4(byte protocol, byte[] src, byte[] dst, byte[] transport)
+    internal static byte[] Ipv4(byte protocol, byte[] src, byte[] dst, byte[] transport)
     {
         var ip = new byte[20 + transport.Length];
         ip[0] = 0x45;
@@ -31,7 +31,7 @@ public sealed class PcapTests : IDisposable
         return ip;
     }
 
-    private static byte[] Tcp(byte[] src, ushort sport, byte[] dst, ushort dport, byte flags, uint seq, byte[] payload)
+    internal static byte[] Tcp(byte[] src, ushort sport, byte[] dst, ushort dport, byte flags, uint seq, byte[] payload)
     {
         var t = new byte[20 + payload.Length];
         BinaryPrimitives.WriteUInt16BigEndian(t, sport);
@@ -43,7 +43,7 @@ public sealed class PcapTests : IDisposable
         return Ipv4(6, src, dst, t);
     }
 
-    private static byte[] Udp(byte[] src, ushort sport, byte[] dst, ushort dport, byte[] payload)
+    internal static byte[] Udp(byte[] src, ushort sport, byte[] dst, ushort dport, byte[] payload)
     {
         var u = new byte[8 + payload.Length];
         BinaryPrimitives.WriteUInt16BigEndian(u, sport);
@@ -53,17 +53,17 @@ public sealed class PcapTests : IDisposable
         return Ipv4(17, src, dst, u);
     }
 
-    private static byte[] Ethernet(byte[] ip, bool vlan = false) =>
+    internal static byte[] Ethernet(byte[] ip, bool vlan = false) =>
         [.. new byte[12], .. vlan ? new byte[] { 0x81, 0x00, 0x00, 0x05 } : [], 0x08, 0x00, .. ip];
 
-    private static byte[] Sll(byte[] ip) => [0, 0, 0, 1, 0, 6, .. new byte[8], 0x08, 0x00, .. ip];
+    internal static byte[] Sll(byte[] ip) => [0, 0, 0, 1, 0, 6, .. new byte[8], 0x08, 0x00, .. ip];
 
-    private static byte[] Name(string name) => [.. name.Split('.').SelectMany(l => (byte[])[(byte)l.Length, .. Encoding.ASCII.GetBytes(l)]), 0];
+    internal static byte[] Name(string name) => [.. name.Split('.').SelectMany(l => (byte[])[(byte)l.Length, .. Encoding.ASCII.GetBytes(l)]), 0];
 
-    private static byte[] DnsQuery() => [0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, .. Name("api.example.com"), 0, 1, 0, 1];
+    internal static byte[] DnsQuery() => [0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, .. Name("api.example.com"), 0, 1, 0, 1];
 
     /// <summary>api.example.com CNAME edge.example.net (at offset 45), then edge.example.net (a pointer to it) A 93.184.216.34.</summary>
-    private static byte[] DnsResponse() =>
+    internal static byte[] DnsResponse() =>
     [
         0x12, 0x34, 0x81, 0x80, 0, 1, 0, 2, 0, 0, 0, 0, .. Name("api.example.com"), 0, 1, 0, 1,
         0xC0, 0x0C, 0, 5, 0, 1, 0, 0, 0, 60, 0, 18, .. Name("edge.example.net"),
@@ -84,10 +84,10 @@ public sealed class PcapTests : IDisposable
         return [0x16, 3, 1, .. U16(handshake.Length), .. handshake];
     }
 
-    private static readonly byte[] Request = Encoding.ASCII.GetBytes("GET /users/42?token=secret HTTP/1.1\r\nUser-Agent: t\r\nHOST: api.example.com\r\n\r\n");
+    internal static readonly byte[] Request = Encoding.ASCII.GetBytes("GET /users/42?token=secret HTTP/1.1\r\nUser-Agent: t\r\nHOST: api.example.com\r\n\r\n");
 
     /// <summary>A DNS lookup, a TLS connection (SYN, then the ClientHello in one or two segments, VLAN tagged) and an HTTP request.</summary>
-    private static List<byte[]> Packets(bool splitHello = false)
+    internal static List<byte[]> Packets(bool splitHello = false)
     {
         var hello = ClientHello("api.example.com", "h2", "http/1.1");
         var list = new List<byte[]>
@@ -110,7 +110,7 @@ public sealed class PcapTests : IDisposable
 
     // ---- capture writers ----
 
-    private static byte[] Pcap(IReadOnlyList<byte[]> frames, int linkType = 1, bool big = false, bool nano = false)
+    internal static byte[] Pcap(IReadOnlyList<byte[]> frames, int linkType = 1, bool big = false, bool nano = false)
     {
         var o = new MemoryStream();
         void U32(uint v) { var b = new byte[4]; if (big) BinaryPrimitives.WriteUInt32BigEndian(b, v); else BinaryPrimitives.WriteUInt32LittleEndian(b, v); o.Write(b); }
@@ -124,7 +124,7 @@ public sealed class PcapTests : IDisposable
         return o.ToArray();
     }
 
-    private static byte[] Block(uint type, byte[] body)
+    internal static byte[] Block(uint type, byte[] body)
     {
         var padded = body.Length % 4 == 0 ? body : [.. body, .. new byte[4 - body.Length % 4]];
         uint length = (uint)(12 + padded.Length);
@@ -136,10 +136,10 @@ public sealed class PcapTests : IDisposable
         return b;
     }
 
-    private static byte[] Le(params uint[] values) => [.. values.SelectMany(BitConverter.GetBytes)];
+    internal static byte[] Le(params uint[] values) => [.. values.SelectMany(BitConverter.GetBytes)];
 
     /// <summary>Interface 0 Ethernet (microseconds), interface 1 SLL with if_tsresol 9 (nanoseconds); one frame each, a skipped block between.</summary>
-    private static byte[] PcapNg(IReadOnlyList<byte[]> ethernet, byte[] sll)
+    internal static byte[] PcapNg(IReadOnlyList<byte[]> ethernet, byte[] sll)
     {
         var o = new MemoryStream();
         o.Write(Block(0x0A0D0D0A, [.. Le(0x1A2B3C4D), 1, 0, 0, 0, .. Enumerable.Repeat((byte)0xFF, 8)]));
@@ -154,7 +154,7 @@ public sealed class PcapTests : IDisposable
         return o.ToArray();
     }
 
-    private static List<byte[]> EthernetFrames(bool splitHello = false) =>
+    internal static List<byte[]> EthernetFrames(bool splitHello = false) =>
         [.. Packets(splitHello).Select((p, i) => Ethernet(p, vlan: i == 2))];
 
     // ---- tests ----
