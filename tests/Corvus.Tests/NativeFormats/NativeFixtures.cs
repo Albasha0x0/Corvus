@@ -78,6 +78,50 @@ public static class LlvmOracle
         public const string LinkNoChainedFixups = "-Wl,-no_fixup_chains";
         /// <summary>Mach-O without an SDK: undefined symbols are looked up at load time.</summary>
         public const string LinkMachODynamicLookup = "-Wl,-undefined,dynamic_lookup -Wl,-platform_version,macos,11.0,11.0";
+        /// <summary>llvm-dwarfdump: every entry of .debug_info (and .debug_types).</summary>
+        public const string DwarfDebugInfo = "--debug-info";
+        /// <summary>llvm-symbolizer: each address's inlined frames, short function names and file base names (then --obj=FILE).</summary>
+        public const string Symbolize = "--inlines --functions=short --basenames";
+        public const string SymbolizeObject = "--obj=";
+        /// <summary>DWARF variants of the same source.</summary>
+        public const string DebugInfo = "-g";
+        public const string DwarfVersion = "-gdwarf-";
+        public const string TypeUnits = "-fdebug-types-section";
+        public const string CompressDebug = "-gz=";
+        public const string CPlusPlus = "-x c++";
+    }
+
+    /// <summary>
+    /// llvm-symbolizer on <paramref name="obj"/>: per address, its frames innermost first as (function, file base name, line);
+    /// null when the tool is not available.
+    /// </summary>
+    public static List<List<(string Function, string File, int Line)>>? Symbolize(string obj, IReadOnlyList<ulong> addresses)
+    {
+        if (Bin is not { } bin) return null;
+        var exe = System.IO.Path.Combine(bin, OperatingSystem.IsWindows() ? "llvm-symbolizer.exe" : "llvm-symbolizer");
+        if (!System.IO.File.Exists(exe)) return null;
+        var psi = new ProcessStartInfo(exe) { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
+        foreach (var o in Options.Symbolize.Split(' ')) psi.ArgumentList.Add(o);
+        psi.ArgumentList.Add(Options.SymbolizeObject + obj);
+        using var p = Process.Start(psi)!;
+        var reader = Task.Run(() => p.StandardOutput.ReadToEnd());
+        foreach (var a in addresses) p.StandardInput.WriteLine($"0x{a:X}");
+        p.StandardInput.Close();
+        var blocks = reader.Result.Replace("\r", "").Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
+        p.WaitForExit();
+        var result = new List<List<(string, string, int)>>();
+        foreach (var block in blocks.Take(addresses.Count))
+        {
+            var lines = block.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            var frames = new List<(string, string, int)>();
+            for (int k = 0; k + 1 < lines.Length; k += 2)
+            {
+                var parts = lines[k + 1].Split(':');
+                frames.Add((lines[k], parts[0], parts.Length > 1 && int.TryParse(parts[1], out var n) ? n : 0));
+            }
+            result.Add(frames);
+        }
+        return result;
     }
 
     /// <summary>Compiles <paramref name="source"/> (C) with clang into <paramref name="output"/>; null on success, else clang's output.</summary>
