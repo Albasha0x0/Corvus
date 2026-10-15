@@ -10,9 +10,13 @@ internal sealed class AndroidFileView : IFileSummaryView
 {
     public string Name => "android";
 
-    public FileView? Inspect(FileInput file, CancellationToken ct) =>
-        file.Kind == "zip" && file.HasZipEntry(n => n is "AndroidManifest.xml" or "base/manifest/AndroidManifest.xml" || n.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
-        && Mobile.AndroidPackageService.Facts(file.Path, file.Bytes, ct) is { } facts ? new FileView(facts, facts.Highlights) : null;
+    public FileView? Inspect(FileInput file, CancellationToken ct)
+    {
+        if (file.Kind != "zip" || !file.HasZipEntry(n => n is "AndroidManifest.xml" or "base/manifest/AndroidManifest.xml" || n.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)))
+            return null;
+        using var package = file.OpenRead();
+        return Mobile.AndroidPackageService.Facts(file.Path, package, ct) is { } facts ? new FileView(facts, facts.Highlights) : null;
+    }
 }
 
 /// <summary>view=electron: versions, fuses, archive integrity, package.json entry, webPreferences values.</summary>

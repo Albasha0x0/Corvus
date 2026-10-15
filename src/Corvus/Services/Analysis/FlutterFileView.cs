@@ -28,10 +28,14 @@ internal sealed class FlutterFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        // An APK or .ipa is read whole to reach its app image; any other file is gated on its head first.
+        // An APK or .ipa gives its app image entry alone; any other file is gated on its head first.
         string? inner = null;
-        byte[]? bytes;
-        if (file.Kind == "zip") bytes = DartPoolScan.AppImage(file.Bytes, out inner);
+        byte[]? bytes = null;
+        if (file.Kind == "zip")
+        {
+            if (file.HasZipEntry(DartPoolScan.IsAppEntry))
+                using (var package = file.OpenRead()) bytes = DartPoolScan.AppImage(package, out inner);
+        }
         else bytes = NativeImageLoader.Detect(file.Head) == NativeFileKind.Unknown ? null : file.Bytes;
         if (bytes == null || NativeImageLoader.Detect(bytes) == NativeFileKind.Unknown) return null;
         var snapshots = DartScan.Snapshots(bytes, ct);

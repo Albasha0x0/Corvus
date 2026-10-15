@@ -131,6 +131,24 @@ public class ApkSigningTests
     }
 
     [Fact]
+    public void A_package_read_from_a_file_stream_verifies_as_its_bytes()
+    {
+        var big = new byte[3 << 20];
+        new Random(5).NextBytes(big);
+        var zip = AlignForVerity(Zip([.. SignV1([.. Entries, ("assets/big.bin", big)], Signer)]));
+        var apk = SignBlocks(zip, (ApkSigning.V2BlockId, false, [new(Signer, Verity: true)]), (ApkSigning.V3BlockId, true, [new(EcSigner, MinSdk: 24)]));
+        var idsig = V4(apk, EcSigner, VerityDigest(zip));
+        using var dir = new TempDir();
+        var path = dir.File("big.apk");
+        File.WriteAllBytes(path, apk);
+        using var stream = File.OpenRead(path);
+        var streamed = ApkSigning.Verify(stream, idsig);
+        Assert.True(streamed.Verdict == ApkSigning.Verified, Describe(streamed));
+        Assert.Equal(Describe(ApkSigning.Verify(apk, idsig)), Describe(streamed));
+        Assert.Equal(["v1", "v2", "v3", "v4"], streamed.Schemes.Select(s => s.Scheme));
+    }
+
+    [Fact]
     public void Verity_ContentDigestIsRecomputed_InV2V3AndV4()
     {
         var zip = AlignForVerity(Zip(Entries));

@@ -192,7 +192,10 @@ public sealed class AndroidPackageService(JavaDotNetMap? dotnet = null)
     }
 
     /// <summary>Package facts for summarize_file; null when <paramref name="path"/> is not an Android package.</summary>
-    public static AndroidPackageFacts? Facts(string path, byte[] bytes, CancellationToken ct)
+    public static AndroidPackageFacts? Facts(string path, byte[] bytes, CancellationToken ct) => Facts(path, new MemoryStream(bytes, writable: false), ct);
+
+    /// <summary>Package facts with the signatures verified from <paramref name="package"/> (seekable, read in ranges).</summary>
+    public static AndroidPackageFacts? Facts(string path, Stream package, CancellationToken ct)
     {
         AndroidPackage p;
         try { p = AndroidPackage.Open(path); }
@@ -210,7 +213,7 @@ public sealed class AndroidPackageService(JavaDotNetMap? dotnet = null)
             if (p.Kind is "apk" or "aab")
             {
                 bool bundle = p.Kind == "aab";
-                var report = ApkSigning.Verify(bytes, bundle ? null : Idsig(path));
+                var report = ApkSigning.Verify(package, bundle ? null : Idsig(path));
                 var schemes = report.Schemes.Select(s => $"{s.Scheme} {s.Verdict}").ToList();
                 if (bundle) schemes.Add("an app bundle is signed at upload with a JAR (v1) signature; the store signs the APKs it generates");
                 signature = $"{report.Verdict} ({string.Join(bundle ? "; " : ", ", schemes)})";

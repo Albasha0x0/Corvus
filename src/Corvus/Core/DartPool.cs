@@ -187,9 +187,16 @@ public static partial class DartPoolScan
     {
         inner = null;
         if (!Blob.StartsWith(file, "PK\x03\x04"u8)) return file;
+        return AppImage(new MemoryStream(file, false), out inner, maxBytes);
+    }
+
+    /// <summary>The app image of an APK or .ipa read from a seekable stream: its directory, then that one entry.</summary>
+    public static byte[]? AppImage(Stream package, out string? inner, long maxBytes = 1L << 30)
+    {
+        inner = null;
         try
         {
-            using var zip = new ZipArchive(new MemoryStream(file, false), ZipArchiveMode.Read);
+            using var zip = new ZipArchive(package, ZipArchiveMode.Read, leaveOpen: true);
             var entry = zip.Entries.Where(e => IsAppEntry(e.FullName)).OrderBy(e => e.FullName.Contains("arm64", StringComparison.Ordinal) ? 0 : 1)
                 .ThenBy(e => e.FullName, StringComparer.Ordinal).FirstOrDefault();
             if (entry == null || entry.Length > maxBytes) return null;
@@ -200,7 +207,7 @@ public static partial class DartPoolScan
         catch (InvalidDataException) { return null; }
     }
 
-    private static bool IsAppEntry(string name) =>
+    internal static bool IsAppEntry(string name) =>
         (name.StartsWith("lib/", StringComparison.Ordinal) && name.EndsWith("/libapp.so", StringComparison.Ordinal))
         || (name.StartsWith("Payload/", StringComparison.Ordinal) && name.EndsWith(".app/Frameworks/App.framework/App", StringComparison.Ordinal));
 }

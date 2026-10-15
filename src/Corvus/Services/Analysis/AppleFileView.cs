@@ -65,10 +65,11 @@ internal sealed class AppleFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         Source? source = null;
-        if (file.Kind == "zip") source = file.HasZipEntry(n => n.StartsWith("Payload/", StringComparison.Ordinal)) ? Source.Ipa(file.Bytes) : null;
+        if (file.Kind == "zip") source = file.HasZipEntry(n => n.StartsWith("Payload/", StringComparison.Ordinal)) ? Source.Ipa(file.OpenRead()) : null;
         else if (file.Kind == "mach-o")
             for (var dir = Path.GetDirectoryName(file.Path); dir != null && source == null; dir = Path.GetDirectoryName(dir))
                 if (IsBundleName(dir)) source = Source.Folder(dir);
+        using var archive = source;
         if (source == null || source.Read(source.InfoPlist, 4 << 20) is not { } plistBytes || Plist.Read(plistBytes).Root is not PlistDict info) return null;
         var notes = new List<string>();
         var exe = Str(info, "CFBundleExecutable");
@@ -187,9 +188,13 @@ internal sealed class AppleFileView : IFileSummaryView
     private static IReadOnlyList<string>? Nonempty(List<string>? list) => list is { Count: > 0 } ? list : null;
 
     /// <summary>A bundle's files by relative path ('/'), from a folder or an .ipa's Payload/X.app.</summary>
-    private sealed class Source
+    private sealed class Source : IDisposable
     {
         public required string Root { get; init; }
+        /// <summary>The .ipa's archive, open while the source is read.</summary>
+        public IDisposable? Archive { get; init; }
+
+        public void Dispose() => Archive?.Dispose();
         public required bool Ios { get; init; }
         public required IReadOnlyList<string> Files { get; init; }
         public required Func<string, long, byte[]?> Read { get; init; }
@@ -219,20 +224,23 @@ internal sealed class AppleFileView : IFileSummaryView
             };
         }
 
-        public static Source? Ipa(byte[] bytes)
+        public static Source? Ipa(byte[] bytes) => Ipa(new MemoryStream(bytes));
+
+        /// <summary>An .ipa read from a seekable stream (its directory, then the entries asked for); the source owns the stream.</summary>
+        public static Source? Ipa(Stream stream)
         {
             ZipArchive zip;
-            try { zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read); }
-            catch (InvalidDataException) { return null; }
+            try { zip = new ZipArchive(stream, ZipArchiveMode.Read); }
+            catch (InvalidDataException) { stream.Dispose(); return null; }
             var app = zip.Entries.Select(e => e.FullName).FirstOrDefault(n => n.StartsWith("Payload/", StringComparison.Ordinal) && n.EndsWith(".app/Info.plist", StringComparison.Ordinal)
                                                                              && n.Count(c => c == '/') == 2);
-            if (app == null) return null;
+            if (app == null) { zip.Dispose(); return null; }
             var prefix = app[..^"Info.plist".Length];
             var entries = zip.Entries.Where(e => e.FullName.StartsWith(prefix, StringComparison.Ordinal) && e.FullName.Length > prefix.Length && !e.FullName.EndsWith('/'))
                 .Take(MaxFiles).ToDictionary(e => e.FullName[prefix.Length..], StringComparer.Ordinal);
             return new Source
             {
-                Root = prefix["Payload/".Length..^1], Ios = true, Files = [.. entries.Keys],
+                Root = prefix["Payload/".Length..^1], Ios = true, Files = [.. entries.Keys], Archive = zip,
                 Read = (relative, max) =>
                 {
                     if (!entries.TryGetValue(relative, out var e) || (e.Length > max && max > 64)) return null;

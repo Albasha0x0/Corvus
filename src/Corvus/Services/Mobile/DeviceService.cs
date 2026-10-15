@@ -358,7 +358,13 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
             throw;
         }
         var basePath = files.FirstOrDefault(f => Path.GetFileName(f.Local) == "base.apk")?.Local ?? files[0].Local;
-        return new PulledPackage(s, package, files, AndroidPackageService.Facts(basePath, File.ReadAllBytes(basePath), ct));
+        return new PulledPackage(s, package, files, Facts(basePath));
+
+        AndroidPackageFacts? Facts(string apk)
+        {
+            using var stream = File.OpenRead(apk);
+            return AndroidPackageService.Facts(apk, stream, ct);
+        }
     }
 
     private static void TryDelete(string path)

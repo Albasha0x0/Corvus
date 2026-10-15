@@ -72,14 +72,56 @@ public static class ApkSigning
     private static string AlgorithmName(uint id) => Algorithms.TryGetValue(id, out var a) ? a.Name : $"unknown 0x{id:x4}";
 
     /// <summary>Verifies <paramref name="apk"/>; <paramref name="idsig"/> is the v4 signature file beside it, when there is one.</summary>
-    public static ApkSignatureReport Verify(byte[] apk, byte[]? idsig = null, AnalysisLimits? limits = null)
+    public static ApkSignatureReport Verify(byte[] apk, byte[]? idsig = null, AnalysisLimits? limits = null) =>
+        Verify(new MemoryStream(apk, writable: false), idsig, limits);
+
+    /// <summary>
+    /// Verifies the APK in a seekable stream, read in ranges: the end record, the signing block, the content digests in
+    /// 1 MiB chunks and the JAR entries; the file is never held whole.
+    /// </summary>
+    public static ApkSignatureReport Verify(Stream apk, byte[]? idsig = null, AnalysisLimits? limits = null)
     {
         var v = new Verifier(apk, limits ?? AnalysisLimits.Default);
         return v.Run(idsig);
     }
 
-    private sealed class Verifier(byte[] apk, AnalysisLimits limits)
+    /// <summary>A signing block larger than this is reported, not read (real ones hold a few certificates and signatures).</summary>
+    private const long MaxSigningBlock = 64L << 20;
+
+    private sealed class Verifier(Stream apk, AnalysisLimits limits)
     {
+        private readonly long _length = apk.Length;
+
+        /// <summary><paramref name="count"/> bytes at <paramref name="offset"/>, which the caller keeps inside the file.</summary>
+        private byte[] Bytes(long offset, int count)
+        {
+            var b = new byte[count];
+            apk.Position = offset;
+            apk.ReadExactly(b);
+            return b;
+        }
+
+        /// <summary>The byte ranges given, read from the file in chunks of at most <paramref name="chunk"/> bytes.</summary>
+        private IEnumerable<ReadOnlyMemory<byte>> Chunks(IEnumerable<(long Offset, long Length, byte[]? Bytes)> ranges, int chunk)
+        {
+            var buffer = new byte[chunk];
+            foreach (var (offset, length, bytes) in ranges)
+            {
+                if (bytes != null)
+                {
+                    for (int at = 0; at < bytes.Length; at += chunk) yield return bytes.AsMemory(at, Math.Min(chunk, bytes.Length - at));
+                    continue;
+                }
+                for (long at = 0; at < length; at += chunk)
+                {
+                    int n = (int)Math.Min(chunk, length - at);
+                    apk.Position = offset + at;
+                    apk.ReadExactly(buffer, 0, n);
+                    yield return buffer.AsMemory(0, n);
+                }
+            }
+        }
+
         private readonly List<ParseIssue> _issues = [];
         private readonly List<ApkSchemeResult> _schemes = [];
         private readonly List<uint> _blockIds = [];
@@ -112,17 +154,21 @@ public static class ApkSigning
 
         private bool FindCentralDirectory()
         {
-            for (long at = apk.Length - 22; at >= Math.Max(0, apk.Length - 22 - 0xFFFF); at--)
+            // the end record, its comment and the zip64 locator before it lie in the last 64 KiB + 42 bytes
+            long tailStart = Math.Max(0, _length - 22 - 0xFFFF - 20);
+            var tail = Bytes(tailStart, (int)(_length - tailStart));
+            ReadOnlySpan<byte> At(long offset) => tail.AsSpan((int)(offset - tailStart));
+            for (long at = _length - 22; at >= Math.Max(0, _length - 22 - 0xFFFF); at--)
             {
-                if (BinaryPrimitives.ReadUInt32LittleEndian(apk.AsSpan((int)at)) != 0x06054b50) continue;
-                if (at + 22 + BinaryPrimitives.ReadUInt16LittleEndian(apk.AsSpan((int)at + 20)) != apk.Length) continue;
+                if (BinaryPrimitives.ReadUInt32LittleEndian(At(at)) != 0x06054b50) continue;
+                if (at + 22 + BinaryPrimitives.ReadUInt16LittleEndian(At(at + 20)) != _length) continue;
                 _eocd = at;
-                _cdOffset = BinaryPrimitives.ReadUInt32LittleEndian(apk.AsSpan((int)at + 16));
-                if (_cdOffset == 0xFFFFFFFF && at >= 20 && BinaryPrimitives.ReadUInt32LittleEndian(apk.AsSpan((int)at - 20)) == 0x07064b50)
+                _cdOffset = BinaryPrimitives.ReadUInt32LittleEndian(At(at + 16));
+                if (_cdOffset == 0xFFFFFFFF && at >= 20 && BinaryPrimitives.ReadUInt32LittleEndian(At(at - 20)) == 0x07064b50)
                 {
-                    var record = BinaryPrimitives.ReadUInt64LittleEndian(apk.AsSpan((int)at - 12));
-                    if (record + 56 <= (ulong)at && BinaryPrimitives.ReadUInt32LittleEndian(apk.AsSpan((int)record)) == 0x06064b50)
-                        _cdOffset = (long)BinaryPrimitives.ReadUInt64LittleEndian(apk.AsSpan((int)record + 48));
+                    var record = BinaryPrimitives.ReadUInt64LittleEndian(At(at - 12));
+                    if (record + 56 <= (ulong)at && Bytes((long)record, 56) is var zip64 && BinaryPrimitives.ReadUInt32LittleEndian(zip64) == 0x06064b50)
+                        _cdOffset = (long)BinaryPrimitives.ReadUInt64LittleEndian(zip64.AsSpan(48));
                 }
                 if (_cdOffset > at)
                 {
@@ -138,15 +184,24 @@ public static class ApkSigning
         private List<(uint Id, byte[]? Value)> SigningBlock()
         {
             var result = new List<(uint, byte[]?)>();
-            if (_cdOffset < 32 || !apk.AsSpan((int)_cdOffset - 16, 16).SequenceEqual("APK Sig Block 42"u8)) return result;
-            ulong size = BinaryPrimitives.ReadUInt64LittleEndian(apk.AsSpan((int)_cdOffset - 24));
+            if (_cdOffset < 32) return result;
+            var footer = Bytes(_cdOffset - 24, 24);
+            if (!footer.AsSpan(8).SequenceEqual("APK Sig Block 42"u8)) return result;
+            ulong size = BinaryPrimitives.ReadUInt64LittleEndian(footer);
             if (size < 24 || size > (ulong)_cdOffset - 8)
             {
                 _issues.Add(new("signing block", $"block size {size} does not fit before the central directory", _cdOffset - 24));
                 return result;
             }
             long start = _cdOffset - (long)size - 8;
-            if (BinaryPrimitives.ReadUInt64LittleEndian(apk.AsSpan((int)start)) != size)
+            if (size > MaxSigningBlock)
+            {
+                _issues.Add(new("signing block", $"block of {size:N0} bytes is larger than {MaxSigningBlock:N0}: not read", start));
+                return result;
+            }
+            var block = Bytes(start, (int)size + 8);
+            ReadOnlySpan<byte> At(long offset) => block.AsSpan((int)(offset - start));
+            if (BinaryPrimitives.ReadUInt64LittleEndian(At(start)) != size)
             {
                 _issues.Add(new("signing block", "the two size fields of the block differ", start));
                 return result;
@@ -156,11 +211,11 @@ public static class ApkSigning
             for (long at = start + 8; at < end;)
             {
                 if (at + 12 > end) { _issues.Add(new("signing block", "truncated entry", at)); break; }
-                ulong length = BinaryPrimitives.ReadUInt64LittleEndian(apk.AsSpan((int)at));
+                ulong length = BinaryPrimitives.ReadUInt64LittleEndian(At(at));
                 if (length < 4 || length > (ulong)(end - at - 8)) { _issues.Add(new("signing block", $"entry of {length} bytes does not fit", at)); break; }
-                uint id = BinaryPrimitives.ReadUInt32LittleEndian(apk.AsSpan((int)at + 8));
+                uint id = BinaryPrimitives.ReadUInt32LittleEndian(At(at + 8));
                 _blockIds.Add(id);
-                result.Add((id, apk.AsSpan((int)at + 12, (int)length - 4).ToArray()));
+                result.Add((id, At(at + 12)[..((int)length - 4)].ToArray()));
                 at += 8 + (long)length;
             }
             return result;
@@ -365,37 +420,32 @@ public static class ApkSigning
         {
             if (_digests.TryGetValue(kind, out var done)) return done;
             var hash = kind == ContentDigest.Sha512Chunked ? HashAlgorithmName.SHA512 : HashAlgorithmName.SHA256;
-            var eocd = apk.AsSpan((int)_eocd).ToArray();
+            var eocd = Bytes(_eocd, (int)(_length - _eocd));
             BinaryPrimitives.WriteUInt32LittleEndian(eocd.AsSpan(16), (uint)_blockStart);
-            ReadOnlyMemory<byte>[] sections = [apk.AsMemory(0, (int)_blockStart), apk.AsMemory((int)_cdOffset, (int)(_eocd - _cdOffset)), eocd];
+            (long Offset, long Length, byte[]? Bytes)[] sections = [(0, _blockStart, null), (_cdOffset, _eocd - _cdOffset, null), (0, eocd.Length, eocd)];
             if (kind == ContentDigest.Verity)
             {
-                var data = new byte[sections.Sum(x => x.Length)];
-                int at = 0;
-                foreach (var section in sections) { section.Span.CopyTo(data.AsSpan(at)); at += section.Length; }
                 var encoded = new byte[40];
-                MerkleRoot(data, new byte[8]).CopyTo(encoded, 0);
-                BinaryPrimitives.WriteInt64LittleEndian(encoded.AsSpan(32), data.Length);
+                MerkleRoot(Chunks(sections, MerkleBlock), new byte[8]).CopyTo(encoded, 0);
+                BinaryPrimitives.WriteInt64LittleEndian(encoded.AsSpan(32), sections.Sum(s => s.Length));
                 return _digests[kind] = encoded;
             }
             const int Chunk = 1 << 20;
             long chunks = sections.Sum(s => (s.Length + (long)Chunk - 1) / Chunk);
             using var top = IncrementalHash.CreateHash(hash);
-            Span<byte> prefix = stackalloc byte[5];
+            var prefix = new byte[5];
             prefix[0] = 0x5a;
-            BinaryPrimitives.WriteUInt32LittleEndian(prefix[1..], (uint)chunks);
+            BinaryPrimitives.WriteUInt32LittleEndian(prefix.AsSpan(1), (uint)chunks);
             top.AppendData(prefix);
             using var one = IncrementalHash.CreateHash(hash);
-            foreach (var section in sections)
-                for (int at = 0; at < section.Length; at += Chunk)
-                {
-                    var chunk = section.Span.Slice(at, Math.Min(Chunk, section.Length - at));
-                    prefix[0] = 0xa5;
-                    BinaryPrimitives.WriteUInt32LittleEndian(prefix[1..], (uint)chunk.Length);
-                    one.AppendData(prefix);
-                    one.AppendData(chunk);
-                    top.AppendData(one.GetHashAndReset());
-                }
+            foreach (var chunk in Chunks(sections, Chunk))
+            {
+                prefix[0] = 0xa5;
+                BinaryPrimitives.WriteUInt32LittleEndian(prefix.AsSpan(1), (uint)chunk.Length);
+                one.AppendData(prefix);
+                one.AppendData(chunk.Span);
+                top.AppendData(one.GetHashAndReset());
+            }
             return _digests[kind] = top.GetHashAndReset();
         }
 
@@ -419,7 +469,8 @@ public static class ApkSigning
             var treeReasons = new List<string>();
             var treeNotes = new List<string>();
             if (hashAlgorithm != 1 || log2 != 12) treeNotes.Add($"hash algorithm {hashAlgorithm} with 2^{log2}-byte blocks is not supported (SHA-256, 4096)");
-            else if (!MerkleRoot(apk, salt.ToArray()).AsSpan().SequenceEqual(rootHash)) treeReasons.Add("the Merkle root differs from the file (the APK changed after signing)");
+            else if (!MerkleRoot(Chunks([(0, _length, null)], MerkleBlock), salt.ToArray()).AsSpan().SequenceEqual(rootHash))
+                treeReasons.Add("the Merkle root differs from the file (the APK changed after signing)");
             var hashingInfo = new V4Hashing(hashAlgorithm, log2, salt.ToArray(), rootHash.ToArray());
 
             // Signing infos: the v3 (or v2) signer's, then one block per further scheme (v3.1) with its block id.
@@ -477,7 +528,7 @@ public static class ApkSigning
             int size = 4 + 8 + 4 + 1 + 4 + hashing.Salt.Length + 4 + hashing.Root.Length + 4 + apkDigest.Length + 4 + der.Length + 4 + additional.Length;
             U32((uint)size);
             Span<byte> fileSize = stackalloc byte[8];
-            BinaryPrimitives.WriteInt64LittleEndian(fileSize, apk.Length);
+            BinaryPrimitives.WriteInt64LittleEndian(fileSize, _length);
             signed.Write(fileSize);
             U32(hashing.Algorithm);
             signed.WriteByte(hashing.Log2);
@@ -506,10 +557,15 @@ public static class ApkSigning
             return new ApkSigner(certificates, [AlgorithmName(algorithmId)], null, null, verdict, [.. reasons, .. notes], [], []) { Extends = scheme };
         }
 
-        /// <summary>fs-verity Merkle root of <paramref name="data"/>: salted SHA-256 of 4 KiB blocks (zero padded), level by level, until one block remains.</summary>
-        private static byte[] MerkleRoot(byte[] data, byte[] salt)
+        private const int MerkleBlock = 4096;
+
+        /// <summary>
+        /// fs-verity Merkle root of the data in <paramref name="chunks"/>: salted SHA-256 of 4 KiB blocks (zero padded), level
+        /// by level, until one block remains. The first level is hashed as the data streams by; the levels above are 1/128 of it.
+        /// </summary>
+        private static byte[] MerkleRoot(IEnumerable<ReadOnlyMemory<byte>> chunks, byte[] salt)
         {
-            const int Block = 4096;
+            const int Block = MerkleBlock;
             using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             byte[] Hash(ReadOnlySpan<byte> block)
             {
@@ -518,14 +574,27 @@ public static class ApkSigning
                 if (block.Length < Block) sha.AppendData(new byte[Block - block.Length]);
                 return sha.GetHashAndReset();
             }
-            byte[] level = data;
-            do
+            // blocks span chunk edges: gather each 4 KiB before hashing it
+            var first = new MemoryStream();
+            var pending = new byte[Block];
+            int filled = 0;
+            foreach (var chunk in chunks)
+                for (var rest = chunk.Span; rest.Length > 0;)
+                {
+                    int n = Math.Min(Block - filled, rest.Length);
+                    rest[..n].CopyTo(pending.AsSpan(filled));
+                    rest = rest[n..];
+                    if ((filled += n) == Block) { first.Write(Hash(pending)); filled = 0; }
+                }
+            if (filled > 0) first.Write(Hash(pending.AsSpan(0, filled)));
+            byte[] level = first.ToArray();
+            while (level.Length > Block)
             {
                 var next = new byte[((level.Length + Block - 1) / Block) * 32];
                 for (int i = 0; i * Block < level.Length; i++)
                     Hash(level.AsSpan(i * Block, Math.Min(Block, level.Length - i * Block))).CopyTo(next, i * 32);
                 level = next;
-            } while (level.Length > Block);
+            }
             return Hash(level);
         }
 
@@ -537,7 +606,8 @@ public static class ApkSigning
             var entries = new Dictionary<string, ZipArchiveEntry>(StringComparer.Ordinal);
             try
             {
-                zip = new ZipArchive(new MemoryStream(apk, writable: false), ZipArchiveMode.Read);
+                apk.Position = 0;
+                zip = new ZipArchive(apk, ZipArchiveMode.Read, leaveOpen: true);
                 foreach (var e in zip.Entries) entries.TryAdd(e.FullName, e); // the central directory is read here
             }
             catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException)
