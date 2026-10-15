@@ -4,8 +4,8 @@ declare_native_types # permanent: edits an engine database (IDA); no engine in t
 decompile_java # permanent: needs the JADX server (CORVUS_JAVA_DECOMPILER, a JDK)
 decompile_native # permanent: needs a decompiler engine (IDA or Ghidra)
 define_native # permanent: edits an engine database (IDA); no engine in the quick set
-dump_heap # permanent: needs a dump of a live .NET process (the CLR's DAC), which no fixture reproduces
-dump_object # permanent: needs a dump of a live .NET process (the CLR's DAC), which no fixture reproduces
+dump_heap # permanent: reads the managed heap of a full-memory dump (the CLR's DAC); the full set writes one from a running process at test time, so addresses differ per run
+dump_object # permanent: reads the managed heap of a full-memory dump (the CLR's DAC); the full set writes one from a running process at test time, so addresses differ per run
 emulate_native # permanent: needs the Ghidra emulator
 export_engine_database # permanent: writes an engine database (IDA or Ghidra)
 get_android_device_info # permanent: needs an adb device
