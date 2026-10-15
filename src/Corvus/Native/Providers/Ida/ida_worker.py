@@ -1046,6 +1046,15 @@ def apply_user_type(m, ti, rva, decl):
     if not ti.apply_tinfo(ea, tif, ti.TINFO_DEFINITE):
         return ["type", rva, decl, False, "IDA did not apply the type at rva 0x%X" % rva, None, None, None]
     node.altset(rva, 1)
+    if function:
+        # a __noreturn prototype sets FUNC_NORET; the callers are planned again so their flow stops at the call
+        ftd = ti.func_type_data_t()
+        noret = tif.get_func_details(ftd) and bool(ftd.flags & ti.FTI_NORET)
+        if noret != bool(f.flags & m.ida_funcs.FUNC_NORET):
+            f.flags ^= m.ida_funcs.FUNC_NORET
+            m.ida_funcs.update_func(f)
+            m.ida_auto.reanalyze_callers(ea, noret)
+            m.ida_auto.auto_wait()
     if function and hexrays_ready(m):
         m.ida_hexrays.mark_cfunc_dirty(ea, False)
     got = ti.tinfo_t()

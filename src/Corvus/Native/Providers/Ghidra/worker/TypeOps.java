@@ -196,8 +196,14 @@ final class TypeOps {
     static FunctionDefinitionDataType prototype(Program program, String text) {
         String t = text.trim();
         while (t.endsWith(";")) t = t.substring(0, t.length() - 1).trim();
+        // IDA's __noreturn (or C's noreturn spellings) marks the function; Ghidra's parser takes no such keyword
+        java.util.regex.Matcher noReturn = NO_RETURN.matcher(t);
+        boolean exits = noReturn.find();
+        if (exits) t = noReturn.replaceAll(" ").replaceAll("\\s+", " ").trim();
         try {
-            return CParserUtils.parseSignature((ghidra.app.services.DataTypeManagerService) null, program, t, false);
+            FunctionDefinitionDataType sig = CParserUtils.parseSignature((ghidra.app.services.DataTypeManagerService) null, program, t, false);
+            if (sig != null && exits) sig.setNoReturn(true);
+            return sig;
         }
         catch (Throwable e) {
             if (e instanceof VirtualMachineError) throw (VirtualMachineError) e;
@@ -205,14 +211,33 @@ final class TypeOps {
         }
     }
 
+    private static final java.util.regex.Pattern NO_RETURN =
+        java.util.regex.Pattern.compile("\\b__noreturn\\b|\\b_Noreturn\\b|\\[\\[\\s*noreturn\\s*\\]\\]|__attribute__\\s*\\(\\(\\s*noreturn\\s*\\)\\)|__declspec\\s*\\(\\s*noreturn\\s*\\)");
+
     /** Applies a prototype to the function at the address (created when none starts there), keeping its name. */
     static String applyPrototype(Worker w, Address a, FunctionDefinitionDataType sig, SourceType source, Worker.Request r) {
         FunctionManager fm = w.program.getFunctionManager();
         if (fm.getFunctionAt(a) == null && !new CreateFunctionCmd(a).applyTo(w.program, r.monitor))
             return "no function could be created there";
+        boolean wasNoReturn = fm.getFunctionAt(a).hasNoReturn();
         ApplyFunctionSignatureCmd cmd = new ApplyFunctionSignatureCmd(a, sig, source, false, false, DataTypeConflictHandler.DEFAULT_HANDLER,
             FunctionRenameOption.NO_CHANGE);
-        return cmd.applyTo(w.program, r.monitor) ? null : (cmd.getStatusMsg() == null ? "Ghidra did not apply the prototype" : cmd.getStatusMsg());
+        if (!cmd.applyTo(w.program, r.monitor)) return cmd.getStatusMsg() == null ? "Ghidra did not apply the prototype" : cmd.getStatusMsg();
+        Function f = fm.getFunctionAt(a);
+        f.setNoReturn(sig.hasNoReturn());
+        if (sig.hasNoReturn() != wasNoReturn) callSites(w, a, sig.hasNoReturn());
+        return null;
+    }
+
+    /** A no-return function's call sites lose their fallthrough (the caller's flow stops there); clearing the mark restores it. */
+    private static void callSites(Worker w, Address entry, boolean noReturn) {
+        for (var ref : w.program.getReferenceManager().getReferencesTo(entry)) {
+            if (!ref.getReferenceType().isCall()) continue;
+            var insn = w.program.getListing().getInstructionAt(ref.getFromAddress());
+            if (insn == null) continue;
+            if (noReturn) insn.setFallThrough(null);
+            else insn.clearFallThroughOverride();
+        }
     }
 
     /**

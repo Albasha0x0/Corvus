@@ -41,6 +41,33 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         Assert.Contains("error 0x0 Bad Instruction", status.Text);
     }
 
+    /// <summary>A __noreturn prototype stops the caller's flow at the call: the code after it leaves the caller.</summary>
+    [GhidraFact]
+    public Task No_return_stops_the_callers_flow_in_Ghidra() => NoReturn("ghidra");
+
+    [IdaFact]
+    public Task No_return_stops_the_callers_flow_in_IDA() => NoReturn("ida");
+
+    private async Task NoReturn(string engine)
+    {
+        var path = _dir.File($"noret-{engine}.bin");
+        // 0x00 call 0x10; 0x05 mov eax, 1; 0x0A ret; pad; 0x10 xor eax, eax; ret
+        File.WriteAllBytes(path, [0xE8, 0x0B, 0x00, 0x00, 0x00, 0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x31, 0xC0, 0xC3,
+            .. Guid.NewGuid().ToByteArray()]);
+        await using var server = await InProcessServer.StartAsync();
+        var image = $"noret-{engine}.bin[x64@0x0]";
+        Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64" })).IsError);
+        var before = await Call(server, "get_cfg", new() { ["image"] = image, ["address"] = "0x0", ["engine"] = engine });
+        output.WriteLine(before.Text);
+        var set = await Call(server, "set_native_type", new() { ["image"] = image, ["address"] = "0x10", ["type"] = "void __noreturn stop(void)", ["engine"] = engine });
+        Assert.False(set.IsError, set.Text);
+        var after = await Call(server, "get_cfg", new() { ["image"] = image, ["address"] = "0x0", ["engine"] = engine });
+        output.WriteLine(after.Text);
+        Assert.Matches(@"0x0-0xB\s+3 insn", before.Text);
+        // the call ends the caller's first block, with no edge on to the code after it
+        Assert.Matches(@"0x0-0x5\s+1 insn", after.Text);
+    }
+
     /// <summary>An instruction set our index does not decode: Ghidra reads it with the language from the arch table.</summary>
     [GhidraFact]
     public async Task Mips_in_Ghidra()

@@ -207,7 +207,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or the type of a global ('Handler *[8]') " +
                  "in the engine. Named types must exist there (pushed PDB, RTTI and Il2Cpp types, or declare_native_types). User types win over " +
-                 "recovered ones; empty clears. rename=true also names the function as its prototype does." + KeptNote)]
+                 "recovered ones; empty clears; __noreturn stops the callers' flow at the call. rename=true also names the function as its prototype does." + KeptNote)]
     public Task<string> SetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A function start or a global: " + NativeTools.AddressDescription)] string? address = null,

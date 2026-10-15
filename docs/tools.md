@@ -2070,7 +2070,7 @@ Structured output: `image`, `engines`.
 
 **Set a native prototype or global type** (destructive, idempotent, open-world, long-running)
 
-Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or the type of a global ('Handler *[8]') in the engine. Named types must exist there (pushed PDB, RTTI and Il2Cpp types, or declare_native_types). User types win over recovered ones; empty clears. rename=true also names the function as its prototype does. Kept with the image's annotations.
+Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or the type of a global ('Handler *[8]') in the engine. Named types must exist there (pushed PDB, RTTI and Il2Cpp types, or declare_native_types). User types win over recovered ones; empty clears; __noreturn stops the callers' flow at the call. rename=true also names the function as its prototype does. Kept with the image's annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
