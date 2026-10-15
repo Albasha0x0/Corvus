@@ -16,6 +16,9 @@ public sealed record JsSummary(long Bytes, int Lines, int LongestLine, IReadOnly
 /// <summary>analyze_js view=position: a generated position and the original position it maps to.</summary>
 public sealed record JsPosition(string? Source, int? OriginalLine, int? OriginalColumn, string? Name);
 
+/// <summary>analyze_js view=endpoints: a request (or ROUTE), its client, line:column, module and original position.</summary>
+public sealed record JsEndpoint(string Verb, string Url, string Client, string Site, string? Module, string? Original);
+
 /// <summary>analyze_js view=source: one original source from the map's sourcesContent, paged by the caller.</summary>
 public sealed record JsSource(string Source, int Index, string? Content);
 
@@ -92,6 +95,25 @@ public static class JsAnalysis
         if (index < 0)
             throw new ToolError(ErrorCode.NotFound, $"no source '{source}' in the map ({map.Sources.Count} sources).", "analyze_js view=sources lists them");
         return new JsSource(map.Sources[index], index, index < map.SourcesContent.Count ? map.SourcesContent[index] : null);
+    }
+
+    /// <summary>The parsed file with its scopes, or a malformed-input error naming why it did not parse.</summary>
+    internal static JsProgram Program(string path, CancellationToken ct)
+    {
+        var notes = new List<string>();
+        return JsProgram.Build(Path.GetFileName(path), Encoding.UTF8.GetString(Read(path)), notes, ct)
+               ?? throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)} could not be parsed: {string.Join("; ", notes)}");
+    }
+
+    /// <summary>The original position of 1-based <paramref name="line"/>:<paramref name="column"/>, or null.</summary>
+    internal static string? Original(SourceMap? map, int line, int column) =>
+        map?.Find(line - 1, column - 1) is { Source: >= 0 } seg && seg.Source < map.Sources.Count ? $"{map.Sources[seg.Source]}:{seg.OriginalLine + 1}:{seg.OriginalColumn + 1}" : null;
+
+    internal static SourceMap? TryMap(string path)
+    {
+        try { return SourceMap.Locate(path, Read(path))?.Map; }
+        catch (ToolError) { return null; }
+        catch (FormatException) { return null; }
     }
 
     public static SourceMap Map(string path) =>

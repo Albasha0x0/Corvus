@@ -8,10 +8,10 @@ namespace Corvus.Services.Analysis;
 /// </summary>
 public sealed record ElectronRow(string Kind, string Value, string Site)
 {
-    [System.ComponentModel.Description("The call: ipcMain.handle, ipcRenderer.invoke (via a wrapper or bridge method when one forwards the channel), webContents.send, new BrowserWindow, child_process.execSync...")]
+    [System.ComponentModel.Description("ipcMain.handle, ipcRenderer.invoke via a wrapper, new BrowserWindow...")]
     public string? Call { get; init; }
 
-    [System.ComponentModel.Description("IPC: the other side's sites (paired) or unpaired; window: its preload; bridge-method: the channels it sends; native-call: the add-on.")]
+    [System.ComponentModel.Description("IPC: the paired sites or unpaired; window: its preload; native-call: the add-on.")]
     public string? Link { get; init; }
 }
 

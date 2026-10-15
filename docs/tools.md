@@ -2832,7 +2832,7 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler signatures, modules and source map of a JavaScript file, statically. view=summary; modules: its module table (webpack, esbuild, Browserify, Metro) with requires; module: one's code; search: strings and names; refs: a module's users; position: line:column to the original source; sources, source.
+Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; sources, source; endpoints: requests, routes; secrets: masked keys.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2841,8 +2841,8 @@ Bundler signatures, modules and source map of a JavaScript file, statically. vie
 | `line` | integer |  | `0` | position: generated line and column, 1-based. |
 | `column` | integer |  | `0` | position: see line. |
 | `source` | string |  |  | source: path or index. |
-| `query` | string |  |  | module, refs: a module id; modules, search: a filter. |
+| `query` | string |  |  | module, refs: a module id; modules, search, endpoints, secrets: a filter. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `view`, `summary`, `position`, `modules`, `total`.
+Structured output: `view`, `summary`, `position`, `modules`, `total`, `endpoints`, `secrets`.

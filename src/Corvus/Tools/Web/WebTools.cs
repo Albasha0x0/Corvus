@@ -12,19 +12,23 @@ namespace Corvus.Tools;
 public sealed class WebTools(OutputPager pager)
 {
     /// <summary>analyze_js's record: the view's part is set (sources and source carry their text only).</summary>
-    public sealed record JsResult(string View, JsSummary? Summary = null, JsPosition? Position = null, IReadOnlyList<JsModule>? Modules = null, int? Total = null);
+    public sealed record JsResult(string View, JsSummary? Summary = null, JsPosition? Position = null, IReadOnlyList<JsModule>? Modules = null, int? Total = null)
+    {
+        public IReadOnlyList<JsEndpoint>? Endpoints { get; init; }
+        public IReadOnlyList<JsSecret>? Secrets { get; init; }
+    }
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
-    [Description("Bundler signatures, modules and source map of a JavaScript file, statically. view=summary; modules: its module table " +
-                 "(webpack, esbuild, Browserify, Metro) with requires; module: one's code; search: strings and names; refs: a module's users; " +
-                 "position: line:column to the original source; sources, source.")]
+    [Description("Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, " +
+                 "Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; " +
+                 "sources, source; endpoints: requests, routes; secrets: masked keys.")]
     public string AnalyzeJs(
         [Description("Absolute path to a .js file.")] string path,
         [Description("View; default summary.")] string view = "summary",
         [Description("position: generated line and column, 1-based.")] int line = 0,
         [Description("position: see line.")] int column = 0,
         [Description("source: path or index.")] string? source = null,
-        [Description("module, refs: a module id; modules, search: a filter.")] string? query = null,
+        [Description("module, refs: a module id; modules, search, endpoints, secrets: a filter.")] string? query = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
     {
@@ -115,8 +119,34 @@ public sealed class WebTools(OutputPager pager)
                     throw new ToolError(ErrorCode.NotFound, $"the map names {s.Source} but carries no sourcesContent for it.", "the original file is not in the map");
                 return ToolOutput.With(pager.Page($"// {s.Source}\n{s.Content}", offset, maxTokens), new JsResult("source"));
             }
+            case "endpoints":
+            {
+                var program = JsAnalysis.Program(path, default);
+                var map = JsAnalysis.TryMap(path);
+                var found = new List<Corvus.Services.Analysis.Endpoints.CodeEndpoint>();
+                Corvus.Services.Analysis.Endpoints.JsEndpoints.Scan(program, program.Path, found, default);
+                var rows = found.Select(e =>
+                {
+                    var at = e.Location!.Split(':');
+                    return new JsEndpoint(e.Verb, e.Url, e.Client, e.Location, e.Member, JsAnalysis.Original(map, int.Parse(at[0], System.Globalization.CultureInfo.InvariantCulture), int.Parse(at[1], System.Globalization.CultureInfo.InvariantCulture)));
+                }).Where(e => query == null || e.Url.Contains(query, StringComparison.OrdinalIgnoreCase) || e.Client.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+                var text = $"{rows.Count} endpoint(s)" + (rows.Count > 0 ? $" ({string.Join(", ", rows.GroupBy(e => e.Client.Split(' ')[0]).Select(g => $"{g.Count()} {g.Key}"))})" : "") + ":\n" +
+                           string.Join("\n", rows.Select(e => $"  {e.Verb} {e.Url}  [{e.Client}] {e.Site}" + (e.Module != null ? $" {e.Module}" : "") + (e.Original != null ? $"  <- {e.Original}" : ""))) +
+                           "\nsearch_container kind=endpoint capture=<HAR or pcap> joins these to a capture (seen in code, in the capture, or both).";
+                return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("endpoints", Total: rows.Count) { Endpoints = rows.Take(500).ToList() });
+            }
+            case "secrets":
+            {
+                var program = JsAnalysis.Program(path, default);
+                var rows = JsSecrets.Find(program, default).Where(s => query == null || s.Kind.Contains(query, StringComparison.OrdinalIgnoreCase)
+                                                                          || s.Name?.Contains(query, StringComparison.OrdinalIgnoreCase) == true).ToList();
+                var text = $"{rows.Count} key-like literal(s), values masked:\n" +
+                           string.Join("\n", rows.Select(s => $"  {s.Kind}{(s.Name != null ? " " + s.Name : "")} = {s.Masked} ({s.Length} chars, {s.Entropy} bits/char) at {s.Line}:{s.Column}" +
+                                                              (s.Module != null ? $" [module {s.Module}]" : "")));
+                return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("secrets", Total: rows.Count) { Secrets = rows.Take(500).ToList() });
+            }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources or source");
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints or secrets");
         }
     }
 }

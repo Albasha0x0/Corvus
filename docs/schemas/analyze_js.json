@@ -143,6 +143,78 @@
     "total": {
       "type": "integer"
     },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "verb": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "client": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "original": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "verb",
+          "url",
+          "client",
+          "site"
+        ]
+      }
+    },
+    "secrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "masked": {
+            "type": "string"
+          },
+          "length": {
+            "type": "integer"
+          },
+          "entropy": {
+            "type": "number"
+          },
+          "line": {
+            "type": "integer"
+          },
+          "column": {
+            "type": "integer"
+          },
+          "module": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "masked",
+          "length",
+          "entropy",
+          "line",
+          "column"
+        ]
+      }
+    },
     "notices": {
       "type": "array",
       "items": {
