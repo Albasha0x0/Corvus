@@ -10,7 +10,7 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>summarize_file on a file above the stream threshold: the same facts as from the bytes, in bounded memory.</summary>
-public sealed class StreamedSummaryTests(ITestOutputHelper output) : IDisposable
+public sealed class StreamedSummaryTests : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly AssemblyWorkspace _ws = new();
@@ -137,13 +137,22 @@ public sealed class StreamedSummaryTests(ITestOutputHelper output) : IDisposable
         public override int Read(byte[] buffer, int offset, int count) => base.Read(buffer, offset, Math.Min(count, most));
         public override int Read(Span<byte> buffer) => base.Read(buffer[..Math.Min(buffer.Length, most)]);
     }
+}
+
+/// <summary>The memory ceiling of a streamed summary, measured without other tests running (the working set is the process's).</summary>
+[Collection(nameof(SerialTimingTests))]
+public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly AssemblyWorkspace _ws = new();
+    public void Dispose() { _ws.Dispose(); _dir.Dispose(); }
 
     [Fact]
     [Trait("Speed", "Slow")]
     public void Two_gigabyte_capture_summary_stays_within_the_memory_ceiling()
     {
         var path = _dir.File("large.pcap");
-        using (var f = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20)) WritePcap(f, 2L * 1024 * 1024 * 1024 / (16 + 28 + 1400), 1400);
+        using (var f = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20)) StreamedSummaryTests.WritePcap(f, 2L * 1024 * 1024 * 1024 / (16 + 28 + 1400), 1400);
         long length = new FileInfo(path).Length;
         GC.Collect();
         GC.WaitForPendingFinalizers();

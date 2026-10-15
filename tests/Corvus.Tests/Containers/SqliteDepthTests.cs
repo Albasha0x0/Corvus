@@ -209,11 +209,42 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public void Fuzzed_wal_and_carving_never_throw()
+    {
+        WalDatabase();
+        var db = File.ReadAllBytes(_dir.File("wal.db"));
+        var wal = File.ReadAllBytes(_dir.File("wal.db-wal"));
+        var failures = FormatFuzz.Run(wal, b =>
+        {
+            var d = SqliteDatabase.Open(SqliteSource.Of(db), SqliteSource.Of(b));
+            d?.Recover([]);
+            if (d?.Table("log") is { } t) d.Rows(t.RootPage, 100, 50);
+        }, 300);
+        var seed = NativeSqlite.Build([.. Messages[..^1], Messages[^1].Replace("3000", "300"), "DELETE FROM msg WHERE id % 3 = 0;"]);
+        failures.AddRange(FormatFuzz.Run(seed, b =>
+        {
+            var d = SqliteDatabase.Open(b);
+            d?.Recover([]);
+            if (d?.Table("msg") is { } t) d.Rows(t.RootPage, 150, 20);
+        }, 1000));
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+    }
+}
+
+/// <summary>Paging time on a database over 100 MB, measured without other tests running.</summary>
+[Collection(nameof(SerialTimingTests))]
+public sealed class SqlitePagingTimingTests(ITestOutputHelper output) : IDisposable
+{
+    private readonly TempDir _dir = new();
+    public void Dispose() => _dir.Dispose();
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void Hundred_megabyte_database_pages_quickly()
     {
-        var path = Database("big.db", "PRAGMA journal_mode=OFF;", "PRAGMA synchronous=OFF;", "CREATE TABLE big(id INTEGER PRIMARY KEY, a TEXT, b INTEGER);",
-            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 800000) INSERT INTO big(a, b) SELECT printf('%.120c', 'x') || i, i * 7 FROM n;");
+        var path = _dir.File("big.db");
+        NativeSqlite.Write(path, ["PRAGMA journal_mode=OFF;", "PRAGMA synchronous=OFF;", "CREATE TABLE big(id INTEGER PRIMARY KEY, a TEXT, b INTEGER);",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 800000) INSERT INTO big(a, b) SELECT printf('%.120c', 'x') || i, i * 7 FROM n;"]);
         long length = new FileInfo(path).Length;
         Assert.True(length > 100L << 20, $"{length:N0} bytes");
         SqliteFileView.Facts Page(long offset)
@@ -234,27 +265,5 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
         }
         output.WriteLine($"{length:N0} bytes; pages at offsets 0, 400,000, 799,950 in {string.Join(", ", times.Select(t => $"{t:F0} ms"))}");
         Assert.True(times.Max() < 250, string.Join(", ", times)); // about 50 ms on a desktop; the margin is for loaded machines
-    }
-
-    [Fact]
-    public void Fuzzed_wal_and_carving_never_throw()
-    {
-        WalDatabase();
-        var db = File.ReadAllBytes(_dir.File("wal.db"));
-        var wal = File.ReadAllBytes(_dir.File("wal.db-wal"));
-        var failures = FormatFuzz.Run(wal, b =>
-        {
-            var d = SqliteDatabase.Open(SqliteSource.Of(db), SqliteSource.Of(b));
-            d?.Recover([]);
-            if (d?.Table("log") is { } t) d.Rows(t.RootPage, 100, 50);
-        }, 300);
-        var seed = NativeSqlite.Build([.. Messages[..^1], Messages[^1].Replace("3000", "300"), "DELETE FROM msg WHERE id % 3 = 0;"]);
-        failures.AddRange(FormatFuzz.Run(seed, b =>
-        {
-            var d = SqliteDatabase.Open(b);
-            d?.Recover([]);
-            if (d?.Table("msg") is { } t) d.Rows(t.RootPage, 150, 20);
-        }, 1000));
-        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
     }
 }
