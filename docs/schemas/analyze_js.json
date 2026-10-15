@@ -143,6 +143,64 @@
     "total": {
       "type": "integer"
     },
+    "hermes": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer"
+        },
+        "bundle": {
+          "type": "string"
+        },
+        "functions": {
+          "type": "integer"
+        },
+        "strings": {
+          "type": "integer"
+        },
+        "metroModules": {
+          "type": "integer"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "version",
+        "functions",
+        "strings",
+        "metroModules",
+        "notes"
+      ]
+    },
+    "functions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "module": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "size"
+        ]
+      }
+    },
     "endpoints": {
       "type": "array",
       "items": {

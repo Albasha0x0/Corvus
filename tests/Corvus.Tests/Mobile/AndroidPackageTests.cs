@@ -138,7 +138,7 @@ public sealed class AndroidPackageTests : IDisposable
         Assert.Equal(["dotnet-android", "unity-il2cpp", "flutter", "react-native", "kotlin"], a.Runtimes.Select(r => r.Family));
         Assert.Equal("Unity Il2Cpp: metadata header readable", a.Runtimes[1].Note);
         Assert.Contains("assets/bin/Data/Managed/Metadata/global-metadata.dat", a.Runtimes[1].Evidence);
-        Assert.Equal("React Native: Hermes bytecode bundle", a.Runtimes[3].Note);
+        Assert.StartsWith("React Native: Hermes bytecode bundle;", a.Runtimes[3].Note);
         Assert.Equal(["arm64-v8a", "armeabi-v7a"], a.Abis);
         Assert.Equal((2, 16L), (a.DexFiles, a.DexBytes));
         Assert.Equal((6, 4), (a.Components, a.ExportedComponents));

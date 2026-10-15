@@ -9,10 +9,11 @@ namespace Corvus.Tools;
 
 /// <summary>JavaScript bundles and their source maps, read statically.</summary>
 [McpServerToolType]
-public sealed class WebTools(OutputPager pager)
+public sealed partial class WebTools(OutputPager pager)
 {
     /// <summary>analyze_js's record: the view's part is set (sources and source carry their text only).</summary>
-    public sealed record JsResult(string View, JsSummary? Summary = null, JsPosition? Position = null, IReadOnlyList<JsModule>? Modules = null, int? Total = null)
+    public sealed record JsResult(string View, JsSummary? Summary = null, JsPosition? Position = null, IReadOnlyList<JsModule>? Modules = null, int? Total = null,
+        HermesFacts? Hermes = null, IReadOnlyList<HermesFunctionRow>? Functions = null)
     {
         public IReadOnlyList<JsEndpoint>? Endpoints { get; init; }
         public IReadOnlyList<JsSecret>? Secrets { get; init; }
@@ -22,18 +23,19 @@ public sealed class WebTools(OutputPager pager)
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
     [Description("Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, " +
-                 "Metro) with requires; module; search: strings, names; refs: a module's users; position: the original source; " +
-                 "sources, source; endpoints; secrets (masked); diff: against the bundle in source; runtime: webpack chunks.")]
+                 "Metro); module; search; refs: a module's users; position: to the original; sources, source; endpoints; secrets (masked); " +
+                 "diff: against source=; runtime: webpack chunks; Hermes: functions, decompile, disassemble, xrefs.")]
     public string AnalyzeJs(
-        [Description("Absolute path to a .js file.")] string path,
+        [Description("Absolute path to a .js or Hermes bundle, or an APK/.ipa.")] string path,
         [Description("View; default summary.")] string view = "summary",
         [Description("position: generated line and column, 1-based.")] int line = 0,
         [Description("position: see line.")] int column = 0,
         [Description("source: path or index; diff: the old bundle's path.")] string? source = null,
-        [Description("module, refs: a module id; others: a filter (diff: one module's token diff).")] string? query = null,
+        [Description("module, refs, diff: a module id; search: a filter; decompile, disassemble, xrefs: #id or a name.")] string? query = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
     {
+        if (view.Trim().ToLowerInvariant() is not ("position" or "sources" or "source") && HermesBundles.Applies(path)) return AnalyzeHermes(path, view, query, offset, maxTokens);
         switch (view.Trim().ToLowerInvariant())
         {
             case "summary":

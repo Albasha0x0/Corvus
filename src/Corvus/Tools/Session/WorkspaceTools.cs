@@ -60,8 +60,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
         [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
-        [Description("For a file: also load the DLLs its imports bind to (one level, at most 16), so the call tools continue into them.")] bool loadProviders = false,
-        [Description("Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a).")] string? slice = null,
+        [Description("Also load the DLLs a file's imports bind to (one level, at most 16), for the call tools.")] bool loadProviders = false,
+        [Description("Mach-O slice (name or index; default arm64e, arm64, x86_64) or an Il2Cpp APK's ABI (default arm64-v8a).")] string? slice = null,
         [Description("auto, or raw (headerless code).")] string format = "auto",
         [Description("raw: x86, x64, arm, thumb, arm64; mips, ppc, riscv64, 6502 etc. via IDA or Ghidra.")] string? arch = null,
         [Description("raw: load address (default 0).")] string? @base = null,

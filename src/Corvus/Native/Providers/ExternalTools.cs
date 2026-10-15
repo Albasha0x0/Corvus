@@ -115,8 +115,13 @@ public static partial class ExternalTools
         ["wasm-validate" + Exe], ["--version"], 0, "oracle for the WebAssembly validator in tests", true,
         Ops(("validate", ["--enable-threads", "{module}"])));
 
+    // Hermes's own dump tool; one build reads one bytecode version, so the variable may name a folder of builds (tests try each)
+    public static readonly ExternalTool HbcDisassembler = new("hbcdump", "hbcdump, Hermes (test oracle)", "CORVUS_HBC_DISASSEMBLER", ExternalToolKind.Executable,
+        ["hbcdump" + Exe], ["-version"], 0, "oracle for the Hermes bytecode disassembler in tests", true,
+        Ops(("objdump", ["-objdump-disassemble", "-c", "disassemble;quit", "{file}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {

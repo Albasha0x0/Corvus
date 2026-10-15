@@ -37,8 +37,8 @@ Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Man
 |---|---|---|---|---|
 | `path` | string | yes |  | Absolute path to an assembly file or a directory. |
 | `recursive` | boolean |  |  | When path is a directory, also load assemblies in subdirectories. |
-| `loadProviders` | boolean |  |  | For a file: also load the DLLs its imports bind to (one level, at most 16), so the call tools continue into them. |
-| `slice` | string |  |  | Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a). Values: arm64e, arm64, x86_64, x86_64h, arm64_32, armv7, armv7s, armv7k, i386, arm64-v8a, armeabi-v7a, x86. |
+| `loadProviders` | boolean |  |  | Also load the DLLs a file's imports bind to (one level, at most 16), for the call tools. |
+| `slice` | string |  |  | Mach-O slice (name or index; default arm64e, arm64, x86_64) or an Il2Cpp APK's ABI (default arm64-v8a). Values: arm64e, arm64, x86_64, x86_64h, arm64_32, armv7, armv7s, armv7k, i386, arm64-v8a, armeabi-v7a, x86. |
 | `format` | string |  | `auto` | auto, or raw (headerless code). |
 | `arch` | string |  |  | raw: x86, x64, arm, thumb, arm64; mips, ppc, riscv64, 6502 etc. via IDA or Ghidra. |
 | `base` | string |  |  | raw: load address (default 0). |
@@ -559,7 +559,7 @@ First look at a file or loaded assembly (never executed): type, hashes, signatur
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, native, nib, pcap, plist, protobuf, rust, sqlite, sqlite-recover, wasm, all. |
+| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, hermes, native, nib, pcap, plist, protobuf, rust, sqlite, sqlite-recover, wasm, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: the table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
 | `offset` | integer |  |  |  |
@@ -630,7 +630,7 @@ Find types and members by name in every managed assembly inside a container (bun
 |---|---|---|---|---|
 | `path` | string | yes |  | Container or assembly file (absolute). |
 | `query` | string | yes |  | Name or part of a name. |
-| `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, dart, electron, endpoint, feature, file, packet. |
+| `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, dart, electron, endpoint, feature, file, hermes, packet. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
@@ -675,7 +675,7 @@ Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `com
 
 **Rename symbol** (destructive)
 
-Rename a type, method, field, property (and accessors) or event in memory; references in other assemblies keep the old name.
+Rename a type, method, field, property (and accessors) or event in memory; other assemblies keep the old name.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -768,7 +768,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 **Add new types (C#)** (edit, long-running)
 
-Add C# types (with their namespace) to an assembly; they can use its internal types, and patch_method_csharp can call them.
+Add C# types (with namespace) to an assembly; they see its internal types and patch_method_csharp can call them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2832,17 +2832,17 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro) with requires; module; search: strings, names; refs: a module's users; position: the original source; sources, source; endpoints; secrets (masked); diff: against the bundle in source; runtime: webpack chunks.
+Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro); module; search; refs: a module's users; position: to the original; sources, source; endpoints; secrets (masked); diff: against source=; runtime: webpack chunks; Hermes: functions, decompile, disassemble, xrefs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | Absolute path to a .js file. |
+| `path` | string | yes |  | Absolute path to a .js or Hermes bundle, or an APK/.ipa. |
 | `view` | string |  | `summary` | View; default summary. Values: summary, modules, module, search, refs, position, sources, source. |
 | `line` | integer |  | `0` | position: generated line and column, 1-based. |
 | `column` | integer |  | `0` | position: see line. |
 | `source` | string |  |  | source: path or index; diff: the old bundle's path. |
-| `query` | string |  |  | module, refs: a module id; others: a filter (diff: one module's token diff). |
+| `query` | string |  |  | module, refs, diff: a module id; search: a filter; decompile, disassemble, xrefs: #id or a name. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `view`, `summary`, `position`, `modules`, `total`, `endpoints`, `secrets`, `diff`, `runtime`.
+Structured output: `view`, `summary`, `position`, `modules`, `total`, `hermes`, `functions`, `endpoints`, `secrets`, `diff`, `runtime`.

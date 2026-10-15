@@ -54,6 +54,7 @@ public static class Blob
         if (StartsWith(b, "WbIL"u8)) return "webcil";
         if (StartsWith(b, "Microsoft C/C++ MSF 7.00"u8)) return "pdb";
         if (AsarArchive.Looks(b)) return "asar";
+        if (Hermes.HermesFile.Looks(b)) return "hermes bytecode";
         if (UnityWebData.Looks(b)) return "unitywebdata";
         if (LooksLikeText(b)) return "text";
         return "data";

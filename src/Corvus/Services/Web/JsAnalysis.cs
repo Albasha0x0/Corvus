@@ -53,7 +53,7 @@ public static class JsAnalysis
         if (text.AsSpan().StartsWith((ReadOnlySpan<byte>)[0xC6, 0x1F, 0xBC, 0x03, 0xC1, 0x03, 0x19, 0x1F]) && text.Length >= 12)
         {
             uint version = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(text.AsSpan(8));
-            notes.Add($"Hermes bytecode version {version} (React Native): compiled, not JavaScript text; its functions need a Hermes decompiler.");
+            notes.Add($"Hermes bytecode version {version} (React Native): compiled, not JavaScript text; analyze_js view=functions, decompile and disassemble read its code.");
             return new JsSummary(text.Length, 0, 0, [new JsBundler("hermes", $"bytecode v{version}", 1)], null, notes);
         }
         int lines = 1, longest = 0, start = 0;

@@ -9,7 +9,6 @@ public sealed record AndroidRuntimeFamily(string Family, IReadOnlyList<string> E
 public static class AndroidRuntime
 {
     private const uint Il2CppMetadataMagic = 0xFAB11BAF;
-    private static readonly byte[] HermesMagic = [0xC6, 0x1F, 0xBC, 0x03, 0xC1, 0x03, 0x19, 0x1F];
     private const string Metadata = "assets/bin/Data/Managed/Metadata/global-metadata.dat";
 
     /// <summary>libil2cpp.so or the Il2Cpp metadata: the entries that make a package a Unity Il2Cpp build.</summary>
@@ -55,8 +54,12 @@ public static class AndroidRuntime
         foreach (var bundle in new[] { "assets/index.android.bundle" }.Where(package.Contains))
         {
             rn.Add(bundle);
-            var hermes = Head(package, bundle, 8).AsSpan().SequenceEqual(HermesMagic);
-            result.Add(new("react-native", rn, hermes ? "React Native: Hermes bytecode bundle" : "React Native: JavaScript bundle"));
+            var head = Head(package, bundle, 12);
+            var note = head.Length >= 8 && BinaryPrimitives.ReadUInt64LittleEndian(head) == Hermes.HermesFile.Magic
+                ? "React Native: Hermes bytecode bundle" + (Hermes.HermesFile.VersionOf(head) is { } version ? $" (version {version})" : "")
+                  + "; analyze_js path=<the package> lists, decompiles and searches its functions"
+                : "React Native: JavaScript bundle";
+            result.Add(new("react-native", rn, note));
             rn = [];
         }
         if (rn.Count > 0) result.Add(new("react-native", rn, "React Native"));

@@ -19,7 +19,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     EditJournal? journal = null, ResultStore? results = null)
 {
     [McpServerTool(Name = "rename_symbol", Title = "Rename symbol", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Rename a type, method, field, property (and accessors) or event in memory; references in other assemblies keep the old name.")]
+    [Description("Rename a type, method, field, property (and accessors) or event in memory; other assemblies keep the old name.")]
     public Task<string> RenameSymbol(
         [Description(SymbolDescription)] string symbol,
         [Description("New name (for a type: the simple name without namespace).")] string newName,
@@ -96,7 +96,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "add_types_csharp", Title = "Add new types (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Add C# types (with their namespace) to an assembly; they can use its internal types, and patch_method_csharp can call them.")]
+    [Description("Add C# types (with namespace) to an assembly; they see its internal types and patch_method_csharp can call them.")]
     public Task<string> AddTypesCSharp(
         [Description(AssemblyDescription)] string assembly,
         [Description("C# source declaring the new types.")] string code,

@@ -333,6 +333,7 @@ environment (path, temp, home and Android / Java variables only).
 | `CORVUS_TSHARK` | `tshark` 3+ (else `PATH`, else the default Wireshark folder on Windows and macOS) | `search_container kind=packet` filters naming fields not decoded in-process |
 | `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER` | aapt2, the apksigner jar, the baksmali jar, protoc (else the Grpc.Tools package's) | test oracles only |
 | `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR` | WABT's wasm2wat and wasm-validate | test oracles only |
+| `CORVUS_HBC_DISASSEMBLER` | Hermes's hbcdump, or a folder of builds (one per bytecode version) | test oracle only |
 
 Code that targets a .NET version not installed on the machine is read against that version's reference pack, which
 is downloaded once from nuget.org into the local app data folder. Set `CORVUS_OFFLINE=1` to never download; such code is
