@@ -81,7 +81,8 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
 
     [McpServerTool(Name = "get_type_info", Title = "Type outline", UseStructuredContent = true, OutputSchemaType = typeof(TypeOutline))]
     [Description("Outline of a type without decompiling: declaration, attributes, member counts and the first members of each kind; a section pages " +
-                 "one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs).")]
+                 "one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data " +
+                 "(checked file offset, SHA-256, readers, elements typed by their reads, hex rows).")]
     public Task<string> GetTypeInfo(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -95,7 +96,13 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         section = (section ?? "summary").Trim().ToLowerInvariant();
         if (!Sections.Contains(section))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown section '{section}'.", "pass section as one of " + string.Join(", ", Sections));
-        var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
+        ResolvedSymbol sym;
+        try { sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type); }
+        catch (ToolError e) when (e.Code == ErrorCode.NotFound
+                                  && MetadataUtil.Try(() => SymbolResolver.Resolve(workspace, assembly, type, SymbolKind.Field)) is { Count: 1 } field)
+        {
+            return FieldOutline(field[0], offset, limit, cancellationToken);
+        }
         var t = (TypeDef)sym.Member;
         bool Show(IHasCustomAttribute m, string name) =>
             includeCompilerGenerated || (!name.StartsWith('<') && !m.CustomAttributes.IsDefined(CompilerGenerated));
@@ -144,6 +151,54 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                 CompilerGeneratedHidden = hidden,
             }, section == "summary" ? "member" : section is "all" ? "member" : section.TrimEnd('s'), header.ToString());
     }, cancellationToken);
+
+    private const int MaxElements = 64;
+
+    /// <summary>A field's outline: declaration, attributes and, for a FieldRVA field, its data paged as 16-byte rows.</summary>
+    private static string FieldOutline(ResolvedSymbol sym, int offset, int limit, CancellationToken ct)
+    {
+        var f = (FieldDef)sym.Member;
+        var header = new StringBuilder(Format.Field(f)).Append('\n');
+        header.Append($"  full name: {Format.MemberLabel(f)}   token: {Format.Token(f)}   assembly: {sym.Assembly.Id}\n");
+        header.Append($"  declared in: {f.DeclaringType.FullName}\n");
+        var attributes = f.CustomAttributes.Select(Format.Attribute).ToList();
+        foreach (var a in attributes) header.Append("  ").Append(a).Append('\n');
+        if (f.HasConstant) header.Append("  value: ").Append(Format.LiteralWithHex(f.Constant.Value)).Append('\n');
+        if (f.FieldOffset is { } fieldOffset) header.Append($"  field offset: {fieldOffset}\n");
+        var data = FieldInitialData.Of(sym.Assembly, f, ct);
+        FieldDataInfo? info = null;
+        var rows = new List<MemberEntry>();
+        if (data == null) header.Append("  no initial data (not a FieldRVA field)\n");
+        else
+        {
+            var bytes = data.Bytes;
+            header.Append($"  initial data: {Plural(bytes.Length, "byte")} at RVA 0x{data.Rva:X}")
+                  .Append(data.FileOffset is { } at ? $", file offset 0x{at:X}{(data.Verified ? " (bytes match)" : " (bytes differ from the declared data)")}" : ", in no section")
+                  .Append($", SHA-256 {data.Sha256}\n");
+            var element = data.Uses.Select(u => u.Element).FirstOrDefault(e => e != null);
+            foreach (var u in data.Uses)
+                header.Append($"  read by {Format.MemberLabel(u.Method)} @IL_{u.ILOffset:X4} {Format.Token(u.Method)}{(u.Element != null ? $" as {Format.Type(u.Element)}[]" : "")}\n");
+            if (data.UsesTotal > data.Uses.Count) header.Append($"  ... {data.UsesTotal - data.Uses.Count} more reads (find_references lists them)\n");
+            if (data.UsesTotal == 0) header.Append("  read by no method of this assembly\n");
+            var elements = FieldInitialData.Elements(bytes, element, MaxElements, out int count);
+            if (elements != null)
+                header.Append($"  as {Format.Type(element!)}[{count}]: {string.Join(", ", elements)}{(count > elements.Count ? ", ..." : "")}\n");
+            for (int i = 0; i < bytes.Length; i += 16) rows.Add(new MemberEntry($"0x{i:X4}", FieldInitialData.Row(bytes, i)));
+            info = new FieldDataInfo($"0x{data.Rva:X}", data.FileOffset is { } o ? $"0x{o:X}" : null, data.Verified, bytes.Length, data.Sha256)
+            {
+                ElementType = element != null ? Format.Type(element) : null,
+                Elements = elements,
+                ReadBy = data.Uses.Count > 0 ? data.Uses.Select(u => $"{Format.MemberLabel(u.Method)} @IL_{u.ILOffset:X4}").ToList() : null,
+            };
+        }
+        return ToolOutput.List(rows.Skip(offset).Take(limit).ToList(), offset, limit, rows.Count, r => $"{r.Token}  {r.Signature}",
+            page => new TypeOutline(SymbolRef.Of(sym), Format.Field(f), new Dictionary<string, int>(), "data", page, offset, rows.Count)
+            {
+                DeclaringType = f.DeclaringType.FullName,
+                Attributes = attributes.Count > 0 ? attributes : null,
+                InitialData = info,
+            }, "16-byte row", header.ToString());
+    }
 
     private static string MemberText(MemberEntry m) =>
         $"{(m.Kind != null ? $"{m.Kind,-8} " : "")}{m.Token}  {m.Signature}{(m.Il is { } n ? $"  IL {n} instr" : "")}{(m.Il2Cpp is { } s ? $"  [{s}]" : "")}";

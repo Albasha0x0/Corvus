@@ -204,7 +204,7 @@ Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `li
 
 **Type outline** (read-only, idempotent)
 
-Outline of a type without decompiling: declaration, attributes, member counts and the first members of each kind; a section pages one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs).
+Outline of a type without decompiling: declaration, attributes, member counts and the first members of each kind; a section pages one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data (checked file offset, SHA-256, readers, elements typed by their reads, hex rows).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -216,7 +216,7 @@ Outline of a type without decompiling: declaration, attributes, member counts an
 | `limit` | integer |  | `100` | Max rows. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`, `total`, `declaringType`, `attributes`, `compilerGeneratedHidden`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`, `total`, `declaringType`, `attributes`, `compilerGeneratedHidden`, `initialData`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### get_assembly_info
 

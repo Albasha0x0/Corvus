@@ -58,6 +58,14 @@ public sealed record TypeOutline(
     public string? DeclaringType { get; init; }
     public IReadOnlyList<string>? Attributes { get; init; }
     [Description("Compiler-generated members left out (includeCompilerGenerated=false).")] public bool CompilerGeneratedHidden { get; init; }
+    [Description("A FieldRVA field's data; items are its 16-byte rows.")] public FieldDataInfo? InitialData { get; init; }
+}
+
+public sealed record FieldDataInfo(string Rva, string? FileOffset, [property: Description("File bytes equal the declared data.")] bool Verified, int Size, string Sha256)
+{
+    public string? ElementType { get; init; }
+    [Description("The first ones.")] public IReadOnlyList<string>? Elements { get; init; }
+    public IReadOnlyList<string>? ReadBy { get; init; }
 }
 
 public sealed record TypeHierarchy(

@@ -93,6 +93,50 @@
       "description": "Compiler-generated members left out (includeCompilerGenerated=false).",
       "type": "boolean"
     },
+    "initialData": {
+      "description": "A FieldRVA field's data; items are its 16-byte rows.",
+      "type": "object",
+      "properties": {
+        "rva": {
+          "type": "string"
+        },
+        "fileOffset": {
+          "type": "string"
+        },
+        "verified": {
+          "description": "File bytes equal the declared data.",
+          "type": "boolean"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "elementType": {
+          "type": "string"
+        },
+        "elements": {
+          "description": "The first ones.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "readBy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "rva",
+        "verified",
+        "size",
+        "sha256"
+      ]
+    },
     "limit": {
       "type": "integer"
     },

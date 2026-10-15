@@ -205,7 +205,7 @@ public sealed class SearchService(ServerOptions? options = null)
     }
 
     /// <summary>The element type of the array or span built from the data an instruction loads (within 3 instructions of it).</summary>
-    private static TypeSig? ElementTypeAround(List<Instruction> il, int at)
+    internal static TypeSig? ElementTypeAround(List<Instruction> il, int at)
     {
         for (int k = Math.Max(0, at - 3); k <= Math.Min(il.Count - 1, at + 3); k++)
         {
@@ -222,7 +222,7 @@ public sealed class SearchService(ServerOptions? options = null)
         return null;
     }
 
-    private static int? ElementSize(TypeSig? sig) => sig?.ElementType switch
+    internal static int? ElementSize(TypeSig? sig) => sig?.ElementType switch
     {
         ElementType.U1 or ElementType.I1 or ElementType.Boolean => 1,
         ElementType.U2 or ElementType.I2 or ElementType.Char => 2,
