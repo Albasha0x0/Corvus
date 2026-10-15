@@ -1,5 +1,69 @@
 # Release notes
 
+## 2.2.0
+
+156 tools and 15 prompts (2.1.0 had 13): `investigate_feature` and `check_reimplementation` are new prompts. No
+breaking changes.
+
+- **Model gateways.** Every tool's input schema stays inside the subset the strictest model gateways accept (no `$ref`
+  or combinators, one declared type, typed array items, depth ≤ 10); `corvus status` names any tool outside it.
+- **Untrusted-content marker.** Every result that may quote the analyzed file, errors included, carries
+  `untrustedContent: true` and `source: analysis_target` in its provenance.
+- **Long engine opens.** An open that outlasts the call's deadline answers with its stage and seconds so far
+  (`details.stage`, `details.seconds`); calling again picks up the same open.
+- **Captures.** `summarize_file view=pcap` reads pcap and pcapng as a stream: flows, DNS names and answers, TLS server
+  names and ALPN (split ClientHellos joined) and HTTP/1.x requests, with every cap stated. `search_container
+  kind=endpoint` also reads pcap captures and Fiddler `.saz` sessions.
+- **Formats.** New `summarize_file` views: `sqlite` (own B-tree reader: schema, row counts, sample rows), `flutter`
+  (Dart AOT snapshot version, features and engine build id) and `rust` (cargo-auditable dependency lists in ELF, PE
+  and Mach-O). `get_pe_info` reports ELF CET, BTI and PAC from the GNU property note, and reads 8-byte aligned notes
+  correctly.
+- **Linux and Android crash dumps.** `open_minidump`, `dump_stack`, `read_dump_memory` and `bucket_minidumps` read ELF
+  core files: threads, registers, the signal, modules matched by build id, and stacks unwound through `.eh_frame`.
+- **Native.** `survey_features` finds crypto and hash constants (AES, SHA-2, MD5, SHA-1, CRC-32, Blowfish, ChaCha,
+  TEA, FNV, MurmurHash3) and more anti-analysis checks (hypervisor ids, analysis-tool names).
+  `search_instructions value=min..max` searches a constant range. NativeAOT frozen strings name their MethodTable.
+- **Engines.** `set_native_type` with a no-return prototype stops the callers' flow at the call in IDA and Ghidra.
+  `ghidra_script` compiles a script once per source and runs installed scripts by `name=` with arguments.
+  `get_engine_status` lists Ghidra's analysis errors and warnings.
+- **Evidence.** `read_result format=evidence` bundles kept results or the latest calls with their provenance;
+  `format=verify` runs them again and names what changed. The new prompts walk from a behaviour to the code behind it
+  and check a reimplementation by emulation.
+- **Android and Unity.** `get_android_device_info` gains `view=processes|features|services|settings|files`.
+  `unity_overview` reads Mono APKs, zipped Windows and Linux titles in place, and WebGL builds.
+- **Release testing.** `test.ps1 -Full -Reuse` reruns only the test families whose inputs changed since their last
+  pass; patch releases gate on it, minor releases still run the whole exhaustive suite.
+
+## 2.1.0
+
+156 tools (2.0.2 had 155): `analyze_js` is new, in the `web` toolset. No breaking changes.
+
+- **Raw images.** `load_assembly format=raw arch= base= entry=` maps headerless code (firmware, shellcode, ROM dumps).
+  Our index decodes x86, x64, ARM, Thumb and ARM64; MIPS, PowerPC, RISC-V and 6502 go to IDA and Ghidra, which set
+  the processor, bitness, base and entry before analysis. DOS `.COM` (`x86-16`) and MZ (`dos-mz`) images load too.
+  Each layout gets its own id (`name[x64@0x400000]`), database and project.
+- **JavaScript bundles.** `analyze_js` reads bundlers and source maps (a minified `line:column` maps to the original
+  source and name), module tables (webpack, esbuild, Browserify, Parcel, Metro, AMD, SystemJS, Rollup/Vite chunks),
+  each module's requires and dependents, and strings and names with their original positions. It also identifies
+  Hermes bytecode.
+- **Electron.** `search_container kind=electron` lists preload scripts, contextBridge keys, IPC channels, process
+  and shell sinks and native add-ons (with their N-API registrations), each with `file:line:column`.
+  `compare_folders` compares `.asar` archives entry by entry.
+- **Captures.** `search_container kind=endpoint` gives a capture's request templates, with id segments folded and
+  query values hidden.
+- **Archives and formats.** tar (plain, gz, bz2, xz), 7z, RAR, single gzip/bzip2/xz files, xar (macOS `.pkg`) and
+  cpio open as containers, with limits that stop archive bombs. New `summarize_file` views: `wasm` (imports,
+  exports, toolchain, names) and `firmware` (formats found at their offsets inside an opaque image).
+- **Apple.** New `summarize_file` views: `apple` (an `.ipa` or `.app`: Info.plist, each Mach-O's role and signature
+  verdict, entitlements, provisioning profile), `plist` (keyed archives decoded) and `nib` (classes, outlets and
+  actions, with each action resolved to its implementation). `verify_native_imports` resolves Mach-O load commands
+  as dyld does.
+- **Ghidra.** Ghidra archives (`.gzf`) load directly. A completion pass after the standard analysis finds more
+  references while the image stays usable. `reanalyze_native` takes `background=true` and `preset=`.
+  `decompile_native view=pcode` shows high p-code. Warm cross-reference queries are 2–30× faster.
+- **Fixes.** `server_status` no longer walks the engine cache on every call (about 950 ms down to 20 ms), and
+  reference-pack downloads time out instead of stalling a search.
+
 ## 2.0.2
 
 - **Package metadata.** The NuGet package, the MCP bundles and the license name the maintainer as Albasha0x0. This is
