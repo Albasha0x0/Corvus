@@ -92,8 +92,12 @@ public static partial class ExternalTools
         "oracle for the Dalvik disassembler in tests", true,
         Ops(("disassemble", ["disassemble", "-o", "{out}", "{dex}"])));
 
+    public static readonly ExternalTool ProtoCompiler = new("protoc", "protoc (test oracle)", "CORVUS_PROTO_COMPILER", ExternalToolKind.Executable, ["protoc" + Exe], ["--version"], 0,
+        "oracle for the .proto text rebuilt from descriptors in tests", true,
+        Ops(("descriptor-set", ["--proto_path", "{root}", "--descriptor_set_out", "{out}", "{file}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, Aapt2, ApkSigner, DexDisassembler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler];
 
     public static ExternalTool Get(string id) => Table.Single(t => t.Id == id);
 
