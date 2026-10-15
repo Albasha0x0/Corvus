@@ -177,6 +177,160 @@
     "tokenMapEntries": {
       "type": "integer"
     },
+    "evidence": {
+      "description": "oldResult / newResult: inputs and counts.",
+      "type": "object",
+      "properties": {
+        "old": {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "string"
+            },
+            "kind": {
+              "description": "kept, recent (this session's call) or bundle.",
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "arguments": {
+              "type": "string"
+            },
+            "inputs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "sha256"
+                ]
+              }
+            },
+            "created": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "ref",
+            "kind",
+            "tool",
+            "inputs"
+          ]
+        },
+        "new": {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "string"
+            },
+            "kind": {
+              "description": "kept, recent (this session's call) or bundle.",
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "arguments": {
+              "type": "string"
+            },
+            "inputs": {
+              "$ref": "#/properties/evidence/properties/old/properties/inputs",
+              "items": {}
+            },
+            "created": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "ref",
+            "kind",
+            "tool",
+            "inputs"
+          ]
+        },
+        "basis": {
+          "description": "items (by the key field By) or text (by line).",
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "completeness": {
+          "description": "complete, or partial: a side holds one page, so absent items are unknown.",
+          "type": "string"
+        },
+        "same": {
+          "type": "integer"
+        },
+        "changed": {
+          "type": "integer"
+        },
+        "removed": {
+          "type": "integer"
+        },
+        "added": {
+          "type": "integer"
+        },
+        "unknown": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "old",
+        "new",
+        "basis",
+        "completeness",
+        "same",
+        "changed",
+        "removed",
+        "added",
+        "unknown"
+      ]
+    },
+    "changes": {
+      "description": "oldResult / newResult: what differs.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "changed, removed, added, or unknown (absent from a partial side).",
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "old": {
+            "type": "string"
+          },
+          "new": {
+            "type": "string"
+          },
+          "fields": {
+            "description": "changed: the fields that differ.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "key"
+        ]
+      }
+    },
     "limit": {
       "type": "integer"
     },

@@ -27,7 +27,9 @@ public static partial class ToolOutput
     internal static readonly IReadOnlyDictionary<string, string[]> RowArrays = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
         ["get_android_device_info"] = ["properties"],
-        ["compare_folders"] = ["entries"],
+        ["compare_folders"] = ["entries", "changes"],
+        ["compare_native_images"] = ["items", "changes"],
+        ["compare_assemblies"] = ["items", "changes"],
     };
 
     internal static void Envelope(JsonObject root, OutputClass output, string? tool = null)

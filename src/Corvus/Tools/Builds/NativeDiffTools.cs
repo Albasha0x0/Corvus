@@ -58,7 +58,11 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         IReadOnlyList<TierCount> Tiers,
         [property: Description("pairs, changed, unmatched or ambiguous.")] string View,
         IReadOnlyList<FunctionRow> Items, int Offset, int Total,
-        [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes);
+        [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes)
+    {
+        [Description("oldResult / newResult: inputs and counts.")] public EvidenceSummary? Evidence { get; init; }
+        [Description("oldResult / newResult: what differs.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
+    }
 
     public sealed record AddressMapping(
         [property: Description("The address as given.")] string Target,
@@ -141,7 +145,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         int Offset, int Total,
         [property: Description("Candidate counterparts when ambiguous.")] IReadOnlyList<MatchCandidate>? Candidates,
         [property: Description("addresses[]: one summary per function; rows with address.")] IReadOnlyList<FunctionDiffSummary>? Functions,
-        IReadOnlyList<string> Notes);
+        IReadOnlyList<string> Notes)
+    {
+        [Description("oldResult / newResult: inputs and counts.")] public EvidenceSummary? Evidence { get; init; }
+    }
 
     public sealed record PatternHit(string Image, string Address, string Section, string? Function, string? FunctionAddress, uint? FunctionOffset);
 
@@ -155,10 +162,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     [Description("Match the functions of two builds of one native image (x86 / x64 / ARM64) in tiers: 1 same name, import or identical bytes; 2 same " +
                  "control flow; 3 same imports, strings and constants; 4 call-graph neighbours; 5 fuzzy above minScore. A pair is taken only " +
                  "when unique on both sides. Returns per-tier counts and one view's rows by old address (unmatched: old, then new). The first " +
-                 "call waits for both code indexes.")]
+                 "call waits for both code indexes. oldResult / newResult compare two kept results instead.")]
     public Task<string> CompareNativeImages(
-        [Description(OldDescription)] string oldImage,
-        [Description(NewDescription)] string newImage,
+        [Description(OldDescription)] string? oldImage = null,
+        [Description(NewDescription)] string? newImage = null,
         [Description("pairs, changed (code differs), unmatched or ambiguous (with candidates).")] string view = "pairs",
         [Description("Only pairs of this tier (1-5); 0 for all.")] int tier = 0,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
@@ -166,15 +173,20 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 40,
         [Description(MaxTokensDescription)] int? maxTokens = null,
+        [Description(OldResultDescription)] string? oldResult = null,
+        [Description(NewResultDescription)] string? newResult = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        if (EvidenceInput.FromArguments(oldResult, newResult, oldImage != null || newImage != null, "oldImage and newImage", context?.Services) is var (ev, changes))
+            return EvidenceList(changes, offset, limit, ev, page => new NativeComparison(ev.Old.Ref, ev.New.Ref, 0, 0, 0, 0, 0, 0, 0, 0, [], "evidence", [], offset, changes.Count, [])
+                { Evidence = ev, Changes = page });
         var v = (string.IsNullOrWhiteSpace(view) ? "pairs" : view).Trim().ToLowerInvariant();
         if (v is not ("pairs" or "changed" or "unmatched" or "ambiguous"))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use pairs, changed, unmatched or ambiguous");
         if (tier is < 0 or > 5) throw new ToolError(ErrorCode.InvalidArgument, $"tier must be 0-5, not {tier}.");
         if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.");
-        var pair = await pairs.Match(oldImage, newImage, new MatchOptions { UseNames = !codeOnly, MinScore = minScore }, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        var pair = await pairs.Match(oldImage!, newImage!, new MatchOptions { UseNames = !codeOnly, MinScore = minScore }, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
         var match = pair.Match;
         var o = match.Old.Index;
         var n = match.New.Index;
@@ -211,6 +223,14 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, RowText, page => record with { Items = page },
             v is "pairs" or "changed" ? "pair" : "function", head.ToString());
     });
+
+    internal const string OldResultDescription = "Instead of the old side: " + EvidenceInput.ReferenceDescription + ".";
+    internal const string NewResultDescription = "The new side, from the same tool.";
+
+    /// <summary>A comparison of two kept results as a list of its changes.</summary>
+    internal static string EvidenceList(IReadOnlyList<EvidenceChange> changes, int offset, int limit, EvidenceSummary summary,
+        Func<IReadOnlyList<EvidenceChange>, object> record) =>
+        ToolOutput.List(changes.Skip(Math.Max(0, offset)).ToList(), Math.Max(0, offset), limit, changes.Count, EvidenceInput.RowText, record, "change", EvidenceInput.Text(summary));
 
     private static string RowText(FunctionRow r)
     {
@@ -280,10 +300,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     [Description("What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists " +
                  "aligned, rows = (same), ~ (other operands), - or +, with build-independent operands (branch labels, matched callee names, string " +
                  "text, mapped data) so moved code and relocations do not show; changed regions with context. view=pseudocode: a unified diff of " +
-                 "both functions' pseudocode. addresses: a summary per function.")]
+                 "both functions' pseudocode. addresses: a summary per function. oldResult / newResult diff two kept code results instead.")]
     public Task<string> DiffFunction(
-        [Description(OldDescription)] string oldImage,
-        [Description(NewDescription)] string newImage,
+        [Description(OldDescription)] string? oldImage = null,
+        [Description(NewDescription)] string? newImage = null,
         [Description("An address in the function: " + NativeTools.AddressDescription)] string? address = null,
         [Description("Instead of address: up to 20 functions, one summary each.")] string[]? addresses = null,
         [Description("Which build the address is in.")] string side = "old",
@@ -294,9 +314,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 500,
         [Description(MaxTokensDescription)] int? maxTokens = null,
+        [Description("Instead of the images: old code as " + EvidenceInput.ReferenceDescription + ".")] string? oldResult = null,
+        [Description("New code, from the same tool.")] string? newResult = null,
         RequestContext<CallToolRequestParams> request = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(request, async progress =>
     {
+        if (!string.IsNullOrWhiteSpace(oldResult) || !string.IsNullOrWhiteSpace(newResult))
+            return DiffResults(oldResult, newResult, oldImage != null || newImage != null || address != null || addresses != null, context, offset, limit, request?.Services);
         var s = (string.IsNullOrWhiteSpace(side) ? "old" : side).Trim().ToLowerInvariant();
         if (s is not ("old" or "new")) throw new ToolError(ErrorCode.InvalidArgument, $"side must be old or new, not '{side}'.");
         var v = (string.IsNullOrWhiteSpace(view) ? "asm" : view).Trim().ToLowerInvariant();
@@ -306,6 +330,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             throw new ToolError(ErrorCode.InvalidArgument, "Pass address or addresses (one of them).", "address=<one>, or addresses=[...] for several");
         if (addresses?.Length > MaxDiffFunctions)
             throw new ToolError(ErrorCode.InvalidArgument, $"{addresses.Length} addresses; at most {MaxDiffFunctions} per call.", "split the addresses");
+        if (oldImage == null || newImage == null) throw new ToolError(ErrorCode.InvalidArgument, "Pass oldImage and newImage, or oldResult and newResult.");
         var pair = await pairs.Match(oldImage, newImage, new MatchOptions { UseNames = !codeOnly }, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
         var differ = new FunctionDiff(pair.Match);
 
@@ -342,6 +367,34 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         "+" => $"+ {r.NewAddress ?? ""}  {r.NewText}",
         _ => $"{r.Op} {r.OldText}",
     };
+
+    /// <summary>The rows of a unified diff.</summary>
+    private static List<FunctionDiffRow> DiffRows(string unified) => unified.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n')
+        .Where(l => !l.StartsWith("---", StringComparison.Ordinal) && !l.StartsWith("+++", StringComparison.Ordinal) && l != "(no textual change)")
+        .Select(l => l.StartsWith('-') ? new FunctionDiffRow("-", null, null, l[1..], null)
+            : l.StartsWith('+') ? new FunctionDiffRow("+", null, null, null, l[1..])
+            : l.StartsWith("@@", StringComparison.Ordinal) ? new FunctionDiffRow("…", null, null, l, null)
+            : new FunctionDiffRow("=", null, null, l.Length > 0 ? l[1..] : l, null)).ToList();
+
+    /// <summary>diff_function on two kept code results: their code as kept, without the images.</summary>
+    private static string DiffResults(string? oldResult, string? newResult, bool sidesGiven, int context, int offset, int limit, IServiceProvider? services)
+    {
+        if (string.IsNullOrWhiteSpace(oldResult) || string.IsNullOrWhiteSpace(newResult))
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass oldResult and newResult (both).", "each is " + EvidenceInput.ReferenceDescription);
+        if (sidesGiven)
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass oldImage, newImage and address, or oldResult and newResult, not both.", "results are diffed as they were kept: drop the images and address");
+        if (context is < 0 or > 50) throw new ToolError(ErrorCode.InvalidArgument, $"context must be 0-50, not {context}.");
+        var (a, b) = EvidenceInput.ResolvePair(oldResult, newResult, services?.GetService(typeof(ResultStore)) as ResultStore, services?.GetService(typeof(RecentCalls)) as RecentCalls);
+        var rows = DiffRows(TextDiff.Unified(EvidenceInput.Code(a), EvidenceInput.Code(b), oldResult, newResult, context));
+        int added = rows.Count(r => r.Op == "+"), removed = rows.Count(r => r.Op == "-");
+        var summary = new EvidenceSummary(a.Source, b.Source, "text", null, "complete", rows.Count(r => r.Op == "="), 0, removed, added, 0);
+        var report = new FunctionDiffReport(a.Source.Ref, b.Source.Ref, null, null, null, null, null, null, null, "pseudocode",
+            removed + added == 0 ? "the same code" : $"{removed} line(s) removed, {added} added", summary.Same, 0, removed, added, rows, 0, rows.Count, null, null,
+            ["addresses are as each result shows them, not mapped between builds"]) { Evidence = summary };
+        offset = Math.Max(0, offset);
+        return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, RowText, page => report with { Items = page, Offset = offset }, "row",
+            EvidenceInput.Text(summary) + "Note: " + report.Notes[0] + "\n");
+    }
 
     /// <summary>One function's diff, every row (the tool pages them).</summary>
     private async Task<FunctionDiffReport> DiffOne(BuildPair p, FunctionDiff differ, string address, bool fromOld, string v, int context, string? engine, CancellationToken cancellationToken)
@@ -390,13 +443,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             }
             var before = differ.NormalizePseudocode(await Pseudocode(oldNative, a.Start), true, cancellationToken);
             var after = differ.NormalizePseudocode(await Pseudocode(newNative, b.Start), false, cancellationToken);
-            rows = TextDiff.Unified(before, after, $"{oldNative.Id} {Name(o, a.Function)}", $"{newNative.Id} {Name(n, b.Function)}", context)
-                .ReplaceLineEndings("\n").TrimEnd('\n').Split('\n')
-                .Where(l => !l.StartsWith("---", StringComparison.Ordinal) && !l.StartsWith("+++", StringComparison.Ordinal))
-                .Select(l => l.StartsWith('-') ? new FunctionDiffRow("-", null, null, l[1..], null)
-                    : l.StartsWith('+') ? new FunctionDiffRow("+", null, null, null, l[1..])
-                    : l.StartsWith("@@", StringComparison.Ordinal) ? new FunctionDiffRow("…", null, null, l, null)
-                    : new FunctionDiffRow("=", null, null, l.Length > 0 ? l[1..] : l, null)).ToList();
+            rows = DiffRows(TextDiff.Unified(before, after, $"{oldNative.Id} {Name(o, a.Function)}", $"{newNative.Id} {Name(n, b.Function)}", context));
             added = rows.Count(r => r.Op == "+");
             removed = rows.Count(r => r.Op == "-");
             same = rows.Count(r => r.Op == "=");

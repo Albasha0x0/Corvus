@@ -75,7 +75,11 @@ public sealed class FolderCompare
         [property: Description("The change filter of Entries.")] string View,
         int Offset, int Total, bool Truncated,
         IReadOnlyList<Entry> Entries,
-        IReadOnlyList<string> Notes, double Seconds);
+        IReadOnlyList<string> Notes, double Seconds)
+    {
+        [Description("oldResult / newResult: inputs and counts.")] public EvidenceSummary? Evidence { get; init; }
+        [Description("oldResult / newResult: what differs.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
+    }
 
     private sealed record Row(string Change, InventoryEntry? Old, InventoryEntry? New, IReadOnlyList<string>? Candidates = null, int? CandidateCount = null, string? Note = null)
     {

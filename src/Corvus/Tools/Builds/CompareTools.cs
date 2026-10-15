@@ -45,7 +45,11 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [property: Description("The changes of this page, in the text's order.")] IReadOnlyList<ChangeItem> Items,
         int Offset, int Total,
         [property: Description("tokenMap=true: the kept token map; read_result id=<it> outputPath=<file>.json writes it.")] string? TokenMapResultId,
-        int TokenMapEntries);
+        int TokenMapEntries)
+    {
+        [Description("oldResult / newResult: inputs and counts.")] public EvidenceSummary? Evidence { get; init; }
+        [Description("oldResult / newResult: what differs.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
+    }
 
     /// <summary>The token map file: both builds and every old type and member with its counterpart.</summary>
     public sealed record TokenMapFile(string Format, int Version, int IlHashVersion, BuildRef Old, BuildRef New, IReadOnlyList<AssemblyComparer.TokenMapEntry> Entries);
@@ -59,10 +63,11 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
 
     [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyComparison))]
     [Description("Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; " +
-                 "else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset).")]
+                 "else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). " +
+                 "oldResult / newResult compare two kept results instead.")]
     public Task<string> CompareAssemblies(
-        [Description("The old build (id, name or path).")] string oldAssembly,
-        [Description("The new build (id, name or path).")] string newAssembly,
+        [Description("The old build (id, name or path).")] string? oldAssembly = null,
+        [Description("The new build (id, name or path).")] string? newAssembly = null,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
         [Description("Change kinds to list (unknown: unpaired for lack of evidence); default all except address.")] string[]? changes = null,
         [Description("Count added and removed types without listing them.")] bool typeCountsOnly = false,
@@ -71,11 +76,16 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Changes per page (default 100).")] int limit = 100,
         [Description(MaxTokensDescription)] int? maxTokens = null,
+        [Description(NativeDiffTools.OldResultDescription)] string? oldResult = null,
+        [Description(NativeDiffTools.NewResultDescription)] string? newResult = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => EditTools.WithProgress(context, () => Read(workspace, () =>
     {
-        var oldAsm = workspace.Get(oldAssembly);
-        var newAsm = workspace.Get(newAssembly);
+        if (EvidenceInput.FromArguments(oldResult, newResult, oldAssembly != null || newAssembly != null, "oldAssembly and newAssembly", context?.Services) is var (ev, evidence))
+            return NativeDiffTools.EvidenceList(evidence, offset, ClampLimit(limit), ev, page => new AssemblyComparison(new BuildRef(ev.Old.Ref, "", "", ""),
+                new BuildRef(ev.New.Ref, "", "", ""), 0, 0, [], [], [], 0, 0, 0, 0, [], Math.Max(0, offset), evidence.Count, null, 0) { Evidence = ev, Changes = page });
+        var oldAsm = workspace.Get(oldAssembly!);
+        var newAsm = workspace.Get(newAssembly!);
         var kinds = (changes is { Length: > 0 } ? changes.Select(k => k.Trim()) : AllKinds.Where(k => k != "address")).Select(k => k.ToLowerInvariant()).ToHashSet();
         if (kinds.Remove("all")) kinds.UnionWith(AllKinds);
         foreach (var k in kinds.Where(k => !AllKinds.Contains(k)))

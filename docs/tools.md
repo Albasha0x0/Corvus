@@ -1784,12 +1784,12 @@ Build-to-build comparison and carrying work to a new build.
 
 **Compare two builds** (read-only, idempotent, long-running)
 
-Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset).
+Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). oldResult / newResult compare two kept results instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldAssembly` | string | yes |  | The old build (id, name or path). |
-| `newAssembly` | string | yes |  | The new build (id, name or path). |
+| `oldAssembly` | string |  |  | The old build (id, name or path). |
+| `newAssembly` | string |  |  | The new build (id, name or path). |
 | `namespace` | string |  |  | Only types whose old or new full name starts with this. |
 | `changes` | string[] |  |  | Change kinds to list (unknown: unpaired for lack of evidence); default all except address. |
 | `typeCountsOnly` | boolean |  |  | Count added and removed types without listing them. |
@@ -1798,8 +1798,10 @@ Compare two builds of an assembly: renamed, moved, added and removed types and m
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Changes per page (default 100). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+| `oldResult` | string |  |  | Instead of the old side: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
+| `newResult` | string |  |  | The new side, from the same tool. |
 
-Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `offset`, `total`, `tokenMapResultId`, `tokenMapEntries`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `offset`, `total`, `tokenMapResultId`, `tokenMapEntries`, `evidence`, `changes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### find_counterpart
 
@@ -1825,31 +1827,33 @@ Structured output: `old`, `new`, `items`, `offset`, `total`, `limit`, `totalExac
 
 **Compare two folders or packages** (read-only, idempotent, long-running)
 
-Compare two folders, zip-family archives or files per entry: modified, added, removed, moved, case-only renames, links, unreadable; changed binaries with MVID and version, text with a diff.
+Compare two folders, zip-family archives or files per entry: modified, added, removed, moved, case-only renames, links, unreadable; changed binaries with MVID and version, text with a diff. oldResult / newResult compare two kept results instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldPath` | string | yes |  | Old folder, archive or file. |
-| `newPath` | string | yes |  | New folder, archive or file. |
+| `oldPath` | string |  |  | Old folder, archive or file. |
+| `newPath` | string |  |  | New folder, archive or file. |
 | `change` | string |  | `changed` | Entries listed. Values: changed, modified, added, removed, moved, renamed, unreadable, unchanged, all. |
 | `exclude` | string[] |  |  | Globs of paths to skip. |
 | `caseSensitive` | boolean |  |  | Default: false on Windows and macOS, true elsewhere. |
 | `maxEntries` | integer |  | `200000` | Per side; past it, incomplete. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Max entries per page. |
+| `oldResult` | string |  |  | Instead of the old side: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
+| `newResult` | string |  |  | The new side, from the same tool. |
 
-Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `entries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `entries`, `notes`, `evidence`, `changes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### compare_native_images
 
 **Compare native builds** (read-only, idempotent, long-running)
 
-Match the functions of two builds of one native image (x86 / x64 / ARM64) in tiers: 1 same name, import or identical bytes; 2 same control flow; 3 same imports, strings and constants; 4 call-graph neighbours; 5 fuzzy above minScore. A pair is taken only when unique on both sides. Returns per-tier counts and one view's rows by old address (unmatched: old, then new). The first call waits for both code indexes.
+Match the functions of two builds of one native image (x86 / x64 / ARM64) in tiers: 1 same name, import or identical bytes; 2 same control flow; 3 same imports, strings and constants; 4 call-graph neighbours; 5 fuzzy above minScore. A pair is taken only when unique on both sides. Returns per-tier counts and one view's rows by old address (unmatched: old, then new). The first call waits for both code indexes. oldResult / newResult compare two kept results instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
-| `newImage` | string | yes |  | The newer build: native image id or path. |
+| `oldImage` | string |  |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
+| `newImage` | string |  |  | The newer build: native image id or path. |
 | `view` | string |  | `pairs` | pairs, changed (code differs), unmatched or ambiguous (with candidates). Values: pairs, changed, unmatched, ambiguous. |
 | `tier` | integer |  | `0` | Only pairs of this tier (1-5); 0 for all. |
 | `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
@@ -1857,19 +1861,21 @@ Match the functions of two builds of one native image (x86 / x64 / ARM64) in tie
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `40` | Max rows. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+| `oldResult` | string |  |  | Instead of the old side: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
+| `newResult` | string |  |  | The new side, from the same tool. |
 
-Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `offset`, `total`, `notes`, `evidence`, `changes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### diff_function
 
 **Diff a function between builds** (read-only, idempotent, open-world, long-running)
 
-What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists aligned, rows = (same), ~ (other operands), - or +, with build-independent operands (branch labels, matched callee names, string text, mapped data) so moved code and relocations do not show; changed regions with context. view=pseudocode: a unified diff of both functions' pseudocode. addresses: a summary per function.
+What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists aligned, rows = (same), ~ (other operands), - or +, with build-independent operands (branch labels, matched callee names, string text, mapped data) so moved code and relocations do not show; changed regions with context. view=pseudocode: a unified diff of both functions' pseudocode. addresses: a summary per function. oldResult / newResult diff two kept code results instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
-| `newImage` | string | yes |  | The newer build: native image id or path. |
+| `oldImage` | string |  |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
+| `newImage` | string |  |  | The newer build: native image id or path. |
 | `address` | string |  |  | An address in the function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `addresses` | string[] |  |  | Instead of address: up to 20 functions, one summary each. |
 | `side` | string |  | `old` | Which build the address is in. Values: old, new. |
@@ -1880,8 +1886,10 @@ What changed in one function between two builds (paired through compare_native_i
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `500` | Max rows. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+| `oldResult` | string |  |  | Instead of the images: old code as a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
+| `newResult` | string |  |  | New code, from the same tool. |
 
-Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `items`, `offset`, `total`, `candidates`, `functions`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `items`, `offset`, `total`, `candidates`, `functions`, `notes`, `evidence`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### map_address_between_builds
 
