@@ -41,6 +41,7 @@ public static partial class ParameterDomains
     {
         ["disassemble_dex"] = new Dictionary<string, Domain> { ["format"] = Of(["smali", "annotated"]) },
         ["decompile_java"] = new Dictionary<string, Domain> { ["engine"] = Of(["jadx"]) },
+        ["get_android_device_info"] = new Dictionary<string, Domain> { ["view"] = Of(Corvus.Services.Mobile.DeviceService.DeviceViews) },
         ["read_android_log"] = new Dictionary<string, Domain>
         {
             ["priority"] = Of(["V", "D", "I", "W", "E", "F"], "verbose", "debug", "info", "warn", "warning", "error", "fatal"),

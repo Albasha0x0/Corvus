@@ -57,6 +57,15 @@ internal static class FakeDevice
                                    "[persist.sys.multiline]: [first\n");
         fake.On(@"pm list packages -f -U -i", $"package:/data/app/~~AbC==/{Package}-XyZ==/base.apk={Package}  uid:10123 installer=com.android.vending\n" +
                                               "package:/system/priv-app/Settings/Settings.apk=com.android.settings  uid:1000 installer=null\n");
+        fake.On(@"shell ps -A -o PID,PPID,USER,NAME$", "  PID  PPID USER           NAME\n    1     0 root           init\n  700     1 system         system_server\n" +
+                                                         " 4321   500 u0_a123        com.example.app\n");
+        fake.On(@"shell pm list features$", "feature:android.hardware.camera\nfeature:android.software.vulkan.deqp.level=132383489\nfeature:reqGlEsVersion=0x30002\n");
+        fake.On(@"shell service list$", "Found 2 services:\n0\tactivity: [android.app.IActivityManager]\n1\tpackage: [android.content.pm.IPackageManager]\n");
+        fake.On(@"shell settings list global$", "adb_enabled=1\nairplane_mode_on=0\n");
+        fake.On(@"shell settings list secure$", "android_id=0123456789abcdef\n");
+        fake.On(@"shell settings list system$", "screen_brightness=102\n");
+        fake.On(@"shell ls -la /data/local/tmp$", "total 12\ndrwxrwx--x 3 shell shell 4096 2024-01-02 03:04 .\n-rw-rw-rw- 1 shell shell   22 2024-01-02 03:05 note.txt\n" +
+                                                  "drwxrwxrwx 2 shell shell 4096 2024-01-02 03:06 dir\n");
         fake.On(@"dumpsys package com\.example\.app$", Dumpsys.Replace("\r\n", "\n"));
         fake.On(@"dumpsys package", "Packages:\n");
         fake.On(@"pm path com\.example\.app$", $"package:/data/app/~~AbC==/{Package}-XyZ==/base.apk\npackage:/data/app/~~AbC==/{Package}-XyZ==/split_config.arm64_v8a.apk\n");

@@ -18,20 +18,23 @@ public sealed class DeviceTools(DeviceService devices)
 
     [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true, OutputSchemaType = typeof(AndroidDeviceInfo))]
     [Description("Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, " +
-                 "ro.debuggable, ro.secure, emulator or not.")]
+                 "ro.debuggable, ro.secure, emulator or not; view= lists processes, features, services, settings or files instead.")]
     public Task<string> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
-        [Description("Only properties whose name or value contains this.")] string? query = null,
+        [Description("Only rows whose name or value contains this; view=files: the directory (default /data/local/tmp).")] string? query = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Most properties.")] int limit = 100,
+        [Description("Most rows.")] int limit = 100,
+        [Description("props (default), processes, features, services, settings or files.")] string view = "props",
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
-        var r = devices.DeviceInfo(serial, query, offset, ToolSupport.ClampLimit(limit), cancellationToken);
+        view = view.Trim().ToLowerInvariant();
+        var r = devices.DeviceInfo(serial, query, offset, ToolSupport.ClampLimit(limit), cancellationToken, view);
         var s = r.Summary;
         var header = $"{r.Serial}: Android {s.Release} (SDK {s.Sdk}), {s.Manufacturer} {s.Model}, ABIs {string.Join(", ", s.Abis)}; {s.BuildType}"
                      + $"{(s.Debuggable == true ? ", ro.debuggable=1" : "")}{(s.Secure == false ? ", ro.secure=0" : "")}; patch {s.SecurityPatch}"
                      + $"{(s.Emulator ? $"; emulator ({string.Join(", ", s.EmulatorEvidence)})" : "")}\nfingerprint {s.Fingerprint}\n";
-        return ToolOutput.List(r.Properties, r.Offset, ToolSupport.ClampLimit(limit), r.Total, p => $"{p.Name} = {p.Value}", rows => r with { Properties = rows }, "property", header);
+        return ToolOutput.List(r.Properties, r.Offset, ToolSupport.ClampLimit(limit), r.Total, p => view == "props" || view == "settings" ? $"{p.Name} = {p.Value}" : $"{p.Name}  {p.Value}",
+            rows => r with { Properties = rows }, view switch { "processes" => "process", "features" => "feature", "services" => "service", "settings" => "setting", "files" => "entry", _ => "property" }, header);
     }, cancellationToken);
 
     [McpServerTool(Name = "list_android_packages", Title = "List installed packages", UseStructuredContent = true, OutputSchemaType = typeof(AndroidPackageList))]

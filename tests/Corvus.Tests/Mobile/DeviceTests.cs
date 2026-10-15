@@ -45,6 +45,20 @@ public sealed class DeviceTests : IDisposable
     }
 
     [Fact]
+    public void DeviceInfo_Views_ListProcessesFeaturesServicesSettingsAndFiles()
+    {
+        string Rows(string view, string? query = null, int offset = 0, int limit = 100) =>
+            string.Join("; ", Service().DeviceInfo(null, query, offset, limit, default, view).Properties.Select(p => $"{p.Name}={p.Value}"));
+        Assert.Equal("com.example.app=pid 4321, ppid 500, u0_a123", Rows("processes", "example"));
+        Assert.Equal("system_server=pid 700, ppid 1, system", Rows("processes", offset: 1, limit: 1));
+        Assert.Equal("android.hardware.camera=; android.software.vulkan.deqp.level=132383489; reqGlEsVersion=0x30002", Rows("features"));
+        Assert.Equal("package=android.content.pm.IPackageManager", Rows("services", "package"));
+        Assert.Equal("global/adb_enabled=1; global/airplane_mode_on=0; secure/android_id=0123456789abcdef; system/screen_brightness=102", Rows("settings"));
+        Assert.Equal("note.txt=-rw-rw-rw- 22 bytes, 2024-01-02 03:05, shell:shell", Rows("files", limit: 2).Split("; ")[1]);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => Rows("radio")).Code);
+    }
+
+    [Fact]
     public void Packages_PathsUidsInstallers_AndPackageInfoFromDumpsys()
     {
         var packages = Service().Packages(null, null, null, 0, 100, default);

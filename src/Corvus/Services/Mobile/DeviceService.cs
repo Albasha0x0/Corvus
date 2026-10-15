@@ -81,6 +81,38 @@ public sealed partial class DeviceService(ServerOptions options)
     private ExternalTools.RunResult Run(IEnumerable<string> args, TimeSpan timeout, long maxBytes, CancellationToken ct) =>
         ExternalTools.Run(AdbPath(), [.. args], timeout, maxBytes, ct, Environment);
 
+    private List<string> Lines(string serial, string op, string what, params (string, string)[] values) =>
+        [.. Check(Run(ExternalTools.Arguments(Adb, op, [("serial", serial), .. values]), Short, MaxTextBytes, default), what)
+            .Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Length > 0)];
+
+    /// <summary>ps -A -o PID,PPID,USER,NAME, else plain ps (before Android 8), read by its header's columns.</summary>
+    private List<AndroidProperty> Processes(string serial, CancellationToken ct)
+    {
+        var lines = Lines(serial, "ps", "listing processes");
+        if (lines.Count == 0 || !lines[0].TrimStart().StartsWith("PID", StringComparison.Ordinal)) lines = Lines(serial, "ps-legacy", "listing processes");
+        if (lines.Count == 0) return [];
+        var header = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        int pid = header.IndexOf("PID"), ppid = header.IndexOf("PPID"), user = header.IndexOf("USER"), name = header.IndexOf("NAME");
+        if (pid < 0 || name < 0) return [];
+        var rows = new List<AndroidProperty>();
+        foreach (var line in lines.Skip(1))
+        {
+            ct.ThrowIfCancellationRequested();
+            var f = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (f.Length <= Math.Max(pid, name)) continue;
+            rows.Add(new(string.Join(' ', f[name..]), $"pid {f[pid]}" + (ppid >= 0 && ppid < f.Length ? $", ppid {f[ppid]}" : "") + (user >= 0 && user < f.Length ? $", {f[user]}" : "")));
+        }
+        return rows;
+    }
+
+    // "12 activity: [android.app.IActivityManager]" (a tab after the index)
+    [GeneratedRegex(@"^\d+\s+([^:]+):\s*\[(.*)\]")]
+    private static partial Regex ServiceLine();
+
+    // "drwxrwx--x 2 shell shell 4096 2024-01-01 12:00 name"
+    [GeneratedRegex(@"^([-dlcbps][-rwxsStT]{9}\S*)\s+\d+\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s+(.+)$")]
+    private static partial Regex LsLine();
+
     /// <summary>Stdout of a successful call; adb's own failures mapped to typed errors.</summary>
     private static string Check(ExternalTools.RunResult r, string what)
     {
@@ -134,7 +166,10 @@ public sealed partial class DeviceService(ServerOptions options)
         };
     }
 
-    public AndroidDeviceInfo DeviceInfo(string? serial, string? query, int offset, int limit, CancellationToken ct)
+    /// <summary>The device views of get_android_device_info: props, processes, features, services, settings, files.</summary>
+    public static readonly string[] DeviceViews = ["props", "processes", "features", "services", "settings", "files"];
+
+    public AndroidDeviceInfo DeviceInfo(string? serial, string? query, int offset, int limit, CancellationToken ct, string view = "props")
     {
         var s = Serial(serial, ct);
         var text = Check(Run(ExternalTools.Arguments(Adb, "getprop", ("serial", s)), Short, MaxTextBytes, ct), "reading properties");
@@ -153,9 +188,24 @@ public sealed partial class DeviceService(ServerOptions options)
             (P("ro.product.cpu.abilist") ?? P("ro.product.cpu.abi") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries), P("ro.build.fingerprint"),
             P("ro.build.version.security_patch"), P("ro.build.type"), P("ro.debuggable") is { } d ? d == "1" : null, P("ro.secure") is { } sec ? sec == "1" : null,
             evidence.Count > 0, evidence);
-        var filtered = query is { Length: > 0 } q
-            ? props.Where(p => p.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || p.Value.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList()
-            : props;
+        var rows = view switch
+        {
+            "props" => props,
+            "processes" => Processes(s, ct),
+            "features" => Lines(s, "features", "listing features").Where(l => l.StartsWith("feature:", StringComparison.Ordinal))
+                .Select(l => l[8..].Split('=', 2) is var f ? new AndroidProperty(f[0], f.Length > 1 ? f[1] : "") : null!).ToList(),
+            "services" => Lines(s, "services", "listing services").Select(l => ServiceLine().Match(l)).Where(m => m.Success)
+                .Select(m => new AndroidProperty(m.Groups[1].Value, m.Groups[2].Value)).ToList(),
+            "settings" => [.. new[] { "global", "secure", "system" }.SelectMany(ns => Lines(s, "settings", $"listing {ns} settings", ("namespace", ns))
+                .Select(l => l.Split('=', 2)).Where(kv => kv.Length == 2).Select(kv => new AndroidProperty($"{ns}/{kv[0]}", kv[1])))],
+            "files" => Lines(s, "ls", "listing files", ("remote", query is { Length: > 0 } dir ? dir : "/data/local/tmp")).Select(l => LsLine().Match(l)).Where(m => m.Success)
+                .Select(m => new AndroidProperty(m.Groups[6].Value, $"{m.Groups[1].Value} {m.Groups[4].Value} bytes, {m.Groups[5].Value}, {m.Groups[2].Value}:{m.Groups[3].Value}")).ToList(),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", $"view is one of {string.Join(", ", DeviceViews)}"),
+        };
+        // files: query names the directory
+        var filtered = view != "files" && query is { Length: > 0 } q
+            ? rows.Where(p => p.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || p.Value.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList()
+            : rows;
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
         var page = filtered.Skip(offset).Take(limit).ToList();

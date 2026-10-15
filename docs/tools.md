@@ -2488,14 +2488,15 @@ Structured output: `items`, `unparsed`.
 
 **Android device info** (read-only, idempotent, open-world)
 
-Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator or not.
+Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator or not; view= lists processes, features, services, settings or files instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `serial` | string |  |  | Device serial; optional with one device ready. |
-| `query` | string |  |  | Only properties whose name or value contains this. |
+| `query` | string |  |  | Only rows whose name or value contains this; view=files: the directory (default /data/local/tmp). |
 | `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Most properties. |
+| `limit` | integer |  | `100` | Most rows. |
+| `view` | string |  | `props` | props (default), processes, features, services, settings or files. Values: props, processes, features, services, settings, files. |
 
 Structured output: `serial`, `summary`, `properties`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
