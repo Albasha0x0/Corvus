@@ -102,6 +102,41 @@ public class DwarfTests
     }
 
     [Fact]
+    public async Task A_folder_in_the_debug_dirs_variable_is_searched()
+    {
+        using var rig = new Rig();
+        var image = rig.Copy((Elf(), Path.Combine("bin", Library)));
+        var native = rig.Workspace.LoadAny(image).Native!;
+        var id = native.Image.BuildId!;
+        rig.Copy((Elf(Library + ".dbg"), Path.Combine("debug", ".build-id", id[..2], id[2..] + ".debug")));
+        var saved = Environment.GetEnvironmentVariable(DwarfLocator.DirsVariable);
+        Environment.SetEnvironmentVariable(DwarfLocator.DirsVariable, rig.Dir.File("nowhere") + Path.PathSeparator + rig.Dir.File("debug"));
+        try { Assert.Equal(rig.Dir.File(Path.Combine("debug", ".build-id", id[..2], id[2..] + ".debug")), DwarfLocator.Locate(native.Image, image).Path); }
+        finally { Environment.SetEnvironmentVariable(DwarfLocator.DirsVariable, saved); }
+    }
+
+    [Fact]
+    public void Without_a_build_id_the_debuglink_crc_picks_the_debug_file()
+    {
+        using var rig = new Rig();
+        // the image's GNU build-id note renamed, so only its .gnu_debuglink (name and CRC-32) identifies the debug file
+        var bytes = File.ReadAllBytes(Elf());
+        int note = bytes.AsSpan().IndexOf((ReadOnlySpan<byte>)[4, 0, 0, 0, 20, 0, 0, 0, 3, 0, 0, 0, (byte)'G', (byte)'N', (byte)'U', 0]);
+        Assert.True(note >= 0, "no build-id note");
+        bytes[note + 12] = (byte)'X';
+        var image = rig.Dir.File(Library);
+        File.WriteAllBytes(image, bytes);
+        var native = rig.Workspace.LoadAny(image).Native!;
+        Assert.Null(native.Image.BuildId);
+        rig.Copy((Elf(Library + ".dbg"), Library + ".dbg"));
+        Assert.Equal(image + ".dbg", DwarfLocator.Locate(native.Image, image).Path);
+        rig.Copy((Elf("libSystem.Net.Security.Native.so.dbg"), Library + ".dbg"));
+        var other = DwarfLocator.Locate(native.Image, image);
+        Assert.Null(other.Path);
+        Assert.Contains(other.Probes, p => p.Outcome.StartsWith("different build (CRC-32", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Resolve_address_shows_source_lines_and_inlined_functions()
     {
         using var rig = new Rig();
