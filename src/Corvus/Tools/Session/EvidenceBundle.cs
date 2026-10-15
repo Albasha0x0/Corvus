@@ -49,6 +49,30 @@ public static partial class EvidenceBundle
 
     public static string Serialize(Bundle bundle) => JsonSerializer.Serialize(bundle, Json);
 
+    /// <summary>What format=verify checks: a bundle file, one entry of it (path#id), or a kept result or recent call as a one-record bundle.</summary>
+    public static Bundle Of(string id, ResultStore store, RecentCalls? recent)
+    {
+        var r = id.Trim();
+        if (File.Exists(r)) return Load(r);
+        var item = EvidenceInput.Resolve(r, store, recent);
+        var record = new Record(item.Source.Ref, item.Source.Tool, item.Source.Arguments, item.Source.Inputs, ContentSha256(item.Text, item.Record), item.Text, item.Record);
+        return new(FormatName, ServerIdentity.InformationalVersion, item.Source.Created ?? DateTimeOffset.UtcNow, [record]);
+    }
+
+    /// <summary>One record against another result, without running either: the call, its inputs and the content compared.</summary>
+    public static Check Compare(Record r, EvidenceInput.Item other)
+    {
+        var differs = new List<string>();
+        if (other.Source.Tool != r.Tool) differs.Add($"another tool ({other.Source.Tool})");
+        else if (other.Source.Arguments != r.Arguments) differs.Add("other arguments");
+        foreach (var i in r.Inputs)
+            if (other.Source.Inputs.FirstOrDefault(x => x.Id == i.Id) is { } o && o.Sha256 != i.Sha256)
+                differs.Add($"input {i.Id} SHA-256 {i.Sha256[..12]}… here, {o.Sha256[..12]}… there");
+        var hash = ContentSha256(other.Text, other.Record);
+        if (hash != r.ContentSha256) differs.Add($"the content differs: SHA-256 {r.ContentSha256[..12]}… here, {hash[..12]}… there");
+        return differs.Count == 0 ? new(r.Id, r.Tool, true, $"same call, inputs and content as {other.Source.Ref}") : new(r.Id, r.Tool, false, string.Join("; ", differs));
+    }
+
     public static Bundle Load(string path)
     {
         var full = InputFiles.RequireRegularFile(path, "evidence bundle");

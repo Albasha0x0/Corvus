@@ -99,7 +99,7 @@ References to method Newtonsoft.Json.Serialization.JsonSerializerInternalWriter:
   Newtonsoft.Json.Serialization.JsonSerializerInternalWriter::SerializeDictionary(JsonWriter, IDictionary, JsonDictionaryContract, JsonProperty, JsonContainerContract, JsonProperty)  [Newtonsoft.Json] 0x060007C4  IL_0136  call
 [End: 8 references]
 === [6/6] read_result
-samples/bin/json-reference-loop.json: 3 record(s), 3 verified, 0 differ
+samples/bin/json-reference-loop.json: 3 record(s), 3 verified, 0 differ (each call re-run)
   ok  c-2 search_strings: same content
   ok  c-3 decompile_member: same content
   ok  c-4 find_references: same content

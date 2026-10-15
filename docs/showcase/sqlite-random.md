@@ -57,7 +57,7 @@ Engine: ours (engine=ours: the built-in index; no engine consulted)
     sub_149810  0x180149810  (more not shown)
 [End: 14 nodes]
 === [6/6] read_result
-samples/bin/sqlite-random.json: 3 record(s), 3 verified, 0 differ
+samples/bin/sqlite-random.json: 3 record(s), 3 verified, 0 differ (each call re-run)
   ok  c-2 survey_features: same content
   ok  c-3 find_xrefs: same content
   ok  c-4 native_call_tree: same content

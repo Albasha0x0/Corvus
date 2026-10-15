@@ -4,7 +4,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>Evidence as input: kept results, recent calls and bundle entries feed compare_* and diff_function.</summary>
+/// <summary>Evidence as input: kept results, recent calls and bundle entries feed compare_*, diff_function and read_result format=verify.</summary>
 public sealed class EvidenceInputTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -61,5 +61,21 @@ public sealed class EvidenceInputTests(ITestOutputHelper output) : IDisposable
         Assert.Equal("bundle", record.GetProperty("evidence").GetProperty("old").GetProperty("kind").GetString());
         Assert.True(record.GetProperty("removed").GetInt32() > 0 && record.GetProperty("added").GetInt32() > 0);
         Assert.Contains(record.GetProperty("items").EnumerateArray(), row => row.GetProperty("op").GetString() == "+");
+    }
+
+    [Fact]
+    public async Task Verify_compares_a_result_with_another_without_running_it()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        await Call(server, "load_assembly", new() { ["path"] = Env.FixturePath });
+        await Call(server, "list_types", new() { ["assembly"] = "TestFixture.dll", ["limit"] = 5 });
+        await Call(server, "list_types", new() { ["assembly"] = "TestFixture.dll", ["limit"] = 5 });
+        await Call(server, "list_types", new() { ["assembly"] = "TestFixture.dll", ["limit"] = 4 });
+        var same = Text(await Call(server, "read_result", new() { ["id"] = "last:3", ["format"] = "verify", ["against"] = "last:2" }));
+        Assert.Contains("1 verified, 0 differ (compared with last:2 (recent list_types", same);
+        var other = Text(await Call(server, "read_result", new() { ["id"] = "last:3", ["format"] = "verify", ["against"] = "last:1" }));
+        Assert.Contains("DIFFERS  last:3 list_types: other arguments; the content differs", other);
+        var rerun = Text(await Call(server, "read_result", new() { ["id"] = "last:1", ["format"] = "verify" }));
+        Assert.Contains("1 verified, 0 differ (each call re-run)", rerun);
     }
 }

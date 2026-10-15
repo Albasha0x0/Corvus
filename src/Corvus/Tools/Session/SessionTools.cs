@@ -178,7 +178,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     [McpServerTool(Name = "read_result", Title = "Read a kept result", UseStructuredContent = true, OutputSchemaType = typeof(ReadResultRecord))]
     [Description("Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath. " +
-                 "format=evidence: results (id: r-… or last:N calls) and their calls to outputPath; format=verify re-runs one (id: its path).")]
+                 "format=evidence: results (id: r-… or last:N calls) and their calls to outputPath; format=verify re-runs a bundle, " +
+                 "entry (file.json#r-…) or result, or compares it with against.")]
     public async Task<string> ReadResult(
         [Description("Result id, e.g. r-0123456789ab.")] string id,
         [Description("Character offset (nextOffset).")] int offset = 0,
@@ -187,6 +188,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [Description("text; json: the structured record; jsonl: its items, one per line.")] string format = "text",
         [Description("Write the whole result to this file; returns path, bytes and SHA-256.")] string? outputPath = null,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
+        [Description("format=verify: compare with this, not a re-run: " + EvidenceInput.ReferenceDescription + ".")] string? against = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
@@ -205,11 +207,27 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             }
             case "verify":
             {
-                var checks = await EvidenceBundle.Verify(EvidenceBundle.Load(id), context, results, workspace, cancellationToken);
+                var recent = context?.Services?.GetService(typeof(RecentCalls)) as RecentCalls;
+                var bundle = EvidenceBundle.Of(id, results, recent);
+                string input;
+                List<EvidenceBundle.Check> checks;
+                if (!string.IsNullOrWhiteSpace(against))
+                {
+                    if (bundle.Records.Count != 1)
+                        throw new ToolError(ErrorCode.InvalidArgument, $"{id} holds {bundle.Records.Count} records; against compares one.", "name one entry: <bundle>#<id>");
+                    var other = EvidenceInput.Resolve(against, results, recent);
+                    input = $"compared with {EvidenceInput.Describe(other.Source)}; nothing re-run";
+                    checks = [EvidenceBundle.Compare(bundle.Records[0], other)];
+                }
+                else
+                {
+                    input = "each call re-run";
+                    checks = await EvidenceBundle.Verify(bundle, context!, results, workspace, cancellationToken);
+                }
                 int failed = checks.Count(c => !c.Matches);
-                return ToolOutput.With($"{id}: {checks.Count} record(s), {checks.Count - failed} verified, {failed} differ\n" +
+                return ToolOutput.With($"{id}: {checks.Count} record(s), {checks.Count - failed} verified, {failed} differ ({input})\n" +
                                        string.Join("\n", checks.Select(c => $"  {(c.Matches ? "ok" : "DIFFERS")}  {c.Id} {c.Tool}: {c.Detail}")),
-                    new ReadResultRecord(id, "verify", 0) { Checks = checks });
+                    new ReadResultRecord(id, "verify", 0) { Checks = checks, Input = input });
             }
         }
         return ReadKept(id, offset, maxTokens, query, format, outputPath, overwrite);

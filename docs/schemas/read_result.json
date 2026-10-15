@@ -64,6 +64,10 @@
         ]
       }
     },
+    "input": {
+      "description": "format=verify: what each record was checked against (a re-run, or the result named by against).",
+      "type": "string"
+    },
     "path": {
       "type": "string"
     },

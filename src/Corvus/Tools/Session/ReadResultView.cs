@@ -21,6 +21,7 @@ public sealed record ReadResultRecord(string Id, string Tool, int TotalChars)
     [System.ComponentModel.Description("The page of the kept result.")] public string? Code { get; init; }
     public IReadOnlyList<ReadResultMatch>? Matches { get; init; }
     public IReadOnlyList<EvidenceBundle.Check>? Checks { get; init; }
+    [System.ComponentModel.Description("format=verify: what each record was checked against (a re-run, or the result named by against).")] public string? Input { get; init; }
     public string? Path { get; init; }
     public long? Bytes { get; init; }
     public string? Sha256 { get; init; }
