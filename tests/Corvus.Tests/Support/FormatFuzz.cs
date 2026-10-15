@@ -19,7 +19,7 @@ internal static class FormatFuzz
             var bytes = Mutate(seed, rng);
             var cpu = ThreadCpuClock.Now();
             try { read(bytes); }
-            catch (Exception ex) { failures.Add($"iteration {i}: {ex.GetType().Name}: {ex.Message}"); }
+            catch (Exception ex) { failures.Add($"iteration {i}: {ex.GetType().Name}: {ex.Message} (in {ex.TargetSite?.DeclaringType?.FullName}.{ex.TargetSite?.Name})"); }
             // a few ms each; the bound is CPU time, so a starved machine does not trip it
             if (ThreadCpuClock.Now() - cpu is var took && took > TimeSpan.FromSeconds(2)) failures.Add($"iteration {i}: took {took.TotalSeconds:0.0} s of CPU");
         }

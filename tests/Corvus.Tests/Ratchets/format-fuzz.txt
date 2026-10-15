@@ -1,10 +1,5 @@
 # Exemptions from: every format reader has a quick fuzz entry, a [FuzzEntry] test in the quick set (S12.5)
 # This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).
-Core.Archives.ArchiveReader
-Core.Certificates
-Core.Containers
-Core.PeImage
-Core.UnityWebData
 Native.Annotations.SavedNameLayer
 Native.ApiSetSchema
 Native.Patching.NativePatchSet

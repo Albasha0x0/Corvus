@@ -36,4 +36,24 @@ public sealed class ArchiveReaderTests
         Assert.Equal(ErrorCode.LimitExceeded, error.Code);
         Assert.Contains("zeros.bin", error.Message);
     }
+
+    [Fact]
+    [FuzzEntry(typeof(Core.Archives.ArchiveReader))]
+    public void Fuzzed_archives_never_throw_past_a_tool_error()
+    {
+        var files = new[] { ("lib/app.dll", ContainerFixtures.Module("App")), ("README.md", "# hello"u8.ToArray()) };
+        var tgz = TarGz(files);
+        using var plain = new MemoryStream();
+        using (var gzip = new GZipStream(new MemoryStream(tgz), CompressionMode.Decompress)) gzip.CopyTo(plain);
+        var reader = new Core.Archives.ArchiveReader();
+        void Read(byte[] b)
+        {
+            if (!reader.Accepts(b, "x")) return;
+            try { reader.Open(b, "x", allFiles: true, AnalysisLimits.Default, default); }
+            catch (ToolError) { }
+        }
+        var failures = FormatFuzz.Run(tgz, Read, 300);
+        failures.AddRange(FormatFuzz.Run(plain.ToArray(), Read, 300));
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
 }

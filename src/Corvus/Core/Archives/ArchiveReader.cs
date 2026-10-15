@@ -70,8 +70,9 @@ internal sealed class ArchiveReader : IContainerReader
                     if (!reader.Entry.IsDirectory && reader.Entry.Key is { } key) Take(key.Replace('\\', '/'), reader.Entry.Size, reader.OpenEntryStream);
             }
         }
-        catch (Exception ex) when (ex is InvalidFormatException or ArchiveOperationException or IncompleteArchiveException or InvalidDataException or EndOfStreamException
-                                       or NotSupportedException or IOException)
+        // SharpCompress reports damaged data with its own exceptions (ZlibException among them) and overflows on damaged tar sizes.
+        catch (Exception ex) when (ex is SharpCompressException or InvalidDataException or EndOfStreamException
+                                       or NotSupportedException or IOException or OverflowException)
         {
             if (entries.Count == 0)
                 throw new ToolError(ErrorCode.MalformedInput, $"{name} is not a readable {kind} archive: {ex.Message}", $"summarize_file path={name} says what it holds");
