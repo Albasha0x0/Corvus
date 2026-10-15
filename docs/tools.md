@@ -31,7 +31,7 @@ Workspace and server state.
 
 **Load assembly** (edit, idempotent, long-running)
 
-Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). A PE, ELF, Mach-O or wasm file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) is read by the built-in reader (v24-39): dummy assemblies with addresses and offsets, plus the binary as a native image. A .gzf loads its source file; Ghidra opens the archive. Files are read into memory; a repeat load is a no-op.
+Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). A PE, ELF, Mach-O or wasm file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) is read by the built-in reader (v24-39): dummy assemblies with addresses and offsets, plus the binary as a native image. A .gzf or a .gpr's program (copied) opens in Ghidra. Files are read into memory; a repeat load is a no-op.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -48,6 +48,7 @@ Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Man
 | `compilerSpec` | string |  |  | Ghidra compiler spec (also IDA's compiler): windows, gcc, borlandcpp, borlanddelphi ... |
 | `seeds` | string[] |  |  | Starts before analysis: [function\|code\|label:]address[=name]. |
 | `disableAnalyzers` | string[] |  |  | Analyzers off at import (AF_FLIRT, 'Decompiler Switch Analysis'). |
+| `program` | string |  |  | A .gpr's program path, e.g. /app.exe (default: its only one). |
 
 Structured output: `ids`, `text`.
 
@@ -119,7 +120,7 @@ Structured output: `server`, `version`, `informationalVersion`, `executable`, `e
 
 **Read a kept result** (destructive, idempotent)
 
-Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath. format=evidence: results (id: r-… or last:N calls) and their calls to outputPath; format=verify re-runs one (id: its path).
+Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath. format=evidence: results (id: r-… or last:N calls) and their calls to outputPath; format=verify re-runs a bundle, entry (file.json#r-…) or result, or compares it with against.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -130,8 +131,9 @@ Read a kept result (resultId; kept on disk 7 days): page it, search it with quer
 | `format` | string |  | `text` | text; json: the structured record; jsonl: its items, one per line. Values: text, json, jsonl, evidence, verify. |
 | `outputPath` | string |  |  | Write the whole result to this file; returns path, bytes and SHA-256. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
+| `against` | string |  |  | format=verify: compare with this, not a re-run: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
 
-Structured output: `id`, `tool`, `totalChars`, `offset`, `nextOffset`, `code`, `matches`, `checks`, `path`, `bytes`, `sha256`.
+Structured output: `id`, `tool`, `totalChars`, `offset`, `nextOffset`, `code`, `matches`, `checks`, `input`, `path`, `bytes`, `sha256`.
 
 ### save_session
 
@@ -550,13 +552,13 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or loaded assembly, never executed: type, hashes, signature, container wrapping (bundles, packages, APKs, zips, Costura opened), its assemblies, highlights (toolchain, ATT&CK features, packers), entry points, value counts. view= gives the details: managed (identity, markers, features, values), native (ELF/Mach-O, packers, NativeAOT; a loaded image's triage), android, apple, electron, flutter, go, nib, pcap, plist, rust, sqlite (-wal applied; table= pages rows), sqlite-recover (deleted rows carved), all; views lists those that apply.
+First look at a file or loaded assembly, never executed: type, hashes, signature, container wrapping (bundles, packages, APKs, zips, Costura opened), its assemblies, highlights (toolchain, ATT&CK features, packers), entry points, value counts. view= gives the details: managed (identity, markers, features, values), native (ELF/Mach-O, packers, NativeAOT; a loaded image's triage), android, apple, electron, flutter, go, nib, pcap, plist, protobuf (embedded .proto files), rust, sqlite (-wal applied; table= pages rows), sqlite-recover (deleted rows carved), all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | Any file (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder; this or assembly. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, native, nib, pcap, plist, rust, sqlite, sqlite-recover, wasm, all. |
+| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, native, nib, pcap, plist, protobuf, rust, sqlite, sqlite-recover, wasm, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: the table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
 | `offset` | integer |  |  | Rows to skip. |
@@ -619,7 +621,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `n
 
 **Search inside a container** (read-only, idempotent)
 
-Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names), exact matches first; kind=file matches inner file paths, kind=packet a pcap display filter.
+Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names), exact matches first; kind=file matches inner file names and paths; kind=packet a pcap display filter; kind=endpoint lists the endpoints app code names (Retrofit, OkHttp, Ktor, HttpClient, Refit, gRPC, URL strings; each with its method and location) or a capture's requests, and with capture= joins both.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -628,6 +630,7 @@ Find types and members by name in every managed assembly inside a container (bun
 | `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, dart, electron, endpoint, file, packet. |
 | `limit` | integer |  | `100` | Max rows. |
 | `offset` | integer |  |  | Rows to skip. |
+| `capture` | string |  |  | kind=endpoint: a HAR, mitmproxy, .saz or pcap capture joined to the code's endpoints; each row says code, capture or code+capture. |
 
 Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1034,7 +1037,7 @@ Structured output: `image`, `items`, `offset`, `total`, `limit`, `totalExact`, `
 
 **Resolve native address** (read-only, idempotent)
 
-What a native address is: RVA, VA, file offset, section and access, nearest export or import, name and source; the Il2Cpp method or metadata slot, or NativeAOT MethodTable, object or method; an IAT slot's bound export, an export's importers. With the code index: function and offset, instruction start, mid-instruction or data item, comment, references by kind. In a PDB global, the field.
+What a native address is: RVA, VA, file offset, section and access, nearest export or import, name and source; the Il2Cpp method or metadata slot, or NativeAOT MethodTable, object or method; an IAT slot's bound export, an export's importers. With the code index: function and offset, instruction start, mid-instruction or data item, comment, references by kind. In a PDB global, the field. DWARF: source line, inlined calls.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1042,7 +1045,7 @@ What a native address is: RVA, VA, file offset, section and access, nearest expo
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
 
-Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `results`, `failed`.
+Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `source`, `inlined`, `results`, `failed`.
 
 ### search_bytes
 
@@ -1540,9 +1543,10 @@ Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memo
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
+| `candidates` | string |  |  | Argument sets run in one request, ';' between sets, each written as args; timeoutSeconds covers them all. |
 | `engine` | string |  |  | auto or ghidra. Values: auto, ghidra. |
 
-Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`.
+Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `candidates`.
 
 ### verify_native_imports
 
@@ -1565,15 +1569,15 @@ Structured output: `assembly`, `declarations`, `counts`, `filter`, `offset`, `to
 
 **Load native debug symbols** (destructive, idempotent, open-world, long-running)
 
-Load the PDB of a native image: function and data names (publics, globals, procedures, thunks), checked against its GUID and age. Searched: path, the image's folder, its recorded path, _NT_SYMBOL_PATH, the debugger caches and C:\symbols; download=true fetches it from a symbol server. Names show as source 'pdb' (user names win); missed functions become function starts. A matching local PDB is read automatically. Names are saved and reapplied when the file loads again; clear=true removes them.
+Load a native image's debug symbols: its PDB (GUID and age checked), or DWARF for ELF and Mach-O (own sections, a debug file by build-id or .gnu_debuglink, a dSYM): names, types, source lines. Searched: path, the image's folder, symbol paths and caches, CORVUS_DEBUG_DIRS; download=true asks a symbol server or debuginfod. Names show as source 'pdb' (user names win); missed functions become function starts. Matching local symbols load automatically; saved names are reapplied; clear=true removes them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
-| `path` | string |  |  | PDB file, or a directory (or symbol store) to look in first. |
-| `download` | boolean |  |  | Download from a symbol server when no local PDB matches (network). |
-| `server` | string |  |  | Symbol server URL for download (default: _NT_SYMBOL_PATH servers, else https://msdl.microsoft.com/download/symbols). |
-| `allowMismatch` | boolean |  |  | Use the PDB at path even when its GUID or age differs from the image (names may be wrong). |
+| `path` | string |  |  | PDB or debug file, dSYM, or a folder (or symbol store) to look in first. |
+| `download` | boolean |  |  | Download when nothing local matches: symbol server (PDB), debuginfod (ELF). |
+| `server` | string |  |  | Server URL for download (PDB: _NT_SYMBOL_PATH servers, else Microsoft's; DWARF: CORVUS_DEBUGINFOD_URLS). |
+| `allowMismatch` | boolean |  |  | Use the file at path even when its GUID/age or build-id differs (names may be wrong). |
 | `timeoutSeconds` | integer |  | `120` | Download time limit in seconds. |
 | `maxMegabytes` | integer |  | `2048` | Download size limit in MB. |
 | `clear` | boolean |  |  | Remove the PDB names and their saved copy instead (not read again this session). |
@@ -1584,7 +1588,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 **Search native debug symbols** (read-only, idempotent)
 
-Symbols of the PDB loaded for a native image (load_pdb, or found automatically): address, kind, size, name, the signature undecorated from the public name, and the object file.
+Symbols of the PDB or DWARF loaded for a native image (load_pdb, or found automatically): address, kind, size, name, signature (undecorated or demangled), and object file or unit.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1782,12 +1786,12 @@ Build-to-build comparison and carrying work to a new build.
 
 **Compare two builds** (read-only, idempotent, long-running)
 
-Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset).
+Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). oldResult / newResult compare two kept results instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldAssembly` | string | yes |  | The old build (id, name or path). |
-| `newAssembly` | string | yes |  | The new build (id, name or path). |
+| `oldAssembly` | string |  |  | The old build (id, name or path). |
+| `newAssembly` | string |  |  | The new build (id, name or path). |
 | `namespace` | string |  |  | Only types whose old or new full name starts with this. |
 | `changes` | string[] |  |  | Change kinds to list (unknown: unpaired for lack of evidence); default all except address. |
 | `typeCountsOnly` | boolean |  |  | Count added and removed types without listing them. |
@@ -1796,8 +1800,10 @@ Compare two builds of an assembly: renamed, moved, added and removed types and m
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Changes per page (default 100). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+| `oldResult` | string |  |  | Instead of the old side: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
+| `newResult` | string |  |  | The new side, from the same tool. |
 
-Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `offset`, `total`, `tokenMapResultId`, `tokenMapEntries`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `memberChanges`, `memberMatches`, `ambiguousMembers`, `oldSkippedBodies`, `newSkippedBodies`, `hiddenCompilerGenerated`, `items`, `offset`, `total`, `tokenMapResultId`, `tokenMapEntries`, `evidence`, `changes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### find_counterpart
 
@@ -1823,31 +1829,33 @@ Structured output: `old`, `new`, `items`, `offset`, `total`, `limit`, `totalExac
 
 **Compare two folders or packages** (read-only, idempotent, long-running)
 
-Compare two folders, zip-family archives or files per entry: modified, added, removed, moved, case-only renames, links, unreadable; changed binaries with MVID and version, text with a diff.
+Compare two folders, zip-family archives or files per entry: modified, added, removed, moved, case-only renames, links, unreadable; changed binaries with MVID and version, text with a diff. oldResult / newResult compare two kept results instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldPath` | string | yes |  | Old folder, archive or file. |
-| `newPath` | string | yes |  | New folder, archive or file. |
+| `oldPath` | string |  |  | Old folder, archive or file. |
+| `newPath` | string |  |  | New folder, archive or file. |
 | `change` | string |  | `changed` | Entries listed. Values: changed, modified, added, removed, moved, renamed, unreadable, unchanged, all. |
 | `exclude` | string[] |  |  | Globs of paths to skip. |
 | `caseSensitive` | boolean |  |  | Default: false on Windows and macOS, true elsewhere. |
 | `maxEntries` | integer |  | `200000` | Per side; past it, incomplete. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Max entries per page. |
+| `oldResult` | string |  |  | Instead of the old side: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
+| `newResult` | string |  |  | The new side, from the same tool. |
 
-Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `entries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `entries`, `notes`, `evidence`, `changes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### compare_native_images
 
 **Compare native builds** (read-only, idempotent, long-running)
 
-Match the functions of two builds of one native image (x86 / x64 / ARM64) in tiers: 1 same name, import or identical bytes; 2 same control flow; 3 same imports, strings and constants; 4 call-graph neighbours; 5 fuzzy above minScore. A pair is taken only when unique on both sides. Returns per-tier counts and one view's rows by old address (unmatched: old, then new). The first call waits for both code indexes.
+Match the functions of two builds of one native image (x86 / x64 / ARM64) in tiers: 1 same name, import or identical bytes; 2 same control flow; 3 same imports, strings and constants; 4 call-graph neighbours; 5 fuzzy above minScore. A pair is taken only when unique on both sides. Returns per-tier counts and one view's rows by old address (unmatched: old, then new). The first call waits for both code indexes. oldResult / newResult compare two kept results instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
-| `newImage` | string | yes |  | The newer build: native image id or path. |
+| `oldImage` | string |  |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
+| `newImage` | string |  |  | The newer build: native image id or path. |
 | `view` | string |  | `pairs` | pairs, changed (code differs), unmatched, ambiguous (with candidates); wasm: interface. Values: pairs, changed, unmatched, ambiguous. |
 | `tier` | integer |  | `0` | Only pairs of this tier (1-5); 0 for all. |
 | `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
@@ -1855,19 +1863,21 @@ Match the functions of two builds of one native image (x86 / x64 / ARM64) in tie
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `40` | Max rows. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+| `oldResult` | string |  |  | Instead of the old side: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
+| `newResult` | string |  |  | The new side, from the same tool. |
 
-Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `offset`, `total`, `notes`, `evidence`, `changes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### diff_function
 
 **Diff a function between builds** (read-only, idempotent, open-world, long-running)
 
-What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists aligned, rows = (same), ~ (other operands), - or +, with build-independent operands (branch labels, matched callee names, string text, mapped data) so moved code and relocations do not show; changed regions with context. view=pseudocode: a unified diff of both functions' pseudocode. addresses: a summary per function.
+What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists aligned, rows = (same), ~ (other operands), - or +, with build-independent operands (branch labels, matched callee names, string text, mapped data) so moved code and relocations do not show; changed regions with context. view=pseudocode: a unified diff of both functions' pseudocode. addresses: a summary per function. oldResult / newResult diff two kept code results instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
-| `newImage` | string | yes |  | The newer build: native image id or path. |
+| `oldImage` | string |  |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
+| `newImage` | string |  |  | The newer build: native image id or path. |
 | `address` | string |  |  | An address in the function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `addresses` | string[] |  |  | Instead of address: up to 20 functions, one summary each. |
 | `side` | string |  | `old` | Which build the address is in. Values: old, new. |
@@ -1878,8 +1888,10 @@ What changed in one function between two builds (paired through compare_native_i
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `500` | Max rows. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
+| `oldResult` | string |  |  | Instead of the images: old code as a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
+| `newResult` | string |  |  | New code, from the same tool. |
 
-Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `items`, `offset`, `total`, `candidates`, `functions`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `items`, `offset`, `total`, `candidates`, `functions`, `notes`, `evidence`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### map_address_between_builds
 
@@ -2114,6 +2126,8 @@ Rename and/or retype a local or argument in a native function's pseudocode, name
 | `items` | string |  |  | Instead of local: lines 'local = newName', or JSON [{local, newName?, type?, clear?}]. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+| `inferStruct` | string |  |  | Declare this struct from the local's loads and stores; the local points to it (Ghidra). |
+| `storage` | string |  |  | Move an argument to this register, or auto: the convention's place. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
@@ -2127,13 +2141,14 @@ Rename and/or retype a stack frame member, by its get_native_frame name (var_28)
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `variable` | string | yes |  | The member: its name, or its frame offset (hex). |
+| `variable` | string |  |  | The member: its name, or its frame offset (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
 | `type` | string |  |  | New C type. |
 | `delete` | boolean |  |  | Delete the member. |
 | `clear` | boolean |  |  | Drop the user's edit, restoring the engine's member. |
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+| `items` | string |  |  | Instead of variable: lines 'member = newName', or JSON [{variable, newName?, type?, delete?, clear?}]. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
@@ -2146,19 +2161,19 @@ Stack frame of a native function as the engine has it (members: offset, name, ty
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
-| `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
+| `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name.; several, comma-separated, in one engine request. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `locals` | boolean |  |  | Decompile for the locals too. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `200` | Max rows (max 5000). |
 
-Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedRegisters`, `returnAddressOffset`, `members`, `locals`, `localsNote`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedRegisters`, `returnAddressOffset`, `members`, `locals`, `localsNote`, `items`, `offset`, `total`, `frames`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### declare_native_types
 
 **Declare C types in the engine** (destructive, idempotent, open-world, long-running)
 
-Declare C types (structs, unions, enums, typedefs, function types) in the engine; a type of the same name is replaced, and declarations win over recovered types. Errors carry the engine's messages and are not saved. typeName with members upserts or removes enum members, with fields struct or union members; delete or rename edits a named type. Kept with the image's annotations.
+Declare C types (structs, unions, enums, typedefs, function types) in the engine; a type of the same name is replaced, and declarations win over recovered types. Errors carry the engine's messages and are not saved. typeName with members upserts or removes enum members, with fields struct or union members (+name@0x10 inserts, moving later members down), resize and nameGaps change a struct's layout; delete or rename edits a named type. Kept with the image's annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2166,7 +2181,9 @@ Declare C types (structs, unions, enums, typedefs, function types) in the engine
 | `declarations` | string |  |  | C declarations; types they name must exist or be declared too. |
 | `typeName` | string |  |  | Enum, struct or union to edit. |
 | `members` | string |  |  | Enum: 'NAME=value, ...' (hex or decimal; or lines); 'NAME=' removes. |
-| `fields` | string |  |  | Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes. |
+| `fields` | string |  |  | Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes; '+name@0x10: type' inserts. |
+| `resize` | string |  |  | Struct: its new size (hex or decimal); goes alone. |
+| `nameGaps` | boolean |  |  | Struct: name its unnamed gaps gap_<offset>. |
 | `delete` | string |  |  | A type to delete. |
 | `rename` | string |  |  | 'Old=New'; kept edits naming it follow. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
@@ -2199,7 +2216,7 @@ Structured output: `engine`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **Redefine code or data in the engine** (destructive, idempotent, open-world, long-running)
 
-Change the engine's analysis at an address. code decodes instructions (to end, else following the flow); function makes a function (with end: its extent; on one: moves its end); undefine makes unknown bytes (to end, else the item; at a function start the function); data makes a data item of type. Data and undefine replace a user type on a global there. Kept with the image's annotations.
+Change the engine's analysis at an address. code decodes instructions (to end, else following the flow); function makes a function (with end: its extent; on one: moves its end); undefine makes unknown bytes (to end, else the item; at a function start the function); data makes a data item of type; flow (Ghidra) clears an instruction's flow override, or sets type branch, call, call_return or return, and repairs the function. Data and undefine replace a user type on a global there. Kept with the image's annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2245,10 +2262,11 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | The instruction: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `operand` | integer | yes |  | Operand index, 0 for the first. |
-| `display` | string | yes |  | How to display it (see the description). Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
+| `operand` | integer |  | `0` | Operand index, 0 for the first. |
+| `display` | string |  |  | How to display it (see the description). Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
 | `type` | string |  |  | display=enum or struct: the type's name (struct: optionally +delta). |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
+| `items` | string |  |  | Instead: lines 'address operand display [type]', or JSON [{address, operand, display, type?}]; address is then any. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
