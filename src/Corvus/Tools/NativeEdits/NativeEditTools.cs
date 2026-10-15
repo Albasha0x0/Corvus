@@ -414,7 +414,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations", UseStructuredContent = true, OutputSchemaType = typeof(AnnotationExportResult))]
     [Description("Write the image's names and comments (with the NativeAOT, Il2Cpp, ObjC and Swift names) as an IDAPython script, a Ghidra script or JSON; the IDA " +
                  "script and JSON carry the user's engine types too. Scripts apply by rebased RVA. header: a C header of declared types, prototypes " +
-                 "and typed globals.")]
+                 "and typed globals. objc-header: class-dump style Objective-C interfaces, protocols and categories of a Mach-O, Swift types as comments.")]
     public Task<string> ExportNativeAnnotations(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
@@ -425,6 +425,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         var (native, index) = await Open(image, progress, cancellationToken);
         var fmt = AnnotationExport.ParseFormat(format);
+        if (fmt == AnnotationExport.Format.ObjcHeader) return ObjcHeaderExport(native, outputPath, overwrite, cancellationToken);
         var ann = edits.Annotations(native);
         var imported = ImportedNames.Of(NativeNameLayers.OfOrNull(native)?.Layers ?? [], ann);
         var text = fmt == AnnotationExport.Format.Header
@@ -438,6 +439,20 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
                (imported.Count > 0 ? $", with {imported.Count} name(s) and comment(s) of the {imported.Sources} layer(s) beneath them," : "") + $" to {target} ({record.Format} format)" +
                (fmt == AnnotationExport.Format.Ghidra && ann.UserTypes.Count > 0 ? "; user types are not in Ghidra scripts." : "."), record);
     });
+
+    private static string ObjcHeaderExport(LoadedNative native, string outputPath, bool overwrite, CancellationToken ct)
+    {
+        var (objc, swift) = AppleNames.Metadata(native, ct);
+        if (objc == null && swift == null)
+            throw new ToolError(ErrorCode.Unsupported, $"{native.Id} has no Objective-C or Swift metadata.", "format=objc-header reads a Mach-O with __objc_* or __swift5_* sections");
+        var text = Native.MachO.ObjcHeader.Render(objc, swift, Path.GetFileName(native.Image.Path));
+        var target = SafeFile.WriteAllText(outputPath, text, overwrite);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        int types = (objc?.Classes.Count ?? 0) + (objc?.Protocols.Count ?? 0) + (objc?.Categories.Count ?? 0) + (swift?.Types.Count ?? 0);
+        var record = new AnnotationExportResult(target, "objc-header", 0, 0, 0, types, 0, bytes.Length, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)));
+        return ToolOutput.Report($"Exported {objc?.Classes.Count ?? 0} class(es), {objc?.Protocols.Count ?? 0} protocol(s), {objc?.Categories.Count ?? 0} category(ies) " +
+                                 $"and {swift?.Types.Count ?? 0} Swift type(s) to {target} (objc-header format).", record);
+    }
 
     [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Replace bytes at a native address in memory, as an undoable edit every read path sees. A partly overwritten instruction is padded " +

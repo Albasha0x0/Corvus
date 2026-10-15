@@ -97,6 +97,15 @@ public sealed class AppleSwiftTests
     }
 
     [Fact]
+    public void Header_ListsSwiftTypesAsComments()
+    {
+        var header = ObjcHeader.Render(null, AppleSwiftMetadata.Read(MachOFile.FromBytes(Sample().Bytes)), "Zoo");
+        Assert.Contains("// struct Zoo.Animal : Swift.Hashable {\n//     var age: Swift.Int\n//     let keeper: Zoo.Keeper\n// }\n", header);
+        Assert.Contains("// class Zoo.Keeper : Base.Parent, Zoo.Feeder {\n", header);
+        Assert.Contains("// protocol Zoo.Feeder\n", header);
+    }
+
+    [Fact]
     public void NameLayer_UsesMangledSymbols()
     {
         var (bytes, layout) = Sample();

@@ -202,4 +202,65 @@ public sealed class AppleObjcTests
     [InlineData("{?=ii}", "struct anonymous")]
     [InlineData("^", "^")]
     public void TypeEncodings(string encoding, string c) => Assert.Equal(c, ObjcTypeEncoding.ToC(encoding));
+
+    /// <summary>The class-dump layout: protocols with @optional, ivars, class methods, a property at its accessor, categories.</summary>
+    [Fact]
+    public void Header_HasClassDumpLayout()
+    {
+        var objc = AppleObjcMetadata.Read(MachOFile.FromBytes(Sample().Bytes));
+        var header = ObjcHeader.Render(objc, null, "Sample");
+        Assert.EndsWith("""
+            @protocol Pet
+            - (void)play;
+
+            @optional
+            - (void)rest;
+            @end
+
+            @interface Animal : NSObject <Pet>
+            {
+                int _age;
+            }
+
+            + (id)create;
+            - (void)speak;
+            @property(readonly, nonatomic) NSString *name;
+
+            @end
+
+            @interface Dog : Animal
+
+            - (void)bark;
+
+            @end
+
+            @interface NSString (Fancy)
+
+            - (id)fancyString;
+
+            @end
+
+
+            """.Replace("\r\n", "\n"), header);
+    }
+
+    [Theory]
+    [InlineData("v24@0:8i16", "- (void)setAge:(int)arg1;", "setAge:")]
+    [InlineData("@32@0:8@16q24", "- (id)objectAt:(id)arg1 index:(long long)arg2;", "objectAt:index:")]
+    [InlineData("B16@0:8", "- (_Bool)isOn;", "isOn")]
+    public void Header_MethodsSpellArgumentsAsClassDump(string types, string line, string selector) =>
+        Assert.Equal(line, ObjcHeader.Method(new ObjcMethod(selector, types, 0, false)));
+
+    [Theory]
+    [InlineData("T@\"NSString\",C,N,V_title", "@property(copy, nonatomic) NSString *title; // @synthesize title=_title;")]
+    [InlineData("Tq,N,D", "@property(nonatomic) long long title; // @dynamic title;")]
+    [InlineData("T{CGPoint=dd},R", "@property(readonly) struct CGPoint title;")]
+    public void Header_PropertiesAsClassDump(string attributes, string line) => Assert.Equal(line, ObjcHeader.Property(new ObjcProperty("title", attributes)));
+
+    [Fact]
+    public void Fuzzed_Header_NeverThrows()
+    {
+        var failures = FormatFuzz.Run([Sample().Bytes], 600, 17, b => ObjcHeader.Render(AppleObjcMetadata.Read(MachOFile.FromBytes(b)), null, "fuzz"));
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+    }
 }

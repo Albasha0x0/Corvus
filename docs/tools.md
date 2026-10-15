@@ -1663,13 +1663,13 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`,
 
 **Export native annotations** (destructive, idempotent, long-running)
 
-Write the image's names and comments (with the NativeAOT, Il2Cpp, ObjC and Swift names) as an IDAPython script, a Ghidra script or JSON; the IDA script and JSON carry the user's engine types too. Scripts apply by rebased RVA. header: a C header of declared types, prototypes and typed globals.
+Write the image's names and comments (with the NativeAOT, Il2Cpp, ObjC and Swift names) as an IDAPython script, a Ghidra script or JSON; the IDA script and JSON carry the user's engine types too. Scripts apply by rebased RVA. header: a C header of declared types, prototypes and typed globals. objc-header: class-dump style Objective-C interfaces, protocols and categories of a Mach-O, Swift types as comments.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `outputPath` | string | yes |  | Output file path. |
-| `format` | string |  |  | Default json. Values: ida, ghidra, json, header. |
+| `format` | string |  |  | Default json. Values: ida, ghidra, json, header, objc-header. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
 
 Structured output: `outputPath`, `format`, `names`, `comments`, `pseudoComments`, `types`, `imported`, `bytes`, `sha256`.

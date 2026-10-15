@@ -15,6 +15,21 @@ public sealed class AppleObjcRealTests(ITestOutputHelper output)
 
     internal static string MethodName(string cls, ObjcMethod m) => $"{(m.IsClassMethod ? '+' : '-')}[{cls} {m.Selector}]";
 
+    /// <summary>Every class, the category and every method of the runtime in the header, each method type encoding read.</summary>
+    [Fact]
+    public void XamarinRuntime_Header()
+    {
+        var objc = AppleObjcMetadata.Read(MachOFile.Open(XamarinDylib));
+        var header = ObjcHeader.Render(objc, null, "libxamarin-dotnet.dylib");
+        foreach (var c in objc.Classes) Assert.Contains($"\n@interface {c.Name} : NSObject", header);
+        Assert.Contains("\n@interface NSObject (NonXamarinObject)\n", header);
+        Assert.DoesNotContain("types not read", header);
+        var methodLines = header.Split('\n').Count(l => l.StartsWith("- (", StringComparison.Ordinal) || l.StartsWith("+ (", StringComparison.Ordinal));
+        int accessors = objc.Classes.Sum(c => c.Methods.Count(m => !m.IsClassMethod && c.Properties.Any(p => p.Name == m.Selector || "set" + char.ToUpperInvariant(p.Name[0]) + p.Name[1..] + ":" == m.Selector)));
+        Assert.Equal(objc.Classes.Sum(c => c.Methods.Count) + objc.Categories.Sum(c => c.Methods.Count) - accessors, methodLines);
+        output.WriteLine(header);
+    }
+
     [Fact]
     public void XamarinRuntime_MethodsMatchTheSymbolTable()
     {

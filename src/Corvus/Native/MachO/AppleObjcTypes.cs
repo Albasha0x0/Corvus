@@ -11,6 +11,25 @@ public static class ObjcTypeEncoding
         return Parse(encoding, ref at, 0) is { } c && at == encoding.Length ? c : encoding;
     }
 
+    /// <summary>The end of the one type encoded at <paramref name="at"/>, or -1 when it is not understood.</summary>
+    public static int TypeEnd(string s, int at) => Parse(s, ref at, 0) != null ? at : -1;
+
+    /// <summary>The types of a method encoding ("v24@0:8i16": return, self, _cmd, then the arguments), stack offsets skipped; null when not understood.</summary>
+    public static List<string>? MethodTypes(string? encoding)
+    {
+        if (string.IsNullOrEmpty(encoding)) return null;
+        var types = new List<string>();
+        int at = 0;
+        while (at < encoding.Length)
+        {
+            int start = at;
+            if (Parse(encoding, ref at, 0) == null) return null;
+            types.Add(encoding[start..at]);
+            while (at < encoding.Length && (char.IsAsciiDigit(encoding[at]) || encoding[at] == '-')) at++;
+        }
+        return types;
+    }
+
     private static string? Parse(string s, ref int at, int depth)
     {
         if (depth > 16 || at >= s.Length) return null;
