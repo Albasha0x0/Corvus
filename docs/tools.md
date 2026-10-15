@@ -98,7 +98,7 @@ Loaded assemblies and native images with their ids (for other tools), versions, 
 |---|---|---|---|---|
 | `path` | string |  |  | A container file (or Blazor _framework folder) to list instead of the workspace. |
 | `filter` | string |  |  | Id, name or path substring (case-insensitive). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Rows per page (default 100). |
 
 Structured output: `items`, `offset`, `total`, `searchDirectories`, `backgroundIndexing`, `container`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -162,7 +162,7 @@ Restore a save_session file: find each file (recorded path, relative path, else 
 | `targetBuild` | string |  |  | same (default) or other. Values: same, other. |
 | `searchRoots` | string |  |  | ';'-separated folders searched recursively for moved files, by SHA-256. |
 | `include` | string |  |  | Comma-separated parts: edits, patches, annotations, notes or all (default); files are always loaded. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Items to return (max 2000). |
 
 Structured output: `path`, `dryRun`, `targetBuild`, `outcomes`, `offset`, `total`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -181,9 +181,9 @@ List namespaces with their type counts (nested types under their outer type's na
 |---|---|---|---|---|
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `filter` | string |  |  | Substring (case-insensitive). |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `200` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `200` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -201,9 +201,9 @@ List types, optionally by namespace, name filter and kind.
 | `regex` | boolean |  |  | Treat filter as a regular expression. |
 | `kind` | string |  |  | Only this kind. Values: class, struct, interface, enum, delegate. |
 | `topLevelOnly` | boolean |  |  | Leave out nested types. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `150` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `150` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
@@ -219,9 +219,9 @@ Outline of a type without decompiling: declaration, attributes, member counts an
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `section` | string |  | `summary` | summary, nested, fields, properties, events, methods or all. Values: summary, nested, fields, properties, events, methods, all. |
 | `includeCompilerGenerated` | boolean |  |  | Include compiler-generated members. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`, `total`, `declaringType`, `attributes`, `compilerGeneratedHidden`, `initialData`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -251,8 +251,8 @@ Custom attributes with arguments on a type or member (parameters and return valu
 | `filter` | string |  |  | Only attributes whose type name contains this text. |
 | `format` | string |  | `rows` | rows, or csharp (symbol omitted). Values: rows, csharp. |
 | `offset` | integer |  |  | Rows to skip (characters with format=csharp). |
-| `limit` | integer |  | `200` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `limit` | integer |  | `200` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `code`, `nextOffset`, `totalChars`, `limit`, `totalExact`, `hasMore`.
 
@@ -266,9 +266,9 @@ Returns a type's base chain, all implemented interfaces, and the types deriving 
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `200` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `200` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `type`, `baseChain`, `interfaces`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -283,9 +283,9 @@ What a symbol string or token resolves to: every match with kind, assembly, toke
 | `symbol` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `50` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `50` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
@@ -302,8 +302,8 @@ Decompile a type or member to C#: every overload unless a parameter list narrows
 | `kind` | string |  |  | Restrict to this kind (default any). Values: any, method, field, property, event. |
 | `simplified` | boolean |  |  | Show the code as simplify_methods would leave it, without changing the assembly. |
 | `provenance` | boolean |  |  | Start with comments pinning the output to its build: SHA-256, MVID, tokens, IL hashes (docs/il-hash.md). |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `language`, `code`, `offset`, `nextOffset`, `totalChars`, `symbols`, `methods`, `bodies`.
 
@@ -318,8 +318,8 @@ IL disassembly (ildasm style, tokens, offsets, try blocks) of a member or type; 
 | `symbol` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `source` | boolean |  |  | Source lines of the build's Portable PDB (embedded, or beside it with a matching id) at their IL offsets, local names, SourceLink URLs. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `language`, `code`, `offset`, `nextOffset`, `totalChars`, `symbols`, `methods`, `bodies`.
 
@@ -336,9 +336,9 @@ Find types and members by name across loaded assemblies: a case-insensitive subs
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `namespace` | string |  |  | Only types in namespaces starting with this. |
 | `regex` | boolean |  |  | Treat query as a regular expression. |
-| `limit` | integer |  | `100` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
-| `offset` | integer |  |  | Rows to skip. |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
+| `offset` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
@@ -353,9 +353,9 @@ Find string literals (ldstr, string constants) by substring, wildcard or regex, 
 | `query` | string | yes |  | Substring, wildcard or regex. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `regex` | boolean |  |  | Treat query as a regular expression. |
-| `limit` | integer |  | `100` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
-| `offset` | integer |  |  | Rows to skip. |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
+| `offset` | integer |  |  |  |
 | `usesPerLiteral` | integer |  | `10` | Il2Cpp: max functions listed per literal. |
 
 Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
@@ -370,9 +370,9 @@ Find a numeric constant (magic number, opcode id, flag, crypto constant) in IL l
 |---|---|---|---|---|
 | `value` | string | yes |  | Decimal, 0x hex, negative or floating-point. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `limit` | integer |  | `100` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
-| `offset` | integer |  |  | Rows to skip. |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
+| `offset` | integer |  |  |  |
 
 Structured output: `value`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -386,9 +386,9 @@ Find methods containing an IL instruction sequence: ';'-separated 'opcode [opera
 |---|---|---|---|---|
 | `pattern` | string | yes |  | Instruction pattern. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `limit` | integer |  | `100` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
-| `offset` | integer |  |  | Rows to skip. |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
+| `offset` | integer |  |  |  |
 | `context` | integer |  | `8` | Instructions shown per match (1-24). |
 
 Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -405,9 +405,9 @@ Every usage of a symbol across loaded assemblies: a method's call sites (also th
 | `assembly` | string |  |  | Assembly defining the symbol (only to disambiguate; all loaded ones are searched). |
 | `kind` | string |  |  | Symbol kind; overrides: the method's overrides and implementations. Values: type, method, field, property, event, overrides. |
 | `directOnly` | boolean |  |  | Methods: no calls through base / interface declarations. |
-| `limit` | integer |  | `150` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
-| `offset` | integer |  |  | Rows to skip. |
+| `limit` | integer |  | `150` |  |
+| `maxTokens` | integer |  |  |  |
+| `offset` | integer |  |  |  |
 
 Structured output: `target`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -422,9 +422,9 @@ What a method uses ('Uses'): calls, field reads / writes, types instantiated or 
 | `method` | string | yes |  | Type or member ('Ns.Type::Method(int)', short name, token) or native export ('kernel32.dll!CreateFileW', 'native:<image>!<name\|#ord\|addr>'). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 | `distinct` | boolean |  |  | Collapse repeated targets into one row with a count. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `200` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `200` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `method`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -441,9 +441,9 @@ Multi-level callers or callees of a method across loaded assemblies, one row per
 | `depth` | integer |  | `3` | Levels to expand (1-8). |
 | `includeExternal` | boolean |  |  | Callees: also calls into assemblies not loaded (framework). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `200` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `200` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `root`, `direction`, `depth`, `items`, `offset`, `total`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
@@ -458,9 +458,9 @@ How execution reaches a method: call chains from 'from', or from entry points (m
 | `to` | string | yes |  | Target. Type or member ('Ns.Type::Method(int)', short name, token) or native export ('kernel32.dll!CreateFileW', 'native:<image>!<name\|#ord\|addr>'). |
 | `from` | string |  |  | Start method, same forms as to (native only when to is native). |
 | `maxDepth` | integer |  | `8` | Max chain length (max 30). |
-| `limit` | integer |  | `10` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
-| `offset` | integer |  |  | Rows to skip. |
+| `limit` | integer |  | `10` |  |
+| `maxTokens` | integer |  |  |  |
+| `offset` | integer |  |  |  |
 | `directOnly` | boolean |  |  | No hops through virtual dispatch (native: RTTI virtual calls, pointers). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
 
@@ -475,9 +475,9 @@ List manifest resources (embedded, .resources with entry counts, linked) with SH
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `200` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `200` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `assembly`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -494,8 +494,8 @@ Read a resource: text as text, binary as hex preview, .resources as an entry lis
 | `entry` | string |  |  | Entry inside a .resources container. |
 | `outputPath` | string |  |  | Write the raw bytes to this file. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `name`, `kind`, `code`, `offset`, `nextOffset`, `totalChars`, `savedTo`, `size`.
 
@@ -526,8 +526,8 @@ Precompiled native code of a method in a ReadyToRun assembly (the shared framewo
 | `instantiation` | string |  |  | Only bodies whose name contains this text ('Int32', '__Canon'). |
 | `maxBodies` | integer |  | `4` | Max bodies disassembled; the rest are listed with addresses. |
 | `maxInstructions` | integer |  | `1500` | Max instructions per body. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `language`, `code`, `offset`, `nextOffset`, `totalChars`, `symbols`, `methods`, `bodies`.
 
@@ -561,8 +561,8 @@ First look at a file or loaded assembly, never executed: type, hashes, signature
 | `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, native, nib, pcap, plist, protobuf, rust, sqlite, sqlite-recover, wasm, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: the table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  |  | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  |  |  |
 
 Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`.
 
@@ -592,8 +592,8 @@ Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mute
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
 | `path` | string |  |  | A .NET assembly file to analyze without loading it; pass this or assembly. |
 | `types` | string[] |  |  | Only these types. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
 
 Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResultId`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -612,8 +612,8 @@ Embedded content of an assembly, or of every assembly in a container (resources,
 | `load` | boolean |  |  | Load the .NET assemblies found (implies save). |
 | `xorText` | boolean |  |  | Also brute-force 1-16 byte XOR keys over unreadable data, keeping natural text or configuration (slower). |
 | `includeMedia` | boolean |  |  | Also list and save images (else counted). |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
 
 Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -628,8 +628,8 @@ Find types and members by name in every managed assembly inside a container (bun
 | `path` | string | yes |  | Absolute path to the container or assembly file. |
 | `query` | string | yes |  | Name or part of a name. |
 | `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, dart, electron, endpoint, file, packet. |
-| `limit` | integer |  | `100` | Max rows. |
-| `offset` | integer |  |  | Rows to skip. |
+| `limit` | integer |  | `100` |  |
+| `offset` | integer |  |  |  |
 | `capture` | string |  |  | kind=endpoint: a HAR, mitmproxy, .saz or pcap capture joined to the code's endpoints; each row says code, capture or code+capture. |
 
 Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -645,8 +645,8 @@ Extract the .NET assemblies inside a container and load them: single-file bundle
 | `path` | string | yes |  | Container file, or a Blazor _framework folder. |
 | `outputDirectory` | string |  |  | New or empty directory, or an earlier unpack of this file; default under temp. |
 | `extractOnly` | boolean |  |  | Extract without loading the assemblies; default: loaded, ids in loadedAs. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
 
 Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, `total`, `next`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -801,9 +801,9 @@ Unsaved edits of an assembly in order; each number (editId <assembly>#<n>) stays
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Max rows (default 200). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `assembly`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -817,8 +817,8 @@ Unified diff of the decompiled C# of every member the edits touched (or one edit
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 | `number` | integer |  |  | Only this edit (number from list_edits). |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -923,9 +923,9 @@ Map a native address (from IDA, Ghidra or a crash log) of an Il2Cpp game to the 
 | `address` | string | yes |  | Hex as IDA / Ghidra show it ('0x1A2B3C', '1A2B3Ch', '00000001`8001A2B3'); 'd:' prefix for decimal. |
 | `kind` | string |  | `auto` | auto: a VA at or above the image base, else an RVA, else a file offset. Values: auto, rva, va, offset. |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `20` | Max methods listed. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `address`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -960,8 +960,8 @@ Generate C++ binding code for a managed type of a Mono or Il2Cpp application: a 
 | `style` | string |  |  | Omit to detect it. Values: mono, il2cpp, hostapi. |
 | `projectDir` | string |  |  | The C/C++ project the header is for, scanned for a host function table and helpers. |
 | `headerPath` | string |  |  | Where the header will be saved (absolute or relative to projectDir; default projectDir); #include paths are relative to it. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -992,8 +992,8 @@ Overview of a native image. PE: machine, kind, subsystem, base, entry point, tim
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 | `view` | string |  |  | summary, or code (waits for the code index). Values: summary, code. |
 
 Structured output: `image`, `path`, `machine`, `kind`, `format`, `subsystem`, `fileSize`, `sha256`, `imageBase`, `entryPoint`, `timestamp`, `dotNet`, `mitigationsOn`, `mitigationsOff`, `sections`, `importModules`, `importFunctions`, `delayImportModules`, `exports`, `tlsCallbacks`, `pdbPath`, `pdbGuid`, `pdbAge`, `signer`, `checksumMatches`, `overlaySize`, `issues`, `capabilities`, `code`.
@@ -1010,10 +1010,10 @@ Functions a native image imports, per DLL or library (delay-loaded and lazy bind
 | `library` | string |  |  | Only this library (name with or without .dll). |
 | `filter` | string |  |  | Name substring (case-insensitive). |
 | `bind` | boolean |  |  | Bind each import to the export it reaches, with a summary. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `200` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `200` |  |
 | `includeDynamic` | boolean |  |  | Also list late-bound imports (waits for the code index). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `items`, `offset`, `total`, `bindings`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1027,9 +1027,9 @@ Exported functions and data of a native image: ordinal, VA, name (demangled C++ 
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name substring (case-insensitive; the demangled form too). |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `300` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `300` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1060,11 +1060,11 @@ Find a byte pattern in a native image's mapped sections (hex, or text as ASCII a
 | `text` | boolean |  |  | pattern is text (ASCII and UTF-16LE). |
 | `section` | string |  |  | Only this section (e.g. .text, .rdata). |
 | `limit` | integer |  | `200` | Max hits. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `patterns` | string[] |  |  | Instead of pattern: up to 50 patterns. |
 | `mask` | string |  |  | Bit mask per pattern byte ('FF F0 FF'). |
 | `memory` | string |  | `file` | file (default), or engine / ida / ghidra: its loaded bytes. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `items`, `offset`, `total`, `patterns`, `failed`, `memory`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1080,7 +1080,7 @@ Hex dump (with ASCII) of a native image's bytes at an address, as the loader map
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `length` | integer |  |  | Bytes to dump (default 256, max 65536); with type, values to read (default 1, max 4096). |
 | `offset` | integer |  |  | Bytes from address (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 | `type` | string |  |  | Value type to read instead of dumping bytes. |
 
 Structured output: `image`, `address`, `length`, `code`, `nextOffset`, `nextAddress`, `totalBytes`, `offset`, `totalChars`.
@@ -1109,8 +1109,8 @@ Functions of a native image (x86 / x64 / ARM): address, size, name (user, PDB, I
 | `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
 | `sort` | string |  |  | address (default), name, size (largest first) or callers (most called first). Values: address, name, size, callers. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `150` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `150` |  |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `minSize` | integer |  |  | Smallest size in bytes. |
 | `maxSize` | integer |  |  | Largest size in bytes. |
@@ -1119,7 +1119,7 @@ Functions of a native image (x86 / x64 / ARM): address, size, name (user, PDB, I
 | `hasType` | boolean |  |  | Engines: true keeps functions with a prototype, false those without. |
 | `descending` | boolean |  |  | Sort direction instead of the sort's default. |
 | `view` | string |  |  | functions (default), or candidates: IDA or Ghidra code in no function, most referenced first. Values: functions, candidates. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `functions`, `items`, `offset`, `total`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1134,10 +1134,10 @@ Named data items of a native image outside code, from every name source (PDB wit
 | `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name substring (case-insensitive). |
 | `section` | string |  |  | Only this section, e.g. .data. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Max rows (default 200). |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `items`, `offset`, `total`, `engine`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1153,8 +1153,8 @@ MASM-syntax disassembly of the native function containing an address (with block
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `fromAddress` | boolean |  |  | maxInstructions from the address, not the whole containing function. |
 | `maxInstructions` | integer |  | `2000` | Max instructions. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`, `image`, `function`, `address`, `engine`.
@@ -1170,8 +1170,8 @@ What is at an address of a native image, instruction by instruction: decoded, mi
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `limit` | integer |  | `1` | Instructions to inspect (1-64). |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `engine`, `engineNote`, `items`, `notes`, `code`, `offset`, `nextOffset`, `totalChars`.
@@ -1192,11 +1192,11 @@ Find instructions by mnemonic, operand or whole-line regex (case-insensitive) an
 | `function` | string |  |  | Only this function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `from` | string |  |  | Range start (with to, or alone: to the end of its section). |
 | `to` | string |  |  | Range end (exclusive). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Max matches (max 2000). |
 | `maxInstructions` | integer |  | `500000` | Instructions scanned per page (max 5000000). |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `items`, `offset`, `total`, `scanned`, `engine`, `engineNote`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
@@ -1210,9 +1210,9 @@ Basic blocks of the native function containing an address, paged: range, instruc
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `150` | Blocks per page (default 150). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `function`, `address`, `engine`, `items`, `offset`, `total`, `switches`, `unresolvedJumps`, `tailCalls`, `cut`, `summary`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -1227,14 +1227,14 @@ What references a native address: calls (also via import slots and thunks), jump
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Or a struct member: Type::member, Type.member, Type+0xOFFSET. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `200` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `200` |  |
 | `addresses` | string[] |  |  | Instead of address: up to 100 targets. |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Adds RTTI virtual calls. Values: auto, ours, ida, ghidra. |
 | `direction` | string |  |  | to (default), from or both. Values: to, from, both. |
 | `kind` | string |  |  | any, code (calls, jumps), data (reads, writes, pointers) or metadata (.pdata, CFG, export tables). Values: any, code, data, metadata. |
 | `scope` | string |  |  | Struct member: typed (default) or all (every function; call again to continue). Values: typed, all. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `target`, `items`, `offset`, `total`, `boundTo`, `engine`, `engineNote`, `targets`, `failed`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1251,11 +1251,11 @@ Callers or callees of a native function, several levels deep, through thunks and
 | `direction` | string |  | `callees` | callees (default), callers, or both (depth 1, by call site). Values: callers, callees, both. |
 | `depth` | integer |  | `3` | Levels (1-8). |
 | `maxNodes` | integer |  | `250` | Max nodes in the tree (default 250). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Max nodes per page. |
 | `calls` | string |  |  | Call edges: all (default), direct or virtual. Values: all, direct, virtual. |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `root`, `direction`, `items`, `offset`, `total`, `frontier`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1270,12 +1270,12 @@ Virtual call sites resolved through RTTI (MSVC or Itanium) or NativeAOT MethodTa
 | `image` | string | yes |  | Native image id, file name or path. |
 | `function` | string |  |  | Only sites in this function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `status` | string |  |  | Only sites with this status. Values: exact, possible, unresolved. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Max sites (max 1000). |
 | `crossCheck` | boolean |  |  | Compare a sample with the engine's view (runs IDA or Ghidra; minutes on a large image the first time). |
 | `sampleFunctions` | integer |  | `100` | Cross-check: functions to sample. |
 | `timeoutSeconds` | integer |  | `300` | Cross-check: time budget in seconds. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `sites`, `exact`, `possible`, `unresolved`, `edges`, `directEdges`, `rttiClasses`, `total`, `offset`, `items`, `crossCheck`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1290,11 +1290,11 @@ Strings (ASCII and UTF-16) a native image's code or data references, with addres
 | `image` | string | yes |  | Native image id, file name or path. |
 | `query` | string |  |  | Case-insensitive substring, or a regex with regex=true; omit to list all. |
 | `regex` | boolean |  |  | Treat query as a regular expression. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `maxLength` | integer |  | `200` | Characters per string (max 4000); longer ones are clipped. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `items`, `offset`, `total`, `notEvaluated`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1309,9 +1309,9 @@ Call sites of a native image (x86 / x64 / ARM) with their argument values, recov
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | A call instruction, or an address in a function (all calls in it): Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `callee` | string |  |  | Only calls to this API, module!name or function; without address, every call to it in the image. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` | Max call sites (default 50, max 1000). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `scope`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1334,10 +1334,10 @@ Traces a value through native code (x86 / x64 / ARM) across functions. Backward:
 | `maxCallers` | integer |  | `16` | Call sites bound per parameter or return (1-256). |
 | `maxWriters` | integer |  | `16` | Writers (backward) or readers (forward) per global (1-256). |
 | `stopAtGlobals` | boolean |  |  | Stop at writable globals, not following their writers / readers. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Nodes per page (max 1000). |
 | `engine` | string |  |  | Slices: ours, ida or ghidra (its IR, started when needed; ours where it cannot place the seed), or auto (default: an engine that analyzed the bytes, else ours). Values: auto, ours, ida, ghidra. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `engine`, `seed`, `direction`, `values`, `nodes`, `edges`, `frontier`, `totalNodes`, `totalEdges`, `functions`, `offset`, `truncated`, `notes`.
 
@@ -1355,10 +1355,10 @@ Targets of call and tail-jump sites in native code (x86 / x64 / ARM) with basis 
 | `status` | string |  |  | Default all; indirect: all but direct branches. Values: all, resolved, possible, ambiguous, unresolved, indirect. |
 | `deep` | boolean |  |  | Trace pointers that arrive as parameters back into the callers (slower). |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `75` | Max sites (default 75, max 1000). |
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `scope`, `engine`, `total`, `byStatus`, `byMechanism`, `topUnresolved`, `offset`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1377,8 +1377,8 @@ Everything known about one native function, in sections bounded by maxItems with
 | `pseudocode` | boolean |  |  | Add the pseudocode section. |
 | `component` | boolean |  |  | With several addresses: one component view (internal calls, shared data, interface). |
 | `engine` | string |  |  | Pseudocode engine (default auto). Values: auto, ida, ghidra. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `address`, `name`, `size`, `end`, `sections`, `next`, `batch`, `component`.
 
@@ -1396,9 +1396,9 @@ Finds the native code behind a behaviour from a text or value: strings, function
 | `kinds` | string |  |  | Seed kinds, comma-separated: strings, names, imports, exports, classes, constants (default all). |
 | `maxSeeds` | integer |  | `50` | Matches followed (1-500); the rest are counted. |
 | `callerDepth` | integer |  | `1` | Caller levels searched for hubs (0-3). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` | Functions per page (max 500). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `nextOffset`, `hubs`, `notes`.
@@ -1417,9 +1417,9 @@ Functions like a given one in a native image, ranked by score with evidence: ins
 | `scope` | string |  |  | image (default) or all (view=similar). Values: image, all. |
 | `minScore` | number |  |  | Least score 0-1 (default 0.5; clusters 0.8). |
 | `minInstructions` | integer |  | `5` | Smallest function compared, in instructions (1-1000). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `20` | Items to return (max 500). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `view`, `function`, `address`, `compared`, `offset`, `total`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1433,8 +1433,8 @@ Exception handling of the native function containing an address. ELF / Mach-O: F
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. Omit for an image summary. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `function`, `address`, `format`, `scheme`, `parent`, `handlers`, `ranges`, `counts`.
 
@@ -1449,9 +1449,9 @@ C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled
 | `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name substring (case-insensitive). |
 | `slots` | boolean |  |  | Include each vftable's slot addresses. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Max classes (default 100). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | auto or ours (default: RTTI), ida or ghidra. Values: auto, ours, ida, ghidra. |
 | `namespaces` | boolean |  |  | engine=ghidra: plain namespaces and libraries too. |
 
@@ -1477,7 +1477,7 @@ Layout of a native type (fields with offset, size and bit fields, bases, padding
 | `limit` | integer |  | `200` | Max rows (max 5000). |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it has analyzed these bytes, else ours. ida / ghidra: that engine, started when needed. Values: auto, ida, ghidra. |
 | `read` | boolean |  |  | Add the field values at address (with name or id: that type read there). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `owner`, `ownerAddress`, `paths`, `offset`, `truncated`, `notes`, `readAddress`, `value`.
 
@@ -1494,7 +1494,7 @@ C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call r
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `addresses` | boolean |  |  | Prefix each line with the address it was generated from. |
 | `offset` | integer |  |  | Character offset; with functions/callersOf the first input (nextInput). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 | `functions` | string[] |  |  | Several functions instead of address: addresses or names, in order. |
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (1-600). |
 | `maxFunctions` | integer |  | `32` | With functions: most decompiled (1-200); the rest follow. |
@@ -1558,10 +1558,10 @@ Check imports against library exports. A .NET assembly: each P/Invoke declaratio
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 | `status` | string |  |  | Only declarations with this status or reason code (e.g. contradicted, missing_export). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Max rows (default 100, max 5000). |
 | `platform` | string |  |  | Target platform (default auto). Values: auto, windows, linux, osx, android, ios. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `assembly`, `declarations`, `counts`, `filter`, `offset`, `total`, `items`, `dynamicLoads`, `dynamicLoadsTotal`, `metadataIssues`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1595,9 +1595,9 @@ Symbols of the PDB or DWARF loaded for a native image (load_pdb, or found automa
 | `image` | string | yes |  | Native image id, file name or path. |
 | `query` | string |  |  | Name or decorated name substring (case-insensitive); empty for all. |
 | `kind` | string |  |  | Only this kind (default all). Values: function, data, public, all. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `150` | Max rows (default 150). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1612,9 +1612,9 @@ What a NativeAOT image's own metadata recovers (.NET 7-10; PE, ELF, Mach-O). vie
 | `image` | string | yes |  | Native image id, file name or path. |
 | `view` | string |  |  | What to show (default summary). Values: summary, sections, types, type, methods, strings, statics. |
 | `query` | string |  |  | view=type: a type name or MethodTable address; list views: substring filter. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `75` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `75` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `view`, `summary`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1730,7 +1730,7 @@ Native edits of an image in the order made, each with the editId undo_native_edi
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `search` | string |  |  | Instead: the names and comments (user and layers) whose text matches: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Rows per page (default 100). |
 
 Structured output: `image`, `items`, `total`, `layers`, `offset`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -1797,9 +1797,9 @@ Compare two builds of an assembly: renamed, moved, added and removed types and m
 | `typeCountsOnly` | boolean |  |  | Count added and removed types without listing them. |
 | `includeCompilerGenerated` | boolean |  |  | Also list compiler-generated types and members (closures, state machines). |
 | `tokenMap` | boolean |  |  | Keep the whole old -> new token map as a result (tokenMapResultId). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Changes per page (default 100). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 | `oldResult` | string |  |  | Instead of the old side: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
 | `newResult` | string |  |  | The new side, from the same tool. |
 
@@ -1819,9 +1819,9 @@ Where a type or member of the old build went in the new one (by name, then conte
 | `diff` | boolean |  |  | C# diff of each pair (cut at 300 lines). |
 | `il` | boolean |  |  | Normalized IL diff of each method pair. |
 | `symbols` | string[] |  |  | Instead of symbol: up to 100 symbols. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `25` | Symbols per page (default 25). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `old`, `new`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1839,7 +1839,7 @@ Compare two folders, zip-family archives or files per entry: modified, added, re
 | `exclude` | string[] |  |  | Globs of paths to skip. |
 | `caseSensitive` | boolean |  |  | Default: false on Windows and macOS, true elsewhere. |
 | `maxEntries` | integer |  | `200000` | Per side; past it, incomplete. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Max entries per page. |
 | `oldResult` | string |  |  | Instead of the old side: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
 | `newResult` | string |  |  | The new side, from the same tool. |
@@ -1860,9 +1860,9 @@ Match the functions of two builds of one native image (x86 / x64 / ARM64) in tie
 | `tier` | integer |  | `0` | Only pairs of this tier (1-5); 0 for all. |
 | `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
 | `minScore` | number |  | `0.7` | Least similarity for a fuzzy match (0-1). |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `40` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `40` |  |
+| `maxTokens` | integer |  |  |  |
 | `oldResult` | string |  |  | Instead of the old side: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
 | `newResult` | string |  |  | The new side, from the same tool. |
 
@@ -1885,9 +1885,9 @@ What changed in one function between two builds (paired through compare_native_i
 | `context` | integer |  | `4` | Unchanged rows or lines around each change (0-50). |
 | `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
 | `engine` | string |  |  | view=pseudocode: auto, ida or ghidra. Values: auto, ida, ghidra. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `500` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `500` |  |
+| `maxTokens` | integer |  |  |  |
 | `oldResult` | string |  |  | Instead of the images: old code as a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
 | `newResult` | string |  |  | New code, from the same tool. |
 
@@ -1940,9 +1940,9 @@ Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the ex
 | `pattern` | string | yes |  | Hex bytes with ?? wildcards. |
 | `images` | string[] |  |  | Image ids or paths; omit for every loaded native image. |
 | `allSections` | boolean |  |  | Search every section, not only executable ones. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `pattern`, `items`, `offset`, `total`, `failed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1962,9 +1962,9 @@ Copy the old build's names, comments and engine types to the new build's user an
 | `sources` | string[] |  |  | Layers to copy (default user). |
 | `namesOnly` | boolean |  |  | Names only, no comments. |
 | `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `oldImage`, `newImage`, `dryRun`, `applied`, `editIds`, `set`, `skipped`, `skippedBy`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1981,9 +1981,9 @@ Carry byte patches from an old build to a new one through the build matcher (com
 | `patchSet` | string |  |  | A JSON patch set (export_native_patches format=json): path or text. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 | `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `applied`, `editIds`, `patches`, `carried`, `refused`, `refusedBy`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2007,9 +2007,9 @@ Carry the work on an old native build to its new build through one function matc
 | `maxPatterns` | integer |  | `100` | Most code patterns made (0-1000). |
 | `category` | string |  |  | Only items of this category. Values: names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping, notes, dotnet. |
 | `outcome` | string |  |  | Only items with this outcome. Values: carried, would_carry, already_present, refused, not_applicable, ambiguous. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `summary`, `oldImage`, `newImage`, `dryRun`, `editIds`, `included`, `oldFunctions`, `newFunctions`, `functionsMatched`, `categories`, `il2CppMapping`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2067,7 +2067,7 @@ Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists 
 | `anchor` | string |  |  | '<image>@<address>', '<assembly>:<symbol or token>', an image or assembly id (the whole file), 'dump:<id or path>', or empty (session-wide). |
 | `tag` | string |  |  | Only notes with this tag. |
 | `text` | string |  |  | Text substring (case-insensitive). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` | Notes per page (default 50). |
 
 Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2164,7 +2164,7 @@ Stack frame of a native function as the engine has it (members: offset, name, ty
 | `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name.; several, comma-separated, in one engine request. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `locals` | boolean |  |  | Decompile for the locals too. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Max rows (max 5000). |
 
 Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedRegisters`, `returnAddressOffset`, `members`, `locals`, `localsNote`, `items`, `offset`, `total`, `frames`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2202,7 +2202,7 @@ Named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare
 | `filter` | string |  |  | Name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
 | `kind` | string |  |  | udt: struct or union. Values: struct, union, udt, enum, typedef, func, ptr. |
 | `name` | string |  |  | Show this one type in full instead of a list. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Max rows (max 5000). |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `sort` | string |  |  | name (default), size, or ordinal (the engine's order). Values: name, size. |
@@ -2283,7 +2283,7 @@ Run Python in the IDA worker holding a native image's database (idalib): IDAPyth
 | `reset` | boolean |  |  | Clear the globals earlier calls left. |
 | `engine` | string |  |  | Default auto. Values: auto, ida. |
 | `scriptPath` | string |  |  | A .py file to run instead of code. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 | `persist` | boolean |  |  | Save the database after the script. |
 | `allowError` | boolean |  |  | Return an exception as the result instead of an error. |
 
@@ -2303,7 +2303,7 @@ Run Java in the Ghidra worker holding a native image's program: a GhidraScript c
 | `args` | string[] |  |  | With name: the script's arguments (getScriptArgs). |
 | `timeoutSeconds` | integer |  | `120` | Seconds before the script is cancelled (1-3600). |
 | `engine` | string |  |  | Default auto. Values: auto, ghidra. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 | `allowError` | boolean |  |  | Return an exception as the result instead of an error. |
 
 Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
@@ -2337,7 +2337,7 @@ AndroidManifest.xml of an Android package, decoded. view=summary (default): pack
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
 | `view` | string |  |  | summary (default) or components. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` | Most components. |
 
 Structured output: `package`, `versionCode`, `versionName`, `minSdk`, `targetSdk`, `maxSdk`, `compileSdk`, `split`, `application`, `permissions`, `declaredPermissions`, `componentCounts`, `exported`, `exportedTotal`, `queries`, `features`, `libraries`, `metaData`, `highlights`, `issues`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2354,7 +2354,7 @@ Compiled resources of an Android package (resources.arsc, or a bundle's resource
 | `type` | string |  |  | Only this type (string, layout, xml, ...). |
 | `name` | string |  |  | Only names matching this (* and ? wildcards). |
 | `config` | string |  |  | Only this configuration (pt-rBR, or default). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most rows. |
 
 Structured output: `items`, `offset`, `total`, `types`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2371,8 +2371,8 @@ One entry or resource of an Android package: an entry path (binary XML decoded, 
 | `name` | string | yes |  | An entry path (res/xml/x.xml, assets/...), @type/name or a resource id 0x7f... |
 | `outputPath` | string |  |  | Write the entry's bytes to this file. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `entry`, `outputPath`, `bytes`, `sha256`, `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -2387,7 +2387,7 @@ Classes defined in an Android package's DEX code (every classes*.dex): descripto
 | `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
 | `query` | string |  |  | Only classes whose name contains or matches (* ?) this. |
 | `package` | string |  |  | Only this package and its subpackages. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most classes. |
 | `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
@@ -2405,7 +2405,7 @@ One DEX class: superclass, interfaces, generic signature, enclosing and inner cl
 | `class` | string | yes |  | Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner. |
 | `members` | string |  |  | all (default), fields or methods. |
 | `query` | string |  |  | Only members whose name contains this. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `150` | Most members. |
 | `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
@@ -2422,8 +2422,8 @@ Smali (baksmali layout) of a DEX method or class; a class starts with its method
 | `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
 | `symbol` | string | yes |  | A method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)) or a class (pkg.C, Lpkg/C;). |
 | `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 | `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
@@ -2440,8 +2440,8 @@ Java source of a class or method of an Android package or a jar through JADX (CO
 | `symbol` | string | yes |  | A class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, or pkg.C::m with optional (int, String)). |
 | `javaOnly` | boolean |  |  | Partial Java where JADX fails; default: smali there. |
 | `engine` | string |  |  | Decompiler. Values: jadx. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 | `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
@@ -2457,7 +2457,7 @@ Search DEX code. kind=string: literals with the method and offset of each use; t
 | `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
 | `kind` | string | yes |  | What to search. Values: string, type, method, field, const, opcode. |
 | `query` | string | yes |  | Case-insensitive substring or * / ? pattern; for const a number. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most hits. |
 | `mapping` | string |  |  | R8 / ProGuard mapping.txt: original names shown and accepted; kept for the package. |
 
@@ -2475,7 +2475,7 @@ Cross-references in DEX code, with the method and code offset of each instructio
 | `target` | string | yes |  | A class, method (Lpkg/C;->m(I)V or pkg.C::m(int)), field (Lpkg/C;->f:I or pkg.C::f) or a "quoted" string. |
 | `direction` | string |  |  | to (default; who refers to target) or from. Values: to, from. |
 | `kind` | string |  |  | How to read target (default auto; string: taken literally). Values: auto, class, method, field, string. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most references. |
 
 Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2490,7 +2490,7 @@ Pairs across a Java / .NET bridge. .NET for Android (Xamarin / MAUI): a Java wra
 |---|---|---|---|---|
 | `symbol` | string | yes |  | A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->m(I)V), a .NET type or member, or a pattern (crc64*). |
 | `path` | string |  |  | The package whose assemblies to read; optional when they are loaded. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most pairs. |
 
 Structured output: `query`, `direction`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2507,7 +2507,7 @@ Java native methods of an Android package paired with their code in lib/<abi>/*.
 | `abi` | string |  |  | ABI to read, or all; default arm64-v8a, else the first. |
 | `class` | string |  |  | Only rows naming this class (pkg.C or pkg/C). |
 | `kind` | string |  |  | Only this kind. Values: static_export, registered, unresolved, export_only. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `75` | Most rows. |
 
 Structured output: `items`, `offset`, `total`, `libraries`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2532,7 +2532,7 @@ Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerpri
 |---|---|---|---|---|
 | `serial` | string |  |  | Device serial; optional with one device ready. |
 | `query` | string |  |  | Rows whose name or value contains this; view=files: the directory (default /data/local/tmp); view=window: a local APK to resolve the activity in. |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most rows. |
 | `view` | string |  | `props` | What to read (default props). Values: props, processes, features, services, settings, files, screen, window, display, bugreport. |
 | `outputPath` | string |  |  | view=screen: the PNG to write (never replaced); view=bugreport: a new or empty directory. Default: a new path in the temporary folder. |
@@ -2550,7 +2550,7 @@ Packages installed on a device (pm list packages -f -U -i): name, APK path, uid 
 | `serial` | string |  |  | Device serial; optional with one device ready. |
 | `query` | string |  |  | Only package names containing this. |
 | `user` | integer |  |  | Android user id (default: the current one). |
-| `offset` | integer |  |  | Rows to skip. |
+| `offset` | integer |  |  |  |
 | `limit` | integer |  | `150` | Most packages. |
 
 Structured output: `serial`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2660,12 +2660,12 @@ Reads a Windows minidump (.dmp) or a Linux/Android ELF core. view=summary: OS, p
 |---|---|---|---|---|
 | `path` | string | yes |  | The .dmp path (or an open dump's id). |
 | `view` | string |  | `summary` | summary, modules, threads, memory or unloaded. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `50` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `50` |  |
 | `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries, kept for the dump; its own folder is always searched. |
 | `dacPath` | string |  |  | The runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that build is not installed here. |
 | `downloadDac` | boolean |  |  | Fetch the DAC from a symbol server when none matches here (network; refused under CORVUS_OFFLINE=1). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `notes`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2681,11 +2681,11 @@ Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP c
 | `thread` | string |  |  | Thread id, '#index', name or 'exception'. Default: the faulting thread, else the first. |
 | `dumpTimeContext` | boolean |  |  | Faulting thread: its context at dump time, not the exception context (.ecxr). |
 | `maxFrames` | integer |  | `256` | Max frames walked (up to 1024). |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `100` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
 | `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries, kept for the dump; its own folder is always searched. |
 | `managed` | string |  | `auto` | auto: .NET frames through the DAC; off: native walk only. Values: auto, off. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `items`, `offset`, `total`, `stop`, `scannedFrames`, `managed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2701,10 +2701,10 @@ Lists the .NET GC heap of a minidump (through the DAC). stats: count and size pe
 | `mode` | string |  | `stats` | stats (per type) or objects (one row each). Values: stats, objects. |
 | `type` | string |  |  | Type full name, '*' / '?' wildcards; default all. |
 | `minSize` | integer |  | `0` | Min object size in bytes. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `50` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `50` |  |
 | `maxObjects` | integer |  | `5000000` | Max objects walked. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `matchedBytes`, `items`, `offset`, `total`, `totalExact`, `notes`, `limit`, `hasMore`, `nextOffset`.
 
@@ -2737,7 +2737,7 @@ Hex dump of a dump's memory at an address with what is there (module!function, c
 | `length` | integer |  | `256` | Bytes to read (up to 65536). |
 | `dumpOnly` | boolean |  |  | Only the bytes the dump holds, none from the module image. |
 | `offset` | integer |  |  | Byte offset into the read (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `dump`, `address`, `requested`, `length`, `source`, `location`, `region`, `protection`, `code`, `offset`, `note`, `nextOffset`, `nextAddress`, `totalChars`.
 
@@ -2754,10 +2754,10 @@ Resolves crash text against the loaded build: Unity Player.log / error.log, Mono
 | `format` | string |  | `auto` | Text format (auto detects it). Values: auto, unity, dotnet, wer, eventlog, windbg, android. |
 | `images` | string |  |  | Native image ids or paths (';'-separated); default all loaded. |
 | `moduleBases` | string |  |  | Module load addresses, 'name=0xBASE;...', when the text has no module list. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `50` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `50` |  |
 | `allFrames` | boolean |  |  | One row per frame; default folds 3+ matching native frames of one image into one row. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `format`, `exception`, `frames`, `items`, `offset`, `total`, `unrecognizedLines`, `unrecognizedSample`, `modulesMissing`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2778,9 +2778,9 @@ Groups a folder of minidumps by signature: code | faulting module!function | nex
 | `managed` | string |  | `auto` | auto: managed signatures through a local DAC; off: native only. Values: auto, off. |
 | `maxDumps` | integer |  | `1000` | Most dumps bucketed, newest first. |
 | `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `50` | Max rows. |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `50` |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `folder`, `dumps`, `items`, `offset`, `total`, `failed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2799,13 +2799,13 @@ Inspects a running local process (Windows) read-only, every address named as dum
 | `process` | string | yes |  | Process id (decimal or 0x hex) or name (notepad or notepad.exe); a shared name is refused with the candidate ids. |
 | `view` | string |  | `summary` | summary, modules, regions, threads or stacks. |
 | `thread` | string |  |  | threads: only this one; stacks: the thread walked (default the first). Id or name. |
-| `offset` | integer |  |  | Rows to skip. |
-| `limit` | integer |  | `50` | Max rows. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `50` |  |
 | `regionFilter` | string |  |  | view=regions: committed (default), all, executable, writable, image, private or mapped. Values: committed, all, executable, writable, image, private, mapped. |
 | `maxFrames` | integer |  | `64` | view=stacks: max frames walked (up to 256). |
 | `imageDirectories` | string |  |  | Folders with the program's binaries (';'-separated) for modules whose own file is not readable. |
 | `timeoutSeconds` | integer |  | `20` | Time limit in seconds (up to 120). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`, `runtime`, `access`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `notes`, `startTimeUtc`, `counts`, `mainModule`, `largestRegions`, `thread`, `stackStop`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2827,7 +2827,7 @@ Bundler signatures, modules and source map of a JavaScript file, statically. vie
 | `column` | integer |  | `0` | position: see line. |
 | `source` | string |  |  | source: path or index. |
 | `query` | string |  |  | module, refs: a module id; modules, search: a filter. |
-| `offset` | integer |  |  | Character offset (a page's nextOffset). |
-| `maxTokens` | integer |  |  | Page size in tokens. |
+| `offset` | integer |  |  |  |
+| `maxTokens` | integer |  |  |  |
 
 Structured output: `view`, `summary`, `position`, `modules`, `total`.

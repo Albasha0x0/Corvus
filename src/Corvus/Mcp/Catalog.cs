@@ -53,6 +53,7 @@ public static partial class Catalog
             DropNullDefaults(tools);
             DropNullableInputs(tools);
             DropImpliedDefaults(tools);
+            DropPagingDescriptions(tools);
             ToolOutput.ApplyEnvelope(tools);
             foreach (var tool in tools)
                 if (tool.ProtocolTool.OutputSchema is { } output)
@@ -203,6 +204,32 @@ public static partial class Catalog
             if (changed) t.InputSchema = JsonSerializer.SerializeToElement(schema);
         }
     }
+
+    /// <summary>
+    /// Removes the paging parameters' generic descriptions (offset, limit, maxTokens): the server instructions explain them
+    /// once (about 6.6 KB of the model-facing catalog). A parameter whose text says more, such as its maximum, keeps it.
+    /// </summary>
+    private static void DropPagingDescriptions(IEnumerable<McpServerTool> tools)
+    {
+        foreach (var tool in tools)
+        {
+            var t = tool.ProtocolTool;
+            if (JsonNode.Parse(t.InputSchema.GetRawText()) is not JsonObject schema || schema["properties"] is not JsonObject properties) continue;
+            bool changed = false;
+            foreach (var (name, property) in properties)
+                if (property is JsonObject p && PagingParameters.TryGetValue(name, out var generic) && p["description"] is JsonValue d && generic.Contains((string?)d))
+                    changed |= p.Remove("description");
+            if (changed) t.InputSchema = JsonSerializer.SerializeToElement(schema);
+        }
+    }
+
+    /// <summary>The paging parameters and the generic descriptions the server instructions stand in for.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> PagingParameters = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["offset"] = [Corvus.Tools.ToolSupport.RowOffsetDescription, Corvus.Tools.ToolSupport.CharOffsetDescription],
+        ["limit"] = [Corvus.Tools.ToolSupport.LimitDescription],
+        ["maxTokens"] = [Corvus.Tools.ToolSupport.MaxTokensDescription],
+    };
 
     /// <summary>This build's catalog as a server started without --toolsets lists it (what a client's default registration sees).</summary>
     public static (List<JsonNode> Tools, List<JsonNode> Prompts) OfThisBuild() => OfThisBuild(Toolsets.Default);

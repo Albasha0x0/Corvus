@@ -60,10 +60,13 @@ public partial class DescriptionStyleTests
         Ratchet.Check("description-first-sentence", "a description starts with what the tool returns or does (S8.3)", violations);
     }
 
+    /// <summary>S7, with the paging parameters (offset, limit, maxTokens) described once by the server instructions.</summary>
     [Fact]
     public void EveryParameterIsDescribed()
     {
-        var violations = Texts().Where(t => t.Where.Contains('.') && string.IsNullOrWhiteSpace(t.Text)).ToDictionary(t => t.Where, _ => "no description");
+        Assert.Contains("Paging: offset", Guide.Core);
+        var violations = Texts().Where(t => t.Where.Contains('.') && string.IsNullOrWhiteSpace(t.Text) && !Catalog.PagingParameters.ContainsKey(t.Where[(t.Where.IndexOf('.') + 1)..]))
+            .ToDictionary(t => t.Where, _ => "no description");
         Ratchet.Check("parameter-described", "every parameter has a description (S7)", violations);
     }
 }
