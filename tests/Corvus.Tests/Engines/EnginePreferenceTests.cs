@@ -350,6 +350,22 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal((0, 1), (ida.Opens, ghidra.Opens));
     }
 
+    [Fact]
+    public async Task Auto_answers_from_the_built_in_index_while_another_session_holds_the_saved_database()
+    {
+        var ida = new FakeProvider(available: false);
+        var ghidra = new FakeProvider(available: true, id: "ghidra");
+        var rig = Setup([ida, ghidra]);
+        var (native, _) = await Loaded(rig);
+        var entry = Path.Combine(_dir.File("cache"), "ghidra", native.OriginalSha256);
+        Directory.CreateDirectory(Path.Combine(entry, "p-0123456789abcdef"));
+        File.WriteAllBytes(Path.Combine(entry, "p-0123456789abcdef", "corvus.gpr"), [0]);
+        rig.Engines.SavedCheckInterval = 0;
+        using (new FileStream(Path.Combine(entry, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose))
+            Assert.Contains("Engine: ours", await rig.Tools.ListFunctions(rig.Image));
+        Assert.Equal(0, ghidra.Opens);
+    }
+
     /// <summary>Real IDA on a small System32 DLL: function and reference counts by engine, and auto switching once the analysis is done.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact]

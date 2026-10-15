@@ -310,6 +310,18 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
         }
     }
 
+    /// <summary>Whether a session (of this or another process) holds the entry open now.</summary>
+    internal static bool Held(string dir)
+    {
+        if (!File.Exists(Path.Combine(dir, ".lock"))) return false;
+        try
+        {
+            using (OpenLock(dir)) return false;
+        }
+        catch (LockedError) { return true; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+    }
+
     /// <summary>The retry hint of a database held by another session: an engine call there usually ends within this.</summary>
     public static readonly TimeSpan LockRetryAfter = TimeSpan.FromSeconds(30);
 

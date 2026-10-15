@@ -179,10 +179,15 @@ public sealed class NativeEngineService : IDisposable
         if (native.EngineDatabase != null && _providers.Any(p => p.Id == GhidraProvider.ProviderId) && UnavailabilityOf(GhidraProvider.ProviderId) == null)
             return GhidraProvider.ProviderId;
         foreach (var (id, provider) in _providers)
-            if ((LiveComplete(native, id) || HasSavedAnalysis(native, id)) && provider.Value.CheckAvailability().IsAvailable)
+            if ((LiveComplete(native, id) || HasSavedAnalysis(native, id) && !HeldElsewhere(native, id)) && provider.Value.CheckAvailability().IsAvailable)
                 return id;
         return null;
     }
+
+    /// <summary>A saved analysis another session or process has open: auto answers from the built-in index instead of a conflict.</summary>
+    private bool HeldElsewhere(LoadedNative native, string id) =>
+        (Find(id) switch { IdaProvider i => i.Cache, GhidraProvider g => g.Cache, _ => new AnalysisCache(_cacheRoot ?? AnalysisCache.DefaultRoot) })
+            .Find(id, native.OriginalSha256) is { } dir && AnalysisCache.Held(dir);
 
     private bool LiveComplete(LoadedNative native, string id) =>
         Existing(native, id)?.Opening is { IsCompletedSuccessfully: true } opened && opened.Result.IsOpen && opened.Result.AnalysisComplete;
