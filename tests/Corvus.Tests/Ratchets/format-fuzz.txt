@@ -1,30 +1,13 @@
 # Exemptions from: every format reader has a quick fuzz entry, a [FuzzEntry] test in the quick set (S12.5)
 # This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).
 Core.Archives.ArchiveReader
-Core.AsarArchive
-Core.AsarContainer
-Core.Captures
 Core.Certificates
 Core.Containers
-Core.Mobile.AssemblyStore
-Core.Mobile.DexFile
 Core.PeImage
-Core.TNetString
 Core.UnityWebData
 Native.Annotations.SavedNameLayer
 Native.ApiSetSchema
-Native.Dump.MinidumpFile
-Native.Go.GoBuildInfo
-Native.Go.GoFunctionTable
-Native.MachO.AppleSwiftMetadata
-Native.MachO.MachOFat
-Native.NativeAot.NativeAotImage
-Native.NativeAot.NativeAotMetadata
-Native.NativeImageLoader
 Native.Patching.NativePatchSet
-Native.Pdb.MsfFile
-Native.Pdb.PdbFile
-Native.ReadyToRun.R2RImage
 Services.Analysis.AndroidFileView
 Services.Analysis.AppleFileView
 Services.Analysis.ElectronFileView

@@ -306,6 +306,7 @@ public class NativeAotTypeTests
 
     /// <summary>Mutated images: every stage ends complete, partial, absent or unsupported, never with an exception.</summary>
     [Fact]
+    [FuzzEntry(typeof(Native.NativeAot.NativeAotImage))]
     public void MutatedImages_NeverThrow()
     {
         var image = (Native.Pe.PeFile)Build(16).Aot.Image;

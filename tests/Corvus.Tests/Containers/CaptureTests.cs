@@ -177,7 +177,7 @@ public sealed class CaptureTests : IDisposable
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
+    [FuzzEntry(typeof(Captures), typeof(TNetString))]
     public void FlowFuzzNeverThrowsUnexpectedly()
     {
         var failures = FormatFuzz.Run(Flows(), bytes =>

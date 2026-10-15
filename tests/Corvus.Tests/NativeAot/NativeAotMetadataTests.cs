@@ -152,4 +152,31 @@ public class NativeAotMetadataTests
         Assert.Throws<NativeAotFormatException>(() => md.FormatType(m.Dog));
         Assert.Throws<NativeAotFormatException>(() => md.FromToken(0x7Fu << 25));
     }
+
+    /// <summary>A damaged blob throws only <see cref="NativeAotFormatException"/>, which every caller turns into a partial stage.</summary>
+    [Fact]
+    [FuzzEntry(typeof(NativeAotMetadata))]
+    public void Fuzzed_blobs_throw_only_format_exceptions()
+    {
+        foreach (ushort major in new ushort[] { 9, 16, 31 })
+        {
+            var m = Model(major, statics: true);
+            var failures = FormatFuzz.Run(m.Blob, b =>
+            {
+                try
+                {
+                    var md = new NativeAotMetadata(b, m.Format);
+                    foreach (uint t in md.TypeDefinitions().Take(64))
+                    {
+                        var type = new MdHandle(MdRecord.TypeDefinition, t);
+                        _ = md.FormatType(type);
+                        foreach (uint method in md.Collection(type, "methods").Take(16))
+                            _ = md.FormatMethod(new MdHandle(MdRecord.Method, method)).Full;
+                    }
+                }
+                catch (NativeAotFormatException) { }
+            }, 1000);
+            Assert.True(failures.Count == 0, $"v{major}: " + string.Join("\n", failures.Take(10)));
+        }
+    }
 }

@@ -524,6 +524,7 @@ public sealed class MinidumpTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(MinidumpFile))]
     public void NotADumpIsRejectedAndMalformedDumpsNeverThrow()
     {
         var error = Assert.Throws<ToolError>(() => MinidumpFile.FromBytes(new byte[64]));

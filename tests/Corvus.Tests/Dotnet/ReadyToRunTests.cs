@@ -51,6 +51,10 @@ public sealed class R2RFrameworkFactAttribute : FactAttribute
 
 public class ReadyToRunTests(ITestOutputHelper output)
 {
+    [R2RFrameworkFact]
+    [FuzzEntry(typeof(R2RImage))]
+    public void MutatedImagesFailCleanly_Quick() => ReadyToRunSweepTests.Mutate(output, runs: 25, bodies: 10);
+
     private static (Env Env, ReadyToRunTools Tools, ReadyToRunService Service) Setup()
     {
         var env = new Env();
@@ -229,7 +233,10 @@ public class ReadyToRunSweepTests(ITestOutputHelper output)
     /// code map, fixup lists, cell signatures and disassembly either succeed or throw <see cref="R2RFormatException"/>, in bounded time.
     /// </summary>
     [Fact]
-    public void MutatedImagesFailCleanly()
+    public void MutatedImagesFailCleanly() => Mutate(output, runs: 300, bodies: 200);
+
+    /// <summary>The mutation loop of <see cref="MutatedImagesFailCleanly"/>; the quick set runs a few <paramref name="runs"/> over a few <paramref name="bodies"/>.</summary>
+    internal static void Mutate(ITestOutputHelper output, int runs, int bodies)
     {
         var path = R2RFramework.Linq;
         if (path == null) { output.WriteLine("System.Linq.dll is not ReadyToRun here, skipped"); return; }
@@ -247,7 +254,7 @@ public class ReadyToRunSweepTests(ITestOutputHelper output)
         Add(image.ImportSections.Where(s => s.SignaturesRva != 0).Select(s => image.CellSignature(s, 0)).Min(), 4096);
 
         var random = new Random(1234);
-        int failures = 0, runs = 300;
+        int failures = 0;
         var sw = Stopwatch.StartNew();
         for (int run = 0; run < runs; run++)
         {
@@ -267,7 +274,7 @@ public class ReadyToRunSweepTests(ITestOutputHelper output)
                 var sigs = new R2RSignatures(mutated.View, null);
                 var symbols = new R2RSymbols(map, new NullNames(), _ => "m");
                 var disassembler = R2RDisassembly.Disassembler(mutated, symbols);
-                foreach (var body in map.Bodies.Take(200))
+                foreach (var body in map.Bodies.Take(bodies))
                 {
                     foreach (var (section, cell) in mutated.Fixups(body.Entry.FixupsRva).Take(50))
                         sigs.Fixup(mutated.CellSignature(mutated.ImportSections[section], cell));

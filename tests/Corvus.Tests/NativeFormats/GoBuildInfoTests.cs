@@ -132,4 +132,16 @@ public sealed class GoBuildInfoTests
         Assert.Equal(("go1.22.5", 2), (summary.Go?.GoVersion, summary.Go?.DependencyTotal));
         Assert.Contains("Go program built with go1.22.5, module example.com/tool v1.4.2, 2 dependencies, linux/amd64, revision 0123abcd (modified).", summary.Highlights);
     }
+
+    [Fact]
+    [FuzzEntry(typeof(GoBuildInfo))]
+    public void Fuzzed_build_info_never_throws()
+    {
+        var failures = Corvus.Tests.FormatFuzz.Run(Inline(), b =>
+        {
+            if (GoBuildInfo.Of(Elf(b)) is { } info) _ = (info.GoVersion, info.Main, info.Dependencies.Count, info.Settings.Count);
+        }, 500);
+        failures.AddRange(Corvus.Tests.FormatFuzz.Run(Pointers(0x400000 + ElfWriter.DataRva, 8), b => GoBuildInfo.Of(Elf(b)), 500));
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+    }
 }

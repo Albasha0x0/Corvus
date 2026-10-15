@@ -239,6 +239,7 @@ public class PdbTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(Native.Pdb.PdbFile), typeof(Native.Pdb.MsfFile))]
     public void MutatedFilesNeverThrowAfterTheSuperblock()
     {
         var good = PdbBuilder.Sample().Build();

@@ -181,6 +181,7 @@ public sealed class DexTests : IDisposable
     }
 
     [Fact]
+    [FuzzEntry(typeof(Core.Mobile.DexFile))]
     public void DamagedDex_NeverThrows()
     {
         var good = Dex();

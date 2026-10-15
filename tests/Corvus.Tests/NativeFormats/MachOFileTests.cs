@@ -453,4 +453,20 @@ public sealed class MachOFileTests(ITestOutputHelper output)
         }));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }
+
+    /// <summary>Damaged universal headers: every slice they list opens, or the file is refused as malformed.</summary>
+    [Fact]
+    [FuzzEntry(typeof(MachOFat))]
+    public void Fuzzed_universal_images_never_throw()
+    {
+        var x64 = new MachOWriter { CpuType = MachOWriter.CpuX64, CpuSubType = 3, InstallName = "@rpath/x.dylib" }.Build();
+        var arm64 = SampleMachO().Build();
+        var seeds = new List<byte[]> { MachOWriter.Fat([(MachOWriter.CpuX64, 3, x64), (MachOWriter.CpuArm64, 0, arm64)], false), MachOWriter.Fat([(MachOWriter.CpuArm64, 0, arm64)], true) };
+        var failures = FormatFuzz.Run(seeds, 300, 20261015, bytes =>
+        {
+            var slices = MachOFat.Read(bytes);
+            for (int i = 0; i < slices.Count; i++) FormatFuzz.Touch(MachOFile.FromBytes(bytes, "fat.dylib", i.ToString()), _ => { });
+        });
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+    }
 }

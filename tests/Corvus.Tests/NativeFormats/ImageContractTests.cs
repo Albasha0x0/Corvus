@@ -87,4 +87,14 @@ public sealed class ImageContractTests
         public bool TryFileOffsetToRva(long fileOffset, out uint rva) => inner.TryFileOffsetToRva(fileOffset, out rva);
         public NativeSection? SectionAt(uint rva) => inner.SectionAt(rva);
     }
+
+    /// <summary>Opening by content on damaged images of every format: an image, or a malformed-input refusal.</summary>
+    [Fact]
+    [FuzzEntry(typeof(NativeImageLoader))]
+    public void Fuzzed_images_of_every_format_open_or_are_refused()
+    {
+        var seeds = new List<byte[]> { NativePeTests.KitchenSink(true), FormatWriterTests.SampleElf().Build(), FormatWriterTests.SampleMachO().Build(), WasmTests.Sample() };
+        var failures = FormatFuzz.Run(seeds, 200, 20261015, b => FormatFuzz.Touch(NativeImageLoader.FromBytes(b, "fuzz.bin"), _ => { }));
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+    }
 }

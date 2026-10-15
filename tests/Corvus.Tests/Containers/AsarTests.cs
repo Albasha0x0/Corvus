@@ -259,7 +259,7 @@ public sealed class AsarTests : IDisposable
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
+    [FuzzEntry(typeof(AsarArchive), typeof(AsarContainer))]
     public void HeaderFuzzNeverThrowsUnexpectedly()
     {
         var (seed, _) = AsarWriter.Build(AppFiles, [("dist/alias.js", "dist/main.js")], blockSize: 8);

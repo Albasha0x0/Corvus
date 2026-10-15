@@ -121,4 +121,12 @@ public sealed class AppleSwiftTests
         Assert.Contains(0x1080u, names.FunctionStarts);
         Assert.Equal(1, names.Methods);
     }
+
+    [Fact]
+    [FuzzEntry(typeof(AppleSwiftMetadata))]
+    public void Fuzzed_metadata_never_throws()
+    {
+        var failures = FormatFuzz.Run([Sample().Bytes], 300, 19, b => ObjcHeader.Render(null, AppleSwiftMetadata.Read(MachOFile.FromBytes(b)), "fuzz"));
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+    }
 }

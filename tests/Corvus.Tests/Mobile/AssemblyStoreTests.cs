@@ -134,6 +134,7 @@ public class AssemblyStoreTests
     }
 
     [Fact]
+    [FuzzEntry(typeof(Core.Mobile.AssemblyStore))]
     public void DamagedStores_ReportIssues_AndKeepWhatReads()
     {
         var store = AssemblyStoreWriter.V2([new("A.dll", Fixture), new("B.dll", Consumer)]);

@@ -288,4 +288,23 @@ public sealed class GoFunctionTableTests
         var data = Pclntab(GoTableVersion.Go120, 8, 0x7000_0000, 4);
         Assert.Null(GoFunctionTable.Of(CodeTestImage.Synthetic(NativeArch.X64, [0xC3], data)));
     }
+
+    [Fact]
+    [FuzzEntry(typeof(GoFunctionTable))]
+    public void Fuzzed_tables_never_throw()
+    {
+        const ulong Base = 0x400000;
+        var failures = new List<string>();
+        foreach (var version in new[] { GoTableVersion.Go12, GoTableVersion.Go116, GoTableVersion.Go120 })
+            failures.AddRange(Corvus.Tests.FormatFuzz.Run(Pclntab(version, 8, Base + ElfWriter.TextRva, 4, ownSize: 0x11), b =>
+            {
+                var w = new ElfWriter
+                {
+                    Machine = ElfWriter.EmX64, Type = 2, Base = Base, Entry = ElfWriter.TextRva, Text = Rets(4, 0xC3), Hash = ElfWriter.HashKind.None,
+                    DataSectionName = ".gopclntab", Data = b,
+                };
+                foreach (var f in GoFunctionTable.Of(ElfFile.FromBytes(w.Build(), "gobin"))?.Functions ?? []) _ = (f.Name, f.Size);
+            }, 300));
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+    }
 }
