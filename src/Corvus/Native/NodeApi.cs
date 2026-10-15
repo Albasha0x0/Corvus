@@ -78,9 +78,52 @@ public static class NodeApi
                 if (found.Count == before) unresolved++;
             }
         }
+        if (CallAnalysis.Supports(index)) Setters(index, CallAnalysis.For(index), found, ct);
         if (unresolved > 0)
             notes.Add($"{unresolved} registering call(s) with arguments not constant in the caller (built at run time, or passed in by a wrapper such as node-addon-api): get_call_arguments shows them");
         return new Result(found, notes);
+    }
+
+    /// <summary>
+    /// node-addon-api's exports.Set("name", Function::New(env, callback)): a napi_set_named_property (or napi_set_property
+    /// after napi_create_string_utf8) whose name is constant; the callback is the last code address passed to a call of the
+    /// same function since the previous setter. A pattern, not a table: recorded with kind function and the setter as Via.
+    /// </summary>
+    private static void Setters(NativeCodeIndex index, CallAnalysis analysis, List<Registration> found, CancellationToken ct)
+    {
+        var image = index.Image;
+        var known = found.Select(r => r.JsName).ToHashSet(StringComparer.Ordinal);
+        var callers = new HashSet<NativeFunction>();
+        foreach (var import in image.Imports)
+            if (import.Name is { } raw && Bare(raw) is "napi_set_named_property" or "napi_set_property")
+                foreach (var site in analysis.CallsTo(import, 10_000, ct)) callers.Add(site.Caller);
+        foreach (var f in callers)
+        {
+            ct.ThrowIfCancellationRequested();
+            var sites = analysis.CallsIn(f, ct).OrderBy(s => s.Rva).ToList();
+            string? pendingName = null;
+            uint? callback = null;
+            foreach (var s in sites)
+            {
+                var callee = s.Import?.Name is { } n ? Bare(n) : null;
+                switch (callee)
+                {
+                    case "napi_create_string_utf8" or "napi_create_string_latin1":
+                        pendingName = Text(image, Arg(s, 1), Number(Arg(s, 2)));
+                        continue;
+                    case "napi_set_named_property" or "napi_set_property":
+                        var name = callee == "napi_set_named_property" ? Text(image, Arg(s, 2), null) : pendingName;
+                        if (name != null && callback is { } cb && known.Add(name)) found.Add(new Registration(cb, name, "function", callee, s.Rva));
+                        pendingName = null;
+                        callback = null;
+                        continue;
+                    case not null when callee.StartsWith("napi_", StringComparison.Ordinal):
+                        continue;
+                }
+                foreach (var a in s.Arguments)
+                    if (Target(index, a) is { } t && t != f.Start) callback = t;
+            }
+        }
     }
 
     private static CallArgument? Arg(CallSiteInfo site, int index) => site.Arguments.FirstOrDefault(a => a.Index == index);

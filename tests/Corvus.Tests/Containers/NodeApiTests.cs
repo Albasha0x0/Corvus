@@ -22,7 +22,7 @@ public sealed class NodeApiTests : IDisposable
     private static readonly string[] Imports = ["napi_create_function", "napi_define_properties", "napi_define_class", "napi_module_register"];
 
     // callbacks at fixed offsets after the registering function; distinct bodies so none fold
-    private const uint Hello = 0x200, Add = 0x210, Version = 0x220, Ctor = 0x230, Increment = 0x240, Init = 0x250;
+    internal const uint Hello = 0x200; private const uint Add = 0x210, Version = 0x220, Ctor = 0x230, Increment = 0x240, Init = 0x250;
     // data offsets
     private const uint SHello = 0x100, SAdd = 0x110, SVersion = 0x118, SCounter = 0x128, SIncrement = 0x138, SAddon = 0x148, Props = 0x200, ClassProps = 0x280, Module = 0x2C0;
 
@@ -116,6 +116,36 @@ public sealed class NodeApiTests : IDisposable
         Assert.Equal(Expected, Rows(found, image));
         Assert.Equal(text + Hello, found.Registrations[0].Function);
         Assert.Empty(found.Notes);
+    }
+
+    /// <summary>node-addon-api's exports.Set("hello", Function::New(env, Hello)): the callback passed to a helper, then the named setter.</summary>
+    [Fact]
+    public void NamedSettersAfterAFunctionHelperAreRegistrations()
+    {
+        const uint text = CodeTestImage.SyntheticCodeRva, data = CodeTestImage.SyntheticDataRva, helper = Add;
+        const ulong b = 0x140000000UL;
+        var a = new Assembler(64);
+        a.sub(rsp, 0x28);
+        a.AddInstruction(Instruction.Create(Iced.Intel.Code.Lea_r64_m, Register.R8, new MemoryOperand(Register.RIP, (long)(b + text + Hello), 8)));
+        a.AddInstruction(Instruction.CreateBranch(Iced.Intel.Code.Call_rel32_64, b + text + helper));
+        a.mov(rcx, 0); a.mov(rdx, 0);
+        a.AddInstruction(Instruction.Create(Iced.Intel.Code.Lea_r64_m, Register.R8, new MemoryOperand(Register.RIP, (long)(b + data + SHello), 8)));
+        a.mov(r9, rax);
+        a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(b + data), 8)));
+        a.add(rsp, 0x28);
+        a.ret();
+        var stream = new MemoryStream();
+        a.Assemble(new StreamCodeWriter(stream), b + text);
+        var code = new byte[0x260];
+        stream.ToArray().CopyTo(code, 0);
+        new byte[] { 0xB8, 1, 0, 0, 0, 0xC3 }.CopyTo(code, Hello);
+        new byte[] { 0x48, 0x8B, 0xC1, 0xC3 }.CopyTo(code, helper); // mov rax, rcx; ret
+        var d = new byte[0x400];
+        Encoding.ASCII.GetBytes("hello\0").CopyTo(d, SHello);
+        var image = CodeTestImage.Synthetic(NativeArch.X64, code, d, [new NativeImport("node.exe", "napi_set_named_property", null, 0, data, true)],
+            exports: [new NativeExport("napi_register_module_v1", 1, text, null)], format: ImageFormat.Pe);
+        var r = Assert.Single(NodeApi.Find(NativeCodeIndex.Build(image)).Registrations);
+        Assert.Equal((text + Hello, "hello", "napi_set_named_property"), (r.Function, r.JsName, r.Via));
     }
 
     /// <summary>An x64 ELF add-on registering hello and a Counter class through N-API.</summary>
