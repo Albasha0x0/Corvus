@@ -271,9 +271,9 @@ internal static class WorkerRows
         var deletes = new JsonArray();
         var stackClears = new JsonArray();
         foreach (var s in batch.StackVars)
-            if (s.Clear) stackClears.Add(new JsonArray(s.Function, s.Offset));
-            else if (s.Delete) deletes.Add(new JsonArray(s.Function, s.Offset));
-            else stack.Add(new JsonArray(s.Function, s.Offset, s.Name, s.Type));
+            if (s.Clear) stackClears.Add(s.FromReturn is { } c ? new JsonArray(s.Function, s.Offset, c) : new JsonArray(s.Function, s.Offset));
+            else if (s.Delete) deletes.Add(s.FromReturn is { } d ? new JsonArray(s.Function, s.Offset, d) : new JsonArray(s.Function, s.Offset));
+            else stack.Add(s.FromReturn is { } r ? new JsonArray(s.Function, s.Offset, s.Name, s.Type, r) : new JsonArray(s.Function, s.Offset, s.Name, s.Type));
         var locals = new JsonArray();
         var localClears = new JsonArray();
         foreach (var l in batch.Locals)

@@ -68,6 +68,9 @@
           },
           "userType": {
             "type": "boolean"
+          },
+          "function": {
+            "type": "string"
           }
         },
         "required": [
@@ -81,6 +84,9 @@
       "type": "integer"
     },
     "total": {
+      "type": "integer"
+    },
+    "frames": {
       "type": "integer"
     },
     "limit": {

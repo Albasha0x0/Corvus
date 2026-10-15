@@ -608,7 +608,7 @@ final class TypeOps {
         setUserTyped(w, user);
         for (JsonElement e : Worker.array(a, "stack")) {
             JsonArray s = e.getAsJsonArray();
-            items.add(FrameOps.applyStack(w, s.get(0).getAsLong(), s.get(1).getAsInt(), text(s.get(2)), text(s.get(3))));
+            items.add(FrameOps.applyStack(w, s.get(0).getAsLong(), FrameOps.stackAt(w, s, 4), text(s.get(2)), text(s.get(3))));
         }
         JsonArray locals = Worker.array(a, "locals");
         String[] pins = locals.size() > 1 ? FrameOps.pins(w, r, locals) : new String[locals.size()];

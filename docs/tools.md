@@ -2161,13 +2161,13 @@ Stack frame of a native function as the engine has it (members: offset, name, ty
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
-| `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
+| `function` | string | yes |  | The function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name.; several, comma-separated, in one engine request. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `locals` | boolean |  |  | Decompile for the locals too. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `200` | Max rows (max 5000). |
 
-Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedRegisters`, `returnAddressOffset`, `members`, `locals`, `localsNote`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedRegisters`, `returnAddressOffset`, `members`, `locals`, `localsNote`, `items`, `offset`, `total`, `frames`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### declare_native_types
 

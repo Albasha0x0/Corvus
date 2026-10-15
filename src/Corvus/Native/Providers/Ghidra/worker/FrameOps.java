@@ -497,6 +497,16 @@ final class FrameOps {
         options.setString(key, existing == null ? "null" : v.toString());
     }
 
+    /** A stack row's offset: from the return address (row[index], when given) placed in this frame, else as sent. */
+    static int stackAt(Worker w, JsonArray row, int index) {
+        int offset = row.get(1).getAsInt();
+        if (row.size() <= index || row.get(index).isJsonNull()) return offset;
+        Function f = w.program.getFunctionManager().getFunctionContaining(w.space().getAddress(w.base + row.get(0).getAsLong()));
+        if (f == null) return offset;
+        StackFrame sf = f.getStackFrame();
+        return row.get(index).getAsInt() + sf.getReturnAddressOffset() - low(sf);
+    }
+
     /** Clears, before the other edits: local_clears [[function, local, stack offset or null, name]], stack_clears [[function, offset]]. */
     static void clears(Worker w, Worker.Request r, JsonArray items) throws Exception {
         for (JsonElement e : Worker.array(r.args, "local_clears")) {
@@ -506,7 +516,7 @@ final class FrameOps {
         }
         for (JsonElement e : Worker.array(r.args, "stack_clears")) {
             JsonArray s = e.getAsJsonArray();
-            items.add(clearStack(w, s.get(0).getAsLong(), s.get(1).getAsInt()));
+            items.add(clearStack(w, s.get(0).getAsLong(), stackAt(w, s, 2)));
         }
     }
 

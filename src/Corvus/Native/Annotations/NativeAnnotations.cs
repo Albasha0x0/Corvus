@@ -76,7 +76,7 @@ public sealed class NativeAnnotations
                 locals[f] = list.Where(e => e.Local.Length > 0).Select(e => new NativeLocalEdit(f, e.Local, e.Stack, e.Name, e.Type) { Storage = e.Storage }).ToList();
         var stack = new Dictionary<uint, IReadOnlyList<NativeStackVarEdit>>();
         foreach (var (k, list) in doc.StackVars ?? [])
-            if (Rva(k) is { } f && list is { Count: > 0 }) stack[f] = list.Select(e => new NativeStackVarEdit(f, e.Offset, e.Name, e.Type) { Delete = e.Delete }).ToList();
+            if (Rva(k) is { } f && list is { Count: > 0 }) stack[f] = list.Select(e => new NativeStackVarEdit(f, e.Offset, e.Name, e.Type) { Delete = e.Delete, FromReturn = e.FromReturn }).ToList();
         var analysis = new List<NativeAnalysisEdit>();
         foreach (var a in doc.Analysis ?? [])
             if (Rva(a.Rva) is { } r && a.Kind.Length > 0)
@@ -356,7 +356,7 @@ public sealed class NativeAnnotations
             doc.Locals = u.Locals.ToDictionary(l => Hex(l.Key), l => l.Value.Select(e => new AnnotationDocument.LocalEntry { Local = e.Local, Stack = e.Stack, Name = e.Name, Type = e.Type, Storage = e.Storage }).ToList());
         if (u.StackVars.Count > 0)
             doc.StackVars = u.StackVars.ToDictionary(s => Hex(s.Key), s => s.Value.Select(e => new AnnotationDocument.StackVarEntry
-                { Offset = e.Offset, Name = e.Name, Type = e.Type, Delete = e.Delete }).ToList());
+                { Offset = e.Offset, Name = e.Name, Type = e.Type, Delete = e.Delete, FromReturn = e.FromReturn }).ToList());
         if (u.EnumMembers.Count > 0)
             doc.EnumMembers = u.EnumMembers.Values.OrderBy(e => e.Enum, StringComparer.Ordinal).ThenBy(e => e.Member, StringComparer.Ordinal)
                 .Select(e => new AnnotationDocument.EnumMemberEntry { Enum = e.Enum, Member = e.Member, Value = e.Value }).ToList();

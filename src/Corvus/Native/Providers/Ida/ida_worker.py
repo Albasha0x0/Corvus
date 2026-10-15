@@ -1332,6 +1332,15 @@ def op_frame(args):
     return out
 
 
+def stack_at(m, row, index):
+    # a stack row's offset: from the return address (row[index], when given) placed in this frame, else as sent
+    if len(row) <= index or row[index] is None:
+        return row[1]
+    import ida_frame
+    f = m.ida_funcs.get_func(_state["base"] + row[0])
+    return row[1] if f is None else row[index] + ida_frame.frame_off_retaddr(f)
+
+
 def apply_stack(m, ti, rva, offset, name, typ):
     # IDA 9 frames: rename in place; a new type replaces the member (delete, then define_stkvar at the frame-base offset)
     import ida_frame
@@ -1669,8 +1678,9 @@ def op_apply_user_types(args):
     result["items"] += apply_edits_before(m, ti, args)
     for rva, decl in args.get("types") or []:
         result["items"].append(apply_user_type(m, ti, rva, decl or ""))
-    for rva, offset, name, typ in args.get("stack") or []:
-        result["items"].append(apply_stack(m, ti, rva, offset, name, typ))
+    for row in args.get("stack") or []:
+        rva, offset, name, typ = row[:4]
+        result["items"].append(apply_stack(m, ti, rva, stack_at(m, row, 4), name, typ))
     for row in args.get("locals") or []:
         rva, local, stack, name, typ = row[:5]
         storage = row[5] if len(row) > 5 else None
@@ -2089,7 +2099,7 @@ def apply_edits_before(m, ti, args):
 
 def apply_edits_after(m, ti, args):
     # stack_deletes: [[function, offset]]; operands: [[rva, operand, display, detail or null]]
-    items = [apply_stack_delete(m, rva, offset) for rva, offset in args.get("stack_deletes") or []]
+    items = [apply_stack_delete(m, r[0], stack_at(m, r, 2)) for r in args.get("stack_deletes") or []]
     return items + [apply_operand(m, ti, o[0], o[1], o[2], o[3]) for o in args.get("operands") or []]
 
 
@@ -2620,7 +2630,7 @@ def remember_stack_original(rva, offset, u):
 def apply_clears(m, ti, args):
     # local_clears: [[function, local, stack offset or null, name]]; stack_clears: [[function, offset]]
     items = [clear_local(m, c[0], c[1], c[2], c[3]) for c in args.get("local_clears") or []]
-    return items + [clear_stack(m, ti, c[0], c[1]) for c in args.get("stack_clears") or []]
+    return items + [clear_stack(m, ti, c[0], stack_at(m, c, 2)) for c in args.get("stack_clears") or []]
 
 
 def clear_local(m, rva, local, stack, name):

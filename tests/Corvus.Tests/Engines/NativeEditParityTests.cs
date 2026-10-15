@@ -65,6 +65,8 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
 
     private static string Rva(uint rva) => $"rva:0x{rva:X}";
 
+    private protected ITestOutputHelper Log => output;
+
     private async Task PseudocodeComments(string engine)
     {
         var rig = Setup(engine + "-p");
@@ -254,6 +256,34 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
 
         [GhidraFact]
         public Task Local_and_stack_edits_clear_in_Ghidra() => LocalAndStackEditsClear("ghidra");
+
+        /// <summary>NF-4: a member IDA gets at an empty slot reaches Ghidra at the same offset from the return address, and Ghidra's frame keeps its size.</summary>
+        [GhidraFact]
+        public async Task A_stack_member_made_in_IDA_keeps_its_return_address_offset_in_Ghidra()
+        {
+            if (new IdaFactAttribute().Skip is { } why)
+            {
+                Log.WriteLine(why);
+                return;
+            }
+            var rig = Setup("both-s");
+            var path = Image();
+            var ghidraBefore = await (await rig.Session("ghidra")).GetFrameAsync(rig.Start, false);
+            var ida = await (await rig.Session("ida")).GetFrameAsync(rig.Start, false);
+            bool Free(NativeFrame f, int at) => !f.Members.Any(m => at < m.Offset + Math.Max(1, m.Size) && m.Offset < at + 4);
+            // a slot free in both frames, by its offset from the return address
+            int slot = Enumerable.Range(1, (ida.ReturnAddressOffset - 8) / 4).Select(i => ida.ReturnAddressOffset - 8 - 4 * (i - 1)).Where(at => at >= 0)
+                .First(at => Free(ida, at) && Free(ghidraBefore, at - ida.ReturnAddressOffset + ghidraBefore.ReturnAddressOffset));
+            int fromReturn = slot - ida.ReturnAddressOffset;
+            Log.WriteLine($"IDA slot +0x{slot:X} (return address {fromReturn}); Ghidra frame {ghidraBefore.LocalSize} bytes, return address at +0x{ghidraBefore.ReturnAddressOffset:X}");
+            await rig.Types.SetNativeStackVar(path, Function, $"0x{slot:X}", "corvus_slot", "int", engine: "ida");
+
+            Log.WriteLine(await rig.Types.GetNativeFrame(path, Function, engine: "ghidra"));
+            var after = await (await rig.Session("ghidra")).GetFrameAsync(rig.Start, false);
+            var member = Assert.Single(after.Members, m => m.Name == "corvus_slot");
+            Assert.Equal(fromReturn, member.Offset - after.ReturnAddressOffset);
+            Assert.Equal(ghidraBefore.LocalSize, after.LocalSize);
+        }
     }
 
     /// <summary>The same edits through IDA.</summary>

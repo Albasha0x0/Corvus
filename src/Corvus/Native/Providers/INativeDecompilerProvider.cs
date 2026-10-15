@@ -556,6 +556,9 @@ public sealed record NativeStackVarEdit(uint Function, int Offset, string? Name,
 {
     public bool Delete { get; init; }
     public bool Clear { get; init; }
+
+    /// <summary>The member's offset from the return address, when known: engines place it by this (their lowest addresses differ).</summary>
+    public int? FromReturn { get; init; }
 }
 
 /// <summary>Member <see cref="Member"/> of enum <see cref="Enum"/> (created when missing) gets <see cref="Value"/>; a null value removes the member.</summary>

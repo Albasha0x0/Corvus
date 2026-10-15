@@ -95,7 +95,7 @@ public sealed class UserTypeLayer
         foreach (var a in Analysis) Add(FormattableString.Invariant($"A{a.Rva:X}:{a.Kind}:{a.End:X}:{a.Type}"));
         foreach (var (rva, type) in Types.OrderBy(t => t.Key)) Add(FormattableString.Invariant($"T{rva:X}:{type}"));
         foreach (var s in StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value))
-            Add(FormattableString.Invariant($"S{s.Function:X}:{s.Offset}:{s.Name}:{s.Type}") + (s.Delete ? ":delete" : ""));
+            Add(FormattableString.Invariant($"S{s.Function:X}:{s.Offset}:{s.Name}:{s.Type}") + (s.Delete ? ":delete" : "") + (s.FromReturn is { } r ? FormattableString.Invariant($"^{r}") : ""));
         foreach (var l in Locals.OrderBy(l => l.Key).SelectMany(l => l.Value)) Add(FormattableString.Invariant($"L{l.Function:X}:{l.Local}:{l.Stack}:{l.Name}:{l.Type}") + (l.Storage != null ? "@" + l.Storage : ""));
         foreach (var o in Operands.OrderBy(o => o.Key).Select(o => o.Value)) Add(FormattableString.Invariant($"O{o.Rva:X}:{o.Operand}:{o.Display}:{o.Detail}"));
         return Convert.ToHexString(hash.GetHashAndReset());

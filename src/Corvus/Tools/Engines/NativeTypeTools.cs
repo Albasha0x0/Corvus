@@ -228,7 +228,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         {
         var frame = await session.GetFrameAsync(rva, false, cancellationToken);
         int offset = MemberOffset(frame, variable);
-        var edit = new NativeStackVarEdit(frame.StartRva, offset, name, decl) { Delete = delete, Clear = clear };
+        var edit = new NativeStackVarEdit(frame.StartRva, offset, name, decl) { Delete = delete, Clear = clear, FromReturn = offset - frame.ReturnAddressOffset };
         var (result, id) = await Apply(native, session, "set_native_stack_var", new NativeUserTypeBatch([], [], [edit], []),
             (r, layer) => r.Items is not [{ Applied: true } item] ? null
                 : clear ? layer.WithoutStackVar(item.Rva, offset) : layer.WithStackVar(edit with { Function = item.Rva }), cancellationToken);
@@ -988,7 +988,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             {
                 int offset = MemberOffset(frame, r.Variable);
                 if (edits.Any(e => e.Offset == offset)) throw new ToolError(ErrorCode.InvalidArgument, $"+0x{offset:X} is edited twice");
-                edits.Add(new NativeStackVarEdit(frame.StartRva, offset, r.Name, r.Type) { Delete = r.Delete, Clear = r.Clear });
+                edits.Add(new NativeStackVarEdit(frame.StartRva, offset, r.Name, r.Type) { Delete = r.Delete, Clear = r.Clear, FromReturn = offset - frame.ReturnAddressOffset });
             }
             catch (ToolError e) { problems.Add($"{r.Variable}: {e.Message}"); }
         }

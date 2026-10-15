@@ -45,6 +45,7 @@ public sealed class AnnotationDocument
         [JsonPropertyName("type")] public string? Type { get; set; }
         /// <summary>Format 3: the member is deleted.</summary>
         [JsonPropertyName("delete"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool Delete { get; set; }
+        [JsonPropertyName("fromReturn"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? FromReturn { get; set; }
     }
 
     // Format 3: enum members, analysis edits in the order made, operand display formats.

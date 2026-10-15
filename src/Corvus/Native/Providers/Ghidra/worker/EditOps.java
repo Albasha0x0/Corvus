@@ -131,7 +131,7 @@ final class EditOps {
     static void after(Worker w, Worker.Request r, JsonArray items) throws Exception {
         for (JsonElement e : Worker.array(r.args, "stack_deletes")) {
             JsonArray s = e.getAsJsonArray();
-            items.add(stackDelete(w, s.get(0).getAsLong(), s.get(1).getAsInt()));
+            items.add(stackDelete(w, s.get(0).getAsLong(), FrameOps.stackAt(w, s, 2)));
         }
         for (JsonElement e : Worker.array(r.args, "operands")) {
             JsonArray o = e.getAsJsonArray();
