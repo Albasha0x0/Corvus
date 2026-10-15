@@ -824,6 +824,44 @@ public sealed class NativePeTests
     }
 
     [Fact]
+    public void Resources_IconGroupsPairWithIconsAndCarryFileRanges()
+    {
+        // GRPICONDIR naming icon 1 (present, a PNG) and icon 2 (missing); icon 3 is a 16x16 DIB in no group.
+        var group = new byte[6 + 2 * 14];
+        group[2] = 1;
+        group[4] = 2;
+        (group[6], group[7], group[12]) = (0, 0, 32); // 256x256 32bpp
+        BinaryPrimitives.WriteUInt16LittleEndian(group.AsSpan(6 + 12), 1);
+        (group[20], group[21], group[26]) = (16, 16, 8);
+        BinaryPrimitives.WriteUInt16LittleEndian(group.AsSpan(20 + 12), 2);
+        byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, (byte)'I', (byte)'H', (byte)'D', (byte)'R', 0, 0, 1, 0, 0, 0, 1, 0, 8, 6];
+        var dib = new byte[40 + 64];
+        BinaryPrimitives.WriteUInt32LittleEndian(dib, 40);
+        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(4), 16);
+        BinaryPrimitives.WriteInt32LittleEndian(dib.AsSpan(8), 32);
+        BinaryPrimitives.WriteUInt16LittleEndian(dib.AsSpan(14), 4);
+        var b = Basic();
+        var rsrc = b.Add(".rsrc", rva => ResourceTree(rva, [new(14, 1, 0x409, group), new(3, 1, 0x409, png), new(3, 3, 0x409, dib)]));
+        b.Directories[PeDirectory.Resource] = (rsrc.Rva, (uint)rsrc.Data.Length);
+        var bytes = b.Build();
+        var rows = Corvus.Tools.ResourceTools.Win32(Parse(bytes));
+
+        var g = rows.Single(r => r.Name == "GROUP_ICON/#1/1033");
+        Assert.Equal([1, 2], g.Icons);
+        Assert.Equal([new Corvus.Tools.IconRef(1, 256, 256, 32, "ICON/#1/1033"), new Corvus.Tools.IconRef(2, 16, 16, 8, null)], g.IconEntries);
+        var icon = rows.Single(r => r.Name == "ICON/#1/1033");
+        Assert.Equal(["GROUP_ICON/#1/1033"], icon.IconGroups);
+        Assert.Equal("png 256x256", icon.Image);
+        var loose = rows.Single(r => r.Name == "ICON/#3/1033");
+        Assert.Null(loose.IconGroups);
+        Assert.Equal("dib 16x16 4bpp", loose.Image);
+        // The file range holds exactly the hashed bytes.
+        long start = Convert.ToInt64(icon.FileOffset, 16), end = Convert.ToInt64(icon.FileEnd, 16);
+        Assert.Equal(png, bytes[(int)start..(int)end]);
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(png)), icon.Sha256);
+    }
+
+    [Fact]
     public void Resources_CycleAndDepth()
     {
         var b = Basic();

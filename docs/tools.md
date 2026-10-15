@@ -463,7 +463,7 @@ Structured output: `target`, `items`, `offset`, `total`, `from`, `totalExact`, `
 
 **List manifest resources** (read-only, idempotent)
 
-List manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 resources as TYPE/NAME/LANGUAGE (icon groups name their icons).
+List manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 resources as TYPE/NAME/LANGUAGE with file ranges (icon groups paired with their icons, image headers decoded).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

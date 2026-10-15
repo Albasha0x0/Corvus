@@ -34,6 +34,10 @@
             "description": "File offset of the data.",
             "type": "string"
           },
+          "fileEnd": {
+            "description": "Win32: end of the data in the file (exclusive); absent when it runs past the file.",
+            "type": "string"
+          },
           "codePage": {
             "description": "Win32: the code page, when not 0.",
             "type": "integer"
@@ -48,6 +52,47 @@
             "items": {
               "type": "integer"
             }
+          },
+          "iconEntries": {
+            "description": "Win32 icon groups: each entry with its stated size and the RT_ICON resource it names (absent: missing).",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "width": {
+                  "type": "integer"
+                },
+                "height": {
+                  "type": "integer"
+                },
+                "bitCount": {
+                  "type": "integer"
+                },
+                "resource": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "width",
+                "height",
+                "bitCount"
+              ]
+            }
+          },
+          "iconGroups": {
+            "description": "Win32 icons: the groups naming them.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "image": {
+            "description": "Win32 icons, cursors and bitmaps: the decoded header (png 256x256, dib 32x32 32bpp).",
+            "type": "string"
           }
         },
         "required": [

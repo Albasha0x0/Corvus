@@ -242,10 +242,17 @@ public sealed record ResourceEntry(
     public bool? Public { get; init; }
     [Description("Win32: where the data is.")] public string? Rva { get; init; }
     [Description("File offset of the data.")] public string? FileOffset { get; init; }
+    [Description("Win32: end of the data in the file (exclusive); absent when it runs past the file.")] public string? FileEnd { get; init; }
     [Description("Win32: the code page, when not 0.")] public int? CodePage { get; init; }
     [Description("SHA-256 of the data.")] public string? Sha256 { get; init; }
     [Description("Win32 icon groups: the RT_ICON ids.")] public IReadOnlyList<int>? Icons { get; init; }
+    [Description("Win32 icon groups: each entry with its stated size and the RT_ICON resource it names (absent: missing).")] public IReadOnlyList<IconRef>? IconEntries { get; init; }
+    [Description("Win32 icons: the groups naming them.")] public IReadOnlyList<string>? IconGroups { get; init; }
+    [Description("Win32 icons, cursors and bitmaps: the decoded header (png 256x256, dib 32x32 32bpp).")] public string? Image { get; init; }
 }
+
+/// <summary>An icon group entry: its RT_ICON id, the size and depth the group states, and that icon's TYPE/NAME/LANGUAGE.</summary>
+public sealed record IconRef(int Id, int Width, int Height, int BitCount, string? Resource);
 
 public sealed record ResourceList(string Assembly, IReadOnlyList<ResourceEntry> Items, int Offset, int Total);
 
