@@ -20,4 +20,12 @@ public sealed class MetadataDetailTests
         Assert.Contains("0x0000  98 2f 8a 42", text);
         Assert.Contains("[More: offset=1]", text);
     }
+
+    [Fact]
+    public async Task AttributeArguments_SplitFlagsEnums()
+    {
+        using var env = new Env(RealPackages.Lib("NLog", "6.1.4", "netstandard2.0", "NLog.dll"));
+        var text = await new BrowseTools(env.Workspace, env.References, env.Pager).GetAttributes("JetBrains.Annotations.MeansImplicitUseAttribute");
+        Assert.Contains("[AttributeUsage(AttributeTargets.Class | AttributeTargets.GenericParameter | AttributeTargets.Parameter)]", text);
+    }
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using dnlib.DotNet;
 
@@ -355,6 +356,9 @@ public static class Format
         var name = StripArity(ca.AttributeType?.Name ?? "?");
         if (name.EndsWith("Attribute", StringComparison.Ordinal) && name.Length > "Attribute".Length)
             name = name[..^"Attribute".Length];
+        // A blob dnlib could not decode (an enum or type from an unresolved assembly) is shown, not dropped.
+        if (ca.IsRawBlob && ca.RawData is { Length: > 0 } raw)
+            return $"[{name}(/* undecoded {raw.Length}-byte blob: {Convert.ToHexStringLower(raw.AsSpan(0, Math.Min(raw.Length, 64)))}{(raw.Length > 64 ? "..." : "")} */)]";
         if (!ca.HasConstructorArguments && !ca.HasNamedArguments)
             return $"[{name}]";
         var args = ca.ConstructorArguments.Select(AttributeArgument)
@@ -379,8 +383,35 @@ public static class Format
     private static string EnumValue(TypeDef e, object? value)
     {
         var member = e.Fields.FirstOrDefault(f => f.IsLiteral && f.Constant != null && Equals(f.Constant.Value, value));
-        return member != null ? $"{e.Name}.{member.Name}" : $"({e.Name}){Literal(value)}";
+        if (member != null) return $"{e.Name}.{member.Name}";
+        return FlagNames(e, value) is { } flags ? string.Join(" | ", flags.Select(f => $"{e.Name}.{f}")) : $"({e.Name}){Literal(value)}";
     }
+
+    /// <summary>
+    /// A [Flags] enum value as the single-bit members that make it up, or null when it is not a flags enum or some bit
+    /// has no member.
+    /// </summary>
+    private static List<string>? FlagNames(TypeDef e, object? value)
+    {
+        if (!e.CustomAttributes.IsDefined("System.FlagsAttribute")) return null;
+        if (Bits(value) is not { } rest) return null;
+        var names = new List<string>();
+        foreach (var f in e.Fields.Where(f => f.IsLiteral))
+        {
+            if (Bits(f.Constant?.Value) is not { } bit || bit == 0 || (bit & (bit - 1)) != 0 || (rest & bit) == 0) continue;
+            names.Add(f.Name);
+            rest &= ~bit;
+        }
+        return rest == 0 && names.Count > 1 ? names : null;
+    }
+
+    private static ulong? Bits(object? v) => v switch
+    {
+        ulong u => u,
+        long or int or short or sbyte => unchecked((ulong)Convert.ToInt64(v, CultureInfo.InvariantCulture)),
+        uint or ushort or byte or char => Convert.ToUInt64(v, CultureInfo.InvariantCulture),
+        _ => null,
+    };
 
     /// <summary>The primitive values inside an attribute argument (array elements and boxed values included).</summary>
     public static IEnumerable<object?> AttributeValues(CAArgument arg) => arg.Value switch

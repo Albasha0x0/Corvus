@@ -264,7 +264,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         {
             foreach (var ca in owner.CustomAttributes)
                 if (filter == null || (ca.AttributeType?.FullName ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase))
-                    rows.Add((new AttributeEntry(target, Format.Attribute(ca)), who));
+                    rows.Add((new AttributeEntry(target, Format.Attribute(ca)) { Arguments = Arguments(ca) }, who));
         }
         if (string.IsNullOrWhiteSpace(symbol))
         {
@@ -285,6 +285,14 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
             r => $"{(r.Who is { } o ? $"{o.Label}  [{o.Assembly}]  " : "")}{(r.Entry.Target is "type" or "method" or "field" or "property" or "event" ? "" : r.Entry.Target + ": ")}{r.Entry.Attribute}",
             page => new AttributeList(Owners(page), offset, rows.Count), "attribute", rows.Count == 0 && filter != null ? $"No custom attributes match '{filter}'.\n" : null);
     }, cancellationToken);
+
+    private static List<AttributeArgumentEntry>? Arguments(CustomAttribute ca)
+    {
+        if (!ca.HasConstructorArguments && !ca.HasNamedArguments) return null;
+        return ca.ConstructorArguments.Select(a => new AttributeArgumentEntry(Format.Type(a.Type), Format.AttributeArgument(a)))
+            .Concat(ca.NamedArguments.Select(n => new AttributeArgumentEntry(Format.Type(n.Type), Format.AttributeArgument(n.Argument)) { Name = n.Name }))
+            .ToList();
+    }
 
     /// <summary>The page's rows with the owner on the first row of each member only.</summary>
     private static List<AttributeEntry> Owners(IReadOnlyList<(AttributeEntry Entry, SymbolRef? Who)> page)

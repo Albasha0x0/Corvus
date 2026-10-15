@@ -81,8 +81,14 @@ public sealed record AttributeEntry(
     [property: Description("The attribute with its arguments, as C#.")] string Attribute)
 {
     [Description("The member carrying it, on the first row of each member; absent for assembly and module.")] public string? Owner { get; init; }
+    [Description("Constructor arguments, then named ones.")] public IReadOnlyList<AttributeArgumentEntry>? Arguments { get; init; }
     public string? Token { get; init; }
     public string? Assembly { get; init; }
+}
+
+public sealed record AttributeArgumentEntry(string Type, [property: Description("As C#.")] string Value)
+{
+    [Description("Named arguments only.")] public string? Name { get; init; }
 }
 
 /// <summary>get_attributes: rows, or with format=csharp the assembly attributes as a code page (code, offset, nextOffset, totalChars).</summary>

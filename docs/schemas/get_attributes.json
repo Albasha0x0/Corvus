@@ -18,6 +18,30 @@
             "description": "The member carrying it, on the first row of each member; absent for assembly and module.",
             "type": "string"
           },
+          "arguments": {
+            "description": "Constructor arguments, then named ones.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "value": {
+                  "description": "As C#.",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Named arguments only.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ]
+            }
+          },
           "token": {
             "type": "string"
           },
