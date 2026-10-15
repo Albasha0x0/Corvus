@@ -1,5 +1,7 @@
 using System.Text;
+using Corvus.Core;
 using Corvus.Core.Protobuf;
+using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
 
@@ -51,7 +53,7 @@ internal sealed class ProtoWriter
         .Str(12, "proto3").ToArray();
 }
 
-/// <summary>FileDescriptorProto reading, .proto text and the raw scan.</summary>
+/// <summary>FileDescriptorProto reading, .proto text, the raw scan and view=protobuf.</summary>
 public sealed class ProtobufTests
 {
     private const string DemoText = """
@@ -108,6 +110,20 @@ public sealed class ProtobufTests
         Assert.Equal(19, found.Offset);
         Assert.Equal(demo.Length, found.File.Length);
         Assert.Equal("demo.proto", found.File.Name);
+    }
+
+    [Fact]
+    public void Protobuf_view_rebuilds_descriptors_of_a_native_image()
+    {
+        var writer = NativeFormats.FormatWriterTests.SampleMachO();
+        writer.ExtraSections = [("__TEXT", "__const", 0x2000, ProtoWriter.Demo(), 0)];
+        var bytes = writer.Build();
+        var view = new ProtobufFileView().Inspect(new FileInput("demo", bytes, Blob.Identify(bytes)) { Options = new FileViewOptions("protobuf") }, default);
+        var facts = Assert.IsType<ProtobufFileView.Facts>(view?.Detail);
+        var d = Assert.Single(facts.Files);
+        Assert.Equal(("demo.proto", "raw bytes", 1), (d.Name, d.Encoding, d.Services));
+        Assert.Equal(DemoText.ReplaceLineEndings("\n"), d.Proto);
+        Assert.Contains("gRPC services demo.v1.Users", view!.Highlights[0], StringComparison.Ordinal);
     }
 
     [Fact]

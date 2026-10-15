@@ -29,7 +29,7 @@ search_container kind=electron lists preload scripts, contextBridge keys, IPC ch
 native add-ons with file:line:column; kind=endpoint lists a capture's request templates, or the endpoints an APK, .NET or iOS
 app's code names (Retrofit, OkHttp, HttpClient, Refit, gRPC, URL strings) by method, and capture= joins the two (code,
 capture, code+capture); kind=dart lists a Flutter app's Dart package: / dart: URIs and identifiers (summarize_file
-view=flutter gives its packages).
+view=flutter gives its packages). summarize_file view=protobuf rebuilds embedded protobuf descriptors as .proto files.
 analyze_js on a .js file: bundler signatures and its source map; view=position maps a minified line:column to the original source.
 Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read these yet; unpack_container on the _framework folder converts them to PEs that load; save_assembly to a .wasm path writes Webcil back.
 Unity builds: unity_overview first.
