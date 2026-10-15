@@ -645,7 +645,7 @@ Overview of a Unity title in seconds, without loading it (listings, headers and 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | The title's folder, executable, *_Data folder, UnityPlayer.dll, GameAssembly.dll or global-metadata.dat; an .apk / .ipa, a zipped title, or a macOS / iOS .app. |
+| `path` | string | yes |  | A title's folder, executable, *_Data, UnityPlayer.dll, GameAssembly.dll or global-metadata.dat; .apk / .ipa, zip, WebGL build or .app. |
 | `detectItEasy` | boolean |  |  | Also run Detect It Easy (diec, CORVUS_DIE or PATH) on the main binaries; launches it, about a second per file. |
 
 Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`.

@@ -26,7 +26,7 @@ public static class UnityOverview
         string? Executable,
         [property: Description("Company and product from <Data>/app.info; null when absent.")] string? Company,
         string? Product,
-        [property: Description("windows, linux, macos, android or unknown.")] string Platform,
+        [property: Description("windows, linux, macos, android, ios, webgl or unknown.")] string Platform,
         [property: Description("x64, x86, arm64, arm or unknown.")] string Architecture,
         [property: Description("Where architecture was read from.")] string? ArchitectureSource,
         EngineFacts Engine,
@@ -114,7 +114,13 @@ public static class UnityOverview
                 "set CORVUS_DIE to the Detect It Easy folder (or diec.exe), or call again with detectItEasy=false");
 
         string? package = null;
-        if (Il2CppPackages.IsUnityPackage(full))
+        var webNotes = new List<string>();
+        if (UnityWebGl.Find(full) is { } web)
+        {
+            package = web.Data;
+            full = UnityWebGl.Extract(web, Path.GetFullPath(Il2CppRawLoader.DefaultRoot), webNotes, ct);
+        }
+        else if (Il2CppPackages.IsUnityPackage(full))
         {
             // Packages and zipped titles: the game files the overview reads (binaries, metadata or assemblies, version files), in a short cache path.
             package = full;
@@ -129,6 +135,7 @@ public static class UnityOverview
             Details = new { reason = "not_a_unity_title", path = full, lookedFor = LookedFor },
         };
         var notes = new List<string>(layout.Notes);
+        notes.AddRange(webNotes);
         if (package != null) notes.Add($"Read from the game files of {package}, extracted to {full} (binaries, metadata or assemblies, and the data folder's version files).");
         var markers = new List<MarkerFact>();
         ct.ThrowIfCancellationRequested();
@@ -167,6 +174,9 @@ public static class UnityOverview
     private static Layout? TryLayout(string dir, string? exeHint)
     {
         var notes = new List<string>();
+        // WebGL: the files UnityWebGl unpacked from the build's .data, laid out as Data/.
+        if (File.Exists(Path.Combine(dir, UnityWebGl.Marker)))
+            return new Layout(dir, Path.Combine(dir, "Data"), null, "webgl", null, notes);
         // Android (extracted APK): assets/bin/Data.
         var androidData = Path.Combine(dir, "assets", "bin", "Data");
         if (Directory.Exists(androidData))

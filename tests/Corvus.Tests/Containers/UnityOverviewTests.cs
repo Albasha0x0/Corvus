@@ -136,6 +136,43 @@ public sealed class UnityOverviewTests : IDisposable
     }
 
     [Fact]
+    public void WebGl_build_reads_its_data_file_and_names_the_wasm()
+    {
+        // UnityWebData: magic, header length, then (offset, size, name length, name) per file
+        (string Name, byte[] Bytes)[] files = [("data.unity3d", [.. "UnityFS\0"u8, 0, 0, 0, 8, .. "5.x.x\0"u8, .. "2022.3.10f1\0"u8, 0, 0, 0, 0]),
+            ("Il2CppData/Metadata/global-metadata.dat", Metadata(29, ["Player"]))];
+        int header = 20 + files.Sum(f => 12 + f.Name.Length);
+        var table = new MemoryStream();
+        table.Write("UnityWebData1.0\0"u8);
+        table.Write(BitConverter.GetBytes(header));
+        int at = header;
+        foreach (var (name, bytes) in files)
+        {
+            table.Write(BitConverter.GetBytes(at));
+            table.Write(BitConverter.GetBytes(bytes.Length));
+            table.Write(BitConverter.GetBytes(name.Length));
+            table.Write(System.Text.Encoding.UTF8.GetBytes(name));
+            at += bytes.Length;
+        }
+        foreach (var (_, bytes) in files) table.Write(bytes);
+        var build = Directory.CreateDirectory(Path.Combine(_dir.Path, "web", "Build")).FullName;
+        using (var gz = new System.IO.Compression.GZipStream(File.Create(Path.Combine(build, "web.data.gz")), System.IO.Compression.CompressionLevel.Fastest))
+            gz.Write(table.ToArray());
+        File.WriteAllBytes(Path.Combine(build, "web.wasm"), [.. "\0asm"u8, 1, 0, 0, 0]);
+        var previous = Environment.GetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable);
+        Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, Path.Combine(_dir.Path, "cache"));
+        try
+        {
+            var r = UnityOverview.Inspect(Path.Combine(_dir.Path, "web"), false, default);
+            Assert.Equal(("webgl", "il2cpp", "2022.3.10f1", 29), (r.Platform, r.Backend.Kind, r.Engine.Version, r.Backend.MetadataVersion));
+            Assert.Contains(r.Notes, n => n.StartsWith("WebGL code: web.wasm, WebAssembly", StringComparison.Ordinal));
+        }
+        finally { Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, previous); }
+        var failures = FormatFuzz.Run(table.ToArray(), b => { try { UnityWebGl.Entries(b, "x.data"); } catch (ToolError) { } }, 500);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
+
+    [Fact]
     public void Il2Cpp_title_states_metadata_readability_and_branches_the_next_step()
     {
         var readable = UnityOverview.Inspect(Il2CppSample("Readable"), false, default);

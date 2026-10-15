@@ -24,7 +24,7 @@
       "type": "string"
     },
     "platform": {
-      "description": "windows, linux, macos, android or unknown.",
+      "description": "windows, linux, macos, android, ios, webgl or unknown.",
       "type": "string"
     },
     "architecture": {
