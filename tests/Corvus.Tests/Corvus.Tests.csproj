@@ -69,7 +69,6 @@
     <PackageDownload Include="runtime.linux-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
     <PackageDownload Include="runtime.osx-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
     <PackageDownload Include="Gee.External.Capstone" Version="[2.3.0]" />
-    <PackageDownload Include="SQLitePCLRaw.lib.e_sqlite3" Version="[2.1.2];[2.1.11]" />
     <!-- A native DLL with its matching PDB (load_pdb, PDB symbols and types). -->
     <PackageDownload Include="HarfBuzzSharp.NativeAssets.Win32" Version="[14.2.0]" />
   </ItemGroup>
@@ -90,11 +89,13 @@
     <!-- Objective-C (classes, categories on Foundation classes, ivars) and Swift (types, fields, conformances) metadata. -->
     <PackageDownload Include="Microsoft.macOS.Runtime.osx-arm64" Version="[14.2.8078]" />
     <PackageDownload Include="SwiftBindings.Stripe.UICore" Version="[26.11.0]" />
+    <!-- Quick-set tests read these too (Apple bundles, code signatures, rpath checks; SQLite oracle, crypto constants, showcases). -->
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[10.0.11]" />
+    <PackageDownload Include="SQLitePCLRaw.lib.e_sqlite3" Version="[2.1.2];[2.1.11]" />
   </ItemGroup>
   <!-- Large runtime packs for the slow native format tests only. -->
   <ItemGroup Condition="'$(CORVUS_ALL_TESTS)' == '1'">
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-arm64" Version="[10.0.11]" />
-    <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[10.0.11]" />
     <PackageDownload Include="SkiaSharp.NativeAssets.Linux" Version="[3.119.4]" />
     <PackageDownload Include="Microsoft.Android.Runtime.35.android-arm64" Version="[35.0.105]" />
     <PackageDownload Include="Microsoft.Android.Ref.35" Version="[35.0.105]" />

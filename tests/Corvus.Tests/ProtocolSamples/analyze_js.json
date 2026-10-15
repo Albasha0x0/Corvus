@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "bundle.js: 90 bytes, 3 lines (longest 54)\nBundlers: webpack (__webpack_require__ x1)\nSource map: samples\\bundle.js.map; 1 sources (1 with content), 2 segments"
+    "bundle.js: 90 bytes, 3 lines (longest 54)\nBundlers: webpack (__webpack_require__ x1)\nSource map: <fixtures>/samples/bundle.js.map; 1 sources (1 with content), 2 segments"
   ],
   "structuredContent": {
     "view": "summary",
@@ -21,7 +21,7 @@
         }
       ],
       "sourceMap": {
-        "location": "samples\\bundle.js.map",
+        "location": "<fixtures>/samples/bundle.js.map",
         "sources": 1,
         "withContent": 1,
         "segments": 2,

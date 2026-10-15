@@ -135,7 +135,7 @@ public static class RealPackages
 
     /// <summary>The NuGet global packages folder.</summary>
     public static string Root => Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } custom
-        ? System.IO.Path.TrimEndingDirectorySeparator(custom)
+        ? System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(custom)) // CI sets it with mixed separators
         : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
 }
 
