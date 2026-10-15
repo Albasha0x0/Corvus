@@ -228,7 +228,9 @@ internal static class ContainerText
         var header = new StringBuilder($"{Escape(Path.GetFileName(s.Source))} ({s.Container}): {s.Searched} searched.\n");
         foreach (var n in s.Notes) header.Append("Note: ").Append(Escape(n)).Append('\n');
         return ToolOutput.List(s.Items, s.Offset, limit, s.Total, m =>
-                $"{m.Kind} {Escape(m.Name)}" + (m.Kind == "file" ? "" : $" in {Escape(m.Path)}") + (m.Detail != null ? $" ({Escape(m.Detail)})" : ""),
+                $"{m.Kind} {Escape(m.Name)}" + (m.Kind == "file" ? "" : $" in {Escape(m.Path)}") + (m.Detail != null ? $" ({Escape(m.Detail)})" : "")
+                + (m.Member != null ? $" at {Escape(m.Member)}" + (m.Location != null ? $" {Escape(m.Location)}" : "") : m.Location != null ? $" at {Escape(m.Location)}" : "")
+                + (m.Seen != null && s.Items.Any(x => x.Seen != m.Seen) ? $" [{m.Seen}]" : ""),
             rows => s with { Items = [.. rows] }, "match", header.ToString());
     }
 

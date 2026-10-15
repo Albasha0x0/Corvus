@@ -99,6 +99,8 @@ internal sealed class DexBuilder
         public List<Try> Tries { get; } = [];
         public List<(int Offset, int Line)> Lines { get; } = [];
         public string?[]? ParameterNames { get; set; }
+        /// <summary>Method annotations, as <see cref="ClassDef.Annotations"/>.</summary>
+        public List<(string Type, byte Visibility, (string Name, object Value)[] Elements)> Annotations { get; } = [];
     }
 
     public sealed class ClassDef(string descriptor, uint access, string? super, string? source)
@@ -198,7 +200,7 @@ internal sealed class DexBuilder
                 foreach (var t in m.Tries.SelectMany(t => t.Handlers).Select(h => h.Type).OfType<string>()) AddType(t);
                 foreach (var n in m.ParameterNames ?? []) if (n != null) strings.Add(n);
             }
-            foreach (var a in c.Annotations)
+            foreach (var a in c.Annotations.Concat(c.Methods.SelectMany(m => m.Annotations)))
             {
                 AddType(a.Type);
                 foreach (var (name, value) in a.Elements)
@@ -340,15 +342,15 @@ internal sealed class DexBuilder
         }
         if (codeCount > 0) map.Add((0x2001, codeCount, codeStart));
 
-        // Class annotations: annotation items, sets, directories.
+        // Class and method annotations: annotation items, sets, directories.
         var directories = new Dictionary<ClassDef, long>();
         long annotationStart = 0, setStart = 0, dirStart = 0;
         int annotationCount = 0, setCount = 0;
-        var itemOffsets = new Dictionary<ClassDef, List<long>>();
-        foreach (var c in classes.Where(c => c.Annotations.Count > 0))
+        string MethodId(ClassDef c, MethodDef m) => $"{c.Descriptor}->{m.Name}{ProtoKey(m.Return, m.Parameters)}";
+        List<long> Items(List<(string Type, byte Visibility, (string Name, object Value)[] Elements)> annotations)
         {
             var list = new List<long>();
-            foreach (var a in c.Annotations.OrderBy(a => p.T[a.Type]))
+            foreach (var a in annotations.OrderBy(a => p.T[a.Type]))
             {
                 if (annotationCount++ == 0) annotationStart = w.Length;
                 list.Add(w.Length);
@@ -367,25 +369,36 @@ internal sealed class DexBuilder
                     }
                 }
             }
-            itemOffsets[c] = list;
+            return list;
+        }
+        var annotated = classes.Where(c => c.Annotations.Count > 0 || c.Methods.Any(m => m.Annotations.Count > 0)).ToList();
+        var classItems = new Dictionary<ClassDef, List<long>>();
+        var methodItems = new Dictionary<ClassDef, List<(int Method, List<long> Items)>>();
+        foreach (var c in annotated)
+        {
+            if (c.Annotations.Count > 0) classItems[c] = Items(c.Annotations);
+            methodItems[c] = [.. c.Methods.Where(m => m.Annotations.Count > 0).Select(m => (p.M[MethodId(c, m)], Items(m.Annotations))).OrderBy(x => x.Item1)];
         }
         if (annotationCount > 0) map.Add((0x2004, annotationCount, annotationStart));
-        var sets = new Dictionary<ClassDef, long>();
-        foreach (var (c, list) in itemOffsets)
+        long Set(List<long> list)
         {
             Align4();
             if (setCount++ == 0) setStart = w.Length;
-            sets[c] = w.Length;
+            long at = w.Length;
             U32((uint)list.Count);
-            foreach (var at in list) U32((uint)at);
+            foreach (var item in list) U32((uint)item);
+            return at;
         }
+        var classSets = classItems.ToDictionary(x => x.Key, x => Set(x.Value));
+        var methodSets = methodItems.ToDictionary(x => x.Key, x => x.Value.Select(m => (m.Method, Set: Set(m.Items))).ToList());
         if (setCount > 0) map.Add((0x1003, setCount, setStart));
-        foreach (var (c, set) in sets)
+        foreach (var c in annotated)
         {
             Align4();
             if (directories.Count == 0) dirStart = w.Length;
             directories[c] = w.Length;
-            U32((uint)set); U32(0); U32(0); U32(0);
+            U32(classSets.TryGetValue(c, out var set) ? (uint)set : 0); U32(0); U32((uint)methodSets[c].Count); U32(0);
+            foreach (var (method, at) in methodSets[c]) { U32((uint)method); U32((uint)at); }
         }
         if (directories.Count > 0) map.Add((0x2006, directories.Count, dirStart));
 

@@ -621,7 +621,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `n
 
 **Search inside a container** (read-only, idempotent)
 
-Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names), exact matches first; kind=file matches inner file names and paths.
+Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names), exact matches first; kind=file matches inner file names and paths; kind=endpoint lists the endpoints app code names (Retrofit, OkHttp, Ktor, HttpClient, Refit, gRPC, URL strings; each with its method and location) or a capture's requests, and with capture= joins both.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -630,6 +630,7 @@ Find types and members by name in every managed assembly inside a container (bun
 | `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, dart, electron, endpoint, file. |
 | `limit` | integer |  | `100` | Max rows. |
 | `offset` | integer |  |  | Rows to skip. |
+| `capture` | string |  |  | kind=endpoint: a HAR, mitmproxy, .saz or pcap capture joined to the code's endpoints; each row says code, capture or code+capture. |
 
 Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

@@ -251,7 +251,17 @@ Other kinds search files rather than metadata. `kind=electron` lists where an El
 boundary, each with `file:line:column`: preload scripts, `contextBridge` keys, IPC channels handled in main and used
 from renderers, `child_process` and `shell` sinks, and native add-ons loaded, each add-on found under
 `app.asar.unpacked` and named with its N-API registrations (the query matches the channel or the row kind, e.g. `ipc-main`). `kind=endpoint` on a HAR or mitmproxy capture lists each request template once (numeric and id
-path segments folded, query values never shown) with its request count and statuses. `kind=dart` on a Flutter app
+path segments folded, query values never shown) with its request count and statuses. On app code (an APK, AAB, `.ipa`,
+DEX, .NET assembly, Mach-O or a container of them) `kind=endpoint` lists the endpoints the code names, each with its
+client, method id or member and location: Retrofit methods from their HTTP annotations (R8-renamed annotation types
+mapped back through Retrofit's own parser) joined to `baseUrl` through `create(Api.class)`, OkHttp / Ktor / Volley /
+`java.net.URL` / WebView calls with `StringBuilder` and Kotlin template URLs folded to `{}` templates, Refit attributes
+(with `RestService.For` base URLs and the query names unannotated parameters become), `HttpClient` /
+`HttpRequestMessage` / `WebClient` calls with interpolated and concatenated URLs, generated gRPC client methods in Java
+and C#, every gRPC method of an embedded descriptor, Mach-O URL strings with the functions that load them, and absolute
+URL literals no call consumes (XML namespaces left out). `capture=` (HAR, mitmproxy, `.saz`, pcap) joins both sides:
+a code row a captured request instantiates is marked `code+capture` and names the requests, captured templates no code
+explains are marked `capture`. `kind=dart` on a Flutter app
 (`libapp.so`, `App.framework/App`, or an APK or `.ipa` holding one) lists the Dart AOT isolate snapshot's string pool: every
 distinct `package:` and `dart:` URI and identifier token with its offset (the query matches the string or its kind,
 e.g. `identifier`). `compare_folders` compares two

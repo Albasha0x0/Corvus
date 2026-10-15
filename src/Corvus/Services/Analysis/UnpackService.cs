@@ -186,17 +186,21 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     };
 
     /// <summary>A search by a kind= value: a provider's kind, else the managed symbols.</summary>
-    public ContainerSearch Search(string path, string query, string? kind, int limit, AnalysisLimits limits, CancellationToken ct, int offset = 0)
+    public ContainerSearch Search(string path, string query, string? kind, int limit, AnalysisLimits limits, CancellationToken ct, int offset = 0, string? capture = null)
     {
         var name = kind?.Trim().ToLowerInvariant();
+        if (capture != null && name != "endpoint")
+            throw new ToolError(ErrorCode.InvalidArgument, "capture applies to kind=endpoint only.", "pass kind=endpoint, or omit capture");
+        if (capture != null) capture = InputFiles.RequireRegularFile(capture, "capture");
         var provider = name is null or "" ? null : Providers.Of<IContainerSearchKind>().FirstOrDefault(p => p.Kinds.Contains(name));
-        return provider == null ? Search(path, query, ParseSearchKind(kind), limit, limits, ct, offset) : SearchFiles(path, query, provider, name!, limit, limits, ct, offset);
+        return provider == null ? Search(path, query, ParseSearchKind(kind), limit, limits, ct, offset) : SearchFiles(path, query, provider, name!, limit, limits, ct, offset, capture);
     }
 
     private static ContainerSearch SearchFiles(string path, string query, IContainerSearchKind provider, string kind, int limit, AnalysisLimits limits,
-        CancellationToken ct, int offset)
+        CancellationToken ct, int offset, string? capture)
     {
-        var scope = Scope(path, limits, ct);
+        var (scope0, notes0) = Scope(path, limits, ct);
+        var scope = (Scope: scope0 with { Capture = capture }, Notes: notes0);
         var matcher = SearchService.CreateMatcher(query, regex: false);
         var all = provider.Search(scope.Scope, kind, matcher, ct).ToList();
         // Ranked on the last part of the name (a file name, a member name), as the managed search ranks short names.

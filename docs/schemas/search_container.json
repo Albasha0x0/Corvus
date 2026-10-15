@@ -29,6 +29,15 @@
           },
           "detail": {
             "type": "string"
+          },
+          "member": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "seen": {
+            "type": "string"
           }
         },
         "required": [

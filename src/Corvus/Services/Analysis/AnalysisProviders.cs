@@ -22,13 +22,26 @@ public interface IFileSummaryView
 public sealed record ContainerItem(string Path, string Kind, string Origin, byte[] Bytes);
 
 /// <summary>What a search kind searches: every file of the container (nested ones opened) and an archive's entries.</summary>
-public sealed record ContainerScope(string Source, string Container, IReadOnlyList<ContainerItem> Items, IReadOnlyList<ContainerEntry>? Entries);
+public sealed record ContainerScope(string Source, string Container, IReadOnlyList<ContainerItem> Items, IReadOnlyList<ContainerEntry>? Entries)
+{
+    /// <summary>kind=endpoint: a capture whose requests are joined to the code's endpoints.</summary>
+    public string? Capture { get; init; }
+}
 
 /// <summary>A search_container match: the inner path, the name the query matched and the kind.</summary>
 public sealed record ContainerMatch(string Path, string Name, string Kind)
 {
     public string? Assembly { get; init; }
     public string? Detail { get; init; }
+
+    /// <summary>kind=endpoint: the method that names the endpoint (DEX id, .NET member, native function).</summary>
+    public string? Member { get; init; }
+
+    /// <summary>kind=endpoint: where in <see cref="Member"/> (code offset, IL offset, address), or "annotation" / "attribute".</summary>
+    public string? Location { get; init; }
+
+    /// <summary>kind=endpoint: code, capture, or code+capture.</summary>
+    public string? Seen { get; init; }
 }
 
 /// <summary>search_container kinds beyond the managed ones (type, method, field, property, event).</summary>

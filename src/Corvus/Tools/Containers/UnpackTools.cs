@@ -33,16 +33,18 @@ public sealed class UnpackTools(UnpackService unpacker)
     [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
     [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, " +
                  "without extracting or loading: a case-insensitive substring with * / ? wildcards ('.' or ':' also match full names), exact matches first; " +
-                 "kind=file matches inner file names and paths.")]
+                 "kind=file matches inner file names and paths; kind=endpoint lists the endpoints app code names (Retrofit, OkHttp, Ktor, HttpClient, Refit, gRPC, " +
+                 "URL strings; each with its method and location) or a capture's requests, and with capture= joins both.")]
     public async Task<string> SearchContainer(
         [Description("Absolute path to the container or assembly file.")] string path,
         [Description("Name or part of a name.")] string query,
         [Description("Restrict to this kind; omit for all members (events included).")] string? kind = null,
         [Description(LimitDescription)] int limit = 100,
         [Description(RowOffsetDescription)] int offset = 0,
+        [Description("kind=endpoint: a HAR, mitmproxy, .saz or pcap capture joined to the code's endpoints; each row says code, capture or code+capture.")] string? capture = null,
         CancellationToken cancellationToken = default)
     {
-        var found = await Task.Run(() => unpacker.Search(path, query, kind, ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset), cancellationToken);
+        var found = await Task.Run(() => unpacker.Search(path, query, kind, ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset, capture), cancellationToken);
         return ContainerText.Search(found, ClampLimit(limit));
     }
 }
