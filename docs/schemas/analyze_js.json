@@ -215,6 +215,83 @@
         ]
       }
     },
+    "diff": {
+      "type": "object",
+      "properties": {
+        "oldModules": {
+          "type": "integer"
+        },
+        "newModules": {
+          "type": "integer"
+        },
+        "identical": {
+          "type": "integer"
+        },
+        "changed": {
+          "type": "integer"
+        },
+        "added": {
+          "type": "integer"
+        },
+        "removed": {
+          "type": "integer"
+        },
+        "renumbered": {
+          "description": "Pairs whose module id differs (webpack renumbering).",
+          "type": "integer"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "change": {
+                "type": "string"
+              },
+              "oldId": {
+                "type": "string"
+              },
+              "newId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "tier": {
+                "type": "string"
+              },
+              "oldBytes": {
+                "type": "integer"
+              },
+              "newBytes": {
+                "type": "integer"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "change",
+              "oldBytes",
+              "newBytes"
+            ]
+          }
+        },
+        "tokenDiff": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "oldModules",
+        "newModules",
+        "identical",
+        "changed",
+        "added",
+        "removed",
+        "renumbered",
+        "rows"
+      ]
+    },
     "notices": {
       "type": "array",
       "items": {

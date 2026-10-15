@@ -16,19 +16,20 @@ public sealed class WebTools(OutputPager pager)
     {
         public IReadOnlyList<JsEndpoint>? Endpoints { get; init; }
         public IReadOnlyList<JsSecret>? Secrets { get; init; }
+        public JsDiffResult? Diff { get; init; }
     }
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
     [Description("Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, " +
                  "Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; " +
-                 "sources, source; endpoints: requests, routes; secrets: masked keys.")]
+                 "sources, source; endpoints: requests, routes; secrets: masked keys; diff: modules against the bundle in source.")]
     public string AnalyzeJs(
         [Description("Absolute path to a .js file.")] string path,
         [Description("View; default summary.")] string view = "summary",
         [Description("position: generated line and column, 1-based.")] int line = 0,
         [Description("position: see line.")] int column = 0,
-        [Description("source: path or index.")] string? source = null,
-        [Description("module, refs: a module id; modules, search, endpoints, secrets: a filter.")] string? query = null,
+        [Description("source: path or index; diff: the old bundle's path.")] string? source = null,
+        [Description("module, refs: a module id; others: a filter (diff: one module's token diff).")] string? query = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
     {
@@ -135,6 +136,18 @@ public sealed class WebTools(OutputPager pager)
                            "\nsearch_container kind=endpoint capture=<HAR or pcap> joins these to a capture (seen in code, in the capture, or both).";
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("endpoints", Total: rows.Count) { Endpoints = rows.Take(500).ToList() });
             }
+            case "diff":
+            {
+                if (string.IsNullOrWhiteSpace(source)) throw new ToolError(ErrorCode.InvalidArgument, "view=diff needs source (the old bundle).", "pass source=<old .js path>; path is the new one");
+                var d = JsDiff.Compare(source.Trim(), path, string.IsNullOrWhiteSpace(query) ? null : query.Trim(), default);
+                int paired = d.Identical + d.Changed;
+                var text = $"{d.OldModules} -> {d.NewModules} module(s): {d.Identical} identical, {d.Changed} changed, {d.Added} added, {d.Removed} removed; " +
+                           $"{paired} paired ({(d.OldModules > 0 ? 100.0 * paired / d.OldModules : 0):0.#}% of the old), {d.Renumbered} renumbered\n" +
+                           string.Join("\n", d.Rows.Select(r => $"  {r.Change} {r.OldId ?? "-"} -> {r.NewId ?? "-"}" + (r.Name != null ? $" {r.Name}" : "") +
+                                                                 (r.Tier != null ? $" [{r.Tier}]" : "") + $" {r.OldBytes:N0} -> {r.NewBytes:N0} bytes" + (r.Detail != null ? "; " + r.Detail : ""))) +
+                           (d.TokenDiff != null ? "\n" + d.TokenDiff : "");
+                return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("diff", Total: d.Rows.Count) { Diff = d with { Rows = d.Rows.Take(500).ToList() } });
+            }
             case "secrets":
             {
                 var program = JsAnalysis.Program(path, default);
@@ -146,7 +159,7 @@ public sealed class WebTools(OutputPager pager)
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("secrets", Total: rows.Count) { Secrets = rows.Take(500).ToList() });
             }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints or secrets");
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets or diff");
         }
     }
 }

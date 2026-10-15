@@ -414,6 +414,8 @@ public sealed class FolderCompare
             "dotnet" => load + $"compare_assemblies oldAssembly={name} newAssembly={name}#2",
             "pe" or "elf" or "macho" => load + $"compare_native_images oldImage={name} newImage={name}#2; update_to_new_build carries names, patches and notes",
             "zip" => $"compare_folders oldPath=\"{a}\" newPath=\"{b}\"",
+            "text" when name.EndsWith(".js", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".mjs", StringComparison.OrdinalIgnoreCase)
+                => $"analyze_js view=diff path=\"{b}\" source=\"{a}\" (module by module)",
             _ => null,
         };
     }

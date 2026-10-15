@@ -2832,7 +2832,7 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; sources, source; endpoints: requests, routes; secrets: masked keys.
+Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; sources, source; endpoints: requests, routes; secrets: masked keys; diff: modules against the bundle in source.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2840,9 +2840,9 @@ Bundler, modules and source map of a JavaScript file, statically. view=summary; 
 | `view` | string |  | `summary` | View; default summary. Values: summary, modules, module, search, refs, position, sources, source. |
 | `line` | integer |  | `0` | position: generated line and column, 1-based. |
 | `column` | integer |  | `0` | position: see line. |
-| `source` | string |  |  | source: path or index. |
-| `query` | string |  |  | module, refs: a module id; modules, search, endpoints, secrets: a filter. |
+| `source` | string |  |  | source: path or index; diff: the old bundle's path. |
+| `query` | string |  |  | module, refs: a module id; others: a filter (diff: one module's token diff). |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `view`, `summary`, `position`, `modules`, `total`, `endpoints`, `secrets`.
+Structured output: `view`, `summary`, `position`, `modules`, `total`, `endpoints`, `secrets`, `diff`.

@@ -163,6 +163,9 @@ public static class RealData
     /// <summary>A large native image (100 MB or more) for speed measurements.</summary>
     public const string LargeNativeImage = "CORVUS_LARGE_NATIVE_IMAGE";
 
+    /// <summary>A folder of folders, each holding two builds of one JavaScript bundle as old.* and new.*.</summary>
+    public const string BundlePairs = "CORVUS_BUNDLE_PAIRS";
+
     /// <summary>A folder of installed Electron apps; every .asar below it (six levels) is listed and summarized.</summary>
     public const string ElectronApps = "CORVUS_ELECTRON_APPS";
 
