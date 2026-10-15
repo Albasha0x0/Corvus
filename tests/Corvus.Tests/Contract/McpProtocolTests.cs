@@ -564,7 +564,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         public async Task Prompts()
         {
             var prompts = await _client.ListPromptsAsync();
-            Assert.Equal(["analyze_assembly", "analyze_native", "compare_builds", "explain_type", "find_api_usage", "find_feature", "getting_started", "guide",
+            Assert.Equal(["analyze_assembly", "analyze_native", "check_reimplementation", "compare_builds", "explain_type", "find_api_usage", "find_feature", "getting_started", "guide", "investigate_feature",
                     "map_native_address", "patch_native", "plan_patch", "trace_native_feature", "triage_crash"],
                 prompts.Select(p => p.Name).Order());
             var result = await _client.GetPromptAsync("find_feature", new Dictionary<string, object?> { ["feature"] = "license check", ["assembly"] = "TestFixture" });

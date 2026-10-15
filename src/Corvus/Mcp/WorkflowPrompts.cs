@@ -192,4 +192,48 @@ public static class WorkflowPrompts
         record_note kind=question for each unknown.
         {Evidence}
         """;
+
+    [McpServerPrompt(Name = "investigate_feature", Title = "Investigate a feature")]
+    [Description("From a behaviour the user describes to the code behind it, with the evidence recorded, the unknowns listed and an optional reimplementation check.")]
+    public static string InvestigateFeature(
+        [Description("The behaviour as the user sees it, e.g. 'the app refuses files over 2 GB', 'random ids look predictable'.")] string behaviour,
+        [Description("Assembly or native image id, or a path (optional).")] string? target = null,
+        [Description("File to write the evidence bundle to (optional; default evidence.json beside the target).")] string? evidencePath = null) => $"""
+        Investigate "{behaviour}"{(string.IsNullOrWhiteSpace(target) ? "" : $" in {target}")} with the corvus tools.
+        1. Load and orient: load_assembly (unknown file: summarize_file), then survey_features (category=crypto, network, ... when the behaviour implies one).
+        2. Candidates, one source at a time, keeping the id or address of each hit:
+           - strings: search_strings (.NET) or search_native_strings (native) for UI, log and error text the behaviour shows;
+           - imports and APIs: list_imports, find_xrefs address=module!name, find_references for .NET APIs; search_constants or search_bytes for known constants;
+           - UI resources: list_resources and get_resource (forms, XAML, Win32 dialogs and string tables) for the text or control that triggers it;
+           - native ranking: trace_native_feature query=<word> for each word or API the behaviour implies.
+        3. Call paths: find_call_paths from the entry point or UI handler to each candidate (to='native:<image>!<function>' for native code),
+           get_call_tree / native_call_tree around it; read the deciding code with decompile_member or disassemble (decompile_native when an engine is available).
+        4. Evidence: read_result format=evidence id=last:N (or the kept r-... ids, comma-separated) outputPath={evidencePath ?? "<target folder>/evidence.json"}
+           bundles the calls that showed the chain; read_result format=verify id=<that path> re-runs them and names any record that differs.
+           record_note kind=finding per conclusion, anchored to the deciding member or address.
+        5. Unknowns: list what the tools could not show (unresolved indirect calls, missing engine, obfuscated names); record_note kind=question for each.
+        6. Optional, native code: check a reimplementation of the deciding function as in the check_reimplementation prompt.
+        Report the chain from trigger to effect with tokens or addresses, the evidence bundle path, and the unknowns.
+        {Evidence}
+        """;
+
+    [McpServerPrompt(Name = "check_reimplementation", Title = "Check a reimplementation")]
+    [Description("Run a native function believed to compute something on chosen inputs in the emulator and compare with the expected outputs.")]
+    public static string CheckReimplementation(
+        [Description("Native image id or path.")] string image,
+        [Description("The function: address, export or name.")] string function,
+        [Description("What it is believed to compute, e.g. 'CRC-32 of a buffer', 'the license key checksum'.")] string computes,
+        [Description("Inputs and expected outputs (optional), e.g. \"'abc' -> 0x352441C2\".")] string? cases = null) => $"""
+        Check that {function} in {image} computes {computes}.
+        1. Read its parameters first: analyze_native_function address={function} (and decompile_native when an engine is available) gives the arguments,
+           what each points to, the calls it makes and the globals it reads.
+        2. For each case{(string.IsNullOrWhiteSpace(cases) ? " (choose 3-5 inputs, including an empty and an edge input, and compute the expected output with your reimplementation)" : $" ({cases})")}:
+           emulate_native image={image} address={function} args=<inputs by the calling convention: integers, 'text', hex:.., buf:N for out buffers>
+           with stubs= for calls it makes outside the image and read=<register or address, length> for outputs written to memory.
+        3. Compare each return value or read with the expected output; on a mismatch, rerun with trace=200 and find the first instruction where they part.
+        4. read_result format=evidence id=last:N outputPath=<file> records the emulation runs; read_result format=verify id=<file> re-runs them.
+           record_note kind=finding with the verdict, anchored to {function}.
+        Report each case as input, expected, emulated and match, and say what the emulation could not model.
+        {Evidence}
+        """;
 }
