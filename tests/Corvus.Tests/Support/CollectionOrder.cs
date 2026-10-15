@@ -19,6 +19,11 @@ public sealed class LongCollectionsFirst : ITestCollectionOrderer
         "McpProtocolTests+Lifetime", "McpProtocolTests+Concurrency", "McpProtocolTests+Errors", "ContractSweepTests", "QuickSweepTests",
         "ProtocolSampleTests", "ToolCliTests", "ToolsetTests", "WorkerConnectionTests", "WorkerSessionBaseTests", "SimplifyTests",
         "SaveFidelityTests", "CSharpAdvancedTests", "DeviceTests",
+        // The full set's longest engine classes (2-8 min each): started late, they end the run alone.
+        "EngineOutputTests+LargestFunction", "EngineControlRealTests+GhidraOpenStages", "EngineControlRealTests+GhidraPartialAnalysis",
+        "NativeIdaEngineTests", "NativeIdaFormatsTests", "NativeGhidraEngineTests+Types", "ToolPackageTests",
+        "NativeEngineEditTests+GhidraDefineAndOperands", "NativeEditParityTests+GhidraComments", "NativeGhidraEditTests",
+        "NativeGhidraColdOpenTests", "NativeTypeEditEngineTests+GhidraRenames", "NativeTypeEditEngineTests+GhidraMembers",
     ];
 
     private readonly DefaultTestCollectionOrderer _default = new();
