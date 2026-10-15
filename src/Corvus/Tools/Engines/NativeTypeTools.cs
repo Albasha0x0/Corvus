@@ -107,7 +107,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         NativeFrame f;
         using (EngineReport.Heartbeat(progress, $"{session.ProviderId} reading the frame at {Va(native, rva)}"))
             f = await session.GetFrameAsync(rva, locals, cancellationToken);
-        if (setup != null) engines.Remember(native, session, setup, OutputCacheKinds.Frame, rva, f);
+        // the digest after the open: a PDB the engine fetched during it is part of the state this answer was made in
+        if (setup != null) engines.Remember(native, session, EngineReport.SetupDigest(native, code, "frame", names != null, types != null), OutputCacheKinds.Frame, rva, f);
         return FrameResult(native, f, session.ProviderId, locals, offset, limit);
     });
 

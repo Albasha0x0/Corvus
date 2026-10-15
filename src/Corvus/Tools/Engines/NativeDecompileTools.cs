@@ -152,7 +152,8 @@ public sealed partial class NativeAnalysisTools
         }
         uint? functionStart = decompiled?.StartRva ?? code?.Ready(native!)?.FunctionAt(rva)?.Start;
         var name = FunctionName(native!, functionStart, decompiled?.Name);
-        if (setup != null) engines.Remember(native!, session, setup, AnswerKind(addresses), rva, new DecompileAnswer(pushed, single, functionStart, name));
+        // the digest after the open: a PDB the engine fetched during it is part of the state this answer was made in
+        if (setup != null) engines.Remember(native!, session, SetupDigest(native!), AnswerKind(addresses), rva, new DecompileAnswer(pushed, single, functionStart, name));
         (string Text, List<DecompileRef> Items)? objects = refs
             ? await References(native!, session, TextKey(native!, session, rva, addresses) + "|refs", functionStart ?? rva, cancellationToken)
             : null;
