@@ -25,7 +25,7 @@ public sealed partial class NativeCodeTools
         [Description("Mnemonic regex, e.g. '^(call|jmp)$'.")] string? mnemonic = null,
         [Description("Operand text regex, e.g. 'rsp\\+|fs:'.")] string? operands = null,
         [Description("Regex over the whole instruction text.")] string? text = null,
-        [Description("An operand value: 0x10B, 267, or an address.")] string? value = null,
+        [Description("An operand value: 0x10B, 267, an address, or a range 0x100..0x1FF.")] string? value = null,
         [Description("Only this function: " + NativeTools.AddressDescription)] string? function = null,
         [Description("Range start (with to, or alone: to the end of its section).")] string? from = null,
         [Description("Range end (exclusive).")] string? to = null,
@@ -164,9 +164,19 @@ public sealed partial class NativeCodeTools
         }
     }
 
-    private static ulong? Value(string? text)
+    /// <summary>One value, or an inclusive range "min..max" (a constant range: crypto rounds, error codes, table sizes).</summary>
+    private static (ulong Lo, ulong Hi)? Value(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
+        int dots = text.IndexOf("..", StringComparison.Ordinal);
+        if (dots < 0) return Number(text) is var one ? (one, one) : null;
+        var (lo, hi) = (Number(text[..dots]), Number(text[(dots + 2)..]));
+        if (hi < lo) throw new ToolError(ErrorCode.InvalidArgument, $"value range '{text.Trim()}' ends before it starts.", "value=0x100..0x1FF");
+        return (lo, hi);
+    }
+
+    private static ulong Number(string text)
+    {
         var t = text.Trim();
         bool negative = t.StartsWith('-');
         var digits = negative ? t[1..] : t;
@@ -176,7 +186,7 @@ public sealed partial class NativeCodeTools
     }
 
     /// <summary>Filters over an instruction's text: mnemonic (prefixes skipped), operands, the whole line, and an operand value.</summary>
-    private sealed partial class InstructionQuery(Regex? mnemonic, Regex? operands, Regex? text, ulong? value)
+    private sealed partial class InstructionQuery(Regex? mnemonic, Regex? operands, Regex? text, (ulong Lo, ulong Hi)? value)
     {
         private static readonly HashSet<string> Prefixes = new(StringComparer.OrdinalIgnoreCase) { "lock", "rep", "repe", "repz", "repne", "repnz", "bnd", "notrack", "xacquire", "xrelease" };
 
@@ -201,7 +211,8 @@ public sealed partial class NativeCodeTools
             if (text != null && !text.IsMatch(line)) return false;
             if (value is { } v)
             {
-                bool found = targets.Any(t => t is { } r && (r == v || imageBase + r == v));
+                bool In(ulong x) => x >= v.Lo && x <= v.Hi;
+                bool found = targets.Any(t => t is { } r && (In(r) || In(imageBase + r)));
                 foreach (Match m in Literal().Matches(ops))
                 {
                     if (found) break;
@@ -209,7 +220,7 @@ public sealed partial class NativeCodeTools
                         : m.Groups[2].Success ? ulong.Parse(m.Groups[2].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture)
                         : ulong.TryParse(m.Groups[3].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var d) ? d : ulong.MaxValue;
                     bool negative = m.Index > 0 && ops[m.Index - 1] == '-';
-                    found = n == v || negative && unchecked((ulong)-(long)n) == v || (n > uint.MaxValue ? false : imageBase + n == v);
+                    found = In(n) || negative && In(unchecked((ulong)-(long)n)) || (n <= uint.MaxValue && In(imageBase + n));
                 }
                 if (!found) return false;
             }

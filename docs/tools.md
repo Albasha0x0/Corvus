@@ -1173,7 +1173,7 @@ Find instructions by mnemonic, operand or whole-line regex (case-insensitive) an
 | `mnemonic` | string |  |  | Mnemonic regex, e.g. '^(call\|jmp)$'. |
 | `operands` | string |  |  | Operand text regex, e.g. 'rsp\+\|fs:'. |
 | `text` | string |  |  | Regex over the whole instruction text. |
-| `value` | string |  |  | An operand value: 0x10B, 267, or an address. |
+| `value` | string |  |  | An operand value: 0x10B, 267, an address, or a range 0x100..0x1FF. |
 | `function` | string |  |  | Only this function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `from` | string |  |  | Range start (with to, or alone: to the end of its section). |
 | `to` | string |  |  | Range end (exclusive). |
