@@ -38,6 +38,21 @@ internal static partial class EhFrame
         return result;
     }
 
+    /// <summary>The FDE at <paramref name="at"/> (its length field) with its CIE in full, or null; CIEs are cached in <paramref name="cache"/>.</summary>
+    public static CfiFde? ReadFullFdeAt(ByteView data, long at, ulong dataVa, bool is64, Dictionary<long, CfiCie?> cache)
+    {
+        if (at < 0 || at + 8 > data.Length) return null;
+        long length = data.U32(at), body = at + 4;
+        if (length == 0xFFFFFFFF) { length = (long)Math.Min(data.U64(body), long.MaxValue / 2); body += 8; }
+        long next = body + length;
+        if (length < 8 || next > data.Length) return null;
+        uint id = data.U32(body);
+        if (id == 0) return null;
+        long cieAt = body - id;
+        if (!cache.TryGetValue(cieAt, out var cie)) cache[cieAt] = cie = ParseCieFull(data, cieAt, dataVa, is64);
+        return cie != null ? ParseFde(data, at, body + 4, next, cie, dataVa, is64) : null;
+    }
+
     private static CfiFde? ParseFde(ByteView data, long at, long pos, long end, CfiCie cie, ulong dataVa, bool is64)
     {
         if (!TryReadPointer(data, ref pos, cie.FdeEncoding, dataVa, 0, is64, out var start)) return null;
