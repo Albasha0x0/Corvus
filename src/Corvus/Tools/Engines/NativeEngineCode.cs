@@ -457,8 +457,16 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             }
             else
             {
+                // a thunk in the image forwards to its target: its callees are the target's (Ghidra's PPC64 ELFv2 global entries)
+                var from = start;
+                if (functions.ByStart.TryGetValue(start, out var fn) && fn.Flags.HasFlag(NativeFunctionFlags.Thunk)
+                    && (await session.GetFunctionRecordAsync(start, ct)).ThunkTarget is { } target && target != start && functions.ByStart.TryGetValue(target, out var to))
+                {
+                    from = target;
+                    sb.Append($"  (thunk to {Name(index, target, to.Name)} {Va(index, target)})");
+                }
                 if (direct)
-                    foreach (var x in await session.GetXrefsFromAsync(start, wholeFunction: true, ct))
+                    foreach (var x in await session.GetXrefsFromAsync(from, wholeFunction: true, ct))
                     {
                         if (imports.TryGetValue(x.ToRva, out var imp)) children.Add((x.ToRva, NativeCodeIndex.ImportName(imp), null));
                         else if (x.Kind == NativeXrefKind.Call || x.Kind == NativeXrefKind.Jump && functions.ByStart.ContainsKey(x.ToRva) && x.ToRva != start)
