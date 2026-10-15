@@ -148,15 +148,18 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         Options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
         var worker = provider.StartWorker(ida, python, Options.Symbols == SymbolMode.Off ? null : Options.PdbPath);
         SetWorker(worker);
+        // heartbeats before the open is decided (a slow worker start) belong to the start, not to an analysis
+        string stage = "start";
         worker.EventReceived += e =>
         {
-            if (e.Name == "progress") Options.Progress?.Report(new NativeProviderProgress(ReusedDatabase ? "load" : "analysis", clock.Elapsed));
+            if (e.Name == "progress") Options.Progress?.Report(new NativeProviderProgress(Volatile.Read(ref stage), clock.Elapsed));
         };
         await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
 
         provider.CheckVersion(await worker.RequestAsync("hello", null, provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false));
         var reuse = File.Exists(_databasePath);
         ReusedDatabase = reuse;
+        Volatile.Write(ref stage, reuse ? "load" : "analysis");
         StartStage(reuse ? "load" : "analysis");
         Options.Progress?.Report(new NativeProviderProgress(reuse ? "load" : "analysis", clock.Elapsed));
         var idaArgs = new JsonArray();
