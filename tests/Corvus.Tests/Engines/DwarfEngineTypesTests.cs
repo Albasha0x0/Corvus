@@ -53,6 +53,7 @@ public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("SystemNative_FStat(", text);
         Assert.Contains("FileStatus *output", text);
         Assert.Contains("output->Size = ", text);
+        Assert.DoesNotContain("Unknown calling convention", text); // a prototype without one takes the compiler spec's default
     }
 
     [GhidraFact]

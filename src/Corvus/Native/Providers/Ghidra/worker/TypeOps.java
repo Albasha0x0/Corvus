@@ -248,6 +248,12 @@ final class TypeOps {
             FunctionRenameOption.NO_CHANGE);
         if (!cmd.applyTo(w.program, r.monitor)) return cmd.getStatusMsg() == null ? "Ghidra did not apply the prototype" : cmd.getStatusMsg();
         Function f = fm.getFunctionAt(a);
+        // a prototype without a convention (DWARF, a plain C declaration) gets the compiler spec's default, not "unknown"
+        // with locked storage, which the decompiler warns about in every function
+        if (Function.UNKNOWN_CALLING_CONVENTION_STRING.equals(f.getCallingConventionName())) {
+            try { f.setCallingConvention(Function.DEFAULT_CALLING_CONVENTION_STRING); }
+            catch (ghidra.util.exception.InvalidInputException e) { }
+        }
         f.setNoReturn(sig.hasNoReturn());
         if (sig.hasNoReturn() != wasNoReturn) callSites(w, a, sig.hasNoReturn());
         return null;
