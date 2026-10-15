@@ -1,5 +1,46 @@
 # Release notes
 
+## 2.3.0
+
+156 tools and 15 prompts, as in 2.2.0: everything new is a parameter, a view or a kind of an existing tool. No breaking
+changes; engine output stored by 2.2.0 is computed again once (the cache layout changed).
+
+- **Evidence as input.** `compare_assemblies`, `compare_native_images`, `compare_folders` and `diff_function` take
+  `oldResult` / `newResult` (a kept result, `last:N` or a bundle entry) and compare them without running anything;
+  `read_result format=verify` takes one bundle entry and `against=`. What a side does not show is `unknown`, never
+  removed, added or equal: a page of a longer result, a result that is not complete, or a facet either side lacks.
+- **Completeness per facet.** Function results name `pseudocode`, `callers`, `callees`, `xrefs`, `strings` and `cfg` as
+  available or unavailable (with the reason) in the provenance and in `coverage.facets`; a record that says it stopped
+  early (`truncated`, `cut`, `incomplete`, `partial`) has coverage `partial`.
+- **Engine databases.** `docs/engine-databases.md` states the contract (identity, reuse across sessions and command-line
+  calls, invalidation, the user's own databases) with measured cold and warm times. `load_assembly` opens a Ghidra
+  project (`.gpr`, `program=`) from a copy, leaving the original untouched. Import overrides (processor, language,
+  compiler spec, seeds, disabled analyzers) apply before the first analysis in both engines.
+- **Engine edits.** `declare_native_types` inserts fields with the later ones moved down, resizes a struct and names its
+  gaps; `set_native_local inferStruct=` (Ghidra) declares a struct from a pointer's loads and stores and types the local,
+  `storage=` moves an argument to a register (IDA `__usercall`, Ghidra custom storage); `define_native kind=flow`
+  (Ghidra) sets or clears a flow override and repairs the function. `set_native_stack_var` and `set_native_operand`
+  take `items=` batches, and `get_native_frame` reads several functions in one request. Stack edits carry their offset
+  from the return address, so a member made in IDA lands in the same slot in Ghidra. Ghidra refuses a calling
+  convention its compiler spec lacks and names the ones it has.
+- **Engine output cache.** Renaming a local or a stack member makes only that function's stored answers stale.
+- **Emulation.** `emulate_native candidates=` runs many argument sets on one emulator in one request.
+- **Debug info.** `load_pdb` reads DWARF 2–5 for ELF and Mach-O (the image's sections, `.build-id` and `.gnu_debuglink`
+  files, dSYM bundles, debuginfod on request) into names, types, prototypes with parameter names, source lines and
+  inlined frames, pushed into IDA and Ghidra.
+- **WebAssembly.** A `.wasm` file loads as a native image: WAT byte-equal to `wasm2wat`, a lifted view, calls, xrefs,
+  CFG and strings; `summarize_file view=wasm` validates in-process (verdicts equal to `wasm-validate`) and joins the
+  imports to their JS glue; `compare_native_images` compares two builds' interfaces and function bodies.
+- **Network.** `search_container kind=packet` filters pcap / pcapng captures with Wireshark display filters, no TShark
+  needed (HTTP/2, QUIC Initial server names, SMB2, NTLMSSP and Kerberos names too; other fields through TShark).
+  `kind=endpoint` lists the endpoints an APK, .NET or Mach-O app's code names (Retrofit, OkHttp, Ktor, HttpClient,
+  Refit, gRPC) and joins them with a capture. `summarize_file view=protobuf` rebuilds embedded descriptors as `.proto`.
+- **Formats and managed code.** `get_il source=true` (Portable PDB sequence points, local names, SourceLink),
+  `get_attributes` typed arguments and `[Flags]` members, FieldRVA data in `get_type_info`, Il2Cpp metadata without the
+  binary, obfuscator identification with evidence, `view=sqlite` paging and recovery, streamed reads of files over
+  64 MiB, Win32 resource details, `search_bytes` nibble and bit masks, R8 / ProGuard mappings for DEX, Flutter string
+  pools, an Objective-C header export and Android screen and bugreport views.
+
 ## 2.2.0
 
 156 tools and 15 prompts (2.1.0 had 13): `investigate_feature` and `check_reimplementation` are new prompts. No
