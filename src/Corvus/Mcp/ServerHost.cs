@@ -34,6 +34,7 @@ public static class ServerHost
             .AddSingleton<AssemblyWorkspace>()
             .AddSingleton<OutputPager>()
             .AddSingleton<ResultStore>()
+            .AddSingleton<RecentCalls>()
             .AddSingleton<DecompilerService>()
             .AddSingleton<SearchService>()
             .AddSingleton<ReferenceService>()

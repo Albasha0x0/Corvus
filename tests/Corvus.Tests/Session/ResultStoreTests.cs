@@ -147,7 +147,7 @@ public sealed class ResultStoreTests : IDisposable
         int offset = 0, calls = 0;
         while (true)
         {
-            var page = tools.ReadResult(id, offset, maxTokens: 500);
+            var page = tools.ReadKept(id, offset, maxTokens: 500);
             calls++;
             var body = page[(page.IndexOf('\n') + 1)..];
             var footer = body[(body.LastIndexOf('[')..)];
@@ -168,10 +168,10 @@ public sealed class ResultStoreTests : IDisposable
         var store = new ResultStore(ResultCacheOptions.MemoryOnly);
         var id = store.Keep("alpha\nBeta one\ngamma\nbeta two\n", Origin());
         var tools = Tools(store);
-        Assert.EndsWith("6: Beta one\n21: beta two\n[End: 2 matching lines from offset 0]", tools.ReadResult(id, query: "beta"));
-        Assert.EndsWith("21: beta two\n[End: 1 matching line from offset 7]", tools.ReadResult(id, offset: 7, query: "beta"));
-        Assert.EndsWith("0: alpha\n15: gamma\n[End: 2 matching lines from offset 0]", tools.ReadResult(id, query: "/^[ag]/"));
-        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => tools.ReadResult(id, query: "/(/")).Code);
+        Assert.EndsWith("6: Beta one\n21: beta two\n[End: 2 matching lines from offset 0]", tools.ReadKept(id, query: "beta"));
+        Assert.EndsWith("21: beta two\n[End: 1 matching line from offset 7]", tools.ReadKept(id, offset: 7, query: "beta"));
+        Assert.EndsWith("0: alpha\n15: gamma\n[End: 2 matching lines from offset 0]", tools.ReadKept(id, query: "/^[ag]/"));
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => tools.ReadKept(id, query: "/(/")).Code);
     }
 
     [Fact]
@@ -182,18 +182,18 @@ public sealed class ResultStoreTests : IDisposable
         var id = store.Keep(text, Origin(), record: """{"total":2,"items":[{"a":1},{"b":[2,3]}]}""");
         var tools = Tools(store);
         var path = _dir.File("out.txt");
-        var answer = tools.ReadResult(id, outputPath: path);
+        var answer = tools.ReadKept(id, outputPath: path);
         var sha = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text))), sha);
         Assert.Contains($"SHA-256 {sha}", answer);
         Assert.DoesNotContain("zzz", answer);
-        Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => tools.ReadResult(id, outputPath: path)).Code);
+        Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => tools.ReadKept(id, outputPath: path)).Code);
 
-        tools.ReadResult(id, format: "jsonl", outputPath: path, overwrite: true);
+        tools.ReadKept(id, format: "jsonl", outputPath: path, overwrite: true);
         Assert.Equal("{\"a\":1}\n{\"b\":[2,3]}\n", File.ReadAllText(path));
-        Assert.Contains("\"total\":2", tools.ReadResult(id, format: "json"));
+        Assert.Contains("\"total\":2", tools.ReadKept(id, format: "json"));
         var textOnly = store.Keep("plain", Origin());
-        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => tools.ReadResult(textOnly, format: "json")).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => tools.ReadKept(textOnly, format: "json")).Code);
     }
 
     /// <summary>uninstall keeps the default results folder (and names it) unless --purge-data, which removes it.</summary>

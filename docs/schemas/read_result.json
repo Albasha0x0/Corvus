@@ -38,6 +38,32 @@
         ]
       }
     },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "matches": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tool",
+          "matches",
+          "detail"
+        ]
+      }
+    },
     "path": {
       "type": "string"
     },

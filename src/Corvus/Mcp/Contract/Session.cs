@@ -27,7 +27,7 @@ public static partial class ParameterDomains
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> SessionTools() => new(StringComparer.Ordinal)
     {
         ["load_session"] = new Dictionary<string, Domain> { ["targetBuild"] = Of(["same", "other"]) },
-        ["read_result"] = new Dictionary<string, Domain> { ["format"] = Of(["text", "json", "jsonl"]) },
+        ["read_result"] = new Dictionary<string, Domain> { ["format"] = Of(["text", "json", "jsonl", "evidence", "verify"]) },
         ["load_assembly"] = new Dictionary<string, Domain>
         {
             ["slice"] = Of(["arm64e", "arm64", "x86_64", "x86_64h", "arm64_32", "armv7", "armv7s", "armv7k", "i386", "arm64-v8a", "armeabi-v7a", "x86"],

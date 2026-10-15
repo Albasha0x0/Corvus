@@ -27,10 +27,16 @@ public static partial class ToolOutput
         CallToolResult result, OutputCall call)
     {
         var inputs = new JsonArray();
-        foreach (var name in InputParameters)
-            if (args != null && args.TryGetValue(name, out var v) && v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 } value
-                && inputs.Count < MaxInputs && Input(value, workspace) is { } input && !inputs.Any(i => (string?)i!["sha256"] == (string?)input["sha256"]))
-                inputs.Add(input);
+        void Collect()
+        {
+            foreach (var name in InputParameters)
+                if (args != null && args.TryGetValue(name, out var v) && v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 } value
+                    && inputs.Count < MaxInputs && Input(value, workspace) is { } input && !inputs.Any(i => (string?)i!["sha256"] == (string?)input["sha256"]))
+                    inputs.Add(input);
+        }
+        // under the lock: a call nested in another (read_result format=verify) still counts as inside a call
+        if (workspace != null) workspace.Read(() => { Collect(); return 0; });
+        else Collect();
         var p = new JsonObject
         {
             ["input"] = inputs,
@@ -71,7 +77,14 @@ public static partial class ToolOutput
     private static string Sha256(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
     /// <summary>A loaded target by id, name, file name or path; else an existing file, hashed once per version.</summary>
-    private static JsonObject? Input(string value, AssemblyWorkspace? workspace)
+    /// <summary>The inputs a call names, by the argument as given and the SHA-256 it resolves to now.</summary>
+    internal static IReadOnlyList<KeptInput> Inputs(IDictionary<string, JsonElement>? args, AssemblyWorkspace? workspace) =>
+        args == null ? [] : [.. InputParameters
+            .Select(name => args.TryGetValue(name, out var v) && v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 } value ? value : null)
+            .OfType<string>().Distinct().Take(MaxInputs)
+            .Select(value => (value, sha: (string?)Input(value, workspace)?["sha256"])).Where(x => x.sha != null).Select(x => new KeptInput(x.value, x.sha!))];
+
+    internal static JsonObject? Input(string value, AssemblyWorkspace? workspace)
     {
         try
         {

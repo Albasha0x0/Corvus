@@ -123,9 +123,9 @@ public class CatalogAuditTests
         Ratchet.Check("output-schema-bytes", $"an output schema is at most {MaxOutputSchemaBytes} bytes in tools/list (S8.1)", outputs);
     }
 
-    /// <summary>Per profile: tool count and model-facing bytes (names, descriptions, input schemas); measured 40,584 (lean) and 101,524 (core) after S-TRIM, plus about 1%; lean 41,100 for the summarize_file views of C-APL and C-PCAP.</summary>
+    /// <summary>Per profile: tool count and model-facing bytes (names, descriptions, input schemas); measured 40,584 (lean) and 101,524 (core) after S-TRIM, plus about 1%; lean 41,100 for the summarize_file views of C-APL and C-PCAP, 41,250 for read_result evidence and the C-FMT2 views.</summary>
     [Theory]
-    [InlineData(Toolsets.Lean, 40, 41_100)]
+    [InlineData(Toolsets.Lean, 40, 41_250)]
     [InlineData(Toolsets.CoreName, 100, 102_500)]
     public void ProfilesStayWithinTheirCeilings(string profile, int maxTools, int maxModelFacing)
     {

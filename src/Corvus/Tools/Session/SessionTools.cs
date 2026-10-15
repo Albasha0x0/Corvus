@@ -177,15 +177,46 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     public const int ReadResultTokens = 6_000;
 
     [McpServerTool(Name = "read_result", Title = "Read a kept result", UseStructuredContent = true, OutputSchemaType = typeof(ReadResultRecord))]
-    [Description("Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath.")]
-    public string ReadResult(
+    [Description("Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath. " +
+                 "format=evidence: results (id: r-… or last:N calls) and their calls to outputPath; format=verify re-runs one (id: its path).")]
+    public async Task<string> ReadResult(
         [Description("Result id, e.g. r-0123456789ab.")] string id,
         [Description("Character offset (nextOffset).")] int offset = 0,
         [Description("Page size in tokens (default 6000).")] int? maxTokens = null,
         [Description("Only lines containing this text (/regex/ for a pattern), with their offsets.")] string? query = null,
         [Description("text; json: the structured record; jsonl: its items, one per line.")] string format = "text",
         [Description("Write the whole result to this file; returns path, bytes and SHA-256.")] string? outputPath = null,
-        [Description("Replace outputPath if it exists.")] bool overwrite = false)
+        [Description("Replace outputPath if it exists.")] bool overwrite = false,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default)
+    {
+        switch (format.Trim().ToLowerInvariant())
+        {
+            case "evidence":
+            {
+                if (string.IsNullOrWhiteSpace(outputPath)) throw new ToolError(ErrorCode.InvalidArgument, "format=evidence writes a bundle file.", "pass outputPath");
+                var bundle = EvidenceBundle.Build(results, context?.Services?.GetService(typeof(RecentCalls)) as RecentCalls, id.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+                var bytes = System.Text.Encoding.UTF8.GetBytes(EvidenceBundle.Serialize(bundle));
+                var path = SafeFile.WriteAllBytes(outputPath, bytes, overwrite);
+                var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+                return ToolOutput.With($"Wrote {bundle.Records.Count} record(s) ({string.Join(", ", bundle.Records.Select(r => $"{r.Id} {r.Tool}"))}) to {path}: " +
+                                       $"{bytes.Length:N0} bytes, SHA-256 {sha}. read_result format=verify id={path} re-runs them.",
+                    new ReadResultRecord(string.Join(",", bundle.Records.Select(r => r.Id)), "evidence", bytes.Length) { Path = path, Bytes = bytes.Length, Sha256 = sha });
+            }
+            case "verify":
+            {
+                var checks = await EvidenceBundle.Verify(EvidenceBundle.Load(id), context, results, workspace, cancellationToken);
+                int failed = checks.Count(c => !c.Matches);
+                return ToolOutput.With($"{id}: {checks.Count} record(s), {checks.Count - failed} verified, {failed} differ\n" +
+                                       string.Join("\n", checks.Select(c => $"  {(c.Matches ? "ok" : "DIFFERS")}  {c.Id} {c.Tool}: {c.Detail}")),
+                    new ReadResultRecord(id, "verify", 0) { Checks = checks });
+            }
+        }
+        return ReadKept(id, offset, maxTokens, query, format, outputPath, overwrite);
+    }
+
+    /// <summary>read_result on one kept result (every format but evidence and verify).</summary>
+    internal string ReadKept(string id, int offset = 0, int? maxTokens = null, string? query = null, string format = "text", string? outputPath = null, bool overwrite = false)
     {
         if (offset < 0) throw new ToolError(ErrorCode.InvalidArgument, $"offset must be 0 or more, not {offset}.", "pass a nextOffset from an earlier page");
         if (maxTokens is < 1) throw new ToolError(ErrorCode.InvalidArgument, $"maxTokens must be 1 or more, not {maxTokens}.", "omit maxTokens for the default page");

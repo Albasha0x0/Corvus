@@ -20,6 +20,7 @@ public sealed record ReadResultRecord(string Id, string Tool, int TotalChars)
     public int? NextOffset { get; init; }
     [System.ComponentModel.Description("The page of the kept result.")] public string? Code { get; init; }
     public IReadOnlyList<ReadResultMatch>? Matches { get; init; }
+    public IReadOnlyList<EvidenceBundle.Check>? Checks { get; init; }
     public string? Path { get; init; }
     public long? Bytes { get; init; }
     public string? Sha256 { get; init; }

@@ -114,7 +114,7 @@ Structured output: `server`, `version`, `informationalVersion`, `executable`, `e
 
 **Read a kept result** (destructive, idempotent)
 
-Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath.
+Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath. format=evidence: results (id: r-… or last:N calls) and their calls to outputPath; format=verify re-runs one (id: its path).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -122,11 +122,11 @@ Read a kept result (resultId; kept on disk 7 days): page it, search it with quer
 | `offset` | integer |  |  | Character offset (nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (default 6000). |
 | `query` | string |  |  | Only lines containing this text (/regex/ for a pattern), with their offsets. |
-| `format` | string |  | `text` | text; json: the structured record; jsonl: its items, one per line. Values: text, json, jsonl. |
+| `format` | string |  | `text` | text; json: the structured record; jsonl: its items, one per line. Values: text, json, jsonl, evidence, verify. |
 | `outputPath` | string |  |  | Write the whole result to this file; returns path, bytes and SHA-256. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
 
-Structured output: `id`, `tool`, `totalChars`, `offset`, `nextOffset`, `code`, `matches`, `path`, `bytes`, `sha256`.
+Structured output: `id`, `tool`, `totalChars`, `offset`, `nextOffset`, `code`, `matches`, `checks`, `path`, `bytes`, `sha256`.
 
 ### save_session
 

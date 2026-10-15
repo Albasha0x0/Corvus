@@ -1,0 +1,114 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
+using Corvus.Core;
+using Corvus.Mcp;
+
+namespace Corvus.Tools;
+
+/// <summary>
+/// Findings bundles (read_result format=evidence / verify): kept results with the call that made them (tool, arguments,
+/// input SHA-256s), their text and record and a content hash; verifying re-runs each call through the server's own call
+/// pipeline and compares the inputs and the content hash, naming each record that differs.
+/// </summary>
+public static partial class EvidenceBundle
+{
+    public const string FormatName = "corvus-evidence/1";
+
+    public sealed record Record(string Id, string Tool, string? Arguments, IReadOnlyList<KeptInput> Inputs, string ContentSha256, string Text, string? Structured);
+
+    public sealed record Bundle(string Format, string Corvus, DateTimeOffset Created, IReadOnlyList<Record> Records);
+
+    /// <summary>One record's verdict: match, or what differs.</summary>
+    public sealed record Check(string Id, string Tool, bool Matches, string Detail);
+
+    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    /// <summary>The hash a record's content is compared by: its record (canonical JSON) when kept, else its text.</summary>
+    public static string ContentSha256(string text, string? structured) =>
+        ResultHashes.Sha256(structured != null ? ResultHashes.Canonical(JsonNode.Parse(structured)) : text);
+
+    /// <summary>Records of kept results (r-…) and of this session's latest calls (last:N), in the order named.</summary>
+    public static Bundle Build(ResultStore store, RecentCalls? recent, IEnumerable<string> ids)
+    {
+        var kept = new List<KeptResult>();
+        foreach (var id in ids)
+            if (id.StartsWith("last:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!int.TryParse(id[5..], out int n) || n < 1)
+                    throw new ToolError(ErrorCode.InvalidArgument, $"'{id}' is not last:N with N of 1 or more.", "id=last:10");
+                kept.AddRange(recent?.Last(n) ?? []);
+            }
+            else kept.Add(store.Read(id));
+        if (kept.Count == 0) throw new ToolError(ErrorCode.NotFound, "No results to bundle: no call has succeeded in this session yet.", "make the calls, then id=last:N");
+        return new(FormatName, ServerIdentity.InformationalVersion, DateTimeOffset.UtcNow,
+            [.. kept.Select(k => new Record(k.Id, k.Info.Tool, k.Info.Arguments, k.Info.Inputs, ContentSha256(k.Text, k.Record), k.Text, k.Record))]);
+    }
+
+    public static string Serialize(Bundle bundle) => JsonSerializer.Serialize(bundle, Json);
+
+    public static Bundle Load(string path)
+    {
+        var full = InputFiles.RequireRegularFile(path, "evidence bundle");
+        try
+        {
+            var bundle = JsonSerializer.Deserialize<Bundle>(File.ReadAllText(full), Json);
+            if (bundle?.Format != FormatName || bundle.Records == null)
+                throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a {FormatName} bundle.", "pass a file written by read_result format=evidence");
+            return bundle;
+        }
+        catch (JsonException e)
+        {
+            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not an evidence bundle: {e.Message}", "pass a file written by read_result format=evidence");
+        }
+    }
+
+    /// <summary>Re-runs every record through <see cref="CallFilter.Run"/> as a client call would and compares.</summary>
+    public static async Task<List<Check>> Verify(Bundle bundle, RequestContext<CallToolRequestParams> context, ResultStore store, AssemblyWorkspace workspace, CancellationToken ct)
+    {
+        var checks = new List<Check>();
+        foreach (var r in bundle.Records)
+        {
+            ct.ThrowIfCancellationRequested();
+            var changed = workspace.Read(() => r.Inputs.Select(i => (i, now: (string?)ToolOutput.Input(i.Id, workspace)?["sha256"])).Where(x => x.now != x.i.Sha256).ToList());
+            if (changed.Count > 0)
+            {
+                checks.Add(new(r.Id, r.Tool, false, string.Join("; ", changed.Select(x => x.now == null
+                    ? $"input {x.i.Id} is not available here" : $"input {x.i.Id} changed: SHA-256 {x.i.Sha256[..12]}… then, {x.now[..12]}… now"))));
+                continue;
+            }
+            if (context.Server.ServerOptions.ToolCollection?.FirstOrDefault(t => t.ProtocolTool.Name == r.Tool) is not { } tool)
+            {
+                checks.Add(new(r.Id, r.Tool, false, $"{r.Tool} is not a tool of this server"));
+                continue;
+            }
+            var request = new CallToolRequestParams
+            {
+                Name = r.Tool,
+                Arguments = r.Arguments != null ? JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(r.Arguments) : null,
+            };
+            var result = await CallFilter.Run(request, tool.ProtocolTool.InputSchema, context.Services,
+                token => tool.InvokeAsync(new RequestContext<CallToolRequestParams>(context.Server, context.JsonRpcRequest, request)
+                    { Services = context.Services, MatchedPrimitive = tool }, token), ct, context.Server.ClientInfo?.Name);
+            var text = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text));
+            if (result.IsError == true)
+            {
+                checks.Add(new(r.Id, r.Tool, false, $"the call failed now: {Format.Clip(text, 200)}"));
+                continue;
+            }
+            // a re-run past the response budget is kept again: its whole content is what the record holds
+            var hash = KeptMarker().Match(text) is { Success: true } m && store.Read(m.Groups[1].Value) is { } again
+                ? ContentSha256(again.Text, again.Record)
+                : ContentSha256(text, result.StructuredContent?.GetRawText());
+            checks.Add(hash == r.ContentSha256
+                ? new(r.Id, r.Tool, true, "same content")
+                : new(r.Id, r.Tool, false, $"the content differs: SHA-256 {r.ContentSha256[..12]}… then, {hash[..12]}… now"));
+        }
+        return checks;
+    }
+
+    [GeneratedRegex(@"is kept as (r-[0-9a-f]+); read_result")]
+    private static partial Regex KeptMarker();
+}
