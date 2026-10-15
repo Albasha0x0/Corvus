@@ -2,8 +2,9 @@
 
 ## Two sets
 
-- **Quick set** (`dotnet test`): every test not marked `[Trait("Speed", "Slow")]`. It runs while iterating and must stay
-  near 30 seconds, so a quick test uses the small fixtures in `tests/TestFixture` and builds nothing external. The
+- **Quick set** (`dotnet test`): every test not marked `[Trait("Speed", "Slow")]`. It runs while iterating and stays under
+  50 seconds on an idle machine (a ceiling against creep: about 30 s of parallel work and the timing and process-wide
+  tests that run alone after it), so a quick test uses the small fixtures in `tests/TestFixture` and builds nothing external. The
   quick set is green at every commit.
 - **Full set** (`CORVUS_ALL_TESTS=1 dotnet test`, or `dotnet test -p:CORVUS_ALL_TESTS=1`): adds real-library builds, whole-server
   runs over stdio, sweeps, fuzzing and the large runtime packs. A push needs the quick set; the full set then runs off
