@@ -82,6 +82,9 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     /// <summary>The installed build (its digest names the saved databases), or null when IDA is not available.</summary>
     internal string? EngineBuild => Static().Ida?.EngineDigest();
 
+    /// <summary>The install directory, or null when IDA is not available.</summary>
+    internal string? InstallDirectory => Static().Ida?.Directory;
+
     private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static()
     {
         // locating Python runs processes: a call waiting here stops when it is cancelled

@@ -255,8 +255,9 @@ def op_open(args):
     start = time.time()
     _state["auto"] = args.get("auto", True) is not False
     raw = args.get("raw")
-    # a headerless image is set up (bitness, Thumb, base, entry) before auto-analysis sees it
-    rc = m.idapro.open_database(path, _state["auto"] and not (raw and not reuse), cmdline)
+    overrides = args.get("overrides")
+    # a headerless image (bitness, Thumb, base, entry) and import overrides are set up before auto-analysis sees the image
+    rc = m.idapro.open_database(path, _state["auto"] and not ((raw or overrides) and not reuse), cmdline)
     if rc != 0:
         raise WorkerError("provider_unavailable", "open_database returned %d for %s (%d characters; database %s, %d characters)"
                           % (rc, path, len(path), idb, len(idb)))
@@ -264,8 +265,19 @@ def op_open(args):
     batch_mode()
     if raw and not reuse:
         setup_raw(m, raw)
+    warnings = []
+    if overrides:
+        wanted = overrides.get("processor")
+        if wanted and m.ida_ida.inf_get_procname().lower() != wanted.lower():
+            got = m.ida_ida.inf_get_procname()
+            m.idapro.close_database(False)
+            _state["open"] = False
+            raise WorkerError("invalid_argument", "IDA loaded the image with processor %s, not %s" % (got, wanted))
+        if not reuse:
+            setup_overrides(m, overrides, warnings)
     if _state["auto"]:
         m.ida_auto.auto_wait()
+
     _state["base"] = m.ida_nalt.get_imagebase()
     ftype = m.ida_ida.inf_get_filetype()
     if ftype not in (m.ida_ida.f_PE, m.ida_ida.f_ELF, m.ida_ida.f_MACHO) and not (raw and ftype == m.ida_ida.f_BIN):
@@ -298,7 +310,9 @@ def op_open(args):
             stamp_node(True).hashset_buf(INPUT_STAMP, sha)
         # IDA writes the packed .i64 only on save; persist the analysis now so a crash does not discard it.
         m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0)
-    return info(m, reuse, time.time() - start)
+    result = info(m, reuse, time.time() - start)
+    result["warnings"] = warnings
+    return result
 
 
 INPUT_STAMP = "input"  # SHA-256 of the input the database was made from
@@ -323,6 +337,39 @@ def setup_raw(m, raw):
     if _state["auto"]:
         m.ida_auto.enable_auto(True)
         m.ida_auto.auto_mark_range(m.ida_ida.inf_get_min_ea(), m.ida_ida.inf_get_max_ea(), m.ida_auto.AU_CODE)
+
+
+def setup_overrides(m, ov, warnings):
+    """Import overrides before the first analysis: the compiler, analyzers turned off, then seeds (functions, code, labels)."""
+    import ida_typeinf, ida_ua
+    base = m.ida_nalt.get_imagebase()
+    compiler = ov.get("compiler")
+    if compiler is not None:
+        cc = m.ida_ida.compiler_info_t()
+        cc.id = int(compiler)
+        # set as the user's choice, which the loader and its modules do not replace
+        if not ida_typeinf.set_compiler(cc, ida_typeinf.SETCOMP_OVERRIDE | ida_typeinf.SETCOMP_ONLY_ID | ida_typeinf.SETCOMP_BY_USER):
+            warnings.append("IDA did not take compiler id %d" % int(compiler))
+    for name in ov.get("disable") or []:
+        _set_analyzer(name, "false", warnings)
+    flags = m.ida_name.SN_NOWARN | m.ida_name.SN_NOCHECK
+    for kind, rva, name in ov.get("seeds") or []:
+        ea = base + int(rva)
+        if not m.ida_bytes.is_loaded(ea):
+            warnings.append("seed %s at rva 0x%X: not in the loaded image" % (kind, rva))
+            continue
+        if kind in ("function", "code") and not m.ida_bytes.is_code(m.ida_bytes.get_flags(ea)) and ida_ua.create_insn(ea) == 0:
+            warnings.append("seed %s at rva 0x%X: no instruction decodes there" % (kind, rva))
+            continue
+        if kind == "function" and m.ida_funcs.get_func(ea) is None and not m.ida_funcs.add_func(ea):
+            # the analysis makes it from the queue when its flow ends later
+            m.ida_auto.auto_make_proc(ea)
+        if kind == "code":
+            m.ida_auto.auto_make_code(ea)
+        if name and not m.ida_name.set_name(ea, name, flags):
+            warnings.append("seed %s at rva 0x%X: IDA did not take the name %s" % (kind, rva, name))
+    if _state["auto"]:
+        m.ida_auto.enable_auto(True)
 
 
 def info(m, reused, seconds):

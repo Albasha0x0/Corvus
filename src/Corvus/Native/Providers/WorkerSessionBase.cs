@@ -78,6 +78,9 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     private volatile bool _closed;
 
     protected NativeOpenOptions Options { get; } = options;
+
+    /// <summary>The import overrides the database was made with, for provenance.</summary>
+    internal EngineOverrides? Overrides => Options.Overrides;
     /// <summary>The limit of a request on the current flow: the tool call's (<see cref="EngineRequestLimit"/>), else the session's.</summary>
     protected TimeSpan RequestTimeout => EngineRequestLimit.Current ?? Options.RequestTimeout;
     protected CacheEntry? Entry { get; private set; }

@@ -31,7 +31,12 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         Entry?.SnapshotOf is { } pid ? $"read-only snapshot of the database process {pid} has open: edits are not saved" : null,
         _adoptedFrom != null ? $"started from a copy of {_adoptedFrom} (that file is never changed)" : null,
         _adoptionRejected,
+        Options.Overrides is { } ov ? "import overrides: " + ov.Text + (ov.CompilerSpec != null && ov.IdaCompiler == null ? $" (IDA has no compiler for {ov.CompilerSpec}: its own detection kept)" : "") : null,
+        Warnings.Count > 0 ? string.Join("; ", Warnings) : null,
     }.Where(n => n != null)) is { Length: > 0 } note ? note : null;
+
+    /// <summary>What the open could not apply of the import overrides (seeds, analyzer names, the compiler).</summary>
+    internal IReadOnlyList<string> Warnings { get; private set; } = [];
 
     private string? _adopting, _adoptedFrom, _adoptionRejected;
 
@@ -58,9 +63,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     }
     protected override string? DatabaseLocation => _databasePath.Length > 0 ? _databasePath : null;
 
-    // a raw layout is part of the database name: the same bytes at another base or processor are another database
+    // a raw layout is part of the database name: the same bytes at another base or processor are another database; so are import overrides
     private string Profile => (Options.Symbols == SymbolMode.Off ? "nopdb" : "default") + (Options.Analysis == EngineAnalysis.None ? "-noauto" : "") +
-                              (Options.Raw is { } raw ? "-raw-" + raw.Key.Replace('@', '-') : "");
+                              (Options.Raw is { } raw ? "-raw-" + raw.Key.Replace('@', '-') : "") + (Options.Overrides is { } ov ? "-" + ov.Key : "");
 
     /// <summary>
     /// The image's cache entry; when another server process holds it, a read-only snapshot of its last saved database,
@@ -79,8 +84,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     protected override void PrepareOpen()
     {
-        if (Options.Raw is { Isa.IdaProcessor: "" } unsupported)
+        if (Options.Raw is { Isa.IdaProcessor: "" } unsupported && Options.Overrides?.Processor == null)
             throw new ToolError(ErrorCode.Unsupported, $"IDA is not used for {unsupported.Isa.Name} images.", "pass engine=ghidra");
+        if (Options.Overrides is { } overrides) EngineOverrideChecks.CheckIda(ida.Directory, overrides);
         (Arch, _headerImageBase) = Options.Raw is { } raw ? (raw.Arch, raw.Base) : ReadHeader(Entry!.InputCopy, ImagePath);
         _databasePath = Path.Combine(Entry!.Directory, IdaProvider.DatabaseFileName(ida, Profile));
         IdaProvider.CheckPathLength(Entry.InputCopy, "input copy", provider.Cache.Root, OperatingSystem.IsWindows());
@@ -155,14 +161,21 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         var idaArgs = new JsonArray();
         if (Options.Symbols == SymbolMode.Off) idaArgs.Add("-Opdb:off");
         JsonObject? raw = null;
+        var processor = Options.Overrides?.Processor;
         if (Options.Raw is { } layout)
         {
             // the binary loader with this processor, loaded at the base (-b takes 16-byte paragraphs)
-            idaArgs.Add("-p" + layout.Isa.IdaProcessor);
+            idaArgs.Add("-p" + (processor ?? layout.Isa.IdaProcessor));
             idaArgs.Add("-b" + (layout.Base >> 4).ToString("X", System.Globalization.CultureInfo.InvariantCulture));
             raw = IdaProvider.Args(("base", layout.Base), ("entry", layout.EntryOffset), ("bits", layout.Isa.Bits),
                 ("thumb", layout.Thumb));
         }
+        else if (processor != null) idaArgs.Add("-p" + processor);
+        JsonObject? overrideArgs = null;
+        if (Options.Overrides is { } ov)
+            overrideArgs = IdaProvider.Args(("processor", ov.Processor), ("compiler", ov.IdaCompiler),
+                ("seeds", new JsonArray(ov.Seeds.Select(s => (JsonNode)new JsonArray(s.Kind.ToString().ToLowerInvariant(), s.Rva, s.Name)).ToArray())),
+                ("disable", new JsonArray(ov.DisabledAnalyzers.Select(a => (JsonNode)a).ToArray())));
         var remaining = Options.OpenTimeout - clock.Elapsed;
         if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
         var adopting = reuse ? _adopting : null;
@@ -172,7 +185,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         {
             info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
                 ("auto", Options.Analysis != EngineAnalysis.None), ("sha256", Entry.Sha256), ("adopted", adopting != null),
-                ("md5", adopting != null ? Md5(Entry.InputCopy) : null), ("raw", raw)), remaining, cancellationToken).ConfigureAwait(false);
+                ("md5", adopting != null ? Md5(Entry.InputCopy) : null), ("raw", raw), ("overrides", overrideArgs)), remaining, cancellationToken).ConfigureAwait(false);
         }
         catch (ToolError e) when (adopting != null)
         {
@@ -181,6 +194,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
             throw;
         }
         _adoptedFrom = adopting;
+        if (info.TryGetProperty("warnings", out var w)) Warnings = [.. w.EnumerateArray().Select(x => x.GetString() ?? "")];
 
         var loadedBase = info.GetProperty("imagebase").GetUInt64();
         if (loadedBase != _headerImageBase)

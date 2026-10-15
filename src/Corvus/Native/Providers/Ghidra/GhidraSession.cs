@@ -65,7 +65,11 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
 
     public string? DatabaseNote => Note;
 
-    protected override string? Note => Options.Analysis == EngineAnalysis.None && !AnalysisComplete ? "no auto-analysis: functions made where asked" : null;
+    protected override string? Note => string.Join("; ", new[]
+    {
+        Options.Analysis == EngineAnalysis.None && !AnalysisComplete ? "no auto-analysis: functions made where asked" : null,
+        Options.Overrides is { } ov ? "import overrides: " + ov.Text : null,
+    }.Where(n => n != null)) is { Length: > 0 } note ? note : null;
     internal string Language { get; private set; } = "";
     internal int FunctionCount { get; private set; }
     internal IReadOnlyList<string> Warnings { get; private set; } = [];
@@ -77,14 +81,21 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         var header = Options.Raw is { } raw ? new Header(raw.Arch, raw.Base, false) : ReadHeader(Entry!.InputCopy, ImagePath);
         Arch = header.Arch;
         _headerImageBase = header.ImageBase;
-        (_projectDirectory, _loaderArguments, _analyzerOptions) = Project(provider, ghidra, Entry!.Directory, header, Options.Symbols, Options.Analysis, Options.Raw, Options.GhidraDatabase);
+        if (Options.Overrides is { } overrides)
+        {
+            if (Options.GhidraDatabase != null)
+                throw new ToolError(ErrorCode.InvalidArgument, "A Ghidra archive is opened as its database: import overrides do not apply.", "load the source file with the overrides instead");
+            EngineOverrideChecks.CheckGhidra(ghidra.Directory, overrides, Options.Raw?.Isa.GhidraLanguage);
+        }
+        (_projectDirectory, _loaderArguments, _analyzerOptions) = Project(provider, ghidra, Entry!.Directory, header, Options.Symbols, Options.Analysis, Options.Raw,
+            Options.GhidraDatabase, Options.Overrides);
         RenameLegacyProject(_projectDirectory);
     }
 
     /// <summary>The project directory an open uses in a cache entry, with its loader and analyzer options (also found without an open).</summary>
     internal static (string Directory, List<KeyValuePair<string, string>> Loader, IReadOnlyList<KeyValuePair<string, string>> Analyzers) Project(
         GhidraProvider provider, GhidraInstallation ghidra, string entryDirectory, Header header, SymbolMode symbols, EngineAnalysis analysis,
-        RawLayout? raw = null, PackedDatabase? packed = null)
+        RawLayout? raw = null, PackedDatabase? packed = null, EngineOverrides? overrides = null)
     {
         var profile = provider.Profile;
         List<KeyValuePair<string, string>> loader = [.. GhidraOptions.LoaderArguments(profile)];
@@ -92,11 +103,19 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             loader.Add(new(GhidraOptions.ElfImageBaseArgument, elfBase.ToString("x", CultureInfo.InvariantCulture)));
         var analyzers = GhidraOptions.AnalyzerOptions(profile, symbols, provider.ExtraOptions);
         var key = GhidraOptions.ProfileKey(ghidra, profile, loader, analyzers, provider.Extensions);
+        // turned off at import: in the project name through the overrides key
+        if (overrides is { DisabledAnalyzers.Count: > 0 })
+            analyzers = [.. analyzers.Where(a => !overrides.DisabledAnalyzers.Contains(a.Key)), .. overrides.DisabledAnalyzers.Select(a => KeyValuePair.Create(a, "false"))];
         // a load-only project is its own profile, as in IDA
-        // a raw layout is its own project: the same bytes at another base or processor
+        // a raw layout is its own project: the same bytes at another base or processor; so are import overrides
         return (Path.Combine(entryDirectory, "p-" + key + (analysis == EngineAnalysis.None ? "-noauto" : "") +
-                (raw != null ? "-raw-" + raw.Key.Replace('@', '-') : "") + (packed != null ? "-gzf-" + packed.Sha256[..16] : "")), loader, analyzers);
+                (raw != null ? "-raw-" + raw.Key.Replace('@', '-') : "") + (packed != null ? "-gzf-" + packed.Sha256[..16] : "") +
+                (overrides != null ? "-" + overrides.Key : "")), loader, analyzers);
     }
+
+    /// <summary>Whether a project directory is that of <paramref name="overrides"/> (an overrides key), or of no overrides when null.</summary>
+    internal static bool OfOverrides(string directory, string? overrides) =>
+        overrides != null ? directory.EndsWith("-" + overrides, StringComparison.Ordinal) : !Path.GetFileName(directory).Contains("-ov-", StringComparison.Ordinal);
 
     internal readonly record struct Header(NativeArch Arch, ulong? ImageBase, bool IsElf);
 
@@ -252,6 +271,13 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                     args["entry"] = layout.EntryOffset;
                     args["raw_base"] = layout.Base;
                 }
+            }
+            if (Options.Overrides is { } ov)
+            {
+                if (ov.Language != null) args["language"] = ov.Language;
+                if (ov.CompilerSpec != null) args["compiler"] = ov.CompilerSpec;
+                if (ov.Seeds.Count > 0)
+                    args["seeds"] = new JsonArray(ov.Seeds.Select(s => (JsonNode)new JsonArray(s.Kind.ToString().ToLowerInvariant(), s.Rva, s.Name)).ToArray());
             }
             info = await worker.RequestAsync("open", args, remaining, cancellationToken).ConfigureAwait(false);
         }

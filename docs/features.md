@@ -65,7 +65,11 @@ Native `.exe` / `.dll` / `.sys` files, ELF (`.so`, executables) and Mach-O (`.dy
 `load_assembly` by path, or are loaded by any native tool given a path. Headerless code (shellcode, firmware, a memory
 region) loads with `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=… entry=…`: one entry per layout
 (`fw.bin[thumb@0x8000000]`), analyzed from its entry by our engine, and by IDA or Ghidra at the same base with the same
-processor (each layout keeps its own engine database). A Ghidra archive (`.gzf`, from Ghidra or from
+processor (each layout keeps its own engine database). Import overrides on `load_assembly` set how both engines import any
+native image before their first analysis: `processor=` (IDA's `-p`, checked against its processor modules), `language=` and
+`compilerSpec=` (Ghidra's, checked against its `.ldefs`; the compiler spec also sets IDA's compiler), `seeds=` (functions,
+code and labels, named or not) and `disableAnalyzers=`; each set is its own engine database beside the default one, and
+`get_engine_status` and the provenance name it. A Ghidra archive (`.gzf`, from Ghidra or from
 `export_engine_database`) loads the file it was made from, checked against its recorded SHA-256, and Ghidra opens the
 archive as the database without analyzing. Everything below is our own analysis
 (PE parser, Iced disassembler, function discovery, MSVC RTTI / exception data / name demangling, PDB reader);

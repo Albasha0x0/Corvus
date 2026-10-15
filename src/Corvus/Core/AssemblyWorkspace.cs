@@ -303,13 +303,13 @@ public sealed class AssemblyWorkspace : IDisposable
     /// Loads a .NET assembly, or a native image when the file has no .NET metadata (PE, ELF, Mach-O; for a universal
     /// Mach-O the <paramref name="slice"/>). Returns the existing entry when the path (and slice) is already loaded.
     /// </summary>
-    public (LoadedAssembly? Assembly, LoadedNative? Native) LoadAny(string path, string? slice = null)
+    public (LoadedAssembly? Assembly, LoadedNative? Native) LoadAny(string path, string? slice = null, Func<Native.INativeImage, Native.EngineOverrides?>? overrides = null)
     {
         var full = InputFiles.RequireRegularFile(path);
         Webcil.ThrowIfWebcil(full);
         var kind = Native.NativeImageLoader.DetectFile(full);
         if (kind is Native.NativeFileKind.Elf or Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat)
-            return (null, LoadNativeFile(full, slice));
+            return (null, LoadNativeFile(full, slice, overrides));
         if (slice != null) Native.NativeImageLoader.Open(full, slice); // the slice error
         if (Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == null)) is { } existing)
             return (existing.ManagedView, existing);
@@ -324,38 +324,39 @@ public sealed class AssemblyWorkspace : IDisposable
             var image = Native.NativeImageLoader.Open(full);
             if (image is Native.Pe.PeFile { IsDotNet: true }) throw;
             int before = _natives.Count;
-            var native = Write(() => LoadNativeCore(full, image));
+            var native = Write(() => LoadNativeCore(full, image, overrides));
             if (_natives.Count != before) NativeLoaded?.Invoke(native);
             return (null, native);
         }
     }
 
     /// <summary>An ELF or Mach-O image; each slice of a universal file is its own entry, id "name[slice]".</summary>
-    private LoadedNative LoadNativeFile(string full, string? slice)
+    private LoadedNative LoadNativeFile(string full, string? slice, Func<Native.INativeImage, Native.EngineOverrides?>? overrides)
     {
         if (slice == null && Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == null)) is { } existing)
             return existing;
         var image = Native.NativeImageLoader.Open(full, slice);
         int before = _natives.Count;
-        var native = Write(() => LoadNativeCore(full, image));
+        var native = Write(() => LoadNativeCore(full, image, overrides));
         if (_natives.Count != before) NativeLoaded?.Invoke(native);
         return native;
     }
 
     /// <summary>A headerless file mapped by <paramref name="layout"/>; each layout of a file is its own entry, id "name[x64@0x400000]".</summary>
-    public LoadedNative LoadRaw(string path, Native.RawLayout layout)
+    public LoadedNative LoadRaw(string path, Native.RawLayout layout, Func<Native.INativeImage, Native.EngineOverrides?>? overrides = null)
     {
         var full = InputFiles.RequireRegularFile(path);
         if (Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == layout.Key)) is { } existing)
             return existing;
         var image = Native.RawCodeImage.Open(full, layout);
         int before = _natives.Count;
-        var native = Write(() => LoadNativeCore(full, image));
+        var native = Write(() => LoadNativeCore(full, image, overrides));
         if (_natives.Count != before) NativeLoaded?.Invoke(native);
         return native;
     }
 
-    private LoadedNative LoadNativeCore(string full, Native.INativeImage image)
+    /// <summary>A new entry gets <paramref name="overrides"/> before anything (a prewarm) can open an engine on it.</summary>
+    private LoadedNative LoadNativeCore(string full, Native.INativeImage image, Func<Native.INativeImage, Native.EngineOverrides?>? overrides = null)
     {
         var key = LoadedNative.KeyOf(image);
         var existing = _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == key);
@@ -363,7 +364,7 @@ public sealed class AssemblyWorkspace : IDisposable
         var baseId = Path.GetFileName(full) + (key != null ? $"[{key}]" : "");
         var id = baseId;
         for (int n = 2; IdTaken(id); n++) id = $"{baseId}#{n}";
-        var native = new LoadedNative(id, full, image);
+        var native = new LoadedNative(id, full, image) { Overrides = overrides?.Invoke(image) };
         _natives.Add(native);
         _logger?.LogInformation("Loaded native image {Id} from {Path}", id, full);
         return native;
@@ -455,8 +456,8 @@ public sealed class AssemblyWorkspace : IDisposable
     private static ToolError Gone(string id) =>
         new(ErrorCode.Conflict, $"{id} was unloaded or reloaded by another call in the meantime.", "list_assemblies shows what is loaded now; repeat the call");
 
-    /// <summary>Re-reads a native image from disk, discarding its analysis state.</summary>
-    public LoadedNative ReloadNative(LoadedNative native)
+    /// <summary>Re-reads a native image from disk, discarding its analysis state; <paramref name="overrides"/> replace its import overrides.</summary>
+    public LoadedNative ReloadNative(LoadedNative native, Native.EngineOverrides? overrides = null)
     {
         Native.INativeImage image = native.Image is Native.RawCodeImage raw
             ? Native.RawCodeImage.Open(native.FilePath, raw.Layout)
@@ -467,7 +468,7 @@ public sealed class AssemblyWorkspace : IDisposable
             if (index < 0) throw Gone(native.Id);
             _natives.RemoveAt(index);
             native.Release();
-            var reloaded = new LoadedNative(native.Id, native.FilePath, image) { ManagedView = native.ManagedView, EngineDatabase = native.EngineDatabase };
+            var reloaded = new LoadedNative(native.Id, native.FilePath, image) { ManagedView = native.ManagedView, EngineDatabase = native.EngineDatabase, Overrides = overrides ?? native.Overrides };
             _natives.Insert(index, reloaded);
             return reloaded;
         });

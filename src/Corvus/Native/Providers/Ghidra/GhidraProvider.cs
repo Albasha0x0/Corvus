@@ -84,6 +84,9 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         catch (ToolError) { return null; }
     }
 
+    /// <summary>The install directory, or null when Ghidra is not available.</summary>
+    internal string? InstallDirectory => Static().Ghidra?.Directory;
+
     /// <summary>The installed version, or null when Ghidra is not available.</summary>
     internal string? Version => Static().Ghidra?.Version;
 
@@ -200,10 +203,10 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
     public IReadOnlyList<EngineSessionState> SessionStates() => _sessions.Keys.Select(s => s.State()).ToList();
 
     /// <summary>Whether the cache holds a saved project of these bytes under any profile (file checks only).</summary>
-    public bool HasSavedProject(string sha256)
+    public bool HasSavedProject(string sha256, string? overrides = null)
     {
         var dir = Path.Combine(Cache.Root, ProviderId, sha256.ToLowerInvariant());
-        return Directory.Exists(dir) && Directory.EnumerateDirectories(dir, "p-*").Any(GhidraSession.HasProject);
+        return Directory.Exists(dir) && Directory.EnumerateDirectories(dir, "p-*").Where(p => GhidraSession.OfOverrides(p, overrides)).Any(GhidraSession.HasProject);
     }
 
     /// <summary>Builds the worker when needed and starts a JVM (inside a job on Windows); Ghidra initializes before the ready event.</summary>

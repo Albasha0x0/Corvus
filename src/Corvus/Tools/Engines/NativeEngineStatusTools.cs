@@ -32,6 +32,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         public string? Processor { get; init; }
         public string? Language { get; init; }
         public string? Compiler { get; init; }
+        [Description("load_assembly's import overrides this database was made with (a database of its own).")] public string? ImportOverrides { get; init; }
         public string? Format { get; init; }
         [Description("VA.")] public string? ImageBase { get; init; }
         public int? PointerSize { get; init; }
@@ -114,7 +115,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         };
         if (session is WorkerSessionBase worker)
         {
-            status = status with { WorkerPid = worker.WorkerProcessId, UnsavedEdits = worker.UnsavedCount };
+            status = status with { WorkerPid = worker.WorkerProcessId, UnsavedEdits = worker.UnsavedCount, ImportOverrides = worker.Overrides?.Text };
             if (worker.Background is { } job)
                 status = status with
                 {
@@ -130,7 +131,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             var (errors, warnings, rows) = await g.BookmarksAsync(allBookmarks ? 2000 : 5, rva => Va(rva), ct);
             if (errors + warnings > 0) status = status with { AnalysisProblems = $"{errors} error(s), {warnings} warning(s)", Bookmarks = rows };
         }
-        if (session is IdaSession i) status = status with { Database = i.DatabasePath };
+        if (session is IdaSession i) status = status with { Database = i.DatabasePath, Warnings = i.Warnings.Count > 0 ? i.Warnings : null };
         try
         {
             var info = await session.GetEngineInfoAsync(ct);
@@ -187,6 +188,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             if (s.Analysis == "partial")
                 sb.AppendLine($"  the analysis budget ran out; reanalyze_native image={native.Id} engine={s.Engine} completes it");
             sb.AppendLine($"  {s.Processor} {s.Language}" + (s.Compiler != null ? $", compiler {s.Compiler}" : "") + $", {s.Format}, {s.PointerSize * 8}-bit {s.Endian}, base {s.ImageBase}");
+            if (s.ImportOverrides != null) sb.AppendLine($"  import overrides: {s.ImportOverrides}");
             sb.AppendLine($"  {s.Functions} functions, {s.ExternalFunctions} external; decompiler {(s.Decompiler == true ? "available" : "not available")}");
             if (s.EntryPoints is { Count: > 0 } ep) sb.AppendLine($"  entry points: {string.Join(", ", ep.Take(8))}{(ep.Count > 8 ? $" (+{ep.Count - 8})" : "")}");
             if (s.Sha256 != null || s.Md5 != null) sb.AppendLine($"  input: sha256 {s.Sha256 ?? "-"}, md5 {s.Md5 ?? "-"}");

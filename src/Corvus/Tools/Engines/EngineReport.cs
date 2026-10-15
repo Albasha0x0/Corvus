@@ -36,6 +36,7 @@ internal static class EngineReport
             meta["analysis"] = session.AnalysisComplete ? "complete" : "partial";
             meta["savedAnalysis"] = session.ReusedDatabase;
             meta["openSeconds"] = Math.Round(session.OpenTime.TotalSeconds, 1);
+            if (session is WorkerSessionBase { Overrides: { } overrides }) meta["importOverrides"] = overrides.Text;
         }
         if (id.Profile == "standard") Limit(Limitations.Id(Limitation.EngineProfileStandard));
         if (session is { AnalysisComplete: false }) Limit(Limitations.Id(Limitation.AnalysisPartial));

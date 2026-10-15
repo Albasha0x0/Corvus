@@ -234,7 +234,8 @@ public sealed class NativeEngineService : IDisposable
     /// </summary>
     public string? SavedState(LoadedNative native, string id)
     {
-        if (OutputCache == null || Existing(native, id)?.Opening != null || native.HasPatches || UnavailabilityOf(id) != null) return null;
+        // answers stored without an open are those of the default database, not of an import override's own
+        if (OutputCache == null || native.Overrides != null || Existing(native, id)?.Opening != null || native.HasPatches || UnavailabilityOf(id) != null) return null;
         var db = Find(id) switch
         {
             IdaProvider ida => ida.SavedDatabasePath(native.OriginalSha256, _analysis == EngineAnalysis.None ? "default-noauto" : "default"),
@@ -279,9 +280,13 @@ public sealed class NativeEngineService : IDisposable
     private NativeOpenOptions OpenOptions(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
         new()
         {
-            OutputCache = OutputCache, OutputIdentity = OutputIdentity(id),
+            // a raw layout and import overrides are databases of their own: answers are not shared with the default one
+            OutputCache = OutputCache,
+            OutputIdentity = OutputIdentity(id) + ((native.Image as Native.RawCodeImage)?.Layout.Key is { } raw ? "|raw " + raw : "") +
+                             (native.Overrides is { } ov ? "|" + ov.Key : ""),
             Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, Analysis = _analysis,
             Raw = (native.Image as Native.RawCodeImage)?.Layout,
+            Overrides = native.Overrides,
             GhidraDatabase = native.EngineDatabase,
             ThumbCode = native.Image.Arch == Native.NativeArch.Arm && _code != null ? ct => ThumbCode(native, ct) : null,
             KnownStart = _code != null ? async (rva, ct) => (await _code.Index(native, null, ct).ConfigureAwait(false)).FunctionByStart(rva) != null : null,
@@ -340,22 +345,40 @@ public sealed class NativeEngineService : IDisposable
         lock (seen)
         {
             if (seen.CheckedAt != 0 && now - seen.CheckedAt < SavedCheckInterval) return seen.Exists;
-            try { seen.Exists = SavedDatabaseExists(id, native.OriginalSha256); }
+            try { seen.Exists = SavedDatabaseExists(id, native.OriginalSha256, native.Overrides?.Key); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { seen.Exists = false; }
             seen.CheckedAt = now;
             return seen.Exists;
         }
     }
 
-    private bool SavedDatabaseExists(string id, string sha256)
+    private bool SavedDatabaseExists(string id, string sha256, string? overrides)
     {
         var provider = Find(id);
-        if (provider is IdaProvider ida) return ida.SavedDatabasePath(sha256) is { } path && File.Exists(path);
-        if (provider is GhidraProvider ghidra) return ghidra.HasSavedProject(sha256);
+        if (provider is IdaProvider ida) return ida.SavedDatabasePath(sha256, overrides != null ? "default-" + overrides : "default") is { } path && File.Exists(path);
+        if (provider is GhidraProvider ghidra) return ghidra.HasSavedProject(sha256, overrides);
         if (new AnalysisCache(_cacheRoot ?? AnalysisCache.DefaultRoot).Find(id, sha256) is not { } dir) return false;
         return id == GhidraProvider.ProviderId
-            ? Directory.EnumerateDirectories(dir, "p-*").Any(p => File.Exists(Path.Combine(p, GhidraSession.ProjectName + ".gpr")))
-            : Directory.EnumerateFiles(dir, "ida-default*.i64").Any();
+            ? Directory.EnumerateDirectories(dir, "p-*").Where(p => GhidraSession.OfOverrides(p, overrides)).Any(p => File.Exists(Path.Combine(p, GhidraSession.ProjectName + ".gpr")))
+            : Directory.EnumerateFiles(dir, overrides != null ? $"ida-default-{overrides}*.i64" : "ida-default*.i64").Any(f => overrides != null || !f.Contains("-ov-"));
+    }
+
+    /// <summary>
+    /// Checks import overrides against each installed engine's own names (Ghidra's .ldefs, IDA's processor modules); no
+    /// engine is started. InvalidArgument names the nearest known ones.
+    /// </summary>
+    public void CheckOverrides(Native.EngineOverrides overrides, Native.RawLayout? raw)
+    {
+        foreach (var provider in Providers)
+            switch (provider)
+            {
+                case IdaProvider ida when ida.CheckAvailability().IsAvailable && ida.InstallDirectory is { } dir:
+                    EngineOverrideChecks.CheckIda(dir, overrides);
+                    break;
+                case GhidraProvider ghidra when ghidra.CheckAvailability().IsAvailable && ghidra.InstallDirectory is { } dir:
+                    EngineOverrideChecks.CheckGhidra(dir, overrides, raw?.Isa.GhidraLanguage);
+                    break;
+            }
     }
 
     private sealed class SavedCheck

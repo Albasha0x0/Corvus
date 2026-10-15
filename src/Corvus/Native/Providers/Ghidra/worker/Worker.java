@@ -502,6 +502,12 @@ public class Worker implements GhidraLaunchable {
                     throw new WorkerError("invalid_argument", "unknown Ghidra loader: " + e.getMessage());
                 }
                 if (a.has("language")) builder = builder.language(a.get("language").getAsString());
+                // a compiler spec alone keeps the language Ghidra prefers for the file
+                if (a.has("compiler") && !packed) {
+                    String language = a.has("language") ? a.get("language").getAsString() : preferredLanguage(new File(a.get("input").getAsString()), r.monitor);
+                    checkCompiler(language, a.get("compiler").getAsString());
+                    builder = builder.language(language).compiler(a.get("compiler").getAsString());
+                }
                 try (LoadResults<Program> results = builder.load()) {
                     results.getPrimary().save(r.monitor);
                     program = results.getPrimaryDomainObject(this);
@@ -518,6 +524,7 @@ public class Worker implements GhidraLaunchable {
                 }
                 else {
                     if (a.has("entry")) markEntry(a.get("raw_base").getAsLong(), a.get("entry").getAsLong());
+                    applySeeds(array(a, "seeds"), warnings);
                     complete = !noAuto && analyze(r, a, warnings);
                 }
             }
@@ -571,6 +578,77 @@ public class Worker implements GhidraLaunchable {
             }
             new ghidra.app.cmd.disassemble.DisassembleCommand(entry, null, true).applyTo(program, TaskMonitor.DUMMY);
             new ghidra.app.cmd.function.CreateFunctionCmd(entry).applyTo(program, TaskMonitor.DUMMY);
+        }
+        finally {
+            program.endTransaction(tx, true);
+        }
+    }
+
+    /** The language of the first preferred load spec Ghidra's loaders offer for the file. */
+    private static String preferredLanguage(File file, TaskMonitor monitor) throws Exception {
+        var fs = ghidra.formats.gfilesystem.FileSystemService.getInstance();
+        try (var provider = fs.getByteProvider(fs.getLocalFSRL(file), true, monitor)) {
+            var spec = ghidra.app.util.importer.LoadSpecChooser.CHOOSE_THE_FIRST_PREFERRED.choose(ghidra.app.util.opinion.LoaderService.getAllSupportedLoadSpecs(provider));
+            if (spec == null || spec.getLanguageCompilerSpec() == null)
+                throw new WorkerError("invalid_argument", "Ghidra has no preferred language for this file: pass language with compilerSpec");
+            return spec.getLanguageCompilerSpec().languageID.getIdAsString();
+        }
+    }
+
+    /** invalid_argument unless the language has the compiler spec. */
+    private static void checkCompiler(String language, String compiler) {
+        try {
+            var lang = ghidra.program.util.DefaultLanguageService.getLanguageService().getLanguage(new ghidra.program.model.lang.LanguageID(language));
+            lang.getCompilerSpecByID(new ghidra.program.model.lang.CompilerSpecID(compiler));
+        }
+        catch (ghidra.program.model.lang.LanguageNotFoundException e) {
+            throw new WorkerError("invalid_argument", "Ghidra has no language " + language);
+        }
+        catch (ghidra.program.model.lang.CompilerSpecNotFoundException e) {
+            throw new WorkerError("invalid_argument", "Ghidra's language " + language + " has no compiler spec " + compiler);
+        }
+    }
+
+    /**
+     * Seeds before the first analysis: [kind, rva, name?] with kind function (disassembled and made a function), code
+     * (disassembled) or label. What does not take is a warning.
+     */
+    private void applySeeds(JsonArray seeds, List<String> warnings) {
+        if (seeds.isEmpty()) return;
+        int tx = program.startTransaction("import seeds");
+        try {
+            Address base = program.getImageBase();
+            for (JsonElement e : seeds) {
+                JsonArray s = e.getAsJsonArray();
+                String kind = s.get(0).getAsString();
+                long rva = s.get(1).getAsLong();
+                String name = s.size() > 2 && !s.get(2).isJsonNull() ? s.get(2).getAsString() : null;
+                Address at;
+                try {
+                    at = base.add(rva);
+                }
+                catch (ghidra.program.model.address.AddressOutOfBoundsException x) {
+                    warnings.add("seed " + kind + " at rva 0x" + Long.toHexString(rva) + ": outside the address space");
+                    continue;
+                }
+                if (!program.getMemory().contains(at)) {
+                    warnings.add("seed " + kind + " at rva 0x" + Long.toHexString(rva) + ": not in the loaded image");
+                    continue;
+                }
+                var source = ghidra.program.model.symbol.SourceType.USER_DEFINED;
+                if (!kind.equals("label")) new ghidra.app.cmd.disassemble.DisassembleCommand(at, null, true).applyTo(program, TaskMonitor.DUMMY);
+                if (kind.equals("function") && program.getFunctionManager().getFunctionAt(at) == null
+                        && !new ghidra.app.cmd.function.CreateFunctionCmd(name, at, null, source).applyTo(program, TaskMonitor.DUMMY))
+                    warnings.add("seed function at rva 0x" + Long.toHexString(rva) + ": Ghidra made no function there");
+                else if (name != null) {
+                    try {
+                        program.getSymbolTable().createLabel(at, name, source).setPrimary();
+                    }
+                    catch (ghidra.util.exception.InvalidInputException x) {
+                        warnings.add("seed " + kind + " at rva 0x" + Long.toHexString(rva) + ": " + x.getMessage());
+                    }
+                }
+            }
         }
         finally {
             program.endTransaction(tx, true);

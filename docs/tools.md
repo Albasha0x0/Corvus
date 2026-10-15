@@ -43,6 +43,11 @@ Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Man
 | `arch` | string |  |  | raw: x86, x64, arm, thumb, arm64; mips, ppc, riscv64, 6502 etc. via IDA or Ghidra. |
 | `base` | string |  |  | raw: load address (default 0). |
 | `entry` | string |  |  | raw: entry address or file offset (default start). |
+| `processor` | string |  |  | IDA processor (-p), e.g. metapc, arm, mipsl. |
+| `language` | string |  |  | Ghidra language id, e.g. x86:LE:32:default. |
+| `compilerSpec` | string |  |  | Ghidra compiler spec (also IDA's compiler): windows, gcc, borlandcpp, borlanddelphi ... |
+| `seeds` | string[] |  |  | Starts before analysis: [function\|code\|label:]address[=name]. |
+| `disableAnalyzers` | string[] |  |  | Analyzers off at import (AF_FLIRT, 'Decompiler Switch Analysis'). |
 
 Structured output: `ids`, `text`.
 

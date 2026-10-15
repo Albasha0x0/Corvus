@@ -35,6 +35,9 @@ public sealed class LoadedNative
     /// <summary>The Ghidra archive the image was loaded from, which Ghidra opens as its database; else null.</summary>
     public Native.Providers.PackedDatabase? EngineDatabase { get; internal set; }
 
+    /// <summary>How the engines import the image (load_assembly processor, language, compilerSpec, seeds, disableAnalyzers); else null.</summary>
+    public EngineOverrides? Overrides { get; internal set; }
+
     /// <summary>The selected slice of a universal Mach-O file, else null.</summary>
     public string? SliceName => SliceOf(Image);
 

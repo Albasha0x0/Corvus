@@ -66,19 +66,39 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         [Description("raw: x86, x64, arm, thumb, arm64; mips, ppc, riscv64, 6502 etc. via IDA or Ghidra.")] string? arch = null,
         [Description("raw: load address (default 0).")] string? @base = null,
         [Description("raw: entry address or file offset (default start).")] string? entry = null,
+        [Description("IDA processor (-p), e.g. metapc, arm, mipsl.")] string? processor = null,
+        [Description("Ghidra language id, e.g. x86:LE:32:default.")] string? language = null,
+        [Description("Ghidra compiler spec (also IDA's compiler): windows, gcc, borlandcpp, borlanddelphi ...")] string? compilerSpec = null,
+        [Description("Starts before analysis: [function|code|label:]address[=name].")] string[]? seeds = null,
+        [Description("Analyzers off at import (AF_FLIRT, 'Decompiler Switch Analysis').")] string[]? disableAnalyzers = null,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
         var requestedSlice = string.IsNullOrWhiteSpace(slice) ? null : slice.Trim();
+        // import overrides: their form and the installed engines' names are checked before the load, seeds against the image in it
+        bool overriding = new[] { processor, language, compilerSpec }.Any(v => !string.IsNullOrWhiteSpace(v)) || seeds is { Length: > 0 } || disableAnalyzers is { Length: > 0 };
+        Func<Native.INativeImage, Native.EngineOverrides?>? overrides = overriding
+            ? image => Native.EngineOverrides.Parse(image, processor, language, compilerSpec, seeds, disableAnalyzers)
+            : null;
+        Native.RawLayout? layout = null;
+        if (format.Trim().Equals("raw", StringComparison.OrdinalIgnoreCase))
+        {
+            if (requestedSlice != null || recursive) throw new ToolError(ErrorCode.InvalidArgument, "format=raw loads one file; slice and recursive do not apply.", "omit slice and recursive");
+            layout = Native.RawLayout.Parse(arch, @base, entry, new FileInfo(InputFiles.RequireRegularFile(path, "image file")).Length);
+        }
+        if (overriding)
+        {
+            if (recursive || Directory.Exists(path)) throw new ToolError(ErrorCode.InvalidArgument, "Import overrides apply to one native image file.", "pass the file's path");
+            if (Native.EngineOverrides.Parse(null!, processor, language, compilerSpec, null, disableAnalyzers) is { } names) engines?.CheckOverrides(names, layout);
+        }
         switch (format.Trim().ToLowerInvariant())
         {
             case "raw":
-                if (requestedSlice != null || recursive) throw new ToolError(ErrorCode.InvalidArgument, "format=raw loads one file; slice and recursive do not apply.", "omit slice and recursive");
                 var full = InputFiles.RequireRegularFile(path, "image file");
-                var raw = workspace.LoadRaw(full, Native.RawLayout.Parse(arch, @base, entry, new FileInfo(full).Length));
+                var raw = Overridden(workspace.LoadRaw(full, layout!, overrides), overrides);
                 var r = (Native.RawCodeImage)raw.Image;
                 return Changed([raw.Id], $"Loaded native image {raw.Id}: {Native.NativeImageExtensions.KindText(r)}\n  {raw.FilePath}\n  " +
-                       $"{r.FileSize:N0} bytes at 0x{r.ImageBase:X}-0x{r.ImageBase + (ulong)r.FileSize:X}; list_functions and disassemble start from the entry");
+                       $"{r.FileSize:N0} bytes at 0x{r.ImageBase:X}-0x{r.ImageBase + (ulong)r.FileSize:X}; list_functions and disassemble start from the entry" + ImportLine(raw));
             case "auto":
                 if (arch != null || @base != null || entry != null) throw new ToolError(ErrorCode.InvalidArgument, "arch, base and entry apply to format=raw.", "pass format=raw, or omit them");
                 break;
@@ -100,7 +120,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }
         if (!Directory.Exists(path))
         {
-            var (loaded, native) = workspace.LoadAny(path, requestedSlice);
+            var (loaded, native) = workspace.LoadAny(path, requestedSlice, overrides);
+            if (overriding)
+            {
+                if (native == null) throw new ToolError(ErrorCode.InvalidArgument, $"{loaded!.Id} is a .NET assembly: import overrides apply to native images.", "omit processor, language, compilerSpec, seeds and disableAnalyzers");
+                native = Overridden(native, overrides);
+            }
             var providers = loadProviders && link != null && (native == null || native.Pe != null) ? Providers(loaded, native) : "";
             if (native != null && loaded == null)
             {
@@ -108,7 +133,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 return Changed([native.Id], $"Loaded native image {native.Id}: {Native.NativeImageExtensions.KindText(image)}\n  {native.FilePath}\n  " +
                        $"{Plural(image.Sections.Count, "section")}, {Plural(image.Imports.Count, "import")}, {Plural(image.Exports.Count, "export")}" +
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
-                       (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers +
+                       (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers + ImportLine(native) +
                        (Il2CppMetadataNear(native.FilePath) is { } metadata
                            ? $"\n  Il2Cpp game: its metadata is {metadata}; load_assembly that file (or the game folder) reads it with the built-in reader " +
                              "(dummy assemblies, addresses, field offsets, string literals), or apply_il2cpp_names on this image does it"
@@ -123,13 +148,33 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 return Changed(native != null ? [asm.Id, native.Id] : [asm.Id], $"Loaded {asm.Id}: {asm.FullAssemblyName}\n  {asm.FilePath}\n  {types.Count} types, " +
                        $"{MetadataUtil.NamespaceCount(types)} namespaces" +
                        (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy DLL: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "") +
-                       (native != null ? $"\n  mixed-mode (C++/CLI): its native code is also loaded as native image {native.Id} for the native tools" : "") + providers);
+                       (native != null ? $"\n  mixed-mode (C++/CLI): its native code is also loaded as native image {native.Id} for the native tools" + ImportLine(native) : "") + providers);
             });
         }
 
         var report = workspace.LoadDirectory(path, recursive, (done, total, file) => Report(progress, done, total, $"Loading {Path.GetFileName(file)}"));
         return Changed(report.Loaded.Select(a => a.Id), FormatLoad(workspace, path, report));
     }, cancellationToken));
+
+    /// <summary>
+    /// An image loaded before with other overrides takes these: set in place while no engine has it open, else reloaded so
+    /// the next engine call opens the database of these overrides.
+    /// </summary>
+    private LoadedNative Overridden(LoadedNative native, Func<Native.INativeImage, Native.EngineOverrides?>? overrides)
+    {
+        if (overrides == null || overrides(native.Image) is not { } wanted || Equals(native.Overrides, wanted)) return native;
+        if (engines?.ImageSessions(native).Count > 0)
+        {
+            if (native.HasPatches)
+                throw new ToolError(ErrorCode.Conflict, $"{native.Id} has patches and an engine open: changing its import overrides would reload it.", "save_native or revert the patches, then load again");
+            return workspace.ReloadNative(native, wanted);
+        }
+        workspace.Write(() => native.Overrides = wanted);
+        return native;
+    }
+
+    private static string ImportLine(LoadedNative native) =>
+        native.Overrides is { } ov ? $"\n  engine import: {ov.Text} (IDA and Ghidra keep a database of their own for it)" : "";
 
     /// <summary>
     /// The Il2Cpp game a load_assembly path names: a global-metadata.dat, a game folder (Windows, Linux, macOS .app,

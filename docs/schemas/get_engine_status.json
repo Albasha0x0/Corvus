@@ -55,6 +55,10 @@
           "compiler": {
             "type": "string"
           },
+          "importOverrides": {
+            "description": "load_assembly's import overrides this database was made with (a database of its own).",
+            "type": "string"
+          },
           "format": {
             "type": "string"
           },
