@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "corvus",
   "display_name": "Corvus",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare builds, patch and save.",
   "long_description": "Corvus reads .NET assemblies and native PE, ELF and Mach-O binaries without running them: decompiled C#, IL, disassembly, cross-references and call graphs, build comparison, Il2Cpp metadata, containers and crash dumps. Edits (renames, patches, simplified obfuscated code) stay in memory until saved to a new file.",
   "author": {

@@ -1,5 +1,35 @@
 # Release notes
 
+## 2.1.0
+
+156 tools (2.0.2 had 155): `analyze_js` is new, in the `web` toolset. No breaking changes.
+
+- **Raw images.** `load_assembly format=raw arch= base= entry=` maps headerless code (firmware, shellcode, ROM dumps).
+  Our index decodes x86, x64, ARM, Thumb and ARM64; MIPS, PowerPC, RISC-V and 6502 go to IDA and Ghidra, which set
+  the processor, bitness, base and entry before analysis. DOS `.COM` (`x86-16`) and MZ (`dos-mz`) images load too.
+  Each layout gets its own id (`name[x64@0x400000]`), database and project.
+- **JavaScript bundles.** `analyze_js` reads bundlers and source maps (a minified `line:column` maps to the original
+  source and name), module tables (webpack, esbuild, Browserify, Parcel, Metro, AMD, SystemJS, Rollup/Vite chunks),
+  each module's requires and dependents, and strings and names with their original positions. It also identifies
+  Hermes bytecode.
+- **Electron.** `search_container kind=electron` lists preload scripts, contextBridge keys, IPC channels, process
+  and shell sinks and native add-ons (with their N-API registrations), each with `file:line:column`.
+  `compare_folders` compares `.asar` archives entry by entry.
+- **Captures.** `search_container kind=endpoint` gives a capture's request templates, with id segments folded and
+  query values hidden.
+- **Archives and formats.** tar (plain, gz, bz2, xz), 7z, RAR, single gzip/bzip2/xz files, xar (macOS `.pkg`) and
+  cpio open as containers, with limits that stop archive bombs. New `summarize_file` views: `wasm` (imports,
+  exports, toolchain, names) and `firmware` (formats found at their offsets inside an opaque image).
+- **Apple.** New `summarize_file` views: `apple` (an `.ipa` or `.app`: Info.plist, each Mach-O's role and signature
+  verdict, entitlements, provisioning profile), `plist` (keyed archives decoded) and `nib` (classes, outlets and
+  actions, with each action resolved to its implementation). `verify_native_imports` resolves Mach-O load commands
+  as dyld does.
+- **Ghidra.** Ghidra archives (`.gzf`) load directly. A completion pass after the standard analysis finds more
+  references while the image stays usable. `reanalyze_native` takes `background=true` and `preset=`.
+  `decompile_native view=pcode` shows high p-code. Warm cross-reference queries are 2–30× faster.
+- **Fixes.** `server_status` no longer walks the engine cache on every call (about 950 ms down to 20 ms), and
+  reference-pack downloads time out instead of stalling a search.
+
 ## 2.0.2
 
 - **Package metadata.** The NuGet package, the MCP bundles and the license name the maintainer as Albasha0x0. This is
