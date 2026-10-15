@@ -10,12 +10,13 @@ namespace Corvus.Services.Analysis;
 /// main and main to renderer), through wrapper functions and bridge methods; child_process, fs and shell sinks; native
 /// add-ons and the functions called on them. A script that does not parse is read by its call shapes (<see cref="ElectronSurface"/>).
 /// </summary>
-internal sealed class ElectronGraph
+internal sealed partial class ElectronGraph
 {
     private sealed class Row(string kind, string value, string site, string file, int start)
     {
         public string Kind = kind, Value = value, Site = site, File = file;
         public int Start = start;
+        public int HandlerStart = -1, HandlerEnd = -1; // a listener's handler function
         public string? Call, Role, Link;
         public bool Literal;
     }
@@ -68,6 +69,7 @@ internal sealed class ElectronGraph
             return;
         }
         Parsed++;
+        if (KeepTexts) _texts[path] = text;
         new FileWalk(this, program).Run(ct);
     }
 
@@ -248,6 +250,10 @@ internal sealed class ElectronGraph
             {
                 var row = Add(kind, s.Text, c, call, s.Exact);
                 row.Role = role;
+                // a direct listener's handler: the function literal or the function its argument names
+                if (role.StartsWith("listen", StringComparison.Ordinal) && ReferenceEquals(arg, c.Arguments[0]) && c.Arguments.Count > 1
+                    && (c.Arguments[1] is FunctionExpression or ArrowFunctionExpression ? c.Arguments[1] : p.Eval(c.Arguments[1], scope) is JsFunction hf ? (Node)hf.Node : null) is { } handler)
+                    (row.HandlerStart, row.HandlerEnd) = (handler.Start, handler.End);
                 return;
             }
             if (channelNode is Identifier id && scope.Lookup(id.Name) is { ParamOf: { } fn, ParamIndex: var index })

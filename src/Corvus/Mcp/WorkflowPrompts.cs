@@ -205,7 +205,8 @@ public static class WorkflowPrompts
            - strings: search_strings (.NET) or search_native_strings (native) for UI, log and error text the behaviour shows;
            - imports and APIs: list_imports, find_xrefs address=module!name, find_references for .NET APIs; search_constants or search_bytes for known constants;
            - UI resources: list_resources and get_resource (forms, XAML, Win32 dialogs and string tables) for the text or control that triggers it;
-           - native ranking: trace_native_feature query=<word> for each word or API the behaviour implies.
+           - native ranking: trace_native_feature query=<word> for each word or API the behaviour implies;
+           - Electron and JavaScript apps: search_container kind=feature query=<UI or log text> follows the text through handlers, IPC and bridge methods to the add-on function.
         3. Call paths: find_call_paths from the entry point or UI handler to each candidate (to='native:<image>!<function>' for native code),
            get_call_tree / native_call_tree around it; read the deciding code with decompile_member or disassemble (decompile_native when an engine is available).
         4. Evidence: read_result format=evidence id=last:N (or the kept r-... ids, comma-separated) outputPath={evidencePath ?? "<target folder>/evidence.json"}

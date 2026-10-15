@@ -29,6 +29,9 @@ public sealed record ElectronFacts(
     IReadOnlyList<ElectronRow> Surface,
     IReadOnlyList<string> Notes)
 {
+    /// <summary>search_container kind=feature: the chains from a literal (not serialized).</summary>
+    internal IReadOnlyList<FeatureTrace>? Traces { get; init; }
+
     /// <summary>Settings worth a highlight: what the app sets for these differs from nothing else in the summary.</summary>
     internal IEnumerable<string> Highlights()
     {
@@ -79,7 +82,7 @@ internal static class ElectronInspector
     }
 
     /// <summary>Facts for an Electron executable or .asar; null for anything else.</summary>
-    public static ElectronFacts? Of(string path, byte[] bytes, CancellationToken ct)
+    public static ElectronFacts? Of(string path, byte[] bytes, CancellationToken ct, string? trace = null)
     {
         var kind = Blob.Identify(bytes);
         var notes = new List<string>();
@@ -137,11 +140,16 @@ internal static class ElectronInspector
 
             var package = app != null ? Package(app, notes) : null;
             var surface = new List<ElectronRow>();
-            var settings = app != null ? WebPreferences(app, package?.Main, notes, surface, ct) : [];
+            var paths = app?.Files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal) ?? [];
+            var graph = new ElectronGraph
+            {
+                AddonPackages = app?.Unpacked != null ? ElectronGraph.Addons(app.Unpacked) : new HashSet<string>(), Exists = paths.Contains, KeepTexts = trace != null,
+            };
+            var settings = app != null ? WebPreferences(app, package?.Main, notes, surface, graph, ct) : [];
             if (!surface.Any(r => r.Kind == "preload"))
                 surface.InsertRange(0, settings.Where(s => s.Setting == "preload").Select(s => new ElectronRow("preload", s.Value, s.Site)));
             return new ElectronFacts(binary?.Path, binary?.ElectronVersion, binary?.ChromiumVersion, binary?.NodeVersion, binary?.Evidence ?? [],
-                binary?.FuseWireVersion, binary?.Fuses ?? [], archive, package, settings, surface, notes);
+                binary?.FuseWireVersion, binary?.Fuses ?? [], archive, package, settings, surface, notes) { Traces = trace != null ? graph.Trace(trace, ct) : null };
         }
         finally { stream?.Dispose(); }
     }
@@ -197,13 +205,11 @@ internal static class ElectronInspector
     /// webPreferences object literals in the app's own scripts (main entry first, node_modules skipped): each top-level
     /// property of interest with its source text; a webPreferences that is not a literal is reported as its expression.
     /// </summary>
-    private static List<ElectronSetting> WebPreferences(AppFiles app, string? main, List<string> notes, List<ElectronRow> surface, CancellationToken ct)
+    private static List<ElectronSetting> WebPreferences(AppFiles app, string? main, List<string> notes, List<ElectronRow> surface, ElectronGraph graph, CancellationToken ct)
     {
         var scripts = app.Files.Where(f => IsScript(f.Path) && !f.Path.StartsWith("node_modules/", StringComparison.Ordinal) && !f.Path.Contains("/node_modules/", StringComparison.Ordinal))
             .OrderBy(f => main != null && (f.Path == main || f.Path == main + ".js") ? 0 : 1).ThenBy(f => f.Path, StringComparer.Ordinal).ToList();
         var result = new List<ElectronSetting>();
-        var paths = app.Files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
-        var graph = new ElectronGraph { AddonPackages = app.Unpacked != null ? ElectronGraph.Addons(app.Unpacked) : new HashSet<string>(), Exists = paths.Contains };
         long scanned = 0;
         int files = 0;
         foreach (var (path, size) in scripts)

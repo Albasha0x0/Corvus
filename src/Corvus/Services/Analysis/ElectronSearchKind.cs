@@ -30,7 +30,7 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
     }
 
     /// <summary>An add-on with its N-API registrations: a summary line, and the native function a JavaScript name reaches.</summary>
-    private sealed record Addon(string Path, ulong ImageBase, IReadOnlyList<Native.NodeApi.Registration> Registrations)
+    internal sealed record Addon(string Path, ulong ImageBase, IReadOnlyList<Native.NodeApi.Registration> Registrations)
     {
         public string Summary => $"add-on {Path}: {Registrations.Count} N-API registration(s)" +
                                  (Registrations.Count > 0 ? ": " + string.Join(", ", Registrations.Select(r => r.JsName).Distinct().Take(12)) + (Registrations.Count > 12 ? ", ..." : "") : "");
@@ -49,7 +49,7 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
     /// The add-on a require names, beside the requiring script under the app's unpacked files (app.asar.unpacked, the
     /// or resources/app.asar.unpacked beside an executable), with the JavaScript names its N-API registrations expose.
     /// </summary>
-    private static Addon? Find(string source, string script, string request, Dictionary<string, Addon?> seen, CancellationToken ct)
+    internal static Addon? Find(string source, string script, string request, Dictionary<string, Addon?> seen, CancellationToken ct)
     {
         var root = source.EndsWith(".asar", StringComparison.OrdinalIgnoreCase) ? source + ".unpacked"
             : Path.Combine(Path.GetDirectoryName(source) ?? "", "resources", "app.asar.unpacked");

@@ -32,8 +32,8 @@ public sealed class UnpackTools(UnpackService unpacker)
 
     [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
     [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, " +
-                 "nested) or an assembly, without extracting: substring or * / ? wildcards, exact first. kind=file: inner " +
-                 "file paths; packet: a pcap display filter; endpoint: endpoints the code names or a capture's requests.")]
+                 "nested) or an assembly, without extracting: substring or * / ? wildcards. kind=file: inner " +
+                 "file paths; packet: a pcap display filter; endpoint: endpoints in code or a capture; feature: JS text to native code.")]
     public async Task<string> SearchContainer(
         [Description("Container or assembly file (absolute).")] string path,
         [Description("Name or part of a name.")] string query,

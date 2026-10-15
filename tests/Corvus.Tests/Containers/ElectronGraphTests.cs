@@ -150,6 +150,31 @@ public sealed class ElectronGraphTests : IDisposable
         Assert.Contains($"RVA 0x{ElfWriter.TextRva + NodeApiTests.Hello:X}, function 'hello'", row.Detail);
     }
 
+    /// <summary>A button's text followed through its onClick, a bridge method, IPC and the main handler into the add-on's function.</summary>
+    [Fact]
+    public void Feature_trace_reaches_the_native_function()
+    {
+        var app = _dir.File("app.asar");
+        File.WriteAllBytes(app, AsarWriter.Build([
+            AsarWriter.Text("renderer.js", "const view = () => jsx(\"button\", { onClick: () => window.api.openSettings(), children: \"Open settings\" });"),
+            AsarWriter.Text("preload.js", "const { contextBridge, ipcRenderer } = require(\"electron\");\ncontextBridge.exposeInMainWorld(\"api\", { openSettings: () => ipcRenderer.invoke(\"settings:open\") });"),
+            AsarWriter.Text("main.js", "const { ipcMain } = require(\"electron\");\nconst native = require(\"./build/Release/addon.node\");\nfunction open() { return native.hello(); }\nipcMain.handle(\"settings:open\", () => open());"),
+        ]).Archive);
+        Directory.CreateDirectory(Path.Combine(app + ".unpacked", "build", "Release"));
+        File.WriteAllBytes(Path.Combine(app + ".unpacked", "build", "Release", "addon.node"), NodeApiTests.ElfAddon());
+        using var ws = new AssemblyWorkspace();
+        var row = Assert.Single(new UnpackService(ws).Search(app, "Open settings", "feature", 100, AnalysisLimits.Default, default).Items);
+        var steps = row.Detail!.Split(" -> ");
+        Assert.StartsWith("literal \"Open settings\" at renderer.js:1:", steps[0]);
+        Assert.StartsWith("handler onClick at renderer.js:1:", steps[1]);
+        Assert.StartsWith("bridge-call window.api.openSettings api.openSettings at renderer.js:1:", steps[2]);
+        Assert.StartsWith("bridge method api.openSettings at preload.js:2:", steps[3]);
+        Assert.StartsWith("ipc-renderer ipcRenderer.invoke settings:open at preload.js:2:", steps[4]);
+        Assert.StartsWith("ipcMain.handle at main.js:4:", steps[5]);
+        Assert.StartsWith("native-call call hello at main.js:3:", steps[6]);
+        Assert.Contains($"RVA 0x{ElfWriter.TextRva + NodeApiTests.Hello:X}, function 'hello'", steps[7]);
+    }
+
     /// <summary>Mutated scripts: rows or call-shape rows, never an exception.</summary>
     [Fact]
     [FuzzEntry(typeof(Corvus.Services.Web.JsProgram), typeof(ElectronGraph))]
@@ -161,9 +186,10 @@ public sealed class ElectronGraphTests : IDisposable
             """);
         var failures = FormatFuzz.Run(seed, b =>
         {
-            var graph = new ElectronGraph();
+            var graph = new ElectronGraph { KeepTexts = true };
             graph.Add("main.js", System.Text.Encoding.UTF8.GetString(b), default);
             graph.Finish();
+            graph.Trace("a:", default);
         }, 300);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }

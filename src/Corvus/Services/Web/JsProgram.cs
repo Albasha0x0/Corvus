@@ -123,10 +123,13 @@ internal sealed class JsProgram
     public string Site(Node node) => $"{Path}:{node.Location.Start.Line}:{node.Location.Start.Column + 1}";
 
     /// <summary>Every node in source order with its innermost scope.</summary>
-    public void Walk(Action<Node, JsScope> visit, CancellationToken ct)
+    public void Walk(Action<Node, JsScope> visit, CancellationToken ct) => Walk(Tree, Root, visit, ct);
+
+    /// <summary>The nodes under <paramref name="root"/> (whose enclosing scope is <paramref name="rootScope"/>) in source order with their scopes.</summary>
+    public void Walk(Node root, JsScope rootScope, Action<Node, JsScope> visit, CancellationToken ct)
     {
         var stack = new Stack<(Node Node, JsScope Scope)>();
-        stack.Push((Tree, Root));
+        stack.Push((root, rootScope));
         var children = new List<Node>();
         while (stack.Count > 0)
         {
@@ -402,9 +405,12 @@ internal sealed class JsProgram
     {
         if (b.Fixed != null) return b.Fixed;
         if (b.State == 2) return b.Cached;
-        if (b.State == 1 || b.Sources.Count != 1) return null; // a cycle, a parameter, or more than one source
+        if (b.State == 1) return null; // a cycle
+        // one source, not counting null and undefined (let x; try { x = require(...) } catch { x = null })
+        var sources = b.Sources.Count == 1 ? b.Sources : b.Sources.Where(s => s.Expr is not (NullLiteral or Identifier { Name: "undefined" } or UnaryExpression { Operator: Operator.Void })).ToList();
+        if (sources.Count != 1) return null;
         b.State = 1;
-        var (expr, scope, path) = b.Sources[0];
+        var (expr, scope, path) = sources[0];
         var v = Eval(expr, scope, depth + 1);
         foreach (var key in path) v = Member(v, key, depth);
         b.Cached = v;

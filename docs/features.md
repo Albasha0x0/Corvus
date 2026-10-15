@@ -260,7 +260,11 @@ each literal channel paired with the other side's sites in both directions or ma
 `app.asar.unpacked` (a relative path, `bindings('name')` or a package holding a `.node` file) and each function called on
 it joined to its native function through the add-on's N-API registrations, node-addon-api `exports.Set` included (the
 query matches the channel, the call or the row kind, e.g. `ipc-main`). `summarize_file view=electron` counts the
-literal channels paired. `kind=endpoint` on a HAR or mitmproxy capture lists each request template once (numeric and id
+literal channels paired. `kind=feature` follows a UI, log or error text from an Electron app or script to where it leads:
+the handler beside it (an `onClick` / `click` / `action` function in the same object, as compiled JSX and menu templates
+hold them) or the functions around it, the functions they call, then each IPC send to its main-process handler and each
+bridge call to its preload method, ending at sinks and native calls, a native call at the add-on function its N-API
+registration names (one row per chain, the steps in the detail). `kind=endpoint` on a HAR or mitmproxy capture lists each request template once (numeric and id
 path segments folded, query values never shown) with its request count and statuses. On app code (an APK, AAB, `.ipa`,
 DEX, .NET assembly, Mach-O or a container of them) `kind=endpoint` lists the endpoints the code names, each with its
 client, method id or member and location: Retrofit methods from their HTTP annotations (R8-renamed annotation types
