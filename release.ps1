@@ -194,19 +194,38 @@ $body = Join-Path $work 'notes.md'
 [IO.File]::WriteAllText($body, (Get-Notes) + "`n")
 Run 'gh' @('release', 'edit', $tag, '--repo', $Repo, '--notes-file', $body)
 
+# Post-release update: the previous release installed by install.sh in WSL with a throwaway HOME, then 'corvus update' to this one.
+$previous = git -C $root describe --tags --abbrev=0 "$tag^" 2>$null
+$distro = if ($env:CORVUS_RELEASE_WSL) { $env:CORVUS_RELEASE_WSL } else { 'Ubuntu' }
+if ($previous -and (Get-Command wsl -ErrorAction SilentlyContinue)) {
+    $updateTest = Join-Path $work 'update-test.sh'
+    [IO.File]::WriteAllText($updateTest, @'
+set -eu
+work=$(mktemp -d /tmp/corvus-update-XXXXXX)
+trap 'rm -rf "$work"' EXIT
+export HOME="$work/home" CORVUS_HOME="$work/home/Corvus" XDG_DATA_HOME="$work/home/.local/share" XDG_CONFIG_HOME="$work/home/.config"
+mkdir -p "$HOME"
+sh "$1" --version "$2" --yes >"$work/install.log" 2>&1 || { cat "$work/install.log"; exit 1; }
+"$CORVUS_HOME/current/corvus" update --version "$3" >"$work/update.log" 2>&1 || { cat "$work/update.log"; exit 1; }
+after=$("$CORVUS_HOME/current/corvus" version)
+case "$after" in *"$3"*) echo "update $2 -> $after" ;; *) echo "update from $2 reports $after, not $3"; exit 1 ;; esac
+'@.Replace("`r`n", "`n"))
+    $wslPath = { param($p) (wsl -d $distro -- wslpath -a ($p -replace '\\', '/')) -join '' }
+    wsl -d $distro -- sh (& $wslPath $updateTest) (& $wslPath (Join-Path $root 'install.sh')) $previous.TrimStart('v') $Version
+    if ($LASTEXITCODE -ne 0) { Fail "update from $previous to $tag failed" }
+}
+else { Write-Host "Update check skipped: no previous tag or no WSL ($distro)." -ForegroundColor Yellow }
+
 Write-Host ""
 Write-Host "Release $tag is published. Manual channel steps:"
 Write-Host "  [ ] Install check: run the install script on a clean machine or account (GITHUB_TOKEN while the repository is private),"
 Write-Host "      then 'corvus version' (expect $Version) and 'corvus status'."
-Write-Host "  [ ] Update check: 'corvus update --dry-run' on an older install names $tag and SHA256SUMS."
 Write-Host "  [ ] MCP bundle: install corvus-<rid>.mcpb in a client that takes bundles (Claude Desktop); the server starts and lists its tools."
 Write-Host "  [ ] .NET tool: 'dotnet tool install -g CorvusRE --add-source <folder with $nupkg>', then 'corvus version' (expect $Version)"
 Write-Host "      and 'corvus status' (Installed as: dotnet-tool); 'dnx CorvusRE --add-source <folder> --yes version' likewise."
 Write-Host "  [ ] Announce: the release notes link, https://github.com/$Repo/releases/tag/$tag"
-Write-Host "  Channels that need the public repository (not done while it is private):"
-Write-Host "  [ ] nuget.org: 'dotnet nuget push $nupkg --source https://api.nuget.org/v3/index.json --api-key <key>' (the verified asset)."
-Write-Host "  [ ] MCP Registry: 'mcp-publisher publish' with src/Corvus/.mcp/server.json, after nuget.org lists $Version"
-Write-Host "      (the package README needs the line 'mcp-name: io.github.Albasha0x0/corvus' for the ownership check)."
+Write-Host "  [ ] nuget.org: CorvusRE lists $Version (release.yml's publish job)."
+Write-Host "  [ ] MCP Registry: io.github.Albasha0x0/corvus lists $Version (the same job, after nuget.org)."
 Write-Host "  [ ] winget, Scoop, Homebrew: manifests in their own repositories, with the archive hashes below."
 Write-Host "  [ ] Claude Code plugin marketplace entry."
 Write-Host "  Archive hashes for package manifests:"
