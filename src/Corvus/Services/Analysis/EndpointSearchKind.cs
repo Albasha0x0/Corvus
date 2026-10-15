@@ -1,10 +1,11 @@
 using System.Text.RegularExpressions;
 using Corvus.Core;
+using Corvus.Core.Pcap;
 
 namespace Corvus.Services.Analysis;
 
 /// <summary>
-/// search_container kind=endpoint on a HAR or mitmproxy capture: each request template once (method, host, path with
+/// search_container kind=endpoint on a HAR, mitmproxy or pcap / pcapng capture: each request template once (method, host, path with
 /// numeric and id segments as {n} / {id}, query names), with its request count and statuses. Values are never shown.
 /// </summary>
 internal sealed partial class EndpointSearchKind : IContainerSearchKind
@@ -14,12 +15,28 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
     public IEnumerable<ContainerMatch> Search(ContainerScope scope, string kind, Func<string, bool> matches, CancellationToken ct)
     {
         byte[] data;
+        CaptureAnalysis? capture = null;
         try
         {
-            if (!File.Exists(scope.Source) || new FileInfo(scope.Source).Length > AnalysisLimits.Default.MaxItemBytes) yield break;
-            data = File.ReadAllBytes(scope.Source);
+            if (!File.Exists(scope.Source)) yield break;
+            using (var s = File.OpenRead(scope.Source))
+            {
+                var magic = new byte[4];
+                if (s.ReadAtLeast(magic, 4, throwOnEndOfStream: false) == 4 && PcapReader.Looks(magic))
+                {
+                    s.Position = 0;
+                    capture = CaptureAnalysis.Read(s, ct); // streamed: no size limit
+                }
+            }
+            if (capture == null && new FileInfo(scope.Source).Length > AnalysisLimits.Default.MaxItemBytes) yield break;
+            data = capture == null ? File.ReadAllBytes(scope.Source) : [];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { yield break; }
+        if (capture != null)
+        {
+            foreach (var row in CaptureRows(capture).Where(r => matches(r.Name) || matches(r.Path))) yield return row;
+            yield break;
+        }
         List<CapturedResponse>? requests = Captures.LooksLikeHar(data) ? Captures.ReadHar(data)
             : Captures.LooksLikeFlows(data) ? Captures.ReadFlows(data, [], ct) : null;
         if (requests == null) yield break;
@@ -35,6 +52,20 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
             };
         }
     }
+
+    /// <summary>A pcap / pcapng capture's endpoints: HTTP request templates, then tls:// ClientHello server names, then dns:// names.</summary>
+    private static IEnumerable<ContainerMatch> CaptureRows(CaptureAnalysis c) =>
+    [
+        .. PcapFileView.Requests(c).Select(r => new ContainerMatch(r.Host, r.Template, "endpoint") { Detail = $"{r.Count} request(s)" }),
+        .. c.ServerNames().Select(t => new ContainerMatch(t.ServerName, $"tls://{t.ServerName}", "endpoint")
+        {
+            Detail = $"{t.Hellos} ClientHello(s)" + (t.Alpn.Count > 0 ? $", ALPN {string.Join(", ", t.Alpn)}" : ""),
+        }),
+        .. c.DnsNames().Select(d => new ContainerMatch(d.Name, $"dns://{d.Name}", "endpoint")
+        {
+            Detail = $"{d.Queries} query(ies)" + (d.Answers.Count > 0 ? $", {string.Join(", ", d.Answers.Take(4))}" : ""),
+        }),
+    ];
 
     internal static (string Host, string Text) Template(string method, string url)
     {
