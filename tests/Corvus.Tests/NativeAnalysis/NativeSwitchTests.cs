@@ -341,6 +341,49 @@ public class NativeSwitchTests
     }
 
     [Fact]
+    public void X86_index_reloaded_from_a_frame_slot_stored_after_an_and_mask()
+    {
+        // i386: "and eax, 3; mov [esp+8], eax" in the entry block; a case block reloads [esp+8] for a second table
+        const ulong Base = 0x8048000;
+        uint first = NativeFormats.ElfWriter.DataRva + 0x20, second = first + 0x10;
+        var a = new Assembler(32);
+        var outer = new Label[4];
+        var inner = new Label[4];
+        for (int i = 0; i < 4; i++) { outer[i] = a.CreateLabel(); inner[i] = a.CreateLabel(); }
+        a.sub(esp, 0x10);
+        a.mov(eax, __dword_ptr[esp + 0x14]);
+        a.and(eax, 3);
+        a.mov(__dword_ptr[esp + 8], eax);
+        a.mov(eax, __dword_ptr[eax * 4 + (int)(Base + first)]);
+        a.jmp(eax);
+        a.Label(ref outer[0]);
+        a.mov(ecx, __dword_ptr[esp + 8]);
+        a.mov(ecx, __dword_ptr[ecx * 4 + (int)(Base + second)]);
+        a.jmp(ecx);
+        for (int i = 1; i < 4; i++) { a.Label(ref outer[i]); a.mov(eax, i); a.add(esp, 0x10); a.ret(); }
+        for (int i = 0; i < 4; i++) { a.Label(ref inner[i]); a.mov(eax, 10 + i); a.add(esp, 0x10); a.ret(); }
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), Base + NativeFormats.ElfWriter.TextRva, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        uint Rva(Label l) => (uint)(result.GetLabelRIP(l) - Base);
+        var data = new byte[0x100];
+        for (int i = 0; i < 4; i++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x20 + i * 4), (uint)Base + Rva(outer[i]));
+            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x30 + i * 4), (uint)Base + Rva(inner[i]));
+        }
+        var w = new NativeFormats.ElfWriter
+        {
+            Is64 = false, Machine = NativeFormats.ElfWriter.EmX86, Type = 2, Base = Base, Entry = NativeFormats.ElfWriter.TextRva, Text = stream.ToArray(),
+            Data = data, Hash = NativeFormats.ElfWriter.HashKind.None,
+        };
+        var index = NativeCodeIndex.Build(Native.Elf.ElfFile.FromBytes(w.Build(), "masked"));
+        var graph = index.GetGraph(index.FunctionByStart(NativeFormats.ElfWriter.TextRva)!);
+        Assert.Empty(graph.UnresolvedJumps);
+        var sw = Assert.Single(graph.Switches, s => s.TableRva == second);
+        Assert.Equal(inner.Select(Rva), sw.Targets);
+    }
+
+    [Fact]
     public async Task GetCfg_lists_cases_and_find_xrefs_names_the_case_values()
     {
         // the biased switch of Msvc() as a PE file: .text at 0x1000, the table in .rdata at 0x2000
