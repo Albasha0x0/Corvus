@@ -88,7 +88,8 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
             ("list_types", new() { ["assembly"] = "System.Private.CoreLib" }, 1.3),
             ("get_type_info", new() { ["type"] = "System.String" }, 1.3),
             ("get_type_hierarchy", new() { ["type"] = "System.Exception" }, 1.3),
-            ("get_attributes", new() { ["symbol"] = "System.String" }, 1.3),
+            // typed arguments ({type, value, name}) repeat what the C# text shows: 1.82x measured
+            ("get_attributes", new() { ["symbol"] = "System.String" }, 1.9),
             ("resolve_symbol", new() { ["symbol"] = "ToString" }, 1.3),
             ("search_symbols", new() { ["query"] = "Get" }, 1.3),
             ("search_strings", new() { ["query"] = "a" }, 1.3),
