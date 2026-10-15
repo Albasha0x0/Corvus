@@ -20,7 +20,9 @@
   `./test.ps1 -Full -Reuse` then runs only the families whose key changed, plus the contract tests and the classes
   known to be flaky under load. `release.ps1` runs the suite through `test.ps1` before the version bump, so every
   release run records its passes: patch releases gate on the reusing run; minor releases (`x.y.0`) run the whole
-  exhaustive suite.
+  exhaustive suite. With `CORVUS_SECOND_GHIDRA_DIR` set (another Ghidra, such as the oldest supported one), it then runs
+  the `Engines` tests again with that Ghidra. After publishing, it installs the previous release with `install.sh` in WSL
+  under a throwaway home and checks that `corvus update` reaches the new one.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
 The full set and the real-application runs are done locally.
