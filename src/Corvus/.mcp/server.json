@@ -3,7 +3,7 @@
   "name": "io.github.Albasha0x0/corvus",
   "title": "Corvus",
   "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare, patch.",
-  "version": "2.0.2",
+  "version": "2.2.0",
   "websiteUrl": "https://github.com/Albasha0x0/Corvus",
   "repository": {
     "url": "https://github.com/Albasha0x0/Corvus",
@@ -14,7 +14,7 @@
       "registryType": "nuget",
       "registryBaseUrl": "https://api.nuget.org/v3/index.json",
       "identifier": "CorvusRE",
-      "version": "2.0.2",
+      "version": "2.2.0",
       "transport": {
         "type": "stdio"
       }
