@@ -78,6 +78,17 @@
               "type": "string"
             }
           },
+          "analysisProblems": {
+            "description": "Ghidra: the analysis's Error and Warning bookmark counts.",
+            "type": "string"
+          },
+          "bookmarks": {
+            "description": "Ghidra: the first bookmarks (all with bookmarks=true).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "functions": {
             "type": "integer"
           },

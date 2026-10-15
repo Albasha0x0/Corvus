@@ -39,6 +39,8 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         [Description("complete, partial (the analysis budget ran out; the saved database holds what was analyzed) or running.")]
         public string? Analysis { get; init; }
         public IReadOnlyList<string>? Warnings { get; init; }
+        [Description("Ghidra: the analysis's Error and Warning bookmark counts.")] public string? AnalysisProblems { get; init; }
+        [Description("Ghidra: the first bookmarks (all with bookmarks=true).")] public IReadOnlyList<string>? Bookmarks { get; init; }
         public int? Functions { get; init; }
         public int? ExternalFunctions { get; init; }
         [Description("VAs, at most 64.")] public IReadOnlyList<string>? EntryPoints { get; init; }
@@ -64,6 +66,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
     public async Task<string> GetEngineStatus(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Default auto: both.")] string? engine = null,
+        [Description("Ghidra: list every Error and Warning bookmark (default: the first 5).")] bool bookmarks = false,
         CancellationToken cancellationToken = default)
     {
         if (engines == null) throw new ToolError(ErrorCode.ProviderUnavailable, "No analysis engine is set up in this server.");
@@ -90,7 +93,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                 continue;
             }
             var status = new EngineStatus(id, state.State, state.Stage, state.Seconds, saved, state.Error) { OpenStages = state.OpenStages.Count > 0 ? state.OpenStages : null };
-            if (state.Session is { IsOpen: true } session) status = await Describe(native, session, status, cancellationToken);
+            if (state.Session is { IsOpen: true } session) status = await Describe(native, session, status, bookmarks, cancellationToken);
             status = Known(status);
             if (status.Analysis == "partial") status = status with { Limitations = [.. status.Limitations ?? [], Limitations.Id(Limitation.AnalysisPartial)] };
             list.Add(status);
@@ -98,7 +101,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         return ToolOutput.With(Render(native, list), new EngineStatusReport(native.Id, list));
     }
 
-    private static async Task<EngineStatus> Describe(LoadedNative native, INativeDecompilerSession session, EngineStatus status, CancellationToken ct)
+    private static async Task<EngineStatus> Describe(LoadedNative native, INativeDecompilerSession session, EngineStatus status, bool allBookmarks, CancellationToken ct)
     {
         string Va(ulong rva) => $"0x{session.ImageBase + rva:X}";
         status = status with
@@ -124,6 +127,8 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         {
             status = status with { Database = g.ProjectDirectory, Warnings = g.Warnings, Language = g.Language, Functions = g.FunctionCount };
             status = status with { Profile = await g.CompletionAsync(ct) };
+            var (errors, warnings, rows) = await g.BookmarksAsync(allBookmarks ? 2000 : 5, rva => Va(rva), ct);
+            if (errors + warnings > 0) status = status with { AnalysisProblems = $"{errors} error(s), {warnings} warning(s)", Bookmarks = rows };
         }
         if (session is IdaSession i) status = status with { Database = i.DatabasePath };
         try
@@ -174,6 +179,11 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                           $", opened in {s.OpenSeconds:0.#} s; profile {s.Profile}");
             if (s.OpenStages != null) sb.AppendLine($"  open stages: {EngineOpenProfile.Describe(s.OpenStages)}");
             if (s.Stage?.StartsWith("background", StringComparison.Ordinal) == true) sb.AppendLine("  " + s.Stage);
+            if (s.AnalysisProblems != null)
+            {
+                sb.AppendLine($"  analysis problems (bookmarks): {s.AnalysisProblems}");
+                foreach (var b in s.Bookmarks ?? []) sb.AppendLine("    " + b);
+            }
             if (s.Analysis == "partial")
                 sb.AppendLine($"  the analysis budget ran out; reanalyze_native image={native.Id} engine={s.Engine} completes it");
             sb.AppendLine($"  {s.Processor} {s.Language}" + (s.Compiler != null ? $", compiler {s.Compiler}" : "") + $", {s.Format}, {s.PointerSize * 8}-bit {s.Endian}, base {s.ImageBase}");

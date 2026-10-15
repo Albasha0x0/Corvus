@@ -222,6 +222,32 @@ final class InfoOps {
     }
 
     /**
+     * The analysis's Error and Warning bookmarks (bookmarks): counts per type, then up to max rows [type, rva, category, comment]
+     * in address order, errors first.
+     */
+    static JsonElement bookmarks(Worker w, Worker.Request r) {
+        int max = r.args.has("max") ? r.args.get("max").getAsInt() : 5;
+        var manager = w.program.getBookmarkManager();
+        JsonObject o = new JsonObject();
+        JsonArray rows = new JsonArray();
+        for (String type : new String[] { ghidra.program.model.listing.BookmarkType.ERROR, ghidra.program.model.listing.BookmarkType.WARNING }) {
+            o.addProperty(type.toLowerCase(), manager.getBookmarkCount(type));
+            var it = manager.getBookmarksIterator(type);
+            while (it.hasNext() && rows.size() < max) {
+                var b = it.next();
+                JsonArray row = new JsonArray();
+                row.add(type);
+                row.add(w.rva(b.getAddress()));
+                row.add(b.getCategory());
+                row.add(b.getComment());
+                rows.add(row);
+            }
+        }
+        o.add("rows", rows);
+        return o;
+    }
+
+    /**
      * Saves the program and packs it into path as a Ghidra archive (.gzf) the GUI opens (export_gzf): the project itself is
      * not touched. Holds the write lock so no change lands between the save and the pack. Result: path, size.
      */

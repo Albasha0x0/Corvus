@@ -27,6 +27,20 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
     [GhidraFact]
     public Task Shellcode_in_Ghidra() => Engine("ghidra");
 
+    /// <summary>get_engine_status lists Ghidra's analysis errors: code at the entry that does not decode is a Bad Instruction bookmark.</summary>
+    [GhidraFact]
+    public async Task Ghidra_analysis_errors_are_listed()
+    {
+        var path = _dir.File("bad.bin");
+        File.WriteAllBytes(path, [0xFF, 0xFF, 0xFF, 0xFF, .. Guid.NewGuid().ToByteArray()]);
+        await using var server = await InProcessServer.StartAsync();
+        Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64" })).IsError);
+        await Call(server, "list_functions", new() { ["image"] = "bad.bin[x64@0x0]", ["engine"] = "ghidra" });
+        var status = await Call(server, "get_engine_status", new() { ["image"] = "bad.bin[x64@0x0]", ["engine"] = "ghidra", ["bookmarks"] = true });
+        Assert.Matches(@"analysis problems \(bookmarks\): [1-9]\d* error", status.Text);
+        Assert.Contains("error 0x0 Bad Instruction", status.Text);
+    }
+
     /// <summary>An instruction set our index does not decode: Ghidra reads it with the language from the arch table.</summary>
     [GhidraFact]
     public async Task Mips_in_Ghidra()

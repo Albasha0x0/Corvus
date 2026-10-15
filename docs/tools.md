@@ -2062,6 +2062,7 @@ IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `engine` | string |  |  | Default auto: both. Values: auto, ida, ghidra. |
+| `bookmarks` | boolean |  |  | Ghidra: list every Error and Warning bookmark (default: the first 5). |
 
 Structured output: `image`, `engines`.
 

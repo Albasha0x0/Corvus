@@ -591,6 +591,15 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             WorkerRows.Text(r.GetProperty("error")));
     }
 
+    /// <summary>The analysis's Error and Warning bookmarks: the counts and up to <paramref name="max"/> rows "type 0xVA category: comment".</summary>
+    internal async Task<(int Errors, int Warnings, IReadOnlyList<string> Rows)> BookmarksAsync(int max, Func<uint, string> va, CancellationToken cancellationToken)
+    {
+        var r = await CallAsync("bookmarks", WorkerRows.Args(("max", max)), cancellationToken).ConfigureAwait(false);
+        var rows = r.GetProperty("rows").EnumerateArray()
+            .Select(x => $"{x[0].GetString()!.ToLowerInvariant()} {va(x[1].GetUInt32())} {x[2].GetString()}: {x[3].GetString()}").ToList();
+        return (r.GetProperty("error").GetInt32(), r.GetProperty("warning").GetInt32(), rows);
+    }
+
     /// <summary>The completion pass as status shows it after the profile: "→full" when done, its progress while it runs, else null.</summary>
     internal async Task<string?> CompletionAsync(CancellationToken cancellationToken)
     {

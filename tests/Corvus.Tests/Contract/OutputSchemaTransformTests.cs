@@ -9,8 +9,8 @@ public class OutputSchemaTransformTests
 {
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
-    /// <summary>Output schemas in tools/list: 194.6 KB for 87 tools before the compact form (SC-11); 102,565 B for 152 tools as fields and types to depth 2; 103,008 at 156 with analyze_js; 103,300 with read_result verify checks (Phase 4 target 110 KB).</summary>
-    private const int MaxOutputSchemaTotalBytes = 103_300;
+    /// <summary>Output schemas in tools/list: 194.6 KB for 87 tools before the compact form (SC-11); 102,565 B for 152 tools as fields and types to depth 2; 103,008 at 156 with analyze_js; 103,300 with read_result verify checks; 103,600 for C-ENG2b (Phase 4 target 110 KB).</summary>
+    private const int MaxOutputSchemaTotalBytes = 103_600;
 
     [Fact]
     public void CatalogOutputSchemasAreCompact()
