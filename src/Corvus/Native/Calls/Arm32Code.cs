@@ -38,10 +38,10 @@ internal sealed class A32Function
     private readonly Dictionary<uint, int> _blockOf = [];
     private readonly Dictionary<uint, (int Block, int Index)> _position = [];
 
-    public A32Function(NativeCodeIndex index, NativeFunction f, CancellationToken ct)
+    public A32Function(NativeCodeIndex index, NativeFunction f, CancellationToken ct, FunctionGraph? graph = null)
     {
         Function = f;
-        Graph = index.GetGraph(f, ct);
+        Graph = graph ?? index.GetGraph(f, ct);
         Blocks = new A32Step[Graph.Blocks.Count][];
         var dec = index.NewDecoder() as Arm32Decoder ?? throw new NotSupportedException("ARM32 decoder unavailable");
         dec.BeginFunction(f.Start);

@@ -37,9 +37,11 @@ internal static class ArmVirtualCalls
         else if (index.Image.Arch == NativeArch.Arm)
         {
             var host = Arm32Trace.For(index);
-            Parallel.ForEach(index.Functions.Where(f => (f.Flags & FunctionFlags.Thunk) == 0), po, f =>
+            Parallel.ForEach(index.Functions.Where(f => (f.Flags & FunctionFlags.Thunk) == 0), po, () => (Arm32Decoder)index.NewDecoder()!, (f, _, dec) =>
             {
-                var code = new A32Function(index, f, ct);
+                var graph = index.GetGraph(f, ct);
+                if (!HasArm32Site(graph, dec, f.Start)) return dec;
+                var code = new A32Function(index, f, ct, graph);
                 for (int b = 0; b < code.Blocks.Length; b++)
                     for (int k = 0; k < code.Blocks[b].Length; k++)
                     {
@@ -50,7 +52,8 @@ internal static class ArmVirtualCalls
                         if (v is { Kind: A64Kind.Field, Inputs: [{ Kind: A64Kind.Field, Inputs: [var obj] } vfptr] })
                             Add(shapes, s.Rva, f, vfptr.Num, v.Num, 4, obj is { Kind: A64Kind.Incoming, Loc: { IsSlot: false, Value: 0 } }, s.Facts.Flow);
                     }
-            });
+                return dec;
+            }, _ => { });
         }
         // a site in code two functions share is kept for the lower one, whatever thread found it first
         return [.. shapes.OrderBy(s => s.Rva).ThenBy(s => s.Function)];
@@ -64,6 +67,27 @@ internal static class ArmVirtualCalls
         long o = (long)vfptr, s = (long)slot;
         if (o is < 0 or > 0xFFFF || s < 0 || s % ptr != 0 || s / ptr > 0xFFFF) return;
         shapes.Add(new VirtualShape(rva, f.Start, (int)o, (int)(s / ptr), self, flow == FlowKind.IndirectJump));
+    }
+
+    /// <summary>
+    /// An indirect call or jump that is no switch in the function's blocks, decoded as <see cref="A32Function"/> decodes them
+    /// (each block from a cleared state) without keeping the instructions: most functions have none.
+    /// </summary>
+    private static bool HasArm32Site(FunctionGraph graph, Arm32Decoder dec, uint start)
+    {
+        dec.BeginFunction(start);
+        foreach (var block in graph.Blocks)
+        {
+            dec.BeginRun(IndexBound.None);
+            for (uint a = block.Start; a < block.End;)
+            {
+                if (!dec.DecodeMapped(a, out var insn) || insn.Flow == FlowKind.Invalid) break;
+                if (IsSite(insn.Flow, a, graph) && dec.Last.OperandCount > 0 && dec.Last.Op(dec.Last.OperandCount - 1) is { Kind: ArmOperandKind.Register } op && op.Reg < A32Function.Sp)
+                    return true;
+                a += (uint)insn.Length;
+            }
+        }
+        return false;
     }
 
     /// <summary>Any blr / br (register forms, with or without pointer authentication) in the function's bytes: a cheap filter.</summary>
