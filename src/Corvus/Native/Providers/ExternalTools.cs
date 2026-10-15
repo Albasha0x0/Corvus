@@ -106,8 +106,17 @@ public static partial class ExternalTools
         KnownDirectories = WiresharkDirectories,
     };
 
+    // WABT; threads are enabled to match the in-process feature set (WABT leaves them off by default)
+    public static readonly ExternalTool WasmText = new("wasm2wat", "wasm2wat, WABT (test oracle)", "CORVUS_WASM_TO_TEXT", ExternalToolKind.Executable, ["wasm2wat" + Exe],
+        ["--version"], 0, "oracle for the WebAssembly text writer in tests", true,
+        Ops(("text", ["--enable-threads", "{module}"])));
+
+    public static readonly ExternalTool WasmValidator = new("wasm-validate", "wasm-validate, WABT (test oracle)", "CORVUS_WASM_VALIDATOR", ExternalToolKind.Executable,
+        ["wasm-validate" + Exe], ["--version"], 0, "oracle for the WebAssembly validator in tests", true,
+        Ops(("validate", ["--enable-threads", "{module}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {

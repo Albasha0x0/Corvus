@@ -99,6 +99,8 @@
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.NativeAOT.osx-arm64" Version="[10.0.11]" />
     <PackageDownload Include="SQLitePCLRaw.lib.e_sqlite3" Version="[2.1.2];[2.1.11]" />
     <PackageDownload Include="SkiaSharp.NativeAssets.Win32" Version="[2.88.9]" />
+    <!-- Emscripten-built WebAssembly runtimes with their JS glue, three builds (WebAssembly code, validation, glue, interface compare). -->
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.Mono.browser-wasm" Version="[8.0.22];[9.0.11];[10.0.11]" />
   </ItemGroup>
   <!-- Large runtime packs for the slow native format tests only. -->
   <ItemGroup Condition="'$(CORVUS_ALL_TESTS)' == '1'">
