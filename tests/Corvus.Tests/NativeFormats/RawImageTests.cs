@@ -81,4 +81,16 @@ public sealed class RawImageTests : IDisposable
         Assert.Contains("outside", (await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["entry"] = "0x100" })).Text);
         Assert.Contains("apply to format=raw", (await Call(server, "load_assembly", new() { ["path"] = path, ["arch"] = "x64" })).Text);
     }
+
+    /// <summary>A Thumb image that starts with a Cortex-M vector table enters at its reset handler, not at the table.</summary>
+    [Fact]
+    public async Task Cortex_m_image_enters_at_its_reset_vector()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Engines", "IsaFixtures", "cortexm.bin");
+        await using var server = await InProcessServer.StartAsync();
+        var load = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "thumb", ["base"] = "0x8000000" });
+        Assert.Contains("entry 0x8000100", load.Text);
+        // the same bytes as ARM state are not a vector table
+        Assert.Equal(0u, Corvus.Native.RawLayout.Parse("arm", "0x8000000", null, 0x200, File.ReadAllBytes(path).AsSpan(0, 8)).EntryOffset);
+    }
 }

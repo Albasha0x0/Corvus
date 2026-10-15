@@ -87,7 +87,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         if (format.Trim().Equals("raw", StringComparison.OrdinalIgnoreCase))
         {
             if (requestedSlice != null || recursive) throw new ToolError(ErrorCode.InvalidArgument, "format=raw loads one file; slice and recursive do not apply.", "omit slice and recursive");
-            layout = Native.RawLayout.Parse(arch, @base, entry, new FileInfo(InputFiles.RequireRegularFile(path, "image file")).Length);
+            var file = InputFiles.RequireRegularFile(path, "image file");
+            var head = new byte[8];
+            int read;
+            using (var s = File.OpenRead(file)) read = s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            layout = Native.RawLayout.Parse(arch, @base, entry, new FileInfo(file).Length, head.AsSpan(0, read));
         }
         if (overriding)
         {

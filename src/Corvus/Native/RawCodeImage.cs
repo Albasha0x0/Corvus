@@ -19,7 +19,7 @@ public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigE
         new("x86", NativeArch.X86, false, false, 32, "metapc", "x86:LE:32:default"),
         new("x64", NativeArch.X64, false, false, 64, "metapc", "x86:LE:64:default"),
         new("arm", NativeArch.Arm, false, false, 32, "arm", "ARM:LE:32:v8"),
-        new("thumb", NativeArch.Arm, true, false, 32, "arm", "ARM:LE:32:Cortex"),
+        new("thumb", NativeArch.Arm, true, false, 32, "arm:ARMv7-M", "ARM:LE:32:Cortex"),
         new("arm64", NativeArch.Arm64, false, false, 64, "arm", "AARCH64:LE:64:v8A"),
         new("mips", NativeArch.Mips, false, true, 32, "mipsb", "MIPS:BE:32:default"),
         new("mipsel", NativeArch.Mips, false, false, 32, "mipsl", "MIPS:LE:32:default"),
@@ -55,7 +55,8 @@ public sealed record RawLayout(RawArch Isa, ulong Base, uint EntryOffset)
     public NativeArch Arch => Isa.Arch;
     public bool Thumb => Isa.Thumb;
 
-    public static RawLayout Parse(string? arch, string? baseAddress, string? entry, long fileSize)
+    /// <summary><paramref name="head"/>: the file's first bytes; a Thumb image starting with a Cortex-M vector table enters at its reset handler.</summary>
+    public static RawLayout Parse(string? arch, string? baseAddress, string? entry, long fileSize, ReadOnlySpan<byte> head = default)
     {
         var isa = RawArch.Find(arch);
         ulong load = baseAddress is { Length: > 0 } ? Number(baseAddress, "base") : 0;
@@ -66,12 +67,26 @@ public sealed record RawLayout(RawArch Isa, ulong Base, uint EntryOffset)
             throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} is not 4 KiB aligned.", "pass a page-aligned base, e.g. base=0x8000000");
         if (isa.Bits < 64 && load + (ulong)fileSize > 1UL << isa.Bits)
             throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} puts a {fileSize}-byte image past the {isa.Bits}-bit address space.", "pass a lower base");
-        ulong start = entry is { Length: > 0 } ? Number(entry, "entry") : load;
+        ulong start = entry is { Length: > 0 } ? Number(entry, "entry") : ResetVector(isa, load, fileSize, head) ?? load;
         // entry is an address at or above base, or an offset into the file below it
         ulong offset = start >= load ? start - load : start;
         if (offset >= (ulong)Math.Max(fileSize, 1))
             throw new ToolError(ErrorCode.InvalidArgument, $"entry 0x{start:X} is outside the {fileSize}-byte image at 0x{load:X}.", "pass an address inside the image or a file offset");
         return new RawLayout(isa, load, (uint)offset);
+    }
+
+    /// <summary>
+    /// The reset handler of a Cortex-M vector table at the start of a Thumb image: word 0 a word-aligned initial stack
+    /// pointer outside the image, word 1 an odd (Thumb) address inside it past the table's first two words; else null.
+    /// </summary>
+    private static ulong? ResetVector(RawArch isa, ulong load, long fileSize, ReadOnlySpan<byte> head)
+    {
+        if (!isa.Thumb || isa.BigEndian || head.Length < 8) return null;
+        uint sp = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(head);
+        uint reset = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(head[4..]);
+        ulong target = reset & ~1u;
+        bool spOutside = sp != 0 && (sp & 3) == 0 && (sp < load || sp - load > (ulong)fileSize);
+        return spOutside && (reset & 1) == 1 && target >= load + 8 && target - load < (ulong)fileSize ? target : null;
     }
 
     /// <summary>The identity of the layout among entries of the same file, e.g. <c>thumb@0x8000000</c>.</summary>
