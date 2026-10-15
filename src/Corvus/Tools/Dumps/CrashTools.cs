@@ -43,9 +43,9 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
                  "clr | exception type | top managed frames; no exception: hang | top frames. Names, not offsets, so rebases do not split a bucket. " +
                  "Each bucket names its dumps and newest representative. Cached per file.")]
     public Task<string> BucketMinidumps(
-        [Description("Folder of .dmp files.")] string folder,
+        [Description("Folder of .dmp or core files.")] string folder,
         [Description("Also search subfolders.")] bool recursive = false,
-        [Description("File patterns, ';'-separated (default *.dmp;*.mdmp).")] string? pattern = null,
+        [Description("File patterns, ';'-separated (default *.dmp;*.mdmp;*.core;core.*).")] string? pattern = null,
         [Description("Frames after the faulting one in the signature.")] int topFrames = 3,
         [Description("More frames to skip, ';'-separated: module or module!function, '*' wildcards.")] string? skipModules = null,
         [Description("Put the faulting module's version in the signature.")] bool splitByVersion = false,

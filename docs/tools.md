@@ -1173,7 +1173,7 @@ Find instructions by mnemonic, operand or whole-line regex (case-insensitive) an
 | `mnemonic` | string |  |  | Mnemonic regex, e.g. '^(call\|jmp)$'. |
 | `operands` | string |  |  | Operand text regex, e.g. 'rsp\+\|fs:'. |
 | `text` | string |  |  | Regex over the whole instruction text. |
-| `value` | string |  |  | An operand value: 0x10B, 267, an address, or a range 0x100..0x1FF. |
+| `value` | string |  |  | Operand value: 0x10B, 267, an address, or range 0x100..0x1FF. |
 | `function` | string |  |  | Only this function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `from` | string |  |  | Range start (with to, or alone: to the end of its section). |
 | `to` | string |  |  | Range end (exclusive). |
@@ -2488,12 +2488,12 @@ Structured output: `items`, `unparsed`.
 
 **Android device info** (read-only, idempotent, open-world)
 
-Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator or not; view= lists processes, features, services, settings or files instead.
+Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator or not; view=: processes, features, services, settings or files.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `serial` | string |  |  | Device serial; optional with one device ready. |
-| `query` | string |  |  | Only rows whose name or value contains this; view=files: the directory (default /data/local/tmp). |
+| `query` | string |  |  | Rows whose name or value contains this; view=files: the directory (default /data/local/tmp). |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Most rows. |
 | `view` | string |  | `props` | props (default), processes, features, services, settings or files. Values: props, processes, features, services, settings, files. |
@@ -2615,7 +2615,7 @@ Crash dumps and crash text.
 
 **Open a crash dump** (read-only, idempotent, open-world, long-running)
 
-Reads a Windows minidump (.dmp). view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, a C++ exception's thrown type), faulting module and thread, the .NET state (managed exception with stack and inner chain, heap), counts. modules (version, PDB, whether a matching image is here), threads, memory, unloaded: paged rows. Gives the id the other dump tools take. .NET decoding loads Microsoft's signature-checked DAC.
+Reads a Windows minidump (.dmp) or a Linux/Android ELF core. view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, a C++ exception's thrown type), faulting module and thread, the .NET state (managed exception with stack and inner chain, heap), counts. modules (version, PDB, whether a matching image is here), threads, memory, unloaded: paged rows. Gives the id the other dump tools take. .NET decoding loads Microsoft's signature-checked DAC.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2634,7 +2634,7 @@ Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `sys
 
 **Crash dump stack** (read-only, idempotent)
 
-Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP chain; JIT code without unwind data adds scanned frames (basis inferred). Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump.
+Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP chain; JIT code without unwind data adds scanned frames (basis inferred). Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump. ELF cores: CFI, then frame pointer.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2654,7 +2654,7 @@ Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, 
 
 **Crash dump .NET heap** (read-only, idempotent, long-running)
 
-Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).
+Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured); not for ELF cores.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2730,9 +2730,9 @@ Groups a folder of minidumps by signature: code | faulting module!function | nex
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `folder` | string | yes |  | Folder of .dmp files. |
+| `folder` | string | yes |  | Folder of .dmp or core files. |
 | `recursive` | boolean |  |  | Also search subfolders. |
-| `pattern` | string |  |  | File patterns, ';'-separated (default *.dmp;*.mdmp). |
+| `pattern` | string |  |  | File patterns, ';'-separated (default *.dmp;*.mdmp;*.core;core.*). |
 | `topFrames` | integer |  | `3` | Frames after the faulting one in the signature. |
 | `skipModules` | string |  |  | More frames to skip, ';'-separated: module or module!function, '*' wildcards. |
 | `splitByVersion` | boolean |  |  | Put the faulting module's version in the signature. |

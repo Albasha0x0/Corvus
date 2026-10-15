@@ -126,6 +126,10 @@
         "managed": {
           "description": "A .NET assembly (from the local file's header); null when unknown.",
           "type": "boolean"
+        },
+        "buildId": {
+          "description": "ELF cores: the module's GNU build id, from its header in the core.",
+          "type": "string"
         }
       },
       "required": [

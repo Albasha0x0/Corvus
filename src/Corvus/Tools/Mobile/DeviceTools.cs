@@ -18,10 +18,10 @@ public sealed class DeviceTools(DeviceService devices)
 
     [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true, OutputSchemaType = typeof(AndroidDeviceInfo))]
     [Description("Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, " +
-                 "ro.debuggable, ro.secure, emulator or not; view= lists processes, features, services, settings or files instead.")]
+                 "ro.debuggable, ro.secure, emulator or not; view=: processes, features, services, settings or files.")]
     public Task<string> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
-        [Description("Only rows whose name or value contains this; view=files: the directory (default /data/local/tmp).")] string? query = null,
+        [Description("Rows whose name or value contains this; view=files: the directory (default /data/local/tmp).")] string? query = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Most rows.")] int limit = 100,
         [Description("props (default), processes, features, services, settings or files.")] string view = "props",

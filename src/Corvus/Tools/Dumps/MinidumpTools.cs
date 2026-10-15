@@ -16,7 +16,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
         "Folders (';'-separated) with the program's binaries, kept for the dump; its own folder is always searched.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpReport))]
-    [Description("Reads a Windows minidump (.dmp). view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, " +
+    [Description("Reads a Windows minidump (.dmp) or a Linux/Android ELF core. view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, " +
                  "a C++ exception's thrown type), faulting module and thread, the .NET state (managed exception with stack and inner chain, heap), " +
                  "counts. modules (version, PDB, whether a matching image is here), threads, memory, unloaded: paged rows. Gives the id the other " +
                  "dump tools take. .NET decoding loads Microsoft's signature-checked DAC.")]
@@ -61,7 +61,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
     [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.StackReport))]
     [Description("Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP chain; JIT code without unwind data adds " +
                  "scanned frames (basis inferred). Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL " +
-                 "offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump.")]
+                 "offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump. ELF cores: CFI, then frame pointer.")]
     public Task<string> DumpStack(
         [Description(DumpDescription)] string dump,
         [Description("Thread id, '#index', name or 'exception'. Default: the faulting thread, else the first.")] string? thread = null,
@@ -84,7 +84,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
 
     [McpServerTool(Name = "dump_heap", Title = "Crash dump .NET heap", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.HeapReport))]
     [Description("Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects " +
-                 "(address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).")]
+                 "(address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured); not for ELF cores.")]
     public Task<string> DumpHeap(
         [Description(DumpDescription)] string dump,
         [Description("stats (per type) or objects (one row each).")] string? mode = "stats",

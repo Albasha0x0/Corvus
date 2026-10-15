@@ -25,7 +25,7 @@ public sealed partial class NativeCodeTools
         [Description("Mnemonic regex, e.g. '^(call|jmp)$'.")] string? mnemonic = null,
         [Description("Operand text regex, e.g. 'rsp\\+|fs:'.")] string? operands = null,
         [Description("Regex over the whole instruction text.")] string? text = null,
-        [Description("An operand value: 0x10B, 267, an address, or a range 0x100..0x1FF.")] string? value = null,
+        [Description("Operand value: 0x10B, 267, an address, or range 0x100..0x1FF.")] string? value = null,
         [Description("Only this function: " + NativeTools.AddressDescription)] string? function = null,
         [Description("Range start (with to, or alone: to the end of its section).")] string? from = null,
         [Description("Range end (exclusive).")] string? to = null,
