@@ -4,7 +4,16 @@ import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import javax.tools.JavaCompiler;
+import javax.tools.StandardJavaFileManager;
+import javax.tools.ToolProvider;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -12,11 +21,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import generic.jar.ResourceFile;
-import ghidra.app.plugin.core.osgi.BundleHost;
 import ghidra.app.script.GhidraScript;
-import ghidra.app.script.GhidraScriptLoadException;
-import ghidra.app.script.GhidraScriptProvider;
-import ghidra.app.script.GhidraScriptUtil;
 import ghidra.app.script.GhidraState;
 import ghidra.app.script.ScriptControls;
 import ghidra.program.util.ProgramLocation;
@@ -25,6 +30,24 @@ import ghidra.program.util.ProgramLocation;
 final class ScriptOps {
     private static final Pattern PUBLIC_CLASS = Pattern.compile("public\\s+class\\s+(\\w+)");
     private static final int MAX_OUTPUT = 200_000;
+    private static final Pattern PACKAGE = Pattern.compile("^\\s*package\\s+([\\w.]+)\\s*;", Pattern.MULTILINE);
+    private static final int MAX_COMPILED = 32;
+    /** Compiled script classes by source hash, least recently run first: a repeat skips compilation (about 2 s). */
+    private static final Map<String, Class<?>> COMPILED = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Class<?>> eldest) {
+            if (size() <= MAX_COMPILED) return false;
+            delete(new File(System.getProperty("user.home"), "scripts" + File.separator + eldest.getKey()));
+            return true;
+        }
+    };
+
+    /** A compile failure with javac's diagnostics. */
+    private static final class CompileError extends Exception {
+        CompileError(String message) {
+            super(message);
+        }
+    }
 
     private ScriptOps() {
     }
@@ -37,8 +60,9 @@ final class ScriptOps {
     static JsonElement run(Worker w, Worker.Request r) throws Exception {
         String code = r.args.has("code") ? r.args.get("code").getAsString() : "";
         double timeout = r.args.has("timeout") ? r.args.get("timeout").getAsDouble() : 120;
-        File dir = new File(System.getProperty("user.home"), "scripts" + File.separator + Long.toHexString(System.nanoTime()));
-        String className = "UserScript_" + Long.toHexString(System.nanoTime());
+        String key = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(code.getBytes(StandardCharsets.UTF_8))).substring(0, 16);
+        File dir = new File(System.getProperty("user.home"), "scripts" + File.separator + key);
+        String className = "UserScript_" + key;
         String source;
         if (code.contains("extends GhidraScript")) {
             Matcher m = PUBLIC_CLASS.matcher(code);
@@ -47,31 +71,34 @@ final class ScriptOps {
             source = code;
         }
         else source = wrap(code, className);
-        if (!dir.mkdirs()) throw new Worker.WorkerError("io_error", "cannot create " + dir);
+        Matcher pkg = PACKAGE.matcher(source);
+        String qualified = pkg.find() ? pkg.group(1) + "." + className : className;
         File file = new File(dir, className + ".java");
-        Files.writeString(file.toPath(), source, StandardCharsets.UTF_8);
         StringWriter out = new StringWriter(), err = new StringWriter();
         PrintWriter outWriter = new PrintWriter(out, true), errWriter = new PrintWriter(err, true);
-        ResourceFile bundleDir = new ResourceFile(dir);
-        BundleHost host = bundleHost();
-        Thread timer = deadline(r.monitor, timeout);
         String error = null;
+        Class<?> compiled = null;
+        try {
+            compiled = compile(key, qualified, source, dir, file);
+        }
+        catch (CompileError e) {
+            error = "compile: " + e.getMessage();
+        }
+        Thread timer = deadline(r.monitor, timeout);
         boolean committed = false;
         w.lock.writeLock().lock();
         try {
             if (w.program == null) throw new Worker.WorkerError("invalid_argument", "no program is open");
-            host.enable(bundleDir);
             int tx = w.program.startTransaction("script");
             try {
-                ResourceFile scriptFile = new ResourceFile(file);
-                GhidraScriptProvider provider = GhidraScriptUtil.getProvider(scriptFile);
-                if (provider == null) throw new Worker.WorkerError("unsupported", "Ghidra has no Java script provider here");
-                GhidraScript script = provider.getScriptInstance(scriptFile, errWriter);
+                if (compiled == null) throw new CompileError(error.substring("compile: ".length()));
+                GhidraScript script = (GhidraScript) compiled.getDeclaredConstructor().newInstance();
+                script.setSourceFile(new ResourceFile(file));
                 GhidraState state = new GhidraState(null, w.project.getProject(), w.program, new ProgramLocation(w.program, w.program.getImageBase()), null, null);
                 script.execute(state, new ScriptControls(outWriter, errWriter, r.monitor));
                 committed = true;
             }
-            catch (GhidraScriptLoadException e) {
+            catch (CompileError e) {
                 error = "compile: " + e.getMessage();
             }
             catch (Worker.WorkerError e) {
@@ -92,8 +119,6 @@ final class ScriptOps {
             finally {
                 w.lock.writeLock().unlock();
                 timer.interrupt();
-                host.remove(bundleDir);
-                delete(dir);
             }
         }
         if (r.monitor.isCancelled()) r.monitor.clearCanceled();
@@ -118,10 +143,33 @@ final class ScriptOps {
         return imports + "public class " + className + " extends GhidraScript {\n    @Override\n    public void run() throws Exception {\n" + run + "    }\n}\n";
     }
 
-    /** The scripting bundle host; a headless worker has no script manager to create it. */
-    private static synchronized BundleHost bundleHost() {
-        BundleHost host = GhidraScriptUtil.getBundleHost();
-        return host != null ? host : GhidraScriptUtil.acquireBundleHostReference();
+    /**
+     * The script's class, compiled by javac against the worker's class path into dir/classes once per source hash and loaded
+     * by a class loader of its own whose parent is the worker's (Ghidra's classes resolve as they do for the worker).
+     */
+    private static Class<?> compile(String key, String qualified, String source, File dir, File file) throws Exception {
+        synchronized (COMPILED) {
+            Class<?> known = COMPILED.get(key);
+            if (known != null) return known;
+        }
+        JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
+        if (javac == null) throw new Worker.WorkerError("unsupported", "the Java runtime running Ghidra has no compiler (a JRE, not a JDK)");
+        File classes = new File(dir, "classes");
+        if (!classes.isDirectory() && !classes.mkdirs()) throw new Worker.WorkerError("io_error", "cannot create " + classes);
+        Files.writeString(file.toPath(), source, StandardCharsets.UTF_8);
+        String classPath = System.getProperty("java.class.path") + File.pathSeparator + System.getProperty("corvus.worker.jar", "");
+        StringWriter diagnostics = new StringWriter();
+        try (StandardJavaFileManager files = javac.getStandardFileManager(null, null, StandardCharsets.UTF_8)) {
+            boolean ok = javac.getTask(diagnostics, files, null, java.util.List.of("-d", classes.getPath(), "-classpath", classPath, "-proc:none", "-nowarn", "-g"),
+                null, files.getJavaFileObjects(file)).call();
+            if (!ok) throw new CompileError(diagnostics.toString().strip());
+        }
+        Class<?> loaded = new URLClassLoader(new URL[] { classes.toURI().toURL() }, ScriptOps.class.getClassLoader()).loadClass(qualified);
+        if (!GhidraScript.class.isAssignableFrom(loaded)) throw new CompileError(qualified + " does not extend GhidraScript");
+        synchronized (COMPILED) {
+            COMPILED.put(key, loaded);
+        }
+        return loaded;
     }
 
     private static Thread deadline(Worker.Monitor monitor, double seconds) {
