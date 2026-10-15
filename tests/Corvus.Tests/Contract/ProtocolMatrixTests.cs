@@ -10,6 +10,8 @@ namespace Corvus.Tests;
 public class ProtocolMatrixTests
 {
     [Theory]
+    [InlineData("2024-11-05")]
+    [InlineData("2025-03-26")]
     [InlineData("2025-06-18")]
     [InlineData("2025-11-25")]
     [InlineData("2026-07-28")]
