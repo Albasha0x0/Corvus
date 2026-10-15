@@ -146,6 +146,8 @@ public sealed record AddressInfo(
     [Description("The data item covering the address, as kind: text.")] public string? DataItem { get; init; }
     public string? Comment { get; init; }
     [Description("Cross-references to the address by kind.")] public IReadOnlyDictionary<string, int>? ReferencesTo { get; init; }
+    [Description("DWARF source file:line.")] public string? Source { get; init; }
+    [Description("DWARF inlined frames, innermost first: name at file:line.")] public IReadOnlyList<string>? Inlined { get; init; }
     [Description("With addresses: one item per address, in order, with its record or its error.")] public IReadOnlyList<BatchItem<AddressInfo>>? Results { get; init; }
     [Description("With addresses: how many failed.")] public int? Failed { get; init; }
 }

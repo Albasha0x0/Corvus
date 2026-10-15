@@ -26,8 +26,9 @@ public static partial class Guide
         registers, memory and stubs= for calls; nothing runs natively).
         Addresses: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixes, export names, module!import, sub_<rva>, function names
         (a name on several addresses is an ambiguous error listing them).
-        Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);
-        search_pdb_symbols lists its symbols. Names from load_pdb and apply_il2cpp_names are saved per file SHA-256 and reapplied
+        Symbols: a matching local PDB is read with the code index (DWARF for ELF and Mach-O: its own sections, a .debug/.dbg file by
+        build-id or .gnu_debuglink, a dSYM); load_pdb loads one by path or downloads it (download=true: symbol server, debuginfod);
+        search_pdb_symbols lists its symbols; resolve_address adds DWARF source lines and inlined functions. Names from load_pdb and apply_il2cpp_names are saved per file SHA-256 and reapplied
         when the same file loads again; list_native_edits shows the layers, clear=true on either tool removes one.
         NativeAOT images name themselves from their metadata when the code index builds (methods, vtable slots, MethodTables,
         frozen strings); get_nativeaot_info shows the version, recovery stages, types, methods and strings.

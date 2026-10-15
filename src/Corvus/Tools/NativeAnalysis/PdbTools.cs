@@ -27,8 +27,11 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
     public static string? Status(LoadedNative native)
     {
         if (PdbService.StateOf(native) is { } s)
-            return $"PDB loaded: {s.Path} ({(s.Verified ? "GUID and age match" : "not verified")}{(s.Automatic ? ", found automatically" : "")}), " +
-                   $"{Plural(s.Names.Count, "name")} (search_pdb_symbols)";
+            return s.Pdb.Format == DebugInfoFormat.Dwarf
+                ? $"DWARF loaded: {s.Path} ({(s.Verified ? "build-id matches" : "not verified")}{(s.Automatic ? ", found automatically" : "")}), " +
+                  $"{Plural(s.Names.Count, "name")} (search_pdb_symbols)"
+                : $"PDB loaded: {s.Path} ({(s.Verified ? "GUID and age match" : "not verified")}{(s.Automatic ? ", found automatically" : "")}), " +
+                  $"{Plural(s.Names.Count, "name")} (search_pdb_symbols)";
         if (native.Pe?.CodeView is not { Format: "RSDS" }) return null;
         if (PdbService.AutoSearchOf(native) is { } search)
             return $"PDB not found locally ({Plural(search.Probes.Count, "place")} searched); load_pdb with a path, or download=true";
@@ -36,16 +39,16 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
     }
 
     [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Load the PDB of a native image: function and data names (publics, globals, procedures, thunks), checked against its GUID and " +
-                 "age. Searched: path, the image's folder, its recorded path, _NT_SYMBOL_PATH, the debugger caches and C:\\symbols; download=true " +
-                 "fetches it from a symbol server. Names show as source 'pdb' (user names win); missed functions become function starts. A matching " +
-                 "local PDB is read automatically. Names are saved and reapplied when the file loads again; clear=true removes them.")]
+    [Description("Load a native image's debug symbols: its PDB (GUID and age checked), or DWARF for ELF and Mach-O (own sections, a debug file by " +
+                 "build-id or .gnu_debuglink, a dSYM): names, types, source lines. Searched: path, the image's folder, symbol paths and caches, " +
+                 "CORVUS_DEBUG_DIRS; download=true asks a symbol server or debuginfod. Names show as source 'pdb' (user names win); missed functions " +
+                 "become function starts. Matching local symbols load automatically; saved names are reapplied; clear=true removes them.")]
     public Task<string> LoadPdb(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("PDB file, or a directory (or symbol store) to look in first.")] string? path = null,
-        [Description("Download from a symbol server when no local PDB matches (network).")] bool download = false,
-        [Description("Symbol server URL for download (default: _NT_SYMBOL_PATH servers, else https://msdl.microsoft.com/download/symbols).")] string? server = null,
-        [Description("Use the PDB at path even when its GUID or age differs from the image (names may be wrong).")] bool allowMismatch = false,
+        [Description("PDB or debug file, dSYM, or a folder (or symbol store) to look in first.")] string? path = null,
+        [Description("Download when nothing local matches: symbol server (PDB), debuginfod (ELF).")] bool download = false,
+        [Description("Server URL for download (PDB: _NT_SYMBOL_PATH servers, else Microsoft's; DWARF: CORVUS_DEBUGINFOD_URLS).")] string? server = null,
+        [Description("Use the file at path even when its GUID/age or build-id differs (names may be wrong).")] bool allowMismatch = false,
         [Description("Download time limit in seconds.")] int timeoutSeconds = 120,
         [Description("Download size limit in MB.")] int maxMegabytes = 2048,
         [Description("Remove the PDB names and their saved copy instead (not read again this session).")] bool clear = false,
@@ -67,6 +70,15 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         var timeout = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 5, 3600));
         long maxBytes = Math.Clamp(maxMegabytes, 1, 16 * 1024) * (1L << 20);
         var r = await pdbs.Load(native, path, download, server, allowMismatch, timeout, maxBytes, cancellationToken);
+        bool dwarf = native.Image.Format is ImageFormat.Elf or ImageFormat.MachO;
+        if (r.State == null && dwarf)
+        {
+            var sb = new StringBuilder($"No DWARF for {native.Id}{(native.Image.BuildId is { } id ? $" ({(native.Image.Format == ImageFormat.MachO ? "UUID" : "build-id")} {id})" : "")} was found.");
+            if (r.DownloadError != null) sb.Append(" Download: ").Append(r.DownloadError);
+            sb.Append('\n').Append(Probes(r.Location.Probes));
+            throw new ToolError(ErrorCode.NotFound, sb.ToString().TrimEnd(),
+                "pass the debug file, its folder or the dSYM bundle as path" + (native.Image.Format == ImageFormat.Elf && !download ? ", or download=true with a debuginfod server" : ""));
+        }
         if (r.State is not { } s)
         {
             var why = native.Pe?.CodeView is { Format: "RSDS" } cv
@@ -81,24 +93,38 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         var p = s.Pdb;
         var text = new StringBuilder();
         text.AppendLine($"{native.Id}: {s.Path}");
-        text.AppendLine($"  GUID {p.Guid:D}, age {p.DbiAge} (info stream age {p.InfoAge}): " +
-                        (native.Pe?.CodeView is { Format: "RSDS" } c ? (p.Matches(c) ? "matches the image" : $"DOES NOT match the image (GUID {c.Guid:D}, age {c.Age}); used because allowMismatch=true") : "the image has no RSDS record to check against") +
-                        (s.Downloaded ? "; downloaded" : ""));
-        int procs = p.Symbols.Count(x => x.Kind is PdbSymbolKind.GlobalProc or PdbSymbolKind.LocalProc);
-        int pubs = p.Symbols.Count(x => x.IsPublic);
-        int data = p.Symbols.Count(x => x.Kind is PdbSymbolKind.GlobalData or PdbSymbolKind.LocalData);
-        int unmapped = p.Symbols.Count(x => x.Rva == null);
-        text.AppendLine($"  read in {s.Elapsed.TotalSeconds:0.0} s: {p.FileSize:N0} bytes, {Plural(p.Modules.Count, "module")}, {Plural(p.Symbols.Count, "symbol")} " +
-                        $"({pubs} public, {procs} procedures, {data} data{(unmapped > 0 ? $", {unmapped} with no address in the image" : "")})" +
-                        (p.HasOmap ? "; addresses mapped through OMAP" : ""));
+        if (p.Format == DebugInfoFormat.Dwarf)
+        {
+            bool own = string.Equals(s.Path, native.FilePath, StringComparison.OrdinalIgnoreCase);
+            text.AppendLine($"  DWARF {(own ? "in the image's own sections" : "in a separate debug file")}" +
+                            (p.BuildId != null ? $", {(native.Image.Format == ImageFormat.MachO ? "UUID" : "build-id")} {p.BuildId}" : "") +
+                            (s.Verified ? ": matches the image" : ": not verified against the image") + (s.Downloaded ? "; downloaded" : ""));
+            int functions = p.Symbols.Count(x => x.IsFunction), variables = p.Symbols.Count - functions;
+            text.AppendLine($"  read in {s.Elapsed.TotalSeconds:0.0} s: {p.FileSize:N0} bytes, {Plural(p.Modules.Count, "unit")}, {Plural(functions, "function")}, " +
+                            $"{Plural(variables, "variable")}, {Plural(p.TypeRecords?.Offsets.Length ?? 0, "type record")}" +
+                            (p.Source is { } src ? $"; {Plural(src.LineTables, "line table")}, {Plural(src.InlinedInstances, "inlined call")} (resolve_address shows them)" : ""));
+        }
+        else
+        {
+            text.AppendLine($"  GUID {p.Guid:D}, age {p.DbiAge} (info stream age {p.InfoAge}): " +
+                            (native.Pe?.CodeView is { Format: "RSDS" } c ? (p.Matches(c) ? "matches the image" : $"DOES NOT match the image (GUID {c.Guid:D}, age {c.Age}); used because allowMismatch=true") : "the image has no RSDS record to check against") +
+                            (s.Downloaded ? "; downloaded" : ""));
+            int procs = p.Symbols.Count(x => x.Kind is PdbSymbolKind.GlobalProc or PdbSymbolKind.LocalProc);
+            int pubs = p.Symbols.Count(x => x.IsPublic);
+            int data = p.Symbols.Count(x => x.Kind is PdbSymbolKind.GlobalData or PdbSymbolKind.LocalData);
+            int unmapped = p.Symbols.Count(x => x.Rva == null);
+            text.AppendLine($"  read in {s.Elapsed.TotalSeconds:0.0} s: {p.FileSize:N0} bytes, {Plural(p.Modules.Count, "module")}, {Plural(p.Symbols.Count, "symbol")} " +
+                            $"({pubs} public, {procs} procedures, {data} data{(unmapped > 0 ? $", {unmapped} with no address in the image" : "")})" +
+                            (p.HasOmap ? "; addresses mapped through OMAP" : ""));
+            if (p.Modules.Count == 0 && pubs > 0) text.AppendLine("  public symbols only (a stripped PDB): no procedure sizes or static functions");
+        }
         text.AppendLine($"  {Plural(s.Names.Count, "address")} named ({s.Names.Count(n => n.IsFunction)} functions); {r.NamesApplied} applied as 'pdb' names" +
                         (r.UserNamesKept > 0 ? $", {r.UserNamesKept} keep the user's name" : ""));
         text.AppendLine(r.SaveProblem == null ? "  saved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them)"
             : $"  not saved for the next load: {r.SaveProblem}");
         if (r.NewFunctionStarts > 0)
-            text.AppendLine($"  {Plural(r.NewFunctionStarts, "function")} named by the PDB were not found by discovery: " +
+            text.AppendLine($"  {Plural(r.NewFunctionStarts, "function")} named by the {(p.Format == DebugInfoFormat.Dwarf ? "DWARF" : "PDB")} were not found by discovery: " +
                             (r.Rebuilding ? "the code index is rebuilding in the background with them as function starts" : "they become function starts when the index is built"));
-        if (p.Modules.Count == 0 && pubs > 0) text.AppendLine("  public symbols only (a stripped PDB): no procedure sizes or static functions");
         foreach (var t in p.Truncations) text.AppendLine($"  Limit: {t}");
         foreach (var i in p.Issues.Take(10)) text.AppendLine($"  Issue ({i.Area}): {i.Message}");
         if (p.Issues.Count > 10) text.AppendLine($"  ... {p.Issues.Count - 10} more issues");
@@ -117,8 +143,8 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
     }
 
     [McpServerTool(Name = "search_pdb_symbols", Title = "Search native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(PdbSymbolList))]
-    [Description("Symbols of the PDB loaded for a native image (load_pdb, or found automatically): address, kind, size, name, the signature " +
-                 "undecorated from the public name, and the object file.")]
+    [Description("Symbols of the PDB or DWARF loaded for a native image (load_pdb, or found automatically): address, kind, size, name, " +
+                 "signature (undecorated or demangled), and object file or unit.")]
     public Task<string> SearchPdbSymbols(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name or decorated name substring (case-insensitive); empty for all.")] string? query = null,
@@ -129,8 +155,8 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         var native = await Native(image, cancellationToken);
-        var s = PdbService.StateOf(native) ?? throw new ToolError(ErrorCode.NotLoaded, $"No PDB is loaded for {native.Id}.",
-            "call load_pdb first (it searches locally; download=true fetches it)");
+        var s = PdbService.StateOf(native) ?? throw new ToolError(ErrorCode.NotLoaded, $"No debug symbols (PDB or DWARF) are loaded for {native.Id}.",
+            "call load_pdb first (it searches locally; download=true fetches them)");
         Func<PdbSymbol, bool> kindFilter = (kind?.Trim().ToLowerInvariant()) switch
         {
             null or "" or "all" => _ => true,
@@ -145,7 +171,8 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (kindFilter(x) && (q.Length == 0 || x.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
-                                  (x.IsPublic && PdbNaming.Display(x.Name).Contains(q, StringComparison.OrdinalIgnoreCase))))
+                                  (x.IsPublic && PdbNaming.Display(x.Name).Contains(q, StringComparison.OrdinalIgnoreCase)) ||
+                                  x.LinkageName?.Contains(q, StringComparison.OrdinalIgnoreCase) == true))
                 matches.Add(x);
         }
         limit = Math.Clamp(limit, 1, 5_000);
@@ -154,7 +181,8 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         {
             string at = x.Rva is { } rva ? NativeAddress.Va(native.Image, rva) : $"{x.Segment:X4}:{x.Offset:X8} (not in the image)";
             string name = x.IsPublic ? PdbNaming.Display(x.Name) : x.Name;
-            string? sig = x.IsPublic && PdbNaming.Signature(x.Name) is { } full && full != name ? full : null;
+            string? sig = x.IsPublic && PdbNaming.Signature(x.Name) is { } full && full != name ? full
+                : x.LinkageName is { } linkage ? Corvus.Native.Itanium.ItaniumDemangler.Demangle(linkage) ?? linkage : null;
             string? mod = x.Module >= 0 && x.Module < s.Pdb.Modules.Count ? Corvus.Core.Format.ForeignFileName(s.Pdb.Modules[x.Module].Name) : null;
             return new PdbSymbolEntry(at, KindName(x.Kind), x.Size > 0 ? (int)x.Size : null, name, sig, mod);
         }).ToList();

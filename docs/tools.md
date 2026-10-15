@@ -1037,7 +1037,7 @@ Structured output: `image`, `items`, `offset`, `total`, `limit`, `totalExact`, `
 
 **Resolve native address** (read-only, idempotent)
 
-What a native address is: RVA, VA, file offset, section and access, nearest export or import, name and source; the Il2Cpp method or metadata slot, or NativeAOT MethodTable, object or method; an IAT slot's bound export, an export's importers. With the code index: function and offset, instruction start, mid-instruction or data item, comment, references by kind. In a PDB global, the field.
+What a native address is: RVA, VA, file offset, section and access, nearest export or import, name and source; the Il2Cpp method or metadata slot, or NativeAOT MethodTable, object or method; an IAT slot's bound export, an export's importers. With the code index: function and offset, instruction start, mid-instruction or data item, comment, references by kind. In a PDB global, the field. DWARF: source line, inlined calls.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1045,7 +1045,7 @@ What a native address is: RVA, VA, file offset, section and access, nearest expo
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
 
-Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `results`, `failed`.
+Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `source`, `inlined`, `results`, `failed`.
 
 ### search_bytes
 
@@ -1569,15 +1569,15 @@ Structured output: `assembly`, `declarations`, `counts`, `filter`, `offset`, `to
 
 **Load native debug symbols** (destructive, idempotent, open-world, long-running)
 
-Load the PDB of a native image: function and data names (publics, globals, procedures, thunks), checked against its GUID and age. Searched: path, the image's folder, its recorded path, _NT_SYMBOL_PATH, the debugger caches and C:\symbols; download=true fetches it from a symbol server. Names show as source 'pdb' (user names win); missed functions become function starts. A matching local PDB is read automatically. Names are saved and reapplied when the file loads again; clear=true removes them.
+Load a native image's debug symbols: its PDB (GUID and age checked), or DWARF for ELF and Mach-O (own sections, a debug file by build-id or .gnu_debuglink, a dSYM): names, types, source lines. Searched: path, the image's folder, symbol paths and caches, CORVUS_DEBUG_DIRS; download=true asks a symbol server or debuginfod. Names show as source 'pdb' (user names win); missed functions become function starts. Matching local symbols load automatically; saved names are reapplied; clear=true removes them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
-| `path` | string |  |  | PDB file, or a directory (or symbol store) to look in first. |
-| `download` | boolean |  |  | Download from a symbol server when no local PDB matches (network). |
-| `server` | string |  |  | Symbol server URL for download (default: _NT_SYMBOL_PATH servers, else https://msdl.microsoft.com/download/symbols). |
-| `allowMismatch` | boolean |  |  | Use the PDB at path even when its GUID or age differs from the image (names may be wrong). |
+| `path` | string |  |  | PDB or debug file, dSYM, or a folder (or symbol store) to look in first. |
+| `download` | boolean |  |  | Download when nothing local matches: symbol server (PDB), debuginfod (ELF). |
+| `server` | string |  |  | Server URL for download (PDB: _NT_SYMBOL_PATH servers, else Microsoft's; DWARF: CORVUS_DEBUGINFOD_URLS). |
+| `allowMismatch` | boolean |  |  | Use the file at path even when its GUID/age or build-id differs (names may be wrong). |
 | `timeoutSeconds` | integer |  | `120` | Download time limit in seconds. |
 | `maxMegabytes` | integer |  | `2048` | Download size limit in MB. |
 | `clear` | boolean |  |  | Remove the PDB names and their saved copy instead (not read again this session). |
@@ -1588,7 +1588,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 **Search native debug symbols** (read-only, idempotent)
 
-Symbols of the PDB loaded for a native image (load_pdb, or found automatically): address, kind, size, name, the signature undecorated from the public name, and the object file.
+Symbols of the PDB or DWARF loaded for a native image (load_pdb, or found automatically): address, kind, size, name, signature (undecorated or demangled), and object file or unit.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

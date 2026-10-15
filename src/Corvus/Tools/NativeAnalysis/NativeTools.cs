@@ -372,7 +372,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", UseStructuredContent = true, OutputSchemaType = typeof(AddressInfo))]
     [Description("What a native address is: RVA, VA, file offset, section and access, nearest export or import, name and source; the Il2Cpp " +
                  "method or metadata slot, or NativeAOT MethodTable, object or method; an IAT slot's bound export, an export's importers. With the " +
-                 "code index: function and offset, instruction start, mid-instruction or data item, comment, references by kind. In a PDB global, the field.")]
+                 "code index: function and offset, instruction start, mid-instruction or data item, comment, references by kind. In a PDB global, the field. " +
+                 "DWARF: source line, inlined calls.")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string? address = null,
@@ -414,6 +415,19 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         var sb = new StringBuilder($"{address.Trim()}: {NativeAddress.Describe(pe, rva)}\n");
         var named = index?.Sourced.NameAt(rva);
         if (named is { } n) sb.AppendLine($"  name {n.Name} ({n.Source.Id()})");
+        string? source = null;
+        List<string>? inlined = null;
+        if (PdbService.StateOf(native)?.Pdb.Source is { } lookup && lookup.Lookup([rva], cancellationToken)[0] is { } at)
+        {
+            static string Where(string? file, int line) => $"{file ?? "?"}:{line}";
+            source = Where(at.File, at.Line);
+            sb.AppendLine($"  source {source}");
+            if (at.Frames.Count > 1)
+            {
+                inlined = at.Frames.Select(f => $"{f.Function} at {Where(f.File, f.Line)}").ToList();
+                sb.AppendLine($"  inlined: {string.Join(" <- ", inlined)}");
+            }
+        }
         foreach (var line in Il2CppNativeNames.Describe(native, index, rva)) sb.AppendLine("  " + line);
         if (NativeTypeCatalog.DescribeTypedData(native, rva) is { } typed) sb.AppendLine("  " + typed);
         foreach (var line in NativeAotNames.Describe(native, rva, cancellationToken)) sb.AppendLine("  " + line);
@@ -445,7 +459,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             export == null ? null : export.Rva == rva ? export.Name ?? "#" + export.Ordinal : $"{export.Name ?? "#" + export.Ordinal}+0x{rva - export.Rva:X}")
         {
             Function = facets?.Function, Status = facets?.Status, ContainingInstruction = facets?.ContainingInstruction, DataItem = facets?.DataItem,
-            Comment = facets?.Comment, ReferencesTo = facets?.References,
+            Comment = facets?.Comment, ReferencesTo = facets?.References, Source = source, Inlined = inlined,
         });
     }
 

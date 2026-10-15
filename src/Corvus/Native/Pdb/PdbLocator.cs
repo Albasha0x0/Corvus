@@ -231,8 +231,15 @@ public static class PdbLocator
         HttpMessageHandler? handler, string? cache, CancellationToken ct)
     {
         var target = System.IO.Path.Combine(cache ?? DownloadCache, name, key, name);
-        if (File.Exists(target) && check(target) == null) return target;
         var url = new Uri(baseUri, $"{Uri.EscapeDataString(name)}/{key}/{Uri.EscapeDataString(name)}");
+        return await FetchUrl(url, target, what, check, timeout, maxBytes, handler, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Downloads <paramref name="url"/> to <paramref name="target"/> (kept when already there and accepted); a temporary file first, a failing <paramref name="check"/> deletes it.</summary>
+    internal static async Task<string> FetchUrl(Uri url, string target, string what, Func<string, string?> check, TimeSpan timeout, long maxBytes,
+        HttpMessageHandler? handler, CancellationToken ct)
+    {
+        if (File.Exists(target) && check(target) == null) return target;
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
         var temp = target + $".{Environment.ProcessId}.{Guid.NewGuid():N}.part";
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

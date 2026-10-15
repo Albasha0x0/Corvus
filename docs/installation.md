@@ -237,9 +237,11 @@ Server options and their environment variables are in the README ("Server option
 | `CORVUS_ANNOTATIONS_DIR` | Folder of saved native names, comments and imported name layers. |
 | `CORVUS_IL2CPP_CACHE` | Folder of the dummy assemblies made by the built-in Il2Cpp metadata reader. |
 | `CORVUS_SYMBOL_CACHE` | Folder of downloaded PDBs and runtime DACs (`open_minidump downloadDac=true`). |
+| `CORVUS_DEBUG_DIRS` | Folders (a path list) searched for the separate DWARF of ELF and Mach-O images: `.build-id` trees, `.gnu_debuglink` names, dSYM bundles. |
+| `CORVUS_DEBUGINFOD_URLS` | debuginfod servers (space-separated) that `load_pdb download=true` asks for an ELF image's debug file by build-id; `DEBUGINFOD_URLS` when unset; none by default. |
 | `CORVUS_CLR32` | Path of the 32-bit .NET decoder (`Corvus.Clr32.exe`) that decodes 32-bit dumps; default `clr32/` beside the server. |
 | `CORVUS_DUMP_BUCKET_CACHE` | Folder of the signatures `bucket_minidumps` keeps per dump file, so a re-run parses only new dumps. |
-| `CORVUS_AUTO_PDB` | `0`: do not read a matching local PDB automatically. |
+| `CORVUS_AUTO_PDB` | `0`: do not read a matching local PDB, or an ELF or Mach-O image's DWARF, automatically. |
 | `CORVUS_AUTO_NATIVEAOT` | `0`: do not name NativeAOT images from their metadata automatically. |
 | `CORVUS_AUTO_APPLE_NAMES` | `0`: do not name Mach-O images from their Objective-C and Swift metadata automatically. |
 | `CORVUS_DIE` | Detect It Easy's `diec` (the file or its folder) for `unity_overview detectItEasy=true`. |

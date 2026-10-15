@@ -121,8 +121,9 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         NativeCodeIndex? index = code?.Ready(native);
         if (sources.Contains(Pdb))
         {
-            // a matching PDB beside the image is read during the first index build
-            if (PdbService.StateOf(native) == null && code != null && native.Image.Format == ImageFormat.Pe) index = await code.Index(native, null, ct).ConfigureAwait(false);
+            // a matching PDB beside the image (DWARF for ELF and Mach-O) is read during the first index build
+            if (PdbService.StateOf(native) == null && code != null && native.Image.Format is ImageFormat.Pe or ImageFormat.Elf or ImageFormat.MachO)
+                index = await code.Index(native, null, ct).ConfigureAwait(false);
             pdb = PdbService.StateOf(native)?.Pdb;
         }
         var model = pdb != null ? await Task.Run(() => PdbTypeModel.Of(pdb, PointerSize(native), ct), ct).ConfigureAwait(false) : null;

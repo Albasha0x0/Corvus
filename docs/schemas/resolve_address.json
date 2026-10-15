@@ -65,6 +65,17 @@
         "type": "integer"
       }
     },
+    "source": {
+      "description": "DWARF source file:line.",
+      "type": "string"
+    },
+    "inlined": {
+      "description": "DWARF inlined frames, innermost first: name at file:line.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "results": {
       "description": "With addresses: one item per address, in order, with its record or its error.",
       "type": "array",
@@ -137,6 +148,15 @@
               "referencesTo": {
                 "description": "Cross-references to the address by kind.",
                 "$ref": "#/properties/referencesTo"
+              },
+              "source": {
+                "description": "DWARF source file:line.",
+                "type": "string"
+              },
+              "inlined": {
+                "description": "DWARF inlined frames, innermost first: name at file:line.",
+                "$ref": "#/properties/inlined",
+                "items": {}
               },
               "results": {
                 "description": "With addresses: one item per address, in order, with its record or its error.",

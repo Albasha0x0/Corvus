@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Corvus.Core;
+using Corvus.Native;
 using Corvus.Native.Code;
+using Corvus.Native.Dwarf;
 using Corvus.Native.Pdb;
 
 namespace Corvus.Services;
@@ -29,7 +31,9 @@ public sealed record PdbState(
 /// PDB names form the "pdb" layer of <see cref="NativeNameLayers"/>: they rank above discovered and Il2Cpp names and
 /// below the user's names, which they never replace. State is kept per loaded image (it survives patching). The names of
 /// an explicit load_pdb are saved beside the image's annotations (with the PDB's path, GUID and age, and its function
-/// starts) and restored when the same file is loaded again, the PDB read again when it is still there.
+/// starts) and restored when the same file is loaded again, the PDB read again when it is still there. ELF and Mach-O
+/// images get their DWARF the same way (<see cref="DwarfLocator"/>: the image's own sections, a separate debug file,
+/// a dSYM; debuginfod on request), read into the same model (<see cref="DwarfDebugInfo"/>).
 /// </summary>
 public sealed class PdbService
 {
@@ -78,21 +82,30 @@ public sealed class PdbService
     {
         var slot = States.GetValue(native, _ => new Slot());
         var saved = NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Pdb) is { Info: { Restored: true } info } ? info : null;
+        bool dwarf = native.Image.Format is ImageFormat.Elf or ImageFormat.MachO;
         lock (slot.Gate)
         {
             if (slot.State != null) return slot.State.FunctionStarts;
-            if (slot.AutoTried || (saved == null && native.Pe?.CodeView is not { Format: "RSDS" })) return null;
+            if (slot.AutoTried || (saved == null && !dwarf && native.Pe?.CodeView is not { Format: "RSDS" })) return null;
             slot.AutoTried = true;
         }
         if (saved != null) return Reopen(native, slot, saved, ct);
-        if (native.Pe is not { } pe) return null;
-        var location = PdbLocator.Locate(pe);
+        PdbLocation location;
+        if (dwarf) location = DwarfLocator.Locate(native.Image, native.FilePath);
+        else if (native.Pe is { } pe) location = PdbLocator.Locate(pe);
+        else return null;
         if (location.Path == null)
         {
             lock (slot.Gate) slot.AutoSearch = location;
             return null;
         }
-        var state = Read(native, location.Path, location.Probes, verified: true, downloaded: false, automatic: true, ct);
+        PdbState state;
+        try { state = Read(native, location.Path, location.Probes, verified: true, downloaded: false, automatic: true, ct); }
+        catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException)
+        {
+            lock (slot.Gate) slot.AutoSearch = location with { Path = null, Probes = [.. location.Probes, new PdbProbe(location.Path, "unreadable: " + ex.Message)] };
+            return null;
+        }
         lock (slot.Gate)
         {
             if (slot.State != null) return slot.State.FunctionStarts; // load_pdb won meanwhile
@@ -116,7 +129,10 @@ public sealed class PdbService
         {
             var state = Read(native, path, [new PdbProbe(path, "saved by an earlier load_pdb")], verified: false, downloaded: false, automatic: false, ct);
             if (Identity(state.Pdb) != saved.SourceIdentity) return null;
-            state = state with { Verified = native.Pe?.CodeView is { Format: "RSDS" } cv && state.Pdb.Matches(cv) };
+            state = state with
+            {
+                Verified = native.Pe?.CodeView is { Format: "RSDS" } cv ? state.Pdb.Matches(cv) : state.Pdb.BuildId != null && state.Pdb.BuildId == native.Image.BuildId,
+            };
             lock (slot.Gate)
             {
                 if (slot.State != null) return slot.State.FunctionStarts;
@@ -131,13 +147,14 @@ public sealed class PdbService
         }
     }
 
-    /// <summary>A PDB's identity as saved with its names: "GUID age".</summary>
-    public static string Identity(PdbFile pdb) => $"{pdb.Guid:D} {pdb.DbiAge}";
+    /// <summary>Debug information's identity as saved with its names: "GUID age" for a PDB, "dwarf build-id size" for DWARF.</summary>
+    public static string Identity(PdbFile pdb) =>
+        pdb.Format == DebugInfoFormat.Dwarf ? $"dwarf {pdb.BuildId ?? "-"} {pdb.FileSize}" : $"{pdb.Guid:D} {pdb.DbiAge}";
 
     private static PdbState Read(LoadedNative native, string path, IReadOnlyList<PdbProbe> probes, bool verified, bool downloaded, bool automatic, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
-        var pdb = PdbFile.Open(path, native.Image.Sections, ct);
+        var pdb = native.Image.Format is ImageFormat.Elf or ImageFormat.MachO ? ReadDwarf(native, path, ct) : PdbFile.Open(path, native.Image.Sections, ct);
         var names = PdbNaming.Choose(pdb, native.Image.SizeOfImage, ct);
         return new PdbState(pdb, pdb.Path, verified, downloaded, automatic, names, probes, sw.Elapsed);
     }
@@ -156,6 +173,8 @@ public sealed class PdbService
     public async Task<LoadResult> Load(LoadedNative native, string? path, bool download, string? server, bool force, TimeSpan downloadTimeout,
         long maxDownloadBytes, CancellationToken ct)
     {
+        if (native.Image.Format is ImageFormat.Elf or ImageFormat.MachO)
+            return await LoadDwarf(native, path, download, server, force, downloadTimeout, maxDownloadBytes, ct).ConfigureAwait(false);
         var pe = native.RequirePe("load_pdb");
         // a symbol server (srv*, URL) is not a local path
         if (path != null && Targets.LooksLikePath(path) && !path.Contains('*') && !path.Contains("://", StringComparison.Ordinal)
@@ -205,7 +224,59 @@ public sealed class PdbService
             throw new ToolError(ErrorCode.Conflict,
                 $"{found} does not belong to {native.Id}: PDB {state.Pdb.Guid:D} age {state.Pdb.DbiAge}, image {cv.Guid:D} age {cv.Age}.",
                 "pass the PDB of this exact build, or allowMismatch=true to use it anyway (names may be wrong)");
+        return Apply(native, state, location with { Probes = probes, Path = found }, downloadError);
+    }
 
+    /// <summary>
+    /// load_pdb for an ELF or Mach-O image: its DWARF from the image itself, a separate debug file or a dSYM (located, or
+    /// <paramref name="path"/>), or downloaded from a debuginfod server when asked. A file whose build-id or UUID differs
+    /// is refused unless <paramref name="force"/>.
+    /// </summary>
+    private async Task<LoadResult> LoadDwarf(LoadedNative native, string? path, bool download, string? server, bool force, TimeSpan downloadTimeout,
+        long maxDownloadBytes, CancellationToken ct)
+    {
+        if (path != null && !File.Exists(path) && !Directory.Exists(path)) throw Targets.FileNotFound(path);
+        var location = await Task.Run(() => DwarfLocator.Locate(native.Image, native.FilePath, path), ct).ConfigureAwait(false);
+        string? found = location.Path;
+        bool verified = found != null, downloaded = false;
+        string? downloadError = null;
+        var probes = location.Probes.ToList();
+        if (found == null && !string.IsNullOrWhiteSpace(path) && File.Exists(path) && force)
+        {
+            found = Path.GetFullPath(path);
+            verified = false;
+            probes.Add(new PdbProbe(found, "used without a match (allowMismatch=true)"));
+        }
+        if (found == null && download)
+        {
+            var servers = !string.IsNullOrWhiteSpace(server) ? [server.Trim()] : location.Servers.ToList();
+            if (ReferencePacks.Offline) downloadError = "CORVUS_OFFLINE=1: nothing is downloaded";
+            else if (servers.Count == 0) downloadError = $"no debuginfod server: pass server=<url> or set {DwarfLocator.ServersVariable}";
+            foreach (var s in ReferencePacks.Offline ? [] : servers)
+            {
+                try
+                {
+                    found = await DwarfLocator.DownloadAsync(native.Image, s, downloadTimeout, maxDownloadBytes, null, null, ct).ConfigureAwait(false);
+                    probes.Add(new PdbProbe(s, "downloaded to " + found));
+                    downloaded = verified = true;
+                    downloadError = null;
+                    break;
+                }
+                catch (ToolError e)
+                {
+                    probes.Add(new PdbProbe(s, "download failed: " + e.Message));
+                    downloadError = e.Message;
+                }
+            }
+        }
+        if (found == null) return new LoadResult(null, location with { Probes = probes }, downloadError, 0, 0, 0, false);
+        var state = await Task.Run(() => Read(native, found, probes, verified, downloaded, automatic: false, ct), ct).ConfigureAwait(false);
+        return Apply(native, state, location with { Probes = probes, Path = found }, downloadError);
+    }
+
+    /// <summary>Makes <paramref name="state"/> the image's debug information: the name layer (saved), and function starts the index lacks.</summary>
+    private LoadResult Apply(LoadedNative native, PdbState state, PdbLocation location, string? downloadError)
+    {
         var slot = States.GetValue(native, _ => new Slot());
         lock (slot.Gate) { slot.State = state; slot.AutoTried = true; slot.AutoSearch = null; }
 
@@ -226,7 +297,17 @@ public sealed class PdbService
                 rebuilding = true;
             }
         }
-        return new LoadResult(state, location with { Probes = probes, Path = found }, downloadError, state.Names.Count - userKept, userKept, newStarts, rebuilding, saveProblem);
+        return new LoadResult(state, location, downloadError, state.Names.Count - userKept, userKept, newStarts, rebuilding, saveProblem);
+    }
+
+    /// <summary>The DWARF at <paramref name="path"/> (the image itself when it is the image's file) for the image.</summary>
+    private static PdbFile ReadDwarf(LoadedNative native, string path, CancellationToken ct)
+    {
+        var image = native.Image;
+        bool own = string.Equals(Path.GetFullPath(path), Path.GetFullPath(native.FilePath), StringComparison.OrdinalIgnoreCase);
+        Func<DebugContainer> open = own ? () => DebugContainer.FromMemory(native.FilePath, DwarfLocator.FileBytes(image)) : () => DebugContainer.Open(path, image.BuildId);
+        using var container = open();
+        return DwarfDebugInfo.Read(container, image, open, ct);
     }
 
     /// <summary>
