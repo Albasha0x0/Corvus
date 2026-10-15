@@ -247,6 +247,11 @@ public static class Containers
             using var s = open();
             return Captures.OpenHar(s, allFiles: false, limits, ct);
         }
+        if (kind is "text" or "data")
+        {
+            using var s = open();
+            if (Captures.LooksLikeFlows(s)) return Captures.OpenFlows(s, allFiles: false, limits, ct);
+        }
         if (kind == "zip")
         {
             var s = open();

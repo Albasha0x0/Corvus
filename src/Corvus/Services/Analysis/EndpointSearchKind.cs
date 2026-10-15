@@ -63,37 +63,80 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
     }
 
     /// <summary>The endpoint rows of a capture file, or null when the file is not a capture.</summary>
-    private static List<ContainerMatch>? CaptureRows(string path, CancellationToken ct)
+    /// <summary>
+    /// A capture file searched on its own, streamed at any size: its request templates ranked and paged; null when the file is
+    /// not a capture (code goes through the container's files).
+    /// </summary>
+    public UnpackService.ContainerSearch? SearchFile(string path, string query, int offset, int limit, CancellationToken ct)
     {
-        byte[] data;
+        string full;
+        try { full = Path.GetFullPath(path); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
+        var read = Capture(full, ct);
+        if (read == null) return null;
+        var matches = SearchService.CreateMatcher(query, regex: false);
+        var rows = read.Value.Rows.Where(r => Matches(r, matches)).Select(r => r with { Seen = "capture" }).ToList();
+        return UnpackService.Ranked(full, read.Value.Kind, read.Value.Requests, rows, query, offset, limit, read.Value.Notes);
+    }
+
+    private static bool Matches(ContainerMatch row, Func<string, bool> matches) =>
+        matches(row.Name) || matches(row.Path) || (row.Member != null && matches(row.Member)) || (row.Detail != null && matches(row.Detail));
+
+    private static List<ContainerMatch>? CaptureRows(string path, CancellationToken ct) => Capture(path, ct)?.Rows;
+
+    /// <summary>
+    /// The endpoint rows of a capture file read as a stream (pcap / pcapng, HAR and mitmproxy flows one entry at a time, a .saz
+    /// by its session heads), with the capture's kind, the requests read and the reader's notes; null when the file is not a capture.
+    /// </summary>
+    private static (List<ContainerMatch> Rows, string Kind, int Requests, List<string> Notes)? Capture(string path, CancellationToken ct)
+    {
+        var notes = new List<string>();
+        var templates = new Dictionary<(string Host, string Text), (int Count, SortedSet<int> Statuses)>();
+        int requests = 0;
+        void Add(CapturedResponse r)
+        {
+            ct.ThrowIfCancellationRequested();
+            requests++;
+            var key = r.Method == "CONNECT" ? (Host: r.Url, Text: $"CONNECT {r.Url}") : Template(r.Method, r.Url);
+            var (count, statuses) = templates.GetValueOrDefault(key, (0, []));
+            if (r.Status != 0) statuses.Add(r.Status);
+            templates[key] = (count + 1, statuses);
+        }
+        string kind;
         try
         {
             if (!File.Exists(path)) return null;
-            using (var s = File.OpenRead(path))
+            using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16);
+            var head = new byte[4096];
+            head = head[..s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false)];
+            s.Position = 0;
+            if (head.Length >= 4 && PcapReader.Looks(head))
             {
-                var magic = new byte[4];
-                if (s.ReadAtLeast(magic, 4, throwOnEndOfStream: false) == 4 && PcapReader.Looks(magic))
-                {
-                    s.Position = 0;
-                    return CaptureRows(CaptureAnalysis.Read(s, ct)); // streamed: no size limit
-                }
+                var capture = CaptureAnalysis.Read(s, ct);
+                return (CaptureRows(capture), "packet capture", (int)Math.Min(capture.Packets, int.MaxValue), notes);
             }
-            if (new FileInfo(path).Length > AnalysisLimits.Default.MaxItemBytes) return null;
-            data = File.ReadAllBytes(path);
+            if (Captures.LooksLikeHar(head))
+            {
+                if (!Captures.ReadHar(s, Add, AnalysisLimits.Default.MaxItemBytes, ct, bodies: false)) return null;
+                kind = Captures.HarKind;
+            }
+            else if (Captures.LooksLikeFlows(s))
+            {
+                Captures.ReadFlows(s, Add, notes, AnalysisLimits.Default.MaxItemBytes, ct);
+                kind = Captures.FlowKind;
+            }
+            else if (Saz.Looks(s))
+            {
+                foreach (var r in Saz.Read(s, ct)) Add(r);
+                kind = Saz.Kind;
+            }
+            else return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
-        List<CapturedResponse>? requests = Captures.LooksLikeHar(data) ? Captures.ReadHar(data)
-            : Captures.LooksLikeFlows(data) ? Captures.ReadFlows(data, [], ct) : Saz.Looks(data) ? Saz.Read(data, ct) : null;
-        if (requests == null) return null;
-        var groups = requests.GroupBy(r => r.Method == "CONNECT" ? (Host: r.Url, Text: $"CONNECT {r.Url}") : Template(r.Method, r.Url)).OrderBy(g => g.Key.Host, StringComparer.Ordinal).ThenBy(g => g.Key.Text, StringComparer.Ordinal);
         var rows = new List<ContainerMatch>();
-        foreach (var g in groups)
-        {
-            ct.ThrowIfCancellationRequested();
-            var statuses = string.Join(", ", g.Select(r => r.Status).Where(s => s != 0).Distinct().Order());
-            rows.Add(new ContainerMatch(g.Key.Host, g.Key.Text, "endpoint") { Detail = $"{g.Count()} request(s)" + (statuses.Length > 0 ? $", status {statuses}" : "") });
-        }
-        return rows;
+        foreach (var ((host, text), (count, statuses)) in templates.OrderBy(t => t.Key.Host, StringComparer.Ordinal).ThenBy(t => t.Key.Text, StringComparer.Ordinal))
+            rows.Add(new ContainerMatch(host, text, "endpoint") { Detail = $"{count} request(s)" + (statuses.Count > 0 ? $", status {string.Join(", ", statuses)}" : "") });
+        return (rows, kind, requests, notes);
     }
 
     /// <summary>A pcap / pcapng capture's endpoints: HTTP request templates, then tls:// ClientHello server names, then dns:// names.</summary>

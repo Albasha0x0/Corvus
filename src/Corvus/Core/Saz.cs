@@ -12,25 +12,38 @@ public static partial class Saz
 {
     private const int MaxSessions = 100_000, MaxHead = 64 * 1024;
 
+    public const string Kind = "Fiddler session archive (.saz)";
+
     /// <summary>A zip whose entries include raw/&lt;n&gt;_c.txt.</summary>
-    public static bool Looks(byte[] data)
+    public static bool Looks(byte[] data) => Looks(new MemoryStream(data, writable: false));
+
+    /// <summary>A zip whose entries include raw/&lt;n&gt;_c.txt, read from a seekable stream (its central directory only); the stream is left at its start.</summary>
+    public static bool Looks(Stream s)
     {
-        if (data.Length < 4 || !data.AsSpan(0, 4).SequenceEqual("PK\u0003\u0004"u8)) return false;
+        Span<byte> magic = stackalloc byte[4];
+        s.Position = 0;
+        bool zipped = s.ReadAtLeast(magic, 4, throwOnEndOfStream: false) == 4 && magic.SequenceEqual("PK\u0003\u0004"u8);
+        s.Position = 0;
+        if (!zipped) return false;
         try
         {
-            using var zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read);
+            using var zip = new ZipArchive(s, ZipArchiveMode.Read, leaveOpen: true);
             return zip.Entries.Any(e => Session().IsMatch(e.FullName));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or NotSupportedException) { return false; }
+        finally { s.Position = 0; }
     }
 
     /// <summary>One exchange per session in session order: method, URL (absolute; a CONNECT keeps its host:port), status and response headers; Body null.</summary>
-    public static List<CapturedResponse> Read(byte[] data, CancellationToken ct = default)
+    public static List<CapturedResponse> Read(byte[] data, CancellationToken ct = default) => Read(new MemoryStream(data, writable: false), ct);
+
+    /// <summary>The sessions of a .saz read from a seekable stream: the central directory and each session's head, not the file.</summary>
+    public static List<CapturedResponse> Read(Stream stream, CancellationToken ct = default)
     {
         var result = new List<CapturedResponse>();
         try
         {
-            using var zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read);
+            using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
             var sessions = new SortedDictionary<long, (ZipArchiveEntry? Request, ZipArchiveEntry? Response)>();
             foreach (var e in zip.Entries)
             {

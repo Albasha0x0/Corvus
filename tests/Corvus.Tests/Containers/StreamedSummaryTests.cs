@@ -109,6 +109,43 @@ public sealed class StreamedSummaryTests : IDisposable
     }
 
     [Fact]
+    public void Flows_streamed_list_the_responses_of_the_bytes()
+    {
+        var path = _dir.File("capture.flows");
+        File.WriteAllBytes(path, CaptureTests.Flows());
+        var whole = Summary(path, streamed: false);
+        var streamed = Summary(path, streamed: true);
+        Assert.Equal(Captures.FlowKind, streamed.Container);
+        Assert.Equal(whole.Notes.Where(n => !n.StartsWith("Read as a stream", StringComparison.Ordinal)), streamed.Notes.Where(n => !n.StartsWith("Read as a stream", StringComparison.Ordinal)));
+
+        var notes = new List<string>();
+        var read = new List<CapturedResponse>();
+        Captures.ReadFlows(new TrickleStream(CaptureTests.Flows()[..^10], 7), read.Add, notes, 1 << 20, default);
+        Assert.Equal(["https://api.example/v1/config?x=1", "http://api.example:8080/script"], read.Select(r => r.Url));
+        Assert.StartsWith("Flow file damaged at byte", notes[0]);
+        notes.Clear();
+        Captures.ReadFlows(new MemoryStream(CaptureTests.Flows()), _ => { }, notes, 64, default);
+        Assert.StartsWith("A flow at byte 0 is larger than 64 bytes; 0 flow(s) read before it.", Assert.Single(notes));
+    }
+
+    [Fact]
+    public void Endpoint_rows_of_a_capture_are_read_as_a_stream()
+    {
+        var flows = _dir.File("capture.flows");
+        File.WriteAllBytes(flows, CaptureTests.Flows());
+        var har = _dir.File("capture.har");
+        File.WriteAllText(har, """{"log":{"entries":[{"request":{"method":"GET","url":"https://a.example/items/12?q=1"},"response":{"status":200,"content":{"text":"AAAA","encoding":"base64"}}},{"request":{"method":"GET","url":"https://a.example/items/13?q=2"},"response":{"status":404}}]}}""");
+        var unpack = new UnpackService(_ws);
+        var fromHar = unpack.Search(har, "*", "endpoint", 100, AnalysisLimits.Default, default);
+        Assert.Equal((Captures.HarKind, 2), (fromHar.Container, fromHar.Searched));
+        Assert.Equal("GET https://a.example/items/{n}?q=… | 2 request(s), status 200, 404 | capture", $"{Assert.Single(fromHar.Items).Name} | {fromHar.Items[0].Detail} | {fromHar.Items[0].Seen}");
+        var fromFlows = unpack.Search(flows, "*", "endpoint", 100, AnalysisLimits.Default, default);
+        Assert.Equal((Captures.FlowKind, 3), (fromFlows.Container, fromFlows.Searched));
+        Assert.Equal(["GET http://api.example:8080/script", "GET https://api.example/broken", "GET https://api.example/v1/config?x=…"], fromFlows.Items.Select(i => i.Name).Order(StringComparer.Ordinal));
+        Assert.Contains(fromFlows.Notes, n => n.StartsWith("1 flow(s) that are not HTTP", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Har_reader_refills_across_small_reads()
     {
         var har = Encoding.UTF8.GetBytes("""{"other":{"log":1},"log":{"creator":{"name":"x"},"entries":[{"request":{"method":"GET","url":"https://a/1"},"response":{"status":200,"content":{"text":"one"}}},7,{"request":{"method":"POST","url":"https://a/2"},"response":{"status":201}}]}}""");

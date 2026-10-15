@@ -139,7 +139,7 @@ public sealed class CaptureTests : IDisposable
         },
     };
 
-    private static byte[] Flows() =>
+    internal static byte[] Flows() =>
     [
         .. TNet(Flow("http", "api.example", 443, "/v1/config?x=1", "https", Gzip(B("{\"a\":1}")), ("content-type", "application/json"), ("content-encoding", "gzip"))),
         .. TNet(Flow("http", "api.example", 8080, "/script", "http", Brotli(B("alert(1)")), ("Content-Type", "text/javascript"), ("Content-Encoding", "br"))),

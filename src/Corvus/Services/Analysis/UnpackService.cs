@@ -204,12 +204,16 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         var scope = (Scope: scope0 with { Capture = capture }, Notes: notes0);
         var matcher = SearchService.CreateMatcher(query, regex: false);
         var all = provider.Search(scope.Scope, kind, matcher, ct).ToList();
-        // Ranked on the last part of the name (a file name, a member name), as the managed search ranks short names.
+        return Ranked(scope.Scope.Source, scope.Scope.Container, scope.Scope.Items.Count, all, query, offset, limit, scope.Notes);
+    }
+
+    /// <summary>A search kind's rows ranked on the last part of the name (a file name, a member name), as the managed search ranks short names, and paged.</summary>
+    internal static ContainerSearch Ranked(string source, string container, int searched, List<ContainerMatch> all, string query, int offset, int limit, List<string> notes)
+    {
         static string Short(string name) => name[(name.LastIndexOfAny(['/', '\\', ':']) + 1)..];
         var ranked = all.Select((m, i) => (m, i, Rank: SearchService.Rank(Short(m.Name), query)))
             .OrderBy(x => x.Rank).ThenBy(x => x.i).Select(x => x.m).ToList();
-        return new ContainerSearch(scope.Scope.Source, scope.Scope.Container, scope.Scope.Items.Count,
-            ranked.Skip(Math.Max(0, offset)).Take(limit).ToList(), Math.Max(0, offset), ranked.Count, scope.Notes);
+        return new ContainerSearch(source, container, searched, ranked.Skip(Math.Max(0, offset)).Take(limit).ToList(), Math.Max(0, offset), ranked.Count, notes);
     }
 
     /// <summary>Every file of a container (nested containers opened), for search kinds.</summary>

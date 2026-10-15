@@ -29,13 +29,28 @@ public static class Captures
     }
 
     /// <summary>A tnetstring dictionary at the start ("&lt;length&gt;:&lt;data&gt;}").</summary>
-    public static bool LooksLikeFlows(ReadOnlySpan<byte> b)
+    public static bool LooksLikeFlows(ReadOnlySpan<byte> b) =>
+        FirstFlowEnd(b) is { } end && end < b.Length && b[(int)end] == '}';
+
+    /// <summary>A tnetstring dictionary at the start of a seekable stream, its type byte read where its length prefix says.</summary>
+    public static bool LooksLikeFlows(Stream s)
+    {
+        Span<byte> head = stackalloc byte[11];
+        s.Position = 0;
+        if (FirstFlowEnd(head[..s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false)]) is not { } end || end >= s.Length) return false;
+        s.Position = end;
+        bool flows = s.ReadByte() == '}';
+        s.Position = 0;
+        return flows;
+    }
+
+    /// <summary>Where the type byte of the tnetstring at the start of <paramref name="b"/> is, from its length prefix.</summary>
+    private static long? FirstFlowEnd(ReadOnlySpan<byte> b)
     {
         int colon = b[..Math.Min(b.Length, 11)].IndexOf((byte)':');
-        if (colon <= 0) return false;
-        foreach (var c in b[..colon]) if (!char.IsAsciiDigit((char)c)) return false;
-        return long.TryParse(Encoding.ASCII.GetString(b[..colon]), NumberStyles.None, CultureInfo.InvariantCulture, out long length)
-               && colon + 1 + length < b.Length && b[(int)(colon + 1 + length)] == '}';
+        if (colon <= 0) return null;
+        foreach (var c in b[..colon]) if (!char.IsAsciiDigit((char)c)) return null;
+        return long.TryParse(Encoding.ASCII.GetString(b[..colon]), NumberStyles.None, CultureInfo.InvariantCulture, out long length) ? colon + 1 + length : null;
     }
 
     /// <summary>The responses of a HAR file; null when the JSON has no log.entries array (another JSON document).</summary>
@@ -49,9 +64,9 @@ public static class Captures
     /// <summary>
     /// Streams a HAR file: each element of log.entries is parsed on its own and handed to <paramref name="response"/>, so memory
     /// holds one entry (at most <paramref name="maxEntryBytes"/> of JSON) rather than the document. False when there is no
-    /// log.entries array.
+    /// log.entries array. Without <paramref name="bodies"/> the response bodies are not decoded (Body null).
     /// </summary>
-    public static bool ReadHar(Stream stream, Action<CapturedResponse> response, long maxEntryBytes, CancellationToken ct)
+    public static bool ReadHar(Stream stream, Action<CapturedResponse> response, long maxEntryBytes, CancellationToken ct, bool bodies = true)
     {
         var buffer = new byte[1 << 16];
         int length = 0;
@@ -104,7 +119,7 @@ public static class Captures
                         case JsonTokenType.StartObject when depth == 3 && inEntries:
                             var probe = reader;
                             if (!probe.TrySkip()) { consumed = at; resume = before; goto refill; }
-                            using (var entry = JsonDocument.ParseValue(ref reader)) response(Response(entry.RootElement));
+                            using (var entry = JsonDocument.ParseValue(ref reader)) response(Response(entry.RootElement, bodies));
                             break;
                         case JsonTokenType.StartArray or JsonTokenType.String or JsonTokenType.Number or JsonTokenType.True or JsonTokenType.False or JsonTokenType.Null
                             when depth == 0:
@@ -129,7 +144,7 @@ public static class Captures
         return sawEntries;
     }
 
-    private static CapturedResponse Response(JsonElement e)
+    private static CapturedResponse Response(JsonElement e, bool bodies)
     {
         var request = e.TryGetProperty("request", out var rq) && rq.ValueKind == JsonValueKind.Object ? rq : default;
         var response = e.TryGetProperty("response", out var rs) && rs.ValueKind == JsonValueKind.Object ? rs : default;
@@ -141,7 +156,7 @@ public static class Captures
         if (response.ValueKind == JsonValueKind.Object && response.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Object)
         {
             mime = Str(content, "mimeType");
-            if (Str(content, "text") is { } text)
+            if (bodies && Str(content, "text") is { } text)
             {
                 if (Str(content, "encoding") is { } enc && enc.Equals("base64", StringComparison.OrdinalIgnoreCase))
                 {
@@ -176,33 +191,65 @@ public static class Captures
     public static List<CapturedResponse> ReadFlows(byte[] data, List<string> notes, CancellationToken ct)
     {
         var result = new List<CapturedResponse>();
-        int at = 0, other = 0;
-        while (at < data.Length)
+        ReadFlows(new MemoryStream(data, writable: false), result.Add, notes, long.MaxValue, ct);
+        return result;
+    }
+
+    /// <summary>
+    /// Streams a mitmproxy flow file: each top-level flow is read and parsed on its own, so memory holds one flow (at most
+    /// <paramref name="maxFlowBytes"/>) rather than the file. HTTP flows go to <paramref name="response"/>.
+    /// </summary>
+    public static void ReadFlows(Stream stream, Action<CapturedResponse> response, List<string> notes, long maxFlowBytes, CancellationToken ct)
+    {
+        var prefix = new byte[11];
+        long length = stream.Length;
+        int read = 0, other = 0;
+        for (long at = 0; at < length;)
         {
             ct.ThrowIfCancellationRequested();
-            object? flow;
-            try { flow = TNetString.Read(data, ref at, 0); }
-            catch (FormatException ex)
+            stream.Position = at;
+            int got = stream.ReadAtLeast(prefix, prefix.Length, throwOnEndOfStream: false);
+            // a length past the file is left to the parser, which says so; one that fits but is too large stops the read
+            long size = FirstFlowEnd(prefix.AsSpan(0, got)) is { } end && end < length - at ? end + 1 : length - at;
+            if (size > maxFlowBytes)
             {
-                notes.Add($"Flow file damaged at byte {at}: {ex.Message}; {result.Count} flow(s) read before it.");
+                notes.Add($"A flow at byte {at:N0} is larger than {maxFlowBytes:N0} bytes; {read} flow(s) read before it.");
                 break;
             }
-            if (flow is not Dictionary<string, object?> f) { other++; continue; }
-            if (Text(f.GetValueOrDefault("type")) is { } type && type != "http") { other++; continue; }
-            if (f.GetValueOrDefault("request") is not Dictionary<string, object?> request) { other++; continue; }
-            var response = f.GetValueOrDefault("response") as Dictionary<string, object?>;
-            string scheme = Text(request.GetValueOrDefault("scheme")) ?? "http", host = Text(request.GetValueOrDefault("host")) ?? "",
-                path = Text(request.GetValueOrDefault("path")) ?? "/";
-            long port = request.GetValueOrDefault("port") is long p ? p : 0;
-            bool defaultPort = port == 0 || (scheme == "https" && port == 443) || (scheme == "http" && port == 80);
-            var url = path.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? path : $"{scheme}://{host}{(defaultPort ? "" : $":{port}")}{path}";
-            var headers = response?.GetValueOrDefault("headers") as List<object?>;
-            result.Add(new CapturedResponse(Text(request.GetValueOrDefault("method")) ?? "?", url,
-                response?.GetValueOrDefault("status_code") is long code ? (int)code : 0, Header(headers, "content-type"), Header(headers, "content-encoding"),
-                response?.GetValueOrDefault("content") as byte[] ?? (response?.GetValueOrDefault("content") is string sc ? Encoding.UTF8.GetBytes(sc) : null), null));
+            var buffer = new byte[size];
+            stream.Position = at;
+            stream.ReadExactly(buffer);
+            int p = 0;
+            object? flow;
+            try { flow = TNetString.Read(buffer, ref p, 0); }
+            catch (FormatException ex)
+            {
+                notes.Add($"Flow file damaged at byte {at + p}: {ex.Message}; {read} flow(s) read before it.");
+                break;
+            }
+            at += p;
+            if (Flow(flow) is { } r) { read++; response(r); }
+            else other++;
         }
         if (other > 0) notes.Add($"{other} flow(s) that are not HTTP (WebSocket, TCP, DNS) or have no request skipped.");
-        return result;
+    }
+
+    /// <summary>An HTTP flow's request and response; null for another kind of flow or one without a request.</summary>
+    private static CapturedResponse? Flow(object? flow)
+    {
+        if (flow is not Dictionary<string, object?> f) return null;
+        if (Text(f.GetValueOrDefault("type")) is { } type && type != "http") return null;
+        if (f.GetValueOrDefault("request") is not Dictionary<string, object?> request) return null;
+        var response = f.GetValueOrDefault("response") as Dictionary<string, object?>;
+        string scheme = Text(request.GetValueOrDefault("scheme")) ?? "http", host = Text(request.GetValueOrDefault("host")) ?? "",
+            path = Text(request.GetValueOrDefault("path")) ?? "/";
+        long port = request.GetValueOrDefault("port") is long p ? p : 0;
+        bool defaultPort = port == 0 || (scheme == "https" && port == 443) || (scheme == "http" && port == 80);
+        var url = path.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? path : $"{scheme}://{host}{(defaultPort ? "" : $":{port}")}{path}";
+        var headers = response?.GetValueOrDefault("headers") as List<object?>;
+        return new CapturedResponse(Text(request.GetValueOrDefault("method")) ?? "?", url,
+            response?.GetValueOrDefault("status_code") is long code ? (int)code : 0, Header(headers, "content-type"), Header(headers, "content-encoding"),
+            response?.GetValueOrDefault("content") as byte[] ?? (response?.GetValueOrDefault("content") is string sc ? Encoding.UTF8.GetBytes(sc) : null), null);
 
         static string? Text(object? v) => v switch { byte[] b => Encoding.UTF8.GetString(b), string s => s, _ => null };
 
@@ -220,6 +267,14 @@ public static class Captures
         if (!flows) return OpenHar(new MemoryStream(data, writable: false), allFiles, limits, ct);
         var collector = new Collector(true, allFiles, limits, ct);
         foreach (var r in ReadFlows(data, collector.Notes, ct)) collector.Add(r);
+        return collector.Contents();
+    }
+
+    /// <summary>A mitmproxy flow file read from a seekable stream as a container (one flow in memory at a time).</summary>
+    public static ContainerContents OpenFlows(Stream stream, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    {
+        var collector = new Collector(true, allFiles, limits, ct);
+        ReadFlows(stream, collector.Add, collector.Notes, limits.MaxItemBytes, ct);
         return collector.Contents();
     }
 
