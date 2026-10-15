@@ -83,7 +83,115 @@ public sealed class FlutterViewTests
     [Fact]
     public void Fuzzed_snapshot_image_never_throws()
     {
-        var failures = FormatFuzz.Run([App()], 1500, 11, b => View(b));
+        var failures = FormatFuzz.Run([App(), PoolApp()], 1500, 11, b => View(b));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+    }
+
+    /// <summary>A Dart 3 string as the snapshot stores it: varint((length &lt;&lt; 1) | 1), last byte with the high bit set, then the bytes.</summary>
+    private static void DartString(List<byte> to, string s)
+    {
+        for (uint v = (uint)(s.Length << 1) | 1; ; v >>= 7)
+            if (v <= 127) { to.Add((byte)(v + 128)); break; }
+            else to.Add((byte)(v & 127));
+        to.AddRange(Encoding.ASCII.GetBytes(s));
+    }
+
+    private static readonly string Long = "LongName" + new string('z', 92); // 100 characters: its length takes two bytes, the first an 'I'
+
+    /// <summary>An app whose isolate snapshot holds URIs, a pub cache path, identifiers and noise.</summary>
+    private static byte[] PoolApp()
+    {
+        var pool = new List<byte>();
+        foreach (var s in new[]
+                 {
+                     "package:myapp/main.dart", "package:myapp/src/home.dart", "package:http/http.dart", "package:http/src/client.dart",
+                     "package:flutter/material.dart", "dart:core", "dart:async", "dart:core-patch/array.dart",
+                     "/home/u/.pub-cache/hosted/pub.dev/http-1.2.1/lib/http.dart", "MyHomePage", "_counter@1234", "get:title", "ab", "build", Long,
+                 })
+        {
+            DartString(pool, s);
+            pool.AddRange([0, 1]);
+        }
+        pool.AddRange([0, (byte)'x', (byte)'y', 0]); // two letters without their length: noise
+        var vm = Snapshot();
+        var isolate = Snapshot();
+        BinaryPrimitives.WriteInt64LittleEndian(isolate.AsSpan(4), isolate.Length + pool.Count);
+        var data = new byte[0x100 + isolate.Length + pool.Count];
+        vm.CopyTo(data, 0);
+        isolate.CopyTo(data, 0x100);
+        pool.CopyTo(data, 0x100 + isolate.Length);
+        return new ElfWriter
+        {
+            Data = data,
+            Symbols = [new("_kDartVmSnapshotData", ElfWriter.DataRva, 0x100, Type: 1), new("_kDartIsolateSnapshotData", ElfWriter.DataRva + 0x100, (uint)(data.Length - 0x100), Type: 1)],
+        }.Build();
+    }
+
+    [Fact]
+    public void Isolate_pool_gives_packages_with_versions_libraries_and_identifiers()
+    {
+        var view = View(PoolApp())!;
+        var pool = ((FlutterFileView.Facts)view.Detail).StringPool!;
+        Assert.Equal([("myapp", "app", null, 2), ("http", "pub", "1.2.1", 2), ("flutter", "flutter", null, 1)],
+            pool.Packages.Select(p => (p.Name, p.Kind, p.Version, p.Uris)));
+        Assert.Equal(["dart:async", "dart:core"], pool.Libraries);
+        Assert.Contains("app myapp; 1 from pub (http 1.2.1)", view.Highlights[1]);
+        var app = PoolApp();
+        var strings = DartPoolScan.Read(app, DartPoolScan.Isolate(DartScan.Snapshots(app))!).Strings;
+        var identifiers = strings.Where(s => s.Kind == "identifier").Select(s => s.Value).ToList();
+        Assert.Equal(["MyHomePage", "_counter@1234", "get:title", "ab", "build", Long], identifiers);
+        Assert.Equal("dart:core-patch/array.dart", strings.Single(s => s.Value.StartsWith("dart:core-", StringComparison.Ordinal)).Value);
+    }
+
+    [Fact]
+    public void Apk_and_ipa_read_their_app_image()
+    {
+        var apk = ContainerFixtures.Zip(("lib/armeabi-v7a/libapp.so", App()), ("lib/arm64-v8a/libapp.so", PoolApp()));
+        var f = (FlutterFileView.Facts)new FlutterFileView().Inspect(new FileInput("app.apk", apk, "zip"), default)!.Detail;
+        Assert.Equal(("lib/arm64-v8a/libapp.so", 3), (f.Image, f.StringPool!.Packages.Count));
+        var ipa = ContainerFixtures.Zip(("Payload/Runner.app/Frameworks/App.framework/App", PoolApp()));
+        Assert.Equal("Payload/Runner.app/Frameworks/App.framework/App", ((FlutterFileView.Facts)new FlutterFileView().Inspect(new FileInput("app.ipa", ipa, "zip"), default)!.Detail).Image);
+        Assert.Null(new FlutterFileView().Inspect(new FileInput("other.zip", ContainerFixtures.Zip(("a.txt", [1])), "zip"), default));
+    }
+
+    [Fact]
+    public void Search_container_kind_dart_pages_the_pool()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("app.apk");
+        File.WriteAllBytes(path, ContainerFixtures.Zip(("lib/arm64-v8a/libapp.so", PoolApp())));
+        using var ws = new AssemblyWorkspace();
+        var found = new UnpackService(ws).Search(path, "package:http*", "dart", 1, AnalysisLimits.Default, default);
+        Assert.Equal(2, found.Total);
+        var row = Assert.Single(found.Items);
+        Assert.Equal(("lib/arm64-v8a/libapp.so", "package:http/http.dart"), (row.Path, row.Name));
+        Assert.StartsWith("package-uri at 0x", row.Detail);
+        Assert.Equal(6, new UnpackService(ws).Search(path, "identifier", "dart", 100, AnalysisLimits.Default, default).Total);
+    }
+
+    /// <summary>The pool scan of a 100 MB isolate snapshot dense with strings.</summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void Pool_scan_of_100_MB_is_fast()
+    {
+        var unit = new List<byte>();
+        for (int i = 0; unit.Count < 1 << 20; i++)
+        {
+            DartString(unit, $"package:pkg{i % 50}/src/file{i}.dart");
+            DartString(unit, $"identifier{i}");
+            unit.AddRange([0, 0x17, 0xFF, 0x41, 0x42, 0x00]);
+        }
+        var data = new byte[100 << 20];
+        var header = Snapshot();
+        header.CopyTo(data, 0);
+        BinaryPrimitives.WriteInt64LittleEndian(data.AsSpan(4), data.Length - 4);
+        for (int at = header.Length; at + unit.Count <= data.Length; at += unit.Count) unit.CopyTo(0, data, at, unit.Count);
+        var snapshot = DartScan.Snapshots(data).Single();
+        var cpu = ThreadCpuClock.Now();
+        var pool = DartPoolScan.Read(data, snapshot);
+        var took = ThreadCpuClock.Now() - cpu;
+        Assert.Equal(50, pool.Packages.Count);
+        // the target is 1 s in a Release build (about 0.5 s measured); the Debug test build runs about 3x slower
+        Assert.True(took < TimeSpan.FromSeconds(3), $"{took.TotalMilliseconds:0} ms of CPU");
     }
 }

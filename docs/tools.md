@@ -625,7 +625,7 @@ Find types and members by name in every managed assembly inside a container (bun
 |---|---|---|---|---|
 | `path` | string | yes |  | Absolute path to the container or assembly file. |
 | `query` | string | yes |  | Name or part of a name. |
-| `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, electron, endpoint, file. |
+| `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, dart, electron, endpoint, file. |
 | `limit` | integer |  | `100` | Max rows. |
 | `offset` | integer |  |  | Rows to skip. |
 
