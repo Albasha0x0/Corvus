@@ -2249,6 +2249,8 @@ def apply_analysis(m, ti, rva, kind, end, typ):
             return item(False, "data needs a type")
         ok, error = make_data(m, ti, ea, end_ea, typ)
         return item(True, None, item_text(m, ea)) if ok else item(False, error)
+    if kind == "flow":
+        return item(False, "flow overrides are Ghidra's; IDA has none (engine=ghidra)")
     return item(False, "unknown analysis edit %r" % kind)
 
 

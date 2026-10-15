@@ -700,7 +700,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [McpServerTool(Name = "define_native", Title = "Redefine code or data in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Change the engine's analysis at an address. code decodes instructions (to end, else following the flow); function makes " +
                  "a function (with end: its extent; on one: moves its end); undefine makes unknown bytes (to end, else the item; at a function start " +
-                 "the function); data makes a data item of type. Data and undefine replace a user type on a global there." + KeptNote)]
+                 "the function); data makes a data item of type; flow (Ghidra) clears an instruction's flow override, or sets type branch, call, " +
+                 "call_return or return, and repairs the function. Data and undefine replace a user type on a global there." + KeptNote)]
     public Task<string> DefineNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Start: " + NativeTools.AddressDescription)] string address,
@@ -712,14 +713,19 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var k = (kind ?? "").Trim().ToLowerInvariant();
-        if (k is not (NativeAnalysisEdit.Code or NativeAnalysisEdit.Function or NativeAnalysisEdit.Undefine or NativeAnalysisEdit.Data))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", "use code, function, undefine or data");
+        if (k is not (NativeAnalysisEdit.Code or NativeAnalysisEdit.Function or NativeAnalysisEdit.Undefine or NativeAnalysisEdit.Data or NativeAnalysisEdit.Flow))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", "use code, function, undefine, data or flow");
         var t = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
         if (k == NativeAnalysisEdit.Data && t == null)
             throw new ToolError(ErrorCode.InvalidArgument, "kind=data needs a type.", "pass type, e.g. dword, dword[8], string or a C type such as Packet");
-        if (k != NativeAnalysisEdit.Data && t != null)
-            throw new ToolError(ErrorCode.InvalidArgument, $"type applies to kind=data, not {k}.", "drop type, or use kind=data");
+        if (k == NativeAnalysisEdit.Flow && t != null && !NativeAnalysisEdit.FlowOverrides.Contains(t.ToLowerInvariant()))
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{t}' is not a flow override.", "use " + string.Join(", ", NativeAnalysisEdit.FlowOverrides));
+        if (k is not (NativeAnalysisEdit.Data or NativeAnalysisEdit.Flow) && t != null)
+            throw new ToolError(ErrorCode.InvalidArgument, $"type applies to kind=data or flow, not {k}.", "drop type, or use kind=data");
+        if (k == NativeAnalysisEdit.Flow) t = t?.ToLowerInvariant() ?? "none";
         var (native, rva, session) = await Open(image, address, engine, progress, cancellationToken);
+        if (k == NativeAnalysisEdit.Flow && session.ProviderId != "ghidra")
+            throw new ToolError(ErrorCode.Unsupported, $"Flow overrides are Ghidra's; {NativeEngineService.DisplayName(session.ProviderId)} has none.", "engine=ghidra");
         uint? stop = null;
         if (!string.IsNullOrWhiteSpace(end))
         {

@@ -111,6 +111,23 @@ public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposa
         }
 
         [GhidraFact]
+        public async Task A_flow_override_is_set_and_cleared_with_the_function_repaired_in_Ghidra()
+        {
+            var rig = Setup("ghidra-f");
+            var path = Image();
+            var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
+            var call = await Instruction(await rig.Session("ghidra"), fn, "CALL");
+            var set = await rig.Types.DefineNative(path, Rva(call), "flow", type: "branch", engine: "ghidra");
+            Output.WriteLine(set);
+            Assert.Contains("flow override none -> branch", set);
+            var cleared = await rig.Types.DefineNative(path, Rva(call), "flow", engine: "ghidra");
+            Output.WriteLine(cleared);
+            Assert.Contains("flow override branch -> none", cleared);
+            Assert.Contains($"{Function} is rva 0x{fn:X}", cleared);
+            Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DefineNative(path, Rva(call), "flow", type: "sideways", engine: "ghidra"))).Code);
+        }
+
+        [GhidraFact]
         public async Task Define_native_makes_data_functions_and_undefined_bytes_in_Ghidra_and_a_new_project_gets_them()
         {
             var rig = Setup("ghidra-a");

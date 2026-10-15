@@ -95,6 +95,7 @@ public sealed record UserTypeDelta(IReadOnlyList<UserTypeDelta.Item> Items)
                     break;
                 case NativeAnalysisEdit a:
                     if (item.Before is NativeAnalysisEdit was) analysis.Add(was);
+                    else if (a.Kind == NativeAnalysisEdit.Flow) analysis.Add(a with { Type = "none" });
                     else if (a.Kind == NativeAnalysisEdit.Undefine) analysis.Add(a with { Kind = NativeAnalysisEdit.Code, End = null, Type = null });
                     else
                     {

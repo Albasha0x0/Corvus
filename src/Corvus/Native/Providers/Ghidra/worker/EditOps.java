@@ -35,6 +35,7 @@ import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.CodeUnitFormat;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.FlowOverride;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.scalar.Scalar;
@@ -324,6 +325,29 @@ final class EditOps {
                 catch (Exception e) {
                     return item(rva, target, false, "Ghidra did not make " + type + " at rva 0x" + hex(rva) + ": " + e.getMessage(), null);
                 }
+            }
+            case "flow": {
+                // type: the override to set (branch, call, call_return, return); none or null clears it; then the flow is repaired
+                Instruction ins = listing.getInstructionAt(a);
+                if (ins == null) return item(rva, target, false, "rva 0x" + hex(rva) + " is not an instruction", null);
+                FlowOverride want;
+                try {
+                    want = type == null || type.equalsIgnoreCase("none") ? FlowOverride.NONE : FlowOverride.valueOf(type.toUpperCase());
+                }
+                catch (IllegalArgumentException e) {
+                    return item(rva, target, false, "unknown flow override '" + type + "'", null);
+                }
+                FlowOverride was = ins.getFlowOverride();
+                ins.setFlowOverride(want);
+                // code the new flow reaches is decoded, and the function's body follows the flow again
+                for (Address to : ins.getFlows())
+                    if (listing.getInstructionAt(to) == null && memory.contains(to)) new DisassembleCommand(to, null, true).applyTo(w.program, r.monitor);
+                if (ins.getFallThrough() != null && listing.getInstructionAt(ins.getFallThrough()) == null)
+                    new DisassembleCommand(ins.getFallThrough(), null, true).applyTo(w.program, r.monitor);
+                Function f = functions.getFunctionContaining(a);
+                if (f != null) CreateFunctionCmd.fixupFunctionBody(w.program, f, r.monitor);
+                return item(rva, target, true, null, "flow override " + was.name().toLowerCase() + " -> " + want.name().toLowerCase() +
+                    (f != null ? "; " + f.getName() + " is rva 0x" + hex(w.rva(f.getEntryPoint())) + "-0x" + hex(CodeOps.end(w, f)) : ""));
             }
             default:
                 return item(rva, target, false, "unknown analysis edit '" + kind + "'", null);

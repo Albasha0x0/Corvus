@@ -2202,7 +2202,7 @@ Structured output: `engine`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **Redefine code or data in the engine** (destructive, idempotent, open-world, long-running)
 
-Change the engine's analysis at an address. code decodes instructions (to end, else following the flow); function makes a function (with end: its extent; on one: moves its end); undefine makes unknown bytes (to end, else the item; at a function start the function); data makes a data item of type. Data and undefine replace a user type on a global there. Kept with the image's annotations.
+Change the engine's analysis at an address. code decodes instructions (to end, else following the flow); function makes a function (with end: its extent; on one: moves its end); undefine makes unknown bytes (to end, else the item; at a function start the function); data makes a data item of type; flow (Ghidra) clears an instruction's flow override, or sets type branch, call, call_return or return, and repairs the function. Data and undefine replace a user type on a global there. Kept with the image's annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

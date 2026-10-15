@@ -584,7 +584,10 @@ public sealed record NativeFieldEdit(string Type, string? Name, int? Offset, str
 /// </summary>
 public sealed record NativeAnalysisEdit(uint Rva, string Kind, uint? End, string? Type)
 {
-    public const string Code = "code", Function = "function", Undefine = "undefine", Data = "data";
+    public const string Code = "code", Function = "function", Undefine = "undefine", Data = "data", Flow = "flow";
+
+    /// <summary>The flow overrides kind=flow sets (Ghidra's); none clears one.</summary>
+    public static readonly string[] FlowOverrides = ["none", "branch", "call", "call_return", "return"];
 }
 
 /// <summary>
