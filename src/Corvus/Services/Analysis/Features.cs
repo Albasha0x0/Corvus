@@ -132,7 +132,11 @@ public static class Features
             "section:name=" + PackerSectionNames),
         Any("have a writable and executable section", "defense evasion", null, null, "section:wx"),
         Any("detect virtual machines and sandboxes", "anti-analysis", "T1497.001", "Virtualization/Sandbox Evasion: System Checks",
-            @"str:(?i)\b(?:vbox\w*|virtualbox|vmware|qemu|parallels)\b|\bsbiedll\.dll\b|\bwine_get_unix_file_name\b"),
+            @"str:(?i)\b(?:vbox\w*|virtualbox|vmware|qemu|parallels)\b|\bsbiedll\.dll\b|\bwine_get_unix_file_name\b",
+            // CPUID hypervisor vendor ids
+            @"str:VMwareVMware|KVMKVMKVM|Microsoft Hv|XenVMMXenVMM|prl hyperv|VBoxVBoxVBox|TCGTCGTCGTCG"),
+        Any("look for analysis tools", "anti-analysis", "T1518.001", "Software Discovery: Security Software Discovery",
+            @"str:(?i)\b(?:ollydbg|x64dbg|x32dbg|windbg|immunitydebugger|idaq64|ida64|procmon\d*|processhacker|wireshark|fiddler|dnspy|ghidra)(?:\.exe)?\b"),
         Any("disable or bypass Windows Defender", "defense evasion", "T1562.001", "Impair Defenses: Disable or Modify Tools",
             @"str:(?i)Add-MpPreference|Set-MpPreference|DisableRealtimeMonitoring|\\Windows Defender\\Exclusions"),
         Any("bypass User Account Control", "privilege escalation", "T1548.002", "Abuse Elevation Control Mechanism: Bypass User Account Control",
