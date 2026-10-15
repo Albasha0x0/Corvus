@@ -322,8 +322,9 @@ def setup_raw(m, raw):
     """A binary-file load: segment bitness, Thumb state, image base and the entry function, as load_assembly format=raw gave them."""
     import ida_entry, ida_idp, ida_segment, ida_segregs
     base, bits = int(raw["base"]), int(raw["bits"])
-    if bits == 64:
-        m.ida_ida.inf_set_64bit(True)
+    # the database's bitness too: a 32-bit ARM image left 64-bit is refused by the 32-bit decompiler
+    if bits in (32, 64):
+        m.ida_ida.inf_set_app_bitness(bits)
     seg = ida_segment.get_first_seg()
     while seg is not None:
         ida_segment.set_segm_addressing(seg, {16: 0, 32: 1, 64: 2}[bits])

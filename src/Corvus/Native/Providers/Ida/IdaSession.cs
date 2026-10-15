@@ -63,9 +63,10 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     }
     protected override string? DatabaseLocation => _databasePath.Length > 0 ? _databasePath : null;
 
-    // a raw layout is part of the database name: the same bytes at another base or processor are another database; so are import overrides
+    // a raw layout is part of the database name: the same bytes at another base or processor are another database; so are import overrides.
+    // raw2: databases since a 32-bit raw image is a 32-bit database (older ones were left 64-bit)
     private string Profile => (Options.Symbols == SymbolMode.Off ? "nopdb" : "default") + (Options.Analysis == EngineAnalysis.None ? "-noauto" : "") +
-                              (Options.Raw is { } raw ? "-raw-" + raw.Key.Replace('@', '-') : "") + (Options.Overrides is { } ov ? "-" + ov.Key : "");
+                              (Options.Raw is { } raw ? "-raw2-" + raw.Key.Replace('@', '-') : "") + (Options.Overrides is { } ov ? "-" + ov.Key : "");
 
     /// <summary>
     /// The image's cache entry; when another server process holds it, a read-only snapshot of its last saved database,
