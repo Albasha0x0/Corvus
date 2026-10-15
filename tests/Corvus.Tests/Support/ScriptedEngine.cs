@@ -37,9 +37,11 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
 
     /// <summary>Stages the open reports, each lasting the given milliseconds.</summary>
     public List<(string Stage, int Milliseconds)> OpenStages { get; } = [];
+    public int Opens;
 
     public async Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default)
     {
+        Interlocked.Increment(ref Opens);
         var clock = System.Diagnostics.Stopwatch.StartNew();
         foreach (var (stage, ms) in OpenStages)
         {

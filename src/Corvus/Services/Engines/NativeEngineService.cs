@@ -518,7 +518,7 @@ public sealed class NativeEngineService : IDisposable
         {
             var patches = OrderedPatches(native);
             var key = PatchKey(patches);
-            if (holder.SyncedKey == key) return holder.PatchedState == key && holder.Patched is { } same ? await Wait(native, same, ct).ConfigureAwait(false) : session;
+            if (holder.SyncedKey == key) return holder.PatchedState == key && holder.Patched is { } same ? await Wait(native, holder, same, ct).ConfigureAwait(false) : session;
             if (PatchInDatabase || patches.Count == 0)
             {
                 // Relocation entry rewrites are not sent: the engine loads the image at its header base and does not read .reloc for code.
@@ -539,7 +539,7 @@ public sealed class NativeEngineService : IDisposable
                 holder.PatchedPdb = PdbService.PathForEngines(native);
                 holder.Patched = OpenPatched(native, id, progress, holder.PatchedPdb);
             }
-            return await Wait(native, holder.Patched, ct).ConfigureAwait(false);
+            return await Wait(native, holder, holder.Patched, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -555,7 +555,7 @@ public sealed class NativeEngineService : IDisposable
         lock (holder)
         {
             if (holder.Opening is { } existing && !(existing.IsCompleted && (existing.IsFaulted || existing.IsCanceled || !existing.Result.IsOpen)))
-                return Wait(native, existing, ct);
+                return Wait(native, holder, existing, ct);
             var provider = Provider(id);
             holder.SyncedKey = null;
             holder.OpenedPdb = PdbService.PathForEngines(native);
@@ -584,7 +584,7 @@ public sealed class NativeEngineService : IDisposable
                     }
                     catch (Exception ex) when (ex is ToolError or OperationCanceledException) { return -1; }
                 }, TaskScheduler.Default).Unwrap();
-            return Wait(native, holder.Opening, ct);
+            return Wait(native, holder, holder.Opening, ct);
         }
     }
 
@@ -617,16 +617,19 @@ public sealed class NativeEngineService : IDisposable
         }, native.Released);
     }
 
-    private static async Task<INativeDecompilerSession> Wait(LoadedNative native, Task<INativeDecompilerSession> opening, CancellationToken ct)
+    private static async Task<INativeDecompilerSession> Wait(LoadedNative native, SessionHolder holder, Task<INativeDecompilerSession> opening, CancellationToken ct)
     {
         try { return await opening.WaitAsync(ct).ConfigureAwait(false); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && native.Released.IsCancellationRequested) { throw native.Gone(); }
         // the call's deadline came first: the open is not the call's and goes on, so the same call later picks it up (EL-5)
         catch (OperationCanceledException) when (ct.IsCancellationRequested && !opening.IsCompleted && !native.Released.IsCancellationRequested)
         {
-            throw new ToolError(ErrorCode.Timeout, $"the engine is still opening {native.Id} (its first analysis can take minutes); the open goes on in the background.",
+            var stage = holder.Stage ?? "start";
+            var seconds = Math.Round((DateTime.UtcNow - holder.OpenStarted).TotalSeconds);
+            throw new ToolError(ErrorCode.Timeout,
+                $"the engine is still opening {native.Id}: {stage}, {seconds:0} s so far (a first analysis can take minutes); the open goes on in the background.",
                 "call again after details.retryAfterMs: the same open is picked up, not started again; server_status shows its stage and seconds")
-                { Details = new { stillRunning = true }, RetryAfter = OpenRetryAfter };
+                { Details = new { stillRunning = true, stage, seconds }, RetryAfter = OpenRetryAfter };
         }
     }
 

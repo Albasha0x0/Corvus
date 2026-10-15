@@ -76,6 +76,31 @@ public sealed class EngineOpenProfileTests : IDisposable
         Assert.InRange(stages[2].Seconds, 0.05, 30);
     }
 
+    /// <summary>E3: a call whose deadline passes during a long analysis answers with the stage and seconds; the open goes on and a later call picks it up.</summary>
+    [Fact]
+    public async Task A_call_that_leaves_a_long_open_names_its_stage_and_the_open_goes_on()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var workspace = new AssemblyWorkspace(options);
+        var engine = new ScriptedEngine();
+        engine.OpenStages.AddRange([("start", 20), ("analysis", 1_500), ("ready", 0)]);
+        var engines = new NativeEngineService([engine], _dir.File("cache"), null, workspace, options);
+        _owned.Add(engines);
+        _owned.Add(workspace);
+        var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
+
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+        var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, deadline.Token));
+        Assert.Equal(ErrorCode.Timeout, error.Code);
+        Assert.Matches(@"still opening .+: analysis, \d+ s so far", error.Message);
+        var details = System.Text.Json.JsonDocument.Parse(error.ToJson()).RootElement.GetProperty("details");
+        Assert.True(details.GetProperty("stillRunning").GetBoolean());
+        Assert.Equal("analysis", details.GetProperty("stage").GetString());
+
+        Assert.NotNull(await engines.Session(native, null, null, default));
+        Assert.Equal(1, engine.Opens);
+    }
+
     private sealed class SyncProgress(Action<NativeProviderProgress> report) : IProgress<NativeProviderProgress>
     {
         public void Report(NativeProviderProgress value) => report(value);
