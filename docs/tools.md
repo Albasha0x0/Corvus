@@ -544,13 +544,13 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or loaded assembly, never executed: type, hashes, signature, container wrapping (bundles, packages, APKs, zips, Costura opened), its assemblies, highlights (toolchain, ATT&CK features, packers), entry points, value counts. view= gives the details: managed (identity, markers, features, values), native (ELF/Mach-O, packers, NativeAOT; a loaded image's triage), android, apple, electron, go, nib, plist, all; views lists those that apply.
+First look at a file or loaded assembly, never executed: type, hashes, signature, container wrapping (bundles, packages, APKs, zips, Costura opened), its assemblies, highlights (toolchain, ATT&CK features, packers), entry points, value counts. view= gives the details: managed (identity, markers, features, values), native (ELF/Mach-O, packers, NativeAOT; a loaded image's triage), android, apple, electron, go, nib, pcap, plist, all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | Any file (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder; this or assembly. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, go, native, nib, plist, wasm, all. |
+| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, go, native, nib, pcap, plist, wasm, all. |
 
 Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`.
 
