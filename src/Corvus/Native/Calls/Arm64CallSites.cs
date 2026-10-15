@@ -72,11 +72,25 @@ internal sealed partial class Arm64CallSites : ICallSites
         // (one function can hold hundreds of resolver calls, each asking for its call site)
         if (_building != null && Monitor.IsEntered(_dynamicGate))
         {
-            if (!_building.TryGetValue(f.Start, out var sites)) _building[f.Start] = sites = Analyze(f, ct);
+            if (_building.TryGetValue(f.Start, out var known))
+            {
+                t_askedDynamic |= !known.Final;
+                return known.Sites;
+            }
+            bool outer = t_askedDynamic;
+            t_askedDynamic = false;
+            var sites = Analyze(f, ct);
+            bool asked = t_askedDynamic;
+            _building[f.Start] = (sites, !asked);
+            // a caller analyzing its own sites from these depends on what they asked
+            t_askedDynamic = outer | asked;
             return sites;
         }
         return Analyze(f, ct);
     }
+
+    // set when a site's value could name a late-bound import (a global, a call result as a target): the site waits for them
+    [ThreadStatic] private static bool t_askedDynamic;
 
     private List<CallSiteInfo> Analyze(NativeFunction f, CancellationToken ct)
     {
@@ -217,7 +231,9 @@ internal sealed partial class Arm64CallSites : ICallSites
             case A64Kind.StackAddr: return (ArgKind.Address, null, null, "&local", v.Why);
             case A64Kind.Import when _slots.TryGetValue(v.Rva, out var imp): return (ArgKind.Name, null, v.Rva, NativeCodeIndex.ImportName(imp), v.Why);
             case A64Kind.Global when _dynamic?.ByGlobal.GetValueOrDefault(v.Rva) is { } dyn: return (ArgKind.Name, null, v.Rva, dyn.FullName, v.Why);
-            case A64Kind.Global: return (ArgKind.Global, null, v.Rva, $"[{_index.NameAt(v.Rva) ?? Va(v.Rva)}]", v.Why);
+            case A64Kind.Global:
+                t_askedDynamic |= _dynamic == null;
+                return (ArgKind.Global, null, v.Rva, $"[{_index.NameAt(v.Rva) ?? Va(v.Rva)}]", v.Why);
             case A64Kind.Result:
             {
                 var (b, i) = code.Position(v.Rva);
@@ -249,6 +265,7 @@ internal sealed partial class Arm64CallSites : ICallSites
         var (b, i) = code.Position(s.Rva);
         if (b < 0) return null;
         var v = new Arm64Resolver(trace, code) { Budget = 1500 }.Before(A64Loc.Reg(reg), b, i);
+        t_askedDynamic |= _dynamic == null && v.Kind is A64Kind.Result or A64Kind.Global;
         switch (v.Kind)
         {
             case A64Kind.Import when _slots.TryGetValue(v.Rva, out var imp):
@@ -359,11 +376,13 @@ internal sealed partial class Arm64CallSites : ICallSites
         {
             var s = steps[j];
             var i = s.Instruction;
-            string at = $"{Text(i)} @{Va(s.Rva)}";
+            // formatted only for the step that sets the register
+            string? atText = null;
+            string At() => atText ??= $"{Text(i)} @{Va(s.Rva)}";
             if (s.Facts.Flow is FlowKind.Call or FlowKind.IndirectCall)
             {
-                if (reg != 0) return (ArgKind.Unknown, null, null, "?", $"clobbered by the call {at}");
-                return (ArgKind.Result, null, null, $"<result of {CalleeOf(steps[j])}>", at);
+                if (reg != 0) return (ArgKind.Unknown, null, null, "?", $"clobbered by the call {At()}");
+                return (ArgKind.Result, null, null, $"<result of {CalleeOf(steps[j])}>", At());
             }
             if (Written(i) != reg && !(i.Mnemonic is Arm64Mnemonic.LDP && i.OperandCount > 1 && i.GetOperand(1).Kind == Arm64OperandKind.Register
                                         && Register((Arm64RegisterOperand)i.GetOperand(1)) == reg)) continue;
@@ -374,7 +393,7 @@ internal sealed partial class Arm64CallSites : ICallSites
                     ulong v = (ulong)((Arm64ImmediateOperand)i.GetOperand(1)).Value;
                     if (IsW(i)) v &= 0xFFFFFFFF;
                     v = v & ~movkMask | movk;
-                    return Number(v, p, at);
+                    return Number(v, p, At());
                 }
                 case Arm64Mnemonic.MOVK when i.OperandCount >= 2 && i.GetOperand(1).Kind == Arm64OperandKind.Immediate:
                 {
@@ -390,25 +409,25 @@ internal sealed partial class Arm64CallSites : ICallSites
                 case Arm64Mnemonic.MOV when i.OperandCount >= 2 && i.GetOperand(1).Kind == Arm64OperandKind.Register:
                 {
                     var src = (Arm64RegisterOperand)i.GetOperand(1);
-                    if (src.IsZeroRegister) return Number(0, p, at);
-                    if (src.Value.Kind == Arm64RegisterKind.SP) return (ArgKind.Address, null, null, "&local", at);
+                    if (src.IsZeroRegister) return Number(0, p, At());
+                    if (src.Value.Kind == Arm64RegisterKind.SP) return (ArgKind.Address, null, null, "&local", At());
                     if (movkMask != 0) break;
                     var (kind, value, rva, text, derivation) = Resolve(steps, j, Register(src), p, depth + 1);
-                    return (kind, value, rva, text, $"{at}; {derivation}");
+                    return (kind, value, rva, text, $"{At()}; {derivation}");
                 }
                 case Arm64Mnemonic.ADD or Arm64Mnemonic.SUB when i.OperandCount > 1 && i.GetOperand(1).Kind == Arm64OperandKind.Register
                                                                && ((Arm64RegisterOperand)i.GetOperand(1)).Value.Kind == Arm64RegisterKind.SP:
-                    return (ArgKind.Address, null, null, "&local", at);
+                    return (ArgKind.Address, null, null, "&local", At());
             }
             if (movkMask != 0) break;
-            if (s.Facts.HasImm && !s.Facts.HasMem) return Address(s.Facts.ImmTarget, p, at);
+            if (s.Facts.HasImm && !s.Facts.HasMem) return Address(s.Facts.ImmTarget, p, At());
             if (s.Facts.HasMem && i.Mnemonic is Arm64Mnemonic.LDR or Arm64Mnemonic.LDUR)
             {
-                if (_slots.TryGetValue(s.Facts.MemTarget, out var imp)) return (ArgKind.Name, null, s.Facts.MemTarget, NativeCodeIndex.ImportName(imp), at);
+                if (_slots.TryGetValue(s.Facts.MemTarget, out var imp)) return (ArgKind.Name, null, s.Facts.MemTarget, NativeCodeIndex.ImportName(imp), At());
                 var name = _index.NameAt(s.Facts.MemTarget);
-                return (ArgKind.Global, null, s.Facts.MemTarget, $"[{name ?? Va(s.Facts.MemTarget)}]", at);
+                return (ArgKind.Global, null, s.Facts.MemTarget, $"[{name ?? Va(s.Facts.MemTarget)}]", At());
             }
-            return (ArgKind.Unknown, null, null, "?", $"set by {at}");
+            return (ArgKind.Unknown, null, null, "?", $"set by {At()}");
         }
         if (movkMask != 0) return Number(movk, p, "movk");
         return (ArgKind.Unknown, null, null, "?", "set before the block");

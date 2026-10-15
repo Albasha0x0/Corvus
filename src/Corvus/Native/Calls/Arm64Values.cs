@@ -125,7 +125,9 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
     {
         var s = code.Blocks[block][k];
         var i = s.I;
-        string at = $"{s.Text} @{host.Va(s.Rva)}";
+        // formatted only when a value is found: most steps leave the location alone
+        string? atText = null;
+        string At() => atText ??= $"{s.Text} @{host.Va(s.Rva)}";
         if (loc.IsSlot)
         {
             if (!IsStore(i) || A64Function.Memory(s) is not { Slot: { } slot }) return null;
@@ -135,108 +137,108 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
             int reg;
             if (loc.Value == slot) reg = A64Function.Reg(i, 0);
             else if (pair && loc.Value == slot + each) reg = A64Function.Reg(i, 1);
-            else if (loc.Value >= slot && loc.Value < slot + size) return A64Val.Unknown($"partly overwritten by {at}", s.Rva);
+            else if (loc.Value >= slot && loc.Value < slot + size) return A64Val.Unknown($"partly overwritten by {At()}", s.Rva);
             else return null;
-            if (reg < 0) return A64Val.Unknown($"set by {at}", s.Rva);
-            if (reg == 31) return new A64Val(A64Kind.Const, s.Rva, at);
-            return Chain(Before(A64Loc.Reg(reg), block, k, depth), at);
+            if (reg < 0) return A64Val.Unknown($"set by {At()}", s.Rva);
+            if (reg == 31) return new A64Val(A64Kind.Const, s.Rva, At());
+            return Chain(Before(A64Loc.Reg(reg), block, k, depth), At());
         }
 
         int r = loc.Value;
         // writeback changes the base register
         if (A64Function.Memory(s) is { } mem && (mem.Accessor.IsPreIncrement || mem.Post)
             && mem.Accessor.BaseRegister is { Kind: Arm64RegisterKind.X } b && b.Index == r)
-            return A64Val.Unknown($"advanced by the writeback of {at}", s.Rva);
+            return A64Val.Unknown($"advanced by the writeback of {At()}", s.Rva);
         bool writes = A64Function.Dest(in i) is { } d && A64Function.Number(d) == r
                       || IsLoad(i) && i.Mnemonic is Arm64Mnemonic.LDP or Arm64Mnemonic.LDPSW or Arm64Mnemonic.LDNP && A64Function.Reg(i, 1) == r;
         if (!writes) return null;
         bool w = A64Function.IsW(i, 0);
         ulong mask = w ? 0xFFFF_FFFFUL : ulong.MaxValue;
-        if (r >= A64Function.VBase && Vector(loc, block, k, depth, at) is { } vector) return vector;
+        if (r >= A64Function.VBase && Vector(loc, block, k, depth, At()) is { } vector) return vector;
 
         switch (i.Mnemonic)
         {
             case Arm64Mnemonic.MOV when A64Function.Imm(in i, 1) is { } imm:
-                return new A64Val(A64Kind.Const, s.Rva, at) { Num = (ulong)imm & mask };
+                return new A64Val(A64Kind.Const, s.Rva, At()) { Num = (ulong)imm & mask };
             case Arm64Mnemonic.MOVZ when A64Function.Imm(in i, 1) is { } imm:
-                return new A64Val(A64Kind.Const, s.Rva, at) { Num = (ulong)imm & mask };
+                return new A64Val(A64Kind.Const, s.Rva, At()) { Num = (ulong)imm & mask };
             case Arm64Mnemonic.MOVN when A64Function.Imm(in i, 1) is { } imm:
-                return new A64Val(A64Kind.Const, s.Rva, at) { Num = ~(ulong)imm & mask };
+                return new A64Val(A64Kind.Const, s.Rva, At()) { Num = ~(ulong)imm & mask };
             case Arm64Mnemonic.MOVK when A64Function.Imm(in i, 1) is { } imm:
             {
                 int shift = i.OperandCount > 2 && i.GetOperand(2).Kind == Arm64OperandKind.Shift ? ((Arm64ShiftOperand)i.GetOperand(2)).Amount : 0;
                 var prior = Before(loc, block, k, depth);
-                if (prior.Kind != A64Kind.Const) return A64Val.Unknown($"movk over a value that is not a constant: {at}", s.Rva);
+                if (prior.Kind != A64Kind.Const) return A64Val.Unknown($"movk over a value that is not a constant: {At()}", s.Rva);
                 ulong bits = 0xFFFFUL << shift;
-                return new A64Val(A64Kind.Const, s.Rva, $"{prior.Why}; {at}") { Num = ((prior.Num & ~bits) | ((ulong)imm & bits)) & mask };
+                return new A64Val(A64Kind.Const, s.Rva, $"{prior.Why}; {At()}") { Num = ((prior.Num & ~bits) | ((ulong)imm & bits)) & mask };
             }
             case Arm64Mnemonic.MOV when i.OperandCount >= 2 && i.GetOperand(1).Kind == Arm64OperandKind.Register:
             {
                 var src = ((Arm64RegisterOperand)i.GetOperand(1)).Value;
-                if (src.Kind == Arm64RegisterKind.SP) return s.Sp is { } sp ? new A64Val(A64Kind.StackAddr, s.Rva, at) { Num = (ulong)(long)sp } : A64Val.Unknown($"sp unknown at {at}", s.Rva);
-                if (((Arm64RegisterOperand)i.GetOperand(1)).IsZeroRegister) return new A64Val(A64Kind.Const, s.Rva, at);
-                if (A64Function.Number(src) < 0) return A64Val.Unknown($"copied from {src}: {at}", s.Rva);
-                return Chain(Before(A64Loc.Reg(A64Function.Number(src)), block, k, depth), at);
+                if (src.Kind == Arm64RegisterKind.SP) return s.Sp is { } sp ? new A64Val(A64Kind.StackAddr, s.Rva, At()) { Num = (ulong)(long)sp } : A64Val.Unknown($"sp unknown at {At()}", s.Rva);
+                if (((Arm64RegisterOperand)i.GetOperand(1)).IsZeroRegister) return new A64Val(A64Kind.Const, s.Rva, At());
+                if (A64Function.Number(src) < 0) return A64Val.Unknown($"copied from {src}: {At()}", s.Rva);
+                return Chain(Before(A64Loc.Reg(A64Function.Number(src)), block, k, depth), At());
             }
             case Arm64Mnemonic.FMOV or Arm64Mnemonic.UMOV when A64Function.Reg(in i, 1) is var bits and >= A64Function.VBase:
-                return Chain(Before(A64Loc.Reg(bits), block, k, depth), at);
+                return Chain(Before(A64Loc.Reg(bits), block, k, depth), At());
             case Arm64Mnemonic.ADRP or Arm64Mnemonic.ADR when s.I.Flags.HasFlag(Arm64InstructionFlags.HasLabel):
             {
                 long off = ((Arm64LabelOperand)i.GetOperand(1)).Offset;
                 ulong pc = Image.ImageBase + s.Rva;
                 ulong va = (i.Mnemonic == Arm64Mnemonic.ADRP ? pc & ~0xFFFUL : pc) + (ulong)off;
-                return Address(va, s.Rva, at);
+                return Address(va, s.Rva, At());
             }
             case Arm64Mnemonic.ADD or Arm64Mnemonic.SUB when A64Function.Imm(in i, 2) is { } imm && i.GetOperand(1).Kind == Arm64OperandKind.Register:
             {
                 long delta = i.Mnemonic == Arm64Mnemonic.SUB ? -imm : imm;
                 var src = ((Arm64RegisterOperand)i.GetOperand(1)).Value;
                 if (src.Kind == Arm64RegisterKind.SP)
-                    return s.Sp is { } sp ? new A64Val(A64Kind.StackAddr, s.Rva, at) { Num = (ulong)(sp + delta) } : A64Val.Unknown($"sp unknown at {at}", s.Rva);
+                    return s.Sp is { } sp ? new A64Val(A64Kind.StackAddr, s.Rva, At()) { Num = (ulong)(sp + delta) } : A64Val.Unknown($"sp unknown at {At()}", s.Rva);
                 var v = Before(A64Loc.Reg(src.Index), block, k, depth);
                 return v.Kind switch
                 {
-                    A64Kind.Addr => Address(Image.ImageBase + v.Rva + (ulong)delta, s.Rva, $"{v.Why}; {at}"),
-                    A64Kind.Const => new A64Val(A64Kind.Const, s.Rva, $"{v.Why}; {at}") { Num = (v.Num + (ulong)delta) & mask },
-                    A64Kind.StackAddr => v with { Num = (ulong)((long)v.Num + delta), At = s.Rva, Why = $"{v.Why}; {at}" },
-                    _ => A64Val.Unknown($"computed from {Describe(v)}: {at}", s.Rva),
+                    A64Kind.Addr => Address(Image.ImageBase + v.Rva + (ulong)delta, s.Rva, $"{v.Why}; {At()}"),
+                    A64Kind.Const => new A64Val(A64Kind.Const, s.Rva, $"{v.Why}; {At()}") { Num = (v.Num + (ulong)delta) & mask },
+                    A64Kind.StackAddr => v with { Num = (ulong)((long)v.Num + delta), At = s.Rva, Why = $"{v.Why}; {At()}" },
+                    _ => A64Val.Unknown($"computed from {Describe(v)}: {At()}", s.Rva),
                 };
             }
             case Arm64Mnemonic.CSEL when i.OperandCount >= 3:
             {
                 var a = Operand(i, 1, block, k, depth);
                 var c = Operand(i, 2, block, k, depth);
-                return a.SameAs(c) ? a : new A64Val(A64Kind.Merge, s.Rva, $"selected by {at}") { Inputs = [a, c] };
+                return a.SameAs(c) ? a : new A64Val(A64Kind.Merge, s.Rva, $"selected by {At()}") { Inputs = [a, c] };
             }
         }
 
         if (IsLoad(i))
         {
             if (s.I.Flags.HasFlag(Arm64InstructionFlags.HasLabel) && s.Facts.HasMem)
-                return Loaded(s.Facts.MemTarget, Arm64Inspector.AccessSize(in i), s.Rva, at, constant: true);
-            if (A64Function.Memory(s) is not { } m) return A64Val.Unknown($"set by {at}", s.Rva);
+                return Loaded(s.Facts.MemTarget, Arm64Inspector.AccessSize(in i), s.Rva, At(), constant: true);
+            if (A64Function.Memory(s) is not { } m) return A64Val.Unknown($"set by {At()}", s.Rva);
             int size = Arm64Inspector.AccessSize(in i);
             bool pair = i.Mnemonic is Arm64Mnemonic.LDP or Arm64Mnemonic.LDPSW or Arm64Mnemonic.LDNP;
             int each = pair ? size / 2 : size;
             int extra = pair && A64Function.Reg(i, 1) == r ? each : 0;
             if (m.Slot is { } slot)
             {
-                if (each != 8 && each != 4) return A64Val.Unknown($"a partial load of a local: {at}", s.Rva);
-                return Chain(Before(A64Loc.Slot(slot + extra), block, k, depth), at);
+                if (each != 8 && each != 4) return A64Val.Unknown($"a partial load of a local: {At()}", s.Rva);
+                return Chain(Before(A64Loc.Slot(slot + extra), block, k, depth), At());
             }
-            if (m.Accessor.HasIndexRegister) return A64Val.Unknown($"loaded through an indexed address: {at}", s.Rva);
-            if (s.Facts.HasMem) return Loaded(s.Facts.MemTarget + (uint)extra, each, s.Rva, at, constant: false);
+            if (m.Accessor.HasIndexRegister) return A64Val.Unknown($"loaded through an indexed address: {At()}", s.Rva);
+            if (s.Facts.HasMem) return Loaded(s.Facts.MemTarget + (uint)extra, each, s.Rva, At(), constant: false);
             long disp = (m.Post ? 0 : m.Accessor.HasImmediate ? m.Accessor.Immediate : 0) + extra;
-            if (m.Accessor.BaseRegister.Kind != Arm64RegisterKind.X) return A64Val.Unknown($"set by {at}", s.Rva);
+            if (m.Accessor.BaseRegister.Kind != Arm64RegisterKind.X) return A64Val.Unknown($"set by {At()}", s.Rva);
             var bv = Before(A64Loc.Reg(m.Accessor.BaseRegister.Index), block, k, depth);
             switch (bv.Kind)
             {
-                case A64Kind.Addr: return Loaded(bv.Rva + (uint)disp, each, s.Rva, $"{bv.Why}; {at}", constant: false);
-                case A64Kind.StackAddr: return Chain(Before(A64Loc.Slot((int)((long)bv.Num + disp)), block, k, depth), at);
+                case A64Kind.Addr: return Loaded(bv.Rva + (uint)disp, each, s.Rva, $"{bv.Why}; {At()}", constant: false);
+                case A64Kind.StackAddr: return Chain(Before(A64Loc.Slot((int)((long)bv.Num + disp)), block, k, depth), At());
             }
-            return new A64Val(A64Kind.Field, s.Rva, at) { Num = (ulong)disp, Inputs = [bv] };
+            return new A64Val(A64Kind.Field, s.Rva, At()) { Num = (ulong)disp, Inputs = [bv] };
         }
-        return A64Val.Unknown($"set by {at}", s.Rva);
+        return A64Val.Unknown($"set by {At()}", s.Rva);
     }
 
     /// <summary>

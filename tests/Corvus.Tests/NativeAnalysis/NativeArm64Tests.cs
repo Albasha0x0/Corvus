@@ -309,6 +309,39 @@ public class NativeArm64Tests
         Assert.Equal(("?!sin", Native.Calls.CalleeKind.Dynamic), (viaWrapper.Callee, viaWrapper.Kind));
     }
 
+    /// <summary>
+    /// The call sites the late-bound search analyzed are kept after it when none could name a late-bound import (a helper
+    /// that only calls dlsym), and analyzed again when one could (a call through dlsym's result).
+    /// </summary>
+    [Fact]
+    public void Arm64_call_sites_of_the_late_bound_search_are_kept_unless_a_site_waits_for_it()
+    {
+        uint dlsym = Data + 0x10, cos = Data + 0x100;
+        var a = new A64(Code);
+        uint helper = 0;
+        A64 Got(uint slot) => a.Word(A64.Adrp(a.Here, slot, 16, Base)).Word(A64.LdrX(17, 16, slot & 0xFFF)).Word(A64.Blr(17));
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp).Word(A64.MovW(0, 0));
+        a.Word(A64.Adrp(a.Here, cos, 1, Base)).Word(A64.AddImm(1, 1, cos & 0xFFF));
+        Got(dlsym);
+        a.Word(0xAA0003E8 /* mov x8, x0 */);
+        uint late = a.Here;
+        a.Word(A64.Blr(8)).Later(at => A64.Bl(at, helper));
+        a.Word(A64.LdpFpLrPost).Word(A64.Ret);
+        helper = a.Here;
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp).Word(A64.MovW(0, 0)).Word(A64.Adrp(a.Here, cos, 1, Base)).Word(A64.AddImm(1, 1, cos & 0xFFF));
+        Got(dlsym);
+        a.Word(A64.LdpFpLrPost).Word(A64.Ret);
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("cos ").CopyTo(data, cos - Data);
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), data, entry: Code, imports: [Import("dlsym", dlsym)]));
+        var calls = Native.Calls.Arm64CallSites.For(index);
+        Assert.Equal(2, calls.DynamicImports().GetProcAddressSites);
+        var kept = (System.Collections.IDictionary)typeof(Native.Calls.Arm64CallSites).GetField("_sites", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(calls)!;
+        Assert.Equal([helper], kept.Keys.Cast<uint>());
+        var call = calls.CallsIn(index.FunctionByStart(Code)!).Single(s => s.Rva == late);
+        Assert.Equal(("?!cos", Native.Calls.CalleeKind.Dynamic), (call.Callee, call.Kind));
+    }
+
     /// <summary>open(path, 0x601, 0644) in a Mach-O image: Darwin's O_CREAT is 0x200 and O_TRUNC 0x400 (Linux would read O_TRUNC|O_APPEND).</summary>
     [Fact]
     public void Open_flags_use_the_images_operating_system()

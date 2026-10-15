@@ -14,8 +14,9 @@ internal sealed partial class Arm64CallSites
     private DynamicImportSet? _dynamic;
     private readonly object _dynamicGate = new();
     private bool _computingDynamic;
-    // the call sites of each function analyzed while the late-bound imports are being found (that search only)
-    private Dictionary<uint, List<CallSiteInfo>>? _building;
+    // the call sites of each function analyzed while the late-bound imports are being found; Final: no site could name one,
+    // so they are kept after the search
+    private Dictionary<uint, (List<CallSiteInfo> Sites, bool Final)>? _building;
 
     private void EnsureDynamic(CancellationToken ct)
     {
@@ -36,6 +37,8 @@ internal sealed partial class Arm64CallSites
             {
                 var set = BuildDynamic(ct);
                 _sites.Clear();
+                foreach (var (start, (sites, final)) in _building)
+                    if (final) _sites[start] = sites;
                 Arm64Trace.For(_index).ClearSlices();
                 _dynamic = set;
                 return set;
