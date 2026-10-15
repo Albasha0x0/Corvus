@@ -354,6 +354,22 @@ public class ToolOutputTests
         Assert.False(p.ContainsKey("coverage"));
     }
 
+    /// <summary>E2: results that may quote the analyzed file, errors and tools the contract does not list included, are marked untrusted.</summary>
+    [Theory]
+    [InlineData("get_pe_info", false, true)]
+    [InlineData("get_pe_info", true, true)]
+    [InlineData("a_tool_added_later", false, true)]
+    [InlineData("server_status", false, false)]
+    public async Task FileDerivedResultsAreMarkedUntrusted(string tool, bool error, bool marked)
+    {
+        using var services = Services();
+        var r = await Call(services, tool, _ => error ? throw new ToolError(ErrorCode.Unsupported, "not a PE")
+            : new CallToolResult { Content = [new TextContentBlock { Text = "x" }] });
+        var p = r.Meta![ToolOutput.ProvenanceKey]!.AsObject();
+        Assert.Equal(marked, p.ContainsKey("untrustedContent"));
+        if (marked) Assert.Equal("analysis_target", (string)p["source"]!);
+    }
+
     [Fact]
     public void SchemasGetTheEnvelope()
     {

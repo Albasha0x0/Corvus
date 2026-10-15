@@ -33,6 +33,15 @@ public sealed partial record ToolContract(string Tool, OutputClass Output, Laten
 {
     public ToolEffects.Effects Effects => ToolEffects.Of(Tool);
 
+    /// <summary>
+    /// The result may quote the analyzed file (names, strings, code, resources): its provenance says
+    /// untrustedContent, errors included. True for every tool, a new one too, except those that never return such text.
+    /// </summary>
+    public bool UntrustedContent => !ServerOnlyOutput.Contains(Tool);
+
+    /// <summary>Tools whose results hold only the server's own text and the caller's numbers.</summary>
+    internal static readonly IReadOnlySet<string> ServerOnlyOutput = new HashSet<string>(StringComparer.Ordinal) { "server_status", "convert_number" };
+
     /// <param name="sort">The default row order of a list (S2.3).</param>
     /// <param name="dryRun">Takes dryRun and defaults it to true.</param>
     /// <param name="noDryRun">Why a tool that changes something has no dryRun.</param>

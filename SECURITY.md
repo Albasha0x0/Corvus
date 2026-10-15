@@ -108,6 +108,9 @@ Tool results quote the analyzed file: symbol and section names, strings, resourc
 an engine database, and code decompiled from it. Whoever built the file chose that text, and it can be written to look
 like instructions to an AI agent or its user ("ignore previous instructions", "run this command"). Treat everything a
 tool returns about a file as data to report, never as instructions to follow; the server's own guidance says so too.
+Hosts and hooks can key on the result itself: `_meta["corvus/provenance"]` carries `untrustedContent: true` and
+`source: "analysis_target"` on every result that may quote a file, errors included (only `server_status` and
+`convert_number`, which never do, are unmarked).
 Agents that act on results (patching, saving, installing on a device, running scripts with `ida_python` or
 `ghidra_script`) should confirm such steps with the user.
 

@@ -46,6 +46,11 @@ public static partial class ToolOutput
         if (engine != null) p["engine"] = engine;
         foreach (var (key, value) in call.EngineMeta) p[key] = value is null ? null : Serialize(value);
         p["corvus"] = ServerIdentity.InformationalVersion;
+        if (ToolContract.Of(tool).UntrustedContent)
+        {
+            p["untrustedContent"] = true;
+            p["source"] = "analysis_target";
+        }
         // An error is no result to verify: what was asked of which inputs is its provenance.
         if (result.IsError == true) return p;
         p["resultSha256"] = ResultSha256(result);
