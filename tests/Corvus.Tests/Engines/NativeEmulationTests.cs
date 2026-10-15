@@ -26,6 +26,12 @@ public sealed class NativeEmulationTests
     }
 
     [Fact]
+    public void Candidate_sets_split_on_semicolons_outside_quotes()
+    {
+        Assert.Equal(["1, 2", "\"a;b\", 3"], NativeEmulationTools.Split("1, 2; \"a;b\", 3", ';'));
+    }
+
+    [Fact]
     public void Lists_split_on_commas_outside_quotes_and_literals_unescape()
     {
         Assert.Equal(["\"a, b\"", "u'x\\'y,'", "buf:16", "-1"], NativeEmulationTools.Split(" \"a, b\" , u'x\\'y,',buf:16,, -1 "));
@@ -246,6 +252,24 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
     {
         var text = await Run("Fnv1a", args: $"\"{HashInput}\"");
         Assert.Contains($"Return value: RAX = 0x{Fnv1a(HashInput):x}", text);
+    }
+
+    [GhidraFact]
+    public async Task A_hundred_argument_sets_run_in_one_request_faster_than_a_hundred_calls()
+    {
+        await Run("Fnv1a", args: "\"warm\"");
+        var one = System.Diagnostics.Stopwatch.StartNew();
+        await Run("Fnv1a", args: $"\"{HashInput}\"");
+        one.Stop();
+        var inputs = Enumerable.Range(0, 100).Select(i => $"name{i}.dll").ToList();
+        var all = System.Diagnostics.Stopwatch.StartNew();
+        var text = await rig.Tools.EmulateNative("emu.dll", "Fnv1a", candidates: string.Join("; ", inputs.Select(i => $"\"{i}\"")));
+        all.Stop();
+        output.WriteLine($"one call {one.ElapsedMilliseconds} ms, 100 sets {all.ElapsedMilliseconds} ms\n{text[..Math.Min(text.Length, 400)]}");
+        Assert.Contains("100 argument sets, 100 returned", text);
+        for (int i = 0; i < inputs.Count; i++) Assert.Contains($"#{i + 1} (\"{inputs[i]}\"): returned 0x{Fnv1a(inputs[i]):x},", text);
+        // One emulator for the batch, reset between sets: about 6 ms a set against about 10-20 ms for a call of its own.
+        Assert.True(all.Elapsed < 100 * one.Elapsed, $"100 sets took {all.ElapsedMilliseconds} ms, one call {one.ElapsedMilliseconds} ms");
     }
 
     [GhidraFact]

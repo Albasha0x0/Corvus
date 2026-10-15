@@ -20,6 +20,7 @@ namespace Corvus.Tools;
 public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeCodeService? nativeCode = null, NativeNamePush? names = null)
 {
     internal const int MaxScratchBytes = 1 << 20;
+    internal const int MaxCandidates = 1000;
 
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
     [Description("Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memory is the image, a stack and the writes " +
@@ -39,6 +40,7 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
         [Description("Instruction budget (1-50000000).")] int maxInstructions = 1_000_000,
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
         [Description("Last instructions listed (0-2000).")] int trace = 0,
+        [Description("Argument sets run in one request, ';' between sets, each written as args; timeoutSeconds covers them all.")] string? candidates = null,
         [Description("auto or ghidra.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -63,7 +65,12 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
         var parse = new Inputs(workspace, native, ghidra.ImageBase, nativeCode);
         var request = WorkerRows.Args(("start", Hex(ghidra.ImageBase + startRva)), ("max_instructions", maxInstructions),
             ("seconds", seconds), ("trace", trace));
+        if (args != null && candidates != null) throw new ToolError(ErrorCode.InvalidArgument, "Pass args or candidates, not both.", "candidates takes argument sets separated by ';'");
         if (args != null) request["args"] = new JsonArray([.. Split(args).Select(parse.Value)]);
+        var sets = candidates != null ? Split(candidates, ';') : null;
+        if (sets is { Count: 0 or > MaxCandidates })
+            throw new ToolError(ErrorCode.InvalidArgument, $"candidates holds {sets.Count} argument sets; pass 1-{MaxCandidates}.");
+        if (sets != null) request["candidates"] = new JsonArray([.. sets.Select(set => (JsonNode)new JsonArray([.. Split(set).Select(parse.Value)]))]);
         if (registers != null) request["registers"] = new JsonArray([.. Split(registers).Select(item => (JsonNode)new JsonArray(Key(item, "registers"), parse.Value(After(item))))]);
         if (memory != null) request["memory"] = new JsonArray([.. Split(memory).Select(parse.Memory)]);
         if (stopAt != null) request["stops"] = new JsonArray([.. Split(stopAt).Select(s => (JsonNode)Hex(parse.Va(s)))]);
@@ -73,6 +80,12 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
         if (read != null) request["reads"] = new JsonArray([.. Split(read).Select(parse.Read)]);
         if (parse.ScratchBytes > MaxScratchBytes) throw new ToolError(ErrorCode.LimitExceeded, $"args and registers copy {parse.ScratchBytes} bytes; the scratch area holds {MaxScratchBytes}.");
 
+        if (sets != null)
+        {
+            var batch = await ghidra.CallAsync("emulate_batch", request, cancellationToken, timeout: TimeSpan.FromSeconds(seconds + 30));
+            var runs = batch.GetProperty("candidates").EnumerateArray().ToList();
+            return Mcp.ToolOutput.Report(FormatBatch(native.Id, sets, runs), BatchReport(native.Id, sets, runs));
+        }
         var r = await ghidra.CallAsync("emulate", request, cancellationToken, timeout: TimeSpan.FromSeconds(seconds + 30));
         var text = Format(native.Id, r, maxInstructions);
         var stop = r.GetProperty("stop").GetString();
@@ -101,11 +114,54 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
     public sealed record EmulatedMemory(string Va, long Length, string Bytes, string? Text);
     public sealed record EmulatedRead(string? Label, string Va, string? Bytes, string? Text, string? Error);
 
+    /// <summary>One argument set of a candidates batch; Stop not_run when the time budget was spent before it.</summary>
+    public sealed record EmulatedCandidate(int Index, string Args, string Stop, string? StoppedAt, string? ReturnValue, long Instructions,
+        IReadOnlyList<EmulatedRead> Reads, string? Detail);
+
     public sealed record EmulationReport(string Image, string Engine, long Instructions, string Stop, string? StoppedAt, string? ReturnRegister, string? ReturnValue,
         IReadOnlyList<EmulatedRegister> Registers, int CallCount, IReadOnlyList<EmulatedCall> Calls, IReadOnlyList<EmulatedMemory> Written,
         IReadOnlyList<EmulatedRead> Reads, IReadOnlyList<IReadOnlyList<string>> Trace)
     {
         public double? ElapsedSeconds { get; init; }
+        public IReadOnlyList<EmulatedCandidate>? Candidates { get; init; }
+    }
+
+    internal static EmulationReport BatchReport(string imageId, IReadOnlyList<string> sets, IReadOnlyList<JsonElement> runs)
+    {
+        var candidates = runs.Select((r, i) =>
+        {
+            var stop = r.GetProperty("stop").GetString() ?? "stopped";
+            if (!r.TryGetProperty("instructions", out _)) return new EmulatedCandidate(i + 1, sets[i], stop, null, null, 0, [], null);
+            var one = Report(imageId, r);
+            return new EmulatedCandidate(i + 1, sets[i], one.Stop, one.StoppedAt, one.ReturnValue, one.Instructions, one.Reads,
+                r.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null);
+        }).ToList();
+        return new EmulationReport(imageId, "ghidra", candidates.Sum(c => c.Instructions), "batch", null, null, null, [], 0, [], [], [], [])
+            { Candidates = candidates };
+    }
+
+    internal static string FormatBatch(string imageId, IReadOnlyList<string> sets, IReadOnlyList<JsonElement> runs)
+    {
+        var report = BatchReport(imageId, sets, runs);
+        var sb = new StringBuilder();
+        int returned = report.Candidates!.Count(c => c.Stop == "returned");
+        sb.Append(CultureInfo.InvariantCulture, $"{imageId}: Ghidra p-code emulation of {ToolSupport.Plural(sets.Count, "argument set")}, {returned} returned, ")
+            .Append(CultureInfo.InvariantCulture, $"{report.Instructions:N0} instructions\n");
+        foreach (var c in report.Candidates!)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"  #{c.Index} ({c.Args}): ");
+            sb.Append(c.Stop switch
+            {
+                "returned" => $"returned {c.ReturnValue}",
+                "not_run" => "not run: the time budget was spent; raise timeoutSeconds",
+                _ => c.Stop + (c.StoppedAt != null ? $" at {c.StoppedAt}" : "") + (c.Detail != null ? $": {c.Detail}" : ""),
+            });
+            if (c.Stop != "not_run") sb.Append(CultureInfo.InvariantCulture, $", {c.Instructions:N0} instructions");
+            foreach (var x in c.Reads)
+                sb.Append("; ").Append(x.Label ?? x.Va).Append(": ").Append(x.Error ?? x.Text ?? x.Bytes);
+            sb.Append('\n');
+        }
+        return sb.ToString();
     }
 
     internal static EmulationReport Report(string imageId, JsonElement r)
@@ -244,8 +300,8 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
         (wide ? "u\"" : "\"") + s.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal)
             .Replace("\n", "\\n", StringComparison.Ordinal).Replace("\r", "\\r", StringComparison.Ordinal).Replace("\t", "\\t", StringComparison.Ordinal) + "\"";
 
-    /// <summary>Comma-separated items; commas inside single or double quotes do not split, and a backslash escapes the next character.</summary>
-    internal static List<string> Split(string text)
+    /// <summary>Items split at <paramref name="separator"/> outside single or double quotes; a backslash escapes the next character.</summary>
+    internal static List<string> Split(string text, char separator = ',')
     {
         var items = new List<string>();
         var sb = new StringBuilder();
@@ -256,7 +312,7 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
             if (quote != '\0' && c == '\\' && i + 1 < text.Length) { sb.Append(c).Append(text[++i]); continue; }
             if (quote == '\0' && c is '"' or '\'') quote = c;
             else if (c == quote) quote = '\0';
-            if (c == ',' && quote == '\0')
+            if (c == separator && quote == '\0')
             {
                 if (sb.ToString().Trim() is { Length: > 0 } item) items.Add(item);
                 sb.Clear();

@@ -127,6 +127,48 @@
         }
       }
     },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "args": {
+            "type": "string"
+          },
+          "stop": {
+            "type": "string"
+          },
+          "stoppedAt": {
+            "type": "string"
+          },
+          "returnValue": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "integer"
+          },
+          "reads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/properties/reads/items"
+            }
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "args",
+          "stop",
+          "instructions",
+          "reads"
+        ]
+      }
+    },
     "notices": {
       "type": "array",
       "items": {

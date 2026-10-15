@@ -148,6 +148,42 @@ final class EmuOps {
             return best != null && best.compareTo(end) <= 0 ? best : null;
         }
 
+        /**
+         * Undoes a run for the next one on the same emulator: image bytes it wrote are read again from the program, the
+         * stack and scratch region and the memory= ranges are zeroed.
+         */
+        void reset(PcodeExecutorState<byte[]> shared) {
+            for (AddressRange range : written) {
+                for (Address a = range.getMinAddress(); a != null && a.compareTo(range.getMaxAddress()) <= 0; ) {
+                    MemoryBlock b = mem.getBlock(a);
+                    Address stop = min(range.getMaxAddress(), b != null ? b.getEnd() : range.getMaxAddress());
+                    if (stop.subtract(a) >= MAX_CHUNK) stop = a.add(MAX_CHUNK - 1);
+                    byte[] data = new byte[(int) stop.subtract(a) + 1];
+                    if (b != null && b.isInitialized()) {
+                        try {
+                            mem.getBytes(a, data);
+                        }
+                        catch (MemoryAccessException e) {
+                            // unreadable bytes stay zero
+                        }
+                    }
+                    if (b != null) shared.setVar(ram, a.getOffset(), data.length, false, data);
+                    a = stop.equals(ram.getMaxAddress()) ? null : stop.next();
+                }
+            }
+            byte[] zeros = new byte[MAX_CHUNK];
+            for (long at = regionBase; Long.compareUnsigned(at, regionEnd) < 0; at += MAX_CHUNK)
+                shared.setVar(ram, at, (int) Math.min(MAX_CHUNK, regionEnd - at), false, zeros);
+            for (AddressRange range : userMapped)
+                for (Address a = range.getMinAddress(); a != null && a.compareTo(range.getMaxAddress()) <= 0; ) {
+                    long n = Math.min(MAX_CHUNK, range.getMaxAddress().subtract(a) + 1);
+                    shared.setVar(ram, a.getOffset(), (int) n, false, java.util.Arrays.copyOf(zeros, (int) n));
+                    a = range.getMaxAddress().subtract(a) + 1 > n ? a.add(n) : null;
+                }
+            written.clear();
+            userMapped.clear();
+        }
+
         @Override
         public <A, U> void dataWritten(PcodeThread<byte[]> thread, PcodeExecutorStatePiece<A, U> piece, Address address, int length, U value) {
             if (!tracking || length <= 0 || address.getAddressSpace() != ram) return;
@@ -177,21 +213,72 @@ final class EmuOps {
      * seconds, trace, reads [{va or register, length}]; a value is {value: "0x.."} or {bytes: hex} (a pointer to a scratch copy).
      */
     static JsonElement emulate(Worker w, Worker.Request r) {
+        return run(w, r, r.args, new Engine(w.program));
+    }
+
+    /** A machine and its emulator, kept for every set of a batch; each run gets a new thread. */
+    private static final class Engine {
+        final Machine m;
+        final PcodeEmulator emu;
+        final long regionBase;
+
+        Engine(Program program) {
+            AddressSpace ram = program.getAddressFactory().getDefaultAddressSpace();
+            int ptr = ram.getPointerSize();
+            if (ptr < 4) throw new Worker.WorkerError("unsupported", "emulation needs a 32- or 64-bit address space, not " + (ptr * 8) + "-bit");
+            regionBase = pickRegion(program, ram, ptr);
+            m = new Machine(program, ram, regionBase);
+            emu = new PcodeEmulator(program.getLanguage(), m);
+        }
+    }
+
+    /**
+     * One run per argument set in candidates [[value]], each on a fresh emulator with the other args shared; seconds bounds
+     * the whole batch, and sets left when it is spent answer stop "not_run".
+     */
+    static JsonElement emulateBatch(Worker w, Worker.Request r) {
+        JsonObject a = r.args;
+        double seconds = a.has("seconds") ? a.get("seconds").getAsDouble() : 10;
+        long end = System.nanoTime() + (long) (seconds * 1e9);
+        JsonArray out = new JsonArray();
+        Engine engine = new Engine(w.program);
+        boolean used = false;
+        for (JsonElement set : a.getAsJsonArray("candidates")) {
+            double left = (end - System.nanoTime()) / 1e9;
+            if (left <= 0 || r.stopped()) {
+                JsonObject skipped = new JsonObject();
+                skipped.addProperty("stop", r.stopped() && !"deadline".equals(r.stop) ? "cancelled" : "not_run");
+                out.add(skipped);
+                continue;
+            }
+            JsonObject one = a.deepCopy();
+            one.remove("candidates");
+            one.add("args", set);
+            one.addProperty("seconds", left);
+            if (used) engine.m.reset(engine.emu.getSharedState());
+            used = true;
+            out.add(run(w, r, one, engine));
+        }
+        JsonObject o = new JsonObject();
+        o.add("candidates", out);
+        return o;
+    }
+
+    private static JsonObject run(Worker w, Worker.Request r, JsonObject a, Engine engine) {
         Program program = w.program;
         Language lang = program.getLanguage();
         AddressSpace ram = program.getAddressFactory().getDefaultAddressSpace();
         int ptr = ram.getPointerSize();
         if (ptr < 4) throw new Worker.WorkerError("unsupported", "emulation needs a 32- or 64-bit address space, not " + (ptr * 8) + "-bit");
-        JsonObject a = r.args;
         Address start = ram.getAddress(va(a.get("start").getAsString()));
         long maxIns = a.has("max_instructions") ? a.get("max_instructions").getAsLong() : 1_000_000;
         double seconds = a.has("seconds") ? a.get("seconds").getAsDouble() : 10;
         int traceMax = a.has("trace") ? a.get("trace").getAsInt() : 0;
         boolean x86 = lang.getProcessor().toString().equalsIgnoreCase("x86");
 
-        long regionBase = pickRegion(program, ram, ptr);
-        Machine m = new Machine(program, ram, regionBase);
-        PcodeEmulator emu = new PcodeEmulator(lang, m);
+        long regionBase = engine.regionBase;
+        Machine m = engine.m;
+        PcodeEmulator emu = engine.emu;
         PcodeThread<byte[]> t = emu.newThread();
         PcodeArithmetic<byte[]> arith = emu.getArithmetic();
         PcodeExecutorState<byte[]> shared = emu.getSharedState();

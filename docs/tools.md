@@ -1540,9 +1540,10 @@ Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memo
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
+| `candidates` | string |  |  | Argument sets run in one request, ';' between sets, each written as args; timeoutSeconds covers them all. |
 | `engine` | string |  |  | auto or ghidra. Values: auto, ghidra. |
 
-Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`.
+Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `candidates`.
 
 ### verify_native_imports
 
