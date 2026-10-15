@@ -16,11 +16,11 @@ public class CatalogAuditTests
     /// <summary>Largest input schema of one tool, compact UTF-8 JSON.</summary>
     private const int MaxInputSchemaBytes = 8 * 1024;
 
-    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas): 172,651 at 158 tools before Phase 2; 157,825 at 155 after S-TRIM (no null in input types, implied defaults left out, shorter shared texts); 159,001 at 156 with analyze_js and its module views (C-WEB2 budget +1,200 B); 159,400 with reanalyze_native preset and background (C-ENG2a); 159,600 for C-APL and C-PCAP; 159,700 for C-EVD and C-FMT2; 160,100 for C-MOB and C-DMP; 160,700 for C-ENG2b; 160,900 for ARCH-2 (measured 160,862); 161,800 for NATIVE-1 (measured 161,773); 163,400 for WEB-1 and MANAGED-1 (measured 163,354); 163,600 for EM-3 (measured 163,517). Trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 163_600;
+    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas): 172,651 at 158 tools before Phase 2; 157,825 at 155 after S-TRIM (no null in input types, implied defaults left out, shorter shared texts); 159,001 at 156 with analyze_js and its module views (C-WEB2 budget +1,200 B); 159,400 with reanalyze_native preset and background (C-ENG2a); 159,600 for C-APL and C-PCAP; 159,700 for C-EVD and C-FMT2; 160,100 for C-MOB and C-DMP; 160,700 for C-ENG2b; 160,900 for ARCH-2 (measured 160,862); 161,800 for NATIVE-1 (measured 161,773); 163,400 for WEB-1 and MANAGED-1 (measured 163,354); 163,600 for EM-3 (measured 163,517); 163,900 for DT-1 (measured 163,848). Trim descriptions before raising it.</summary>
+    private const int MaxModelFacingBytes = 163_900;
 
-    /// <summary>The whole tools/list result of the full profile (§5): 410 KB before Phase 1, 349,663 after Phase 2's family lanes, 296,910 after S-TRIM; 302,000 for C-ENG2b; 302,900 for NATIVE-1 (measured 302,865); 304,900 for WEB-1 and MANAGED-1 (measured 304,849); 305,500 for EM-3 (measured 305,475; R-CAT brings it under 300 KB).</summary>
-    private const int MaxToolsListBytes = 305_500;
+    /// <summary>The whole tools/list result of the full profile (§5): 410 KB before Phase 1, 349,663 after Phase 2's family lanes, 296,910 after S-TRIM; 302,000 for C-ENG2b; 302,900 for NATIVE-1 (measured 302,865); 304,900 for WEB-1 and MANAGED-1 (measured 304,849); 305,500 for EM-3 (measured 305,475); 305,900 for DT-1 (measured 305,816; R-CAT brings it under 300 KB).</summary>
+    private const int MaxToolsListBytes = 305_900;
 
     [Fact]
     public void ToolsListStaysWithinItsCeiling()
