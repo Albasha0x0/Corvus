@@ -96,14 +96,13 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     private const int MaxScriptBytes = 1 << 20;
 
     [McpServerTool(Name = "ghidra_script", Title = "Run a Ghidra script on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
-    [Description("Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, run()'s body with imports first " +
-                 "(currentProgram, println, FlatProgramAPI), or name= an installed script (Ghidra's script folders, then <data>/ghidra_scripts) " +
-                 "with args. One transaction, committed when the script returns, then saved; an exception rolls it back; a repeat skips compiling. " +
+    [Description("Run Java in the Ghidra worker of a native image: a GhidraScript class, run()'s body (imports first; currentProgram, " +
+                 "println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back on an exception. " +
                  "Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.")]
     public Task<string> GhidraScript(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Java source: a class extending GhidraScript, or statements for run().")] string? code = null,
-        [Description("Instead of code: an installed script's file name, e.g. CountFunctions.java.")] string? name = null,
+        [Description("Instead of code: a script in Ghidra's script folders, then <data>/ghidra_scripts.")] string? name = null,
         [Description("With name: the script's arguments (getScriptArgs).")] string[]? args = null,
         [Description("Seconds before the script is cancelled (1-3600).")] int timeoutSeconds = 120,
         [Description("Default auto.")] string? engine = null,

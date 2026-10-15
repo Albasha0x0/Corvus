@@ -20,7 +20,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 {
     private readonly NativeEditJournal journal = edits?.Journal ?? new NativeEditJournal(workspace, code, engines);
 
-    private const string OldDescription = "The older build: native image id or path (load both; the second gets an id like app.dll#2).";
+    private const string OldDescription = "Older build: image id or path (load both; the second is app.dll#2).";
     private const string NewDescription = "The newer build: native image id or path.";
     internal const string CodeOnlyDescription = "Match functions by code only, not by names.";
 
@@ -159,10 +159,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public sealed record ImageError(string Image, BatchError Error);
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
-    [Description("Match the functions of two builds of one native image (x86 / x64 / ARM64) in tiers: 1 same name, import or identical bytes; 2 same " +
-                 "control flow; 3 same imports, strings and constants; 4 call-graph neighbours; 5 fuzzy above minScore. A pair is taken only " +
-                 "when unique on both sides. Returns per-tier counts and one view's rows by old address (unmatched: old, then new). The first " +
-                 "call waits for both code indexes. oldResult / newResult compare two kept results instead.")]
+    [Description("Match the functions of two native builds (x86 / x64 / ARM64) in tiers: 1 same name, import or bytes; 2 " +
+                 "control flow; 3 imports, strings, constants; 4 call-graph neighbours; 5 fuzzy above minScore; unique pairs only. Returns " +
+                 "per-tier counts and one view's rows by old address. oldResult / newResult compare two kept results instead.")]
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
@@ -228,7 +227,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             v is "pairs" or "changed" ? "pair" : "function", head.ToString());
     });
 
-    internal const string OldResultDescription = "Instead of the old side: " + EvidenceInput.ReferenceDescription + ".";
+    internal const string OldResultDescription = "Instead: " + EvidenceInput.ReferenceDescription + ".";
     internal const string NewResultDescription = "The new side, from the same tool.";
 
     /// <summary>A comparison of two kept results as a list of its changes.</summary>
@@ -298,12 +297,12 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true, OutputSchemaType = typeof(AddressMappings))]
     [Description("Where addresses of the old build are in the new build: a function start to the matched function, an address inside one " +
-                 "to the aligned instruction, a string to the same string, other data through the references of matched instructions. Each " +
-                 "result has the new address with confidence and reason, or why not and nearby candidates.")]
+                 "to the aligned instruction, a string to the same string, other data through the references of matched instructions. Each: " +
+                 "new address, confidence and reason, or why not with nearby candidates.")]
     public Task<string> MapAddressBetweenBuilds(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
-        [Description("Address in the old build: " + NativeTools.AddressDescription)] string? address = null,
+        [Description("Old build: " + NativeTools.AddressDescription)] string? address = null,
         [Description("Instead of address: up to 100 addresses.")] string[]? addresses = null,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
         RequestContext<CallToolRequestParams> context = null!,
@@ -344,14 +343,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxDiffFunctions = 20;
 
     [McpServerTool(Name = "diff_function", Title = "Diff a function between builds", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDiffReport))]
-    [Description("What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists " +
-                 "aligned, rows = (same), ~ (other operands), - or +, with build-independent operands (branch labels, matched callee names, string " +
-                 "text, mapped data) so moved code and relocations do not show; changed regions with context. view=pseudocode: a unified diff of " +
-                 "both functions' pseudocode. addresses: a summary per function. oldResult / newResult diff two kept code results instead.")]
+    [Description("What changed in one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or " +
+                 "+, operands made build-independent (labels, matched callees, strings, mapped data). view=pseudocode: a unified diff. " +
+                 "addresses: a summary per function. oldResult / newResult: kept code.")]
     public Task<string> DiffFunction(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
-        [Description("An address in the function: " + NativeTools.AddressDescription)] string? address = null,
+        [Description("In the function: " + NativeTools.AddressDescription)] string? address = null,
         [Description("Instead of address: up to 20 functions, one summary each.")] string[]? addresses = null,
         [Description("Which build the address is in.")] string side = "old",
         [Description("asm, or pseudocode (needs an engine).")] string view = "asm",
@@ -361,7 +359,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 500,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        [Description("Instead of the images: old code as " + EvidenceInput.ReferenceDescription + ".")] string? oldResult = null,
+        [Description("Instead: old code as " + EvidenceInput.ReferenceDescription + ".")] string? oldResult = null,
         [Description("New code, from the same tool.")] string? newResult = null,
         RequestContext<CallToolRequestParams> request = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(request, async progress =>
@@ -622,10 +620,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxPatternAddresses = 50;
 
     [McpServerTool(Name = "make_code_pattern", Title = "Make a code pattern", UseStructuredContent = true, OutputSchemaType = typeof(CodePatternResults))]
-    [Description("Make a byte pattern for an address that survives rebuilds: instruction bytes with displacements and relocated addresses as ?? " +
-                 "('48 8B 05 ?? ?? ?? ??'), extended until unique in the executable sections. anchor=auto starts at the address, else at an " +
-                 "instruction referencing it (with the operand offset to recover it); xrefs: one per referencing instruction; range: [address, " +
-                 "end). search_code_pattern finds it in another build.")]
+    [Description("Make a rebuild-proof byte pattern for an address: displacements and relocated addresses as ?? ('48 8B 05 ?? ?? ?? ??'), " +
+                 "unique in the executable sections. anchor=auto: at the address, else at a referencing instruction (with operand offset); " +
+                 "xrefs: one per referencing instruction; range: [address, end). search_code_pattern finds it.")]
     public Task<string> MakeCodePattern(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,

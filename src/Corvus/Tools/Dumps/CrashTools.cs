@@ -14,7 +14,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
     [McpServerTool(Name = "symbolize_stack_text", Title = "Symbolize crash text", UseStructuredContent = true, OutputSchemaType = typeof(StackTextService.SymbolizedStack))]
     [Description("Resolves crash text against the loaded build: Unity Player.log / error.log, Mono and Il2Cpp lines, .NET exception text, " +
                  "Report.wer, Event Log 1000/1026, debugger stacks, Android tombstones. Each frame gets our name, a buildCheck (time stamp, MVID, " +
-                 "BuildId or the text's own name; mismatch: another build) and the C# statement at an IL offset.")]
+                 "BuildId or the text's name; mismatch: another build) and C# statement at an IL offset.")]
     public Task<string> SymbolizeStackText(
         [Description("The crash text (up to 1 MiB). This or path.")] string? text = null,
         [Description("A log or report file; its last 8 MiB are read.")] string? path = null,
@@ -23,7 +23,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
         [Description("Module load addresses, 'name=0xBASE;...', when the text has no module list.")] string? moduleBases = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = StackTextService.DefaultLimit,
-        [Description("One row per frame; default folds 3+ matching native frames of one image into one row.")] bool allFrames = false,
+        [Description("One row per frame; default folds 3+ matching native frames of an image.")] bool allFrames = false,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {

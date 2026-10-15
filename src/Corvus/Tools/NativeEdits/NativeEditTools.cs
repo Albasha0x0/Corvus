@@ -52,17 +52,17 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     private const string RelocationsDescription =
-        "PE base relocations under the patch: auto (default) keeps those still holding an address, clears the rest, adds new ones; keep; neutralize clears all.";
+        "PE relocations: auto (default; keep valid, clear stale, add new), keep, or neutralize (clear all).";
 
     private const string ExtendDescription =
-        "Put the new code in a stub (see placement) the site jumps to; control returns after the site. For code larger than the site. Refused when unsafe.";
+        "Put code larger than the site in a stub (placement) it jumps to and back. Refused when unsafe.";
 
-    private const string StubModeDescription = "With extend: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after.";
+    private const string StubModeDescription = "With extend: replace (default; the displaced instructions), before or after them.";
 
     private const string PlacementDescription =
-        "With extend: auto (default; a code cave if one fits, else a new section), cave or section (a new PE section or ELF/Mach-O segment; undo restores it).";
+        "With extend: auto (default; cave, else section), cave or section (a new PE section or ELF/Mach-O segment).";
 
-    private const string AllowUnsafeDescription = "Allow what the safety checks refuse: mid-instruction, past the function end, header or loader-written bytes.";
+    private const string AllowUnsafeDescription = "Allow mid-instruction, past-function-end, header or loader-written bytes.";
 
     [McpServerTool(Name = "rename_native", Title = "Name a native address", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Name a native address: used by every native tool, pushed to the engines, kept per file SHA-256, undoable by editId. C-identifier-like " +
@@ -143,9 +143,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return ToolOutput.Edit(Record(results, dryRun, id, engineUsed), text);
     });
 
-    private const string BatchNote = "items: many in one sidecar write and one engine push, each reported.";
+    private const string BatchNote = "items: many in one push.";
 
-    private const string PushEngineDescription = "Engine to push the change to now (default: one with this image open, else at its next use).";
+    private const string PushEngineDescription = "Engine to push to now (default: one with this image open, else at its next use).";
 
     /// <summary>One item of a batch: the address and the value (a name or a comment's text), plus the optional per-item fields.</summary>
     internal sealed record BatchItem(string Address, string Value, string? Scope = null, bool? Append = null);
@@ -240,9 +240,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "comment_native", Title = "Comment a native address", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Comment a native address (kept, pushed to engines, undoable). scope: line (repeatable: also where the address is " +
-                 "referenced), eol, pre or plate (engine kinds; Ghidra's decompiler shows pre), pseudocode (on the statement made from the address), " +
-                 "function, or auto (function at a function start, else line and pseudocode). append adds a line. Empty clears. " + BatchNote)]
+    [Description("Comment a native address (undoable, pushed to engines). scope: line (repeatable: also where referenced), eol, pre " +
+                 "or plate (engine kinds; Ghidra pseudocode shows pre), pseudocode (on its statement), function, or auto (function at a " +
+                 "function start, else line and pseudocode). append adds a line; empty clears. " + BatchNote)]
     public Task<string> CommentNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
@@ -412,9 +412,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("Names and comments of the imported layers beneath the user's.")] int Imported, long Bytes, string Sha256);
 
     [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations", UseStructuredContent = true, OutputSchemaType = typeof(AnnotationExportResult))]
-    [Description("Write the image's names and comments (with the NativeAOT, Il2Cpp, ObjC and Swift names) as an IDAPython script, a Ghidra script or JSON; the IDA " +
-                 "script and JSON carry the user's engine types too. Scripts apply by rebased RVA. header: a C header of declared types, prototypes " +
-                 "and typed globals. objc-header: class-dump style Objective-C interfaces, protocols and categories of a Mach-O, Swift types as comments.")]
+    [Description("Write the image's names and comments (also NativeAOT, Il2Cpp, ObjC, Swift) as IDAPython, a Ghidra script or JSON (IDA and " +
+                 "JSON add the user's engine types; scripts apply by rebased RVA). header: C header of declared types, prototypes and typed " +
+                 "globals. objc-header: class-dump style Objective-C (Mach-O), Swift types as comments.")]
     public Task<string> ExportNativeAnnotations(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
@@ -490,7 +490,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; 'db <hex>') and write them at a native " +
                  "address in memory, branches and RIP-relative references computed for that address. Same safety rules, NOP padding and undo as " +
-                 "patch_bytes; PE absolute addresses ([addr], 'offset name', imm64) get base relocations.")]
+                 "patch_bytes; PE absolute addresses ([addr], 'offset name', imm64) get relocations.")]
     public Task<string> PatchAsm(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -562,7 +562,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
                  "engine type edits. Then the name layers (user, pdb, il2cpp, ida, ...) with counts and origin. search: the names and comments that match instead.")]
     public Task<string> ListNativeEdits(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Instead: the names and comments (user and layers) whose text matches: " + NameFilter.Description + ".")] string? search = null,
+        [Description("Instead: matching names and comments: " + NameFilter.Description + ".")] string? search = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Rows per page (default 100).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
@@ -631,7 +631,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
                  "value back, pushed to the engines. Refused while a later edit changed the same item.")]
     public Task<string> UndoNativeEdit(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Edit id (image#n, or #n); comma-separated for several, undone in that order; omit for the last.")] string? editId = null,
+        [Description("image#n or #n; comma-separated for several, undone in order; default the last.")] string? editId = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

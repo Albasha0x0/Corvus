@@ -23,24 +23,22 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
     internal const int MaxCandidates = 1000;
 
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
-    [Description("Emulates native code in Ghidra's p-code emulator (nothing runs on the host; memory is the image, a stack and the writes " +
-                 "given): string decoders, hashes, computed constants. Stops on return, stopAt or a budget. Calls step into the image or return " +
-                 "stubs= values; an unmodelled call or unmapped read is an error with the address. Reports return value, registers, written " +
-                 "memory as strings, reads, trace.")]
+    [Description("Emulates native code in Ghidra's p-code emulator: string decoders, hashes, computed constants. " +
+                 "Memory: image, stack, given writes. Stops on return, stopAt or a budget. Calls run in the image or return stubs= " +
+                 "values; an unmodelled call or unmapped read is an error. Reports return value, registers, written strings, reads, trace.")]
     public Task<string> EmulateNative(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Start. " + NativeTools.AddressDescription)] string address,
-        [Description("By the calling convention: integer, address, 'text' or u'text' (pointer to a copy), buf:N (pointer to N zero bytes), " +
-                     "hex:41A0 (pointer to bytes).")] string? args = null,
+        [Description(NativeTools.AddressDescription)] string address,
+        [Description("Per calling convention: integer, address, or pointer to 'text', u'text', buf:N (zeros) or hex:41A0.")] string? args = null,
         [Description("rcx=0x10, rdx='key' (values as args).")] string? registers = null,
         [Description("ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000.")] string? memory = null,
         [Description("Addresses to stop at.")] string? stopAt = null,
-        [Description("Calls answered without running: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 any call).")] string? stubs = null,
+        [Description("Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 any call).")] string? stubs = null,
         [Description("Shown after the run: ADDR or register, space, length (rcx 64).")] string? read = null,
         [Description("Instruction budget (1-50000000).")] int maxInstructions = 1_000_000,
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
         [Description("Last instructions listed (0-2000).")] int trace = 0,
-        [Description("Argument sets run in one request, ';' between sets, each written as args; timeoutSeconds covers them all.")] string? candidates = null,
+        [Description("Argument sets, ';'-separated, each as args; one timeoutSeconds covers all.")] string? candidates = null,
         [Description("auto or ghidra.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

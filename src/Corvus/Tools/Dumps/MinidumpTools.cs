@@ -13,21 +13,20 @@ public sealed class MinidumpTools(MinidumpService dumps)
 {
     private const string DumpDescription = "A .dmp path or the id open_minidump returned.";
     private const string ImageDirectoriesDescription =
-        "Folders (';'-separated) with the program's binaries, kept for the dump; its own folder is always searched.";
+        "Program binary folders (';'-separated), kept for the dump, plus its own folder.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpReport))]
-    [Description("Reads a Windows minidump (.dmp) or a Linux/Android ELF core. view=summary: OS, process, the exception (faulting thread, module!function, instruction, registers, " +
-                 "a C++ exception's thrown type), faulting module and thread, the .NET state (managed exception with stack and inner chain, heap), " +
-                 "counts. modules (version, PDB, whether a matching image is here), threads, memory, unloaded: paged rows. Gives the id the other " +
-                 "dump tools take. .NET decoding loads Microsoft's signature-checked DAC.")]
+    [Description("Reads a Windows minidump (.dmp) or Linux/Android ELF core; returns the dump id. view=summary: OS, process, exception " +
+                 "(thread, module!function, registers, C++ type), .NET state (managed exception and heap); modules (version, " +
+                 "PDB, image match), threads, memory, unloaded: paged rows. .NET loads Microsoft's signature-checked DAC.")]
     public Task<string> OpenMinidump(
         [Description("The .dmp path (or an open dump's id).")] string path,
         [Description("summary, modules, threads, memory or unloaded.")] string view = "summary",
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
-        [Description("The runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that build is not installed here.")] string? dacPath = null,
-        [Description("Fetch the DAC from a symbol server when none matches here (network; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
+        [Description("DAC (mscordaccore.dll / mscordacwks.dll) file or folder for a build not installed.")] string? dacPath = null,
+        [Description("Fetch a matching DAC from a symbol server (network; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
@@ -59,12 +58,12 @@ public sealed class MinidumpTools(MinidumpService dumps)
             page => new MinidumpService.DumpReport(id, view) { Items = page.Cast<object>().ToList(), Offset = offset, Total = total }, noun);
 
     [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.StackReport))]
-    [Description("Call stack of a minidump thread: x64 unwind data, x86 call targets and the EBP chain; JIT code without unwind data adds " +
-                 "scanned frames (basis inferred). Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL " +
+    [Description("Call stack of a minidump thread: x64 unwind data, x86 call targets and EBP chain; JIT code without unwind data adds " +
+                 "scanned frames. Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL " +
                  "offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump. ELF cores: CFI, then frame pointer.")]
     public Task<string> DumpStack(
         [Description(DumpDescription)] string dump,
-        [Description("Thread id, '#index', name or 'exception'. Default: the faulting thread, else the first.")] string? thread = null,
+        [Description("Thread id, '#index', name or 'exception' (default: faulting thread, else first).")] string? thread = null,
         [Description("Faulting thread: its context at dump time, not the exception context (.ecxr).")] bool dumpTimeContext = false,
         [Description("Max frames walked (up to 1024).")] int maxFrames = 256,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,

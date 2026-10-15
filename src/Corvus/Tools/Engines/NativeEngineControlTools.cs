@@ -41,7 +41,7 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         [Description("List the analyzer options and values instead of running.")] bool analyzers = false,
         [Description("With analyzers: name filter.")] string? filter = null,
         [Description("name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true').")] string[]? options = null,
-        [Description("Named option set: full (Ghidra defaults) or one in analysis-presets.json (data folder).")] string? preset = null,
+        [Description("full (Ghidra defaults) or a preset in analysis-presets.json (data folder).")] string? preset = null,
         [Description("Run with no caller waiting; other engine calls get conflict until it ends.")] bool background = false,
         [Description("Range start (default: the whole image).")] string? from = null,
         [Description("Range end (exclusive).")] string? to = null,

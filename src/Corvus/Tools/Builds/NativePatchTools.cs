@@ -36,9 +36,9 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
     }, ct);
 
     [McpServerTool(Name = "export_native_patches", Title = "Export native patches", UseStructuredContent = true, OutputSchemaType = typeof(PatchExportReport))]
-    [Description("Write the image's in-memory byte patches for other tools: ida an IDAPython script (each patch at its rebased RVA, only where " +
-                 "the original bytes are found), dif IDA's .dif, ips (file offsets below 16 MB) or ips32, json the full patch set (migrate_native_patches " +
-                 "reads it). Relocation edits and the PE checksum are included, so a .dif or IPS applied to the original gives save_native's bytes.")]
+    [Description("Write the image's byte patches for other tools: ida an IDAPython script (at rebased RVAs, where the original bytes " +
+                 "are found), dif IDA's .dif, ips (file offsets below 16 MB) or ips32, json the full set (for migrate_native_patches). Relocation " +
+                 "edits and the PE checksum are included: a .dif or IPS applied to the original gives save_native's bytes.")]
     public async Task<string> ExportNativePatches(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
@@ -96,12 +96,12 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "migrate_native_patches", Title = "Migrate patches to a new build", UseStructuredContent = true, OutputSchemaType = typeof(MigrationPatchReport))]
-    [Description("Carry byte patches from an old build to a new one through the build matcher (compare_native_images). A patch is reapplied " +
-                 "only where the new build's original bytes at the mapped address match what it expected (patch_asm patches are re-assembled " +
-                 "there), each applied or refused with a reason code. The same image as old and new with patchSet replays a patch set on its own build.")]
+    [Description("Carry byte patches from an old build to a new one through the build match (compare_native_images). A patch is reapplied " +
+                 "only where the mapped address holds the expected original bytes (patch_asm patches re-assembled), else refused " +
+                 "with a reason code. The same image as old and new with patchSet replays a patch set on its own build.")]
     public Task<string> MigrateNativePatches(
-        [Description("The old build: native image id or path (its in-memory patches are the source unless patchSet).")] string oldImage,
-        [Description("The new build: native image id or path (load both; the second gets an id like name#2).")] string newImage,
+        [Description("Old build: image id or path (its in-memory patches are the source unless patchSet).")] string oldImage,
+        [Description("New build: image id or path (load both; the second gets an id like name#2).")] string newImage,
         [Description("A JSON patch set (export_native_patches format=json): path or text.")] string? patchSet = null,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description(NativeDiffTools.CodeOnlyDescription)] bool codeOnly = false,

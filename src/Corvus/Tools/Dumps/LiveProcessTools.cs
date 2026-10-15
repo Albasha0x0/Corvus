@@ -10,19 +10,18 @@ namespace Corvus.Tools;
 public sealed class LiveProcessTools(LiveProcessService live)
 {
     [McpServerTool(Name = "inspect_process", Title = "Inspect a running process (read-only)", UseStructuredContent = true, OutputSchemaType = typeof(LiveProcessService.LiveReport))]
-    [Description("Inspects a running local process (Windows) read-only, every address named as dump_stack names a dump. view=summary: identity, " +
-                 "counts, main module, largest committed regions; modules (PDB, matching file on disk), regions, threads (TEB, stack, start), " +
-                 "stacks (one thread's registers and frames): paged rows. Opens PROCESS_QUERY_INFORMATION | PROCESS_VM_READ and THREAD_GET_CONTEXT | " +
-                 "THREAD_QUERY_INFORMATION only; nothing is written, suspended or attached, and every handle is closed before returning.")]
+    [Description("Inspects a running Windows process read-only, addresses named as in dumps. view=summary: identity, " +
+                 "counts, main module, largest committed regions; modules (PDB, file on disk), regions, threads (TEB, stack, start), stacks " +
+                 "(registers and frames): paged rows. Query, VM-read and get-context access only; nothing is written, suspended or attached.")]
     public Task<string> InspectProcess(
-        [Description("Process id (decimal or 0x hex) or name (notepad or notepad.exe); a shared name is refused with the candidate ids.")] string process,
+        [Description("Process id (decimal or 0x hex) or name (notepad[.exe]); a shared name is refused with the ids.")] string process,
         [Description("summary, modules, regions, threads or stacks.")] string view = "summary",
-        [Description("threads: only this one; stacks: the thread walked (default the first). Id or name.")] string? thread = null,
+        [Description("threads: only this one; stacks: the thread walked (default first). Id or name.")] string? thread = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = LiveProcessService.DefaultLimit,
-        [Description("view=regions: committed (default), all, executable, writable, image, private or mapped.")] string? regionFilter = null,
+        [Description("regions: committed (default), all, executable, writable, image, private or mapped.")] string? regionFilter = null,
         [Description("view=stacks: max frames walked (up to 256).")] int maxFrames = LiveProcessService.DefaultFrames,
-        [Description("Folders with the program's binaries (';'-separated) for modules whose own file is not readable.")] string? imageDirectories = null,
+        [Description("Program binary folders (';'-separated), for modules whose file is unreadable.")] string? imageDirectories = null,
         [Description("Time limit in seconds (up to 120).")] int timeoutSeconds = LiveProcessService.DefaultTimeoutSeconds,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>

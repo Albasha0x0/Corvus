@@ -55,7 +55,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Regex.")] string pattern,
         [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
-        [Description("Function name filter: " + NameFilter.Description + ".")] string? filter = null,
+        [Description(NameFilter.Description + ".")] string? filter = null,
         [Description("Max 20000.")] int maxFunctions = 500,
         [Description("Max 600.")] int timeoutSeconds = 60,
         [Description("First function (nextOffset).")] int offset = 0,

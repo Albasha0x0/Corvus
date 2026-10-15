@@ -22,7 +22,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 {
     private const string EngineDescription = EngineChoice.EngineOnlyDescription;
 
-    private const string KeptNote = " Kept with the image's annotations.";
+    private const string KeptNote = " Kept in the annotations.";
 
     /// <summary>The image, an address in it and its engine session, with names and recovered types pushed first so user types apply on top.</summary>
     private async Task<(LoadedNative Native, uint Rva, INativeDecompilerSession Session)> Open(string image, string address, string? engine,
@@ -81,7 +81,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                  "address; brackets from the return address.")]
     public Task<string> GetNativeFrame(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("The function: " + NativeTools.AddressDescription + "; several, comma-separated, in one engine request.")] string function,
+        [Description(NativeTools.AddressDescription + " Comma-separated for several.")] string function,
         [Description(EngineDescription)] string? engine = null,
         [Description("Decompile for the locals too.")] bool locals = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
@@ -195,7 +195,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                  "address); a type at an empty offset creates one. The return address and saved registers are refused." + KeptNote)]
     public Task<string> SetNativeStackVar(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("The function: " + NativeTools.AddressDescription)] string function,
+        [Description(NativeTools.AddressDescription)] string function,
         [Description("The member: its name, or its frame offset (hex).")] string? variable = null,
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type.")] string? type = null,
@@ -203,7 +203,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("Drop the user's edit, restoring the engine's member.")] bool clear = false,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
-        [Description("Instead of variable: lines 'member = newName', or JSON [{variable, newName?, type?, delete?, clear?}].")] string? items = null,
+        [Description("Instead: lines 'member = newName' or JSON [{variable, newName?, type?, delete?, clear?}].")] string? items = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -262,12 +262,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private static string Va(LoadedNative native, uint rva) => NativeAddress.Va(native.Image, rva);
 
     [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or the type of a global ('Handler *[8]') " +
-                 "in the engine. Named types must exist there (pushed PDB, RTTI and Il2Cpp types, or declare_native_types). User types win over " +
-                 "recovered ones; empty clears; __noreturn stops the callers' flow at the call. rename=true also names the function as its prototype does." + KeptNote)]
+    [Description("Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or a global's type ('Handler *[8]') " +
+                 "in the engine. Named types must exist there (PDB, RTTI, Il2Cpp or declare_native_types). User types win; empty clears; " +
+                 "__noreturn ends the callers' flow at the call." + KeptNote)]
     public Task<string> SetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("A function start or a global: " + NativeTools.AddressDescription)] string? address = null,
+        [Description(NativeTools.AddressDescription)] string? address = null,
         [Description("C prototype for a function, C type for a global; empty to clear the user type.")] string? type = null,
         [Description("Instead of address and type: lines 'address = type'.")] string? items = null,
         [Description("Name the function as its prototype does.")] bool rename = false,
@@ -382,15 +382,15 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                  "stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused." + KeptNote)]
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("The function: " + NativeTools.AddressDescription)] string function,
+        [Description(NativeTools.AddressDescription)] string function,
         [Description("The variable: its name in the pseudocode, or stack:<offset> (hex).")] string? local = null,
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type.")] string? type = null,
         [Description("Drop the user's name and type of the variable.")] bool clear = false,
-        [Description("Instead of local: lines 'local = newName', or JSON [{local, newName?, type?, clear?}].")] string? items = null,
+        [Description("Instead: lines 'local = newName' or JSON [{local, newName?, type?, clear?}].")] string? items = null,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
-        [Description("Declare this struct from the local's loads and stores; the local points to it (Ghidra).")] string? inferStruct = null,
+        [Description("Ghidra: declare this struct from the local's accesses; the local points to it.")] string? inferStruct = null,
         [Description("Move an argument to this register, or auto: the convention's place.")] string? storage = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -599,10 +599,9 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine; a type of the same name is replaced, and " +
-                 "declarations win over recovered types. Errors carry the engine's messages and are not saved. typeName with members upserts or " +
-                 "removes enum members, with fields struct or union members (+name@0x10 inserts, moving later members down), resize and " +
-                 "nameGaps change a struct's layout; delete or rename edits a named type." + KeptNote)]
+    [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine, replacing a same-named type; " +
+                 "declarations win over recovered types. Engine errors save nothing. typeName edits one type: members (enum), " +
+                 "fields (struct or union), resize, nameGaps; delete or rename edits any named type." + KeptNote)]
     public Task<string> DeclareNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("C declarations; types they name must exist or be declared too.")] string? declarations = null,
@@ -823,16 +822,15 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "define_native", Title = "Redefine code or data in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Change the engine's analysis at an address. code decodes instructions (to end, else following the flow); function makes " +
-                 "a function (with end: its extent; on one: moves its end); undefine makes unknown bytes (to end, else the item; at a function start " +
-                 "the function); data makes a data item of type; flow (Ghidra) clears an instruction's flow override, or sets type branch, call, " +
-                 "call_return or return, and repairs the function. Data and undefine replace a user type on a global there." + KeptNote)]
+    [Description("Redefine an address in the engine by kind: code (to end, else along the flow), function (make one to end, or move " +
+                 "a function's end), undefine (to end, else the item or function), data (of type), flow " +
+                 "(Ghidra: type branch, call, call_return or return; else clears). data and undefine drop a global's user type." + KeptNote)]
     public Task<string> DefineNative(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Start: " + NativeTools.AddressDescription)] string address,
+        [Description(NativeTools.AddressDescription)] string address,
         [Description("What to make.")] string kind,
         [Description("Exclusive end address (same forms as address).")] string? end = null,
-        [Description("kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16) or a C type, with an optional [count] (dword[8]).")] string? type = null,
+        [Description("kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16) or a C type; dword[8] arrays.")] string? type = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -867,17 +865,17 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "set_native_operand", Title = "Set how an operand displays", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: " +
-                 "offset (the constant as an address), stack (a stack variable), enum (type: the enum; a member of the constant's value), struct " +
-                 "(type: 'Packet' or 'Packet+0x10'; IDA only) or default (the engine's). Ghidra shows numbers and enum members as equates." + KeptNote)]
+    [Description("Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows, pseudocode: " +
+                 "offset (as an address), stack (a stack variable), enum (type: the enum), struct (type: 'Packet' or 'Packet+0x10'; IDA only) " +
+                 "or default. Ghidra shows numbers and enum members as equates." + KeptNote)]
     public Task<string> SetNativeOperand(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("The instruction: " + NativeTools.AddressDescription)] string address,
+        [Description(NativeTools.AddressDescription)] string address,
         [Description("Operand index, 0 for the first.")] int operand = 0,
         [Description("How to display it (see the description).")] string? display = null,
         [Description("display=enum or struct: the type's name (struct: optionally +delta).")] string? type = null,
         [Description(EngineDescription)] string? engine = null,
-        [Description("Instead: lines 'address operand display [type]', or JSON [{address, operand, display, type?}]; address is then any.")] string? items = null,
+        [Description("Instead: lines 'address operand display [type]' or JSON [{address, operand, display, type?}].")] string? items = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -1067,7 +1065,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                  "count; name= shows one type as a C declaration with member offsets.")]
     public Task<string> ListNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
+        [Description(NameFilter.Description + ".")] string? filter = null,
         [Description("udt: struct or union.")] string? kind = null,
         [Description("Show this one type in full instead of a list.")] string? name = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
