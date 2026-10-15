@@ -12,7 +12,10 @@ internal static class WasmFixtures
 {
     private static readonly WasmType[] None = [];
 
-    public static IEnumerable<(string Name, byte[] Bytes)> Valid() =>
+    /// <summary>Built once per test run; callers must not change the bytes.</summary>
+    public static IReadOnlyList<(string Name, byte[] Bytes)> Valid() => ValidModules.Value;
+
+    private static readonly Lazy<(string Name, byte[] Bytes)[]> ValidModules = new(() =>
     [
         ("empty", new WasmModuleBuilder().Build()),
         ("sample", WasmTests.Sample()),
@@ -34,7 +37,7 @@ internal static class WasmFixtures
         ("globals", Globals()),
         ("bytes", DataBytes()),
         ("locals", Locals()),
-    ];
+    ]);
 
     /// <summary>A module of one function of type <paramref name="parameters"/> → <paramref name="results"/> with <paramref name="body"/>, a memory and a funcref table.</summary>
     private static byte[] One(WasmType[] parameters, WasmType[] results, WasmAsm body, Action<WasmModuleBuilder>? more = null, bool memory = true, params (uint, WasmType)[] locals)
