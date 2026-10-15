@@ -12,6 +12,8 @@ namespace Corvus.Services;
 public sealed partial class MinidumpService
 {
     public const int DefaultMaxDumps = 1000;
+    /// <summary>Windows minidumps, then Linux and Android core files.</summary>
+    public const string DefaultDumpPatterns = "*.dmp;*.mdmp;*.core;core.*";
     private const int BucketWalkFrames = 64;
     /// <summary>Overrides the folder of the incremental bucketing cache.</summary>
     public const string BucketCacheVariable = "CORVUS_DUMP_BUCKET_CACHE";
@@ -66,14 +68,19 @@ public sealed partial class MinidumpService
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, MaxListLimit);
         var skip = NoiseFrames.Concat((skipModules ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).ToList();
-        var patterns = (string.IsNullOrWhiteSpace(pattern) ? "*.dmp;*.mdmp" : pattern).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var patterns = (string.IsNullOrWhiteSpace(pattern) ? DefaultDumpPatterns : pattern).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var notes = new List<string>();
 
         var files = new List<FileInfo>();
         try
         {
             var options = new EnumerationOptions { RecurseSubdirectories = recursive, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
-            foreach (var p in patterns) files.AddRange(new DirectoryInfo(root).EnumerateFiles(p, options));
+            foreach (var p in patterns)
+            {
+                var found = new DirectoryInfo(root).EnumerateFiles(p, options);
+                // the default core patterns also match other files (core.c, app.core.json): only ELF cores are kept
+                files.AddRange(string.IsNullOrWhiteSpace(pattern) && p is "*.core" or "core.*" ? found.Where(f => ElfCoreFile.IsCore(f.FullName)) : found);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -186,6 +193,7 @@ public sealed partial class MinidumpService
     internal async Task<DumpSignature> Signature(string path, string? imageDirectories, int topFrames, IReadOnlyList<string> skip, bool managed, CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
+        if (s.Core is { } core) return await CoreSignature(s, core, topFrames, skip, ct);
         var d = s.Dump;
         if (d.Exception is { } e && d.ThreadById(e.ThreadId) is { } thread)
         {
@@ -247,6 +255,11 @@ public sealed partial class MinidumpService
         var walk = Wow64.Thread(s.Dump, thread.Teb) is { } wow
             ? s.Walker(Wow64.View(s.Dump)).Walk(wow.Context, wow.StackLow, wow.StackHigh, BucketWalkFrames, ct)
             : s.Walker().Walk(ctx, thread.StackStart, thread.StackStart + thread.StackSize, BucketWalkFrames, ct);
+        return await SignatureFrames(s, walk, skip, ct);
+    }
+
+    private async Task<List<(string Label, string? Version, string? Offset)>> SignatureFrames(Session s, WalkResult walk, IReadOnlyList<string> skip, CancellationToken ct)
+    {
         var frames = new List<(string, string?, string?)>();
         foreach (var f in walk.Frames)
         {

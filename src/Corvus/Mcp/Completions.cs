@@ -9,7 +9,7 @@ public static class Completions
     private const int MaxValues = 100;
 
     private static readonly string[] ManagedOrNative = [".dll", ".exe", ".sys"];
-    private static readonly string[] Dumps = [".dmp", ".mdmp"];
+    private static readonly string[] Dumps = [".dmp", ".mdmp", ".core"];
     /// <summary>What a build can be: an install folder, a package or a single binary.</summary>
     private static readonly string[] Builds = [".zip", ".apk", ".aab", ".nupkg", ".ipa", ".msix", ".appx", ".exe", ".dll"];
 

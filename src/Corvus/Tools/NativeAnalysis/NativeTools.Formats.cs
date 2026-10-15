@@ -106,6 +106,7 @@ public sealed partial class NativeTools
         Head(sb, native, elf);
         sb.AppendLine($"  {(elf.BigEndian ? "big" : "little")} endian, OS/ABI {elf.OsAbi}, e_type {elf.TypeName}, e_flags 0x{elf.Flags:X}" +
                       (elf.IsMappedDump ? "; a memory image (segments at their addresses)" : ""));
+        if (elf.Type == 4) sb.AppendLine("  a core dump: open_minidump reads its threads, registers, signal and mapped modules; dump_stack walks its stacks");
         if (elf.SoName != null) sb.AppendLine($"  soname {elf.SoName}");
         if (elf.Interpreter != null) sb.AppendLine($"  interpreter {elf.Interpreter}");
         if (elf.RunPath != null) sb.AppendLine($"  runpath {elf.RunPath}");

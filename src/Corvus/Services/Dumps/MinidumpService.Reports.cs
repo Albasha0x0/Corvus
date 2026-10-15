@@ -50,7 +50,10 @@ public sealed partial class MinidumpService
         string? PdbName, string? PdbGuid, uint? PdbAge,
         [property: Description("matches (a file with this timestamp and size was found), mismatch (a different build) or missing.")] string LocalImage,
         string? LocalPath, string LocalDetail,
-        [property: Description("A .NET assembly (from the local file's header); null when unknown.")] bool? Managed);
+        [property: Description("A .NET assembly (from the local file's header); null when unknown.")] bool? Managed)
+    {
+        [Description("ELF cores: the module's GNU build id, from its header in the core.")] public string? BuildId { get; init; }
+    }
 
     public sealed record ThreadSummary(
         uint Id, string? Name, bool Faulting, uint SuspendCount, uint Priority, string Teb,
@@ -154,6 +157,7 @@ public sealed partial class MinidumpService
     public async Task<DumpReport> Summarize(string path, string? imageDirectories, DacRequest dac, CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
+        if (s.Core is { } core) return await SummarizeCore(s, core, ct);
         var d = s.Dump;
         var notes = new List<string>();
 
@@ -219,6 +223,7 @@ public sealed partial class MinidumpService
     public (string Id, IReadOnlyList<ModuleSummary> Rows, int Total) Modules(string path, string? imageDirectories, int offset, int limit)
     {
         using var s = Open(path, imageDirectories);
+        if (s.Core is { } core) return (s.Id, core.CoreModules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).Select(m => CoreModuleRow(s, m)).ToList(), core.CoreModules.Count);
         var d = s.Dump;
         return (s.Id, d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).Select(m => ModuleRow(m, s.Directories, d.Arch, s.LoadedImages)).ToList(), d.Modules.Count);
     }
@@ -227,6 +232,8 @@ public sealed partial class MinidumpService
     public async Task<(string Id, IReadOnlyList<ThreadSummary> Rows, int Total)> Threads(string path, string? imageDirectories, int offset, int limit, CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
+        if (s.Core is { } core)
+            return (s.Id, await CoreThreadRows(s, core, core.Threads.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList(), ct), core.Threads.Count);
         var d = s.Dump;
         var (rows, _) = await ThreadRows(s, d.Threads.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList(), IsWow64Process(d), ct);
         return (s.Id, rows, d.Threads.Count);
@@ -257,9 +264,10 @@ public sealed partial class MinidumpService
     public (string Id, IReadOnlyList<MemoryRow> Rows, int Total) Memory(string path, int offset, int limit)
     {
         using var s = Open(path, null);
-        var d = s.Dump;
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, MaxListLimit);
+        if (s.Core is { } core) return (s.Id, core.Segments.Skip(offset).Take(limit).Select(g => CoreMemoryRow(core, g)).ToList(), core.Segments.Count);
+        var d = s.Dump;
         if (d.MemoryRegions.Count > 0)
             return (s.Id, d.MemoryRegions.Skip(offset).Take(limit).Select(r => RegionRow(d, r, Captured(d.MemoryRanges, r.Base, r.Base + r.Size))).ToList(), d.MemoryRegions.Count);
         return (s.Id, d.MemoryRanges.Skip(offset).Take(limit).Select(r => new MemoryRow(Hex(d, r.Start), Hex(d, r.End), $"0x{r.Size:X}", null, null, null, d.ModuleAt(r.Start)?.FileName, r.Size)).ToList(),
@@ -288,7 +296,7 @@ public sealed partial class MinidumpService
     public (string Id, IReadOnlyList<UnloadedModuleSummary> Rows, int Total) Unloaded(string path, int offset, int limit)
     {
         using var s = Open(path, null);
-        var d = s.Dump;
+        var d = s.Memory;
         return (s.Id, d.UnloadedModules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit))
             .Select(u => new UnloadedModuleSummary(System.IO.Path.GetFileName(u.Path), Hex(d, u.Base), $"0x{u.Size:X}", $"0x{u.TimeDateStamp:X8}")).ToList(), d.UnloadedModules.Count);
     }
@@ -337,12 +345,23 @@ public sealed partial class MinidumpService
     /// <summary>The instruction at <paramref name="address"/>: bytes from dump memory, else from the module image.</summary>
     private (string? Text, string? Bytes, string? Source) Instruction(Session s, ulong address)
     {
-        var d = s.Dump;
+        var d = s.Memory;
         if (d.Arch is not (NativeArch.X64 or NativeArch.X86)) return (null, null, null);
         var buffer = new byte[16];
         int n = d.ReadMemory(address, buffer);
         string? source = n > 0 ? "dump_memory" : null;
-        if (n < buffer.Length && d.ModuleAt(address) is { } m && s.Code(m) is { Image: { } image } mc)
+        if (n < buffer.Length && s.Core != null && d.ModuleAt(address) is { } em && s.Elf(em).Image is { } elf)
+        {
+            var fromImage = new byte[16];
+            int k = elf.Read(address, fromImage);
+            if (k > n)
+            {
+                fromImage.AsSpan(0, k).CopyTo(buffer);
+                n = k;
+                source = $"module_image ({elf.Source})";
+            }
+        }
+        else if (n < buffer.Length && s.Core == null && d.ModuleAt(address) is { } m && s.Code(m) is { Image: { } image } mc)
         {
             var fromImage = new byte[16];
             int k = image.Read((uint)(address - m.Base), fromImage);
@@ -432,6 +451,7 @@ public sealed partial class MinidumpService
         CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
+        if (s.Core is { } core) return await CoreStack(s, core, thread, maxFrames, offset, limit, ct);
         var d = s.Dump;
         var t = PickThread(d, thread);
         DumpContext? ctx = null;
@@ -544,6 +564,7 @@ public sealed partial class MinidumpService
     internal async Task<MemoryBytes> ReadBytes(string path, string address, int length, bool imageFallback, CancellationToken ct)
     {
         using var s = Open(path, null);
+        if (s.Core is { } core) return await CoreReadBytes(s, core, address, length, imageFallback, ct);
         var d = s.Dump;
         ulong va = ParseAddress(d, address);
         length = Math.Clamp(length, 1, MaxReadLength);
@@ -574,7 +595,7 @@ public sealed partial class MinidumpService
         return new MemoryBytes(head, va, buffer[..n], d.Is64Bit);
     }
 
-    private static ulong ParseAddress(MinidumpFile d, string text)
+    private static ulong ParseAddress(IProcessMemory d, string text)
     {
         var t = (text ?? "").Trim();
         if (t.Length == 0) throw new ToolError(ErrorCode.InvalidArgument, "address is empty.", "pass a hex address (0x7FF6...) or module+0xoffset");
@@ -591,7 +612,7 @@ public sealed partial class MinidumpService
     }
 
     /// <summary>The one module of that name (file name or debugger label), or null; two (a WoW64 process's ntdll.dll) are ambiguous.</summary>
-    private static DumpModule? Named(MinidumpFile d, string name)
+    private static DumpModule? Named(IProcessMemory d, string name)
     {
         var modules = d.Modules.Where(m => m.FileName.Equals(name, StringComparison.OrdinalIgnoreCase) || ModuleLabel(m).Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
         if (modules.Count > 1)

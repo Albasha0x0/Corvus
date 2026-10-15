@@ -53,6 +53,9 @@ public sealed partial class MinidumpService
     /// <summary>The dump's loaded runtime, or an error naming why it is not available.</summary>
     private async Task<ClrDecoder> RequireRuntime(Session s, bool heap, CancellationToken ct)
     {
+        if (s.Core != null)
+            throw new ToolError(ErrorCode.Unsupported, $"{s.Id} is an ELF core: its .NET heap is not decoded here.",
+                "managed heap inspection needs the Linux DAC (libmscordaccore.so), which this tool does not load; dump_stack and read_dump_memory read the core");
         if (!HostsClr(s.Dump, out var runtime))
             throw new ToolError(ErrorCode.Unsupported, "the dumped process has no .NET runtime (CoreCLR or .NET Framework) loaded.", "use dump_stack and read_dump_memory");
         if (runtime == "Mono")

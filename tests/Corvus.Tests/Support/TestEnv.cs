@@ -164,6 +164,9 @@ public static class RealData
     /// <summary>A folder of installed Electron apps; every .asar below it (six levels) is listed and summarized.</summary>
     public const string ElectronApps = "CORVUS_ELECTRON_APPS";
 
+    /// <summary>A folder of Linux or Android ELF core files (with the program's libraries beside them).</summary>
+    public const string ElfCores = "CORVUS_ELF_CORES";
+
     public static string? Get(string variable) => Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : null;
 
     public static string Path(string variable) => Get(variable) ?? throw new InvalidOperationException($"{variable} is not set");
