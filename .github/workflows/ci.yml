@@ -58,6 +58,14 @@ jobs:
       - name: Build
         run: dotnet build --no-restore -c Release
 
+      # Memory and swap every 15 s while the tests run: the 3-core, 7 GB macOS runner has stalled searches that take
+      # 0.3 s elsewhere; the log shows whether memory pressure is the cause.
+      - name: Memory sampler (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          nohup bash -c 'while true; do echo "$(date +%T) $(memory_pressure | grep -i "free percentage") | swap $(sysctl -n vm.swapusage)"; sleep 15; done' > "$RUNNER_TEMP/memory.log" 2>&1 &
+
       # Tests that need local data (CORVUS_* variables) are skipped. Generated C / C++ / Python is compiled or parsed
       # when clang and python are installed.
       - name: Test
@@ -66,6 +74,11 @@ jobs:
           --blame-hang-timeout 15m
           --logger "trx;LogFileName=results.trx"
           --logger "console;verbosity=normal"
+
+      - name: Memory log (macOS)
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: cat "$RUNNER_TEMP/memory.log" || true
 
       - name: Upload test results
         if: always()
