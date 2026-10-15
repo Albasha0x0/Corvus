@@ -5,11 +5,14 @@ namespace Corvus.Services.Analysis;
 
 /// <summary>
 /// view=plist: a property list (binary or XML) as JSON; an NSKeyedArchiver archive is decoded into its object graph
-/// ($objects resolved, classes named), which is how it is read in practice.
+/// ($objects resolved, classes named), which is how it is read in practice. A file over the stream threshold is read in
+/// windows (binary) or as a stream (XML), long values kept to their start.
 /// </summary>
 internal sealed class PlistFileView : IFileSummaryView
 {
     private const int MaxJsonChars = 24_000;
+    /// <summary>A streamed file's values keep this many bytes: the JSON shown is clipped well before.</summary>
+    private const int MaxValue = 1 << 20;
 
     public sealed record Facts(string Format, bool KeyedArchive, IReadOnlyList<string>? TopKeys, string Json, bool Clipped, IReadOnlyList<string>? Issues);
 
@@ -19,7 +22,10 @@ internal sealed class PlistFileView : IFileSummaryView
     {
         var head = file.Head.AsSpan(0, Math.Min(file.Head.Length, 512));
         if (!Plist.IsBinary(head) && head.IndexOf("<plist"u8) < 0) return null;
-        var doc = Plist.Read(file.Bytes);
+        PlistDocument doc;
+        if (!file.Streamed) doc = Plist.Read(file.Bytes);
+        else
+            using (var stream = file.OpenRead()) doc = Plist.Read(stream, MaxValue);
         if (doc.Root is not { } root) return null;
         var issues = doc.Issues.Select(i => $"{i.Area}: {i.Message}").ToList();
         bool keyed = KeyedArchive.IsKeyedArchive(root);

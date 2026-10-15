@@ -50,12 +50,36 @@ public static class Plist
 
     public static PlistDocument Read(ReadOnlySpan<byte> data)
     {
-        if (IsBinary(data)) return new BinaryReader(data.ToArray()).Read();
+        if (IsBinary(data)) return new BinaryReader(new ArrayBytes(data.ToArray()), int.MaxValue).Read();
         var text = Decode(data);
-        var start = text.AsSpan().TrimStart();
-        if (start.StartsWith("<?xml", StringComparison.Ordinal) || start.StartsWith("<!DOCTYPE", StringComparison.Ordinal) || start.StartsWith("<plist", StringComparison.Ordinal))
-            return ReadXml(text);
+        if (IsXml(text)) return ReadXml(new StringReader(text), int.MaxValue);
         return new AsciiReader(text).Read();
+    }
+
+    /// <summary>
+    /// A property list read from a seekable stream without holding the file: a binary plist through windowed reads, an XML
+    /// plist through a streamed XML reader; a value longer than <paramref name="maxValue"/> bytes (characters in XML) keeps
+    /// its start, with an issue. An ASCII plist is read whole.
+    /// </summary>
+    public static PlistDocument Read(Stream stream, int maxValue)
+    {
+        Span<byte> magic = stackalloc byte[8];
+        stream.Position = 0;
+        bool binary = IsBinary(magic[..stream.ReadAtLeast(magic, magic.Length, throwOnEndOfStream: false)]);
+        stream.Position = 0;
+        if (binary) return new BinaryReader(new StreamBytes(stream), maxValue).Read();
+        var head = new byte[(int)Math.Min(stream.Length, 4096)];
+        stream.ReadExactly(head);
+        stream.Position = 0;
+        if (!IsXml(Decode(head))) return Read(Blob.ReadBounded(stream, Array.MaxLength) ?? []);
+        using var text = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, 1 << 16, leaveOpen: true);
+        return ReadXml(text, maxValue);
+    }
+
+    private static bool IsXml(string text)
+    {
+        var start = text.AsSpan().TrimStart();
+        return start.StartsWith("<?xml", StringComparison.Ordinal) || start.StartsWith("<!DOCTYPE", StringComparison.Ordinal) || start.StartsWith("<plist", StringComparison.Ordinal);
     }
 
     private static string Decode(ReadOnlySpan<byte> data)
@@ -68,9 +92,56 @@ public static class Plist
 
     // ---- binary ----
 
-    private sealed class BinaryReader(byte[] data)
+    /// <summary>A binary plist's bytes: an array, or a seekable stream read in windows (a large file is never held whole).</summary>
+    private abstract class Bytes
     {
-        private readonly byte[] _d = data;
+        public abstract long Length { get; }
+
+        public abstract byte this[long at] { get; }
+
+        /// <summary><paramref name="count"/> bytes at <paramref name="at"/>, inside the bounds the caller checked.</summary>
+        public abstract ReadOnlySpan<byte> Span(long at, int count);
+    }
+
+    private sealed class ArrayBytes(byte[] data) : Bytes
+    {
+        public override long Length => data.Length;
+        public override byte this[long at] => data[at];
+        public override ReadOnlySpan<byte> Span(long at, int count) => data.AsSpan((int)at, count);
+    }
+
+    private sealed class StreamBytes(Stream stream) : Bytes
+    {
+        private const int Window = 1 << 16;
+        private readonly byte[] _window = new byte[Window];
+        private long _start = -1;
+        private int _filled;
+
+        public override long Length { get; } = stream.Length;
+
+        public override byte this[long at] => Span(at, 1)[0];
+
+        public override ReadOnlySpan<byte> Span(long at, int count)
+        {
+            if (count > Window)
+            {
+                var large = new byte[count];
+                stream.Position = at;
+                stream.ReadExactly(large);
+                return large;
+            }
+            if (_start < 0 || at < _start || at + count > _start + _filled)
+            {
+                stream.Position = _start = at;
+                _filled = stream.ReadAtLeast(_window, (int)Math.Min(Window, Length - at), throwOnEndOfStream: false);
+            }
+            return _window.AsSpan((int)(at - _start), count);
+        }
+    }
+
+    private sealed class BinaryReader(Bytes data, int maxValue)
+    {
+        private readonly Bytes _d = data;
         private readonly List<ParseIssue> _issues = [];
         private int _refSize, _offsetSize, _objects;
         private long _offsetTable;
@@ -81,7 +152,7 @@ public static class Plist
         {
             const string Area = "bplist";
             if (_d.Length < 8 + 32) return Fail("too short for a binary plist");
-            var trailer = _d.AsSpan(_d.Length - 32);
+            var trailer = _d.Span(_d.Length - 32, 32);
             _offsetSize = trailer[6];
             _refSize = trailer[7];
             ulong count = BinaryPrimitives.ReadUInt64BigEndian(trailer[8..]);
@@ -110,7 +181,7 @@ public static class Plist
         {
             if (at < 0 || at + size > _d.Length) return ulong.MaxValue;
             ulong v = 0;
-            for (int i = 0; i < size; i++) v = v << 8 | _d[(int)at + i];
+            foreach (var b in _d.Span(at, size)) v = v << 8 | b;
             return v;
         }
 
@@ -133,7 +204,7 @@ public static class Plist
         {
             ulong offset = Sized(_offsetTable + (long)index * _offsetSize, _offsetSize);
             if (offset >= (ulong)_d.Length - 32) return Bad(index, "offset outside the object area");
-            int at = (int)offset;
+            long at = (long)offset;
             byte marker = _d[at];
             int kind = marker >> 4, info = marker & 0xF;
             switch (kind)
@@ -143,17 +214,22 @@ public static class Plist
                 case 0x1:
                     return Integer(at + 1, info) is { } integer ? new PlistInteger(integer) : Bad(index, "integer out of bounds");
                 case 0x2:
-                    if (info == 2 && at + 5 <= _d.Length) return new PlistReal(BinaryPrimitives.ReadSingleBigEndian(_d.AsSpan(at + 1)));
-                    if (info == 3 && at + 9 <= _d.Length) return new PlistReal(BinaryPrimitives.ReadDoubleBigEndian(_d.AsSpan(at + 1)));
+                    if (info == 2 && at + 5 <= _d.Length) return new PlistReal(BinaryPrimitives.ReadSingleBigEndian(_d.Span(at + 1, 4)));
+                    if (info == 3 && at + 9 <= _d.Length) return new PlistReal(BinaryPrimitives.ReadDoubleBigEndian(_d.Span(at + 1, 8)));
                     return Bad(index, $"real of 2^{info} bytes");
                 case 0x3:
                     if (info != 3 || at + 9 > _d.Length) return Bad(index, "date out of bounds");
-                    return Date(BinaryPrimitives.ReadDoubleBigEndian(_d.AsSpan(at + 1))) is { } date ? new PlistDate(date) : Bad(index, "date out of range");
+                    return Date(BinaryPrimitives.ReadDoubleBigEndian(_d.Span(at + 1, 8))) is { } date ? new PlistDate(date) : Bad(index, "date out of range");
                 case 0x4 or 0x5 or 0x6 or 0x7:
                     var (length, start) = Count(at, info);
                     long bytes = kind == 0x6 ? length * 2 : length;
                     if (length < 0 || start + bytes > _d.Length) return Bad(index, "length past the end");
-                    var span = _d.AsSpan((int)start, (int)bytes);
+                    if (bytes > maxValue)
+                    {
+                        _issues.Add(new("bplist", $"object {index}: {bytes:N0} bytes, the first {maxValue:N0} read", start));
+                        bytes = maxValue & ~1;
+                    }
+                    var span = _d.Span(start, (int)bytes);
                     return kind switch
                     {
                         0x4 => new PlistData(span.ToArray()),
@@ -203,7 +279,7 @@ public static class Plist
         }
 
         /// <summary>The element count of a marker (from its low nibble, or an integer object after it) and where the content starts.</summary>
-        private (long Count, long Start) Count(int at, int info)
+        private (long Count, long Start) Count(long at, int info)
         {
             if (info != 0xF) return (info, at + 1);
             if (at + 2 > _d.Length || _d[at + 1] >> 4 != 0x1) return (-1, 0);
@@ -213,12 +289,12 @@ public static class Plist
         }
 
         /// <summary>A big-endian integer of 2^<paramref name="power"/> bytes: unsigned up to 4 bytes, signed at 8 and 16.</summary>
-        private BigInteger? Integer(int at, int power)
+        private BigInteger? Integer(long at, int power)
         {
             if (power > 4) return null;
             int size = 1 << power;
             if (at + size > _d.Length) return null;
-            var bytes = _d.AsSpan(at, size);
+            var bytes = _d.Span(at, size);
             return size <= 4 ? new BigInteger(bytes, isUnsigned: true, isBigEndian: true) : new BigInteger(bytes, isUnsigned: false, isBigEndian: true);
         }
 
@@ -249,7 +325,7 @@ public static class Plist
             : new PlistDict(Entries);
     }
 
-    private static PlistDocument ReadXml(string text)
+    private static PlistDocument ReadXml(TextReader text, int maxValue)
     {
         const string Area = "xml plist";
         var issues = new List<ParseIssue>();
@@ -276,7 +352,7 @@ public static class Plist
         };
         try
         {
-            using var reader = XmlReader.Create(new StringReader(text), settings);
+            using var reader = XmlReader.Create(text, settings);
             reader.MoveToContent();
             while (!reader.EOF)
             {
@@ -305,13 +381,13 @@ public static class Plist
                         reader.Skip();
                         break;
                     case "key":
-                        var key = Content(reader);
+                        var key = Content(reader, maxValue, issues);
                         if (stack.TryPeek(out var dict) && dict.IsDict) dict.PendingKey = key;
                         else issues.Add(new(Area, $"key '{key}' outside a dictionary"));
                         reader.Read();
                         break;
                     case "string" or "integer" or "real" or "date" or "data":
-                        Add(XmlScalar(name, Content(reader), issues));
+                        Add(XmlScalar(name, Content(reader, maxValue, issues), issues));
                         reader.Read(); // after the value is kept: past the end of a truncated file this throws
                         break;
                     default:
@@ -333,17 +409,33 @@ public static class Plist
 
     private static PlistNode Pop(Stack<Frame> stack) => stack.Pop().Node;
 
-    /// <summary>The text of a scalar element, leaving the reader on its end tag (or on the element when it is empty).</summary>
-    private static string Content(XmlReader reader)
+    /// <summary>
+    /// The text of a scalar element, leaving the reader on its end tag (or on the element when it is empty); past
+    /// <paramref name="maxValue"/> characters the rest is read in chunks and dropped, with an issue.
+    /// </summary>
+    private static string Content(XmlReader reader, int maxValue, List<ParseIssue> issues)
     {
         if (reader.IsEmptyElement) return "";
         var sb = new StringBuilder();
+        long total = 0;
+        var chunk = reader.CanReadValueChunk ? new char[1 << 14] : null;
         reader.Read();
         while (reader.NodeType is XmlNodeType.Text or XmlNodeType.CDATA or XmlNodeType.Whitespace or XmlNodeType.SignificantWhitespace)
         {
-            sb.Append(reader.Value);
+            if (chunk == null)
+            {
+                total += reader.Value.Length;
+                sb.Append(reader.Value.AsSpan(0, Math.Min(reader.Value.Length, Math.Max(0, maxValue - sb.Length))));
+            }
+            else
+                for (int n; (n = reader.ReadValueChunk(chunk, 0, chunk.Length)) > 0;)
+                {
+                    total += n;
+                    sb.Append(chunk.AsSpan(0, Math.Min(n, Math.Max(0, maxValue - sb.Length))));
+                }
             reader.Read();
         }
+        if (total > maxValue) issues.Add(new("xml plist", $"a value of {total:N0} characters: the first {maxValue:N0} read"));
         return sb.ToString();
     }
 

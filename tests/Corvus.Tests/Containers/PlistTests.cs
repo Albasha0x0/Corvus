@@ -191,6 +191,27 @@ public class PlistTests
     }
 
     [Fact]
+    public void A_plist_read_from_a_stream_equals_its_bytes_and_keeps_the_start_of_long_values()
+    {
+        var root = Dict(("name", S("Ada")), ("list", Array(I(1), I(-70000), new PlistReal(2.5))), ("blob", new PlistData([.. Enumerable.Range(0, 300).Select(i => (byte)i)])),
+            ("text", S(new string('x', 5000))), ("archive", Archive()));
+        var binary = BplistWriter.Write(root);
+        var xml = Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?><plist><dict><key>a</key><array><integer>1</integer><data>AAECAwQFBgcICQ==</data><string>"
+                                         + new string('y', 5000) + "</string></array></dict></plist>");
+        foreach (var bytes in new[] { binary, xml })
+        {
+            var whole = Plist.Read(bytes);
+            var streamed = Plist.Read(new MemoryStream(bytes), int.MaxValue);
+            Assert.Equal(Plist.ToJson(whole.Root!), Plist.ToJson(streamed.Root!));
+            Assert.Empty(streamed.Issues);
+            var clipped = Plist.Read(new MemoryStream(bytes), 64);
+            Assert.Contains(clipped.Issues, i => i.Message.Contains("the first 64 read", StringComparison.Ordinal));
+        }
+        var text = (PlistString)((PlistDict)Plist.Read(new MemoryStream(binary), 64).Root!)["text"]!;
+        Assert.Equal(new string('x', 64), text.Value);
+    }
+
+    [Fact]
     [FuzzEntry(typeof(Plist))]
     public void MutatedInput_NeverThrows()
     {
@@ -199,6 +220,7 @@ public class PlistTests
         var ascii = Encoding.UTF8.GetBytes("{ a = (1, \"two\", <00ff>, <*I5>); b = { c = d; }; }");
         void Read(byte[] b)
         {
+            Plist.Read(new MemoryStream(b), 16);
             var doc = Plist.Read(b);
             if (doc.Root is { } root)
             {
