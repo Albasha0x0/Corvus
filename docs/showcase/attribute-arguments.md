@@ -29,7 +29,7 @@ Read the attributes of the target class, of the attribute class that names it, a
 [End: 1 attribute]
 === [4/4] get_attributes
 1 attribute (showing 1-1):
-  JetBrains.Annotations.MeansImplicitUseAttribute  [NLog]  [AttributeUsage(AttributeTargets.Class | AttributeTargets.GenericParameter | AttributeTargets.Parameter)]
+  JetBrains.Annotations.MeansImplicitUseAttribute  [NLog]  [AttributeUsage(AttributeTargets.Class | AttributeTargets.Parameter | AttributeTargets.GenericParameter)]
 [End: 1 attribute]
 ```
 

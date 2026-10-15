@@ -26,7 +26,7 @@ public sealed class MetadataDetailTests
     {
         using var env = new Env(RealPackages.Lib("NLog", "6.1.4", "netstandard2.0", "NLog.dll"));
         var text = await new BrowseTools(env.Workspace, env.References, env.Pager).GetAttributes("JetBrains.Annotations.MeansImplicitUseAttribute");
-        Assert.Contains("[AttributeUsage(AttributeTargets.Class | AttributeTargets.GenericParameter | AttributeTargets.Parameter)]", text);
+        Assert.Contains("[AttributeUsage(AttributeTargets.Class | AttributeTargets.Parameter | AttributeTargets.GenericParameter)]", text);
     }
 
     [Fact]

@@ -396,7 +396,8 @@ public static class Format
         if (!e.CustomAttributes.IsDefined("System.FlagsAttribute")) return null;
         if (Bits(value) is not { } rest) return null;
         var names = new List<string>();
-        foreach (var f in e.Fields.Where(f => f.IsLiteral))
+        // by bit, not declaration order: reference assemblies of one enum declare members in different orders
+        foreach (var f in e.Fields.Where(f => f.IsLiteral).OrderBy(f => Bits(f.Constant?.Value) ?? 0))
         {
             if (Bits(f.Constant?.Value) is not { } bit || bit == 0 || (bit & (bit - 1)) != 0 || (rest & bit) == 0) continue;
             names.Add(f.Name);
