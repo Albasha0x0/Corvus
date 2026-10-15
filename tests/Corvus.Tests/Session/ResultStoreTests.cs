@@ -86,6 +86,14 @@ public sealed class ResultStoreTests : IDisposable
     }
 
     [Fact]
+    public void Writes_under_the_size_limit_walk_the_folder_once()
+    {
+        var store = new ResultStore(Disk());
+        for (int i = 0; i < 5; i++) store.Keep("result " + i, Origin());
+        Assert.Equal(1, store.Walks);
+    }
+
+    [Fact]
     public void EntriesUnusedPastTheAgeLimitAreEvicted()
     {
         var store = new ResultStore(Disk());

@@ -75,6 +75,13 @@ public sealed partial class ResultStore
     private long _memoryChars;
     private int _kept, _reads, _evicted;
     private string? _lastError;
+    // Bytes on disk as of the last walk plus what this store wrote since (-1: not walked yet), and when the walk ran:
+    // a write walks the folder again only past the size limit or an hour later, not on every write.
+    private long _diskBytes = -1;
+    private DateTime _walked;
+
+    /// <summary>Walks of the folder by <see cref="Evict"/> (tests check that writes do not each walk it).</summary>
+    internal int Walks;
 
     public ResultCacheOptions Options { get; }
 
@@ -165,6 +172,7 @@ public sealed partial class ResultStore
     public void Evict()
     {
         if (Options.Root is not { } root || !Directory.Exists(root)) return;
+        Interlocked.Increment(ref Walks);
         FolderTally.Forget(root);
         var now = DateTime.UtcNow;
         var live = new List<(string Id, long Size, DateTime Used)>();
@@ -180,6 +188,7 @@ public sealed partial class ResultStore
             EvictFromDisk(entry.Id);
             total -= entry.Size;
         }
+        lock (_memory) (_diskBytes, _walked) = (total, now);
         PruneTombstones(root, now);
     }
 
@@ -232,8 +241,15 @@ public sealed partial class ResultStore
             // Text last: a reader finds the side record and record before the text that makes the entry visible.
             if (kept.Record != null) SafeFile.WriteUnderRoot(root, Path.GetFileName(RecordPath(kept.Id)), Encoding.UTF8.GetBytes(kept.Record), overwrite: true);
             SafeFile.WriteUnderRoot(root, Path.GetFileName(SidePath(kept.Id)), JsonSerializer.SerializeToUtf8Bytes(kept.Info, SideJson), overwrite: true);
-            SafeFile.WriteUnderRoot(root, Path.GetFileName(text), Encoding.UTF8.GetBytes(kept.Text), overwrite: true);
-            Evict();
+            var bytes = Encoding.UTF8.GetBytes(kept.Text);
+            SafeFile.WriteUnderRoot(root, Path.GetFileName(text), bytes, overwrite: true);
+            bool due;
+            lock (_memory)
+            {
+                if (_diskBytes >= 0) _diskBytes += bytes.Length + (kept.Record?.Length ?? 0);
+                due = _diskBytes < 0 || _diskBytes > Options.MaxBytes || DateTime.UtcNow - _walked > TimeSpan.FromHours(1);
+            }
+            if (due) Evict();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)
         {
@@ -277,24 +293,17 @@ public sealed partial class ResultStore
 
     private IEnumerable<(string Id, long Size, DateTime Used)> DiskEntries()
     {
-        IEnumerable<FileInfo> files;
-        try { files = new DirectoryInfo(Options.Root!).EnumerateFiles("r-*.txt").ToList(); }
+        // one pass over the folder: the sizes and times come with the listing (no call per file)
+        List<FileInfo> files;
+        try { files = new DirectoryInfo(Options.Root!).EnumerateFiles("r-*").ToList(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { yield break; }
-        foreach (var f in files)
+        var records = files.Where(f => f.Name.EndsWith(".record.json", StringComparison.Ordinal))
+            .ToDictionary(f => f.Name[..^".record.json".Length], f => f.Length, StringComparer.Ordinal);
+        foreach (var f in files.Where(f => f.Name.EndsWith(".txt", StringComparison.Ordinal)))
         {
-            long size;
-            DateTime used;
-            try
-            {
-                f.Refresh();
-                if (!f.Exists) continue;
-                size = f.Length;
-                used = f.LastAccessTimeUtc > f.LastWriteTimeUtc ? f.LastAccessTimeUtc : f.LastWriteTimeUtc;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
-            var id = Path.GetFileNameWithoutExtension(f.Name);
-            var record = new FileInfo(RecordPath(id));
-            yield return (id, size + (record.Exists ? record.Length : 0), used);
+            var id = f.Name[..^".txt".Length];
+            var used = f.LastAccessTimeUtc > f.LastWriteTimeUtc ? f.LastAccessTimeUtc : f.LastWriteTimeUtc;
+            yield return (id, f.Length + records.GetValueOrDefault(id), used);
         }
     }
 
