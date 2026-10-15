@@ -92,6 +92,7 @@
     <!-- Quick-set tests read these too (Apple bundles, code signatures, rpath checks; SQLite oracle, crypto constants, showcases). -->
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[10.0.11]" />
     <PackageDownload Include="SQLitePCLRaw.lib.e_sqlite3" Version="[2.1.2];[2.1.11]" />
+    <PackageDownload Include="SkiaSharp.NativeAssets.Win32" Version="[2.88.9]" />
   </ItemGroup>
   <!-- Large runtime packs for the slow native format tests only. -->
   <ItemGroup Condition="'$(CORVUS_ALL_TESTS)' == '1'">
