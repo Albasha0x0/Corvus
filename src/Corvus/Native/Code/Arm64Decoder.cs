@@ -354,15 +354,35 @@ internal sealed class Arm64Decoder : ICodeDecoder
     {
         bool wide = i.Id is Arm64InstructionId.STR_64_ldst_pos or Arm64InstructionId.STUR_64_ldst_unscaled or Arm64InstructionId.LDR_64_ldst_pos
             or Arm64InstructionId.LDUR_64_ldst_unscaled;
+        // stp / ldp of two x registers: the second one at slot + 8 (gzip: stp xzr, x0, [x29, #112] keeps a table base)
+        int second = i.Id is Arm64InstructionId.STP_64_ldstpair_off or Arm64InstructionId.LDP_64_ldstpair_off
+            && i.GetOperand(1) is { Kind: Arm64OperandKind.Register } r1 ? X((Arm64RegisterOperand)r1) : -2;
         if (store)
         {
             if (wide && dest >= 0 && _kind[dest] == Known.Address) _slots[slot] = _value[dest];
+            else if (second > -2)
+            {
+                Keep(slot, dest);
+                Keep(slot + 8, second);
+            }
             else { _slots.Remove(slot); _slots.Remove(slot + 8); }
         }
         Clobber();
         if (writeback && slot >> 32 == 31) _slots.Clear();
         else if (writeback) { _kind[29] = Known.None; Forget(29); }
         if (!store && wide && dest >= 0 && _slots.TryGetValue(slot, out ulong value)) Set(dest, Known.Address, value);
+        if (!store && second > -2)
+        {
+            if (dest >= 0 && _slots.TryGetValue(slot, out ulong first)) Set(dest, Known.Address, first);
+            if (second >= 0 && _slots.TryGetValue(slot + 8, out ulong next)) Set(second, Known.Address, next);
+        }
+    }
+
+    /// <summary>A store of x<paramref name="reg"/> (-1: xzr) to <paramref name="slot"/>: keeps an address it holds, else forgets the slot.</summary>
+    private void Keep(long slot, int reg)
+    {
+        if (reg >= 0 && _kind[reg] == Known.Address) _slots[slot] = _value[reg];
+        else _slots.Remove(slot);
     }
 
     private static bool Is64BitLoad(Arm64InstructionId id) =>

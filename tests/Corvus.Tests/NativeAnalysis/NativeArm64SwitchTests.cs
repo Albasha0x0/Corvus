@@ -184,12 +184,14 @@ public class NativeArm64SwitchTests
 
     /// <summary>
     /// The table register is written twice in the function (no single function-wide value), and its table value reaches
-    /// the dispatch block through the branch to it; or the table address is spilled to the stack across a call and reloaded.
+    /// the dispatch block through the branch to it; or the table address is spilled to the stack across a call and reloaded
+    /// (str / ldr through sp, or the second register of an stp through x29 as gzip does).
     /// </summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void A_table_base_from_the_branch_state_or_a_stack_slot(bool spilled)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void A_table_base_from_the_branch_state_or_a_stack_slot(bool spilled, bool pair)
     {
         var a = new A64(Code);
         uint anchor = 0, dflt = 0, dispatchBlock = 0, ext = 0;
@@ -198,7 +200,8 @@ public class NativeArm64SwitchTests
         a.Word(MovX(19, 1)).Word(A64.Adrp(a.Here, Table, tableReg, Base)).Word(A64.AddImm(tableReg, tableReg, Table & 0xFFF)).Word(MovX(index, 0));
         if (spilled)
         {
-            a.Word(0xF9000BE9).Later(at => A64.Bl(at, ext)).Word(A64.LdrX(9, 31, 16));      // str x9, [sp, #16]; bl ext; ldr x9, [sp, #16]
+            if (pair) a.Word(0xA90127BF).Later(at => A64.Bl(at, ext)).Word(A64.LdrX(9, 29, 24));  // stp xzr, x9, [x29, #16]; bl ext; ldr x9, [x29, #24]
+            else a.Word(0xF9000BE9).Later(at => A64.Bl(at, ext)).Word(A64.LdrX(9, 31, 16));    // str x9, [sp, #16]; bl ext; ldr x9, [sp, #16]
             a.Word(CmpImm(index, 2)).Later(at => A64.BCond(at, dflt, Hi));
         }
         else
