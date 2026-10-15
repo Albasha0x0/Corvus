@@ -89,6 +89,16 @@ retained 883 MB. A build cancelled by an unload stops within about 5 s on these 
 Tests on real files now use `PeFile`; the adapters remain for synthetic images built from code bytes
 (`CodeTestImage.Synthetic`) and for reading an image without its relocations (`MsvcTestImage`).
 
+## Tested engine versions
+
+The full suite before each release runs against these; older versions inside the supported range are not tested.
+
+| Engine | Supported | Tested |
+|---|---|---|
+| IDA Pro (idalib) | 9.0 or newer (older is refused) | 9.3, with Python 3.12 |
+| Ghidra | 12.0 or newer | 12.1.4, with JDK 22 |
+| JADX headless server (`decompile_java`) | jadx-headless-mcp fat jar | 0.7.1, with JDK 24 |
+
 ## Limits and known gaps
 
 - Index time on 300 MB browser DLLs is one to two minutes, with a transient GC heap of 3-5 GB (6-15 bytes per file

@@ -49,6 +49,12 @@ server's environment, minus the Java option variables for Ghidra; the JADX serve
 minimal one. These engines are third-party programs that parse the input themselves; their own vulnerabilities are
 outside this boundary, but report a way through Corvus to reach them with more than an input file.
 
+What starts a process outside the server's own: an `engine` argument (IDA or Ghidra, on every tool that takes one),
+`crossCheck=true` on `find_virtual_calls` (IDA, else Ghidra), `decompile_java` (the JADX server), `detectItEasy=true`
+on `unity_overview` (Detect It Easy), the Android device tools (adb: `list_android_devices`, `get_android_device_info`,
+`list_android_packages`, `get_android_package_info`, `pull_android_package`, `pull_android_file`, `read_android_log`,
+`install_android_package`, `uninstall_android_package`), `server_status` (probes the Python IDA uses) and `inspect_process` (reads another process).
+
 ### Opt-ins that widen the boundary
 
 Off by default, each needs a server option or environment variable chosen by the person running the server:
@@ -68,8 +74,9 @@ The server reaches the network only:
 
 - to download a .NET reference pack from nuget.org when analyzed code targets an uninstalled .NET version
   (`CORVUS_OFFLINE=1` turns this off);
-- when `load_pdb` is called with `download=true` (a symbol server), or `open_minidump` with `downloadDac=true` (the
-  runtime's DAC from Microsoft's symbol server); `CORVUS_OFFLINE=1` refuses both;
+- when `load_pdb` is called with `download=true` (a symbol server for a PDB, debuginfod for an ELF; `server` names
+  another), or `open_minidump` with `downloadDac=true` (the runtime's DAC from Microsoft's symbol server);
+  `CORVUS_OFFLINE=1` refuses all of them;
 - when `corvus update` or the install scripts fetch a release from GitHub; a build whose SHA-256 is not in the release's
   `SHA256SUMS` is refused, and `GITHUB_TOKEN` is sent to GitHub hosts over HTTPS only and dropped on redirects;
 - through IDA or Ghidra when their own configuration says so (for example IDA's symbol server for a PDB).

@@ -47,6 +47,40 @@ public partial class CommunityFilesTests
         }
     }
 
+    [Fact]
+    public void SecurityNamesEveryCallThatReachesOutside()
+    {
+        var text = File.ReadAllText(Path.Combine(Root, "SECURITY.md"));
+        var missing = ContractSweep.OpenWorldParameters.Concat(ContractSweep.AlwaysOpenWorld).Where(name => !text.Contains($"`{name}", StringComparison.Ordinal)).ToList();
+        Assert.True(missing.Count == 0, "SECURITY.md does not name these open-world parameters or tools: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void TrackedFilesNameNoMachinePath()
+    {
+        // The checkout's own location and the current account's home folder are what leak from a machine into a commit.
+        var user = Environment.UserName;
+        var needles = new List<string>();
+        if (Path.GetDirectoryName(Root.TrimEnd(Path.DirectorySeparatorChar)) is { } parent && Path.GetPathRoot(parent) != parent) needles.Add(parent);
+        if (user.Length > 2 && !new[] { "user", "runner", "root", "vsts", "admin" }.Contains(user, StringComparer.OrdinalIgnoreCase))
+            needles.AddRange([$@"\Users\{user}", $"/Users/{user}", $"/home/{user}", $@"\\Users\\{user}"]);
+        var git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git", "ls-files -z") { WorkingDirectory = Root, RedirectStandardOutput = true })!;
+        var files = git.StandardOutput.ReadToEnd().Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        git.WaitForExit();
+        Assert.NotEmpty(files);
+        var found = new List<string>();
+        foreach (var file in files)
+        {
+            var path = Path.Combine(Root, file);
+            if (!File.Exists(path) || new FileInfo(path).Length > 4 << 20) continue;
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.AsSpan(0, Math.Min(bytes.Length, 8000)).Contains((byte)0)) continue;
+            var text = System.Text.Encoding.UTF8.GetString(bytes);
+            found.AddRange(needles.Where(n => text.Contains(n, StringComparison.OrdinalIgnoreCase)).Select(n => $"{file}: {n}"));
+        }
+        Assert.True(found.Count == 0, "machine-specific paths in tracked files:\n" + string.Join("\n", found));
+    }
+
     private static string FindRoot()
     {
         var root = AppContext.BaseDirectory;
