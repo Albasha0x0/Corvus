@@ -65,7 +65,8 @@ Native `.exe` / `.dll` / `.sys` files, ELF (`.so`, executables) and Mach-O (`.dy
 `load_assembly` by path, or are loaded by any native tool given a path. Headerless code (shellcode, firmware, a memory
 region) loads with `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=… entry=…`: one entry per layout
 (`fw.bin[thumb@0x8000000]`), analyzed from its entry by our engine, and by IDA or Ghidra at the same base with the same
-processor (each layout keeps its own engine database). Import overrides on `load_assembly` set how both engines import any
+processor (each layout keeps its own engine database). A Thumb image that starts with a Cortex-M vector table enters at
+its reset handler; on x86-16 and DOS MZ images, the handlers of near-pointer dispatch tables seed Ghidra. Import overrides on `load_assembly` set how both engines import any
 native image before their first analysis: `processor=` (IDA's `-p`, checked against its processor modules), `language=` and
 `compilerSpec=` (Ghidra's, checked against its `.ldefs`; the compiler spec also sets IDA's compiler), `seeds=` (functions,
 code and labels, named or not) and `disableAnalyzers=`; each set is its own engine database beside the default one, and
