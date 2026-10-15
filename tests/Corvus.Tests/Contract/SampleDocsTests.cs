@@ -77,13 +77,27 @@ public partial class SampleDocsTests
         }
     }
 
+    /// <summary>Pages refer to the NuGet global packages folder by this prefix.</summary>
+    internal const string Packages = "~/.nuget/packages/";
+
+    /// <summary>A page that only reads restored packages: no sample build, so it runs in the quick set.</summary>
+    internal static bool PackagePage(string page)
+    {
+        var blocks = Blocks(File.ReadAllLines(page));
+        var paths = blocks.Where(b => b.Kind == "batch").SelectMany(b => ToolCli.ParseBatch(b.Body))
+            .Select(s => s.Arguments.TryGetValue("path", out var p) ? p?.ToString() : null).OfType<string>().ToList();
+        return blocks.All(b => b.Kind is "batch" or "output") && paths.Count > 0 && paths.All(p => p.StartsWith(Packages, StringComparison.Ordinal));
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task PagesMatchWhatTheStepsPrint()
+    public Task PagesMatchWhatTheStepsPrint() => CheckAsync(Pages().Where(p => !PackagePage(p)));
+
+    internal static async Task CheckAsync(IEnumerable<string> pages)
     {
         bool update = Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1";
         var stale = new List<string>();
-        foreach (var page in Pages())
+        foreach (var page in pages)
         {
             var lines = File.ReadAllLines(page);
             var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -142,7 +156,9 @@ public partial class SampleDocsTests
                 && Path.Combine(Root, d) is var full && Directory.Exists(full))
                 Directory.Delete(full, recursive: true);
         var json = System.Text.Json.JsonSerializer.Serialize(Root.Replace('\\', '/') + "/")[1..^1];
-        var (_, output, error) = await ToolCliTests.RunWithInput(steps.Replace("\"samples/", "\"" + json + "samples/", StringComparison.Ordinal), "batch", "-", "--no-index");
+        var packages = System.Text.Json.JsonSerializer.Serialize(RealPackages.Root.Replace('\\', '/') + "/")[1..^1];
+        steps = steps.Replace("\"samples/", "\"" + json + "samples/", StringComparison.Ordinal).Replace("\"" + Packages, "\"" + packages, StringComparison.Ordinal);
+        var (_, output, error) = await ToolCliTests.RunWithInput(steps, "batch", "-", "--no-index");
         var text = output.ReplaceLineEndings("\n").TrimEnd('\n') + (error.Length > 0 ? "\n" + error.ReplaceLineEndings("\n").TrimEnd('\n') : "");
         if (ShowOption().Match(options) is not { Success: true } show) return text;
         var keep = show.Groups[1].Value.Split(',').Select(int.Parse).ToHashSet();
@@ -177,14 +193,16 @@ public partial class SampleDocsTests
     }
 
     /// <summary>
-    /// Output as the page shows it: repository paths relative with '/', and each SHA-256, GUID and bundle id replaced by
-    /// a label numbered in order of first appearance on the page (equal values keep one label; builds change the values).
+    /// Output as the page shows it: repository paths relative with '/', package paths under ~/.nuget/packages/, and each
+    /// SHA-256, GUID and bundle id replaced by a label numbered in order of first appearance on the page (equal values keep
+    /// one label; builds change the values).
     /// </summary>
     internal static string Normalize(string text, Dictionary<string, string> labels)
     {
-        var root = Path.TrimEndingDirectorySeparator(Root);
-        foreach (var form in new[] { root.Replace("\\", "\\\\", StringComparison.Ordinal) + "\\\\", root + Path.DirectorySeparatorChar, root.Replace('\\', '/') + "/" })
-            text = text.Replace(form, "", StringComparison.OrdinalIgnoreCase);
+        // Packages first: the packages folder may lie inside the repository.
+        foreach (var (folder, prefix) in new[] { (RealPackages.Root, Packages), (Path.TrimEndingDirectorySeparator(Root), "") })
+            foreach (var form in new[] { folder.Replace("\\", "\\\\", StringComparison.Ordinal) + "\\\\", folder + Path.DirectorySeparatorChar, folder.Replace('\\', '/') + "/" })
+                text = text.Replace(form, prefix, StringComparison.OrdinalIgnoreCase);
         text = SamplePath().Replace(text, m => m.Value.Replace("\\\\", "/", StringComparison.Ordinal).Replace('\\', '/'));
         string Label(Match m, string kind)
         {
@@ -220,7 +238,7 @@ public partial class SampleDocsTests
     [GeneratedRegex(@"^=== \[(\d+)/\d+\]")]
     private static partial Regex StepHeader();
 
-    [GeneratedRegex(@"samples(?:(?:\\\\|\\|/)[A-Za-z0-9._#-]+)+")]
+    [GeneratedRegex(@"(?:samples|~/\.nuget/packages)(?:(?:\\\\|\\|/)[A-Za-z0-9._#-]+)+")]
     private static partial Regex SamplePath();
 
     /// <summary>A single-file bundle's id, which each publish draws anew.</summary>
@@ -232,4 +250,16 @@ public partial class SampleDocsTests
 
     [GeneratedRegex(@"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")]
     private static partial Regex Guid();
+}
+
+/// <summary>The showcases on restored packages need no sample build: checked in the quick set.</summary>
+public class PackageDocsTests
+{
+    [Fact]
+    public async Task PackagePagesMatchWhatTheStepsPrint()
+    {
+        var pages = SampleDocsTests.Pages().Where(SampleDocsTests.PackagePage).ToList();
+        Assert.True(pages.Count >= 2, $"only {pages.Count} package showcase pages");
+        await SampleDocsTests.CheckAsync(pages);
+    }
 }

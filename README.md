@@ -68,6 +68,10 @@ Full list: [features](docs/features.md) and the [tool reference](docs/tools.md) 
   warnings as errors, runs with the same output, and is measured against the original.
 - **[Inside a single-file app](docs/showcase/single-file.md):** a .NET single-file executable unpacked without running
   it, its assemblies extracted byte for byte.
+- **[Where SQLite makes its random numbers](docs/showcase/sqlite-random.md):** a crypto constant in a native SQLite
+  build traced to `sqlite3_randomness` and its callers, recorded as an evidence bundle and re-verified.
+- **[A Json.NET error traced to its code](docs/showcase/json-reference-loop.md):** "Self referencing loop detected"
+  followed from the message to the deciding setting and every caller, with the evidence re-verified.
 
 Each step in the showcases and [guides](docs/guides/1-first-session.md) is checked by a test.
 

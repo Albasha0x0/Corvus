@@ -128,13 +128,15 @@ public static class RealPackages
     /// <summary>Path of any file of a package in the NuGet global packages folder.</summary>
     public static string File(string id, string version, params string[] parts)
     {
-        var root = Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } custom
-            ? custom
-            : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
-        var path = System.IO.Path.Combine([root, id.ToLowerInvariant(), version, .. parts]);
+        var path = System.IO.Path.Combine([Root, id.ToLowerInvariant(), version, .. parts]);
         Assert.True(System.IO.File.Exists(path), $"{path} not found: restore the test project");
         return path;
     }
+
+    /// <summary>The NuGet global packages folder.</summary>
+    public static string Root => Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } custom
+        ? System.IO.Path.TrimEndingDirectorySeparator(custom)
+        : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
 }
 
 /// <summary>Environment variables locating real-world test data; tests needing an unset variable are skipped.</summary>
