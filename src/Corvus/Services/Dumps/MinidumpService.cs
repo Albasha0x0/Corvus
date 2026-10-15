@@ -94,9 +94,10 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         /// <summary>Files of the native images open in the workspace, matched to modules by timestamp and size under any name.</summary>
         public IReadOnlyList<string> LoadedImages { get; } = loaded ?? [];
 
+        // loading a module's image and names (a PDB) takes seconds: a call waiting behind another one's load can be cancelled
         public ModuleCode Code(DumpModule module)
         {
-            lock (_modules)
+            using (AssemblyWorkspace.Lock(_modules))
             {
                 if (!_modules.TryGetValue(module, out var c)) _modules[module] = c = owner.Load(Memory, module, Directories, LoadedImages);
                 return c;
@@ -129,7 +130,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         /// <summary>A core module's image (matched file, else core memory), or the reason there is none.</summary>
         public (ElfCoreImage? Image, string Detail) Elf(DumpModule module)
         {
-            lock (_elf)
+            using (AssemblyWorkspace.Lock(_elf))
             {
                 if (!_elf.TryGetValue(module, out var e)) _elf[module] = e = owner.LoadElf(Core!, module, Directories);
                 return e;
