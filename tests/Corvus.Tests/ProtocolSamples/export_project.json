@@ -4,10 +4,17 @@
     "assembly": "TestFixture",
     "outputDirectory": "sample-export"
   },
-  "isError": true,
+  "isError": false,
   "content": [
-    "Error (io_error, retryable) in export_project: Access to the path '<fixtures>/.sample-export.corvus-48366a20' is denied.\nNext: check that the path is reachable and not locked by another program, then call again",
-    "\n\nerror (json): {\"code\":\"io_error\",\"retryable\":true,\"message\":\"Access to the path '<fixtures>/.sample-export.corvus-48366a20' is denied.\",\"next\":\"check that the path is reachable and not locked by another program, then call again\",\"partial\":null,\"details\":null}"
+    "Exported TestFixture to <fixtures>/sample-export: 23 files. Project: <fixtures>/sample-export/TestFixture.csproj"
   ],
-  "structuredContent": null
+  "structuredContent": {
+    "applied": true,
+    "source": "TestFixture",
+    "outputDirectory": "<fixtures>/sample-export",
+    "files": 23,
+    "projectFile": "<fixtures>/sample-export/TestFixture.csproj",
+    "failedTypes": [],
+    "replaced": false
+  }
 }
