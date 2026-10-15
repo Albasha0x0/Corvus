@@ -272,13 +272,19 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                     args["raw_base"] = layout.Base;
                 }
             }
+            var seeds = new JsonArray();
             if (Options.Overrides is { } ov)
             {
                 if (ov.Language != null) args["language"] = ov.Language;
                 if (ov.CompilerSpec != null) args["compiler"] = ov.CompilerSpec;
-                if (ov.Seeds.Count > 0)
-                    args["seeds"] = new JsonArray(ov.Seeds.Select(s => (JsonNode)new JsonArray(s.Kind.ToString().ToLowerInvariant(), s.Rva, s.Name)).ToArray());
+                foreach (var s in ov.Seeds) seeds.Add(new JsonArray(s.Kind.ToString().ToLowerInvariant(), s.Rva, s.Name));
             }
+            // real mode: Ghidra resolves no call through a table of near pointers; our scan seeds the handlers
+            if (Options.Raw is { } real && Options.Analysis != EngineAnalysis.None
+                && Code.RealModeDispatch.Of(await File.ReadAllBytesAsync(Entry.InputCopy, cancellationToken).ConfigureAwait(false), real) is { } image)
+                foreach (var offset in Code.RealModeDispatch.Handlers(image))
+                    seeds.Add(new JsonArray("function", real.Isa.GhidraLoader != null ? GhidraOptions.MzLoadModule + offset : offset, null));
+            if (seeds.Count > 0) args["seeds"] = seeds;
             info = await worker.RequestAsync("open", args, remaining, cancellationToken).ConfigureAwait(false);
         }
         finally

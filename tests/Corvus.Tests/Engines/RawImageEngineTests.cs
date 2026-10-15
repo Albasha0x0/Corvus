@@ -105,6 +105,32 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         Assert.True(code.Text.Contains("0x2a", StringComparison.OrdinalIgnoreCase) || code.Text.Contains("42"), code.Text);
     }
 
+    /// <summary>DOS table dispatch: our scan of the 16-bit dispatch table seeds Ghidra, which finds every handler (alone: none of 540).</summary>
+    [GhidraFact]
+    public async Task Dos_table_dispatched_handlers_in_Ghidra()
+    {
+        var (file, handlers) = RealModeDispatchTests.Mz();
+        var exe = _dir.File("dispatch.exe");
+        File.WriteAllBytes(exe, [.. file, .. Guid.NewGuid().ToByteArray()]);
+        await using var server = await InProcessServer.StartAsync();
+        Assert.False((await Call(server, "load_assembly", new() { ["path"] = exe, ["format"] = "raw", ["arch"] = "dos-mz" })).IsError);
+        var starts = new HashSet<ulong>();
+        for (int offset = 0; ; )
+        {
+            var r = await server.Client.CallToolAsync("list_functions", new Dictionary<string, object?> { ["image"] = "dispatch.exe[dos-mz@0x0]", ["engine"] = "ghidra", ["offset"] = offset, ["limit"] = 1000 });
+            Assert.True(r.IsError != true);
+            var items = r.StructuredContent!.Value.GetProperty("items").EnumerateArray().Select(i => Convert.ToUInt64(i.GetProperty("address").GetString(), 16)).ToList();
+            if (items.Count == 0) break;
+            starts.UnionWith(items);
+            offset += items.Count;
+        }
+        // the entry is at module offset 0, the lowest function
+        ulong entry = starts.Min();
+        var missing = handlers.Where(h => !starts.Contains(entry + h)).ToList();
+        output.WriteLine($"{starts.Count} functions; {missing.Count} of {handlers.Length} handlers missing");
+        Assert.Empty(missing);
+    }
+
     /// <summary>DOS: a .COM file as 16-bit code at 0x100, and an MZ executable through Ghidra's MZ loader.</summary>
     [GhidraFact]
     public async Task Dos_in_Ghidra()

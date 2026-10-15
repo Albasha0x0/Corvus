@@ -82,6 +82,9 @@ public static class GhidraOptions
         ? [new("-loader-loadLibraries", "false")]
         : [new("-loader-loadLibraries", "false"), new("-loader-ordinalLookup", "false")];
 
+    /// <summary>Linear address where Ghidra's MZ loader places an executable's load module (segment 0x1000; image base 0).</summary>
+    public const uint MzLoadModule = 0x10000;
+
     /// <summary>The ELF loader's base override, so a base-0 shared object loads at its file base instead of 0x100000.</summary>
     public const string ElfImageBaseArgument = "-loader-imagebase";
 
