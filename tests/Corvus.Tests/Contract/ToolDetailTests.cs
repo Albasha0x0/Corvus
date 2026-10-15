@@ -77,6 +77,8 @@ public class ToolDetailTests : IDisposable
     {
         var bc = RealPackages.Lib("BouncyCastle.Cryptography", "2.6.2", "net6.0", "BouncyCastle.Cryptography.dll");
         using var env = new Env(bc);
+        // Checks what is found, not how fast: a starved macOS CI runner once needed over 180 s for 0.3 s of work.
+        env.Search.TimeLimit = Timeout.InfiniteTimeSpan;
         var kinds = env.Search.SearchConstants("0x428A2F98", env.Workspace.Assemblies, 50, default).Items
             .Select(h => $"{h.Owner.DeclaringType.Name}: {h.Kind}").ToList();
         Assert.Contains(kinds, k => k.StartsWith("LongDigest: array initializer element [0] (high half) of ulong[]"));
