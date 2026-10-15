@@ -20,7 +20,7 @@ ARM64), with IDA or Ghidra as optional decompilers. No GUI, no admin rights and 
 ## What it covers
 
 **MCP features:** 156 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/Corvus/Mcp/Contract`),
-resources and resource templates (subscribers get an update notice after each workspace change, through `resources/subscribe` or, on 2026-07-28, the `resourceSubscriptions` of a `subscriptions/listen` stream), 13 prompts, argument completion, progress notifications, structured output for the list,
+resources and resource templates (subscribers get an update notice after each workspace change, through `resources/subscribe` or, on 2026-07-28, the `resourceSubscriptions` of a `subscriptions/listen` stream), 15 prompts, argument completion, progress notifications, structured output for the list,
 search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](errors.md)), strict arguments
 (an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets such as `engine`, `kind`
 and `format` are advertised as `enum` and an unlisted value is `invalid_argument` with the closest one), a stale-server check
@@ -55,7 +55,7 @@ ends and r/w/x), `corvus://native/{image}/entrypoints` (entry point, TLS callbac
 `corvus://native/{image}/type/{name}` (as `get_native_type`), `corvus://guide/{topic}` (the guide topics).
 
 **Prompts:** `analyze_assembly`, `find_feature`, `explain_type`, `plan_patch`, `map_native_address`, `analyze_native`,
-`trace_native_feature`, `find_api_usage`, `patch_native`, `compare_builds`, `triage_crash`, `guide` (one topic of the full guidance: `dotnet`, `native`, `il2cpp`, `containers`, `edits`, `builds`, `dumps`, `errors`), `getting_started`.
+`trace_native_feature`, `find_api_usage`, `patch_native`, `compare_builds`, `triage_crash`, `investigate_feature` (a described behaviour traced to its code, with an evidence bundle and the unknowns), `check_reimplementation` (a native function emulated on chosen inputs against expected outputs), `guide` (one topic of the full guidance: `dotnet`, `native`, `il2cpp`, `containers`, `edits`, `builds`, `dumps`, `errors`), `getting_started`.
 
 **Completion:** assembly, native image and open dump ids, type names (full or short), file paths (binaries, dumps, or build folders and packages, by argument) and guide topics for prompt and resource-template arguments.
 
