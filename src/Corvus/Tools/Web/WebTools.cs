@@ -22,8 +22,8 @@ public sealed class WebTools(OutputPager pager)
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
     [Description("Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, " +
-                 "Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; " +
-                 "sources, source; endpoints: requests, routes; secrets: masked keys; diff: modules against the bundle in source; runtime: webpack chunks.")]
+                 "Metro) with requires; module; search: strings, names; refs: a module's users; position: the original source; " +
+                 "sources, source; endpoints; secrets (masked); diff: against the bundle in source; runtime: webpack chunks.")]
     public string AnalyzeJs(
         [Description("Absolute path to a .js file.")] string path,
         [Description("View; default summary.")] string view = "summary",

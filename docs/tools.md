@@ -68,7 +68,7 @@ Structured output: `ids`, `text`.
 
 **Reload assembly** (destructive, idempotent)
 
-Re-read an assembly from disk (after an update or an overwriting save_assembly), discarding unsaved edits.
+Re-read an assembly from disk (after an update or an overwriting save), discarding unsaved edits.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -707,7 +707,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 **Stub method (return constant)** (destructive)
 
-Replace a method's body with 'return <value>;' (or 'return;' for void) in memory: force a check to return true, disable a call.
+Replace a method's body with 'return <value>;' ('return;' for void) in memory: force a check true, disable a call.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -843,7 +843,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
 
 **Discard all edits** (destructive, idempotent)
 
-Discard every unsaved edit of an assembly; resultId keeps them as a script (read_result outputPath=x.json, apply_edits path=x.json).
+Discard every unsaved edit of an assembly; resultId keeps them as a script (read_result outputPath=, then apply_edits).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2832,7 +2832,7 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; sources, source; endpoints: requests, routes; secrets: masked keys; diff: modules against the bundle in source; runtime: webpack chunks.
+Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro) with requires; module; search: strings, names; refs: a module's users; position: the original source; sources, source; endpoints; secrets (masked); diff: against the bundle in source; runtime: webpack chunks.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -49,7 +49,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "stub_method", Title = "Stub method (return constant)", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Replace a method's body with 'return <value>;' (or 'return;' for void) in memory: force a check to return true, disable a call.")]
+    [Description("Replace a method's body with 'return <value>;' ('return;' for void) in memory: force a check true, disable a call.")]
     public Task<string> StubMethod(
         [Description(SymbolDescription)] string method,
         [Description("true/false, integer (decimal or 0x), float, \"string\" or null; omit for void or default(T).")] string? value = null,
@@ -139,7 +139,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "revert_edits", Title = "Discard all edits", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Discard every unsaved edit of an assembly; resultId keeps them as a script (read_result outputPath=x.json, apply_edits path=x.json).")]
+    [Description("Discard every unsaved edit of an assembly; resultId keeps them as a script (read_result outputPath=, then apply_edits).")]
     public Task<string> RevertEdits([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Write(workspace, () =>
         {

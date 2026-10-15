@@ -360,7 +360,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }, cancellationToken);
 
     [McpServerTool(Name = "reload_assembly", Title = "Reload assembly", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceChange))]
-    [Description("Re-read an assembly from disk (after an update or an overwriting save_assembly), discarding unsaved edits.")]
+    [Description("Re-read an assembly from disk (after an update or an overwriting save), discarding unsaved edits.")]
     public Task<string> ReloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
