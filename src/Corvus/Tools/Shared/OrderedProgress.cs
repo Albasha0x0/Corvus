@@ -25,20 +25,26 @@ internal sealed class OrderedProgress(RequestContext<CallToolRequestParams> cont
     {
         if (_token is not { } token) return;
         lock (_sync)
+            foreach (var update in Next(value, Environment.TickCount64))
+                Send(token, update);
+    }
+
+    /// <summary>The updates to send for <paramref name="value"/> reported at <paramref name="now"/> (milliseconds); call under the lock.</summary>
+    internal IReadOnlyList<ProgressNotificationValue> Next(ProgressNotificationValue value, long now)
+    {
+        if (value.Progress < _progress) return [];
+        bool final = value.Total is { } total && value.Progress >= total;
+        _progress = value.Progress;
+        if (!final && _sentAt != long.MinValue && now - _sentAt < MinInterval.TotalMilliseconds)
         {
-            if (value.Progress < _progress) return;
-            bool final = value.Total is { } total && value.Progress >= total;
-            long now = Environment.TickCount64;
-            _progress = value.Progress;
-            if (!final && _sentAt != long.MinValue && now - _sentAt < MinInterval.TotalMilliseconds)
-            {
-                _skipped = value;
-                return;
-            }
-            _skipped = null;
-            _sentAt = now;
-            Send(token, value);
+            _skipped = value;
+            return [];
         }
+        // The final update follows the latest skipped one, so the last phase before the end is never lost.
+        ProgressNotificationValue[] send = final && _skipped is { } skipped ? [skipped, value] : [value];
+        _skipped = null;
+        _sentAt = now;
+        return send;
     }
 
     private void Send(ProgressToken token, ProgressNotificationValue value) =>
