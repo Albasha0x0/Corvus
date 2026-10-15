@@ -461,7 +461,11 @@ public sealed record NativeTypeBatch(string? Declarations, IReadOnlyList<NativeP
 
 /// <summary><see cref="MethodSkips"/>: methods not typed, by reason (no_class_type, not_own_function, typed, no_type, no_arguments, rejected).</summary>
 public sealed record TypeBatchResult(int DeclarationErrors, int Typed, int TypeFailures, int Structs, int VftablesTyped, int MethodsTyped, TimeSpan Elapsed,
-    IReadOnlyList<string> Failures, IReadOnlyDictionary<string, int> MethodSkips);
+    IReadOnlyList<string> Failures, IReadOnlyDictionary<string, int> MethodSkips)
+{
+    /// <summary>The first declarations the engine refused, each with its parser's message (Ghidra).</summary>
+    public IReadOnlyList<string> DeclarationMessages { get; init; } = [];
+}
 
 /// <summary>
 /// What <see cref="INativeDecompilerSession.LoadPdbAsync"/> did: whether the PDB is in the database, whether that was

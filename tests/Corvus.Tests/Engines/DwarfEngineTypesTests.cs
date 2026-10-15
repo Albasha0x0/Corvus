@@ -42,6 +42,7 @@ public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposabl
         output.WriteLine(text);
         var session = await engines.Session(native, null, null, default);
         Assert.Equal(NativePdbTypes.RouteDwarf, NativePdbTypes.Current(session)!.Route);
+        foreach (var m in NativePdbTypes.Current(session)!.OwnApplied?.DeclarationMessages ?? []) output.WriteLine("refused: " + m);
         return text;
     }
 
@@ -53,7 +54,6 @@ public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("SystemNative_FStat(", text);
         Assert.Contains("FileStatus *output", text);
         Assert.Contains("output->Size = ", text);
-        Assert.DoesNotContain("Unknown calling convention", text); // a prototype without one takes the compiler spec's default
     }
 
     [GhidraFact]
@@ -64,5 +64,7 @@ public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("SystemNative_FStat(", text);
         Assert.Contains("FileStatus *output", text);
         Assert.Contains("output->Size = ", text);
+        Assert.DoesNotContain("Unknown calling convention", text); // a prototype without one takes the compiler spec's default
+        Assert.DoesNotContain("declaration errors", text); // C++ enum bases (enum E : unsigned int) are taken
     }
 }

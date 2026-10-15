@@ -235,7 +235,10 @@ internal static class WorkerRows
         new(r.GetProperty("decl_errors").GetInt32(), r.GetProperty("typed").GetInt32(), r.GetProperty("type_failures").GetInt32(),
             r.GetProperty("structs").GetInt32(), r.GetProperty("vftables_typed").GetInt32(), r.GetProperty("methods_typed").GetInt32(),
             TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()), r.GetProperty("failures").EnumerateArray().Select(f => f.GetString() ?? "").ToList(),
-            r.TryGetProperty("method_skips", out var skips) ? skips.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetInt32()) : new Dictionary<string, int>());
+            r.TryGetProperty("method_skips", out var skips) ? skips.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetInt32()) : new Dictionary<string, int>())
+        {
+            DeclarationMessages = r.TryGetProperty("decl_messages", out var m) ? [.. m.EnumerateArray().Select(x => x.GetString() ?? "")] : [],
+        };
 
     /// <summary>[site, kind, target or type name, member offset] rows, plus decompiled / failed / skipped counts.</summary>
     public static NativeCallTargets CallTargets(JsonElement r)

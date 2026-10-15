@@ -86,8 +86,17 @@ final class TypeOps {
         CParser parser = new CParser(w.program.getDataTypeManager(), true, null);
         for (String statement : statements(text)) {
             Set<String> before = known(parser);
+            // C++ enum bases (enum E : unsigned char { ... }), which DWARF records, are not C: parsed without, then sized to the base
+            java.util.regex.Matcher based = ENUM_BASE.matcher(statement);
+            String enumName = null, enumBase = null;
+            if (based.lookingAt()) {
+                enumName = based.group(2);
+                enumBase = based.group(3).trim();
+                statement = based.group(1) + "enum " + enumName + " {" + statement.substring(based.end());
+            }
             try {
                 parser.parse(statement);
+                if (enumName != null) sizeEnum(w, parser, enumName, enumBase);
             }
             catch (Throwable e) { // ParseException, TokenMgrError and the parser's runtime errors
                 if (e instanceof VirtualMachineError) throw (VirtualMachineError) e;
@@ -99,6 +108,26 @@ final class TypeOps {
                 if (!before.contains(name) && !result.names.contains(name)) result.names.add(name);
         }
         return result;
+    }
+
+    private static final java.util.regex.Pattern ENUM_BASE = java.util.regex.Pattern.compile("(\\s*(?:typedef\\s+)?)enum\\s+(\\w+)\\s*:\\s*([\\w\\s]+?)\\s*\\{");
+
+    /** Gives the enum just parsed the width of its base type when that is not the parser's 4 bytes. */
+    private static void sizeEnum(Worker w, CParser parser, String name, String base) {
+        var dtm = w.program.getDataTypeManager();
+        DataType parsed = parser.getEnums().get(name);
+        if (!(parsed instanceof ghidra.program.model.data.Enum en)) return;
+        int size;
+        try {
+            DataType b = new DataTypeParser(dtm, dtm, null, DataTypeParser.AllowedDataTypes.FIXED_LENGTH).parse(base);
+            size = b == null ? 4 : b.getLength();
+        }
+        catch (Exception e) { return; }
+        if (size == en.getLength() || size <= 0 || size > 8) return;
+        var sized = new ghidra.program.model.data.EnumDataType(en.getCategoryPath(), en.getName(), size, dtm);
+        try { for (String n : en.getNames()) sized.add(n, en.getValue(n)); }
+        catch (IllegalArgumentException e) { return; } // a value does not fit the base: keep the parser's width
+        dtm.addDataType(sized, DataTypeConflictHandler.REPLACE_HANDLER);
     }
 
     private static Set<String> known(CParser parser) {
@@ -283,8 +312,12 @@ final class TypeOps {
         int declErrors = 0, typed = 0, typeFailures = 0;
         JsonArray failures = new JsonArray();
         Set<Long> user = userTyped(w);
-        if (a.has("decls") && !a.get("decls").isJsonNull() && !a.get("decls").getAsString().isBlank())
-            declErrors += parseDeclarations(w, a.get("decls").getAsString()).errors;
+        JsonArray declMessages = new JsonArray();
+        if (a.has("decls") && !a.get("decls").isJsonNull() && !a.get("decls").getAsString().isBlank()) {
+            Parsed parsed = parseDeclarations(w, a.get("decls").getAsString());
+            declErrors += parsed.errors;
+            for (String m : parsed.messages) if (declMessages.size() < 20) declMessages.add(m);
+        }
         for (JsonElement e : Worker.array(a, "prototypes")) {
             JsonArray p = e.getAsJsonArray();
             long rva = p.get(0).getAsLong();
@@ -304,6 +337,7 @@ final class TypeOps {
         w.setStamp(a);
         JsonObject o = new JsonObject();
         o.addProperty("decl_errors", declErrors);
+        o.add("decl_messages", declMessages);
         o.addProperty("typed", typed);
         o.addProperty("type_failures", typeFailures);
         o.add("failures", failures);
