@@ -13,9 +13,9 @@ internal static class ToolSupport
         "Type or member ('Ns.Type::Method(int)', short name, token) or native export ('kernel32.dll!CreateFileW', 'native:<image>!<name|#ord|addr>').";
 
     public const string AssemblyFilterDescription =
-        "Assembly id, name, file name or path; omit for all loaded.";
+        "Assembly id, name or path; omit for all loaded.";
 
-    public const string AssemblyDescription = "Assembly id, name, file name or path.";
+    public const string AssemblyDescription = "Assembly id, name or path.";
 
     /// <summary>offset of a list tool: rows (S2.2); the agent passes the previous page's nextOffset.</summary>
     public const string RowOffsetDescription = "Rows to skip.";
