@@ -100,8 +100,8 @@ internal static class LegacyInstall
         if (File.Exists(Path.Combine(target, Installation.ExeName))) return target;
         var staging = Path.Combine(versions, ".new-" + Guid.NewGuid().ToString("N")[..8]);
         Copy(source, staging, top: true);
-        if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
-        Directory.Move(staging, target);
+        if (Directory.Exists(target)) Corvus.Core.SafeFile.WhenReleased(() => Directory.Delete(target, recursive: true));
+        Corvus.Core.SafeFile.WhenReleased(() => Directory.Move(staging, target));
         return target;
     }
 

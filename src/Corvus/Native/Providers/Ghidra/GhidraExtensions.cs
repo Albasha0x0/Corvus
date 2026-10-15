@@ -102,8 +102,8 @@ public static class GhidraExtensions
                 if (Directory.Exists(e.Source)) CopyDirectory(e.Source, Path.Combine(staging, e.Name));
                 else ZipFile.ExtractToDirectory(e.Source, staging); // refuses entries outside the directory
                 File.WriteAllText(Path.Combine(staging, e.Name, Marker), e.Hash);
-                if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
-                Directory.Move(Path.Combine(staging, e.Name), dest);
+                if (Directory.Exists(dest)) SafeFile.WhenReleased(() => Directory.Delete(dest, recursive: true));
+                SafeFile.WhenReleased(() => Directory.Move(Path.Combine(staging, e.Name), dest));
             }
             finally
             {

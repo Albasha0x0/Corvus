@@ -67,7 +67,7 @@ public static partial class Il2CppPackages
             if (!found) Directory.Delete(game, true);
             File.WriteAllText(Path.Combine(staging, MarkerFileName), JsonSerializer.Serialize(new Marker(full, sha, abi, DateTime.UtcNow)));
             TryDelete(dir);
-            Directory.Move(staging, dir);
+            SafeFile.WhenReleased(() => Directory.Move(staging, dir));
             Trim(root, dir);
             return found ? Path.Combine(dir, "game") : null;
         }

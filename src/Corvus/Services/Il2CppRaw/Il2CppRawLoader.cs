@@ -118,9 +118,9 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
                 {
                     if (workspace.Read(() => workspace.Assemblies.Any(a => a.FilePath.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))))
                         throw new ToolError(ErrorCode.Conflict, $"An older read of this game is loaded from {dir}.", "unload its assemblies first, then load the game again");
-                    Directory.Delete(dir, true);
+                    SafeFile.WhenReleased(() => Directory.Delete(dir, true));
                 }
-                Directory.Move(staging, dir);
+                SafeFile.WhenReleased(() => Directory.Move(staging, dir));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

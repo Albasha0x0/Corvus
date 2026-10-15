@@ -78,8 +78,8 @@ internal static class ReferencePacks
                 }
             }
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            try { Directory.Move(staging, target); }
-            catch (IOException) { Directory.Delete(staging, recursive: true); } // another process finished first
+            try { SafeFile.WhenReleased(() => Directory.Move(staging, target), lost: () => Directory.Exists(target)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && Directory.Exists(target)) { Directory.Delete(staging, recursive: true); } // another process finished first
             var dir = Path.Combine(target, "ref", $"net{major}.0");
             return Directory.Exists(dir) ? dir : null;
         }

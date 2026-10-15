@@ -168,4 +168,15 @@ public class SafeFileTests : IDisposable
         Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => env.Workspace.Read(() => env.History.Export(env.Fixture, script))).Code);
         env.Workspace.Read(() => env.History.Export(env.Fixture, script, overwrite: true));
     }
+
+    [Fact]
+    public void A_held_file_is_waited_for_and_a_lost_race_is_not()
+    {
+        int tries = 0;
+        SafeFile.WhenReleased(() => { if (++tries < 3) throw new IOException("held open"); });
+        Assert.Equal(3, tries);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Throws<IOException>(() => SafeFile.WhenReleased(() => throw new IOException("target exists"), lost: () => true));
+        Assert.True(clock.ElapsedMilliseconds < 1000, $"{clock.ElapsedMilliseconds} ms");
+    }
 }

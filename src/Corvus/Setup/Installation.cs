@@ -203,7 +203,7 @@ internal static class Installation
             try { Directory.Delete(target, recursive: true); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { target += "-" + Guid.NewGuid().ToString("N")[..6]; }
         }
-        Directory.Move(staging, target);
+        Corvus.Core.SafeFile.WhenReleased(() => Directory.Move(staging, target));
         PointCurrent(root, target);
         RemoveUnusedVersions(root, target, AppContext.BaseDirectory);
 
