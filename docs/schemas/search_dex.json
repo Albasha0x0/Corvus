@@ -30,7 +30,7 @@
             "type": "integer"
           },
           "original": {
-            "description": "Original name: mapping.txt, else recovered (marked).",
+            "description": "Original name (mapping or recovered).",
             "type": "string"
           },
           "inOriginal": {

@@ -93,7 +93,7 @@ public sealed record DexReferenceList(string Target, string TargetKind, string D
 /// <summary>DEX classes, members, search and cross-references of Android packages; indexes are kept per file while it is unchanged.</summary>
 public sealed class DexService
 {
-    public const string OriginalDescription = "Original name: mapping.txt, else recovered (marked).";
+    public const string OriginalDescription = "Original name (mapping or recovered).";
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<DexIndex, DexNames> _names = [];
 
     /// <summary>
