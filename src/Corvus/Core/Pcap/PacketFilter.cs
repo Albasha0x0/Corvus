@@ -193,7 +193,7 @@ public sealed class PacketFilter
             var name = Next();
             if (name.Quoted) throw new PacketFilterException($"a field name was expected at {name.At}, not a string");
             var field = PacketFields.Find(name.Text);
-            string resolved = field?.Name ?? name.Text.ToLowerInvariant();
+            string resolved = field?.Name ?? name.Text; // Wireshark names are case-sensitive (kerberos.CNameString)
             if (!owner._fields.Contains(resolved)) owner._fields.Add(resolved);
             if (field == null && !owner._unknown.Contains(resolved)) owner._unknown.Add(resolved);
             if (field != null) owner.Layers |= field.Layers;

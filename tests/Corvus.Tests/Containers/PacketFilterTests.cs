@@ -28,7 +28,7 @@ public sealed class PacketFilterTests : IDisposable
     [InlineData("ip.src == 10.0.0.0/8 && tcp.port == 443", new long[] { 3, 5, 6, 7 })]
     [InlineData("ip.dst != 93.184.216.34", new long[] { 1, 2, 4 })]
     [InlineData("tcp.flags.syn==1 and tcp.flags.ack==0", new long[] { 3 })]
-    [InlineData("tcp.dstport in {80 443} and tcp.len > 0", new long[] { 5, 6, 7, 8 })]
+    [InlineData("tcp.dstport in {80, 443} and tcp.len > 0", new long[] { 5, 6, 7, 8 })]
     [InlineData("(udp.port == 53) or (tcp.dstport == 80)", new long[] { 1, 2, 8 })]
     public void Addresses_ports_and_protocols(string filter, long[] frames) => Assert.Equal(frames, Frames(filter));
 
@@ -58,7 +58,7 @@ public sealed class PacketFilterTests : IDisposable
     }
 
     [Fact]
-    public void Bad_filters_and_unknown_fields_are_reported()
+    public void Bad_filters_are_reported()
     {
         var path = _dir.File("c.pcap");
         File.WriteAllBytes(path, Pcap(EthernetFrames()));
@@ -67,9 +67,6 @@ public sealed class PacketFilterTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, syntax.Code);
         var address = Assert.Throws<ToolError>(() => search.Search(path, "ip.addr == example.com", "packet", 10, AnalysisLimits.Default, default));
         Assert.Contains("needs an address", address.Message);
-        var unknown = Assert.Throws<ToolError>(() => search.Search(path, "sip.Method == INVITE", "packet", 10, AnalysisLimits.Default, default));
-        Assert.Equal(ErrorCode.Unsupported, unknown.Code);
-        Assert.Contains("sip.method", unknown.Message);
     }
 
     [Fact]

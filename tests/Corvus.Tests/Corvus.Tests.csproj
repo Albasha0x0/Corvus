@@ -39,6 +39,7 @@
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="NativeFormats\ItaniumCorpus.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="NativeFormats\SwiftManglings.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Containers\QuicInitials.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TokenCorpus\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

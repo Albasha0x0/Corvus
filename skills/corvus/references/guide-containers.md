@@ -28,7 +28,8 @@ the package.json main entry and webPreferences values (nodeIntegration, contextI
 search_container kind=electron lists preload scripts, contextBridge keys, IPC channels, child_process / shell sinks and
 native add-ons with file:line:column; kind=endpoint lists a HAR or mitmproxy capture's request templates; kind=packet takes a
 Wireshark display filter (ip.addr==10.0.0.1 and tcp.port==443, dns.qry.name contains "api", tls.sni==x, not udp) and lists a
-pcap / pcapng capture's matching frames, streamed at any size, with the fields it names; kind=dart lists a
+pcap / pcapng capture's matching frames, streamed at any size, with the fields it names (also h2c, QUIC Initial,
+SMB2 and Kerberos names in-process; other fields through TShark when CORVUS_TSHARK finds it); kind=dart lists a
 Flutter app's Dart package: / dart: URIs and identifiers (summarize_file view=flutter gives its packages).
 analyze_js on a .js file: bundler signatures and its source map; view=position maps a minified line:column to the original source.
 Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read these yet; unpack_container on the _framework folder converts them to PEs that load; save_assembly to a .wasm path writes Webcil back.

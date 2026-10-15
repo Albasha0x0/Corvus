@@ -96,8 +96,26 @@ public static partial class ExternalTools
         "oracle for the .proto text rebuilt from descriptors in tests", true,
         Ops(("descriptor-set", ["--proto_path", "{root}", "--descriptor_set_out", "{out}", "{file}"])));
 
+    public static readonly ExternalTool TShark = new("tshark", "TShark (Wireshark)", "CORVUS_TSHARK", ExternalToolKind.Executable, ["tshark" + Exe], ["--version"], 3,
+        "search_container kind=packet for fields not decoded in-process", false,
+        Ops(("fields", ["-r", "{file}", "-n", "-2", "-Y", "{filter}", "-T", "fields", "-E", "separator=/t", "-E", "occurrence=a", "-E", "aggregator=,", "-E", "quote=n",
+                "-e", "frame.number", "-e", "frame.time_epoch", "-e", "ip.src", "-e", "ipv6.src", "-e", "ip.dst", "-e", "ipv6.dst",
+                "-e", "tcp.srcport", "-e", "udp.srcport", "-e", "tcp.dstport", "-e", "udp.dstport", "-e", "_ws.col.protocol"]),
+            ("field", ["-e", "{field}"])))
+    {
+        KnownDirectories = WiresharkDirectories,
+    };
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler];
+
+    private static IEnumerable<(string, string)> WiresharkDirectories()
+    {
+        if (OperatingSystem.IsWindows())
+            foreach (var root in new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86) })
+                if (root.Length > 0) yield return (System.IO.Path.Combine(root, "Wireshark"), "default Wireshark location");
+        if (OperatingSystem.IsMacOS()) yield return ("/Applications/Wireshark.app/Contents/MacOS", "default Wireshark location");
+    }
 
     public static ExternalTool Get(string id) => Table.Single(t => t.Id == id);
 

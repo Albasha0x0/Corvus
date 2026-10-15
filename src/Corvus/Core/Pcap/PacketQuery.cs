@@ -23,12 +23,18 @@ public static class PacketQuery
         var view = new PacketView();
         var rows = new List<PacketRow>();
         var pending = (filter.Layers & PacketLayers.TlsHello) != 0 ? new Dictionary<(bool, UInt128, ushort, UInt128, ushort), Pending>() : null;
+        var http2 = (filter.Layers & PacketLayers.Http2) != 0 ? new Http2Tracker() : null;
+        var quic = (filter.Layers & PacketLayers.Quic) != 0 ? new QuicTracker() : null;
+        var smb2 = (filter.Layers & PacketLayers.Smb2) != 0 ? new Smb2Tracker() : null;
         var shown = filter.Fields.Select(PacketFields.Find).OfType<PacketField>().Where(f => f.Type != FieldType.Protocol).ToList();
         long number = 0, matched = 0;
         foreach (var frame in reader.Frames(ct))
         {
             view.Reset(++number, frame);
             if (pending != null && view.Tcp) JoinHello(view, pending);
+            http2?.Observe(view);
+            quic?.Observe(view);
+            smb2?.Observe(view);
             if (!filter.Matches(view)) continue;
             if (matched++ < offset || rows.Count >= limit) continue;
             rows.Add(Row(view, shown));
@@ -91,6 +97,10 @@ public static class PacketQuery
     /// <summary>The highest protocol decoded in the frame, as Wireshark's protocol column would name it.</summary>
     internal static string Protocol(PacketView v)
     {
+        if (v.Kerberos != null) return "kerberos";
+        if (v.Smb2 != null) return "smb2";
+        if (v.Http2 != null) return "http2";
+        if (v.Quic != null) return "quic";
         if (v.Dns != null) return "dns";
         if (v.Http != null) return "http";
         if (v.TlsRecord) return "tls";

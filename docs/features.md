@@ -270,8 +270,17 @@ decoded in-process, with no TShark: `frame.number` / `len`, `ip.addr` / `src` / 
 `tcp` and `udp` ports, `tcp.flags.*`, `tcp.len`, `dns.qry.name` / `type`, `dns.a` / `aaaa` / `cname`,
 `dns.flags.response`, `http.host`, `http.request.method` / `uri`, `http.user_agent`, `http.response.code`, and
 `tls.handshake.extensions_server_name` (`tls.sni`) and `_alpn_str` (`tls.alpn`), a ClientHello split over in-order
-segments joined. The capture is streamed, so its size is not limited (a 1 GiB pcapng filters at disk speed); `total`
-counts every match and `offset` / `limit` page them. `kind=dart` on a Flutter app
+segments joined; cleartext HTTP/2 (`http2.type`, `streamid`, `header.name` / `value`, `headers.authority` / `method` /
+`path` / `scheme` / `status` / `user_agent`; each direction's stream joined and its HPACK table kept, headers given to the
+frame whose fragment completes them); QUIC (`quic.version`, `long.packet_type`, `dcid`, `scid`; client Initials
+decrypted with the keys their connection id derives, CRYPTO frames joined over packets, so `tls.sni` and `tls.alpn`
+cover QUIC too); SMB2 (`smb2.cmd`, `tree`, `filename`, the names carried by tree, file and message id; NTLMSSP
+`ntlmssp.auth.username` / `domain` / `hostname`); Kerberos (`kerberos.msg_type`, `CNameString`, `SNameString`, `realm`,
+`crealm`, the ticket of a TGS request included). On the fixture captures these select the same frames as `tshark -2
+-Y`. A filter naming any other field runs through TShark when `CORVUS_TSHARK` (or `PATH`, or the default Wireshark folder)
+finds it, on Windows, Linux and macOS: its field output is streamed and paged the same way, with the named fields'
+values. The capture is streamed, so its size is not limited (a 1 GiB pcapng filters at about 650 MB/s from the file
+cache); `total` counts every match and `offset` / `limit` page them. `kind=dart` on a Flutter app
 (`libapp.so`, `App.framework/App`, or an APK or `.ipa` holding one) lists the Dart AOT isolate snapshot's string pool: every
 distinct `package:` and `dart:` URI and identifier token with its offset (the query matches the string or its kind,
 e.g. `identifier`). `compare_folders` compares two

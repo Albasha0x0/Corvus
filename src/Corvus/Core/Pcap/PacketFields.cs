@@ -13,6 +13,12 @@ internal enum PacketLayers
     None = 0,
     /// <summary>A ClientHello split over in-order TCP segments.</summary>
     TlsHello = 1,
+    /// <summary>Cleartext HTTP/2: each direction's stream and HPACK table.</summary>
+    Http2 = 2,
+    /// <summary>QUIC Initial CRYPTO frames joined per connection.</summary>
+    Quic = 4,
+    /// <summary>SMB2 tree, file and message ids mapped to names.</summary>
+    Smb2 = 8,
 }
 
 /// <summary>One value of a field in one frame.</summary>
@@ -110,10 +116,45 @@ internal static class PacketFields
         Proto("http.request", v => v.Http?.Method != null);
         Proto("http.response", v => v.Http?.Status != null);
 
-        Proto("tls", v => v.TlsRecord, PacketLayers.TlsHello);
-        Text("tls.handshake.extensions_server_name", v => v.Hello?.Sni is { } s ? [s] : null, PacketLayers.TlsHello);
-        Text("tls.handshake.extensions_alpn_str", v => v.Hello?.Alpn, PacketLayers.TlsHello);
-        Num("tls.handshake.type", v => v.Hello != null ? 1 : null);
+        const PacketLayers hello = PacketLayers.TlsHello | PacketLayers.Quic;
+        Proto("tls", v => v.TlsRecord, hello);
+        Text("tls.handshake.extensions_server_name", v => v.Hello?.Sni is { } s ? [s] : null, hello);
+        Text("tls.handshake.extensions_alpn_str", v => v.Hello?.Alpn, hello);
+        Add(new PacketField("tls.handshake.type", FieldType.Number, (v, o) => { if (v.Hello != null) o.Add(FieldValue.Of(1)); }, layers: hello));
+
+        Proto("http2", v => v.Http2 != null, PacketLayers.Http2);
+        Add(new PacketField("http2.type", FieldType.Number, (v, o) => { foreach (var t in v.Http2?.Types ?? []) o.Add(FieldValue.Of(t)); }, layers: PacketLayers.Http2));
+        Add(new PacketField("http2.streamid", FieldType.Number, (v, o) => { foreach (var s in v.Http2?.Streams ?? []) o.Add(FieldValue.Of(s)); }, layers: PacketLayers.Http2));
+        Text("http2.header.name", v => v.Http2?.Headers.Select(h => h.Name).ToList(), PacketLayers.Http2);
+        Text("http2.header.value", v => v.Http2?.Headers.Select(h => h.Value).ToList(), PacketLayers.Http2);
+        foreach (var header in new[] { ":authority", ":method", ":path", ":scheme", "user-agent" })
+            Text("http2.headers." + header.TrimStart(':').Replace('-', '_'), v => v.Http2?.Headers.Where(h => h.Name == header).Select(h => h.Value).ToList(), PacketLayers.Http2);
+        Add(new PacketField("http2.headers.status", FieldType.Number, (v, o) =>
+        {
+            foreach (var (name, value) in v.Http2?.Headers ?? [])
+                if (name == ":status" && long.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var code)) o.Add(FieldValue.Of(code));
+        }, layers: PacketLayers.Http2));
+
+        Proto("quic", v => v.Quic != null, PacketLayers.Quic);
+        Add(new PacketField("quic.version", FieldType.Number, (v, o) => { if (v.Quic != null) o.Add(FieldValue.Of(v.Quic.Version)); }, layers: PacketLayers.Quic));
+        Add(new PacketField("quic.long.packet_type", FieldType.Number, (v, o) => { if (v.Quic is { PacketType: >= 0 } q) o.Add(FieldValue.Of(q.PacketType)); }, layers: PacketLayers.Quic));
+        Text("quic.dcid", v => v.Quic is { } q ? [q.Dcid] : null, PacketLayers.Quic);
+        Text("quic.scid", v => v.Quic is { } q ? [q.Scid] : null, PacketLayers.Quic);
+
+        Proto("smb2", v => v.Smb2 != null, PacketLayers.Smb2);
+        Add(new PacketField("smb2.cmd", FieldType.Number, (v, o) => { foreach (var c in v.Smb2?.Commands ?? []) o.Add(FieldValue.Of(c)); }, layers: PacketLayers.Smb2));
+        Text("smb2.tree", v => v.Smb2?.Trees, PacketLayers.Smb2);
+        Text("smb2.filename", v => v.Smb2?.Files, PacketLayers.Smb2);
+        Text("ntlmssp.auth.username", v => v.Smb2?.Users, PacketLayers.Smb2);
+        Text("ntlmssp.auth.domain", v => v.Smb2?.Domains, PacketLayers.Smb2);
+        Text("ntlmssp.auth.hostname", v => v.Smb2?.Hosts, PacketLayers.Smb2);
+
+        Proto("kerberos", v => v.Kerberos != null);
+        Num("kerberos.msg_type", v => v.Kerberos?.MsgType);
+        Text("kerberos.CNameString", v => v.Kerberos?.CNames);
+        Text("kerberos.SNameString", v => v.Kerberos?.SNames);
+        Text("kerberos.realm", v => v.Kerberos?.Realms);
+        Text("kerberos.crealm", v => v.Kerberos?.CRealms);
     }
 
     private static void Text(string name, Func<PacketView, IReadOnlyList<string>?> get, PacketLayers layers = PacketLayers.None) =>
@@ -151,13 +192,18 @@ internal sealed class PacketView
     public ReadOnlyMemory<byte> Data;
     public bool Ip;
     public DecodedPacket P;
-    /// <summary>A ClientHello completed by this frame (joined over segments when <see cref="PacketLayers.TlsHello"/> is on).</summary>
+    /// <summary>A ClientHello completed by this frame: joined over TCP segments, or from QUIC Initial CRYPTO frames.</summary>
     public HelloFacts? JoinedHello;
+    // set by the trackers of the layers the filter names
+    public Http2Facts? Http2;
+    public QuicFacts? Quic;
+    public Smb2Facts? Smb2;
 
-    private bool _dnsDone, _httpDone, _helloDone;
+    private bool _dnsDone, _httpDone, _helloDone, _kerberosDone;
     private DnsFacts? _dns;
     private HttpFacts? _http;
     private HelloFacts? _hello;
+    private KerberosFacts? _kerberos;
 
     public bool Tcp => Ip && !P.Fragment && P.Protocol == PacketDecoder.Tcp;
     public bool Udp => Ip && !P.Fragment && P.Protocol == PacketDecoder.Udp;
@@ -174,10 +220,27 @@ internal sealed class PacketView
         Data = frame.Data;
         Ip = PacketDecoder.TryDecode(frame.LinkType, frame.Data.Span, out P);
         JoinedHello = null;
-        _dnsDone = _httpDone = _helloDone = false;
+        Http2 = null;
+        Quic = null;
+        Smb2 = null;
+        _dnsDone = _httpDone = _helloDone = _kerberosDone = false;
         _dns = null;
         _http = null;
         _hello = null;
+        _kerberos = null;
+    }
+
+    /// <summary>A Kerberos message on port 88 (TCP with its 4-byte record mark).</summary>
+    public KerberosFacts? Kerberos
+    {
+        get
+        {
+            if (_kerberosDone) return _kerberos;
+            _kerberosDone = true;
+            if ((Tcp || Udp) && (P.SrcPort == 88 || P.DstPort == 88) && Payload is { Length: > 4 } m)
+                _kerberos = KerberosReader.Read(Tcp ? m[4..] : m);
+            return _kerberos;
+        }
     }
 
     /// <summary>The values of <paramref name="f"/> in this frame, collected once.</summary>

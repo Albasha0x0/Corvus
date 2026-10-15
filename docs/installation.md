@@ -330,6 +330,7 @@ environment (path, temp, home and Android / Java variables only).
 | `CORVUS_JAVA` | `java`, JDK 17+ (else `JAVA_HOME`, else `PATH`) | running the Java decompiler |
 | `CORVUS_JAVA_DECOMPILER` | the [jadx-headless-mcp](https://github.com/1013503897/jadx-headless-mcp) fat jar (Apache-2.0), started with `java -jar` | Java / Kotlin source |
 | `CORVUS_ADB` | `adb` (else `PATH`, else the Android SDK's `platform-tools`) | the Android device tools |
+| `CORVUS_TSHARK` | `tshark` 3+ (else `PATH`, else the default Wireshark folder on Windows and macOS) | `search_container kind=packet` filters naming fields not decoded in-process |
 | `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER` | aapt2, the apksigner jar, the baksmali jar, protoc (else the Grpc.Tools package's) | test oracles only |
 
 Code that targets a .NET version not installed on the machine is read against that version's reference pack, which
