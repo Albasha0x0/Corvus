@@ -310,6 +310,7 @@ IL disassembly (ildasm style, tokens, offsets, try blocks) of a member or type; 
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name, file name or path; omit for all loaded. |
+| `source` | boolean |  |  | Source lines of the build's Portable PDB (embedded, or beside it with a matching id) at their IL offsets, local names, SourceLink URLs. |
 | `offset` | integer |  |  | Character offset (a page's nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 

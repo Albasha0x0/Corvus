@@ -28,4 +28,15 @@ public sealed class MetadataDetailTests
         var text = await new BrowseTools(env.Workspace, env.References, env.Pager).GetAttributes("JetBrains.Annotations.MeansImplicitUseAttribute");
         Assert.Contains("[AttributeUsage(AttributeTargets.Class | AttributeTargets.GenericParameter | AttributeTargets.Parameter)]", text);
     }
+
+    [Fact]
+    public async Task GetIlSource_PlacesPdbLinesAtIlOffsets()
+    {
+        using var env = new Env(RealPackages.Lib("Mono.Cecil", "0.11.3", "netstandard2.0", "Mono.Cecil.dll"));
+        var text = await new DecompileTools(env.Workspace, env.Decompiler, env.Pager).GetIL("Mono.Cecil.ModuleDefinition::ReadModule(string, ReaderParameters)", source: true);
+        Assert.Contains("(id matches the image); SourceLink maps 138 documents", text);
+        Assert.Contains("// line 1082:4-1082:136 in https://raw.githubusercontent.com/jbevain/cecil/e9a4815fdb102a3bc87a606c6e9ee5f61c00414a/Mono.Cecil/ModuleDefinition.cs\n\tIL_0000: ldarg.0", text);
+        Assert.Contains("[1] class [netstandard]System.IO.MemoryStream memory", text);
+        Assert.Contains("// hidden", text);
+    }
 }

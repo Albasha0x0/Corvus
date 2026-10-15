@@ -97,14 +97,20 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
+        [Description("Source lines of the build's Portable PDB (embedded, or beside it with a matching id) at their IL offsets, local names, SourceLink URLs.")] bool source = false,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, symbol);
         RequireFew(all, symbol);
-        var text = pager.GetOrCreate(CacheKey("il", all), () => string.Join("\n", all.Select(s =>
-            $"// [{s.Assembly.Id}] {s.Label}\n{HashLines(s)}{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken)}")));
+        var text = pager.GetOrCreate(CacheKey(source ? "il-source" : "il", all), () => string.Join("\n", all.Select(s =>
+        {
+            var (pdb, status) = source ? PortablePdb.For(s.Assembly) : (null, "");
+            var pdbLine = !source ? "" : pdb == null ? $"// {status}\n"
+                : $"// {status}{(pdb.SourceLinkDocuments > 0 ? $"; SourceLink maps {Plural(pdb.SourceLinkDocuments, "document")}" : "")}\n";
+            return $"// [{s.Assembly.Id}] {s.Label}\n{pdbLine}{HashLines(s)}{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken, pdb)}";
+        })));
         var hashes = all.SelectMany(s =>
         {
             using var raw = IlHash.RawReader(s.Assembly);

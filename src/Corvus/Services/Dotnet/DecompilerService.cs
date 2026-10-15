@@ -211,14 +211,15 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return asm.DecompilerNote + decompiler.DecompileModuleAndAssemblyAttributesToString();
     }, ct);
 
-    /// <summary>ildasm-style IL with metadata tokens and resolved operands.</summary>
-    public string Disassemble(LoadedAssembly asm, Dn.IMemberDef member, CancellationToken ct)
+    /// <summary>ildasm-style IL with metadata tokens and resolved operands; <paramref name="pdb"/> adds its source lines and local names.</summary>
+    public string Disassemble(LoadedAssembly asm, Dn.IMemberDef member, CancellationToken ct, PortablePdb? pdb = null)
     {
         var output = new PlainTextOutput();
         var dis = new ReflectionDisassembler(output, ct)
         {
             DetectControlStructure = true,
-            ShowSequencePoints = false,
+            ShowSequencePoints = pdb != null,
+            DebugInfo = pdb,
             ShowMetadataTokens = true,
             ExpandMemberDefinitions = true,
         };
@@ -233,7 +234,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             case HandleKind.EventDefinition: dis.DisassembleEvent(pe, (EventDefinitionHandle)handle); break;
             default: throw new ToolError(ErrorCode.Unsupported, $"Cannot disassemble {member.GetType().Name}.");
         }
-        return asm.DecompilerNote + output.ToString();
+        return asm.DecompilerNote + (pdb != null ? PortablePdb.Compact(output.ToString()) : output.ToString());
     }
 
     /// <summary>

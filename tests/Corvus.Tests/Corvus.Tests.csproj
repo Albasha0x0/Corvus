@@ -57,6 +57,8 @@
     <PackageDownload Include="ZstdSharp.Port" Version="[0.8.8]" />
     <PackageDownload Include="Iced" Version="[1.21.0]" />
     <PackageDownload Include="OggVorbisEncoder" Version="[1.2.2]" />
+    <!-- A library with its Portable PDB beside it and SourceLink (get_il source=true). -->
+    <PackageDownload Include="Mono.Cecil" Version="[0.11.3]" />
   </ItemGroup>
 
   <!-- NativeAOT-compiled production binaries (tools/ilc of the ILCompiler runtime packs: PE, ELF, Mach-O) for the slow NativeAOT tests. -->
