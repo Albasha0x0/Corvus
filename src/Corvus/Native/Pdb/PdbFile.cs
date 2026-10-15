@@ -41,7 +41,13 @@ public sealed record PdbSymbol(PdbSymbolKind Kind, string Name, ushort Segment, 
 public sealed record PdbTypedef(string Name, uint TypeIndex);
 
 /// <summary>A compiland of the DBI module list.</summary>
-public sealed record PdbModule(int Index, string Name, string ObjectFile, int SymbolStream, uint SymbolBytes);
+public sealed record PdbModule(int Index, string Name, string ObjectFile, int SymbolStream, uint SymbolBytes)
+{
+    /// <summary>Bytes of C11 line information after the symbols in the module stream (old compilers).</summary>
+    public uint C11Bytes { get; init; }
+    /// <summary>Bytes of C13 debug subsections (lines, file checksums) after the C11 lines.</summary>
+    public uint C13Bytes { get; init; }
+}
 
 /// <summary>Where debug information came from: a PDB, or DWARF (an ELF or Mach-O image, a separate debug file, a dSYM).</summary>
 public enum DebugInfoFormat { Pdb, Dwarf }
@@ -106,8 +112,8 @@ public sealed class PdbFile
     public DebugInfoFormat Format { get; private init; }
     /// <summary>DWARF: the debug file's GNU build-id or Mach-O UUID (lowercase hex), else null.</summary>
     public string? BuildId { get; private init; }
-    /// <summary>DWARF: source lines and inlined functions; null for a PDB.</summary>
-    public IDebugSourceLookup? Source { get; private init; }
+    /// <summary>Source lines (and for DWARF inlined functions); null when the debug information has no line tables.</summary>
+    public IDebugSourceLookup? Source { get; private set; }
     /// <summary>DWARF: its types as CodeView records (TPI body, record offsets, notes); null for a PDB, whose types are read from its file.</summary>
     internal (byte[] Bytes, int[] Offsets, IReadOnlyList<string> Notes)? TypeRecords { get; private init; }
 
@@ -155,13 +161,14 @@ public sealed class PdbFile
     public static PdbFile Open(string path, IReadOnlyList<NativeSection>? imageSections = null, CancellationToken ct = default)
     {
         using var msf = MsfFile.Open(path);
-        return Read(msf, System.IO.Path.GetFullPath(path), imageSections, ct);
+        var full = System.IO.Path.GetFullPath(path);
+        return Read(msf, full, imageSections, () => MsfFile.Open(full), ct);
     }
 
     public static PdbFile FromBytes(byte[] bytes, IReadOnlyList<NativeSection>? imageSections = null, CancellationToken ct = default)
     {
         using var msf = MsfFile.FromBytes(bytes);
-        return Read(msf, "", imageSections, ct);
+        return Read(msf, "", imageSections, () => MsfFile.FromBytes(bytes), ct);
     }
 
     /// <summary>Only the identity (info stream GUID/age and DBI age): cheap, for matching candidates.</summary>
@@ -178,29 +185,65 @@ public sealed class PdbFile
     /// <summary>Whether this PDB belongs to an image with CodeView record <paramref name="cv"/> (RSDS: GUID and age).</summary>
     public bool Matches(PeCodeView cv) => Format == DebugInfoFormat.Pdb && cv.Format == "RSDS" && cv.Guid == Guid && cv.Age == (DbiAge != 0 ? DbiAge : InfoAge);
 
-    private static PdbFile Read(MsfFile msf, string path, IReadOnlyList<NativeSection>? imageSections, CancellationToken ct)
+    private static PdbFile Read(MsfFile msf, string path, IReadOnlyList<NativeSection>? imageSections, Func<MsfFile> reopen, CancellationToken ct)
     {
         var pdb = new PdbFile(path, msf);
-        pdb.ReadInfo(msf);
+        int names = pdb.ReadInfo(msf);
         var symbols = new List<PdbSymbol>();
         pdb.ReadDbi(msf, imageSections, symbols, ct);
         symbols.Sort((a, b) => a.Rva is { } x ? b.Rva is { } y ? x.CompareTo(y) : -1 : b.Rva is null ? 0 : 1);
         pdb.Symbols = symbols;
+        if (pdb.Modules.Any(m => m.C13Bytes > 0)) pdb.Source = new PdbLines(pdb, reopen, names);
         pdb.Issues = [.. msf.Issues, .. pdb._log.ToList()];
         return pdb;
     }
 
-    private void ReadInfo(MsfFile msf)
+    /// <summary>Reads the identity; returns the /names stream from the named stream map, or -1.</summary>
+    private int ReadInfo(MsfFile msf)
     {
-        var info = msf.ReadStream(InfoStream, 28);
+        var info = msf.ReadStream(InfoStream, 1 << 20);
         if (info.Length < 28)
         {
             _log.Add("the PDB info stream (1) is missing or shorter than 28 bytes: no GUID and age");
-            return;
+            return -1;
         }
         Version = BinaryPrimitives.ReadUInt32LittleEndian(info);
         InfoAge = BinaryPrimitives.ReadUInt32LittleEndian(info.AsSpan(8));
         Guid = new Guid(info.AsSpan(12, 16));
+        return NamedStream(info.AsSpan(28), "/names");
+    }
+
+    /// <summary>
+    /// A stream of the named stream map after the info header: the names buffer, then a hash table (size, capacity, present
+    /// and deleted bit vectors, then one (name offset, stream) pair per present bucket); -1 when absent or malformed.
+    /// </summary>
+    internal static int NamedStream(ReadOnlySpan<byte> map, string wanted)
+    {
+        if (map.Length < 4) return -1;
+        int bufferSize = (int)Le32(map, 0);
+        if (bufferSize < 0 || 4 + (long)bufferSize + 12 > map.Length) return -1;
+        var buffer = map.Slice(4, bufferSize);
+        int at = 4 + bufferSize;
+        int capacity = (int)Le32(map, at + 4);
+        at += 8;
+        int presentWords = (int)Le32(map, at);
+        if (presentWords < 0 || at + 4 + (long)presentWords * 4 + 4 > map.Length) return -1;
+        var present = map.Slice(at + 4, presentWords * 4);
+        at += 4 + presentWords * 4;
+        int deletedWords = (int)Le32(map, at);
+        if (deletedWords < 0 || at + 4 + (long)deletedWords * 4 > map.Length) return -1;
+        at += 4 + deletedWords * 4;
+        for (int bucket = 0; bucket < capacity && bucket < presentWords * 32; bucket++)
+        {
+            if ((present[bucket / 8] & (1 << (bucket % 8))) == 0) continue;
+            if (at + 8 > map.Length) return -1;
+            uint nameOffset = Le32(map, at), stream = Le32(map, at + 4);
+            at += 8;
+            if (nameOffset >= (uint)buffer.Length) continue;
+            int end = buffer[(int)nameOffset..].IndexOf((byte)0);
+            if (end >= 0 && Encoding.UTF8.GetString(buffer.Slice((int)nameOffset, end)) == wanted) return (int)stream;
+        }
+        return -1;
     }
 
     private void ReadDbi(MsfFile msf, IReadOnlyList<NativeSection>? imageSections, List<PdbSymbol> symbols, CancellationToken ct)
@@ -371,7 +414,7 @@ public sealed class PdbFile
             long start = r.Position;
             r.TryRead(fixedPart);
             int stream = Le16(fixedPart, 34);
-            uint symBytes = Le32(fixedPart, 36);
+            uint symBytes = Le32(fixedPart, 36), c11Bytes = Le32(fixedPart, 40), c13Bytes = Le32(fixedPart, 44);
             // two zero-terminated names follow (module name, object file name), then padding to 4
             int avail = (int)Math.Min(nameBuf.Length, r.Remaining);
             int got = msf.Read(DbiStream, r.Position, nameBuf.AsSpan(0, avail));
@@ -384,7 +427,7 @@ public sealed class PdbFile
             string obj = Encoding.UTF8.GetString(span.Slice(z1 + 1, z2));
             long next = r.Position + z1 + 1 + z2 + 1;
             next = (next - offset + 3) / 4 * 4 + offset;
-            list.Add(new PdbModule(list.Count, name, obj, stream, symBytes));
+            list.Add(new PdbModule(list.Count, name, obj, stream, symBytes) { C11Bytes = c11Bytes, C13Bytes = c13Bytes });
             r.Position = Math.Min(next, r.End);
         }
         return list;
