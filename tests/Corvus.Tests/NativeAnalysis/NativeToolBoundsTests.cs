@@ -1,3 +1,4 @@
+using Corvus.Native.Providers;
 using Corvus.Core;
 
 namespace Corvus.Tests;
@@ -207,5 +208,99 @@ public class NativeToolBoundsTests
         Assert.True(stale.Released.IsCancellationRequested);
         h.Workspace.UnloadNative(first);
         Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => h.Workspace.ReloadNative(first)).Code);
+    }
+
+    [Fact]
+    public async Task BitMasksAndNibbleWildcardsMatchANaiveScan()
+    {
+        // 3 MB of random code (crossing the 1 MB chunks), patterns cut from it with random per-byte masks.
+        var rng = new Random(1234);
+        var code = new byte[3 << 20];
+        rng.NextBytes(code);
+        var b = new PeBuilder();
+        var text = b.Add(".text", code, 0x60000020);
+        b.EntryPoint = text.Rva;
+        using var dir = new TempDir();
+        var path = dir.File("masked.dll");
+        File.WriteAllBytes(path, b.Build());
+        byte[] masks = [0xFF, 0xFF, 0xF0, 0x0F, 0x00, 0xE0, 0xF8, 0x81];
+        var cases = new List<(string Text, byte[] Bytes, byte[] Mask)>();
+        while (cases.Count < 40)
+        {
+            int at = rng.Next(code.Length - 8), length = rng.Next(1, 7);
+            var mask = Enumerable.Range(0, length).Select(_ => masks[rng.Next(masks.Length)]).ToArray();
+            if (mask.All(m => m == 0) || mask.Count(m => m != 0) == 1 && byte.PopCount(mask.First(m => m != 0)) < 4) continue; // too many hits to page
+            var bytes = code.AsSpan(at, length).ToArray();
+            var tokens = bytes.Select((v, i) => mask[i] switch
+            {
+                0xFF => $"{v:X2}",
+                0x00 => "??",
+                0xF0 => $"{v >> 4:X}?",
+                0x0F => $"?{v & 0xF:X}",
+                var m => $"{v & m:X2}&{m:X2}",
+            });
+            cases.Add((string.Join(" ", tokens), bytes, mask));
+        }
+        List<ulong> Naive(byte[] bytes, byte[] mask)
+        {
+            var hits = new List<ulong>();
+            for (int i = 0; i + bytes.Length <= code.Length; i++)
+            {
+                int j = 0;
+                while (j < bytes.Length && ((code[i + j] ^ bytes[j]) & mask[j]) == 0) j++;
+                if (j == bytes.Length) hits.Add(b.ImageBase + text.Rva + (ulong)i);
+            }
+            return hits;
+        }
+        static ulong Va(string address) => Convert.ToUInt64(address, 16);
+        using var h = new NativeToolHarness();
+        var (batch, _) = await BuildToolCalls.Collected<Corvus.Tools.NativeTools.ByteSearch>(() =>
+            h.Native.SearchBytes(path, patterns: cases.Select(c => c.Text).ToArray(), limit: 5000));
+        for (int k = 0; k < cases.Count; k++)
+        {
+            var expected = Naive(cases[k].Bytes, cases[k].Mask);
+            var got = batch.Patterns![k].Value!;
+            Assert.True(expected.Count == got.Total, $"{cases[k].Text}: {got.Total} hits, naive {expected.Count}");
+            Assert.Equal(expected.Take(5000), got.Items.Select(i => Va(i.Address)));
+        }
+        // mask= on a plain hex pattern means the same as the inline form.
+        var (one, _) = await BuildToolCalls.Collected<Corvus.Tools.NativeTools.ByteSearch>(() =>
+            h.Native.SearchBytes(path, string.Join(" ", cases[0].Bytes.Select(v => $"{v:X2}")), mask: string.Join(" ", cases[0].Mask.Select(m => $"{m:X2}")), limit: 5000));
+        Assert.Equal(batch.Patterns![0].Value!.Total, one.Total);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => h.Native.SearchBytes(path, "48 8B", mask: "FF"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => h.Native.SearchBytes(path, "4G"))).Code);
+    }
+
+    private sealed class FakeMemory(params NativeMemoryRun[] runs) : INativeEngineControl
+    {
+        public Task<IReadOnlyList<NativeMemoryRun>> MemoryAsync(uint rva, uint length, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<NativeMemoryRun>>([.. runs.Where(r => r.Rva < rva + length && r.Rva + r.Bytes.Length > rva)]);
+        public Task<IReadOnlyList<NativeAnalyzerOption>> AnalyzersAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<NativeCandidateScan> FunctionCandidatesAsync(int maxInstructions, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<NativeMarkResult> SetMarksAsync(IReadOnlyList<NativeMark> marks, string stamp, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task EngineMemoryHitsThatDifferFromTheFileAreMarkedFixed()
+    {
+        var b = new PeBuilder();
+        var text = b.Add(".text", [0x48, 0x8B, 0x05, 0x00, 0x00, 0x00, 0x00, 0xC3, 0x48, 0x8B, 0x05, 0x10, 0x20, 0x00, 0x00, 0xC3], 0x60000020);
+        b.EntryPoint = text.Rva;
+        using var dir = new TempDir();
+        var path = dir.File("fixed.dll");
+        File.WriteAllBytes(path, b.Build());
+        using var h = new NativeToolHarness();
+        await h.Native.SearchBytes(path, "C3");
+        var native = h.Workspace.GetNative("fixed.dll");
+        // the engine holds the first load relocated (00 00 00 00 -> 10 20 00 00) and the second as in the file
+        byte[] loaded = [0x48, 0x8B, 0x05, 0x10, 0x20, 0x00, 0x00, 0xC3, 0x48, 0x8B, 0x05, 0x10, 0x20, 0x00, 0x00, 0xC3];
+        var results = await Corvus.Tools.NativeTools.SearchEngine(native, new FakeMemory(new NativeMemoryRun(text.Rva, loaded)),
+            [Corvus.Tools.NativeTools.Parse("48 8B 05 10 2? 00 00", false, null)], null, 100, 0, default);
+        var (hits, total) = Assert.Single(results);
+        Assert.Equal(2, total);
+        Assert.Equal([true, false], hits.Select(x => x.Fixed == true));
     }
 }

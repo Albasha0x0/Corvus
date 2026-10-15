@@ -18,7 +18,7 @@ public static partial class Guide
         (targets of indirect calls with their basis; scope=image lists the unresolved ones), analyze_native_function (one
         function in sections: identity, signature, frame, callers, callees, data, flow; params and pseudocode on request),
         trace_native_feature (strings, names, imports, exports and classes matching a text, to ranked functions and hubs),
-        find_similar_functions (look-alikes of a function ranked with evidence, also across loaded images; duplicates and near-duplicate clusters), search_native_strings, search_bytes (?? wildcards), search_instructions (mnemonic / operand regexes, operand values), read_bytes (type= reads values), convert_number, resolve_address, list_cpp_classes (RTTI classes, bases,
+        find_similar_functions (look-alikes of a function ranked with evidence, also across loaded images; duplicates and near-duplicate clusters), search_native_strings, search_bytes (?? and nibble wildcards, bit masks; memory=engine for loaded bytes), search_instructions (mnemonic / operand regexes, operand values), read_bytes (type= reads values), convert_number, resolve_address, list_cpp_classes (RTTI classes, bases,
         vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or the engine by name, id or typed address; at=0x48 names a field;
         read=true adds the field values at an address), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
         through RTTI; crossCheck=true compares with IDA or Ghidra), decompile_native (C pseudocode through IDA or Ghidra when installed;

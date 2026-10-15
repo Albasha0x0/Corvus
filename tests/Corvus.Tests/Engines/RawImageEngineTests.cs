@@ -41,6 +41,29 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         Assert.Contains("error 0x0 Bad Instruction", status.Text);
     }
 
+    [IdaFact]
+    public Task Memory_search_in_IDA() => MemorySearch("ida");
+
+    [GhidraFact]
+    public Task Memory_search_in_Ghidra() => MemorySearch("ghidra");
+
+    /// <summary>search_bytes memory=ida|ghidra reads the engine's loaded bytes and finds what the file mapping holds.</summary>
+    private async Task MemorySearch(string engine)
+    {
+        var path = _dir.File($"mem-{engine}.bin");
+        File.WriteAllBytes(path, [.. Shellcode, .. Guid.NewGuid().ToByteArray()]);
+        await using var server = await InProcessServer.StartAsync();
+        Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x10000" })).IsError);
+        var image = $"mem-{engine}.bin[x64@0x10000]";
+        var file = await Call(server, "search_bytes", new() { ["image"] = image, ["pattern"] = "E8 ?? ?? ?? ?? 5? C3" });
+        var memory = await Call(server, "search_bytes", new() { ["image"] = image, ["pattern"] = "E8 ?? ?? ?? ?? 5? C3", ["memory"] = engine });
+        Assert.False(memory.IsError, memory.Text);
+        Assert.StartsWith("1 hit (showing 1-1)", file.Text);
+        Assert.StartsWith($"1 hit (showing 1-1) in {(engine == "ida" ? "IDA" : "Ghidra")}'s memory", memory.Text);
+        Assert.Contains("0x10004", memory.Text);
+        Assert.DoesNotContain("fixed up", memory.Text);
+    }
+
     /// <summary>A __noreturn prototype stops the caller's flow at the call: the code after it leaves the caller.</summary>
     [GhidraFact]
     public Task No_return_stops_the_callers_flow_in_Ghidra() => NoReturn("ghidra");

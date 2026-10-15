@@ -11,6 +11,7 @@ import com.google.gson.JsonObject;
 import java.math.BigInteger;
 
 import ghidra.program.model.address.Address;
+import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.ContextChangeException;
 import ghidra.program.model.listing.ProgramContext;
@@ -162,6 +163,32 @@ final class ControlOps {
         JsonObject o = new JsonObject();
         o.addProperty("set", set);
         o.addProperty("skipped", skipped);
+        return o;
+    }
+
+    private static final int MEMORY_MAX = 16 << 20;
+
+    /** The loaded, initialized bytes of [rva, rva + size) in address order: runs [rva, base64]; other bytes are gaps. */
+    static JsonObject memory(Worker w, Worker.Request r) throws Exception {
+        long size = r.args.has("size") ? r.args.get("size").getAsLong() : 0;
+        if (size <= 0 || size > MEMORY_MAX) throw new Worker.WorkerError("invalid_argument", "size must be 1 to " + MEMORY_MAX + " bytes");
+        long from = w.addr(r.args, "rva").getOffset(), to = from + size; // exclusive
+        JsonArray runs = new JsonArray();
+        for (MemoryBlock b : w.program.getMemory().getBlocks()) {
+            if (!b.isInitialized() || !b.isLoaded() || b.getStart().getAddressSpace() != w.space()) continue;
+            long lo = Math.max(from, b.getStart().getOffset()), hi = Math.min(to, b.getEnd().getOffset() + 1);
+            if (lo >= hi) continue;
+            byte[] buf = new byte[(int) (hi - lo)];
+            int got = b.getBytes(w.space().getAddress(lo), buf, 0, buf.length);
+            Long rva = w.rva(w.space().getAddress(lo));
+            if (rva == null || got <= 0) continue;
+            JsonArray run = new JsonArray();
+            run.add(rva);
+            run.add(java.util.Base64.getEncoder().encodeToString(got == buf.length ? buf : java.util.Arrays.copyOf(buf, got)));
+            runs.add(run);
+        }
+        JsonObject o = new JsonObject();
+        o.add("runs", runs);
         return o;
     }
 }

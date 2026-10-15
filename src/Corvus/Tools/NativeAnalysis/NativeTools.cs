@@ -13,7 +13,8 @@ namespace Corvus.Tools;
 
 /// <summary>Native images (PE, ELF, Mach-O): headers, imports, exports, addresses and bytes.</summary>
 [McpServerToolType]
-public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null)
+public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null,
+    NativeEngineService? engines = null)
 {
     public const string EngineTimeoutDescription = "Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial.";
 
@@ -505,46 +506,89 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     [McpServerTool(Name = "search_bytes", Title = "Search native bytes", UseStructuredContent = true, OutputSchemaType = typeof(ByteSearch))]
-    [Description("Find a byte pattern in a native image's mapped sections (hex with ?? wildcards, or text as ASCII and UTF-16): each hit's VA, " +
-                 "section and file offset.")]
+    [Description("Find a byte pattern in a native image's mapped sections (hex, or text as ASCII and UTF-16): each hit's VA, section and " +
+                 "file offset; memory=engine searches the engine's loaded bytes.")]
     public Task<string> SearchBytes(
         [Description(ImageDescription)] string image,
-        [Description("Hex bytes with ?? wildcards ('48 8B 05 ?? ?? ?? ??'), or text when text=true.")] string? pattern = null,
+        [Description("Hex: ?? any byte, 4? a nibble, 40&F8 bits ('48 8B 05 ?? ?? ?? ??'); text with text=true.")] string? pattern = null,
         [Description("pattern is text (ASCII and UTF-16LE).")] bool text = false,
         [Description("Only this section (e.g. .text, .rdata).")] string? section = null,
         [Description("Max hits.")] int limit = 200,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Instead of pattern: up to 50 patterns.")] string[]? patterns = null,
+        [Description("Bit mask per pattern byte ('FF F0 FF').")] string? mask = null,
+        [Description("file (default), or engine / ida / ghidra: its loaded bytes.")] string memory = "file",
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        CancellationToken cancellationToken = default) => OnImage(image, native =>
+        CancellationToken cancellationToken = default)
     {
         if ((patterns is { Length: > 0 }) == !string.IsNullOrEmpty(pattern))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass pattern or patterns (one of them).", "pattern='48 8B 05 ?? ?? ?? ??', or patterns=[...] for several");
+        if (mask != null && (patterns != null || text))
+            throw new ToolError(ErrorCode.InvalidArgument, "mask applies to one hex pattern.", "in patterns or with text, write per-byte masks inline: 4? or 40&F0");
+        if (patterns is { Length: > 50 }) throw new ToolError(ErrorCode.InvalidArgument, $"{patterns.Length} patterns; at most 50 per call.", "split the patterns");
         offset = Math.Max(0, offset);
+        var source = (memory ?? "file").Trim().ToLowerInvariant();
+        if (source is "file" or "") return OnImage(image, native => SearchReport(native, pattern, patterns, text, mask, offset, limit,
+            parsed => SearchFile(native, parsed, section, limit, offset, cancellationToken)), cancellationToken);
+        if (source is not ("engine" or "auto" or "ida" or "ghidra"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"unknown memory '{memory}'.", "pass memory=file, engine, ida or ghidra");
+        if (engines == null) throw new ToolError(ErrorCode.ProviderUnavailable, "memory=engine: no analysis engine is set up in this server.", "use memory=file");
+        return SearchEngineAsync(image, source is "engine" ? null : source, pattern, patterns, text, mask, section, limit, offset, cancellationToken);
+    }
+
+    private async Task<string> SearchEngineAsync(string image, string? engine, string? pattern, string[]? patterns, bool text, string? mask, string? section,
+        int limit, int offset, CancellationToken cancellationToken)
+    {
+        var all = (patterns ?? [pattern!]).Select(p => { try { return (Parsed: (List<BitPattern>?)Parse(p, text, mask), Error: (ToolError?)null); } catch (ToolError e) { return (null, e); } }).ToList();
+        if (all.All(a => a.Error != null) && patterns == null) throw all[0].Error!;
+        var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
+        var choice = EngineChoice.EngineOnly(engine, engines!, native);
+        var session = await engines!.Session(native, choice.Engine, null, cancellationToken);
+        EngineReport.Answered(choice, engines, session);
+        var control = Native.Providers.EngineControl.Require(session, "memory reads");
+        // every chunk of engine memory is read once and scanned for every pattern
+        var results = await SearchEngine(native, control, all.Where(a => a.Parsed != null).Select(a => a.Parsed!).ToList(), section, limit, offset, cancellationToken);
+        int next = 0;
+        var byPattern = all.Select(a => a.Error == null ? results[next++] : default).ToList();
+        int index = 0;
+        return await Task.Run(() => workspace.Read(() =>
+            SearchReport(native, pattern, patterns, text, mask, offset, limit, _ =>
+            {
+                int i = index++;
+                if (all[i].Error is { } e) throw e;
+                return byPattern[i];
+            }, engine: session.ProviderId)), cancellationToken);
+    }
+
+    /// <summary>The report of one pattern (paged rows) or of each of patterns, from <paramref name="search"/> per parsed pattern.</summary>
+    private string SearchReport(LoadedNative native, string? pattern, string[]? patterns, bool text, string? mask, int offset, int limit,
+        Func<List<BitPattern>, (List<ByteHit> Hits, long Total)> search, string? engine = null)
+    {
+        var from = engine != null ? $" in {NativeEngineService.DisplayName(engine)}'s memory" : "";
         if (patterns == null)
         {
-            var (hits, total) = SearchOne(native, pattern!, text, section, limit, offset, cancellationToken);
+            var (hits, total) = search(engine != null ? [] : Parse(pattern!, text, mask));
             // Cut by the budget, not by count: the text and the record show the same hits.
             var rows = hits.Select(HitRow).ToList();
             int fit = hits.Count == 0 ? 0 : pager.FitRows(rows.Select(r => "  " + r).ToList(), 200);
             string Render(int shown)
             {
-                var sb = new StringBuilder(HitHeader(total, offset, shown)).Append(":\n");
+                var sb = new StringBuilder(HitHeader(total, offset, shown)).Append(from).Append(":\n");
                 foreach (var r in rows.Take(shown)) sb.Append("  ").Append(r).Append('\n');
                 return sb.Append(offset + shown < total ? OutputPager.More(offset + shown) : $"[End: {total} hit{(total == 1 ? "" : "s")}]").Append('\n').ToString();
             }
             var page = Render(fit);
             if (OutputCall.Current is { } call)
                 call.RowPage = new RowPageState(offset, ClampLimit(limit), fit, (int)Math.Min(int.MaxValue, total), page, Render);
-            return ToolOutput.With(page, new ByteSearch(native.Id, hits.Take(fit).ToList(), offset, total, null));
+            return ToolOutput.With(page, new ByteSearch(native.Id, hits.Take(fit).ToList(), offset, total, null) { Memory = engine });
         }
-        if (patterns.Length > 50) throw new ToolError(ErrorCode.InvalidArgument, $"{patterns.Length} patterns; at most 50 per call.", "split the patterns");
         var batch = BatchResult.Run(patterns, p =>
         {
-            var (hits, total) = SearchOne(native, p, text, section, limit, offset, cancellationToken);
+            var (hits, total) = search(engine != null ? [] : Parse(p, text, null));
             return new ByteSearchPattern(total, hits);
         }, "search_bytes").ThrowIfAllFailed();
         var report = new StringBuilder();
+        if (engine != null) report.Append($"Searched{from}\n");
         for (int i = 0; i < batch.Items.Count; i++)
         {
             var item = batch.Items[i];
@@ -561,13 +605,16 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         }
         if (batch.Failed > 0) report.AppendLine($"{batch.Failed} of {batch.Items.Count} failed");
         // Past the budget the head is sent and the whole result kept (no single row order to continue).
-        return ToolOutput.With(report.ToString(), new ByteSearch(native.Id, null, null, null, batch.Items) { Failed = batch.Failed });
-    }, cancellationToken);
+        return ToolOutput.With(report.ToString(), new ByteSearch(native.Id, null, null, null, batch.Items) { Failed = batch.Failed, Memory = engine });
+    }
 
     /// <summary>One hit of search_bytes.</summary>
     public sealed record ByteHit(string Address, string Section,
         [property: Description("ASCII or UTF-16, for a text pattern.")] string? Encoding,
-        [property: Description("Absent for zero fill, which is not in the file.")] string? FileOffset);
+        [property: Description("Absent for zero fill, which is not in the file.")] string? FileOffset)
+    {
+        [Description("memory=engine: the engine's bytes of this hit differ from the file's (a relocation or loader fixup).")] public bool? Fixed { get; init; }
+    }
 
     /// <summary>One pattern of a patterns= call: its hit count and the hits from offset.</summary>
     public sealed record ByteSearchPattern(long Total, IReadOnlyList<ByteHit> Items);
@@ -576,41 +623,66 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     public sealed record ByteSearch(string Image, IReadOnlyList<ByteHit>? Items, int? Offset, long? Total, IReadOnlyList<BatchItem<ByteSearchPattern>>? Patterns)
     {
         [Description("With patterns: how many failed.")] public int? Failed { get; init; }
+        [Description("The engine whose loaded bytes were searched; absent: the file's mapping.")] public string? Memory { get; init; }
     }
 
     private static string HitRow(ByteHit h) =>
-        $"{h.Address}  {h.Section}{(h.Encoding != null ? "  " + h.Encoding : "")}{(h.FileOffset != null ? $"  file {h.FileOffset}" : "  (zero fill, not in the file)")}";
+        $"{h.Address}  {h.Section}{(h.Encoding != null ? "  " + h.Encoding : "")}{(h.FileOffset != null ? $"  file {h.FileOffset}" : "  (zero fill, not in the file)")}" +
+        (h.Fixed == true ? "  (fixed up: differs from the file)" : "");
 
     private static string HitHeader(long total, int offset, int shown) =>
         $"{total} hit{(total == 1 ? "" : "s")}{(shown > 0 ? $" (showing {offset + 1}-{offset + shown})" : offset > 0 ? $" (none from offset {offset})" : "")}";
 
-    /// <summary>search_bytes for one pattern: the hits from offset (at most limit) and the total.</summary>
-    private static (List<ByteHit> Hits, long Total) SearchOne(LoadedNative native, string pattern, bool text, string? section, int limit, int offset, CancellationToken cancellationToken)
+    /// <summary>A pattern as hex (one BitPattern) or as text (ASCII and UTF-16LE).</summary>
+    internal static List<BitPattern> Parse(string pattern, bool text, string? mask)
     {
-        var pe = native.Image;
-        var patterns = text
-            ? new List<(byte[] Bytes, bool[] Mask, string Label)> { Exact(Encoding.ASCII.GetBytes(pattern), "ASCII"), Exact(Encoding.Unicode.GetBytes(pattern), "UTF-16") }
-            : [ParseHexPattern(pattern)];
-        if (patterns.Any(p => p.Bytes.Length == 0))
+        var parsed = text
+            ? new List<BitPattern> { BitPattern.Exact(Encoding.ASCII.GetBytes(pattern), "ASCII"), BitPattern.Exact(Encoding.Unicode.GetBytes(pattern), "UTF-16") }
+            : [ParseHexPattern(pattern, mask)];
+        if (parsed.Any(p => p.Length == 0))
             throw new ToolError(ErrorCode.InvalidArgument, "The pattern is empty.", "pass hex bytes such as '48 8B 05 ?? ?? ?? ??' or text with text=true");
-        int max = ClampLimit(limit);
-        offset = Math.Max(0, offset);
-        var hits = new List<ByteHit>();
-        long total = 0;
-        void Hit(NativeSection s, uint rva, string label)
+        return parsed;
+    }
+
+    /// <summary>Counts a hit and keeps it when it falls on the page [offset, offset + max).</summary>
+    private sealed class HitPage(INativeImage pe, int offset, int max, bool labelled)
+    {
+        public readonly List<ByteHit> Hits = [];
+        public long Total;
+
+        public void Hit(string section, uint rva, string label, bool? fixedUp = null)
         {
             // Rows stop at the page size; the rest is reached with offset.
-            if (total++ < offset || hits.Count >= max) return;
-            hits.Add(new ByteHit(NativeAddress.Va(pe, rva), s.Name, patterns.Count > 1 ? label : null,
-                pe.TryRvaToFileOffset(rva, out var fo) ? $"0x{fo:X}" : null));
+            if (Total++ < offset || Hits.Count >= max) return;
+            Hits.Add(new ByteHit(NativeAddress.Va(pe, rva), section, labelled ? label : null, pe.TryRvaToFileOffset(rva, out var fo) ? $"0x{fo:X}" : null) { Fixed = fixedUp });
         }
+
+        /// <summary>Counts <paramref name="count"/> hits at once, keeping those on the page.</summary>
+        public void Skip(long count) => Total += count;
+        public bool Full => Hits.Count >= max;
+        public long ToSkip => Math.Max(0, offset - Total);
+    }
+
+    private static NativeSection? Only(INativeImage pe, string? section)
+    {
+        if (section == null) return null;
+        return pe.Sections.FirstOrDefault(s => s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase))
+               ?? throw new ToolError(ErrorCode.NotFound, $"No section '{section}'. Sections: {string.Join(", ", pe.Sections.Select(s => s.Name))}.");
+    }
+
+    /// <summary>search_bytes over the file's mapping for one pattern (two for text): the hits from offset (at most limit) and the total.</summary>
+    private static (List<ByteHit> Hits, long Total) SearchFile(LoadedNative native, List<BitPattern> patterns, string? section, int limit, int offset, CancellationToken cancellationToken)
+    {
+        var pe = native.Image;
+        var only = Only(pe, section);
+        var page = new HitPage(pe, offset, ClampLimit(limit), patterns.Count > 1);
         // The file-backed part of each section is read in 1 MB chunks overlapping by the pattern length; matches in the
         // zero fill after it (which can be gigabytes) are counted, not scanned.
-        int longest = patterns.Max(p => p.Bytes.Length);
+        int longest = patterns.Max(p => p.Length);
         var data = new byte[(1 << 20) + longest];
         foreach (var s in pe.Sections)
         {
-            if (section != null && !s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
+            if (only != null && s != only) continue;
             uint size = (uint)Math.Min(s.MappedSize, Math.Max(0L, (long)pe.SizeOfImage - s.Rva));
             uint backed = (uint)pe.FileBackedLength(s.Rva, size);
             for (uint at = 0; at < backed; at += 1 << 20)
@@ -618,66 +690,107 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 cancellationToken.ThrowIfCancellationRequested();
                 int read = pe.Read(s.Rva + at, data.AsSpan(0, (int)Math.Min((uint)data.Length, size - at)));
                 if (read <= 0) break;
-                var span = data.AsSpan(0, read);
                 int starts = (int)Math.Min(Math.Min(read, 1 << 20), backed - at);
-                foreach (var (bytes, mask, label) in patterns)
-                {
-                    // Candidates are found with a vectorized search for the first run of fixed bytes (after any leading wildcards).
-                    int lead = Array.IndexOf(mask, true);
-                    int run = (Array.IndexOf(mask, false, lead) is var w and >= 0 ? w : mask.Length) - lead;
-                    var prefix = bytes.AsSpan(lead, run);
-                    for (int i = 0; i < starts && i + bytes.Length <= span.Length; i++)
-                    {
-                        int k = span[(i + lead)..Math.Min(span.Length, starts + lead + prefix.Length - 1)].IndexOf(prefix);
-                        if (k < 0) break;
-                        i += k;
-                        if (i < starts && i + bytes.Length <= span.Length && Matches(span, i, bytes, mask)) Hit(s, s.Rva + at + (uint)i, label);
-                    }
-                }
+                foreach (var p in patterns) p.Scan(data.AsSpan(0, read), starts, i => page.Hit(s.Name, s.Rva + at + (uint)i, p.Label));
             }
-            foreach (var (bytes, mask, label) in patterns)
+            foreach (var p in patterns)
             {
-                if (bytes.Where((b, i) => mask[i] && b != 0).Any() || (long)size - backed < bytes.Length) continue;
-                long zeroStarts = (long)size - backed - bytes.Length + 1;
-                long skip = Math.Clamp(offset - total, 0, zeroStarts);
-                total += skip;
+                if (!p.MatchesZero || (long)size - backed < p.Length) continue;
+                long zeroStarts = (long)size - backed - p.Length + 1;
+                long skip = Math.Min(page.ToSkip, zeroStarts);
+                page.Skip(skip);
                 long i = skip;
-                for (; i < zeroStarts && hits.Count < max; i++) Hit(s, s.Rva + backed + (uint)i, label);
-                total += zeroStarts - i;
+                for (; i < zeroStarts && !page.Full; i++) page.Hit(s.Name, s.Rva + backed + (uint)i, p.Label);
+                page.Skip(zeroStarts - i);
             }
         }
-        if (section != null && !pe.Sections.Any(s => s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)))
-            throw new ToolError(ErrorCode.NotFound, $"No section '{section}'. Sections: {string.Join(", ", pe.Sections.Select(s => s.Name))}.");
-        return (hits, total);
+        return (page.Hits, page.Total);
     }
 
-    private static (byte[], bool[], string) Exact(byte[] bytes, string label) => (bytes, bytes.Select(_ => true).ToArray(), label);
+    /// <summary>Engine memory is read in requests of this many bytes.</summary>
+    private const int EngineChunk = 1 << 20;
 
-    internal static (byte[] Bytes, bool[] Mask, string Label) ParseHexPattern(string pattern)
+    /// <summary>
+    /// search_bytes over an engine's loaded bytes (only what it has initialized), for each pattern: the hits from offset and the
+    /// total. A hit whose bytes differ from the file's mapping is marked fixed.
+    /// </summary>
+    internal static async Task<List<(List<ByteHit> Hits, long Total)>> SearchEngine(LoadedNative native, Native.Providers.INativeEngineControl control,
+        List<List<BitPattern>> parsed, string? section, int limit, int offset, CancellationToken cancellationToken)
     {
-        var tokens = pattern.Replace(",", " ").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        // Unspaced hex ("488B05") is split into byte pairs.
-        if (tokens.Length == 1 && tokens[0].Length > 2) tokens = Enumerable.Range(0, (tokens[0].Length + 1) / 2).Select(i => tokens[0].Substring(i * 2, Math.Min(2, tokens[0].Length - i * 2))).ToArray();
+        var pe = native.Image;
+        var only = Only(pe, section);
+        var pages = parsed.Select(p => new HitPage(pe, offset, ClampLimit(limit), p.Count > 1)).ToList();
+        if (parsed.Count == 0) return [];
+        int longest = parsed.SelectMany(p => p).Max(p => p.Length);
+        uint lo = only?.Rva ?? 0, hi = only != null ? only.Rva + Math.Max(only.VirtualSize, only.RawSize) : pe.SizeOfImage;
+        var file = new byte[EngineChunk + longest];
+        for (long at = lo; at < hi; at += EngineChunk)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            uint want = (uint)Math.Min(EngineChunk + longest - 1L, hi - at);
+            foreach (var run in await control.MemoryAsync((uint)at, want, cancellationToken))
+            {
+                // a match starts inside this chunk; the overlap only completes it
+                int starts = (int)Math.Clamp(at + EngineChunk - run.Rva, 0, run.Bytes.Length);
+                for (int k = 0; k < parsed.Count; k++)
+                    foreach (var p in parsed[k])
+                        p.Scan(run.Bytes, starts, i =>
+                        {
+                            uint rva = run.Rva + (uint)i;
+                            int n = pe.Read(rva, file.AsSpan(0, p.Length));
+                            pages[k].Hit(pe.SectionAt(rva)?.Name ?? "-", rva, p.Label, n != p.Length || !file.AsSpan(0, p.Length).SequenceEqual(run.Bytes.AsSpan(i, p.Length)));
+                        });
+            }
+        }
+        return pages.Select(p => (p.Hits, p.Total)).ToList();
+    }
+
+    internal static BitPattern ParseHexPattern(string pattern, string? mask = null)
+    {
+        var tokens = HexTokens(pattern);
         if (tokens.Length > 4096) throw new ToolError(ErrorCode.LimitExceeded, "The pattern is longer than 4096 bytes.");
         var bytes = new byte[tokens.Length];
-        var mask = new bool[tokens.Length];
+        var bits = new byte[tokens.Length];
         for (int i = 0; i < tokens.Length; i++)
+            (bytes[i], bits[i]) = HexByte(tokens[i]) ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{tokens[i]}' is not a hex byte, ??, a nibble wildcard (4?, ?4) or value&mask (40&F0).",
+                "write the pattern as hex bytes separated by spaces, e.g. 'E8 ?? ?? ?? ?? 85 C0'");
+        if (mask != null)
         {
-            var t = tokens[i];
-            if (t is "?" or "??" or "**") continue;
-            if (t.Length != 2 || !byte.TryParse(t, System.Globalization.NumberStyles.AllowHexSpecifier, null, out bytes[i]))
-                throw new ToolError(ErrorCode.InvalidArgument, $"'{t}' is not a hex byte or ??.", "write the pattern as hex bytes separated by spaces, e.g. 'E8 ?? ?? ?? ?? 85 C0'");
-            mask[i] = true;
+            var m = HexTokens(mask);
+            if (m.Length != tokens.Length)
+                throw new ToolError(ErrorCode.InvalidArgument, $"mask has {m.Length} bytes; the pattern has {tokens.Length}.", "give one mask byte per pattern byte, e.g. mask='FF F0 FF'");
+            for (int i = 0; i < m.Length; i++)
+                bits[i] &= m[i].Length == 2 && byte.TryParse(m[i], System.Globalization.NumberStyles.AllowHexSpecifier, null, out var b) ? b
+                    : throw new ToolError(ErrorCode.InvalidArgument, $"mask byte '{m[i]}' is not two hex digits.", "mask='FF F0 FF'");
         }
-        if (mask.Length > 0 && !mask.Contains(true)) throw new ToolError(ErrorCode.InvalidArgument, "The pattern has no fixed byte, only wildcards.");
-        return (bytes, mask, "hex");
+        if (bits.Length > 0 && bits.All(b => b == 0)) throw new ToolError(ErrorCode.InvalidArgument, "The pattern has no fixed bit, only wildcards.");
+        return new BitPattern(bytes, bits, "hex");
     }
 
-    private static bool Matches(ReadOnlySpan<byte> data, int at, byte[] bytes, bool[] mask)
+    private static string[] HexTokens(string text)
     {
-        for (int j = 0; j < bytes.Length; j++)
-            if (mask[j] && data[at + j] != bytes[j]) return false;
-        return true;
+        var tokens = text.Replace(",", " ").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        // Unspaced hex ("488B05", "48?B05") is split into byte pairs.
+        if (tokens.Length == 1 && tokens[0].Length > 2 && !tokens[0].Contains('&'))
+            tokens = Enumerable.Range(0, (tokens[0].Length + 1) / 2).Select(i => tokens[0].Substring(i * 2, Math.Min(2, tokens[0].Length - i * 2))).ToArray();
+        return tokens;
+    }
+
+    /// <summary>A pattern byte: XX, ?? (or ?, **), a nibble wildcard (4?, ?4) or value&amp;mask (40&amp;F8); null when it is none.</summary>
+    private static (byte Value, byte Mask)? HexByte(string t)
+    {
+        static int Nibble(char c) => c is '?' ? -1 : char.IsAsciiHexDigit(c) ? System.Convert.ToInt32(c.ToString(), 16) : -2;
+        if (t is "?" or "??" or "**") return (0, 0);
+        int amp = t.IndexOf('&');
+        if (amp > 0)
+        {
+            if (HexByte(t[..amp]) is not ({ } v, 0xFF) || HexByte(t[(amp + 1)..]) is not ({ } m, 0xFF)) return null;
+            return ((byte)(v & m), m);
+        }
+        if (t.Length != 2) return null;
+        int hi = Nibble(t[0]), lo = Nibble(t[1]);
+        if (hi == -2 || lo == -2) return null;
+        return ((byte)((Math.Max(hi, 0) << 4) | Math.Max(lo, 0)), (byte)((hi >= 0 ? 0xF0 : 0) | (lo >= 0 ? 0x0F : 0)));
     }
 
     /// <summary>read_bytes' record: the page of the hex dump and where the next one starts.</summary>

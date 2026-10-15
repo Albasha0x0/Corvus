@@ -685,7 +685,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (bytes, mask, _) = NativeTools.ParseHexPattern(pattern ?? "");
+        var parsed = NativeTools.ParseHexPattern(pattern ?? "");
+        if (parsed.Mask.IndexOfAnyExcept((byte)0, (byte)0xFF) >= 0)
+            throw new ToolError(ErrorCode.InvalidArgument, "search_code_pattern takes whole-byte ?? wildcards.", "search_bytes takes nibble wildcards and bit masks");
+        var (bytes, mask) = (parsed.Bytes.ToArray(), parsed.Mask.ToArray().Select(m => m == 0xFF).ToArray());
         if (bytes.Length == 0)
             throw new ToolError(ErrorCode.InvalidArgument, "The pattern is empty.", "pass hex bytes such as '48 8B 05 ?? ?? ?? ??'");
         var p = new BytePattern(bytes, mask);

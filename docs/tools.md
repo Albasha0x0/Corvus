@@ -1039,20 +1039,22 @@ Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `nam
 
 **Search native bytes** (read-only, idempotent)
 
-Find a byte pattern in a native image's mapped sections (hex with ?? wildcards, or text as ASCII and UTF-16): each hit's VA, section and file offset.
+Find a byte pattern in a native image's mapped sections (hex, or text as ASCII and UTF-16): each hit's VA, section and file offset; memory=engine searches the engine's loaded bytes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
-| `pattern` | string |  |  | Hex bytes with ?? wildcards ('48 8B 05 ?? ?? ?? ??'), or text when text=true. |
+| `pattern` | string |  |  | Hex: ?? any byte, 4? a nibble, 40&F8 bits ('48 8B 05 ?? ?? ?? ??'); text with text=true. |
 | `text` | boolean |  |  | pattern is text (ASCII and UTF-16LE). |
 | `section` | string |  |  | Only this section (e.g. .text, .rdata). |
 | `limit` | integer |  | `200` | Max hits. |
 | `offset` | integer |  |  | Rows to skip. |
 | `patterns` | string[] |  |  | Instead of pattern: up to 50 patterns. |
+| `mask` | string |  |  | Bit mask per pattern byte ('FF F0 FF'). |
+| `memory` | string |  | `file` | file (default), or engine / ida / ghidra: its loaded bytes. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `image`, `items`, `offset`, `total`, `patterns`, `failed`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `items`, `offset`, `total`, `patterns`, `failed`, `memory`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### read_bytes
 

@@ -3467,6 +3467,52 @@ def op_set_marks(args):
     return {"set": placed, "removed": removed, "failed": len(failures), "failures": failures}
 
 
+MEMORY_MAX = 16 << 20
+
+
+def op_memory(args):
+    # the loaded bytes of [rva, rva + size) as runs [rva, base64]; bytes IDA has not loaded (uninitialized) are gaps
+    m = need_open()
+    import base64
+    size = int(args.get("size") or 0)
+    if not 0 < size <= MEMORY_MAX:
+        raise WorkerError("invalid_argument", "size must be 1 to %d bytes" % MEMORY_MAX)
+    ea, end = ea_of(args, "rva"), ea_of(args, "rva") + size
+    runs = []
+
+    def add(at, data):
+        if runs and runs[-1][0] + len(runs[-1][1]) == at:
+            runs[-1][1] += data
+        else:
+            runs.append([at, bytearray(data)])
+
+    while ea < end:
+        seg = m.ida_segment.getseg(ea) or m.ida_segment.get_next_seg(ea)
+        if seg is None or seg.start_ea >= end:
+            break
+        lo, hi = max(ea, seg.start_ea), min(end, seg.end_ea)
+        got = m.ida_bytes.get_bytes_and_mask(lo, hi - lo)
+        if got:
+            data, mask = got
+            n = hi - lo
+            if mask[:n // 8] == b"\xff" * (n // 8) and all(mask[n // 8] >> b & 1 for b in range(n % 8)):
+                add(lo, data)
+            else:
+                i = 0
+                while i < n:
+                    if not mask[i >> 3] >> (i & 7) & 1:
+                        i += 1
+                        continue
+                    j = i
+                    while j < n and mask[j >> 3] >> (j & 7) & 1:
+                        j += 1
+                    add(lo + i, data[i:j])
+                    i = j
+        ea = hi
+    return {"runs": [[rva_of(at), base64.b64encode(bytes(data)).decode("ascii")] for at, data in runs if rva_of(at) is not None]}
+
+
+OPS["memory"] = op_memory
 OPS["analyzers"] = op_analyzers
 OPS["function_candidates"] = op_function_candidates
 OPS["reanalyze"] = op_reanalyze

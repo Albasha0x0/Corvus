@@ -31,7 +31,10 @@ public sealed record NativeMark(uint Rva, string Text);
 /// <summary>Marks the engine holds now (<see cref="Set"/>), earlier ones removed, and those it could not take.</summary>
 public sealed record NativeMarkResult(int Set, int Removed, int Failed, IReadOnlyList<string> Failures);
 
-/// <summary>Engine requests beyond <see cref="INativeDecompilerSession"/>: analysis control, function candidates, marks.</summary>
+/// <summary>Bytes the engine has loaded at <see cref="Rva"/> (relocations and loader fixups applied).</summary>
+public sealed record NativeMemoryRun(uint Rva, byte[] Bytes);
+
+/// <summary>Engine requests beyond <see cref="INativeDecompilerSession"/>: analysis control, function candidates, marks, memory.</summary>
 public interface INativeEngineControl
 {
     /// <summary>Functions one batch request decompiles at once (Ghidra's decompiler pool; IDA one).</summary>
@@ -51,6 +54,10 @@ public interface INativeEngineControl
 
     /// <summary>Replaces the server's marks in the database with <paramref name="marks"/> and records <paramref name="stamp"/>.</summary>
     Task<NativeMarkResult> SetMarksAsync(IReadOnlyList<NativeMark> marks, string stamp, CancellationToken cancellationToken = default);
+
+    /// <summary>The initialized bytes of [rva, rva + length) as the engine holds them, in address order; gaps are not loaded.</summary>
+    Task<IReadOnlyList<NativeMemoryRun>> MemoryAsync(uint rva, uint length, CancellationToken cancellationToken = default) =>
+        throw new ToolError(ErrorCode.Unsupported, "This engine does not read its memory.", "use memory=file");
 }
 
 /// <summary>The engine control of a session, and a per-session analysis generation that reanalysis advances (for caches of engine output).</summary>
@@ -98,6 +105,11 @@ public static class EngineControl
     internal static JsonObject MarkArgs(IReadOnlyList<NativeMark> marks, string stamp) => WorkerRows.Args(
         ("items", new JsonArray(marks.Select(m => (JsonNode)new JsonArray(m.Rva, m.Text)).ToArray())), ("stamp_key", MarksStampKey), ("stamp", stamp));
 
+    internal static IReadOnlyList<NativeMemoryRun> Memory(JsonElement r) =>
+        r.GetProperty("runs").EnumerateArray().Select(x => new NativeMemoryRun(x[0].GetUInt32(), Convert.FromBase64String(x[1].GetString() ?? ""))).ToList();
+
+    internal static JsonObject MemoryArgs(uint rva, uint length) => WorkerRows.Args(("rva", rva), ("size", length));
+
     /// <summary>A reanalysis may take the whole budget plus the save.</summary>
     internal static TimeSpan ReanalysisTimeout(double seconds) => TimeSpan.FromSeconds(seconds + 300);
 
@@ -119,6 +131,9 @@ public static class EngineControl
 
         public async Task<NativeMarkResult> SetMarksAsync(IReadOnlyList<NativeMark> marks, string stamp, CancellationToken cancellationToken = default) =>
             Marks(await session.CallAsync("set_marks", MarkArgs(marks, stamp), cancellationToken, journal: true).ConfigureAwait(false));
+
+        public async Task<IReadOnlyList<NativeMemoryRun>> MemoryAsync(uint rva, uint length, CancellationToken cancellationToken = default) =>
+            Memory(await session.CallAsync("memory", MemoryArgs(rva, length), cancellationToken).ConfigureAwait(false));
     }
 
     private sealed class GhidraControl(GhidraSession session) : INativeEngineControl
@@ -143,5 +158,8 @@ public static class EngineControl
 
         public async Task<NativeMarkResult> SetMarksAsync(IReadOnlyList<NativeMark> marks, string stamp, CancellationToken cancellationToken = default) =>
             Marks(await session.CallAsync("set_marks", MarkArgs(marks, stamp), cancellationToken, journal: true).ConfigureAwait(false));
+
+        public async Task<IReadOnlyList<NativeMemoryRun>> MemoryAsync(uint rva, uint length, CancellationToken cancellationToken = default) =>
+            Memory(await session.CallAsync("memory", MemoryArgs(rva, length), cancellationToken).ConfigureAwait(false));
     }
 }

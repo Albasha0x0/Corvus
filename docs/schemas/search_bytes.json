@@ -22,6 +22,10 @@
           "fileOffset": {
             "description": "Absent for zero fill, which is not in the file.",
             "type": "string"
+          },
+          "fixed": {
+            "description": "memory=engine: the engine's bytes of this hit differ from the file's (a relocation or loader fixup).",
+            "type": "boolean"
           }
         },
         "required": [
@@ -90,6 +94,10 @@
     "failed": {
       "description": "With patterns: how many failed.",
       "type": "integer"
+    },
+    "memory": {
+      "description": "The engine whose loaded bytes were searched; absent: the file's mapping.",
+      "type": "string"
     },
     "limit": {
       "type": "integer"

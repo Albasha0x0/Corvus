@@ -53,7 +53,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     [
         "hello", "functions", "decompile", "disasm", "disasm_range", "blocks", "xrefs_to", "xrefs_from", "names", "type_guess", "virtual_targets", "frame",
         "types", "type", "get_stamp", "decompile_many", "insn", "value_slice", "image_info", "defined_data", "defined_strings", "function_info", "namespaces",
-        "field_xrefs", "export_types", "analyzers", "function_candidates", "emulate", "function_table", "save",
+        "field_xrefs", "export_types", "analyzers", "function_candidates", "emulate", "function_table", "memory", "save",
     ];
 
     protected override bool ReadsOnly(string op) => ReadOps.Contains(op);
