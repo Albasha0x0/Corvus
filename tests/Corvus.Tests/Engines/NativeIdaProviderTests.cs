@@ -243,7 +243,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
-    public async Task Reopen_uses_the_saved_database_and_is_faster()
+    public async Task Reopen_uses_the_saved_database_without_analysis()
     {
         var timings = new List<string>();
         var provider = Isolated();
@@ -269,7 +269,9 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
                 warm = s.OpenTime;
             }
             timings.Add($"{path}: cold open {cold.TotalMilliseconds:0} ms, cached open {warm.TotalMilliseconds:0} ms; cached stages {stages}");
-            Assert.True(warm < cold, $"cached open {warm} not faster than cold {cold}");
+            // the stages, not the clock: under a loaded machine a load can take longer than a small image's analysis
+            Assert.Contains("load@", stages.ToString());
+            Assert.DoesNotContain("analysis@", stages.ToString());
         }
         output.WriteLine(string.Join("\n", timings));
     }
