@@ -160,7 +160,7 @@ public sealed class NativeNamePush(NativeCodeService code)
             var user = code.Annotations(native);
             var layers = NativeNameLayers.OfOrNull(native)?.Layers ?? [];
             // PDB names go in when the engine did not load the PDB with its own loader
-            bool withPdb = NativePdbTypes.Current(session) is { Route: NativePdbTypes.RouteOwn };
+            bool withPdb = NativePdbTypes.OwnRoute(NativePdbTypes.Current(session)?.Route);
             // Layers are immutable and replaced as a whole, so they compare by reference; user annotations by content.
             object[] inputs = [withPdb, .. layers, .. user.Names().Select(n => (object)n), "|", .. user.Comments().Select(c => (object)(c, user.CommentKindAt(c.Rva))), "|",
                 .. user.PseudoComments().Select(c => (object)c)];

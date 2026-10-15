@@ -281,10 +281,11 @@ public sealed partial class NativeAnalysisTools
     {
         null => null,
         { Route: null } => $"the PDB {Path.GetFileName(r.PdbPath)} could not be applied; the engine's own types",
-        _ => $"PDB {Path.GetFileName(r.PdbPath)} via " + r.Route switch
+        _ => $"{(r.Route == NativePdbTypes.RouteDwarf ? "DWARF" : "PDB")} {Path.GetFileName(r.PdbPath)} via " + r.Route switch
         {
             NativePdbTypes.RouteIda => "IDA's PDB loader",
             NativePdbTypes.RouteGhidra => "Ghidra's PDB loader",
+            NativePdbTypes.RouteDwarf => "the server's DWARF reader",
             _ => "the server's PDB type reader",
         },
     };

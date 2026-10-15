@@ -66,7 +66,7 @@ internal static class EngineReport
     {
         var user = code?.Annotations(native);
         var layers = Native.Code.NativeNameLayers.OfOrNull(native)?.Layers ?? [];
-        var pdb = PdbService.PathForEngines(native);
+        var pdb = PdbService.PathForEngines(native) ?? PdbService.StateOf(native)?.Path;
         var pdbFile = pdb != null && new FileInfo(pdb) is { Exists: true } f ? $"{pdb}|{f.Length}|{f.LastWriteTimeUtc.Ticks}" : "";
         return EngineOutputCache.Key(["setup", NativeNamePush.StampOf(NativeNamePush.Effective(user, layers, native.Image)),
             NativeNamePush.StampOf(NativeNamePush.Effective(user, layers, native.Image, withPdb: true)), user?.UserTypes.Stamp, pdbFile,

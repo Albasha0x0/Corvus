@@ -17,7 +17,10 @@ namespace Corvus.Services;
 public sealed class NativePdbTypes
 {
     public const string StampKey = "pdb";
-    public const string RouteIda = "ida_pdb_loader", RouteGhidra = "ghidra_pdb_loader", RouteOwn = "own_tpi_reader";
+    public const string RouteIda = "ida_pdb_loader", RouteGhidra = "ghidra_pdb_loader", RouteOwn = "own_tpi_reader", RouteDwarf = "own_dwarf_reader";
+
+    /// <summary>Whether the types came as the server's declarations (so its names go in too): the own PDB or DWARF reader.</summary>
+    public static bool OwnRoute(string? route) => route is RouteOwn or RouteDwarf;
 
     /// <summary>Use the own declarations even when the engine's loader is available (tests).</summary>
     internal bool PreferOwnReader { get; set; }
@@ -67,6 +70,9 @@ public sealed class NativePdbTypes
 
     private static (string Path, string Identity, bool Matches, PdbFile? Read)? Locate(LoadedNative native)
     {
+        // DWARF is read by the server only (the engines see the image, not its separate debug file)
+        if (PdbService.StateOf(native) is { Pdb.Format: DebugInfoFormat.Dwarf } dwarf)
+            return (dwarf.Path, PdbService.Identity(dwarf.Pdb).Replace(' ', '-'), dwarf.Verified, dwarf.Pdb);
         var path = PdbService.PathForEngines(native);
         if (path == null) return null;
         try
@@ -130,7 +136,9 @@ public sealed class NativePdbTypes
             return new PdbTypeSource(path, identity, stamp[(identity.Length + 1)..], true, false, 0, null, null, null, null, clock.Elapsed);
 
         string? fallback = null;
-        if (!PreferOwnReader)
+        bool dwarf = read?.Format == DebugInfoFormat.Dwarf;
+        if (dwarf) fallback = "DWARF";
+        else if (!PreferOwnReader)
         {
             // the engine was given the PDB's path when it analyzed a new database: a PDB it loaded then (only matching ones) is this one
             bool trust = !session.ReusedDatabase && matches && string.Equals(openedWith, path, StringComparison.OrdinalIgnoreCase);
@@ -150,10 +158,13 @@ public sealed class NativePdbTypes
         // the declarations from the PDB's type stream
         var pdb = read ?? await Task.Run(() => PdbFile.Open(path, native.Image.Sections, ct), ct).ConfigureAwait(false);
         var own = await Task.Run(() => PdbTypes.Build(pdb, native.Image.Is64Bit ? 8 : 4, ct), ct).ConfigureAwait(false);
-        var batch = new NativeTypeBatch(own.Declarations, own.Prototypes.Select(p => new NativePrototype(p.Rva, p.Declaration)).ToList(), [], [],
+        // DWARF functions use the platform's default convention, which __cdecl does not name on System V x64 or ARM
+        string Convention(string c) => dwarf ? c.Replace("__cdecl ", "", StringComparison.Ordinal) : c;
+        var batch = new NativeTypeBatch(Convention(own.Declarations), own.Prototypes.Select(p => new NativePrototype(p.Rva, Convention(p.Declaration))).ToList(), [], [],
             native.Image.Is64Bit ? 8 : 4);
-        var applied = await session.ApplyTypesAsync(batch, StampKey, identity + "|" + RouteOwn, save: true, ct).ConfigureAwait(false);
-        return new PdbTypeSource(path, identity, RouteOwn, false, false, own.Structs + own.Unions + own.Enums + own.Typedefs, own, applied, fallback, null, clock.Elapsed);
+        var ownRoute = dwarf ? RouteDwarf : RouteOwn;
+        var applied = await session.ApplyTypesAsync(batch, StampKey, identity + "|" + ownRoute, save: true, ct).ConfigureAwait(false);
+        return new PdbTypeSource(path, identity, ownRoute, false, false, own.Structs + own.Unions + own.Enums + own.Typedefs, own, applied, fallback, null, clock.Elapsed);
     }
 
     /// <summary>The PDB types last brought into <paramref name="session"/>, or null.</summary>
@@ -186,13 +197,14 @@ public sealed class NativePdbTypes
         if (r == null) return null;
         var file = Path.GetFileName(r.PdbPath);
         if (r.Route == null) return $"types: the PDB {file} could not be applied ({r.Error}); pseudocode uses the engine's own types";
-        var how = r.Route switch { RouteIda => "IDA's PDB loader", RouteGhidra => "Ghidra's PDB loader", _ => "the server's PDB type reader" };
-        if (r.AlreadyInDatabase) return $"types: PDB {file} via {how} (already in the database)";
-        if (r.FromAnalysis) return $"types: PDB {file} via {how} (loaded during auto-analysis)";
+        var how = r.Route switch { RouteIda => "IDA's PDB loader", RouteGhidra => "Ghidra's PDB loader", RouteDwarf => "the server's DWARF reader", _ => "the server's PDB type reader" };
+        var kind = r.Route == RouteDwarf ? "DWARF" : "PDB";
+        if (r.AlreadyInDatabase) return $"types: {kind} {file} via {how} (already in the database)";
+        if (r.FromAnalysis) return $"types: {kind} {file} via {how} (loaded during auto-analysis)";
         if (r.Own is { } own)
         {
             var t = r.OwnApplied!;
-            return $"types: PDB {file} via {how} ({r.FallbackReason}): {own.Structs} structs, {own.Unions} unions, {own.Enums} enums, {own.Typedefs} typedefs" +
+            return $"types: {kind} {file} via {how}{(r.Route == RouteDwarf ? "" : $" ({r.FallbackReason})")}: {own.Structs} structs, {own.Unions} unions, {own.Enums} enums, {own.Typedefs} typedefs" +
                    (t.DeclarationErrors > 0 ? $" ({t.DeclarationErrors} declaration errors)" : "") +
                    $", {t.Typed} of {own.Prototypes.Count} prototypes applied in {r.Elapsed.TotalSeconds:0.0} s";
         }
