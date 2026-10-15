@@ -166,7 +166,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
-        [Description("pairs, changed (code differs), unmatched or ambiguous (with candidates).")] string view = "pairs",
+        [Description("pairs, changed (code differs), unmatched, ambiguous (with candidates); wasm: interface.")] string view = "pairs",
         [Description("Only pairs of this tier (1-5); 0 for all.")] int tier = 0,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
         [Description("Least similarity for a fuzzy match (0-1).")] double minScore = 0.7,
@@ -182,8 +182,12 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             return EvidenceList(changes, offset, limit, ev, page => new NativeComparison(ev.Old.Ref, ev.New.Ref, 0, 0, 0, 0, 0, 0, 0, 0, [], "evidence", [], offset, changes.Count, [])
                 { Evidence = ev, Changes = page });
         var v = (string.IsNullOrWhiteSpace(view) ? "pairs" : view).Trim().ToLowerInvariant();
-        if (v is not ("pairs" or "changed" or "unmatched" or "ambiguous"))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use pairs, changed, unmatched or ambiguous");
+        if (v is not ("pairs" or "changed" or "unmatched" or "ambiguous" or "interface"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use pairs, changed, unmatched, ambiguous or interface");
+        var (oldNative, newNative) = await Task.Run(() => (Targets.Native(workspace, oldImage), Targets.Native(workspace, newImage)), cancellationToken);
+        if (oldNative.Image is WasmImage oldWasm && newNative.Image is WasmImage newWasm)
+            return await Task.Run(() => CompareWasm(oldNative.Id, oldWasm, newNative.Id, newWasm, v, offset, limit, cancellationToken), cancellationToken);
+        if (v == "interface") throw new ToolError(ErrorCode.InvalidArgument, "view=interface compares two WebAssembly modules.", "use pairs, changed, unmatched or ambiguous");
         if (tier is < 0 or > 5) throw new ToolError(ErrorCode.InvalidArgument, $"tier must be 0-5, not {tier}.");
         if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.");
         var pair = await pairs.Match(oldImage!, newImage!, new MatchOptions { UseNames = !codeOnly, MinScore = minScore }, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
@@ -231,6 +235,49 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     internal static string EvidenceList(IReadOnlyList<EvidenceChange> changes, int offset, int limit, EvidenceSummary summary,
         Func<IReadOnlyList<EvidenceChange>, object> record) =>
         ToolOutput.List(changes.Skip(Math.Max(0, offset)).ToList(), Math.Max(0, offset), limit, changes.Count, EvidenceInput.RowText, record, "change", EvidenceInput.Text(summary));
+
+    /// <summary>
+    /// compare_native_images on two WebAssembly builds: imports, exports and signatures compared (view=interface), functions
+    /// paired by name, then by an identical normalized body (pairs, changed: signature or body differs, unmatched).
+    /// </summary>
+    private static string CompareWasm(string oldId, WasmImage a, string newId, WasmImage b, string view, int offset, int limit, CancellationToken ct)
+    {
+        var c = Core.WebAssembly.WasmInterface.Compare(a.Module, a.FunctionNames, a.NameSources, b.Module, b.FunctionNames, b.NameSources, ct);
+        string Va(WasmImage w, uint f) => $"0x{(w.Module.BodyOf(f) is { } body ? body.Start : w.Module.ImportAt(Core.WebAssembly.WasmExternal.Func, f)?.Offset ?? 0):X}";
+        FunctionRow PairRow(Core.WebAssembly.WasmFunctionPair p) => new(Va(a, p.Old), Va(b, p.New), a.FunctionNames[(int)p.Old], b.FunctionNames[(int)p.New] == a.FunctionNames[(int)p.Old] ? null : b.FunctionNames[(int)p.New])
+        {
+            Tier = p.Basis == "name" ? 1 : 2, Basis = p.Basis, Score = 1, OldSize = (uint)p.OldSize, NewSize = (uint)p.NewSize, Identical = !p.BodyChanged && !p.SignatureChanged,
+            Reason = p.SignatureChanged ? $"signature {Core.WebAssembly.WasmInterface.Signature(a.Module.FunctionType(p.Old))} -> {Core.WebAssembly.WasmInterface.Signature(b.Module.FunctionType(p.New))}" : null,
+        };
+        IReadOnlyList<FunctionRow> rows = view switch
+        {
+            "interface" => [.. c.Interface.Select(x => new FunctionRow(x.Old, x.New, $"{x.Kind} {x.Name}", null) { Reason = x.Change })],
+            "changed" => [.. c.Pairs.Where(p => p.BodyChanged || p.SignatureChanged).Select(PairRow)],
+            "unmatched" => [.. c.OnlyOld.Select(f => new FunctionRow(Va(a, f), null, a.FunctionNames[(int)f], null) { Reason = "not_in_new_build" }),
+                .. c.OnlyNew.Select(f => new FunctionRow(null, Va(b, f), null, b.FunctionNames[(int)f]) { Reason = "new_in_this_build" })],
+            "ambiguous" => [],
+            _ => [.. c.Pairs.Select(PairRow)],
+        };
+        int identical = c.Pairs.Count(p => !p.BodyChanged && !p.SignatureChanged);
+        int signatures = c.Pairs.Count(p => p.SignatureChanged);
+        var tiers = new List<TierCount> { new(1, "same name", c.Pairs.Count(p => p.Basis == "name")), new(2, "identical body", c.Pairs.Count(p => p.Basis != "name")) };
+        string Count(string kind, string change) => c.Interface.Count(x => x.Kind == kind && x.Change == change).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var notes = new List<string>
+        {
+            $"imports: {Count("import", "added")} added, {Count("import", "removed")} removed, {Count("import", "changed")} changed; exports: {Count("export", "added")} added, " +
+            $"{Count("export", "removed")} removed, {Count("export", "changed")} changed (view=interface lists them)",
+            "body hashes cover the instructions with function, global and type indexes as names and signatures; constants such as memory addresses count",
+        };
+        var record = new NativeComparison(oldId, newId, a.Module.FunctionCount, b.Module.FunctionCount, c.Pairs.Count, identical, c.Pairs.Count - identical,
+            c.OnlyOld.Count, c.OnlyNew.Count, 0, tiers, view, [], offset, rows.Count, notes);
+        var head = new System.Text.StringBuilder($"{oldId} -> {newId} (WebAssembly): {c.Pairs.Count} of {a.Module.FunctionCount} old functions matched ({identical} identical, " +
+            $"{c.Pairs.Count - identical} changed, {signatures} with a new signature); {c.OnlyOld.Count} old and {c.OnlyNew.Count} new unmatched.\n");
+        foreach (var note in notes) head.Append("Note: ").Append(note).Append('\n');
+        head.Append($"View {view}:\n");
+        return ToolOutput.List(rows.Skip(Math.Max(0, offset)).ToList(), Math.Max(0, offset), limit, rows.Count,
+            r => view == "interface" ? $"{r.OldName}  {r.Reason}" + (r.Old != null ? $"  was {r.Old}" : "") + (r.New != null ? $"  now {r.New}" : "") : RowText(r),
+            page => record with { Items = page }, view == "interface" ? "change" : view is "pairs" or "changed" ? "pair" : "function", head.ToString());
+    }
 
     private static string RowText(FunctionRow r)
     {

@@ -1848,7 +1848,7 @@ Match the functions of two builds of one native image (x86 / x64 / ARM64) in tie
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | The older build: native image id or path (load both; the second gets an id like app.dll#2). |
 | `newImage` | string | yes |  | The newer build: native image id or path. |
-| `view` | string |  | `pairs` | pairs, changed (code differs), unmatched or ambiguous (with candidates). Values: pairs, changed, unmatched, ambiguous. |
+| `view` | string |  | `pairs` | pairs, changed (code differs), unmatched, ambiguous (with candidates); wasm: interface. Values: pairs, changed, unmatched, ambiguous. |
 | `tier` | integer |  | `0` | Only pairs of this tier (1-5); 0 for all. |
 | `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
 | `minScore` | number |  | `0.7` | Least similarity for a fuzzy match (0-1). |
