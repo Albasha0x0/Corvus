@@ -20,8 +20,8 @@ public sealed partial class NativeAnalysisTools
     [Description("One function of the call.")]
     public sealed record DecompileItem(
         [property: Description("The address or name as given.")] string Input,
-        [property: Description("Its VA; null when it did not resolve.")] string? Address,
-        [property: Description("Start VA of the function decompiled.")] string? Function,
+        [property: Description("Its VA; null when the input is that VA or did not resolve.")] string? Address,
+        [property: Description("Start VA of the function decompiled; null when that is the input or address.")] string? Function,
         string? Name,
         [property: Description("ok, error, skipped (time budget or maxFunctions) or duplicate (the same function as an earlier item).")] string Status,
         string? ErrorCode,
@@ -415,7 +415,8 @@ public sealed partial class NativeAnalysisTools
             var o = outcomes[i];
             var name = FunctionName(native, starts[i], o?.Function?.Name);
             var where = starts[i] is { } st ? Va(st) : rvas[i] is { } r ? Va(r) : null;
-            var head = $"// [{i + 1}/{n}] {name ?? where ?? inputs[i]}{(where != null && name != null ? $" at {where}" : "")} (input \"{inputs[i]}\")";
+            bool same = string.Equals(where, inputs[i], StringComparison.OrdinalIgnoreCase);
+            var head = $"// [{i + 1}/{n}] {name ?? where ?? inputs[i]}{(where != null && name != null ? $" at {where}" : "")}{(same ? "" : $" (input \"{inputs[i]}\")")}";
             string? code = null, message = null;
             switch (status[i])
             {
@@ -433,7 +434,12 @@ public sealed partial class NativeAnalysisTools
                     if (status[i] == "error") ToolOutput.Facet("pseudocode", $"{inputs[i]}: {message}");
                     break;
             }
-            items.Add(new DecompileItem(inputs[i], rvas[i] is { } a ? Va(a) : null, starts[i] is { } fs ? Va(fs) : null, name, status[i], code, message,
+            // callersOf inputs are the callers' start VAs: each row would name the same VA three times
+            var address = rvas[i] is { } a ? Va(a) : null;
+            var function = starts[i] is { } fs ? Va(fs) : null;
+            if (string.Equals(address, inputs[i], StringComparison.OrdinalIgnoreCase)) address = null;
+            if (function != null && (string.Equals(function, inputs[i], StringComparison.OrdinalIgnoreCase) || function == address)) function = null;
+            items.Add(new DecompileItem(inputs[i], address, function, name, status[i], code, message,
                 texts[i]?.Count(c => c == '\n') ?? 0, texts[i]?.Length ?? 0));
         }
         int ok = items.Count(x => x.Status == "ok"), failed = items.Count(x => x.Status == "error"), skipped = n - end;

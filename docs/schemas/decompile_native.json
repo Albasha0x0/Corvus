@@ -19,11 +19,11 @@
             "type": "string"
           },
           "address": {
-            "description": "Its VA; null when it did not resolve.",
+            "description": "Its VA; null when the input is that VA or did not resolve.",
             "type": "string"
           },
           "function": {
-            "description": "Start VA of the function decompiled.",
+            "description": "Start VA of the function decompiled; null when that is the input or address.",
             "type": "string"
           },
           "name": {
