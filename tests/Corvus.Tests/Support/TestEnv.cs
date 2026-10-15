@@ -163,6 +163,9 @@ public static class RealData
     /// <summary>A large native image (100 MB or more) for speed measurements.</summary>
     public const string LargeNativeImage = "CORVUS_LARGE_NATIVE_IMAGE";
 
+    /// <summary>A folder of folders, each an app's extracted webpack output (runtime and chunk files side by side).</summary>
+    public const string WebpackApps = "CORVUS_WEBPACK_APPS";
+
     /// <summary>A folder of folders, each holding two builds of one JavaScript bundle as old.* and new.*.</summary>
     public const string BundlePairs = "CORVUS_BUNDLE_PAIRS";
 

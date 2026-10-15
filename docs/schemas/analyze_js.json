@@ -292,6 +292,90 @@
         "rows"
       ]
     },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "require": {
+          "description": "The runtime's require function (__webpack_require__, minified or not) and its module table.",
+          "type": "string"
+        },
+        "moduleTable": {
+          "type": "string"
+        },
+        "chunkGlobals": {
+          "description": "Chunk loading globals (self.webpackChunk..., webpackJsonp).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "chunkIds": {
+          "description": "Ids of the chunks this file pushes.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "publicPath": {
+          "type": "string"
+        },
+        "helpers": {
+          "description": "Runtime helpers set on require: e (ensure chunk), u (chunk file name), p (public path)...",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "chunks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "asyncLoads": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "site": {
+                "type": "string"
+              },
+              "chunks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "module": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "site",
+              "chunks"
+            ]
+          }
+        }
+      },
+      "required": [
+        "chunkGlobals",
+        "chunkIds",
+        "helpers",
+        "chunks",
+        "asyncLoads"
+      ]
+    },
     "notices": {
       "type": "array",
       "items": {

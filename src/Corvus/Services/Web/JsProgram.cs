@@ -162,6 +162,7 @@ internal sealed class JsProgram
                 case FunctionDeclaration fd:
                 {
                     if (fd.Id != null) scope.Declare(fd.Id.Name).Fixed = new JsFunction(fd, scope);
+                    if (fd is { Id: { } rid, Params: [Identifier rp] } && JsRuntime.Table(fd, rid.Name, rp.Name) != null) RuntimeRequire.Add(rid.Name);
                     var fs = Function(fd, scope, factories);
                     foreach (var s in fd.Body.Body) stack.Push((s, fs));
                     foreach (var p in fd.Params) PushDefaults(p, fs, stack);

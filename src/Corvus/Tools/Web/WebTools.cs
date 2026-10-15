@@ -17,12 +17,13 @@ public sealed class WebTools(OutputPager pager)
         public IReadOnlyList<JsEndpoint>? Endpoints { get; init; }
         public IReadOnlyList<JsSecret>? Secrets { get; init; }
         public JsDiffResult? Diff { get; init; }
+        public JsRuntimeFacts? Runtime { get; init; }
     }
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
     [Description("Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, " +
                  "Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; " +
-                 "sources, source; endpoints: requests, routes; secrets: masked keys; diff: modules against the bundle in source.")]
+                 "sources, source; endpoints: requests, routes; secrets: masked keys; diff: modules against the bundle in source; runtime: webpack chunks.")]
     public string AnalyzeJs(
         [Description("Absolute path to a .js file.")] string path,
         [Description("View; default summary.")] string view = "summary",
@@ -148,6 +149,19 @@ public sealed class WebTools(OutputPager pager)
                            (d.TokenDiff != null ? "\n" + d.TokenDiff : "");
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("diff", Total: d.Rows.Count) { Diff = d with { Rows = d.Rows.Take(500).ToList() } });
             }
+            case "runtime":
+            {
+                var r = JsRuntime.Read(JsAnalysis.Program(path, default), default);
+                var sb = new StringBuilder();
+                sb.AppendLine(r.Require != null ? $"Runtime require: {r.Require} (module table {r.ModuleTable ?? "?"})" : "No webpack runtime require function in this file.");
+                if (r.ChunkGlobals.Count > 0) sb.AppendLine("Chunk loading global: " + string.Join(", ", r.ChunkGlobals));
+                if (r.ChunkIds.Count > 0) sb.AppendLine($"Chunks pushed by this file: {string.Join(", ", r.ChunkIds.Take(50))}{(r.ChunkIds.Count > 50 ? ", ..." : "")}");
+                if (r.PublicPath != null) sb.AppendLine($"Public path: {r.PublicPath}");
+                if (r.Helpers.Count > 0) sb.AppendLine("Helpers: " + string.Join("; ", r.Helpers));
+                if (r.Chunks.Count > 0) sb.AppendLine($"{r.Chunks.Count} chunk file(s):\n" + string.Join("\n", r.Chunks.Where(c => query == null || c.Id == query || c.File?.Contains(query, StringComparison.OrdinalIgnoreCase) == true).Select(c => $"  {c.Id} -> {c.File ?? "(not folded)"}")));
+                if (r.AsyncLoads.Count > 0) sb.AppendLine($"{r.AsyncLoads.Count} async load(s):\n" + string.Join("\n", r.AsyncLoads.Select(l => $"  {l.Site}: chunks {string.Join(", ", l.Chunks)}" + (l.Module != null ? $" then module {l.Module}" : ""))));
+                return ToolOutput.With(pager.Page(sb.ToString().TrimEnd(), offset, maxTokens), new JsResult("runtime", Total: r.Chunks.Count) { Runtime = r with { Chunks = r.Chunks.Take(500).ToList(), AsyncLoads = r.AsyncLoads.Take(500).ToList() } });
+            }
             case "secrets":
             {
                 var program = JsAnalysis.Program(path, default);
@@ -159,7 +173,7 @@ public sealed class WebTools(OutputPager pager)
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("secrets", Total: rows.Count) { Secrets = rows.Take(500).ToList() });
             }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets or diff");
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff or runtime");
         }
     }
 }

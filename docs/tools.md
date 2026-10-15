@@ -2832,7 +2832,7 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; sources, source; endpoints: requests, routes; secrets: masked keys; diff: modules against the bundle in source.
+Bundler, modules and source map of a JavaScript file, statically. view=summary; modules (webpack, esbuild, Browserify, Metro...) with requires; module: one's code; search: strings, names; refs: a module's users; position: to the original source; sources, source; endpoints: requests, routes; secrets: masked keys; diff: modules against the bundle in source; runtime: webpack chunks.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2845,4 +2845,4 @@ Bundler, modules and source map of a JavaScript file, statically. view=summary; 
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `view`, `summary`, `position`, `modules`, `total`, `endpoints`, `secrets`, `diff`.
+Structured output: `view`, `summary`, `position`, `modules`, `total`, `endpoints`, `secrets`, `diff`, `runtime`.
