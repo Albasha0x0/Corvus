@@ -2,7 +2,8 @@
 # full suite, commits and tags. With -Push it pushes main and the tag, waits for release.yml, verifies every asset
 # (archives, MCP bundles, the NuGet tool package) against SHA256SUMS, sets the GitHub release body from the notes and
 # prints the manual channel checklist.
-# Usage:  ./release.ps1 -Version 1.2.0              # bump, check, test (full suite unless test.ps1 -Full passed on this tree), commit, tag
+# Usage:  ./release.ps1 -Version 1.2.0              # bump, check, test (full suite unless test.ps1 -Full passed on this tree;
+#                                                   #   a patch release reruns only the changed families), commit, tag
 #         ./release.ps1 -Version 1.2.0 -Push        # ... then push, wait for the workflow and verify the release
 #         ./release.ps1 -Version 1.2.0 -VerifyOnly  # verify an existing release and print the checklist
 #         ./release.ps1 -Version 1.2.0 -Bundle DIR  # MCP bundles (.mcpb) from the archives in DIR (release.yml runs this)
@@ -118,6 +119,13 @@ if (-not $VerifyOnly) {
         $stamp = Join-Path ([IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())) 'corvus-full-suite.stamp'
         $passed = (Test-Path $stamp) -and (Get-Content $stamp -Raw).Trim() -eq "$((git rev-parse 'HEAD^{tree}').Trim()) exhaustive"
         if ($passed) { Write-Host 'The full suite passed on this tree (test.ps1 -Full -Exhaustive); not run again.' }
+        # A patch release (x.y.z, z > 0) reruns only the families whose inputs changed since their last exhaustive pass; a
+        # minor release (x.y.0) runs the whole exhaustive suite, which also catches what a family key cannot see.
+        elseif (-not $SkipTests -and [int]($Version -split '\.')[2] -gt 0) {
+            & (Join-Path $root 'test.ps1') -Full -Exhaustive -Reuse
+            if ($LASTEXITCODE -ne 0) { Fail 'the full suite failed' }
+            $passed = $true
+        }
 
         $csproj = Get-Content $project -Raw
         $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")

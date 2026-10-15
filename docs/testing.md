@@ -12,7 +12,11 @@
   tests of the families changed since `origin/main` in the foreground (shared code such as `Core`, `Mcp` or test
   `Support` runs everything). Releases gate on the full set: a routine `./test.ps1 -Full` sweeps an evenly spread
   quarter of the real images; `-Exhaustive` (gates and releases, `CORVUS_SWEEP=exhaustive`) takes them all. `./test.ps1 -Full` records the clean tree it
-  passed on (in `.git`), and `-IfChanged` and `release.ps1` skip a second full run on that tree.
+  passed on (in `.git`), and `-IfChanged` and `release.ps1` skip a second full run on that tree. Each full run on a
+  clean tree also records which test families passed, under a key of the family's own folders, all shared code, the
+  repository files its tests read, the SDK, the OS build and the `CORVUS_*` settings (`test-reuse.psm1`).
+  `./test.ps1 -Full -Reuse` then runs only the families whose key changed, plus the contract tests and the classes
+  known to be flaky under load. Patch releases gate on that; minor releases (`x.y.0`) run the whole exhaustive suite.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
 The full set and the real-application runs are done locally.

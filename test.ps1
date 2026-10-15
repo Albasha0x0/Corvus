@@ -6,6 +6,7 @@
 #         ./test.ps1 -Full -Exhaustive    # the real-image sweeps take every input, not a quarter (gates and releases)
 #         ./test.ps1 -Affected            # quick set plus the slow tests of the families changed since origin/main (before a push)
 #         ./test.ps1 -Filter <expr>       # any dotnet test filter, quick or full
+#         ./test.ps1 -Full -Reuse         # only the families whose inputs changed since their last full pass (test-reuse.psm1)
 #         ./test.ps1 -Full -Background    # the full suite on the committed HEAD in a worktree of its own; returns at once
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
 #Requires -Version 7.0
@@ -17,7 +18,8 @@ param(
     [string]$Base = 'origin/main',
     [string]$Filter,
     [switch]$Background,
-    [switch]$Status
+    [switch]$Status,
+    [switch]$Reuse
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,7 +45,7 @@ if ($Background) {
     $dir = Join-Path ([IO.Path]::GetTempPath()) "corvus-bg-$($commit.Substring(0, 8))"
     if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     git -C $root worktree add --detach $dir $commit | Out-Null
-    $flags = '-Full' + $(if ($Exhaustive) { ' -Exhaustive' } else { '' })
+    $flags = '-Full' + $(if ($Exhaustive) { ' -Exhaustive' } else { '' }) + $(if ($Reuse) { ' -Reuse' } else { '' })
     $short = $commit.Substring(0, 8)
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
     $script = @"
@@ -126,15 +128,59 @@ if ($Full -and $IfChanged) {
     }
 }
 
+# Per-family passes: every full run on a clean tree records which families passed under which input key (SDK, OS build,
+# engine settings and the family's files; test-reuse.psm1), and -Reuse runs only the families whose key changed.
+$familyStamps = Join-Path $gitDir 'corvus-family-stamps.json'
+$mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
+$familyKeys = $null
+$wholeSuite = $Full -and -not $Filter
+if ($wholeSuite -and (Get-CleanTree)) {
+    Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    $classMap = Get-ClassMap $tests
+    $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
+    $settings = Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS') -or $_.Name -eq 'JAVA_HOME' } |
+        Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }
+    $environment = (@("sdk $(dotnet --version)", $os) + $settings) -join "`n"
+    $familyKeys = Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) $environment
+    if ($Reuse) {
+        $stamps = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }
+        $stale = Get-StaleFamilies $familyKeys $stamps $Exhaustive.IsPresent
+        $Filter = Get-ReuseFilter $stale $classMap
+        $kept = @($classMap.Keys | Where-Object { $_ -notin $stale } | Sort-Object)
+        if ($Filter) { Write-Host "Reusing the $mode passes of $($kept -join ', '); running $($stale -join ', ') and the always-run classes." }
+        else { Write-Host 'No family pass to reuse: the full suite runs.' }
+    }
+}
+elseif ($Reuse) { Write-Host 'Reuse needs a clean tree and the whole suite: nothing is reused.' }
+
 $arguments = @('test', $tests, '--nologo')
 if ($Filter) { $arguments += @('--filter', $Filter) }
+$results = Join-Path ([IO.Path]::GetTempPath()) "corvus-trx-$PID"
+if ($familyKeys) { $arguments += @('--logger', 'trx;LogFileName=full.trx', '--results-directory', $results) }
 $saved = $env:CORVUS_ALL_TESTS; $savedSweep = $env:CORVUS_SWEEP
 try {
     if ($Full) { $env:CORVUS_ALL_TESTS = '1' }
     $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
-    $tree = if ($Full -and -not $Filter) { Get-CleanTree } else { $null }
+    $tree = if ($wholeSuite -and -not $Filter) { Get-CleanTree } else { $null }
     & dotnet @arguments
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    if ($tree) { $value = "$tree $(if ($Exhaustive) { 'exhaustive' } else { 'sampled' })"; Set-Content -Path $stamp -Value $value -NoNewline; Write-Host "Stamped $value." }
+    $code = $LASTEXITCODE
+    $trx = Join-Path $results 'full.trx'
+    if ($familyKeys -and (Test-Path $trx)) {
+        $passed = Get-PassedFamilies $trx $classMap $code
+        $all = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
+        $commit = (git -C $root rev-parse --short HEAD).Trim()
+        foreach ($family in $passed) {
+            # A sampled pass never replaces an exhaustive one on the same key.
+            if ($all[$family] -and $all[$family].key -eq $familyKeys[$family] -and $all[$family].mode -eq 'exhaustive') { continue }
+            $all[$family] = [ordered]@{ key = $familyKeys[$family]; mode = $mode; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm') }
+        }
+        $temp = "$familyStamps.tmp"
+        Set-Content -Path $temp -Value ($all | ConvertTo-Json -Depth 3) -NoNewline
+        Move-Item -Force $temp $familyStamps
+        Write-Host "Recorded $mode passes for $($passed.Count) families."
+    }
+    if (Test-Path $results) { Remove-Item -Recurse -Force $results }
+    if ($code -ne 0) { exit $code }
+    if ($tree) { $value = "$tree $mode"; Set-Content -Path $stamp -Value $value -NoNewline; Write-Host "Stamped $value." }
 }
 finally { $env:CORVUS_ALL_TESTS = $saved; $env:CORVUS_SWEEP = $savedSweep }
