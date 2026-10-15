@@ -45,6 +45,8 @@ internal sealed record SwitchMatch(uint TableRva, int EntrySize, bool Absolute, 
     public uint? Default { get; init; }
     public long Bias { get; init; }
     public bool BoundByMask { get; init; }
+    /// <summary>x86 PE: no compare bounds the index; the count is the run of relocated entries (values not exact).</summary>
+    public bool BoundByRelocations { get; init; }
     /// <summary>ARM64: targets are <see cref="Base"/> + (entry &lt;&lt; <see cref="Shift"/>), the entry sign-extended when <see cref="Signed"/>.</summary>
     public uint? Base { get; init; }
     public int Shift { get; init; }

@@ -523,7 +523,7 @@ internal sealed class CodeContext
                 : m.RelativeToTable ? SwitchTableKind.TableRelative : SwitchTableKind.Rva,
             Base = m.Base,
             Shift = m.Shift,
-            ValuesExact = !m.BoundByMask && !m.BaseAssumed,
+            ValuesExact = !m.BoundByMask && !m.BaseAssumed && !m.BoundByRelocations,
         };
     }
 

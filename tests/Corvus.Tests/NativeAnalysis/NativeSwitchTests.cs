@@ -260,6 +260,87 @@ public class NativeSwitchTests
     }
 
     [Fact]
+    public void X86_pe_table_without_a_bound_is_read_up_to_its_last_relocated_entry()
+    {
+        // MSVC: the index is a frame slot only ever set to constants, so no compare bounds it; the table follows the function in .text
+        Label table = default, after = default;
+        var labels = new Label[3];
+        var (code, rva) = Assemble(32, Base32 + Code, a =>
+        {
+            table = a.CreateLabel(); after = a.CreateLabel();
+            for (int i = 0; i < 3; i++) labels[i] = a.CreateLabel();
+            a.mov(eax, __dword_ptr[ebp - 0x10]);
+            a.jmp(__dword_ptr[eax * 4 + (int)(Base32 + Code + 0x40)]);
+            for (int i = 0; i < 3; i++) { a.Label(ref labels[i]); a.mov(eax, i); a.ret(); }
+            a.Label(ref after);
+            a.int3();
+        });
+        var text = new byte[0x60];
+        code.CopyTo(text, 0);
+        text.AsSpan(code.Length).Fill(0xCC);
+        int jmp = text.AsSpan().IndexOf((ReadOnlySpan<byte>)[0xFF, 0x24, 0x85]);
+        var relocs = new List<uint> { Code + (uint)jmp + 3 };
+        for (int i = 0; i < 3; i++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(0x40 + i * 4), (uint)Base32 + rva(labels[i]));
+            relocs.Add(Code + 0x40 + (uint)i * 4);
+        }
+        // the next dword is no relocated pointer: the table ends before it
+        BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(0x4C), (uint)Base32 + rva(labels[0]));
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, text, relocations: relocs, entry: Code));
+        var sw = Assert.Single(index.GetGraph(index.FunctionByStart(Code)!).Switches);
+        Assert.Equal(SwitchTableKind.Absolute, sw.Kind);
+        Assert.Equal(3, sw.EntryCount);
+        Assert.False(sw.ValuesExact);
+        Assert.Equal(labels.Select(rva), sw.Cases.Select(c => c.Target));
+    }
+
+    [Fact]
+    public void X86_index_bounded_through_the_stack_slot_it_was_stored_to()
+    {
+        // clang i386: movzx esi, cl; mov [esp+28h], cl; ...; cmp byte [esp+28h], 2; ja default; mov eax, [esi*4 + table]
+        Label dflt = default, other = default, check = default;
+        var labels = new Label[3];
+        uint tableRva = Data + 0x20;
+        var (code, rva) = Assemble(32, Base32 + Code, a =>
+        {
+            dflt = a.CreateLabel(); other = a.CreateLabel(); check = a.CreateLabel();
+            for (int i = 0; i < 3; i++) labels[i] = a.CreateLabel();
+            a.mov(eax, __dword_ptr[esp + 4]);
+            a.movzx(ecx, __byte_ptr[eax + 1]);
+            a.movzx(esi, cl);
+            a.cmp(esi, 0x49);
+            a.mov(__byte_ptr[esp + 0x28], cl);
+            a.je(other);
+            a.lea(ecx, __[esi - 12]);
+            a.cmp(ecx, 3);
+            a.jbe(check);
+            a.cmp(esi, 0x48);
+            a.jne(other);
+            a.Label(ref check);
+            a.movzx(eax, __byte_ptr[eax]);
+            a.cmp(al, 0x12);
+            a.je(other);
+            a.cmp(__byte_ptr[esp + 0x28], 2);
+            a.ja(dflt);
+            a.mov(eax, __dword_ptr[esi * 4 + (int)(Base32 + tableRva)]);
+            a.jmp(eax);
+            for (int i = 0; i < 3; i++) { a.Label(ref labels[i]); a.mov(eax, i); a.ret(); }
+            a.Label(ref dflt);
+            a.xor(eax, eax);
+            a.Label(ref other);
+            a.ret();
+        });
+        var data = new byte[0x100];
+        for (int i = 0; i < 3; i++) BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x20 + i * 4), (uint)Base32 + rva(labels[i]));
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, code, data, entry: Code));
+        var sw = Assert.Single(index.GetGraph(index.FunctionByStart(Code)!).Switches);
+        Assert.Equal(3, sw.EntryCount);
+        Assert.Equal(rva(dflt), sw.Default);
+        Assert.Equal(labels.Select(rva), sw.Cases.Select(c => c.Target));
+    }
+
+    [Fact]
     public async Task GetCfg_lists_cases_and_find_xrefs_names_the_case_values()
     {
         // the biased switch of Msvc() as a PE file: .text at 0x1000, the table in .rdata at 0x2000
