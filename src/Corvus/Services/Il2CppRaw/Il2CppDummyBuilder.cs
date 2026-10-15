@@ -78,13 +78,23 @@ internal sealed class Il2CppDummyBuilder
             var d = _meta.typeDefs[t];
             _types[t] = new TypeDefUser(d.DeclaringTypeIndex.Value >= 0 ? "" : d.Namespace ?? "", d.Name ?? $"Type{t}") { Attributes = (dnlib.DotNet.TypeAttributes)d.Flags };
         }
+        // The nestedTypes section first, as the metadata-only read: some declaring indexes do not resolve to a definition
+        // (String's TrimType and ProbabilisticMap stayed top-level); the declaring index covers types the section omits.
+        var outers = Il2CppMetadataOnly.OuterTypes(_meta, _types.Length, (t, ex) => _unreadable($"type {SafeName(t)}", "unreadable_nested_types", ex.Message));
         for (int t = 0; t < _types.Length; t++)
         {
             var d = _meta.typeDefs[t];
-            int? outer = null;
-            try { if (d.DeclaringTypeIndex.Value >= 0) outer = Definition(d.DeclaringTypeIndex.Value); }
-            catch (Exception ex) when (ex is not OutOfMemoryException) { _unreadable($"type {SafeName(t)}", "unreadable_declaring_type", $"{ex.Message}; kept at the top level"); }
-            if (outer is { } o && _types[o] is { } outerDef && o != t) outerDef.NestedTypes.Add(_types[t]!);
+            if (outers[t] < 0)
+                try { if (d.DeclaringTypeIndex.Value >= 0 && Definition(d.DeclaringTypeIndex.Value) is { } o && o != t) outers[t] = o; }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { _unreadable($"type {SafeName(t)}", "unreadable_declaring_type", $"{ex.Message}; kept at the top level"); }
+        }
+        for (int t = 0; t < _types.Length; t++)
+        {
+            if (outers[t] >= 0 && !Il2CppMetadataOnly.Encloses(outers, t))
+            {
+                _types[t]!.Namespace = "";
+                _types[outers[t]]!.NestedTypes.Add(_types[t]!);
+            }
             else _modules[_typeImage[t]].Types.Add(_types[t]!);
         }
         BuildAttributeModule(corlibRef);

@@ -21,6 +21,34 @@ namespace Corvus.Services;
 /// </summary>
 public static class Il2CppMetadataOnly
 {
+    /// <summary>Each type's enclosing type from the metadata's nestedTypes section, -1 for top-level ones.</summary>
+    internal static int[] OuterTypes(Il2CppMetadata meta, int count, Action<int, Exception> unreadable)
+    {
+        var outer = new int[count];
+        Array.Fill(outer, -1);
+        for (int t = 0; t < count; t++)
+        {
+            var d = meta.typeDefs[t];
+            if (d.NestedTypeCount == 0) continue;
+            try
+            {
+                foreach (int n in meta.GetNestedTypeIndicesFromIndexAndCount(d.NestedTypesStart, d.NestedTypeCount))
+                    if (n >= 0 && n < count && n != t && outer[n] < 0) outer[n] = t;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { unreadable(t, ex); }
+        }
+        return outer;
+    }
+
+    /// <summary>Whether following the outer chain from <paramref name="t"/> comes back to it (a damaged nesting table).</summary>
+    internal static bool Encloses(int[] outer, int t)
+    {
+        int steps = 0;
+        for (int o = outer[t]; o >= 0; o = outer[o])
+            if (o == t || ++steps > 64) return true;
+        return false;
+    }
+
     /// <summary>The type standing for every type whose definition is in the binary's type table.</summary>
     public const string Placeholder = "TypeInBinary";
 
@@ -156,19 +184,7 @@ public static class Il2CppMetadataOnly
                 _types[t] = new TypeDefUser(Name(d.NamespaceIndex, ""), Name(d.NameIndex, $"Type{t}")) { Attributes = (dnlib.DotNet.TypeAttributes)d.Flags };
             }
             // Nesting from the nestedTypes section: the declaring type index points into the binary's type table.
-            var outer = new int[_types.Length];
-            Array.Fill(outer, -1);
-            for (int t = 0; t < _types.Length; t++)
-            {
-                var d = meta.typeDefs[t];
-                if (d.NestedTypeCount == 0) continue;
-                try
-                {
-                    foreach (int n in meta.GetNestedTypeIndicesFromIndexAndCount(d.NestedTypesStart, d.NestedTypeCount))
-                        if (n >= 0 && n < _types.Length && n != t && outer[n] < 0) outer[n] = t;
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException) { unreadable($"type {_types[t].FullName}", "unreadable_nested_types", ex.Message); }
-            }
+            var outer = OuterTypes(meta, _types.Length, (t, ex) => unreadable($"type {_types[t].FullName}", "unreadable_nested_types", ex.Message));
             for (int t = 0; t < _types.Length; t++)
             {
                 if (outer[t] >= 0 && !Encloses(outer, t))
@@ -187,15 +203,6 @@ public static class Il2CppMetadataOnly
             var all = _modules.ToList();
             all.Add(_attributes);
             return all;
-        }
-
-        /// <summary>Whether following the outer chain from <paramref name="t"/> comes back to it (a damaged nesting table).</summary>
-        private static bool Encloses(int[] outer, int t)
-        {
-            int steps = 0;
-            for (int o = outer[t]; o >= 0; o = outer[o])
-                if (o == t || ++steps > 64) return true;
-            return false;
         }
 
         private string AssemblyName(int image, string fallback)

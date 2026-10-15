@@ -399,11 +399,10 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.Equal((full.Model.Images, full.Model.Types, full.Model.MethodDefinitions, full.Model.Fields),
             (meta.Model.Images, meta.Model.Types, meta.Model.MethodDefinitions, meta.Model.Fields));
         Assert.Equal(full.Model.LiteralValues.Length, meta.Model.LiteralValues.Length);
-        // Simple names: nesting comes from the declaring type index with the binary and from the nestedTypes section without it.
-        List<string> Names(AssemblyWorkspace ws, bool full) => ws.Read(() => ws.Assemblies.Where(a => a.Module.Assembly?.Name != Il2CppDummyBuilder.AttributeAssembly)
-            .SelectMany(a => a.Module.GetTypes()).Select(t => full ? t.FullName : t.Name.String).Order(StringComparer.Ordinal).ToList());
-        Assert.Equal(Names(fullWs, false), Names(metaWs, false));
-        output.WriteLine("nested differently: " + string.Join(", ", Names(fullWs, true).Except(Names(metaWs, true)).Take(10)));
+        // Full names: both reads nest from the nestedTypes section
+        List<string> Names(AssemblyWorkspace ws) => ws.Read(() => ws.Assemblies.Where(a => a.Module.Assembly?.Name != Il2CppDummyBuilder.AttributeAssembly)
+            .SelectMany(a => a.Module.GetTypes()).Select(t => t.FullName).Order(StringComparer.Ordinal).ToList());
+        Assert.Equal(Names(fullWs), Names(metaWs));
     }
 
     private const string GameVariable = "CORVUS_IL2CPP_GAME";
