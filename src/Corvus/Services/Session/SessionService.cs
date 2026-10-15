@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Corvus.Core;
+using Corvus.Native;
 using Corvus.Native.Patching;
 
 namespace Corvus.Services;
@@ -27,7 +28,24 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
 
     public static readonly string[] Parts = ["edits", "patches", "annotations", "notes"];
 
-    public sealed record SessionFile(string Id, string Kind, string Path, string? RelativePath, string Sha256, long Size, string? Mvid);
+    public sealed record SessionFile(string Id, string Kind, string Path, string? RelativePath, string Sha256, long Size, string? Mvid)
+    {
+        /// <summary>A raw image's layout (load_assembly format=raw): reopened with the same arch, base and entry.</summary>
+        public SessionRaw? Raw { get; init; }
+        /// <summary>The import overrides the image was loaded with, applied again on load_session.</summary>
+        public SessionOverrides? Overrides { get; init; }
+    }
+
+    /// <summary>A raw image's arch name, base and entry as load_assembly takes them.</summary>
+    public sealed record SessionRaw(string Arch, string Base, string Entry);
+
+    public sealed record SessionOverrides(string? Processor, string? Language, string? CompilerSpec, string[]? Seeds, string[]? DisableAnalyzers)
+    {
+        public static SessionOverrides? Of(EngineOverrides? o) => o == null ? null
+            : new(o.Processor, o.Language, o.CompilerSpec, o.Seeds.Count > 0 ? [.. o.Seeds.Select(s => s.Text)] : null, o.DisabledAnalyzers.Count > 0 ? [.. o.DisabledAnalyzers] : null);
+
+        public EngineOverrides? Parse(INativeImage image) => EngineOverrides.Parse(image, Processor, Language, CompilerSpec, Seeds, DisableAnalyzers);
+    }
 
     public sealed record SessionEdits(string Id, string Sha256, EditHistoryService.Script Script);
 
@@ -110,7 +128,11 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
             {
                 // A mixed-mode assembly's native view loads with the assembly.
                 if (n.ManagedView == null)
-                    files.Add(new SessionFile(n.Id, "native", n.FilePath, Path.GetRelativePath(dir, n.FilePath), n.OriginalSha256, Length(n.FilePath), null));
+                    files.Add(new SessionFile(n.Id, "native", n.FilePath, Path.GetRelativePath(dir, n.FilePath), n.OriginalSha256, Length(n.FilePath), null)
+                    {
+                        Raw = n.Image is RawCodeImage r ? new SessionRaw(r.Layout.Isa.Name, $"0x{r.Layout.Base:X}", $"0x{r.Layout.Base + r.Layout.EntryOffset:X}") : null,
+                        Overrides = SessionOverrides.Of(n.Overrides),
+                    });
                 JsonElement? patches = null;
                 if (include.Contains("patches") && n.HasPatches)
                 {

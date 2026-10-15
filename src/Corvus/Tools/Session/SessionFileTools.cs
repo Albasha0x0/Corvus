@@ -172,8 +172,8 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
             if (target == EditHistoryService.TargetBuild.Other && located.Other is { } otherPath)
             {
                 current.Remove(f.Sha256);
-                if (located.Path != null) old[f.Sha256] = Load(located.Path, dryRun) ?? f.Id;
-                var id = Load(otherPath, dryRun);
+                if (located.Path != null) old[f.Sha256] = Load(located.Path, dryRun, f) ?? f.Id;
+                var id = Load(otherPath, dryRun, f);
                 if (id != null) current[f.Sha256] = id;
                 else if (dryRun) wouldLoad.Add(f.Sha256);
                 Add("file", f.Id, dryRun ? WouldLoad : Loaded, "other_build", 1,
@@ -183,7 +183,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
             if (current.ContainsKey(f.Sha256)) continue;
             if (located.Path is { } same)
             {
-                var id = Load(same, dryRun);
+                var id = Load(same, dryRun, f);
                 if (id != null) current[f.Sha256] = id;
                 else if (dryRun) wouldLoad.Add(f.Sha256);
                 Add("file", f.Id, dryRun ? WouldLoad : Loaded, located.How, 1, same);
@@ -303,11 +303,22 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     private bool SameBuildLoaded(string sha256, Dictionary<string, string> current) =>
         current.TryGetValue(sha256, out var id) && LoadedId(sha256) == id;
 
-    /// <summary>Loads <paramref name="file"/> (not in a dry run) and returns its id: the native view for an image, else the assembly.</summary>
-    private string? Load(string file, bool dryRun)
+    /// <summary>
+    /// Loads <paramref name="file"/> (not in a dry run) as <paramref name="recorded"/> was: its raw layout and import overrides;
+    /// returns its id: the native view for an image, else the assembly.
+    /// </summary>
+    private string? Load(string file, bool dryRun, SessionService.SessionFile recorded)
     {
         if (dryRun) return null;
-        var (asm, native) = workspace.LoadAny(file);
+        Func<Native.INativeImage, Native.EngineOverrides?>? overrides = recorded.Overrides is { } o ? o.Parse : null;
+        if (recorded.Raw is { } raw)
+        {
+            var head = new byte[8];
+            int read;
+            using (var s = File.OpenRead(file)) read = s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            return workspace.LoadRaw(file, Native.RawLayout.Parse(raw.Arch, raw.Base, raw.Entry, new FileInfo(file).Length, head.AsSpan(0, read)), overrides).Id;
+        }
+        var (asm, native) = workspace.LoadAny(file, overrides: overrides);
         return asm?.Id ?? native?.Id;
     }
 

@@ -105,6 +105,25 @@ public sealed class SessionFileTests : IDisposable
         return path;
     }
 
+    [Fact]
+    public async Task A_raw_image_and_import_overrides_come_back_as_they_were_loaded()
+    {
+        var path = Place("raw", "code.bin", [0x55, 0x89, 0xE5, 0x5D, 0xC3, 0x90, 0x90, 0x90, 0xC3]);
+        var session = _dir.File(Path.Combine("raw", "raw.session.json"));
+        using (var a = new Stack(_dir.File("store-raw")))
+        {
+            var layout = Corvus.Native.RawLayout.Parse("x86", "0x10000", "0x10008", 9);
+            a.Workspace.LoadRaw(path, layout, image => Corvus.Native.EngineOverrides.Parse(image, null, null, "gcc", ["0x10000=start"], null));
+            await a.Tools.SaveSession(session);
+        }
+        using var b = new Stack(_dir.File("store-raw"));
+        await b.LoadSession(session, dryRun: false);
+        var native = Assert.Single(b.Workspace.Natives);
+        var raw = Assert.IsType<Corvus.Native.RawCodeImage>(native.Image);
+        Assert.Equal(("x86", 0x10000UL, 8u), (raw.Layout.Isa.Name, raw.Layout.Base, raw.Layout.EntryOffset));
+        Assert.Equal("compilerSpec=gcc; seeds=function:rva:0x0=start", native.Overrides?.Text);
+    }
+
     /// <summary>
     /// An Il2Cpp game read by the built-in reader is recorded by its metadata and binary, not by the dummy assemblies in
     /// the reader's cache; an open minidump by its file. load_session finds both again and reopens the dump.
