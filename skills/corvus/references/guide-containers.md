@@ -33,6 +33,8 @@ SMB2 and Kerberos names in-process; other fields through TShark when CORVUS_TSHA
 Flutter app's Dart package: / dart: URIs and identifiers (summarize_file view=flutter gives its packages).
 analyze_js on a .js file: bundler signatures and its source map; view=position maps a minified line:column to the original source.
 Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read these yet; unpack_container on the _framework folder converts them to PEs that load; save_assembly to a .wasm path writes Webcil back.
+Any other .wasm loads as a native image: disassemble gives a function's WAT (as wasm2wat), decompile_native a lifted view,
+find_xrefs / native_call_tree its calls (call_indirect by type), globals and data; summarize_file view=wasm validates it.
 Unity builds: unity_overview first.
 Android packages (.apk, .aab, split sets), read natively: get_android_manifest (components, exported state, permissions, deep links),
 list_android_resources and get_android_resource (decoded XML, @type/name values). DEX code: list_dex_classes, get_dex_class (exact

@@ -7,6 +7,11 @@ public enum CodeSupport
     Full,
     /// <summary>Only the function starts the image declares (.pdata, exports, entry point, TLS callbacks); no decoding.</summary>
     DeclaredFunctionsOnly,
+    /// <summary>
+    /// Bytecode with its own reader (WebAssembly): functions, calls and references are complete, but there is no machine-code
+    /// walker (no basic blocks, no instruction decoder for the native tools).
+    /// </summary>
+    Bytecode,
 }
 
 /// <summary>Instruction set capabilities of the code analysis.</summary>
@@ -16,6 +21,7 @@ public static class InstructionSets
     public static (CodeSupport Support, string? Reason) For(NativeArch arch) => arch switch
     {
         NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm => (CodeSupport.Full, null),
+        NativeArch.Wasm => (CodeSupport.Bytecode, "WebAssembly is read by its own bytecode reader"),
         _ => (CodeSupport.DeclaredFunctionsOnly, $"instruction set {arch} is not decoded by the built-in analysis"),
     };
 

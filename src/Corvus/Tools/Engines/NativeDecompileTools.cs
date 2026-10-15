@@ -52,6 +52,36 @@ public sealed partial class NativeAnalysisTools
         [Description("Why this engine answered.")] public string? EngineNote { get; init; }
     }
 
+    /// <summary>A WebAssembly image's lifted pseudocode, one function or several, without an engine (engine=ghidra or ida still asks one).</summary>
+    private string WasmDecompile(LoadedNative native, WasmImage wasm, string[] inputs, uint rva, bool batch, int offset, int? maxTokens)
+    {
+        var items = new List<DecompileItem>();
+        var sb = new StringBuilder();
+        foreach (var input in batch ? inputs : [inputs[0]])
+        {
+            try
+            {
+                uint at = batch ? workspace.Read(() => NativeAddress.Parse(wasm, input, code?.Ready(native) is { } idx ? idx.AddressesOfName : null)) : rva;
+                uint function = WasmCodeViews.Function(wasm, at);
+                var text = pager.GetOrCreate($"wasm-lift|{wasm.Sha256}|{function}", () => WasmCodeViews.Lifted(wasm, function));
+                sb.Append(text).Append('\n');
+                items.Add(new DecompileItem(input, NativeAddress.Va(wasm, at), NativeAddress.Va(wasm, wasm.Module.BodyOf(function) is { } b ? (uint)b.Start : at),
+                    wasm.FunctionNames[(int)function], "ok", null, null, text.Count(c => c == '\n'), text.Length));
+            }
+            catch (ToolError e) when (batch)
+            {
+                sb.Append($"// {input}: {e.Message}\n\n");
+                items.Add(new DecompileItem(input, null, null, null, "error", e.Code.ToString(), e.Message, 0, 0));
+            }
+        }
+        int ok = items.Count(i => i.Status == "ok");
+        var report = new DecompileReport(native.Id, "ours", items, items.Count, ok, items.Count - ok, 0, null)
+        {
+            EngineNote = "WebAssembly lifted by the built-in bytecode reader; engine=ghidra asks Ghidra (its WebAssembly extension must be installed)",
+        };
+        return ToolOutput.Text(pager, sb.ToString(), batch ? 0 : offset, report, maxTokens);
+    }
+
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
     [Description("C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs the engine's auto-analysis (seconds to " +
                  "minutes); database and answers are kept per file. Names, comments and types in effect are pushed first; user types " +
@@ -93,6 +123,8 @@ public sealed partial class NativeAnalysisTools
         var native = batch ? await Task.Run(() => ResolveImage(workspace, image), cancellationToken) : null;
         uint rva = 0;
         if (!batch || callers) (native, rva) = await Task.Run(() => Resolve(image, callers ? callersOf! : address!), cancellationToken);
+        if (native!.Image is WasmImage wasm && string.IsNullOrWhiteSpace(engine))
+            return await Task.Run(() => WasmDecompile(native, wasm, batch && !callers ? functions! : [address ?? callersOf!], rva, batch && !callers, offset, maxTokens), cancellationToken);
         var choice = EngineChoice.EngineOnly(engine, engines, native!);
         // another process decompiled this function in the database state saved on disk, after the same pushes: no engine needed
         string? setup = !batch && !refs && !pcode && engines.OutputCache != null ? SetupDigest(native!) : null;

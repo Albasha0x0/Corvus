@@ -122,9 +122,15 @@ public sealed partial class NativeCodeTools
         bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;
         bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
         // instruction details for other instruction sets come from an engine
-        var choice = EngineChoice.Of(mode.Mode, mode.Named, engines, native, operands ? null
+        var wasm = native.Image as WasmImage;
+        var choice = EngineChoice.Of(mode.Mode, mode.Named, engines, native, operands || wasm != null ? null
             : undecoded ? $"the built-in analysis does not decode {index.Image.ArchName()} instructions"
             : $"the built-in inspector reads x86 / x64 / ARM operands, not {index.Image.ArchName()}");
+        if (!choice.External && wasm != null)
+        {
+            var (wasmText, wasmReport) = InspectWasm(native.Id, index, wasm, rva, n, choice);
+            return ToolOutput.With(choice.Line + "\n" + pager.Page(wasmText, offset, maxTokens), wasmReport);
+        }
         if (!choice.External && !operands) throw NativeEngineCode.Unsupported(index, engines);
         var (text, report) = choice.External
             ? await InspectWithEngine(native, index, rva, n, choice, progress, cancellationToken)

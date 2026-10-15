@@ -43,7 +43,7 @@ public sealed class NativeCodeService
     private NativeCodeIndex LoadOrBuild(Native.INativeImage image, CodeIndexOptions? options, Action<CodeIndexProgress>? progress, CancellationToken ct,
         Action<NativeCodeIndex>? complete = null)
     {
-        if (IndexCache is { } cache)
+        if (IndexCache is { } cache && image is not Native.WasmImage) // a WebAssembly index is rebuilt: it takes seconds, and has no walker state to save
         {
             progress?.Invoke(new CodeIndexProgress("loading saved index", 0, 0));
             if (cache.TryLoad(image, options, ct) is { } loaded)
@@ -55,7 +55,7 @@ public sealed class NativeCodeService
         }
         var index = NativeCodeIndex.Build(image, options, progress, ct);
         complete?.Invoke(index);
-        if (IndexCache is { } c && !ct.IsCancellationRequested) c.Save(index, options);
+        if (IndexCache is { } c && !ct.IsCancellationRequested && image is not Native.WasmImage) c.Save(index, options);
         return index;
     }
 

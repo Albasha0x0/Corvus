@@ -16,8 +16,35 @@ public sealed partial class NativeTools
         ElfFile elf => ElfInfo(native, elf),
         MachOFile macho => MachOInfo(native, macho),
         RawCodeImage raw => RawInfo(native, raw),
+        WasmImage wasm => WasmInfo(native, wasm),
         _ => throw LoadedNative.PeOnly(native.Image, "get_pe_info"),
     };
+
+    /// <summary>A WebAssembly module: entity counts, memories and tables, imports by module, custom sections, the validation verdict and the sections.</summary>
+    private static string WasmInfo(LoadedNative native, WasmImage wasm)
+    {
+        var m = wasm.Module;
+        var sb = new StringBuilder();
+        Head(sb, native, wasm);
+        sb.AppendLine($"  {m.Types.Count} types, {m.FunctionCount:N0} functions ({m.ImportedFunctions} imported), {m.GlobalCount} globals, {m.TableCount} tables, " +
+                      $"{m.MemoryCount} memories, {m.TagCount} tags, {m.Exports.Count} exports, {m.Elements.Count} element and {m.Data.Count} data segments");
+        for (uint i = 0; i < m.MemoryCount; i++)
+            if (m.MemoryOf(i) is { } l)
+                sb.AppendLine($"  memory {i}: {l.Min:N0} pages" + (l.Max is { } max ? $", max {max:N0}" : ", no max") + (l.Shared ? ", shared" : "") + (l.Is64 ? ", 64-bit" : ""));
+        for (uint i = 0; i < m.TableCount; i++)
+            if (m.TableTypeOf(i) is { } t) sb.AppendLine($"  table {i}: {Core.WebAssembly.WasmBinary.TypeName(t.Element)}, {t.Limits.Min:N0} entries" + (t.Limits.Max is { } max ? $", max {max:N0}" : ""));
+        if (m.Start is { } start) sb.AppendLine($"  start function {start} ({wasm.FunctionNames[(int)start]})");
+        foreach (var g in m.Imports.GroupBy(i => i.Module)) sb.AppendLine($"  imports from {g.Key}: {g.Count()} ({string.Join(", ", g.GroupBy(i => i.Kind).Select(k => $"{k.Count()} {k.Key.ToString().ToLowerInvariant()}"))})");
+        int named = wasm.NameSources.Count(s => s is "name" or "symbols");
+        sb.AppendLine($"  function names: {named:N0} of {m.FunctionCount:N0} from the name section or a symbol map, the rest from exports, imports or the index");
+        if (m.Customs.Count > 0) sb.AppendLine($"  custom sections: {string.Join(", ", m.Customs.Select(c => $"{c.Name} ({c.End - c.Start:N0} bytes)"))}");
+        var validation = Core.WebAssembly.WasmValidator.Validate(m);
+        sb.AppendLine($"Validation: {Core.WebAssembly.WasmValidator.Describe(validation)}");
+        sb.AppendLine($"Sections ({wasm.Sections.Count}):");
+        foreach (var s in wasm.Sections) sb.AppendLine($"  {s.Name,-10} 0x{s.Rva:X8}  {s.VirtualSize,12:N0} bytes");
+        foreach (var issue in wasm.Issues) sb.AppendLine($"Issue: {issue.Message}");
+        return sb.ToString();
+    }
 
     private static void Head(StringBuilder sb, LoadedNative native, INativeImage image)
     {

@@ -13,55 +13,81 @@ public enum NativeFileKind
     MachO,
     /// <summary>A universal (fat) Mach-O holding several slices.</summary>
     MachOFat,
+    /// <summary>A WebAssembly module (not Webcil, which wraps a .NET PE).</summary>
+    Wasm,
 }
 
-/// <summary>Opens a native image by its content rather than its name.</summary>
+/// <summary>
+/// One container format the loader opens by content. A provider claims the first bytes it recognizes and opens the file
+/// or its bytes; <see cref="NativeImageLoader.Providers"/> lists them in detection order.
+/// </summary>
+public interface INativeFormatProvider
+{
+    NativeFileKind Kind { get; }
+    bool Detect(ReadOnlySpan<byte> head);
+    INativeImage Open(string path, string? slice);
+    INativeImage FromBytes(ReadOnlySpan<byte> bytes, string path);
+}
+
+/// <summary>Opens a native image by its content rather than its name, through the format-provider registry.</summary>
 public static class NativeImageLoader
 {
-    /// <summary>
-    /// The container format at the start of <paramref name="head"/>. 0xCAFEBABE is also the Java class magic, so a fat
-    /// header counts only with fewer than 64 slices whose first CPU type is a Mach-O one.
-    /// </summary>
+    private delegate bool DetectBytes(ReadOnlySpan<byte> head);
+    private delegate INativeImage ReadBytes(ReadOnlySpan<byte> bytes, string path);
+
+    private sealed class Provider(NativeFileKind kind, DetectBytes detect, Func<string, string?, INativeImage> open, ReadBytes fromBytes) : INativeFormatProvider
+    {
+        public NativeFileKind Kind => kind;
+        public bool Detect(ReadOnlySpan<byte> head) => detect(head);
+        public INativeImage Open(string path, string? slice) => open(path, slice);
+        public INativeImage FromBytes(ReadOnlySpan<byte> bytes, string path) => fromBytes(bytes, path);
+    }
+
+    /// <summary>The registered formats, in detection order; a new format is one entry here.</summary>
+    public static readonly IReadOnlyList<INativeFormatProvider> Providers =
+    [
+        new Provider(NativeFileKind.Pe, h => h.Length >= 2 && h[0] == 'M' && h[1] == 'Z', (p, _) => PeFile.Open(p), (b, p) => PeFile.FromBytes(b, p)),
+        new Provider(NativeFileKind.Elf, h => h.Length >= 4 && h[0] == 0x7F && h[1] == 'E' && h[2] == 'L' && h[3] == 'F', (p, _) => Elf.ElfFile.Open(p), (b, p) => Elf.ElfFile.FromBytes(b, p)),
+        new Provider(NativeFileKind.MachO, h => h.Length >= 4 && BinaryPrimitives.ReadUInt32BigEndian(h) is 0xFEEDFACE or 0xFEEDFACF or 0xCEFAEDFE or 0xCFFAEDFE,
+            (p, s) => MachO.MachOFile.Open(p, s), (b, p) => MachO.MachOFile.FromBytes(b, p)),
+        new Provider(NativeFileKind.MachOFat, IsFat, (p, s) => MachO.MachOFile.Open(p, s), (b, p) => MachO.MachOFile.FromBytes(b, p)),
+        new Provider(NativeFileKind.Wasm, h => Core.WebAssembly.WasmBinary.Looks(h), (p, _) => WasmImage.Open(p), (b, p) => new WasmImage(b.ToArray(), p)),
+    ];
+
+    /// <summary>0xCAFEBABE is also the Java class magic, so a fat header counts only with fewer than 64 slices whose first CPU type is a Mach-O one.</summary>
+    private static bool IsFat(ReadOnlySpan<byte> head)
+    {
+        if (head.Length < 12 || BinaryPrimitives.ReadUInt32BigEndian(head) is not (0xCAFEBABE or 0xCAFEBABF)) return false;
+        uint count = BinaryPrimitives.ReadUInt32BigEndian(head[4..]);
+        uint cpu = BinaryPrimitives.ReadUInt32BigEndian(head[8..]);
+        return count is > 0 and < 64 && (cpu & 0x00FFFFFF) is 7 or 12 or 18;
+    }
+
+    /// <summary>The container format at the start of <paramref name="head"/>.</summary>
     public static NativeFileKind Detect(ReadOnlySpan<byte> head)
     {
         if (head.Length < 4) return NativeFileKind.Unknown;
-        if (head[0] == 'M' && head[1] == 'Z') return NativeFileKind.Pe;
-        if (head[0] == 0x7F && head[1] == 'E' && head[2] == 'L' && head[3] == 'F') return NativeFileKind.Elf;
-        uint be = BinaryPrimitives.ReadUInt32BigEndian(head);
-        if (be is 0xFEEDFACE or 0xFEEDFACF or 0xCEFAEDFE or 0xCFFAEDFE) return NativeFileKind.MachO;
-        if (be is 0xCAFEBABE or 0xCAFEBABF && head.Length >= 12)
-        {
-            uint count = BinaryPrimitives.ReadUInt32BigEndian(head[4..]);
-            uint cpu = BinaryPrimitives.ReadUInt32BigEndian(head[8..]);
-            if (count is > 0 and < 64 && (cpu & 0x00FFFFFF) is 7 or 12 or 18) return NativeFileKind.MachOFat;
-        }
+        foreach (var p in Providers)
+            if (p.Detect(head)) return p.Kind;
         return NativeFileKind.Unknown;
     }
 
+    private static INativeFormatProvider? Of(NativeFileKind kind) => Providers.FirstOrDefault(p => p.Kind == kind);
+
     /// <summary>
-    /// Opens the image at <paramref name="path"/> by its content: PE, ELF, Mach-O, or the <paramref name="slice"/> of a
-    /// universal Mach-O (see <see cref="MachO.MachOFat.Select"/>). Anything unrecognized fails as "not a PE file".
+    /// Opens the image at <paramref name="path"/> by its content: PE, ELF, Mach-O, the <paramref name="slice"/> of a
+    /// universal Mach-O (see <see cref="MachO.MachOFat.Select"/>), or a WebAssembly module. Anything unrecognized fails as "not a PE file".
     /// </summary>
     public static INativeImage Open(string path, string? slice = null)
     {
         var kind = DetectFile(path);
         if (slice != null && kind != NativeFileKind.MachOFat)
             throw new ToolError(ErrorCode.InvalidArgument, $"slice '{slice}' applies to universal Mach-O files only.", "omit slice");
-        return kind switch
-        {
-            NativeFileKind.Elf => Elf.ElfFile.Open(path),
-            NativeFileKind.MachO or NativeFileKind.MachOFat => MachO.MachOFile.Open(path, slice),
-            _ => PeFile.Open(path),
-        };
+        return (Of(kind) ?? Of(NativeFileKind.Pe)!).Open(path, slice);
     }
 
-    /// <summary>The PE, ELF or Mach-O image in <paramref name="bytes"/>; anything else fails as "not a PE file".</summary>
-    public static INativeImage FromBytes(ReadOnlySpan<byte> bytes, string path = "") => Detect(bytes) switch
-    {
-        NativeFileKind.Elf => Elf.ElfFile.FromBytes(bytes, path),
-        NativeFileKind.MachO or NativeFileKind.MachOFat => MachO.MachOFile.FromBytes(bytes, path),
-        _ => PeFile.FromBytes(bytes, path),
-    };
+    /// <summary>The image in <paramref name="bytes"/>; anything unrecognized fails as "not a PE file".</summary>
+    public static INativeImage FromBytes(ReadOnlySpan<byte> bytes, string path = "") => (Of(Detect(bytes)) ?? Of(NativeFileKind.Pe)!).FromBytes(bytes, path);
 
     /// <summary>The container format of the file at <paramref name="path"/>; Unknown when it cannot be read.</summary>
     public static NativeFileKind DetectFile(string path)

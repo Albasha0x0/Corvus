@@ -300,7 +300,7 @@ public sealed class AssemblyWorkspace : IDisposable
     }
 
     /// <summary>
-    /// Loads a .NET assembly, or a native image when the file has no .NET metadata (PE, ELF, Mach-O; for a universal
+    /// Loads a .NET assembly, or a native image when the file has no .NET metadata (PE, ELF, Mach-O, WebAssembly; for a universal
     /// Mach-O the <paramref name="slice"/>). Returns the existing entry when the path (and slice) is already loaded.
     /// </summary>
     public (LoadedAssembly? Assembly, LoadedNative? Native) LoadAny(string path, string? slice = null, Func<Native.INativeImage, Native.EngineOverrides?>? overrides = null)
@@ -308,7 +308,7 @@ public sealed class AssemblyWorkspace : IDisposable
         var full = InputFiles.RequireRegularFile(path);
         Webcil.ThrowIfWebcil(full);
         var kind = Native.NativeImageLoader.DetectFile(full);
-        if (kind is Native.NativeFileKind.Elf or Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat)
+        if (kind is Native.NativeFileKind.Elf or Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat or Native.NativeFileKind.Wasm)
             return (null, LoadNativeFile(full, slice, overrides));
         if (slice != null) Native.NativeImageLoader.Open(full, slice); // the slice error
         if (Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == null)) is { } existing)

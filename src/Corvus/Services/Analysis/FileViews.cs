@@ -42,7 +42,7 @@ internal sealed class NativeFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        if (Native.NativeImageLoader.Detect(file.Head) == Native.NativeFileKind.Unknown) return null;
+        if (Native.NativeImageLoader.Detect(file.Head) is Native.NativeFileKind.Unknown or Native.NativeFileKind.Wasm) return null; // wasm: view=wasm
         var image = NativeImageFacts.Of(file.Path, file.Bytes);
         var packers = Native.PackerDetection.OfFile(file.Path, file.Bytes);
         var aot = NativeAot(file.Kind, file.Bytes, ct);

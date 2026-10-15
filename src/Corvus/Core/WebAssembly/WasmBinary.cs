@@ -21,18 +21,33 @@ public readonly record struct WasmGlobalType(WasmType Type, bool Mutable);
 /// <summary>A constant expression's bytes, from its first instruction up to and including its end.</summary>
 public readonly record struct WasmExpr(int Start, int End);
 
-public sealed record WasmImport(string Module, string Name, WasmExternal Kind, uint TypeIndex, WasmTableType? Table, WasmLimits? Memory, WasmGlobalType? Global);
+/// <summary>An import; <see cref="Offset"/> is its entry's file offset in the import section.</summary>
+public sealed record WasmImport(string Module, string Name, WasmExternal Kind, uint TypeIndex, WasmTableType? Table, WasmLimits? Memory, WasmGlobalType? Global)
+{
+    public int Offset { get; init; }
+}
 
-public sealed record WasmExport(string Name, WasmExternal Kind, uint Index);
+public sealed record WasmExport(string Name, WasmExternal Kind, uint Index)
+{
+    public int Offset { get; init; }
+}
 
-public sealed record WasmGlobal(WasmGlobalType Type, WasmExpr Init);
+/// <summary>A defined global; <see cref="Offset"/> is its entry's file offset in the global section.</summary>
+public sealed record WasmGlobal(WasmGlobalType Type, WasmExpr Init)
+{
+    public int Offset { get; init; }
+}
 
 public sealed record WasmTable(WasmTableType Type, WasmExpr? Init);
 
 public enum WasmSegmentMode : byte { Active, Passive, Declarative }
 
 /// <summary>An element segment: its encoding flags, mode, table, offset, element type, and either function indexes or expressions.</summary>
-public sealed record WasmElement(uint Flags, WasmSegmentMode Mode, uint Table, WasmExpr? Offset, WasmType Type, uint[]? Functions, WasmExpr[]? Exprs);
+public sealed record WasmElement(uint Flags, WasmSegmentMode Mode, uint Table, WasmExpr? Offset, WasmType Type, uint[]? Functions, WasmExpr[]? Exprs)
+{
+    /// <summary>The segment entry's file offset in the element section.</summary>
+    public int Position { get; init; }
+}
 
 /// <summary>A data segment: mode, memory, offset, and the bytes' range in the file.</summary>
 public sealed record WasmData(WasmSegmentMode Mode, uint Memory, WasmExpr? Offset, int Start, int Length);
@@ -191,21 +206,25 @@ public sealed class WasmBinary
             case 2:
                 for (uint i = 0, n = Count(ref r); i < n; i++)
                 {
+                    int at = r.Pos;
                     var module = r.Name();
                     var field = r.Name();
                     byte kind = r.Byte();
+                    WasmImport import;
                     switch (kind)
                     {
-                        case 0: Imports.Add(new WasmImport(module, field, WasmExternal.Func, r.U32(), null, null, null)); ImportedFunctions++; break;
-                        case 1: Imports.Add(new WasmImport(module, field, WasmExternal.Table, 0, TableType(ref r), null, null)); ImportedTables++; break;
-                        case 2: Imports.Add(new WasmImport(module, field, WasmExternal.Memory, 0, null, Limits(ref r, memory: true), null)); ImportedMemories++; break;
-                        case 3: Imports.Add(new WasmImport(module, field, WasmExternal.Global, 0, null, null, GlobalType(ref r))); ImportedGlobals++; break;
+                        case 0: import = new WasmImport(module, field, WasmExternal.Func, r.U32(), null, null, null); ImportedFunctions++; break;
+                        case 1: import = new WasmImport(module, field, WasmExternal.Table, 0, TableType(ref r), null, null); ImportedTables++; break;
+                        case 2: import = new WasmImport(module, field, WasmExternal.Memory, 0, null, Limits(ref r, memory: true), null); ImportedMemories++; break;
+                        case 3: import = new WasmImport(module, field, WasmExternal.Global, 0, null, null, GlobalType(ref r)); ImportedGlobals++; break;
                         case 4:
                             if (r.Byte() != 0) throw new WasmFormatException("tag attribute is not 0");
-                            Imports.Add(new WasmImport(module, field, WasmExternal.Tag, r.U32(), null, null, null)); ImportedTags++;
+                            import = new WasmImport(module, field, WasmExternal.Tag, r.U32(), null, null, null);
+                            ImportedTags++;
                             break;
                         default: throw new WasmFormatException($"import {i} has kind {kind}");
                     }
+                    Imports.Add(import with { Offset = at });
                 }
                 break;
             case 3:
@@ -237,22 +256,24 @@ public sealed class WasmBinary
             case 6:
                 for (uint i = 0, n = Count(ref r); i < n; i++)
                 {
+                    int at = r.Pos;
                     var type = GlobalType(ref r);
-                    Globals.Add(new WasmGlobal(type, ConstExpr(ref r)));
+                    Globals.Add(new WasmGlobal(type, ConstExpr(ref r)) { Offset = at });
                 }
                 break;
             case 7:
                 for (uint i = 0, n = Count(ref r); i < n; i++)
                 {
+                    int at = r.Pos;
                     var name = r.Name();
                     byte kind = r.Byte();
                     if (kind > 4) throw new WasmFormatException($"export {i} has kind {kind}");
-                    Exports.Add(new WasmExport(name, (WasmExternal)kind, r.U32()));
+                    Exports.Add(new WasmExport(name, (WasmExternal)kind, r.U32()) { Offset = at });
                 }
                 break;
             case 8: Start = r.U32(); break;
             case 9:
-                for (uint i = 0, n = Count(ref r); i < n; i++) Elements.Add(Element(ref r));
+                for (uint i = 0, n = Count(ref r); i < n; i++) { int at = r.Pos; Elements.Add(Element(ref r) with { Position = at }); }
                 break;
             case 12: DataCount = r.U32(); break;
             case 10:

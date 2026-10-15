@@ -166,6 +166,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     {
         options ??= new CodeIndexOptions();
         var report = new ProgressGate(progress);
+        if (image is WasmImage wasm) return FromWasm(wasm, report, ct);
         var (support, note) = InstructionSets.For(image);
         if (support != CodeSupport.Full) return DeclaredOnly(image, note, report, options.SymbolStarts);
         return new Builder(image, options, report, ct).Run();
@@ -417,7 +418,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     /// <summary>Basic blocks and edges of <paramref name="f"/> and its chunks (decoded again on each call).</summary>
     public FunctionGraph GetGraph(NativeFunction f, CancellationToken ct = default)
     {
-        if (_ctx == null) throw new NotSupportedException(SupportNote);
+        if (_ctx == null) return Support == CodeSupport.Bytecode ? WasmGraph(f, ct) : throw NoWalker();
         var walker = new FunctionWalker(_ctx);
         return walker.Walk(f, f.Start, buildGraph: true, ct, ChunkRoots(f)).Graph!;
     }
@@ -444,7 +445,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     /// <summary>A disassembler that names targets through this index. Not thread-safe; create one per caller.</summary>
     public NativeDisassembler CreateDisassembler()
     {
-        if (_ctx == null) throw new NotSupportedException(SupportNote);
+        if (_ctx == null) throw NoWalker();
         return new NativeDisassembler(Image, this, _ctx.Relocations, _ctx.ArmModes, _ctx.Code);
     }
 

@@ -210,6 +210,18 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             }
             return listing;
         }
+        if (native.Image is WasmImage wasm)
+        {
+            // WebAssembly: the function's WAT, byte-equal to wasm2wat's
+            uint function = WasmCodeViews.Function(wasm, Address(index, address));
+            var wat = pager.GetOrCreate($"wat|{wasm.Sha256}|{function}", () => WasmCodeViews.Text(wasm, function));
+            var page = new DisassemblyPage("", offset, null, 0)
+            {
+                Image = native.Id, Function = wasm.FunctionNames[(int)function], Engine = choice.Engine,
+                Address = NativeAddress.Va(index.Image, wasm.Module.BodyOf(function) is { } body ? (uint)body.Start : (uint)wasm.Module.ImportAt(Core.WebAssembly.WasmExternal.Func, function)!.Offset),
+            };
+            return $"; {choice.Line}\n" + ToolOutput.Text(pager, wat, offset, page, maxTokens);
+        }
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var rva = Address(index, address);
         var fn = fromAddress ? null : index.FunctionAt(rva);

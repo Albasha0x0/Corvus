@@ -12,6 +12,8 @@ public enum NativeArch
     PowerPc,
     RiscV,
     Other,
+    /// <summary>WebAssembly bytecode, read by its own reader (<see cref="WasmImage"/>), not by the machine-code index.</summary>
+    Wasm,
 }
 
 /// <summary>Container format of a native image.</summary>
@@ -22,6 +24,8 @@ public enum ImageFormat
     MachO,
     /// <summary>A headerless file mapped by the caller's layout (<see cref="RawCodeImage"/>).</summary>
     Raw,
+    /// <summary>A WebAssembly module (<see cref="WasmImage"/>).</summary>
+    Wasm,
 }
 
 [Flags]

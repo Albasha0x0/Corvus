@@ -57,6 +57,28 @@ public sealed class WatWriter
         return "  " + o.ToString().TrimEnd() + "\n";
     }
 
+    /// <summary>One instruction of function <paramref name="function"/> as its line reads in the module text, branch depths without their label comments.</summary>
+    internal static string Instruction(WasmBinary m, uint function, in WasmInstr ins)
+    {
+        var o = new StringBuilder();
+        var w = new WatWriter(m, o) { _plainLabels = true };
+        w._localNames = m.Names.Locals.GetValueOrDefault(function);
+        int locals = (m.FunctionType(function)?.Params.Length ?? 0) + (int)Math.Min(m.BodyOf(function)?.LocalCount ?? 0, 50_000);
+        w._locals = w.LocalNames(locals);
+        if (ins.Op is 0x02 or 0x03 or 0x04 or 0x06 or 0x1F)
+        {
+            w.PutsSpace(ins.Info.Name);
+            if (ins.Op == 0x1F) w.TryTableCatches(ins);
+            w.BlockType(ins.BlockType);
+        }
+        else if (ins.Op is 0x05 or 0x0B or 0x19) w.PutsNewline(ins.Info.Name);
+        else if (ins.Op == 0x07) { w.PutsSpace("catch"); w.Var(w._tagNames, ins.A, Next.Newline); }
+        else w.Instruction(ins);
+        return o.ToString().Trim();
+    }
+
+    private bool _plainLabels;
+
     /// <summary>Unique "$name" per index, as WABT binds name-section names (a repeat gets ".1", ".2"…).</summary>
     private static string?[] Bind(Dictionary<uint, string> names, int count)
     {
@@ -145,7 +167,7 @@ public sealed class WatWriter
 
     private void BrVar(uint depth, Next next)
     {
-        Writef(depth < _labels ? $"{depth} (;@{_labels - depth - 1};)" : $"{depth} (;@invalid;)");
+        Writef(_plainLabels ? depth.ToString(CultureInfo.InvariantCulture) : depth < _labels ? $"{depth} (;@{_labels - depth - 1};)" : $"{depth} (;@invalid;)");
         _next = next;
     }
 
