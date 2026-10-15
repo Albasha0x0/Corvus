@@ -28,7 +28,10 @@ public sealed class FolderTools(FolderCompare folders)
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress =>
         EvidenceInput.FromArguments(oldResult, newResult, oldPath != null || newPath != null, "oldPath and newPath", context?.Services) is var (ev, changes)
             ? Task.FromResult(Evidence(ev, changes, offset, limit))
-            : Task.Run(() => folders.Compare(oldPath!, newPath!, change, caseSensitive, exclude is { Length: > 0 } ? string.Join(";", exclude) : null, maxEntries, offset, limit,
+            : string.IsNullOrWhiteSpace(oldPath) || string.IsNullOrWhiteSpace(newPath)
+                ? throw new ToolError(ErrorCode.InvalidArgument, $"{(string.IsNullOrWhiteSpace(oldPath) ? "oldPath" : "newPath")} is missing: compare_folders takes both paths.",
+                    "pass oldPath and newPath, or oldResult and newResult")
+            : Task.Run(() => folders.Compare(oldPath, newPath, change, caseSensitive, exclude is { Length: > 0 } ? string.Join(";", exclude) : null, maxEntries, offset, limit,
             (done, total) => progress.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = $"{done} of {total} files hashed" }),
             cancellationToken), cancellationToken));
 

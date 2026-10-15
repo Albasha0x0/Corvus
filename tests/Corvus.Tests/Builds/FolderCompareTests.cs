@@ -41,6 +41,14 @@ public sealed class FolderCompareTests : IDisposable
     private static FolderCompare.Entry One(FolderCompare.Comparison c, string path) =>
         Assert.Single(c.Entries, e => e.NewPath == path || e.OldPath == path);
 
+    [Fact]
+    public async Task A_missing_path_is_named()
+    {
+        var a = Folder("one", ("x.txt", "x"));
+        var e = await Assert.ThrowsAsync<ToolError>(() => new Corvus.Tools.FolderTools(_service).CompareFolders(newPath: a));
+        Assert.Equal((ErrorCode.InvalidArgument, "oldPath is missing: compare_folders takes both paths."), (e.Code, e.Message));
+    }
+
     /// <summary>Two Electron archives compared by their headers' entries, without unpacking.</summary>
     [Fact]
     public void AsarArchivesCompareByEntry()
