@@ -41,6 +41,7 @@
     <None Include="NativeFormats\SwiftManglings.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\QuicInitials.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TokenCorpus\**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Engines\IsaFixtures\*.elf;Engines\IsaFixtures\*.bin" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Real libraries the tests decompile, compare and export (downloaded on restore, not referenced). -->
