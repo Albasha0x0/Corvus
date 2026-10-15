@@ -227,14 +227,14 @@ Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`
 
 **Assembly overview** (read-only, idempotent)
 
-Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, edits; view=references: where references resolve; view=metadata: PE headers, streams, tables, heaps, metadata problems, attributes.
+Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, obfuscator, edits; view=references: where references resolve; view=metadata: PE headers, streams, tables, heaps, metadata problems, attributes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name, file name or path. |
 | `view` | string |  | `summary` | summary, references, metadata or all. Values: summary, references, metadata, all. |
 
-Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `referenceCount`, `unresolvedReferences`, `metadataIssueCount`, `references`, `attributes`, `tables`, `heaps`, `metadataIssues`.
+Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `referenceCount`, `unresolvedReferences`, `metadataIssueCount`, `obfuscators`, `references`, `attributes`, `tables`, `heaps`, `metadataIssues`.
 
 ### get_attributes
 

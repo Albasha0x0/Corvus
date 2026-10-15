@@ -4,7 +4,11 @@ using Corvus.Core;
 namespace Corvus.Services.Analysis;
 
 /// <summary>Toolchains matched by marker, heuristic findings, and the unreadable-name ratio (0..1).</summary>
-public sealed record MarkerFacts(IReadOnlyList<string> Tools, IReadOnlyList<string> Indicators, double UnreadableNameRatio);
+public sealed record MarkerFacts(IReadOnlyList<string> Tools, IReadOnlyList<string> Indicators, double UnreadableNameRatio)
+{
+    [System.ComponentModel.Description("The obfuscator named with its evidence.")]
+    public IReadOnlyList<ObfuscatorFinding>? Obfuscators { get; init; }
+}
 
 /// <summary>
 /// Detects toolchain marker types and SuppressIldasmAttribute, plus heuristics: renamed identifiers, int -> string
@@ -89,7 +93,8 @@ public static class Markers
         if (missing > 0)
             indicators.Add($"{missing} method(s) have no IL body although they should (encrypted or stripped bodies, or a reference assembly).");
 
-        return new MarkerFacts(tools, indicators, ratio);
+        var obfuscators = Obfuscators.Identify(module);
+        return new MarkerFacts(tools, indicators, ratio) { Obfuscators = obfuscators.Count > 0 ? obfuscators : null };
     }
 
     private static bool Matches(string name, string marker) =>

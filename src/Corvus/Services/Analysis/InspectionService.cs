@@ -655,7 +655,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         IReadOnlyList<Feature> features, ValueSummary values, IReadOnlyList<EntryPoint> entryPoints)
     {
         var h = new List<string>();
-        foreach (var tool in markers.Tools) h.Add($"Processed with {tool} (toolchain marker found).");
+        var obfuscators = markers.Obfuscators ?? [];
+        foreach (var o in obfuscators) h.Add($"Protected with {o.Name} ({o.Confidence}: {string.Join("; ", o.Evidence)}).");
+        foreach (var tool in markers.Tools.Where(t => !obfuscators.Any(o => t.Contains(o.Name, StringComparison.Ordinal))))
+            h.Add($"Processed with {tool} (toolchain marker found).");
         h.AddRange(markers.Indicators.Take(2));
         if (signature.Certificate is { Present: true } sig) h.AddRange(SignatureHighlights(sig, "the assembly"));
         if (identity.Merged != null) h.Add(identity.Merged);
