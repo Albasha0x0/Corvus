@@ -85,7 +85,7 @@ internal sealed class CachesStatus : IStatusSection
         if (code != null)
         {
             yield return code.IndexCache?.Status() is { } c
-                ? new("codeIndex", $"{StatusPaths.Short(c.Root)}: {c.Entries} entries, {ResultsStatus.Megabytes(c.Bytes)} of {c.MaxBytes >> 20} MB, unused entries kept {c.MaxAge.TotalDays:0} days; " +
+                ? new("codeIndex", $"{StatusPaths.Short(c.Root)}: {Core.FolderTally.Text(c.Entries, c.Bytes, ResultsStatus.Megabytes)} of {c.MaxBytes >> 20} MB, unused entries kept {c.MaxAge.TotalDays:0} days; " +
                     $"this session {c.Hits} loaded, {c.Misses} not found, {c.Rejected} unusable (rebuilt), {c.Writes} saved, {c.Evicted} evicted" +
                     (c.LastError != null ? $"; last problem: {c.LastError}" : ""), "--index-cache")
                 : new("codeIndex", "off: every image's code index is built when it is opened", "--index-cache off or CORVUS_CODE_INDEX_CACHE=off");

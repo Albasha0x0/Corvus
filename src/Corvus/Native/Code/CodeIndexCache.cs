@@ -205,6 +205,7 @@ public sealed class CodeIndexCache(CodeIndexCacheOptions options)
     /// <summary>Deletes entries unused past the age limit, then the least recently used beyond the size limit, and stale temporary files.</summary>
     public void Evict()
     {
+        Core.FolderTally.Forget(Options.Root);
         try
         {
             if (!Directory.Exists(Options.Root)) return;
@@ -246,14 +247,18 @@ public sealed class CodeIndexCache(CodeIndexCacheOptions options)
 
     public CodeIndexCacheStatus Status()
     {
-        int entries = 0;
-        long bytes = 0;
-        try
+        var (entries, bytes) = Core.FolderTally.Of(Options.Root, () =>
         {
-            if (Directory.Exists(Options.Root))
-                foreach (var f in new DirectoryInfo(Options.Root).EnumerateFiles("*" + Extension)) { entries++; bytes += f.Length; }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            int entries = 0;
+            long bytes = 0;
+            try
+            {
+                if (Directory.Exists(Options.Root))
+                    foreach (var f in new DirectoryInfo(Options.Root).EnumerateFiles("*" + Extension)) { entries++; bytes += f.Length; }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            return (entries, bytes);
+        });
         return new CodeIndexCacheStatus(Options.Root, entries, bytes, Options.MaxBytes, Options.MaxAge,
             Volatile.Read(ref _hits), Volatile.Read(ref _misses), Volatile.Read(ref _rejected), Volatile.Read(ref _writes), Volatile.Read(ref _evicted), _lastError);
     }
