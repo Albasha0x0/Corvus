@@ -237,6 +237,8 @@ public sealed class FirmwareImageTests
         Assert.NotEmpty(busybox);
         Assert.All(busybox, f => Assert.Equal("elf", f.Kind));
         Assert.Equal(Isa("mips32be.elf"), File.ReadAllBytes(busybox[0].Path));
+        var native = workspace.LoadAny(busybox[0].Path).Native!;
+        Assert.Equal(Corvus.Native.NativeArch.Mips, native.Image.Arch);
     }
 
     [Fact]
@@ -250,6 +252,21 @@ public sealed class FirmwareImageTests
         Assert.Contains(hits, h => h.StartsWith("0x100000 JFFS2 filesystem (big endian) ", StringComparison.Ordinal));
         // nothing is reported inside the squashfs it sized
         Assert.DoesNotContain(facts.Signatures, h => Convert.ToInt64(h.Offset, 16) is > 0x30000 and < 0x30000 + 4096);
+    }
+
+    [Fact]
+    public void A_filesystem_no_reader_opens_is_carved_with_a_note()
+    {
+        var dump = new byte[0x20000];
+        dump.AsSpan().Fill(0xFF);
+        // a squashfs 3.0 superblock: its 64-bit size at offset 63
+        var sb = dump.AsSpan(0x1000);
+        "hsqs"u8.CopyTo(sb);
+        BinaryPrimitives.WriteUInt32LittleEndian(sb[28..], 3);
+        BinaryPrimitives.WriteInt64LittleEndian(sb[63..], 0x2000);
+        var c = Containers.Open(dump, "old.bin", AnalysisLimits.Default, default);
+        Assert.Equal(0x2000, c.Items.Single(i => i.Name == "0x1000.squashfs").Bytes.Length);
+        Assert.True(c.Notes.Any(n => n.StartsWith("0x1000.squashfs: squashfs (little endian) (version 3.0) is carved out, but no in-process reader opens it", StringComparison.Ordinal)), string.Join(" | ", c.Notes));
     }
 
     [Fact]

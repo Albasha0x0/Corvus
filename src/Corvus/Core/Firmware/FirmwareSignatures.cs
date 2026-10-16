@@ -267,7 +267,7 @@ internal static class FirmwareSignatures
         uint U32(int o) => big ? w.Be32(at + o) : w.Le32(at + o);
         uint U16(int o) => big ? w.Be16(at + o) : w.Le16(at + o);
         uint major = U16(28), minor = U16(30);
-        if (!w.Has(at, 96) || major is < 1 or > 4) return null;
+        if (!w.Has(at, 96) || major is < 1 or > 4 || minor > 1) return null;
         string detail = $"version {major}.{minor}" + (major == 4 ? $", compression {U16(20) switch { 1 => "gzip", 2 => "lzma", 3 => "lzo", 4 => "xz", 5 => "lz4", 6 => "zstd", var c => c.ToString() }}" : "");
         if (major == 4)
         {

@@ -46,8 +46,11 @@ internal static class FirmwareCarve
                     long size = h.Size ?? next - h.Offset;
                     if (size <= 0 || size > limits.MaxItemBytes || h.Offset + size > src.Length) { notes.Add($"{h.Format} at 0x{h.Offset:X}: {size:N0} bytes, not carved"); continue; }
                     if ((total += size) > limits.MaxTotalBytes) { notes.Add("Stopped: the extraction limit was reached."); break; }
-                    items.Add(new ExtractedItem($"0x{h.Offset:X}.{Extension(h.Format)}", src.Read(h.Offset, (int)size),
-                        $"{h.Format} at 0x{h.Offset:X}" + (h.Size == null ? " (to the next signature)" : "") + (h.Detail != null ? $", {h.Detail}" : "")));
+                    var part = src.Read(h.Offset, (int)size);
+                    var partName = $"0x{h.Offset:X}.{Extension(h.Format)}";
+                    items.Add(new ExtractedItem(partName, part, $"{h.Format} at 0x{h.Offset:X}" + (h.Size == null ? " (to the next signature)" : "") + (h.Detail != null ? $", {h.Detail}" : "")));
+                    if (h.Kind == SignatureKind.Filesystem && Containers.ReaderFor(part, partName) == null)
+                        notes.Add($"{partName}: {h.Format}{(h.Detail != null ? $" ({h.Detail})" : "")} is carved out, but no in-process reader opens it: its files are not listed");
                     // a region's own contents are its reader's to open
                     if (h.Size != null) covered = h.Offset + size;
                 }
