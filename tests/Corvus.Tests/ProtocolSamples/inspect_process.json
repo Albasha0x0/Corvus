@@ -1,0 +1,13 @@
+{
+  "tool": "inspect_process",
+  "arguments": {
+    "process": "1",
+    "view": "heap"
+  },
+  "isError": true,
+  "content": [
+    "Error (invalid_argument) in inspect_process: Unknown view 'heap'.\nNext: pass view as one of summary, modules, regions, threads, stacks",
+    "\n\nerror (json): {\"code\":\"invalid_argument\",\"retryable\":false,\"message\":\"Unknown view 'heap'.\",\"next\":\"pass view as one of summary, modules, regions, threads, stacks\",\"partial\":null,\"details\":null}"
+  ],
+  "structuredContent": null
+}

@@ -70,9 +70,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
     public async Task<LiveReport> Inspect(string process, string? view, string? thread, int offset, int limit, string? regionFilter, int maxFrames,
         string? imageDirectories, int timeoutSeconds, CancellationToken ct)
     {
-        if (!OperatingSystem.IsWindows())
-            throw new ToolError(ErrorCode.ProviderUnavailable, "live process inspection uses the Windows process API; this server is not running on Windows.",
-                "inspect a minidump instead (open_minidump), or run the server on Windows") { Details = new { reason = "platform_not_windows" } };
+        // arguments first: a bad call is answered alike on every platform
         var v = (view ?? "summary").Trim().ToLowerInvariant();
         if (!Views.Contains(v)) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", Views));
         string filter = (regionFilter ?? "committed").Trim().ToLowerInvariant();
@@ -80,6 +78,9 @@ public sealed class LiveProcessService(MinidumpService dumps)
             throw new ToolError(ErrorCode.InvalidArgument, $"regionFilter '{regionFilter}' is not one of {string.Join(", ", RegionFilters)}.");
         if (timeoutSeconds < 1 || timeoutSeconds > MaxTimeoutSeconds)
             throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds must be 1-{MaxTimeoutSeconds}.");
+        if (!OperatingSystem.IsWindows())
+            throw new ToolError(ErrorCode.ProviderUnavailable, "live process inspection uses the Windows process API; this server is not running on Windows.",
+                "inspect a minidump instead (open_minidump), or run the server on Windows") { Details = new { reason = "platform_not_windows" } };
         var (pid, name) = Resolve(process);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));

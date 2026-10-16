@@ -113,6 +113,8 @@ public partial class ProtocolSampleTests
         ["dump_stack"] = new() { ["dump"] = In + "synth.dmp" },
         ["read_dump_memory"] = new() { ["dump"] = In + "synth.dmp", ["address"] = "synth+0x1000", ["length"] = 32 },
         ["bucket_minidumps"] = new() { ["folder"] = In + "dumps" },
+        // A running process differs per run and per machine: the sample is a refused view, answered alike on every platform.
+        ["inspect_process"] = new() { ["process"] = "1", ["view"] = "heap" },
         // Live sessions: refused here, as the sample server runs without --allow-live
         ["live_session"] = new() { ["action"] = "attach", ["program"] = "app.exe" },
         ["live_break"] = new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "kernel32!CreateFileW" },

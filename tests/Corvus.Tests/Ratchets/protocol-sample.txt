@@ -14,7 +14,6 @@ get_engine_status # permanent: reports the engines this machine has and their ca
 get_native_frame # permanent: reads an engine database (IDA); no engine in the quick set
 ghidra_script # permanent: runs a script in Ghidra (--ghidra-scripting)
 ida_python # permanent: runs a script in IDA (--ida-scripting)
-inspect_process # permanent: reads a live process
 install_android_package # permanent: needs an adb device (and --allow-device-changes)
 list_android_devices # permanent: needs adb
 list_android_packages # permanent: needs an adb device
