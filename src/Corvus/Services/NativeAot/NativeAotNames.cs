@@ -18,8 +18,8 @@ namespace Corvus.Services;
 /// "str_&lt;n&gt;" (n in address order) commented with the text, other frozen objects "frozen_&lt;n&gt;"; the module header
 /// "__ReadyToRunHeader" and its sections "__&lt;SectionName&gt;"; statics bases "Ns_Type__GCStatics", "Ns_Type__Statics" and
 /// "Ns_Type__ThreadStaticsIndex" (or "GCStatics_&lt;n&gt;" and so on when the type is unknown), non-GC static fields
-/// "Ns_Type__field"; interface dispatch cells "__InterfaceDispatchCell_Ns_IFoo__Method". A name already used at another
-/// address gets "_&lt;RVA hex&gt;".
+/// "Ns_Type__field" (once the code index is built, "Ns_Type__field_0xN" where code uses one the metadata does not name);
+/// interface dispatch cells "__InterfaceDispatchCell_Ns_IFoo__Method". A name already used at another address gets "_&lt;RVA hex&gt;".
 /// </para>
 /// </summary>
 public static class NativeAotNames
@@ -82,6 +82,54 @@ public static class NativeAotNames
             new ImportInfo(native.FilePath, ReaderIdentity, DateTime.UtcNow, built.FunctionStarts)), code.Ready(native));
         code.SaveImported(native, NativeNameSource.NativeAot);
         return built.FunctionStarts;
+    }
+
+    /// <summary>
+    /// Once the code index is built: names the static fields the metadata keeps no names for, "Ns_Type__field_0xN", at each
+    /// address code reads, writes or takes inside an owned non-GC statics block; the layer is saved again. Returns the
+    /// number of names added, or null for other images or when turned off by <see cref="AutoVariable"/>.
+    /// </summary>
+    public static int? NameStaticFields(LoadedNative native, NativeCodeService code, NativeCodeIndex index, CancellationToken ct)
+    {
+        if (Environment.GetEnvironmentVariable(AutoVariable) == "0") return null;
+        var layers = NativeNameLayers.Of(native);
+        if (layers.Get(NativeNameSource.NativeAot) is not { } layer || View(native, ct) is not { } aot) return null;
+        var (names, comments, added) = StaticFieldNames(aot.Statics.Bases, layer.Names, layer.Comments,
+            (start, end) => index.RefsToRange(start, end).Where(x => x.Kind is XrefKind.Read or XrefKind.Write or XrefKind.Address).Select(x => x.To), ct);
+        if (added == 0) return 0;
+        layers.Set(layer with { Names = names, Comments = comments }, index);
+        code.SaveImported(native, NativeNameSource.NativeAot);
+        return added;
+    }
+
+    /// <summary>
+    /// The layer's names and comments plus one per address <paramref name="referenced"/> returns inside an owned non-GC
+    /// statics block without field metadata (past its base, before the next base, within the block span), and how many it added.
+    /// </summary>
+    internal static (Dictionary<uint, string> Names, Dictionary<uint, string> Comments, int Added) StaticFieldNames(IReadOnlyList<NativeAotStaticBase> bases,
+        IReadOnlyDictionary<uint, string> names, IReadOnlyDictionary<uint, string> comments, Func<uint, uint, IEnumerable<uint>> referenced, CancellationToken ct)
+    {
+        var outNames = new Dictionary<uint, string>(names);
+        var outComments = new Dictionary<uint, string>(comments);
+        var used = new HashSet<string>(outNames.Values, StringComparer.Ordinal);
+        int added = 0;
+        for (int i = 0; i < bases.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (bases[i] is not { Kind: NativeAotStaticsKind.NonGc, Owner: { } owner, Fields.Count: 0 } b) continue;
+            uint end = b.Rva + UnnamedStaticsSpan;
+            if (i + 1 < bases.Count && bases[i + 1].Rva < end) end = bases[i + 1].Rva;
+            foreach (var at in referenced(b.Rva + 1, end).Distinct().Order())
+            {
+                if (outNames.ContainsKey(at)) continue;
+                var name = NativeName.Identifier($"{owner}$$field_0x{at - b.Rva:X}");
+                if (!used.Add(name)) used.Add(name = $"{name}_{at:X}");
+                outNames[at] = name;
+                outComments[at] = $"static of {owner} at +0x{at - b.Rva:X} in its non-GC statics (named from the code that uses it; the metadata keeps no field name)";
+                added++;
+            }
+        }
+        return (outNames, outComments, added);
     }
 
     /// <summary>

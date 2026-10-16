@@ -115,6 +115,32 @@ public class NativeAotStaticsTests
         Assert.Null(NativeAotNames.UnnamedStatic(bases, 0x2004)); // field metadata names those
     }
 
+    /// <summary>The name layer gains Owner__field_0xN where code uses a static the metadata keeps no name for; never past the next base, never over a name.</summary>
+    [Fact]
+    public void Statics_WithoutFieldNamesAreNamedFromTheirCodeReferences()
+    {
+        NativeAotStaticBase[] bases =
+        [
+            new(NativeAotStaticsKind.NonGc, 0x1000, "App.Settings", "code", 0, []),
+            new(NativeAotStaticsKind.NonGc, 0x1010, null, null, 0, []),
+            new(NativeAotStaticsKind.NonGc, 0x2000, "App.Known", "code", 8, [new NativeAotStaticField("Count", "int", 0)]),
+        ];
+        uint[] refs = [0x1000, 0x1004, 0x1008, 0x1008, 0x1014, 0x2004];
+        var asked = new List<(uint, uint)>();
+        IEnumerable<uint> Referenced(uint start, uint end)
+        {
+            asked.Add((start, end));
+            return refs.Where(r => r >= start && r < end);
+        }
+        var existing = new Dictionary<uint, string> { [0x1000] = "App_Settings__Statics", [0x1004] = "already_named" };
+        var (names, comments, added) = NativeAotNames.StaticFieldNames(bases, existing, new Dictionary<uint, string>(), Referenced, default);
+        Assert.Equal(1, added);
+        Assert.Equal("App_Settings__field_0x8", names[0x1008]);
+        Assert.Contains("static of App.Settings at +0x8", comments[0x1008]);
+        Assert.Equal("already_named", names[0x1004]);
+        Assert.Equal([(0x1001u, 0x1010u)], asked); // only the owned block without field metadata, up to the next base
+    }
+
     [Fact]
     public void Statics_NamedInTheLayerAndDescribed()
     {

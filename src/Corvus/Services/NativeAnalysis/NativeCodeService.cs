@@ -330,6 +330,8 @@ public sealed class NativeCodeService
                             catch (Exception ex) { logger?.LogWarning(ex, "Applying annotations to {Id} failed", native.Id); }
                             try { NodeApiNames.AutoApply(native, done.Result, ct); }
                             catch (Exception ex) when (ex is not OperationCanceledException) { logger?.LogWarning(ex, "Naming the Node-API callbacks of {Id} failed", native.Id); }
+                            try { NativeAotNames.NameStaticFields(native, owner, done.Result, ct); }
+                            catch (Exception ex) when (ex is not OperationCanceledException) { logger?.LogWarning(ex, "Naming the NativeAOT static fields of {Id} failed", native.Id); }
                             if (done.Result.LoadedFromCache)
                                 logger?.LogInformation("Loaded the saved index of {Id}: {Functions} functions, {Xrefs} references in {Seconds:0.0} s", native.Id,
                                     done.Result.Stats.Functions, done.Result.Stats.Xrefs, done.Result.CacheLoadTime.TotalSeconds);

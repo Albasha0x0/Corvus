@@ -417,5 +417,15 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         output.WriteLine($"  {referenced} of {strings.Count} frozen strings referenced by code");
         if (sample.StartsWith("win-x64", StringComparison.Ordinal)) // the ARM64 index records no adrp/add data references yet
             Assert.True(referenced > strings.Count / 2, $"{referenced} of {strings.Count} frozen strings referenced");
+
+        // statics without field metadata: named where code uses them, once the index is built
+        var layer = NativeNameLayers.Of(native).Get(NativeNameSource.NativeAot)!;
+        var fields = layer.Names.Where(n => n.Value.Contains("__field_0x", StringComparison.Ordinal)).ToList();
+        output.WriteLine($"  {fields.Count} static fields named from code references");
+        if (sample.StartsWith("win-x64", StringComparison.Ordinal))
+        {
+            Assert.NotEmpty(fields);
+            Assert.All(fields.Take(50), f => Assert.Equal(f.Value, index.Sourced.NameAt(f.Key)?.Name));
+        }
     }
 }
