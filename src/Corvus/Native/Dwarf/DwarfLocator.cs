@@ -8,7 +8,7 @@ namespace Corvus.Native.Dwarf;
 /// dSYM bundle; the image's own sections; beside the image (its .gnu_debuglink name, &lt;name&gt;.debug / .dbg /
 /// .dwarf, .debug/ and .build-id/ folders, &lt;name&gt;.dSYM); the folders in <see cref="DirsVariable"/> (.build-id
 /// trees, debuglink names, the image's folder under them, dSYM bundles); /usr/lib/debug on Linux and macOS hosts; and
-/// this server's download cache. A candidate must carry the image's GNU build-id or Mach-O UUID (or, without one, match
+/// this server's download cache; else the object files a Mach-O debug map names. A candidate must carry the image's GNU build-id or Mach-O UUID (or, without one, match
 /// the .gnu_debuglink CRC-32); a file that does not is reported, never used. <see cref="DownloadAsync"/> asks debuginfod
 /// servers and runs only when the user asked for it.
 /// </summary>
@@ -122,9 +122,27 @@ public static class DwarfLocator
             probes.Add(new PdbProbe(imagePath, Embedded));
             return new PdbLocation(imagePath, probes, Servers());
         }
+        if (image.Format == ImageFormat.MachO && DebugMap(image, imagePath) is { } map)
+        {
+            probes.Add(new PdbProbe(imagePath, map));
+            return new PdbLocation(imagePath, probes, Servers());
+        }
         if (!embedded && link == null && id == null)
             probes.Add(new PdbProbe(imagePath, "the image has no build-id, UUID or .gnu_debuglink to match a debug file by"));
         return new PdbLocation(null, probes, Servers());
+    }
+
+    /// <summary>"debug map: k of n object files" when the Mach-O image's debug map names object files that exist here, else null.</summary>
+    private static string? DebugMap(INativeImage image, string imagePath)
+    {
+        try
+        {
+            using var own = DebugContainer.FromMemory(imagePath, FileBytes(image));
+            var objects = MachODebugMap.Read(own);
+            int found = objects.Count(o => MachODebugMap.Find(o, imagePath).Path != null);
+            return found > 0 ? $"debug map: {found} of {objects.Count} object files" : null;
+        }
+        catch (ToolError) { return null; }
     }
 
     /// <summary>The bytes of a thin image (a universal Mach-O's selected slice), for its own sections.</summary>

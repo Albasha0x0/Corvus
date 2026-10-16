@@ -39,13 +39,21 @@ internal static class DwarfDebugInfo
         var unitRanges = new List<(ulong Low, ulong High, int Header)>();
         int lineTables = 0, inlined = 0, issuesDropped = 0;
         ulong imageBase = image.ImageBase;
-        bool relocatable = container.FileType == 1;
         uint sizeOfImage = image.SizeOfImage;
+        // the files read: the debug file, or the object files of a Mach-O debug map; a unit is (source, header)
+        var sources = new List<Source> { new(reader, reopen, null, container.FileType == 1) };
+        if (!reader.HasInfo && container.Format == ImageFormat.MachO) sources = DebugMapSources(reader, container, issues);
+        var units = new List<(int Source, int Header)>();
 
-        for (int h = 0; h < reader.UnitHeaders.Count; h++)
+        for (int si = 0; si < sources.Count; si++)
+        for (int h = 0; h < sources[si].Reader.UnitHeaders.Count; h++)
         {
             ct.ThrowIfCancellationRequested();
-            var unit = reader.Parse(reader.UnitHeaders[h], h, ct);
+            var (sourceReader, _, map, relocatable) = sources[si];
+            int key = units.Count;
+            units.Add((si, h));
+            ulong? Map(ulong a) => map == null ? a : map.Forward(a);
+            var unit = sourceReader.Parse(sourceReader.UnitHeaders[h], h, ct);
             if (unit.Problem != null)
             {
                 if (issues.Count < 200) issues.Add(new ParseIssue("dwarf", $"unit at 0x{unit.Offset & (DwarfReader.TypesFlag - 1):X}: {unit.Problem}"));
@@ -60,8 +68,10 @@ internal static class DwarfDebugInfo
                 module = modules.Count;
                 modules.Add(new PdbModule(module, unit.Name ?? "", unit.CompDir ?? "", -1, 0));
                 if (unit.StmtList >= 0) lineTables++;
-                foreach (var (lo, hi) in reader.RangesOf(unit, root))
-                    if (!DwarfLineTable.Tombstone(lo, relocatable)) unitRanges.Add((lo, hi, h));
+                // a debug map object's units are found by their functions' mapped ranges
+                if (map == null)
+                    foreach (var (lo, hi) in reader.RangesOf(unit, root))
+                        if (!DwarfLineTable.Tombstone(lo, relocatable)) unitRanges.Add((lo, hi, key));
             }
             if (IsSkeleton(unit))
             {
@@ -70,7 +80,7 @@ internal static class DwarfDebugInfo
                 unit = split;
             }
             types.Begin(unit);
-            bool unitHasRanges = unitRanges.Count > 0 && unitRanges[^1].Header == h;
+            bool unitHasRanges = unitRanges.Count > 0 && unitRanges[^1].Header == key;
             for (int i = 0; i < unit.Dies.Count; i++)
             {
                 if ((i & 0x3FFF) == 0) ct.ThrowIfCancellationRequested();
@@ -83,10 +93,12 @@ internal static class DwarfDebugInfo
                         if (ranges.Count == 0 && (d.Pc & 1) != 0) ranges.Add((d.LowPc, d.LowPc)); // empty, folded onto another function
                         if (ranges.Count == 0 || DwarfLineTable.Tombstone(ranges[0].Low, relocatable)) break;
                         var (low, high) = (d.Pc & 1) != 0 ? ranges.FirstOrDefault(r => r.Low == d.LowPc, ranges[0]) : ranges[0];
-                        if (!unitHasRanges) foreach (var r in ranges) unitRanges.Add((r.Low, r.High, h));
+                        if (!unitHasRanges)
+                            foreach (var r in ranges)
+                                if (Map(r.Low) is { } mapped) unitRanges.Add((mapped, mapped + (r.High - r.Low), key));
                         var named = Naming(reader, unit, d);
                         if (named.Name == null) break;
-                        uint? rva = Rva(low, imageBase, sizeOfImage);
+                        uint? rva = Map(low) is { } final ? Rva(final, imageBase, sizeOfImage) : null;
                         var parameters = new List<string?>();
                         uint type = types.Procedure(named.Unit, named.Die, named.ReturnType, parameters);
                         if (symbols.Count >= MaxSymbols) { Truncate(truncations, $"symbols beyond {MaxSymbols:N0}"); break; }
@@ -98,7 +110,7 @@ internal static class DwarfDebugInfo
                     {
                         var named = Naming(reader, unit, d);
                         if (named.Name == null) break;
-                        uint? rva = Rva(d.Location, imageBase, sizeOfImage);
+                        uint? rva = Map(d.Location) is { } final ? Rva(final, imageBase, sizeOfImage) : null;
                         long typeOffset = d.Type >= 0 ? d.Type : named.Die.Type;
                         uint type = types.TypeOf(named.Unit, typeOffset);
                         long size = types.SizeOf(type);
@@ -129,9 +141,43 @@ internal static class DwarfDebugInfo
         var built = types.Build();
         if (types.Full) notes.Add($"type records past {DwarfTypes.MaxBytes:N0} bytes are not written");
         unitRanges.Sort((a, b) => a.Low.CompareTo(b.Low));
-        var source = new SourceLookup(reopen, imageBase, unitRanges.ToArray(), lineTables, inlined, relocatable);
+        var source = new SourceLookup(sources, units, imageBase, unitRanges.ToArray(), lineTables, inlined);
         return PdbFile.FromDebugInfo(container.Path, container.FileLength, container.BuildId, modules, symbols, types.Typedefs,
             (built.Bytes, built.Offsets, notes), issues, truncations, source);
+    }
+
+    /// <summary>A file the read takes units from: its reader, how to open it again, and a debug map object's address map.</summary>
+    private sealed record Source(DwarfReader Reader, Func<DebugContainer> Open, DebugAddressMap? Map, bool Relocatable);
+
+    /// <summary>Each object file of <paramref name="image"/>'s debug map that is found, as a source joining <paramref name="main"/>'s family.</summary>
+    private static List<Source> DebugMapSources(DwarfReader main, DebugContainer image, List<ParseIssue> issues)
+    {
+        var sources = new List<Source>();
+        var objects = MachODebugMap.Read(image);
+        int missing = 0;
+        foreach (var entry in objects)
+        {
+            var (path, problem) = MachODebugMap.Find(entry, image.Path);
+            DebugContainer? file = null;
+            try
+            {
+                if (path != null) file = DebugContainer.Open(path, null, image.CpuName);
+            }
+            catch (ToolError e) { problem = $"{path}: {e.Message}"; }
+            if (file == null || !HasDwarf(file))
+            {
+                file?.Dispose();
+                missing++;
+                if (issues.Count < 200) issues.Add(new ParseIssue("dwarf", problem ?? $"{path}: no DWARF"));
+                continue;
+            }
+            main.Family.Own(file);
+            var map = DebugAddressMap.Build(entry, MachODebugMap.Symbols(file));
+            string found = path!;
+            sources.Add(new Source(new DwarfReader(file.Section, file.BigEndian, file.Is64 ? 8 : 4, main.Family), () => DebugContainer.Open(found, null, image.CpuName), map, true));
+        }
+        if (missing > 0) issues.Add(new ParseIssue("dwarf", $"debug map: {missing} of {objects.Count} object files not read; their functions and types are missing"));
+        return sources;
     }
 
     /// <summary>The main reader of <paramref name="container"/> with its dwz supplementary file attached when it names one.</summary>
@@ -200,8 +246,8 @@ internal static class DwarfDebugInfo
     }
 
     /// <summary>Source lines and inlined frames by address: the unit is found by its address ranges, then read again with its line table.</summary>
-    private sealed class SourceLookup(Func<DebugContainer> reopen, ulong imageBase, (ulong Low, ulong High, int Header)[] units, int lineTables, int inlined, bool relocatable)
-        : IDebugSourceLookup
+    private sealed class SourceLookup(List<Source> sources, List<(int Source, int Header)> unitKeys, ulong imageBase, (ulong Low, ulong High, int Header)[] units,
+        int lineTables, int inlined) : IDebugSourceLookup
     {
         public int LineTables => lineTables;
         public int InlinedInstances => inlined;
@@ -210,33 +256,46 @@ internal static class DwarfDebugInfo
         {
             var result = new DebugSourceInfo?[rvas.Count];
             if (units.Length == 0) return result;
-            DebugContainer container;
-            // the debug file may have been moved or deleted since it was read
-            try { container = reopen(); }
-            catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException) { return result; }
-            using var _ = container;
-            using var reader = Open(container);
+            var opened = new Dictionary<int, (DebugContainer Container, DwarfReader Reader)?>();
             var parsed = new Dictionary<int, (DwarfUnit Unit, DwarfLineTable? Lines)>();
-            for (int i = 0; i < rvas.Count; i++)
+            try
             {
-                ct.ThrowIfCancellationRequested();
-                ulong address = imageBase + rvas[i];
-                foreach (var h in Units(address))
+                for (int i = 0; i < rvas.Count; i++)
                 {
-                    if (h >= reader.UnitHeaders.Count) continue;
-                    if (!parsed.TryGetValue(h, out var entry))
+                    ct.ThrowIfCancellationRequested();
+                    ulong address = imageBase + rvas[i];
+                    foreach (var key in Units(address))
                     {
-                        var unit = reader.Parse(reader.UnitHeaders[h], h, ct);
-                        DwarfLineTable? lines = null;
-                        if (unit.StmtList >= 0 && reader.Line != null)
-                            lines = DwarfLineTable.Read(reader.Line, unit.StmtList, unit.AddressSize, reader.BigEndian, unit.CompDir, container.Section(".debug_str"),
-                                container.Section(".debug_line_str"), _ => null, relocatable);
-                        reader.Remember(unit);
-                        if (IsSkeleton(unit) && reader.Family.Splits(container.Path).Resolve(unit, ct) is { Dies.Count: > 0 } split) unit = split;
-                        parsed[h] = entry = (unit, lines);
+                        var (si, h) = unitKeys[key];
+                        var source = sources[si];
+                        if (!opened.TryGetValue(si, out var file))
+                        {
+                            // the debug file may have been moved or deleted since it was read
+                            try { var c = source.Open(); file = (c, Open(c)); }
+                            catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException) { file = null; }
+                            opened[si] = file;
+                        }
+                        if (file is not var (container, reader) || h >= reader.UnitHeaders.Count) continue;
+                        if (!parsed.TryGetValue(key, out var entry))
+                        {
+                            var unit = reader.Parse(reader.UnitHeaders[h], h, ct);
+                            DwarfLineTable? lines = null;
+                            if (unit.StmtList >= 0 && reader.Line != null)
+                                lines = DwarfLineTable.Read(reader.Line, unit.StmtList, unit.AddressSize, reader.BigEndian, unit.CompDir, container.Section(".debug_str"),
+                                    container.Section(".debug_line_str"), _ => null, source.Relocatable);
+                            reader.Remember(unit);
+                            if (IsSkeleton(unit) && reader.Family.Splits(container.Path).Resolve(unit, ct) is { Dies.Count: > 0 } split) unit = split;
+                            parsed[key] = entry = (unit, lines);
+                        }
+                        ulong at = source.Map == null ? address : source.Map.Back(address) ?? ulong.MaxValue;
+                        if (at != ulong.MaxValue && Describe(reader, entry.Unit, entry.Lines, at) is { } info) { result[i] = info; break; }
                     }
-                    if (Describe(reader, entry.Unit, entry.Lines, address) is { } info) { result[i] = info; break; }
                 }
+            }
+            finally
+            {
+                foreach (var f in opened.Values)
+                    if (f is var (c, r)) { r.Dispose(); c.Dispose(); }
             }
             return result;
         }

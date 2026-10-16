@@ -200,6 +200,9 @@ internal sealed class DebugContainer : IDisposable
 
     private ReadOnlySpan<byte> Head(long offset, int count) => _bytes.Slice(_base + offset, count).Span;
 
+    /// <summary>Bytes of the file (of the chosen slice of a universal one) at <paramref name="offset"/>; fewer past the end.</summary>
+    public byte[] ReadAt(long offset, int count) => offset < 0 || count <= 0 ? [] : Head(offset, count).ToArray();
+
     private ulong U(ReadOnlySpan<byte> s, int at, int size)
     {
         if (at < 0 || at + size > s.Length) return 0;
