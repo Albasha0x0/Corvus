@@ -133,7 +133,7 @@ public sealed class DexIndex
             {
                 bool classFiles = zip?.Entries.Any(e => e.FullName.EndsWith(".class", StringComparison.Ordinal)) == true;
                 throw new ToolError(ErrorCode.NotFound, $"{full} has no classes*.dex.", classFiles
-                    ? $"a jar of Java .class files: decompile_java path={full} reads its classes by name"
+                    ? $"a jar of Java .class files: decompile_java and disassemble_dex path={full} read its classes by name"
                     : "a package with native code only, or a bundle split without code");
             }
             foreach (var n in names)

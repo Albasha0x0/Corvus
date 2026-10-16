@@ -370,6 +370,7 @@ public sealed class DexService
     /// <summary>Smali of one method (exact id or a single overload) or of a whole class.</summary>
     public string Disassemble(string path, string symbol, bool annotated, CancellationToken ct, string? mapping = null)
     {
+        if (JvmClasses.IsClassInput(path)) return JvmClasses.Listing(path, symbol, ct);
         var index = Index(path, ct);
         var names = Names(index, mapping, ct);
         var text = Disassemble(index, Resolve(index, names, symbol.Trim()), annotated, ct);

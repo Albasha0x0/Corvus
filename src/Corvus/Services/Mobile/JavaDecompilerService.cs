@@ -29,16 +29,75 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     /// <summary>Output kept on disk across servers; null keeps nothing.</summary>
     internal JavaSourceCache? Cache { get; init; } = JavaSourceCache.Default();
 
-    public async Task<string> Decompile(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping = null)
+    public const string Jadx = "jadx", Vineflower = "vineflower";
+
+    public async Task<string> Decompile(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping = null, string engine = Jadx)
     {
         symbol = symbol.Trim();
+        bool vineflower = engine == Vineflower;
         // Keyed by the symbol as asked, so a warm call needs no DEX index either.
-        var entry = Cache != null && JavaSourceCache.Engine(ExternalTools.JavaDecompiler) is { } engine
-            ? Cache.Entry(path, engine, $"{symbol}|{smaliFallback}", mapping) : null;
+        var entry = Cache != null && JavaSourceCache.Engine(vineflower ? ExternalTools.JavaDecompiler2 : ExternalTools.JavaDecompiler) is { } build
+            ? Cache.Entry(path, build, $"{symbol}|{smaliFallback}", mapping) : null;
         if (JavaSourceCache.Read(entry) is { } cached) return cached;
-        var text = await DecompileUncached(path, symbol, smaliFallback, ct, mapping).ConfigureAwait(false);
+        var text = vineflower ? await Task.Run(() => DecompileClassFiles(path, symbol, ct), ct).ConfigureAwait(false)
+            : await DecompileUncached(path, symbol, smaliFallback, ct, mapping).ConfigureAwait(false);
         JavaSourceCache.Write(entry, text);
         return text;
+    }
+
+    /// <summary>
+    /// A class of a jar or a .class through Vineflower: the class and its nested classes are given to it, the jar as a library
+    /// for types; it writes nested classes inside their outer class, so a nested class or a method comes with that whole source.
+    /// </summary>
+    private string DecompileClassFiles(string path, string symbol, CancellationToken ct)
+    {
+        if (!JvmClasses.IsClassInput(path))
+            throw new ToolError(ErrorCode.InvalidArgument, "Vineflower reads class files (a jar of .class files or a .class); DEX code goes to engine=jadx.");
+        var full = InputFiles.RequireRegularFile(path, "class file or jar");
+        var (owner, member) = JvmClasses.Split(symbol);
+        var cls = JvmClasses.Read(full, owner, ct);
+        owner = cls.Name;
+        var top = owner;
+        if (owner.IndexOf('$') is var dollar and > 0)
+            try { top = JvmClasses.Read(full, owner[..dollar], ct).Name; }
+            catch (ToolError e) when (e.Code == ErrorCode.NotFound) { }
+        var java = ExternalTools.Probe(ExternalTools.Java);
+        var tool = ExternalTools.Probe(ExternalTools.JavaDecompiler2);
+        if (!tool.Usable) throw NotConfigured($"Vineflower is not available: {tool.Problem}", tool.Remediation);
+        if (!java.Usable) throw NotConfigured($"Java is not available: {java.Problem}", java.Remediation);
+        var work = Path.Combine(Path.GetTempPath(), "corvus-vineflower-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string input = Path.Combine(work, "in"), output = Path.Combine(work, "out");
+            Directory.CreateDirectory(output);
+            foreach (var (name, bytes) in JvmClasses.WithNested(full, top, ct))
+            {
+                var file = Path.Combine(input, name.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                File.WriteAllBytes(file, bytes);
+            }
+            bool single = JvmClasses.IsClassFile(full);
+            var args = (single ? [] : ExternalTools.Arguments(ExternalTools.JavaDecompiler2, "library", ("jar", full)))
+                .Concat(ExternalTools.Arguments(ExternalTools.JavaDecompiler2, "decompile", ("input", input), ("output", output))).ToList();
+            var (exe, command) = ExternalTools.Command(ExternalTools.JavaDecompiler2, tool.Path!, args)
+                ?? throw NotConfigured("Java is not available", java.Remediation);
+            var run = ExternalTools.Run(exe, command, CallTimeout, 16 << 20, ct, Environment);
+            if (run.StartError != null) throw Unavailable($"Vineflower could not be started: {run.StartError}", tool.Remediation);
+            if (run.TimedOut) throw new ToolError(ErrorCode.Timeout, $"Vineflower took longer than {CallTimeout.TotalMinutes:0} minutes on {top}.", "engine=jadx, or disassemble_dex for the bytecode");
+            var source = Path.Combine(output, top.Replace('/', Path.DirectorySeparatorChar) + ".java");
+            if (!File.Exists(source))
+                throw new ToolError(ErrorCode.Failed, $"Vineflower wrote no source for {top.Replace('/', '.')} (exit {run.ExitCode}): {run.Stderr.Trim()[..Math.Min(run.Stderr.Trim().Length, 2000)]}",
+                    "engine=jadx, or disassemble_dex for the bytecode");
+            var head = $"// {top.Replace('/', '.')} (Vineflower)\n";
+            if (top != owner) head += $"// {owner.Replace('/', '.')} is written inside {top.Replace('/', '.')}\n";
+            if (member != null) head += $"// {owner.Replace('/', '.')}::{member}: Vineflower writes whole classes; the class follows\n";
+            return head + Lf(File.ReadAllText(source));
+        }
+        finally
+        {
+            try { Directory.Delete(work, recursive: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     private async Task<string> DecompileUncached(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping)

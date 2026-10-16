@@ -48,6 +48,10 @@ public static partial class ExternalTools
         ["jadx-headless-mcp*.jar"], [], 0, "Java / Kotlin source for decompile_java", false,
         Ops(("server", ["--threads", "{threads}", "--decompile-timeout-ms", "{timeoutMs}", "--max-source-bytes", "{maxBytes}", "--resources", "none"])));
 
+    public static readonly ExternalTool JavaDecompiler2 = new("vineflower", "Vineflower (second Java decompiler, jar)", "CORVUS_JAVA_DECOMPILER2", ExternalToolKind.Jar,
+        ["vineflower*.jar"], [], 0, "Java source for decompile_java engine=vineflower (jars and .class files)", false,
+        Ops(("decompile", ["-log=WARN", "{input}", "{output}"]), ("library", ["-e={jar}"])));
+
     public static readonly ExternalTool Adb = new("adb", "Android Debug Bridge (adb)", "CORVUS_ADB", ExternalToolKind.Executable, ["adb" + Exe], ["version"], 0,
         "the Android device tools", false,
         Ops(("devices", ["devices", "-l"]),
@@ -121,7 +125,7 @@ public static partial class ExternalTools
         Ops(("objdump", ["-objdump-disassemble", "-c", "disassemble;quit", "{file}"])));
 
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {
@@ -133,11 +137,12 @@ public static partial class ExternalTools
 
     public static ExternalTool Get(string id) => Table.Single(t => t.Id == id);
 
-    /// <summary>The option strings of <paramref name="op"/> with placeholders filled; an unknown placeholder stays as written.</summary>
+    /// <summary>The option strings of <paramref name="op"/> with placeholders filled (also inside an option, -e={jar}); an unknown placeholder stays as written.</summary>
     public static List<string> Arguments(ExternalTool tool, string op, params (string Name, string Value)[] values)
     {
         var map = values.ToDictionary(v => "{" + v.Name + "}", v => v.Value, StringComparer.Ordinal);
-        return [.. tool.Options[op].Select(a => map.GetValueOrDefault(a, a))];
+        return [.. tool.Options[op].Select(a => map.TryGetValue(a, out var whole) ? whole
+            : map.Aggregate(a, (text, p) => text.Replace(p.Key, p.Value, StringComparison.Ordinal)))];
     }
 
     private static IEnumerable<(string, string)> AndroidSdkDirectories()

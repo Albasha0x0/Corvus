@@ -2426,11 +2426,11 @@ Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `inte
 
 **Disassemble DEX** (read-only, idempotent)
 
-Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets.
+Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets. A jar or .class: the javap -c -p listing.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
+| `path` | string | yes |  | An Android package, .dex, jar or .class. |
 | `symbol` | string | yes |  | Method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)) or class (pkg.C, Lpkg/C;). |
 | `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
 | `offset` | integer |  |  |  |
@@ -2443,14 +2443,14 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Decompile Java** (read-only, idempotent, open-world, long-running)
 
-Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+). A member, anonymous or lambda class comes from the code JADX writes it in. Without JADX, disassemble_dex gives smali.
+Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class through Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). A member, anonymous or lambda class comes from the code it is written in. Without them, disassemble_dex.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | An .apk, .aab or split set, a .dex, or a jar (DEX or .class files). |
+| `path` | string | yes |  | An .apk, .aab or split set, a .dex, a jar or a .class. |
 | `symbol` | string | yes |  | Class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)). |
 | `javaOnly` | boolean |  |  | Partial Java where JADX fails; default: smali there. |
-| `engine` | string |  |  | Decompiler. Values: jadx. |
+| `engine` | string |  |  | jadx (default) or vineflower (class files only). Values: jadx. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 | `mapping` | string |  |  | R8 / ProGuard mapping.txt: shows and accepts original names; kept per package. |

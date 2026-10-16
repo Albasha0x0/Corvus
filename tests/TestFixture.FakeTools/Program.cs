@@ -3,7 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
-// Modes: "-version" answers like a JDK; "version" like adb; "... -jar <jar> ..." serves MCP over stdio like the JADX server;
+// Modes: "-version" answers like a JDK; "version" like adb; "... -jar vineflower*.jar ... <in> <out>" writes sources like Vineflower;
+// "... -jar <jar> ..." serves MCP over stdio like the JADX server;
 // anything else follows the rules of the JSON script named by ADB_FAKE_SCRIPT: the first rule whose "match" regex finds the
 // joined arguments prints "stdout" ("repeat" times), "bytes" (base64, "repeat" times), "printEnv" (a variable) and "stderr",
 // writes "file" (base64) to the last argument, and exits with "exit".
@@ -24,6 +25,7 @@ if (args is ["version"])
     Console.WriteLine("Version 35.0.2-12147458");
     return 0;
 }
+if (args.Contains("-jar") && args.Any(a => Path.GetFileName(a).StartsWith("vineflower", StringComparison.Ordinal))) return Vineflower(args);
 if (args.Contains("-jar")) return Jadx(script, log);
 
 var joined = string.Join(' ', args);
@@ -50,6 +52,22 @@ foreach (var rule in script["rules"]?.AsArray() ?? [])
 }
 Console.Error.WriteLine($"fake tool: no rule for '{joined}'");
 return 1;
+
+// Like Vineflower's command line (... <input folder> <output folder>): one .java per top-level class, naming its classes and options.
+static int Vineflower(string[] args)
+{
+    string input = args[^2], output = args[^1];
+    foreach (var file in Directory.EnumerateFiles(input, "*.class", SearchOption.AllDirectories))
+    {
+        var relative = Path.GetRelativePath(input, file);
+        if (Path.GetFileName(relative).Contains('$')) continue;
+        var target = Path.Combine(output, Path.ChangeExtension(relative, ".java"));
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        var nested = Directory.EnumerateFiles(input, "*.class", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(input, f).Replace('\\', '/')).Order(StringComparer.Ordinal);
+        File.WriteAllText(target, $"// vineflower: {string.Join(" ", nested)}\n// options: {string.Join(" ", args.Where(a => a.StartsWith('-') && a != "-jar"))}\n");
+    }
+    return 0;
+}
 
 static int Jadx(JsonObject script, string? log)
 {

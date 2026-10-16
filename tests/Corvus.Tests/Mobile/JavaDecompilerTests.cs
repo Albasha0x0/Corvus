@@ -273,6 +273,23 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         }
     }
 
+    /// <summary>engine=vineflower gets the class with its nested classes and the jar as a library; DEX code stays JADX's.</summary>
+    [Fact]
+    public async Task Vineflower_DecompilesClassFiles_WithTheirNestedClasses()
+    {
+        var vineflower = Path.Combine(_fake.Directory, "vineflower-1.11.2.jar");
+        File.WriteAllBytes(vineflower, [0x50, 0x4B, 3, 4]);
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA", _fake.CopyAs("java")).Set("CORVUS_JAVA_DECOMPILER2", vineflower);
+        using var service = new JavaDecompilerService(new DexService()) { Environment = _fake.Environment, Cache = new JavaSourceCache(_dir.File("java-cache")) };
+        var shape = JvmClassTests.Shape();
+        var jar = Save(_dir, "lib.jar", ContainerFixtures.Zip(("p/Shape.class", shape), ("p/Shape$1.class", shape), ("p/Other.class", shape)));
+        var text = await service.Decompile(jar, "p.Shape::m(int)", true, default, engine: JavaDecompilerService.Vineflower);
+        Assert.StartsWith("// p.Shape (Vineflower)\n// p.Shape::m(int): Vineflower writes whole classes; the class follows\n// vineflower: p/Shape$1.class p/Shape.class\n// options: ", text);
+        Assert.Contains("-e=" + jar, text);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() =>
+            service.Decompile(Apk(), "com.example.app.Main", true, default, engine: JavaDecompilerService.Vineflower))).Code);
+    }
+
     [Fact]
     public async Task SmaliFallbackHint_NamesOurParameter()
     {
@@ -338,6 +355,20 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         Assert.False(error.Retryable);
         Assert.Contains("\"retryable\":false", error.ToJson());
         Assert.Contains("\"reason\":\"not_configured\"", error.ToJson());
+    }
+
+    /// <summary>The real Vineflower (CORVUS_JAVA_DECOMPILER2) decompiles a class of a jar.</summary>
+    [Trait("Speed", "Slow")]
+    [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER2")]
+    public async Task RealVineflower()
+    {
+        using var service = new JavaDecompilerService(new DexService()) { Cache = null };
+        var jar = Save(_dir, "lib.jar", ContainerFixtures.Zip(("p/Shape.class", JvmClassTests.Shape())));
+        var text = await service.Decompile(jar, "p.Shape", true, default, engine: JavaDecompilerService.Vineflower);
+        output.WriteLine(text);
+        Assert.StartsWith("// p.Shape (Vineflower)\npackage p;", text);
+        Assert.Contains("public class Shape {", text);
+        Assert.Contains("\"a\\nb\"", text);
     }
 
     /// <summary>The real JADX server (CORVUS_JAVA_DECOMPILER) decompiles the sample and picks the overload asked for.</summary>

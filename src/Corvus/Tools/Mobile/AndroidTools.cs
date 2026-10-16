@@ -230,9 +230,10 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "disassemble_dex", Title = "Disassemble DEX", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets.")]
+    [Description("Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets. " +
+                 "A jar or .class: the javap -c -p listing.")]
     public Task<string> DisassembleDex(
-        [Description(CodeDescription)] string path,
+        [Description("An Android package, .dex, jar or .class.")] string path,
         [Description("Method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)) or class (pkg.C, Lpkg/C;).")] string symbol,
         [Description("Output layout (default smali).")] string? format = null,
         [Description(CharOffsetDescription)] int offset = 0,
@@ -247,25 +248,31 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         }, cancellationToken, mapping), offset, maxTokens), cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+). A member, " +
-                 "anonymous or lambda class comes from the code JADX writes it in. Without JADX, disassemble_dex gives smali.")]
+    [Description("Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar " +
+                 "or .class through Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). A member, anonymous or lambda class comes from the " +
+                 "code it is written in. Without them, disassemble_dex.")]
     public async Task<string> DecompileJava(
-        [Description("An .apk, .aab or split set, a .dex, or a jar (DEX or .class files).")] string path,
+        [Description("An .apk, .aab or split set, a .dex, a jar or a .class.")] string path,
         [Description("Class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)).")] string symbol,
         [Description("Partial Java where JADX fails; default: smali there.")] bool javaOnly = false,
-        [Description("Decompiler.")] string? engine = null,
+        [Description("jadx (default) or vineflower (class files only).")] string? engine = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(MappingDescription)] string? mapping = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
-        if (engine is { Length: > 0 } e && !e.Trim().Equals("jadx", StringComparison.OrdinalIgnoreCase))
-            throw new ToolError(ErrorCode.InvalidArgument, $"unknown engine '{e}'; use jadx.");
+        var decompiler = (engine ?? "").Trim().ToLowerInvariant() switch
+        {
+            "" or JavaDecompilerService.Jadx => JavaDecompilerService.Jadx,
+            JavaDecompilerService.Vineflower => JavaDecompilerService.Vineflower,
+            var e => throw new ToolError(ErrorCode.InvalidArgument, $"unknown engine '{e}'; use jadx or vineflower."),
+        };
         var text = await OrderedProgress.Run(context, progress =>
         {
-            progress.Report(new ProgressNotificationValue { Progress = 0, Message = "JADX: starting and loading the package (once per package)" });
-            return Task.Run(() => java.Decompile(path, symbol, !javaOnly, cancellationToken, mapping), cancellationToken);
+            progress.Report(new ProgressNotificationValue { Progress = 0, Message = decompiler == JavaDecompilerService.Jadx
+                ? "JADX: starting and loading the package (once per package)" : "Vineflower: decompiling the class" });
+            return Task.Run(() => java.Decompile(path, symbol, !javaOnly, cancellationToken, mapping, decompiler), cancellationToken);
         }).ConfigureAwait(false);
         return pager.Page(text, offset, maxTokens);
     }

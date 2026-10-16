@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -125,6 +125,9 @@
     <PackageDownload Include="Grpc.Tools" Version="[2.84.0]" />
     <PackageDownload Include="Grpc.HealthCheck" Version="[2.84.0]" />
     <PackageDownload Include="Refit" Version="[10.0.1]" />
+    <!-- jars for the class-file reader against javap: Guava for Android (Java 8) and the Kotlin standard library, in binding .aar files -->
+    <PackageDownload Include="Xamarin.Google.Guava" Version="[33.6.0.1]" />
+    <PackageDownload Include="Xamarin.Kotlin.StdLib" Version="[2.3.21]" />
   </ItemGroup>
 
   <ItemGroup>
