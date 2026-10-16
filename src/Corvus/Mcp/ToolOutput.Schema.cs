@@ -32,9 +32,20 @@ public static partial class ToolOutput
         ["compare_assemblies"] = ["items", "changes"],
     };
 
+    /// <summary>
+    /// Record fields left out when false, zero or empty, at every level (the record stays within 1.3x its text); the schema
+    /// makes them optional.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, HashSet<string>> OmittedDefaults = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+    {
+        ["get_native_type"] = ["packed", "forwardOnly", "flagsLike", "enumerators", "bases", "vftables", "globalsOfType", "globals", "candidates", "totalCandidates",
+            "paths", "notes", "truncated"],
+    };
+
     internal static void Envelope(JsonObject root, OutputClass output, string? tool = null)
     {
         OptionalNullables(root);
+        if (tool != null && OmittedDefaults.TryGetValue(tool, out var omitted)) OptionalDefaults(root, omitted);
         if (root["properties"] is not JsonObject properties) return;
         var required = root["required"] as JsonArray;
         void Remove(string name)
@@ -99,6 +110,48 @@ public static partial class ToolOutput
                 break;
             case JsonArray a:
                 foreach (var child in a) OptionalNullables(child);
+                break;
+        }
+    }
+
+    /// <summary>Drops <paramref name="names"/> from "required" at every level.</summary>
+    private static void OptionalDefaults(JsonNode? node, HashSet<string> names)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                if (o["required"] is JsonArray required)
+                {
+                    foreach (var r in required.Where(r => names.Contains(r!.GetValue<string>())).ToList()) required.Remove(r);
+                    if (required.Count == 0) o.Remove("required");
+                }
+                foreach (var (_, child) in o) OptionalDefaults(child, names);
+                break;
+            case JsonArray a:
+                foreach (var child in a) OptionalDefaults(child, names);
+                break;
+        }
+    }
+
+    /// <summary>Removes <paramref name="names"/> where they are false, zero or empty, at every level of a record.</summary>
+    internal static void StripDefaults(JsonNode? node, HashSet<string> names)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                foreach (var (key, value) in o.ToList())
+                    if (names.Contains(key) && value switch
+                        {
+                            JsonArray { Count: 0 } => true,
+                            JsonValue v when v.GetValueKind() == JsonValueKind.False => true,
+                            JsonValue v when v.GetValueKind() == JsonValueKind.Number && v.ToJsonString() == "0" => true,
+                            _ => false,
+                        })
+                        o.Remove(key);
+                    else StripDefaults(value, names);
+                break;
+            case JsonArray a:
+                foreach (var child in a) StripDefaults(child, names);
                 break;
         }
     }

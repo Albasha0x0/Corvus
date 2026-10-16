@@ -32,6 +32,7 @@ public static partial class ToolOutput
         if (record != null)
         {
             StripNulls(record);
+            if (OmittedDefaults.TryGetValue(tool, out var omitted)) StripDefaults(record, omitted);
             foreach (var f in TimingFields)
                 if (record.Remove(f, out var t) && t != null) (meta["corvus/timings"] ??= new JsonObject())[f] = t.DeepClone();
         }

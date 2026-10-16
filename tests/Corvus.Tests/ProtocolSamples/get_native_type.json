@@ -20,8 +20,6 @@
       "source": "pdb",
       "size": 264,
       "alignment": 8,
-      "packed": false,
-      "forwardOnly": false,
       "fields": [
         {
           "offset": 0,
@@ -54,10 +52,6 @@
         }
       ],
       "totalFields": 4,
-      "enumerators": [],
-      "flagsLike": false,
-      "bases": [],
-      "vftables": [],
       "globalsOfType": 1,
       "globals": [
         "g_Game at 0x140003010"
@@ -66,8 +60,6 @@
         "alignment computed from the members (the PDB records none)"
       ]
     },
-    "candidates": [],
-    "totalCandidates": 0,
     "paths": [
       {
         "path": "players[3].pos.y",
@@ -77,8 +69,6 @@
       }
     ],
     "offset": 0,
-    "truncated": false,
-    "notes": [],
     "notices": [
       "loaded typed.dll from <fixtures>/samples/typed.dll"
     ]

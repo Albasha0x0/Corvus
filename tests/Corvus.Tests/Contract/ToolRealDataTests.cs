@@ -11,7 +11,7 @@ namespace Corvus.Tests;
 /// session, notes and workspace tools on Newtonsoft.Json.
 /// </summary>
 [Trait("Data", "Real"), Trait("Speed", "Slow")]
-public sealed class ToolRealDataTests : IDisposable
+public sealed class ToolRealDataTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
 
@@ -137,7 +137,19 @@ public sealed class ToolRealDataTests : IDisposable
         await using var client = await McpProtocolTests.StartServerInAsync(work.Path);
         Assert.Contains("matches the image", (await Call(client, "load_pdb", new() { ["image"] = dll, ["path"] = pdb })).Text);
         Assert.Contains("hb_buffer_create", (await Call(client, "search_pdb_symbols", new() { ["image"] = "libHarfBuzzSharp.dll", ["query"] = "hb_buffer_create" })).Text);
-        Assert.Contains("codepoint", (await Call(client, "get_native_type", new() { ["image"] = "libHarfBuzzSharp.dll", ["name"] = "hb_glyph_info_t" })).Text);
+        var (typeText, type) = await Call(client, "get_native_type", new() { ["image"] = "libHarfBuzzSharp.dll", ["name"] = "hb_glyph_info_t" });
+        Assert.Contains("codepoint", typeText);
+        // compact record: false, zero and empty fields are left out
+        Assert.False(type.GetProperty("type").TryGetProperty("forwardOnly", out _));
+        Assert.False(type.TryGetProperty("candidates", out _));
+        // measured 1.37-1.48x (one row object per field; the text is a table)
+        foreach (var name in new[] { "hb_glyph_info_t", "hb_segment_properties_t", "hb_feature_t" })
+        {
+            var (t, r) = await Call(client, "get_native_type", new() { ["image"] = "libHarfBuzzSharp.dll", ["name"] = name });
+            int textTokens = TokenEstimate.Of(t), recordTokens = TokenEstimate.Of(r.GetRawText());
+            output.WriteLine($"get_native_type {name}: text {textTokens}, record {recordTokens} tokens");
+            Assert.True(recordTokens <= textTokens * 155 / 100, $"{name}: record {recordTokens}, text {textTokens}");
+        }
     }
 
     /// <summary>Workspace, notes and session tools on a real library, in a server with its own notes folder.</summary>
