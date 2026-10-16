@@ -56,6 +56,11 @@ These fail when a change misses one of its follow-up steps (CONTRIBUTING.md list
 - community files (SECURITY.md names every call that starts a process or reaches the network; CONTRIBUTING.md, issue
   forms; no machine path in a tracked file);
 - ratchets: each list in `tests/Corvus.Tests/Ratchets` may only shrink, and every entry states a `# permanent:` reason;
+  the measured lists (`duplicate-lines.txt`; `CountRatchet`) hold one value
+  per key that moves one way only, and `CORVUS_UPDATE_RATCHETS=1` records a tighter value;
+- dead code and copies: unused or never-read private members (IDE0051, IDE0052) are build errors; the full set counts
+  the significant lines (no blanks, comments, lone braces or usings) of `src/` that lie in a copied block of 8 or more,
+  per file pair, against `Ratchets/duplicate-lines.txt` (`DuplicateCodeTests`);
 - format fuzzing: every format reader (found by reflection) has a quick fuzz test marked `[FuzzEntry]`, or a reviewed
   entry in `Ratchets/format-fuzz.txt`;
 - protocol matrix: every MCP protocol version the SDK speaks is negotiated and answered;

@@ -23,7 +23,6 @@ internal sealed class NativeRoutine
     private const uint Top = 0x0010_0000; // esp at entry, pointing at the return address
 
     private const int Eax = 0, Ecx = 1, Edx = 2, Esp = 4;
-    private static readonly string[] RegisterNames = ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"];
 
     private readonly byte[] _code;
     private readonly int _arguments;

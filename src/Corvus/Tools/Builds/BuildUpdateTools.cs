@@ -897,9 +897,4 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             _ => null,
         };
     }
-
-    private Task<LoadedNative> Resolve(string image, CancellationToken ct) => Task.Run(() =>
-    {
-        return Targets.Native(workspace, image);
-    }, ct);
 }

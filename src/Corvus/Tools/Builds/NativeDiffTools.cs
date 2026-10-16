@@ -842,20 +842,6 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     private Task<LoadedNative> Resolve(string image, CancellationToken ct) => pairs.Resolve(image, ct);
 
-    private Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, RequestContext<CallToolRequestParams>? context, CancellationToken ct) =>
-        pairs.Open(image, Progress(context), ct);
-
-    private async Task<(LoadedNative Old, LoadedNative New, MatchResult Match)> Match(string oldImage, string newImage, bool useNames, double minScore,
-        RequestContext<CallToolRequestParams>? context, CancellationToken ct)
-    {
-        if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.");
-        var pair = await pairs.Match(oldImage, newImage, new MatchOptions { UseNames = useNames, MinScore = minScore }, Progress(context), ct);
-        return (pair.Old, pair.New, pair.Match);
-    }
-
-    private static ProgressSpan Progress(RequestContext<CallToolRequestParams>? context) =>
-        new(context?.Params?.ProgressToken != null ? new OrderedProgress(context) : null, 0, 1, 1);
-
     private static List<string> Notes(MatchResult match)
     {
         var notes = new List<string>(match.Notes);

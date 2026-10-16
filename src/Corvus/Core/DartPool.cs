@@ -232,8 +232,6 @@ public static partial class DartPoolScan
         return true;
     }
 
-    private static bool Printable(byte b) => b is >= 0x20 and <= 0x7E;
-
     private static bool UriChar(byte b) => b is (>= (byte)'a' and <= (byte)'z') or (>= (byte)'A' and <= (byte)'Z') or (>= (byte)'0' and <= (byte)'9')
         or (byte)'_' or (byte)'.' or (byte)'/' or (byte)'-' or (byte)'+' or (byte)'%';
 

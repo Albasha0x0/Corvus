@@ -1,0 +1,32 @@
+# no new copied block of 8 or more significant lines under src/
+# Measured ratchet: values may only fall (tests/Corvus.Tests/Support/CountRatchet.cs).
+Corvus/Core/Saz.cs <-> Corvus/Core/Saz.cs = 16
+Corvus/Mcp/Contract/ParameterDomains.cs <-> Corvus/Mcp/Contract/ToolContract.cs = 28
+Corvus/Mcp/Contract/ParameterDomains.cs <-> Corvus/Mcp/Contract/ToolEffects.cs = 28
+Corvus/Mcp/Contract/ToolContract.cs <-> Corvus/Mcp/Contract/ToolEffects.cs = 28
+Corvus/Native/Calls/Arm32CallSites.cs <-> Corvus/Native/Calls/Arm64CallSites.cs = 38
+Corvus/Native/Calls/Arm32CallTargets.cs <-> Corvus/Native/Calls/Arm64CallTargets.cs = 98
+Corvus/Native/Calls/Arm32CallTargets.cs <-> Corvus/Native/Calls/CallTargets.cs = 24
+Corvus/Native/Calls/Arm32Code.cs <-> Corvus/Native/Calls/Arm64Code.cs = 72
+Corvus/Native/Calls/Arm32Trace.cs <-> Corvus/Native/Calls/Arm64Trace.cs = 120
+Corvus/Native/Calls/Arm32Trace.cs <-> Corvus/Tools/NativeAnalysis/NativeTraceTools.cs = 44
+Corvus/Native/Calls/Arm64CallSites.Dynamic.cs <-> Corvus/Native/Calls/DynamicImports.cs = 16
+Corvus/Native/Calls/Arm64CallTargets.cs <-> Corvus/Native/Calls/CallTargets.cs = 24
+Corvus/Native/Calls/Arm64Trace.cs <-> Corvus/Native/Calls/ValueTraceForward.cs = 16
+Corvus/Native/Code/Arm32Decoder.cs <-> Corvus/Native/Code/Arm64Decoder.cs = 36
+Corvus/Native/Dump/ElfCoreFile.cs <-> Corvus/Native/Dump/MinidumpFile.cs = 50
+Corvus/Native/Dump/ModuleNames.cs <-> Corvus/Native/Dump/StackWalker.cs = 16
+Corvus/Native/Elf/ElfFile.Mapping.cs <-> Corvus/Native/MachO/MachOFile.Mapping.cs = 88
+Corvus/Native/Elf/ElfFile.Mapping.cs <-> Corvus/Native/Pe/PeFile.Mapping.cs = 78
+Corvus/Native/Elf/ElfFile.cs <-> Corvus/Native/MachO/MachOFile.cs = 22
+Corvus/Native/Elf/ElfFile.cs <-> Corvus/Native/Pe/PeFile.cs = 22
+Corvus/Native/MachO/MachOFile.Mapping.cs <-> Corvus/Native/Pe/PeFile.Mapping.cs = 76
+Corvus/Native/MachO/MachOFile.cs <-> Corvus/Native/Pe/PeFile.cs = 22
+Corvus/Native/Patching/ByteImage.cs <-> Corvus/Native/ReadyToRun/R2RCode.cs = 24
+Corvus/Native/Providers/Ida/IdaSession.cs <-> Corvus/Native/Providers/WorkerRows.cs = 44
+Corvus/Native/RawCodeImage.cs <-> Corvus/Native/WasmImage.cs = 22
+Corvus/Native/Swift/SwiftDemangler.OldParser.cs <-> Corvus/Native/Swift/SwiftDemangler.Parser.cs = 20
+Corvus/Services/Analysis/DexRuleScan.cs <-> Corvus/Services/Analysis/Endpoints/DexEndpoints.cs = 16
+Corvus/Services/Il2Cpp/CppBindingGenerator.Il2Cpp.cs <-> Corvus/Services/Il2Cpp/CppBindingGenerator.cs = 88
+Corvus/Services/Il2Cpp/CppBindingGenerator.cs <-> Corvus/Services/Il2Cpp/CppBindingGenerator.cs = 36
+Corvus/Tools/NativeEdits/NativeEditTools.cs <-> Corvus/Tools/NativeEdits/NativeEditTools.cs = 20

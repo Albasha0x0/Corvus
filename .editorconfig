@@ -18,6 +18,10 @@ end_of_line = crlf
 [*.cs]
 indent_size = 4
 
+# Dead-code gate (E19): an unused or never-read private member fails the build.
+dotnet_diagnostic.IDE0051.severity = error
+dotnet_diagnostic.IDE0052.severity = error
+
 # Analyzer rules turned off on purpose (warnings are errors; see Directory.Build.props).
 # Naming: tool and test names follow the MCP surface and the domain (Il2Cpp, IL, PE), not framework naming guidelines.
 dotnet_diagnostic.CA1707.severity = none

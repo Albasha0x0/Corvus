@@ -80,6 +80,4 @@ public static class MetadataProbe
     }
 
     private static string Row(EntityHandle h) => $"{h.Kind} 0x{MetadataTokens.GetToken(h):X8}";
-
-    private static string Row(Handle h) => Row((EntityHandle)h);
 }

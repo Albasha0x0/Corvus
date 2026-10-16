@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 
 public class NativeAotStaticsTests
 {
-    private const uint Cctor = B.TextRva + 0x20, Other = B.TextRva + 0x80;
+    private const uint Cctor = B.TextRva + 0x20;
 
     private sealed record Fixture(NativeAotImage Aot, uint GcSlot, uint NonGc, uint ThreadCell, uint Unowned);
 

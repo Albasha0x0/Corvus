@@ -17,7 +17,6 @@ public sealed record UnityJavaCall(MethodDef Caller, string? Class, string? Memb
 /// </summary>
 public static class UnityJavaCalls
 {
-    private const string Ns = "UnityEngine.";
     private static readonly HashSet<string> JavaTypes = ["UnityEngine.AndroidJavaObject", "UnityEngine.AndroidJavaClass", "UnityEngine.AndroidJavaProxy", "UnityEngine.AndroidJNI", "UnityEngine.AndroidJNIHelper"];
 
     private sealed record Val(string? Str = null, string? JavaClass = null, int? Int = null, int? ArrayLength = null);

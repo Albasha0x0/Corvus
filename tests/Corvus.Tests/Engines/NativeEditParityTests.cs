@@ -216,8 +216,6 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
         Assert.Equal((member.Name, member.Type), (now.Name, now.Type));
     }
 
-    private ITestOutputHelper Output => output;
-
     /// <summary>Comments and batch edits in Ghidra.</summary>
     [Trait("Speed", "Slow")]
     public sealed class GhidraComments(ITestOutputHelper output) : NativeEditParityTests(output)

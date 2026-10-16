@@ -501,9 +501,8 @@ public static partial class ContractSweep
 }
 
 /// <summary>Advertised schemas and annotations, and the core of the sweep (all tools, the most telling argument classes).</summary>
-public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
+public sealed class ContractSweepTests : IAsyncLifetime
 {
-    private readonly Xunit.Abstractions.ITestOutputHelper _output = output;
     private readonly TempDir _dir = new();
     private McpClient _client = null!;
     private IList<McpClientTool> _tools = null!;
