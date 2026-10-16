@@ -14,8 +14,13 @@ namespace Corvus.Tests;
 public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
+    private readonly List<OwnCopy> _copies = [];
 
-    public void Dispose() => _dir.Dispose();
+    public void Dispose()
+    {
+        foreach (var c in _copies) c.Dispose();
+        _dir.Dispose();
+    }
 
     private sealed record Answer(string Text, JsonElement Record, bool IsError)
     {
@@ -23,12 +28,11 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
         public int RecordTokens => TokenEstimate.Of(Record.GetRawText());
     }
 
-    private static string Copy(TempDir dir, string version, string name)
+    private string Copy(string version, string name)
     {
-        var path = dir.File(Path.Combine(version, name));
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.Copy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", version, "runtimes", "win-x64", "native", "e_sqlite3.dll"), path);
-        return path;
+        var copy = new OwnCopy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", version, "runtimes", "win-x64", "native", "e_sqlite3.dll"), _dir.File(Path.Combine(version, name)));
+        _copies.Add(copy);
+        return copy.Path;
     }
 
     private async Task<Answer> Call(InProcessServer server, string tool, Dictionary<string, object?> args)
@@ -43,8 +47,8 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
     [Fact]
     public async Task Build_tools_fit_their_budgets_on_a_real_pair()
     {
-        var oldPath = Copy(_dir, "2.1.2", "e_sqlite3.dll");
-        var newPath = Copy(_dir, "2.1.11", "e_sqlite3.dll");
+        var oldPath = Copy("2.1.2", "e_sqlite3.dll");
+        var newPath = Copy("2.1.11", "e_sqlite3.dll");
         await using var server = await InProcessServer.StartAsync();
         var (o, n) = (oldPath, newPath);
 
@@ -90,7 +94,7 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
         Assert.True(common.TextTokens <= 6_300 && common.RecordTokens <= 6_300, $"search_code_pattern: {common.TextTokens} / {common.RecordTokens}");
 
         // migrations preview by default (D7), then apply as undoable edits
-        var name = "corvus_" + Guid.NewGuid().ToString("N")[..8]; // names persist per file hash in the shared test data folder
+        var name = "corvus_sqlite3_libversion";
         await Call(server, "rename_native", new() { ["image"] = o, ["address"] = "sqlite3_libversion", ["name"] = name, ["dryRun"] = false });
         var preview = await Call(server, "migrate_native_names", new() { ["oldImage"] = o, ["newImage"] = n });
         Assert.True(preview.Record.GetProperty("dryRun").GetBoolean());
@@ -104,7 +108,6 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
         var patches = await Call(server, "migrate_native_patches", new() { ["oldImage"] = o, ["newImage"] = n });
         Assert.Equal(1, patches.Record.GetProperty("total").GetInt32());
         Assert.True(Corvus.Native.Diff.MigrationReasons.IsKnown(patches.Record.GetProperty("items")[0].GetProperty("reason").GetString()!));
-        // undone, so no unsaved patch journal is left in the shared data folder
         await Call(server, "undo_native_edit", new() { ["image"] = "e_sqlite3.dll", ["editId"] = patched.Record.GetProperty("editIds")[0].GetString()! });
     }
 }

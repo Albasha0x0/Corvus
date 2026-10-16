@@ -54,8 +54,8 @@ public sealed class NativeEditUndoEngineTests(ITestOutputHelper output) : IDispo
     [Fact]
     public async Task Native_edit_tools_round_trip_on_a_real_library()
     {
-        var path = _dir.File("e_sqlite3.dll");
-        File.Copy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll"), path);
+        using var copy = new OwnCopy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll"), _dir.File("e_sqlite3.dll"));
+        var path = copy.Path;
         await using var server = await InProcessServer.StartAsync();
         async Task<System.Text.Json.JsonElement> Call(string tool, Dictionary<string, object?> args)
         {
@@ -66,7 +66,7 @@ public sealed class NativeEditUndoEngineTests(ITestOutputHelper output) : IDispo
             return r.StructuredContent!.Value;
         }
         const string Fn = "sqlite3_libversion_number";
-        var name = "corvus_v" + Guid.NewGuid().ToString("N")[..8]; // names persist per file hash in the shared test data folder
+        const string name = "corvus_libversion_number";
         var preview = await Call("rename_native", new() { ["image"] = path, ["address"] = Fn, ["name"] = name });
         Assert.True(preview.GetProperty("dryRun").GetBoolean());
         Assert.Equal("e_sqlite3.dll#1", (await Call("rename_native", new() { ["image"] = "e_sqlite3.dll", ["address"] = Fn, ["name"] = name, ["dryRun"] = false }))

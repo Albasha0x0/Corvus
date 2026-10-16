@@ -109,6 +109,35 @@ public sealed class TempDir : IDisposable
     }
 }
 
+/// <summary>
+/// A copy of a real file with bytes past its end that differ per copy, so its annotation sidecar (kept per file hash in
+/// the shared test data folder) belongs to one test run; names a crashed or concurrent run left behind cannot reach it.
+/// Dispose deletes that sidecar.
+/// </summary>
+public sealed class OwnCopy : IDisposable
+{
+    private readonly string _sha256;
+
+    public string Path { get; }
+
+    public OwnCopy(string source, string destination)
+    {
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(destination)!);
+        byte[] bytes = [.. System.IO.File.ReadAllBytes(source), .. Guid.NewGuid().ToByteArray()];
+        System.IO.File.WriteAllBytes(destination, bytes);
+        _sha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+        Path = destination;
+    }
+
+    public void Dispose()
+    {
+        var root = new Corvus.Native.Annotations.AnnotationStore().Root;
+        if (!Directory.Exists(root)) return;
+        foreach (var file in Directory.EnumerateFiles(root, _sha256 + ".*"))
+            try { System.IO.File.Delete(file); } catch (IOException) { }
+    }
+}
+
 /// <summary>A fact that is skipped when the given path does not exist.</summary>
 public sealed class RequiresPathFactAttribute : FactAttribute
 {
