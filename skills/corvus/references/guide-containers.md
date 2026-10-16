@@ -38,6 +38,9 @@ a pcap reassembles TCP and writes HTTP/1.x and HTTP/2 responses as files, other 
 (version, cipher, JA3 / JA4 / JA4S); keyLog (SSLKEYLOGFILE) or the pcapng's secrets blocks decrypt TLS 1.2 / 1.3; kind=dart lists a
 Flutter app's Dart package: / dart: URIs and identifiers (summarize_file view=flutter gives its packages).
 summarize_file view=protobuf rebuilds embedded protobuf descriptors as .proto files.
+summarize_file view=script reads PowerShell, batch, VBScript and JavaScript with their transformation layers peeled to plain
+text, never run (each layer with its decoding chain; offset pages the text); view=package reviews an npm, PyPI, VS Code or
+browser extension package before installing: install scripts, entry points, permissions, findings noteworthy or worth reviewing.
 analyze_js on a .js file: bundler signatures and its source map; view=position maps a minified line:column to the original source.
 Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read these yet; unpack_container on the _framework folder converts them to PEs that load; save_assembly to a .wasm path writes Webcil back.
 Any other .wasm loads as a native image: disassemble gives a function's WAT (as wasm2wat), decompile_native a lifted view,

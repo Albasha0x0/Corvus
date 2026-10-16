@@ -21,7 +21,7 @@ internal sealed partial class PsInterpreter
         "ConvertTo-SecureString", "ConvertFrom-SecureString", "Get-Random", "Join-Path", "Split-Path", "Resolve-Path", "Get-Location",
         "Set-Location", "Import-Module", "Expand-Archive", "Compress-Archive", "Get-WmiObject", "Get-CimInstance", "Register-ScheduledTask",
         "New-ScheduledTaskAction", "New-ScheduledTaskTrigger", "Set-MpPreference", "Add-MpPreference", "Get-Date", "Set-ExecutionPolicy",
-        "Format-Table", "Out-Host", "Get-Member", "Get-Service", "New-Service", "Restart-Computer", "Stop-Computer", "Clear-History",
+        "Format-Table", "Out-Host", "Get-Member", "Get-Service", "New-Service", "Restart-Computer", "Stop-Computer", "Clear-History", "Get-Clipboard", "Set-Clipboard",
     ];
 
     private static readonly Dictionary<string, string> DefaultAliases = new(StringComparer.OrdinalIgnoreCase)
@@ -267,6 +267,12 @@ internal sealed partial class PsInterpreter
                 if (!piped || Array(input) is not { } items || Join(items, "\n") is not { } text) return PsUnknown.Value;
                 return text + "\n";
             }
+            case "Get-Clipboard":
+                Bind(c);
+                return _ctx.Clipboard ?? (object)PsUnknown.Value;
+            case "Add-Type" when c.Args.All(a => a.Parameter == null || "assemblyname".StartsWith(a.Parameter.ToLowerInvariant(), StringComparison.Ordinal)):
+                Bind(c);
+                return PsVoid.Value; // loading a framework assembly by name
             case "Write-Host" or "Out-Null" or "Write-Verbose" or "Out-Host" or "Start-Sleep":
                 Bind(c);
                 return PsVoid.Value;
@@ -376,7 +382,7 @@ internal sealed partial class PsInterpreter
                 int at = args.FindIndex(a => a.Equals("/c", StringComparison.OrdinalIgnoreCase) || a.Equals("/k", StringComparison.OrdinalIgnoreCase) || a.Equals("/r", StringComparison.OrdinalIgnoreCase));
                 if (_fold || at < 0 || at + 1 >= args.Count) return PsUnknown.Value;
                 var command = string.Join(" ", args.Skip(at + 1));
-                if (_peeled.Add((_layer, c.Start, c.End)) && _ctx.Peel("batch", command, "cmd.exe /c", _layer.Depth + 1) is { } plain)
+                if (_peeled.Add((_layer, c.Start, c.End)) && _ctx.Peel("cmd", command, "cmd.exe /c", _layer.Depth + 1) is { } plain)
                     _layer.Set(c.Start, c.End, plain);
                 return PsUnknown.Value;
             }
@@ -662,7 +668,7 @@ internal sealed partial class PsInterpreter
         ("string", "empty") => "",
         ("io.compression.compressionmode", _) => name,
         ("environment", "newline") => "\r\n",
-        _ => PsUnknown.Value,
+        _ => new PsMethodGroup(new PsTypeValue(type), name), // a static method named as a member: .Invoke() calls it
     };
 
     private object? Invoke(object? target, string name, List<object?> args, PsInvoke? node)
@@ -688,7 +694,8 @@ internal sealed partial class PsInterpreter
             case PsStreamValue m when n == "read" && A(0) is byte[] buf: return PsUnknown.Value;
             case PsBlockValue b when n is "invoke" or "invokereturnasis": return InvokeBlock(b, args, null, false, true);
             case PsBlockValue b when n == "tostring": return b.Text;
-            case PsMethodGroup g when n is "invoke": return Invoke(g.Target, g.Name, args, null);
+            case PsMethodGroup g when n is "invoke":
+                return g.Target is PsTypeValue gt ? StaticCall(TypeKey(gt.Name), gt.Name, g.Name.ToLowerInvariant(), g.Name, args, node) : Invoke(g.Target, g.Name, args, node);
             case object[] a when n == "foreach" && A(0) is PsBlockValue fb:
             {
                 var outputs = new List<object?>();
@@ -866,6 +873,8 @@ internal sealed partial class PsInterpreter
             case ("runtime.interopservices.marshal", "ptrtostringauto" or "ptrtostringbstr" or "ptrtostringuni" or "ptrtostringansi"):
                 return A(0) is PsSecureString ps ? ps.Plain : PsUnknown.Value;
             case ("environment", "getenvironmentvariable"): return S(0) is { } en && Env(en) is { } ev ? ev : PsUnknown.Value;
+            case ("windows.clipboard" or "windows.forms.clipboard", "gettext"): return _ctx.Clipboard ?? (object)PsUnknown.Value;
+            case ("windows.clipboard" or "windows.forms.clipboard", "clear" or "settext"): return PsVoid.Value;
             case ("text.encoding", "getencoding"):
             {
                 var e = S(0)?.ToLowerInvariant();

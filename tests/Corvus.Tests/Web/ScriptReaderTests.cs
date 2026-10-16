@@ -21,6 +21,18 @@ public sealed class ScriptReaderTests
         Assert.True(r.Complete);
     }
 
+    public static TheoryData<string> LauncherSamples() =>
+        [.. Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "Web", "ScriptFixtures", "launchers"), "*.cmd").Select(f => Path.GetFileName(f)).Order()];
+
+    [Theory]
+    [MemberData(nameof(LauncherSamples))]
+    public void Invoke_obfuscation_launchers_reach_the_powershell_they_start(string name)
+    {
+        var r = ScriptReader.Read(File.ReadAllText(Fixture("launchers", name)), "cmd");
+        Assert.Contains(r.Layers, l => l.Language == "powershell" && l.Text.Trim().StartsWith("Write-Host 'corvus marker';", StringComparison.Ordinal));
+        Assert.True(r.Complete);
+    }
+
     /// <summary>Fixtures modelled on public droppers: each hides "corvus marker" behind its layers.</summary>
     public static TheoryData<string, string> LayeredSamples()
     {
@@ -57,7 +69,7 @@ public sealed class ScriptReaderTests
     public void Layers_cross_languages_from_batch_through_vbscript_to_a_command_line()
     {
         var r = ScriptReader.Read(File.ReadAllText(Fixture("batch", "mshta-vbscript.cmd")), "batch");
-        Assert.Equal(["vbscript", "vbscript", "batch", "batch"], r.Layers.Select(l => l.Language));
+        Assert.Equal(["vbscript", "vbscript", "cmd", "cmd"], r.Layers.Select(l => l.Language));
         Assert.Equal("WScript.Shell.Run", r.Layers[2].Via);
         Assert.Contains("WScript.Shell.Run \"cmd /c echo corvus marker\"", r.Calls);
     }

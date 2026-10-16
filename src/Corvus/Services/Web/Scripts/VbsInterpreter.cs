@@ -546,7 +546,7 @@ internal sealed class VbsInterpreter
     {
         Record($"{via} \"{(command.Length > 160 ? command[..160] + "…" : command)}\"");
         if (_fold || !_peeled.Add((_layer, siteStart))) return;
-        if (_ctx.Peel("batch", command, via, _depth + 1) is { } plain && plain.Trim() != command.Trim())
+        if (_ctx.Peel("cmd", command, via, _depth + 1) is { } plain && plain.Trim() != command.Trim())
             _layer.Set(siteStart, siteEnd, plain.TrimEnd('\r', '\n'));
     }
 

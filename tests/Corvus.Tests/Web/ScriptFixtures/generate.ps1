@@ -27,3 +27,12 @@ $cases = @(
 foreach ($c in $cases) {
     foreach ($i in 1..3) { Set-Content -Path (Join-Path $out "$($c.n)-$i.ps1") -Value (& $c.f) -Encoding UTF8 }
 }
+# launchers/*.cmd: the command lines of Out-PowerShellLauncher's twelve launch types (cmd, wmic, rundll32, environment
+# variables, stdin, clipboard, mshta) around a second benign command; read as command lines, not batch files.
+$launchers = Join-Path $PSScriptRoot 'launchers'
+New-Item -ItemType Directory -Force $launchers | Out-Null
+$sb = [ScriptBlock]::Create("Write-Host 'corvus marker'; `$u = 'http://example.com/corvus/stage.txt'")
+foreach ($n in 1..12) {
+    $r = Out-PowerShellLauncher -ScriptBlock $sb -LaunchType $n -NoProfile -NonInteractive -WindowStyle Hidden
+    Set-Content -Path (Join-Path $launchers ('launcher-{0:00}.cmd' -f $n)) -Value $r -Encoding UTF8
+}

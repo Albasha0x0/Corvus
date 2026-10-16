@@ -55,6 +55,12 @@ internal sealed class ScriptContext(ScriptBudget budget)
     public bool Incomplete { get; set; }
     public SortedSet<string> Recovered { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>A command's piped input (echo text | powershell ...), read as $input.</summary>
+    public string? Stdin { get; set; }
+
+    /// <summary>Text a layer put on the clipboard (echo text | clip), read by Get-Clipboard and Clipboard.GetText.</summary>
+    public string? Clipboard { get; set; }
+
     /// <summary>Environment variables a layer set (batch set, $env:), read by later layers in any language.</summary>
     public Dictionary<string, string> Environment { get; } = new(StringComparer.OrdinalIgnoreCase);
 

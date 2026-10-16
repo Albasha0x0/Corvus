@@ -835,7 +835,7 @@ internal sealed class JsPass
             // a command line run through WScript.Shell or child_process: read as a batch layer when it starts a script host
             if (name is "Run" or "Exec" or "exec" or "execSync" or "ShellExecute" && first is string command
                 && Regex.IsMatch(command, @"^\s*(cmd|powershell|pwsh|mshta)(\.exe)?\b", RegexOptions.IgnoreCase)
-                && _ctx.Peel("batch", command, name == "ShellExecute" ? "Shell.Application.ShellExecute" : name is "Run" or "Exec" ? "WScript.Shell." + name : "child_process." + name, _depth + 1) is { } plain
+                && _ctx.Peel("cmd", command, name == "ShellExecute" ? "Shell.Application.ShellExecute" : name is "Run" or "Exec" ? "WScript.Shell." + name : "child_process." + name, _depth + 1) is { } plain
                 && plain.Trim() != command.Trim() && _parents.GetValueOrDefault(node) is ExpressionStatement statement
                 && !_text.AsSpan(statement.End).TrimStart().StartsWith("/* runs:", StringComparison.Ordinal))
                 // the call stays as written; what it runs follows as a comment (on the last character: edits inside stay apart)

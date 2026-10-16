@@ -18,14 +18,18 @@ internal sealed partial class BatchReader
     private readonly Dictionary<string, string> _vars;
     private readonly HashSet<int> _peeled = [];
 
-    private BatchReader(ScriptContext ctx, int depth)
+    private readonly bool _commandLine;
+
+    private BatchReader(ScriptContext ctx, int depth, bool commandLine)
     {
         _ctx = ctx;
         _depth = depth;
+        _commandLine = commandLine;
         _vars = ctx.Environment; // shared with later layers in other languages
     }
 
-    public static string Read(string text, ScriptContext ctx, int depth) => new BatchReader(ctx, depth).Run(text);
+    /// <param name="commandLine">A command line (cmd /c, Run, wmic): an undefined %var% stays as written, as cmd leaves it.</param>
+    public static string Read(string text, ScriptContext ctx, int depth, bool commandLine = false) => new BatchReader(ctx, depth, commandLine).Run(text);
 
     private sealed record Line(int Start, int End, string Text);
 
@@ -125,6 +129,7 @@ internal sealed partial class BatchReader
             }
             return sb.ToString();
         }
+        if (Pipe(line, labels, ref jump, nesting) is { } piped) return lead + piped;
         var unescaped = Unescape(line);
         var delayed = Expand(unescaped, delayed: true) ?? unescaped;
         var word = FirstWord(delayed, out var rest);
@@ -156,6 +161,37 @@ internal sealed partial class BatchReader
                 return lead + delayed;
         }
         return lead + Launch(word, rest, delayed);
+    }
+
+    /// <summary>echo text | command: the text is the command's input (clip keeps it as the clipboard), read by a PowerShell layer.</summary>
+    private string? Pipe(string line, Dictionary<string, int> labels, ref int jump, int nesting)
+    {
+        int bar = -1;
+        bool quoted = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '^') { i++; continue; }
+            if (c == '"') quoted = !quoted;
+            else if (!quoted && c == '|' && (i + 1 >= line.Length || line[i + 1] != '|') && (i == 0 || line[i - 1] != '|')) { bar = i; break; }
+        }
+        if (bar < 0) return null;
+        // echo text, echo.text, echo/text, echo\text, echo(text: the character after echo is a separator
+        var echo = Regex.Match(Unescape(line[..bar]), @"^\s*@?echo[\s./\\(:;,=+\[\]](.*)$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (!echo.Success) return null;
+        var text = echo.Groups[1].Value;
+        var right = line[(bar + 1)..];
+        var target = FirstWord(Unescape(right), out _);
+        if (Path.GetFileNameWithoutExtension(target).Equals("clip", StringComparison.OrdinalIgnoreCase))
+        {
+            _ctx.Clipboard = text.Trim();
+            int ignored = -1;
+            var restOfLine = Pipe(right, labels, ref ignored, nesting);
+            return line[..bar] + "|" + (restOfLine ?? right);
+        }
+        _ctx.Stdin = text.Trim();
+        try { return line[..bar] + "| " + Command(right, labels, ref jump, nesting + 1).TrimStart(); }
+        finally { _ctx.Stdin = null; }
     }
 
     /// <summary>cmd's command separators outside quotes and parentheses: &amp;, &amp;&amp;, ||.</summary>
@@ -344,12 +380,40 @@ internal sealed partial class BatchReader
                 return PowerShell(rest) ?? line;
             case "cmd":
             {
-                var m = Regex.Match(rest, @"^\s*(?:/[a-bd-jl-qs-z]\S*\s+)*/[ckr]\s+(.+)$", RegexOptions.IgnoreCase);
+                var m = Regex.Match(rest, @"^\s*(?:/[a-bd-jl-qs-z]\S*\s+)*/[ckr]\s*(.+)$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
                 if (!m.Success) return line;
                 var inner = m.Groups[1].Value.Trim();
                 if (inner.Length > 1 && inner[0] == '"' && inner[^1] == '"') inner = inner[1..^1];
-                var plain = _ctx.Peel("batch", inner, "cmd /c", _depth + 1);
+                var plain = _ctx.Peel("cmd", inner, "cmd /c", _depth + 1);
                 return plain == null ? line : "cmd /c " + plain;
+            }
+            case "wmic":
+            {
+                // wmic process call create "command line"
+                var args = Arguments(rest);
+                int create = args.FindIndex(a => a.Trim('\'').Equals("create", StringComparison.OrdinalIgnoreCase));
+                if (create < 0 || create + 1 >= args.Count) return line;
+                var plain = _ctx.Peel("cmd", args[create + 1], "wmic process call create", _depth + 1);
+                return plain == null ? line : "wmic process call create " + plain;
+            }
+            case "rundll32":
+            {
+                // rundll32 shell32.dll,ShellExec_RunDLL program arguments (and the other entry points that start a program)
+                var args = Arguments(rest);
+                if (args.Count < 2 || !Regex.IsMatch(args[0], @",\s*(ShellExec_RunDLL\w*|FileProtocolHandler|OpenURL|RouteTheCall)$", RegexOptions.IgnoreCase)) return line;
+                var command = string.Join(" ", args.Skip(1).Select(a => a.Trim()));
+                var plain = _ctx.Peel("cmd", command, "rundll32 " + args[0], _depth + 1);
+                return plain == null ? line : $"rundll32 {args[0]} {plain}";
+            }
+            case "start":
+            {
+                // start ["title"] [/b /min /wait ...] command
+                var r = rest.TrimStart();
+                if (r.StartsWith('"')) { int close = r.IndexOf('"', 1); r = close < 0 ? "" : r[(close + 1)..]; }
+                r = Regex.Replace(r, @"^(\s*/\w+(?:\s+[^\s/]+(?=\s+/))?)*", "").TrimStart();
+                if (r.Length == 0) return line;
+                int j = -1;
+                return "start " + Command(r, [], ref j, 1);
             }
             case "mshta":
             {
@@ -372,29 +436,28 @@ internal sealed partial class BatchReader
         for (int i = 0; i < args.Count; i++)
         {
             var a = args[i];
-            if (a.Length < 2 || a[0] is not ('-' or '/')) break;
-            var p = a[1..].ToLowerInvariant();
+            if (a.Length < 2 || a[0] is not ('-' or '/'))
+                return _ctx.Peel("powershell", string.Join(" ", args.Skip(i)), "powershell", _depth + 1);
+            // options are matched by any unambiguous prefix, as powershell.exe reads them
+            var p = a[1..].TrimEnd(':').ToLowerInvariant();
             if (p is "e" or "ec" || p.Length >= 2 && "encodedcommand".StartsWith(p, StringComparison.Ordinal))
             {
                 if (i + 1 >= args.Count || ScriptText.FromBase64(args[i + 1]) is not { } bytes) return null;
                 return _ctx.Peel("powershell", Encoding.Unicode.GetString(bytes), "powershell -EncodedCommand of base64 > utf-16le", _depth + 1);
             }
-            if (p is "c" or "co" or "com" or "comm" or "comma" or "comman" or "command")
+            if ("command".StartsWith(p, StringComparison.Ordinal))
                 return i + 1 < args.Count ? _ctx.Peel("powershell", string.Join(" ", args.Skip(i + 1)), "powershell -Command", _depth + 1) : null;
-            if (p is "f" or "file" or "ex" or "exec" or "executionpolicy" or "w" or "windowstyle" or "ep" or "v" or "version" or "configurationname" or "inputformat" or "outputformat")
+            if (p is "f" || p.Length >= 2 && "file".StartsWith(p, StringComparison.Ordinal)) return null; // a script file, not code
+            if (p is "ep" or "ex" or "exec" || ValueOptions.Any(o => o.StartsWith(p, StringComparison.Ordinal)) && !SwitchOptions.Any(o => o.StartsWith(p, StringComparison.Ordinal)))
                 i++; // the option's value
         }
-        int first = args.FindIndex(a => a.Length > 0 && a[0] is not ('-' or '/'));
-        if (first < 0) return null;
-        // an option's value is not the command
-        while (first > 0 && args[first - 1].ToLowerInvariant() is "-w" or "-windowstyle" or "-ep" or "-ex" or "-exec" or "-executionpolicy" or "-v" or "-version" or "-file" or "-f")
-        {
-            int next = args.FindIndex(first + 1, a => a.Length > 0 && a[0] is not ('-' or '/'));
-            if (next < 0) return null;
-            first = next;
-        }
-        return _ctx.Peel("powershell", string.Join(" ", args.Skip(first)), "powershell", _depth + 1);
+        return null;
     }
+
+    private static readonly string[] ValueOptions =
+        ["windowstyle", "executionpolicy", "version", "configurationname", "inputformat", "outputformat", "psconsolefile", "custompipename", "workingdirectory", "settingsfile", "encodedarguments"];
+
+    private static readonly string[] SwitchOptions = ["noprofile", "noninteractive", "nologo", "noexit", "sta", "mta", "help", "login", "interactive", "nop", "noni"];
 
     /// <summary>Command-line arguments: whitespace-separated, double quotes grouping and removed, \" a literal quote.</summary>
     private static List<string> Arguments(string s)
@@ -473,7 +536,7 @@ internal sealed partial class BatchReader
             var value = Variable(body);
             if (value == null)
             {
-                if (delayed) { sb.Append(c); continue; } // !x! of an unknown name stays (it may be text)
+                if (delayed || _commandLine) { sb.Append(c); continue; } // !x! of an unknown name, and %x% on a command line, stay as written
                 i = close; // an undefined %var% in a batch file expands to nothing
                 continue;
             }

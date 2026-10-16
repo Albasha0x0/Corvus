@@ -8,7 +8,8 @@ namespace Corvus.Services.Web.Scripts;
 /// </summary>
 public static class ScriptReader
 {
-    public static readonly string[] Languages = ["powershell", "batch", "vbscript", "javascript"];
+    /// <summary>The languages read; cmd is a command line (cmd /c, Run, wmic), batch a .bat / .cmd file.</summary>
+    public static readonly string[] Languages = ["powershell", "batch", "cmd", "vbscript", "javascript"];
 
     /// <summary>The language of a script by its extension, else by its text; null when it does not read as one.</summary>
     public static string? Detect(string path, string text)
@@ -57,6 +58,7 @@ public static class ScriptReader
         "powershell" => PsInterpreter.Read(text, ctx, depth),
         "vbscript" => VbsInterpreter.Read(text, ctx, depth),
         "batch" => BatchReader.Read(text, ctx, depth),
+        "cmd" => BatchReader.Read(text, ctx, depth, commandLine: true),
         "javascript" => JsLayers.Read(text, ctx, depth),
         _ => text,
     };
