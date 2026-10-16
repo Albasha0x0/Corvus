@@ -1,0 +1,39 @@
+{
+  "comment": "Mutation targets for ./test.ps1 -Mutation (Stryker.NET): the files mutated and the tests that read them. Shared options are Stryker's own config keys; the survivors per target are ratcheted in tests/Corvus.Tests/Ratchets/mutation-survivors.txt.",
+  "options": {
+    "project": "Corvus.csproj",
+    "test-projects": ["tests/Corvus.Tests/Corvus.Tests.csproj"],
+    "coverage-analysis": "perTest",
+    "mutation-level": "Standard",
+    "reporters": ["Json", "Progress"],
+    "additional-timeout": 10000,
+    "ignore-methods": ["*Exception.ctor", "ToolError.ctor"],
+    "disable-bail": false
+  },
+  "targets": {
+    "sqlite": {
+      "mutate": ["src/Corvus/Core/Sqlite.cs", "src/Corvus/Core/SqliteRecovery.cs", "src/Corvus/Core/SqliteWal.cs"],
+      "tests": "FullyQualifiedName~SqliteTests|FullyQualifiedName~SqliteDepthTests"
+    },
+    "pcap": {
+      "mutate": ["src/Corvus/Core/Pcap/PcapReader.cs", "src/Corvus/Core/Pcap/PacketDecoder.cs", "src/Corvus/Core/Pcap/TcpStreams.cs", "src/Corvus/Core/Pcap/Hpack.cs"],
+      "tests": "FullyQualifiedName~PcapTests|FullyQualifiedName~CaptureTests|FullyQualifiedName~CaptureObjectsTests|FullyQualifiedName~CaptureRequestTests"
+    },
+    "pe": {
+      "mutate": ["src/Corvus/Native/Pe/*.cs"],
+      "tests": "FullyQualifiedName~PeFile|FullyQualifiedName~NativeFormats|FullyQualifiedName~NativeImage"
+    },
+    "elf": {
+      "mutate": ["src/Corvus/Native/Elf/ElfFile*.cs"],
+      "tests": "FullyQualifiedName~Elf"
+    },
+    "macho": {
+      "mutate": ["src/Corvus/Native/MachO/MachOFile*.cs", "src/Corvus/Native/MachO/MachOFat.cs", "src/Corvus/Native/MachO/MachOLoadCommands.cs"],
+      "tests": "FullyQualifiedName~MachO"
+    },
+    "decoders": {
+      "mutate": ["src/Corvus/Native/Code/Arm64Decoder.cs", "src/Corvus/Native/Code/Arm32Decoder.cs", "src/Corvus/Native/Code/Arm32Decode.cs"],
+      "tests": "FullyQualifiedName~Arm64|FullyQualifiedName~Arm32|FullyQualifiedName~Decoder"
+    }
+  }
+}

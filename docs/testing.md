@@ -71,6 +71,27 @@ These fail when a change misses one of its follow-up steps (CONTRIBUTING.md list
   temporary folder (TMP, TEMP and TMPDIR point there for the tests and the servers they start), fail the run with
   their names. A folder a test class keeps for the whole run is registered with `LeakGuard.DeleteAtEnd`.
 
+## Mutation testing, client checks and the token benchmark
+
+These run on demand (gates and releases), never in the quick or full set by default, and skip with the reason when
+their tool is missing:
+
+- **Mutation testing** (`./test.ps1 -Mutation [-Target sqlite,pe]`): Stryker.NET (`CORVUS_STRYKER`, else
+  `dotnet-stryker` on PATH) mutates the files of the targets in `tests/mutation.json` (the core readers: SQLite,
+  pcap, PE, ELF, Mach-O, the ARM decoders; the file holds every Stryker option) in one run, with the tests that read
+  them. Stryker compiles the whole project once per run (about an hour here, whatever is mutated), so targets share a
+  run. Surviving mutants (survived or not covered) per target are checked against `Ratchets/mutation-survivors.txt`
+  (`MutationTests`), and the score per target is printed.
+- **Real-client checks** (`tests/agents/run-tasks.ps1`, or the full set with `CORVUS_CLIENT_CHECKS=1`): each installed
+  agent client (Claude Code, Codex, Gemini CLI; `CORVUS_CLIENT_CLAUDE`, `CORVUS_CLIENT_CODEX`,
+  `CORVUS_CLIENT_GEMINI` name other executables) gets one known-answer question about the Notes sample through this
+  build's server, graded by the facts in `tests/agents/tasks.json`. Every client option lives in
+  `tests/agents/clients.json`. A client that is not installed or not signed in is skipped.
+- **Token benchmark** (`run-tasks.ps1 -Set bench -Server corvus,reference -Runs 3`): ten known-answer tasks, per
+  client and server: correctness, tools called, input tokens (with the cached part), output tokens, cost and wall time,
+  in `results.jsonl`. `CORVUS_REFERENCE_SERVER` holds the server to compare against (JSON
+  `{"command": ..., "args": [...]}`); `CORVUS_AGENT_SERVER` replaces this build.
+
 ## Generated documents
 
 `docs/errors.md`, `docs/simplify.md`, `docs/saving.md`, `docs/tools.md`, the client table of `docs/installation.md`

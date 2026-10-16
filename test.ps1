@@ -11,6 +11,8 @@
 #                                         #   returns at once (-Sampled: the routine quarter of the sweeps, no reuse)
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
+#         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
+#                                         #   surviving mutants checked against Ratchets/mutation-survivors.txt (gates and releases)
 #Requires -Version 7.0
 param(
     [switch]$Full,
@@ -23,7 +25,9 @@ param(
     [switch]$Status,
     [switch]$Reuse,
     [switch]$Sampled,
-    [switch]$Coverage
+    [switch]$Coverage,
+    [switch]$Mutation,
+    [string[]]$Target
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,6 +43,42 @@ if ($Status) {
     Write-Host (Get-Content $result -Raw).Trim()
     if (Test-Path $log) { Get-Content $log -Tail 5 | Where-Object { $_ -match '\[FAIL\]|Passed!|Failed!|Stamped' } | ForEach-Object { Write-Host "  $_" } }
     exit 0
+}
+
+# Mutation testing: one Stryker.NET run (CORVUS_STRYKER, else dotnet-stryker on PATH) over the files and tests of the
+# targets in tests/mutation.json, which holds every Stryker option. Stryker compiles the whole project once per run
+# whatever is mutated, so targets share one run; MutationTests splits the report per target and checks the survivors.
+if ($Mutation) {
+    $stryker = if ($env:CORVUS_STRYKER) { $env:CORVUS_STRYKER } else { (Get-Command dotnet-stryker -ErrorAction SilentlyContinue).Source }
+    if (-not $stryker) { Write-Host 'Mutation testing skipped: Stryker.NET not found (dotnet tool install -g dotnet-stryker, or set CORVUS_STRYKER).' -ForegroundColor Yellow; exit 0 }
+    $table = Get-Content (Join-Path $root 'tests/mutation.json') -Raw | ConvertFrom-Json -AsHashtable
+    $names = if ($Target) { $Target -split ',' } else { @($table.targets.Keys | Sort-Object) }
+    $missing = @($names | Where-Object { -not $table.targets[$_] })
+    if ($missing) { Write-Host "No mutation target $($missing -join ', ') in tests/mutation.json." -ForegroundColor Red; exit 2 }
+    $out = Join-Path ([IO.Path]::GetTempPath()) "corvus-mutation-$PID"
+    New-Item -ItemType Directory -Force $out | Out-Null
+    $project = Join-Path $root 'src/Corvus'
+    $config = [ordered]@{}
+    foreach ($key in $table.options.Keys) { $config[$key] = $table.options[$key] }
+    # Stryker resolves paths from the mutated project's folder.
+    $config['test-projects'] = @($config['test-projects'] | ForEach-Object { [IO.Path]::GetRelativePath($project, (Join-Path $root $_)).Replace('\', '/') })
+    $config['mutate'] = @($names | ForEach-Object { $table.targets[$_].mutate } | ForEach-Object { $_ -replace '^src/Corvus/', '' })
+    $config['test-case-filter'] = ($names | ForEach-Object { $table.targets[$_].tests }) -join '|'
+    $file = Join-Path $out 'stryker-config.json'
+    Set-Content $file (@{ 'stryker-config' = $config } | ConvertTo-Json -Depth 5)
+    Write-Host "Mutation targets: $($names -join ', ')"
+    Push-Location $project
+    try { & $stryker --config-file $file --output (Join-Path $out 'run') --skip-version-check }
+    finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { Write-Host "Stryker failed ($LASTEXITCODE); output in $out." -ForegroundColor Red; exit $LASTEXITCODE }
+    $env:CORVUS_MUTATION_REPORT = $out
+    try { & dotnet test $tests --nologo --filter 'FullyQualifiedName~MutationTests' -p:CORVUS_ALL_TESTS=1 }
+    finally { Remove-Item Env:CORVUS_MUTATION_REPORT }
+    $code = $LASTEXITCODE
+    $summary = Join-Path $out 'summary.txt'
+    if (Test-Path $summary) { Get-Content $summary | ForEach-Object { Write-Host $_ } }
+    if ($code -eq 0) { Remove-Item -Recurse -Force $out } else { Write-Host "Reports kept in $out." }
+    exit $code
 }
 
 # A full run on the committed HEAD in a worktree of its own, so building and testing here continue meanwhile. The worktree
@@ -176,6 +216,7 @@ if ($familyKeys) { $arguments += @('--logger', 'trx;LogFileName=full.trx', '--re
 if ($Coverage) {
     if (-not $Full -or $Filter -or $Reuse) { Write-Host 'Coverage needs the whole suite: -Full without -Filter, -Affected or -Reuse.' -ForegroundColor Red; exit 2 }
     if (-not $familyKeys) { $arguments += @('--results-directory', $results) }
+    $familyKeys = $null   # an instrumented run records no family passes and stamps no tree
     $arguments += @('--collect', 'XPlat Code Coverage', '--',
         'DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=[corvus]*')
 }
@@ -183,7 +224,7 @@ $saved = $env:CORVUS_ALL_TESTS; $savedSweep = $env:CORVUS_SWEEP
 try {
     if ($Full) { $env:CORVUS_ALL_TESTS = '1' }
     $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
-    $tree = if ($wholeSuite -and -not $Filter) { Get-CleanTree } else { $null }
+    $tree = if ($wholeSuite -and -not $Filter -and -not $Coverage) { Get-CleanTree } else { $null }
     & dotnet @arguments
     $code = $LASTEXITCODE
     $trx = Join-Path $results 'full.trx'
@@ -207,10 +248,15 @@ try {
         else {
             $rate = ([xml](Get-Content $reports[0].FullName -Raw)).coverage.'line-rate'
             Write-Host ("Line coverage of corvus: {0:0.0}%" -f (100 * [double]::Parse($rate, [cultureinfo]::InvariantCulture)))
+            # Kept in .git for a report tool or a later floor check (CORVUS_COVERAGE_REPORT=<file>).
+            Copy-Item $reports[0].FullName (Join-Path $gitDir 'corvus-coverage.cobertura.xml') -Force
+            Write-Host "Report: $(Join-Path $gitDir 'corvus-coverage.cobertura.xml')"
+            # Instrumentation slows every test, so timing budgets can fail here; the plain full run gates them, this run gates the floors.
+            if ($code -ne 0) { Write-Host 'Some tests failed under coverage instrumentation (timing budgets are expected to); the floor check decides this run.' -ForegroundColor Yellow }
             $env:CORVUS_COVERAGE_REPORT = $results
             try { & dotnet test $tests --nologo --no-build --filter 'FullyQualifiedName~CoverageFloorTests' }
             finally { Remove-Item Env:CORVUS_COVERAGE_REPORT }
-            if ($LASTEXITCODE -ne 0 -and $code -eq 0) { $code = $LASTEXITCODE }
+            $code = $LASTEXITCODE
         }
     }
     if (Test-Path $results) { Remove-Item -Recurse -Force $results }

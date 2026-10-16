@@ -30,8 +30,11 @@ internal static class CountRatchet
         return values;
     }
 
-    /// <summary>Checks <paramref name="measured"/> against the list; <paramref name="floor"/>: values may only rise, else only fall.</summary>
-    public static void Check(string name, string rule, IReadOnlyDictionary<string, double> measured, bool floor)
+    /// <summary>
+    /// Checks <paramref name="measured"/> against the list; <paramref name="floor"/>: values may only rise, else only fall.
+    /// <paramref name="partial"/>: only some keys were measured, so a recorded key without a measurement is left alone.
+    /// </summary>
+    public static void Check(string name, string rule, IReadOnlyDictionary<string, double> measured, bool floor, bool partial = false)
     {
         Assert.Contains(name, Names);
         var recorded = Read(name);
@@ -44,9 +47,9 @@ internal static class CountRatchet
                 if (floor) next[key] = had ? Math.Max(old, value) : value;
                 else if (had && value < old && value > 0) next[key] = value;
                 else if (had && value >= old) next[key] = old;
-                else if (!had && recorded.Count == 0 && value > 0) next[key] = value; // first recording
+                else if (!had && (recorded.Count == 0 || partial) && value > 0) next[key] = value; // first recording, or a new target of a partial list
             }
-            if (floor) foreach (var (key, value) in recorded) next.TryAdd(key, value);
+            if (floor || partial) foreach (var (key, value) in recorded) if (!measured.ContainsKey(key)) next.TryAdd(key, value);
             var header = string.Concat(File.Exists(PathOf(name)) ? File.ReadLines(PathOf(name)).TakeWhile(l => l.StartsWith('#')).Select(l => l + "\n")
                 : [$"# {rule}\n", $"# Measured ratchet: values may only {(floor ? "rise" : "fall")} (tests/Corvus.Tests/Support/CountRatchet.cs).\n"]);
             File.WriteAllText(PathOf(name), header + string.Concat(next.Select(e => $"{e.Key} = {e.Value.ToString(CultureInfo.InvariantCulture)}\n")));
@@ -67,7 +70,7 @@ internal static class CountRatchet
             else if (had && value > limit) worse.Add($"{key}: {value} > {limit}");
             else if (had && value < limit) better.Add($"{key}: {value} < {limit}");
         }
-        if (!floor) better.AddRange(recorded.Keys.Where(k => !measured.ContainsKey(k)).Select(k => $"{k}: 0 (gone)"));
+        if (!floor && !partial) better.AddRange(recorded.Keys.Where(k => !measured.ContainsKey(k)).Select(k => $"{k}: 0 (gone)"));
         Assert.True(worse.Count == 0, $"{rule}; worse than Ratchets/{name}.txt (fix it, never loosen the file):\n{string.Join("\n", worse)}");
         // A ceiling that fell is recorded at once, so it cannot creep back; a floor that rose may be raised when convenient.
         if (!floor) Assert.True(better.Count == 0, $"{rule}; better than Ratchets/{name}.txt: record it ({Ratchet.UpdateVariable}=1):\n{string.Join("\n", better)}");
