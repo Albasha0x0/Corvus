@@ -423,6 +423,9 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 inlined = at.Frames.Select(f => $"{f.Function} at {Where(f.File, f.Line)}").ToList();
                 sb.AppendLine($"  inlined: {string.Join(" <- ", inlined)}");
             }
+            if (at.Variables is { Count: > 0 } variables)
+                sb.AppendLine("  variables: " + string.Join("; ", variables.Take(24).Select(v =>
+                    $"{(v.Parameter ? "param " : "")}{v.Name}{(v.Type != null ? $" ({v.Type})" : "")}: {v.Location}{(v.InlinedIn != null ? $" (inlined {v.InlinedIn})" : "")}")));
         }
         foreach (var line in Il2CppNativeNames.Describe(native, index, rva)) sb.AppendLine("  " + line);
         if (NativeTypeCatalog.DescribeTypedData(native, rva) is { } typed) sb.AppendLine("  " + typed);

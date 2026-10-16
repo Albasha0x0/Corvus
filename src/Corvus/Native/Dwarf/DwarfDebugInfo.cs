@@ -141,7 +141,7 @@ internal static class DwarfDebugInfo
         var built = types.Build();
         if (types.Full) notes.Add($"type records past {DwarfTypes.MaxBytes:N0} bytes are not written");
         unitRanges.Sort((a, b) => a.Low.CompareTo(b.Low));
-        var source = new SourceLookup(sources, units, imageBase, unitRanges.ToArray(), lineTables, inlined);
+        var source = new SourceLookup(sources, units, imageBase, unitRanges.ToArray(), lineTables, inlined, image.Arch);
         return PdbFile.FromDebugInfo(container.Path, container.FileLength, container.BuildId, modules, symbols, types.Typedefs,
             (built.Bytes, built.Offsets, notes), issues, truncations, source);
     }
@@ -247,7 +247,7 @@ internal static class DwarfDebugInfo
 
     /// <summary>Source lines and inlined frames by address: the unit is found by its address ranges, then read again with its line table.</summary>
     private sealed class SourceLookup(List<Source> sources, List<(int Source, int Header)> unitKeys, ulong imageBase, (ulong Low, ulong High, int Header)[] units,
-        int lineTables, int inlined) : IDebugSourceLookup
+        int lineTables, int inlined, NativeArch arch) : IDebugSourceLookup
     {
         public int LineTables => lineTables;
         public int InlinedInstances => inlined;
@@ -288,7 +288,7 @@ internal static class DwarfDebugInfo
                             parsed[key] = entry = (unit, lines);
                         }
                         ulong at = source.Map == null ? address : source.Map.Back(address) ?? ulong.MaxValue;
-                        if (at != ulong.MaxValue && Describe(reader, entry.Unit, entry.Lines, at) is { } info) { result[i] = info; break; }
+                        if (at != ulong.MaxValue && Describe(reader, entry.Unit, entry.Lines, at, arch) is { } info) { result[i] = info; break; }
                     }
                 }
             }
@@ -324,7 +324,7 @@ internal static class DwarfDebugInfo
             return reach;
         }
 
-        private static DebugSourceInfo? Describe(DwarfReader reader, DwarfUnit unit, DwarfLineTable? lines, ulong address)
+        private static DebugSourceInfo? Describe(DwarfReader reader, DwarfUnit unit, DwarfLineTable? lines, ulong address, NativeArch arch)
         {
             // the chain of entries whose ranges contain the address: the function, then inlined functions inside it
             var chain = new List<DwarfDie>();
@@ -351,7 +351,10 @@ internal static class DwarfDebugInfo
                 file = d.CallFile > 0 || lines?.FirstFile == 0 ? lines?.File(d.CallFile) : null;
                 line = d.CallLine;
             }
-            return new DebugSourceInfo(row is { } rr ? lines!.File(rr.File) : null, row?.Line ?? 0, frames);
+            return new DebugSourceInfo(row is { } rr ? lines!.File(rr.File) : null, row?.Line ?? 0, frames)
+            {
+                Variables = DwarfVariables.At(reader, unit, chain, address, arch),
+            };
         }
 
         private static bool Within(DwarfUnit unit, DwarfDie d, DwarfDie ancestor)

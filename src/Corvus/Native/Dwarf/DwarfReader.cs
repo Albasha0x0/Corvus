@@ -150,6 +150,12 @@ internal sealed class DwarfDie
     public int Encoding, Virtuality;
     public ulong Location;
     public bool HasLocation;
+    /// <summary>A variable's or parameter's location: its expression, or a location list (a section offset, or a DW_FORM_loclistx index when indexed).</summary>
+    public byte[]? LocationExpr;
+    public long LocationList = -1;
+    public bool LocationListIndexed;
+    /// <summary>A function's DW_AT_frame_base expression.</summary>
+    public byte[]? FrameBase;
     public int DeclFile, DeclLine, CallFile, CallLine;
 }
 
@@ -169,7 +175,7 @@ internal sealed class DwarfUnit
     public string? DwoName;
     public List<DwarfDie> Dies = [];
     public ulong BaseAddress;
-    public long StrOffsetsBase = -1, AddrBase = -1, RnglistsBase = -1;
+    public long StrOffsetsBase = -1, AddrBase = -1, RnglistsBase = -1, LoclistsBase = -1;
     public string? Name, CompDir;
     public long StmtList = -1;
     /// <summary>Why the entries stop early, or null.</summary>
@@ -540,7 +546,7 @@ internal sealed class DwarfReader : IDisposable
                 else kind = 5;
                 break;
             case Dw.FormSecOffset: value = c.Sized(u.OffsetSize); kind = 8; break;
-            case Dw.FormLoclistx: c.Uleb(); kind = 5; break;
+            case Dw.FormLoclistx: value = c.Uleb(); kind = 11; break;
             case Dw.FormRnglistx: value = c.Uleb(); kind = 9; break;
             case Dw.FormExprloc or Dw.FormBlock: blockLength = (int)Math.Min(c.Uleb(), int.MaxValue); blockStart = c.Pos; c.Advance(blockLength); kind = 6; break;
             case Dw.FormBlock1: blockLength = c.U8(); blockStart = c.Pos; c.Advance(blockLength); kind = 6; break;
@@ -557,6 +563,7 @@ internal sealed class DwarfReader : IDisposable
                 case Dw.AtAddrBase or Dw.AtGnuAddrBase: u.AddrBase = (long)value; break;
                 case Dw.AtRnglistsBase or Dw.AtGnuRangesBase: u.RnglistsBase = (long)value; break;
                 case Dw.AtStmtList: u.StmtList = (long)value; break;
+                case Dw.AtLoclistsBase: u.LoclistsBase = (long)value; break;
             }
             return true;
         }
@@ -597,7 +604,11 @@ internal sealed class DwarfReader : IDisposable
             case Dw.AtCallLine: die.CallLine = (int)value; break;
             case Dw.AtLocation when kind == 6:
                 if (StaticAddress(c.Span(blockStart, blockLength), u) is { } address) { die.Location = address; die.HasLocation = true; }
+                if (die.Tag is Dw.TagVariable or Dw.TagFormalParameter) die.LocationExpr = c.Span(blockStart, blockLength).ToArray();
                 break;
+            case Dw.AtLocation when kind is 8 or 0 && die.Tag is Dw.TagVariable or Dw.TagFormalParameter: die.LocationList = (long)value; break;
+            case Dw.AtLocation when kind == 11: die.LocationList = (long)value; die.LocationListIndexed = true; break;
+            case Dw.AtFrameBase when kind == 6: die.FrameBase = c.Span(blockStart, blockLength).ToArray(); break;
         }
         return true;
     }
