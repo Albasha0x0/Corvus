@@ -59,6 +59,48 @@ public class DeterminismTests
         Assert.All(first, a => Assert.DoesNotContain("error=True", a.Split('\n')[0]));
     }
 
+    /// <summary>
+    /// The native slice: the index-backed analysis tools on a real PE and ELF (e_sqlite3), each in two fresh processes with
+    /// data folders of their own (so each builds its index), give byte-equal text and records.
+    /// </summary>
+    [Theory, Trait("Data", "Real")]
+    [InlineData("win-x64", "e_sqlite3.dll", "rcx")]
+    [InlineData("linux-x64", "libe_sqlite3.so", "rdi")]
+    public async Task NativeAnalysisAnswersAlikeOnARealLibrary(string rid, string file, string firstArgument)
+    {
+        using var dir = new TempDir();
+        var image = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", rid, "native", file);
+        Dictionary<string, object?> On(params (string Key, object? Value)[] more) => new[] { ("image", (object?)image) }.Concat(more).ToDictionary(p => p.Item1, p => p.Item2);
+        (string Tool, Dictionary<string, object?> Args)[] calls =
+        [
+            ("get_pe_info", On()), ("list_functions", On()), ("list_globals", On()), ("search_instructions", On(("mnemonic", "^call$"))),
+            ("find_xrefs", On(("address", "sqlite3_free"))), ("get_cfg", On(("address", "sqlite3_open"))), ("native_call_tree", On(("function", "sqlite3_open"), ("depth", 3))),
+            ("analyze_native_function", On(("address", "sqlite3_open"))), ("get_call_arguments", On(("address", "sqlite3_open"))),
+            ("resolve_call_targets", On(("scope", "image"))), ("trace_native_values", On(("address", "sqlite3_open"), ("location", firstArgument))),
+            ("find_virtual_calls", On()), ("find_similar_functions", On(("view", "duplicates"))), ("inspect_instruction", On(("address", "sqlite3_open"), ("limit", 8))),
+            ("trace_native_feature", On(("query", "sqlite3_open"))), ("get_pe_info", On()),
+        ];
+        int run = 0;
+        async Task<List<string>> RunAsync()
+        {
+            await using var client = await McpProtocolTests.StartServerAsync(null, null, ["--no-watch"],
+                new Dictionary<string, string?> { [Corvus.Native.Providers.DataFolder.RootVariable] = dir.File($"data{++run}") });
+            var answers = new List<string>();
+            foreach (var (tool, args) in calls)
+            {
+                var r = await client.CallToolAsync(tool, args);
+                var text = string.Join("\n", r.Content.OfType<TextContentBlock>().Select(b => b.Text));
+                answers.Add($"{tool} error={r.IsError == true}\n" + text.Replace(image, "<image>") + "\n" + r.StructuredContent?.GetRawText().Replace(image.Replace("\\", "\\\\"), "<image>"));
+            }
+            return answers;
+        }
+        var first = await RunAsync();
+        var second = await RunAsync();
+        var differing = first.Zip(second).Where(p => p.First != p.Second).Select(p => FirstDifference(p.First, p.Second)).ToList();
+        Assert.True(differing.Count == 0, "answers differ between two processes: " + string.Join(", ", differing));
+        Assert.All(first, a => Assert.DoesNotContain("error=True", a.Split('\n')[0]));
+    }
+
     /// <summary>The call and its first differing line in each process.</summary>
     private static string FirstDifference(string a, string b)
     {
