@@ -55,6 +55,7 @@ public static class ScriptReader
     internal static string ReadLayer(string language, string text, ScriptContext ctx, int depth) => language switch
     {
         "powershell" => PsInterpreter.Read(text, ctx, depth),
+        "vbscript" => VbsInterpreter.Read(text, ctx, depth),
         _ => text,
     };
 }

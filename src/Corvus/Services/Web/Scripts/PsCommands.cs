@@ -173,7 +173,7 @@ internal sealed partial class PsInterpreter
 
     private void Record(string call)
     {
-        if (_ctx.Calls.Count < 200 && call.Length <= 200) _ctx.Calls.Add(call);
+        if (!_fold && _ctx.Calls.Count < 200 && call.Length <= 200) _ctx.Calls.Add(call);
     }
 
     private object? Builtin(string name, PsCommand c, bool piped, object? input, int siteStart)

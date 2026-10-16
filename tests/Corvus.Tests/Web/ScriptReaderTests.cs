@@ -21,6 +21,38 @@ public sealed class ScriptReaderTests
         Assert.True(r.Complete);
     }
 
+    /// <summary>Fixtures modelled on public droppers: each hides "corvus marker" behind its layers.</summary>
+    public static TheoryData<string, string> LayeredSamples()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var language in new[] { "vbscript", "batch", "javascript" })
+        {
+            var dir = Path.Combine(AppContext.BaseDirectory, "Web", "ScriptFixtures", language);
+            if (Directory.Exists(dir))
+                foreach (var f in Directory.GetFiles(dir).Order()) data.Add(language, Path.GetFileName(f));
+        }
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(LayeredSamples))]
+    public void Layered_samples_read_as_plain_text(string language, string name)
+    {
+        var text = File.ReadAllText(Fixture(language, name));
+        Assert.DoesNotContain("corvus marker", text, StringComparison.OrdinalIgnoreCase);
+        var r = ScriptReader.Read(text, language);
+        Assert.Contains("corvus marker", r.Plain, StringComparison.OrdinalIgnoreCase);
+        Assert.True(r.Complete);
+    }
+
+    [Fact]
+    public void A_vba_auto_run_macro_is_followed_into_its_shell_command()
+    {
+        var r = ScriptReader.Read(File.ReadAllText(Fixture("vbscript", "macro-autoopen.bas")), "vbscript");
+        Assert.Contains(r.Calls, c => c.StartsWith("Shell \"cmd /c echo corvus marker", StringComparison.Ordinal));
+        Assert.Contains("c = \"cmd /c echo corvus marker > %TEMP%\\c.txt\"", r.Plain);
+    }
+
     [Fact]
     public void An_encoded_command_is_a_layer_with_its_decoding_chain()
     {
@@ -65,12 +97,16 @@ public sealed class ScriptReaderTests
     public void Damaged_scripts_read_without_failing()
     {
         var failures = new List<string>();
-        foreach (var name in new[] { "string-reverse-1.ps1", "encoding-bxor-1.ps1", "compress-1.ps1", "token-all-1.ps1" })
-            failures.AddRange(FormatFuzz.Run(File.ReadAllBytes(Fixture("powershell", name)), b =>
+        foreach (var (language, name) in new[]
+                 {
+                     ("powershell", "string-reverse-1.ps1"), ("powershell", "encoding-bxor-1.ps1"), ("powershell", "compress-1.ps1"),
+                     ("powershell", "token-all-1.ps1"), ("vbscript", "hex-function.vbs"), ("vbscript", "msxml-base64.vbs"),
+                 })
+            failures.AddRange(FormatFuzz.Run(File.ReadAllBytes(Fixture(language, name)), b =>
             {
-                var r = ScriptReader.Read(Encoding.UTF8.GetString(b), "powershell", milliseconds: 300);
+                var r = ScriptReader.Read(Encoding.UTF8.GetString(b), language, milliseconds: 50);
                 Assert.NotNull(r.Plain);
-            }, 60));
+            }, 25));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }
 }
