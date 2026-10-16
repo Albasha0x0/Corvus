@@ -395,6 +395,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["live_break"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_break"),
         ["live_read"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_read"),
         ["live_events"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_events"),
+        ["live_watch"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_watch"),
+        ["live_script"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_script"),
         ["analyze_js"] = (new() { ["path"] = JsSample(dir), ["view"] = "position", ["line"] = 1, ["column"] = 30 }, "src/app.ts"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),

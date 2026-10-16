@@ -120,6 +120,8 @@ public partial class ProtocolSampleTests
         ["live_break"] = new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "kernel32!CreateFileW" },
         ["live_read"] = new() { ["session"] = "live-1" },
         ["live_events"] = new() { ["session"] = "live-1" },
+        ["live_watch"] = new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "kernel32!CreateFileW" },
+        ["live_script"] = new() { ["session"] = "live-1", ["action"] = "load", ["source"] = "send(Process.id);" },
         // Native reading (build A is never edited)
         ["get_pe_info"] = new() { ["image"] = BuildA },
         ["get_nativeaot_info"] = new() { ["image"] = In + "aot.dll" },

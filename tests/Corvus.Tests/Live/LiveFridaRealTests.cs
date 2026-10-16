@@ -44,9 +44,9 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         int main(int argc, char** argv)
         {
             struct Order o = { 7, 0, 0.0 };
-            int rounds = argc > 1 ? atoi(argv[1]) : 1000;
-            for (int i = 0; i < rounds; i++) { g_sink = AddLine(&o, i + 1); Sleep(20); }
-            printf("%d\n", o.lines);
+            int rounds = argc > 1 ? atoi(argv[1]) : 1000, pause = argc > 2 ? atoi(argv[2]) : 20;
+            for (int i = 0; i < rounds; i++) { g_sink = AddLine(&o, i + 1); if (pause) Sleep(pause); }
+            HANDLE h = CreateFileA(argv[0], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL); if (h != INVALID_HANDLE_VALUE) CloseHandle(h); printf("%d\n", o.lines);
             return 0;
         }
         """;
@@ -147,5 +147,100 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
             Assert.True(left.WaitForExit(5_000), "the started program is still running after close");
         }
         catch (ArgumentException) { /* already gone */ }
+    }
+
+    /// <summary>Starts the program with its arguments; returns once the session is open.</summary>
+    private async Task Spawn(InProcessServer server, string exe, string session, params string[] arguments)
+    {
+        var (open, failed) = await Call(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = arguments });
+        Assert.False(failed, open);
+        Assert.Contains($"{session} (frida): ", open);
+    }
+
+    private async Task UntilExited(InProcessServer server, string session)
+    {
+        for (int i = 0; i < 600; i++)
+        {
+            var (status, _) = await Call(server, "live_session", new() { ["action"] = "status", ["session"] = session });
+            if (status.Contains(", exited")) return;
+            await Task.Delay(100);
+        }
+        Assert.Fail($"{session} did not exit within 60 s");
+    }
+
+    [FridaFact]
+    public async Task Watched_calls_are_decoded_from_the_pdb_and_the_api_table_and_recorded_at_speed()
+    {
+        var exe = Build();
+        await using var server = await InProcessServer.StartAsync(options: new ServerOptions
+        {
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+        });
+
+        // 20,000 calls without a pause: every one recorded under a high limit
+        await Spawn(server, exe, "live-1", "20000", "0");
+        var (pdb, e1) = await Call(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "AddLine", ["rateLimit"] = 100_000 });
+        Assert.False(e1, pdb);
+        Assert.Contains("orders.exe!AddLine: int AddLine(Order * o, int qty) (PDB prototype)", pdb);
+        var (api, e2) = await Call(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "kernelbase!CreateFileA" });
+        Assert.False(e2, api);
+        Assert.Contains("(known API table)", api);
+        var sw = Stopwatch.StartNew();
+        await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        await UntilExited(server, "live-1");
+        output.WriteLine($"20,000 watched calls ran in {sw.ElapsedMilliseconds} ms");
+        await Task.Delay(300); // the last batch
+        var (list, _) = await Call(server, "live_watch", new() { ["session"] = "live-1" });
+        Assert.Contains("w1 orders.exe!AddLine: 20,000 call(s) recorded", list);
+        var rate = double.Parse(Regex.Match(list, @"w1 [^:]+: [\d,]+ call\(s\) recorded \(([\d,]+)/s\)").Groups[1].Value.Replace(",", ""));
+        output.WriteLine($"recorded {rate:N0} calls/s (target 5,000)");
+        Assert.True(rate >= 5_000, $"{rate} calls/s");
+
+        var (calls, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "call", ["limit"] = 3 });
+        var m = Regex.Match(calls, @"call thread \d+ 0x[0-9A-F]+ orders\.exe!main\+0x[0-9A-F]+: AddLine\(o=0x[0-9A-F]+, qty=(\d+)\) -> (\d+)");
+        Assert.True(m.Success, calls);
+        Assert.Equal(m.Groups[1].Value, m.Groups[2].Value); // each call adds one line: the count returned is the qty passed
+        var (file, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["from"] = "w2" });
+        Assert.Matches(@"CreateFileA\(lpFileName=""[^""]*orders\.exe"", dwDesiredAccess=GENERIC_READ, dwShareMode=FILE_SHARE_READ, lpSecurityAttributes=0x0, dwCreationDisposition=OPEN_EXISTING, dwFlagsAndAttributes=FILE_ATTRIBUTE_NORMAL, hTemplateFile=0x0\) -> 0x", file);
+
+        // a low limit: the rest are counted, not recorded
+        await Spawn(server, exe, "live-2", "20000", "0");
+        await Call(server, "live_watch", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "AddLine", ["rateLimit"] = 1_000 });
+        await Call(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
+        await UntilExited(server, "live-2");
+        await Task.Delay(300);
+        var (limited, _) = await Call(server, "live_watch", new() { ["session"] = "live-2" });
+        var lm = Regex.Match(limited, @"w1 [^:]+: ([\d,]+) call\(s\) recorded.*, ([\d,]+) over the rate limit");
+        Assert.True(lm.Success, limited);
+        Assert.Equal(20_000, long.Parse(lm.Groups[1].Value.Replace(",", "")) + long.Parse(lm.Groups[2].Value.Replace(",", "")));
+    }
+
+    [FridaFact]
+    public async Task A_user_script_runs_in_the_program_and_its_messages_are_events()
+    {
+        var exe = Build();
+        await using var server = await InProcessServer.StartAsync(options: new ServerOptions
+        {
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveScripting = true,
+        });
+        await Spawn(server, exe, "live-1", "50");
+        var (loaded, failed) = await Call(server, "live_script", new()
+        {
+            ["session"] = "live-1", ["action"] = "load",
+            ["source"] = "send({ pid: Process.id, main: Process.enumerateModules()[0].name });",
+        });
+        Assert.False(failed, loaded);
+        Assert.Contains("u1 loaded (inline)", loaded);
+        string events = "";
+        for (int i = 0; i < 50 && !events.Contains("orders.exe"); i++)
+        {
+            (events, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "script" });
+            await Task.Delay(100);
+        }
+        Assert.Matches(@"script: u1: \{""pid"":\d+,""main"":""orders\.exe""\}", events);
+        var (bad, _) = await Call(server, "live_script", new() { ["session"] = "live-1", ["action"] = "load", ["source"] = "this is not javascript(" });
+        Assert.Contains("SyntaxError", bad);
+        Assert.Contains("\"code\":\"invalid_argument\"", bad);
+        await Call(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
     }
 }

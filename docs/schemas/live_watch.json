@@ -1,0 +1,107 @@
+{
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string"
+    },
+    "watches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "where": {
+            "description": "As given: a name, module!export or address.",
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prototype": {
+            "type": "string"
+          },
+          "decoding": {
+            "description": "known API table, PDB prototype, DWARF parameter names or raw values.",
+            "type": "string"
+          },
+          "rateLimit": {
+            "type": "integer"
+          },
+          "calls": {
+            "type": "integer"
+          },
+          "skipped": {
+            "description": "Calls over the rate limit, not recorded.",
+            "type": "integer"
+          },
+          "callsPerSecond": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "where",
+          "address",
+          "prototype",
+          "decoding",
+          "rateLimit",
+          "calls",
+          "skipped"
+        ]
+      }
+    },
+    "namedAddresses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "rva": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "image",
+          "sha256",
+          "rva",
+          "name"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "session",
+    "watches"
+  ]
+}

@@ -1,7 +1,8 @@
 """Session worker: a local program observed through Frida, on the worker protocol (one JSON object per line).
 
-Ops: hello; open {attach | spawn, arguments, temp, tmp}; info; set {id, address}; clear {id}; read {address, length};
-resume {thread}; close. Events: ready, stop, module, thread, exception, output, exit, script_error.
+Ops: hello; open {attach | spawn, arguments, temp, tmp}; info; set {id, address}; clear {id}; watch {id, address, args,
+perSecond}; unwatch {id}; load_script {id, source}; unload_script {id}; read {address, length}; resume {thread}; close.
+Events: ready, stop, calls, module, thread, exception, output, exit, script_error, user_script.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
 program only when this worker started it.
 """
@@ -45,6 +46,7 @@ class Session:
         self.exited = False
         self.held = set()
         self.lock = threading.Lock()
+        self.user_scripts = {}
 
     def on_message(self, message, data):
         if message.get("type") == "error":
@@ -106,6 +108,38 @@ class Session:
         result["suspended"] = self.suspended
         return result
 
+    def load_script(self, args):
+        # a script the user supplied (the server allows it only with --live-scripting); its messages become events
+        self.require()
+        sid = args["id"]
+        if sid in self.user_scripts:
+            raise Failure("invalid_argument", "script %s is already loaded" % sid)
+        try:
+            script = self.session.create_script(args["source"], name=sid)
+        except frida.InvalidArgumentError as e:  # the source does not compile
+            raise Failure("invalid_argument", str(e))
+
+        def on_message(message, data):
+            if message.get("type") == "error":
+                emit({"event": "user_script", "script": sid, "error": message.get("description"), "stack": message.get("stack")})
+            else:
+                emit({"event": "user_script", "script": sid, "payload": message.get("payload"), "bytes": len(data) if data else 0})
+
+        script.on("message", on_message)
+        script.load()
+        self.user_scripts[sid] = script
+        return {"loaded": sid}
+
+    def unload_script(self, args):
+        script = self.user_scripts.pop(args["id"], None)
+        if script is None:
+            return {"unloaded": False}
+        try:
+            script.unload()
+        except frida.InvalidOperationError:
+            pass
+        return {"unloaded": True}
+
     def require(self):
         if self.script is None:
             raise Failure("invalid_argument", "no session is open")
@@ -133,6 +167,11 @@ class Session:
                 pass
 
     def close(self, args):
+        for sid in list(self.user_scripts):
+            try:
+                self.unload_script({"id": sid})
+            except Exception:
+                pass
         if self.script is not None:
             try:
                 with self.lock:
@@ -176,6 +215,14 @@ def handle(state, op, args):
         return state.require().set(args["id"], args["address"])
     if op == "clear":
         return state.require().clear(args["id"])
+    if op == "watch":
+        return state.require().watch(args["id"], args["address"], args["args"], int(args["perSecond"]))
+    if op == "unwatch":
+        return state.require().unwatch(args["id"])
+    if op == "load_script":
+        return state.load_script(args)
+    if op == "unload_script":
+        return state.unload_script(args)
     if op == "read":
         data = state.require().read(args["address"], int(args["length"]))
         return {"bytes": None if data is None else bytes(data).hex()}

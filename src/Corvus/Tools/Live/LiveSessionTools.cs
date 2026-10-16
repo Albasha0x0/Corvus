@@ -52,6 +52,24 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
         public IReadOnlyList<LiveNamedAddress>? NamedAddresses { get; init; }
     }
 
+    public sealed record LiveWatch(string Id,
+        [property: Description("As given: a name, module!export or address.")] string Where,
+        string Address, string? Name,
+        string Prototype,
+        [property: Description("known API table, PDB prototype, DWARF parameter names or raw values.")] string Decoding,
+        int RateLimit, long Calls,
+        [property: Description("Calls over the rate limit, not recorded.")] long Skipped,
+        double? CallsPerSecond);
+
+    public sealed record LiveWatchReport(string Session, IReadOnlyList<LiveWatch> Watches)
+    {
+        public IReadOnlyList<LiveNamedAddress>? NamedAddresses { get; init; }
+    }
+
+    public sealed record LiveScript(string Id, [property: Description("The source's file, or inline.")] string Source);
+
+    public sealed record LiveScriptReport(string Session, IReadOnlyList<LiveScript> Scripts);
+
     public sealed record LiveValue(string Name, string Type, string Value, string? Address);
 
     public sealed record LiveReadReport(string Session, string Thread, IReadOnlyList<LiveValue> Registers, IReadOnlyList<LiveValue> Memory)
@@ -60,7 +78,7 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
     }
 
     public sealed record LiveEvent(long Sequence,
-        [property: Description("stop, exception, module, thread, output, error or exit.")] string Kind,
+        [property: Description("stop, call, script, exception, module, thread, output, error or exit.")] string Kind,
         string? Thread, string? Address, string? Name, string Text);
 
     public sealed record LiveEventPage(string Session, IReadOnlyList<LiveEvent> Items,
@@ -213,6 +231,112 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
             frames.Select(f => new LiveFrame(Hex(f.Address), f.Image?.Id, f.Function == null ? null : f.Display, f.Source)).ToList());
     }
 
+    [McpServerTool(Name = "live_watch", Title = "Record calls in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveWatchReport))]
+    [Description("Record every call of a function with arguments and return value, decoded by PDB prototype or known API (flags by name), as events (live_events from=<watch>).")]
+    public Task<string> LiveWatchCalls(
+        [Description(SessionDescription)] string session,
+        [Description("list, set or clear.")] string action = "list",
+        [Description("set: name, module!export or address.")] string? at = null,
+        [Description("clear: watch id.")] string? watch = null,
+        [Description("set: calls/s recorded (1-100000); the rest are counted.")] int rateLimit = 10_000,
+        [Description("set: raw values without a prototype (0-16).")] int arguments = LiveWatchPlans.DefaultRawArguments,
+        CancellationToken cancellationToken = default) =>
+        Task.Run(async () =>
+        {
+            Require(spawn: false);
+            var s = live.Get(session);
+            var head = new StringBuilder();
+            switch (action.Trim().ToLowerInvariant())
+            {
+                case "list":
+                    break;
+                case "set":
+                    LiveSessionService.Live(s);
+                    if (string.IsNullOrWhiteSpace(at)) throw new ToolError(ErrorCode.InvalidArgument, "action=set needs at.", "at=<name>, module!export or 0xADDRESS");
+                    var w = await live.WatchAsync(s, at, Math.Clamp(rateLimit, 1, 100_000), arguments, cancellationToken).ConfigureAwait(false);
+                    head.AppendLine($"{w.Id} set at {Hex(w.Address)} {w.At.Display}: {w.Plan.Prototype} ({w.Plan.Source}); at most {w.PerSecond:N0} calls/s recorded");
+                    break;
+                case "clear":
+                    LiveSessionService.Live(s);
+                    if (string.IsNullOrWhiteSpace(watch)) throw new ToolError(ErrorCode.InvalidArgument, "action=clear needs watch.", "watch=<id from action=list>");
+                    await live.UnwatchAsync(s, watch.Trim(), cancellationToken).ConfigureAwait(false);
+                    head.AppendLine($"{watch.Trim()} cleared");
+                    break;
+                default:
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, set or clear");
+            }
+            List<LiveWatchState> watches;
+            lock (s.Watches) watches = s.Watches.Values.Where(x => !x.Cleared || x.Id == watch?.Trim()).OrderBy(x => int.Parse(x.Id[1..], CultureInfo.InvariantCulture)).ToList();
+            head.AppendLine($"{s.Id}: {s.State}, {watches.Count(x => !x.Cleared)} watch(es)");
+            var rows = new List<LiveWatch>();
+            foreach (var x in watches.Where(x => !x.Cleared))
+            {
+                long calls, skipped;
+                double? rate;
+                lock (x) (calls, skipped, rate) = (x.Calls, x.Skipped, x.Rate);
+                rows.Add(new LiveWatch(x.Id, x.Where, Hex(x.Address), x.At.Function == null ? null : x.At.Display, x.Plan.Prototype, x.Plan.Source, x.PerSecond, calls, skipped,
+                    rate is { } r ? Math.Round(r) : null));
+                head.AppendLine($"  {x.Id} {x.At.Display}: {calls:N0} call(s) recorded{(rate is { } r2 ? $" ({r2:N0}/s)" : "")}{(skipped > 0 ? $", {skipped:N0} over the rate limit" : "")}");
+            }
+            if (rows.Count > 0) head.AppendLine($"calls: live_events from={rows[0].Id}");
+            var named = watches.Select(x => x.At.Named).OfType<EvidenceName>().ToList();
+            return ToolOutput.With(head.ToString(), new LiveWatchReport(s.Id, rows) { NamedAddresses = Named(named) });
+        }, cancellationToken);
+
+    [McpServerTool(Name = "live_script", Title = "User script in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveScriptReport))]
+    [Description("Load, list or unload your own Frida script in a session's program; its messages become events (live_events from=<script>). Needs --live-scripting.")]
+    public Task<string> LiveScriptCalls(
+        [Description(SessionDescription)] string session,
+        [Description("list, load or unload.")] string action = "list",
+        [Description("load: JavaScript source.")] string? source = null,
+        [Description("load: a .js file instead.")] string? path = null,
+        [Description("unload: script id.")] string? script = null,
+        CancellationToken cancellationToken = default) =>
+        Task.Run(async () =>
+        {
+            Require(spawn: false);
+            if (!options.LiveScripting)
+                throw new ToolError(ErrorCode.Unsupported, "User scripts in sessions are off in this server: a script runs inside the observed program with its rights.",
+                    $"start the server with {ServerOptions.LiveScriptingOption} (or {ServerOptions.LiveScriptingVariable}=1) as well");
+            var s = live.Get(session);
+            var head = new StringBuilder();
+            switch (action.Trim().ToLowerInvariant())
+            {
+                case "list":
+                    break;
+                case "load":
+                    if (string.IsNullOrWhiteSpace(source) == string.IsNullOrWhiteSpace(path))
+                        throw new ToolError(ErrorCode.InvalidArgument, "action=load needs source or path (one of them).", "source=<JavaScript> or path=<script.js>");
+                    string origin = "inline", text = source ?? "";
+                    if (!string.IsNullOrWhiteSpace(path))
+                    {
+                        origin = InputFiles.RequireRegularFile(path);
+                        if (new FileInfo(origin).Length > MaxScriptBytes)
+                            throw new ToolError(ErrorCode.LimitExceeded, $"{origin} is over {MaxScriptBytes / 1024 / 1024} MB.", "load a smaller script");
+                        text = await File.ReadAllTextAsync(origin, cancellationToken).ConfigureAwait(false);
+                    }
+                    else if (Encoding.UTF8.GetByteCount(text) > MaxScriptBytes)
+                        throw new ToolError(ErrorCode.LimitExceeded, $"The source is over {MaxScriptBytes / 1024 / 1024} MB.", "load a smaller script");
+                    var id = await live.LoadScriptAsync(s, text, origin, cancellationToken).ConfigureAwait(false);
+                    head.AppendLine($"{id} loaded ({origin}); its messages: live_events from={id}");
+                    break;
+                case "unload":
+                    if (string.IsNullOrWhiteSpace(script)) throw new ToolError(ErrorCode.InvalidArgument, "action=unload needs script.", "script=<id from action=list>");
+                    await live.UnloadScriptAsync(s, script.Trim(), cancellationToken).ConfigureAwait(false);
+                    head.AppendLine($"{script.Trim()} unloaded");
+                    break;
+                default:
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, load or unload");
+            }
+            List<LiveScript> rows;
+            lock (s.Scripts) rows = s.Scripts.OrderBy(x => int.Parse(x.Key[1..], CultureInfo.InvariantCulture)).Select(x => new LiveScript(x.Key, x.Value)).ToList();
+            head.AppendLine($"{s.Id}: {s.State}, {rows.Count} script(s)");
+            foreach (var r in rows) head.AppendLine($"  {r.Id} {r.Source}");
+            return ToolOutput.With(head.ToString(), new LiveScriptReport(s.Id, rows));
+        }, cancellationToken);
+
+    private const int MaxScriptBytes = 1 << 20;
+
     [McpServerTool(Name = "live_read", Title = "Read a stopped thread", UseStructuredContent = true, OutputSchemaType = typeof(LiveReadReport))]
     [Description("Read a held thread's registers and program memory as typed values, named through the loaded images.")]
     public Task<string> LiveRead(
@@ -333,8 +457,9 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
     public Task<string> LiveEvents(
         [Description(SessionDescription)] string session,
         [Description("Cursor from an earlier page; default the oldest event kept.")] string? cursor = null,
-        [Description("Only this kind: stop, exception, module, thread, output, error or exit.")] string? kind = null,
+        [Description("Only this kind: stop, call, script, exception, module, thread, output, error or exit.")] string? kind = null,
         [Description("Only this thread id.")] string? thread = null,
+        [Description("Only events of this watch or script id.")] string? from = null,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) =>
@@ -342,19 +467,20 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
         {
             Require(spawn: false);
             var s = live.Get(session);
-            long from = 0;
-            if (!string.IsNullOrWhiteSpace(cursor) && !long.TryParse(cursor.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out from))
+            long start = 0;
+            if (!string.IsNullOrWhiteSpace(cursor) && !long.TryParse(cursor.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out start))
                 throw new ToolError(ErrorCode.InvalidArgument, $"Bad cursor '{cursor}'.", "pass the cursor of an earlier page");
-            var (events, firstKept, last) = s.Page(from, kind?.Trim().ToLowerInvariant(), ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000));
+            var (events, firstKept, last) = s.Page(start, kind?.Trim().ToLowerInvariant(), ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000),
+                string.IsNullOrWhiteSpace(from) ? null : from.Trim());
             var named = new List<EvidenceName>();
             var text = new StringBuilder();
-            int dropped = from > 0 && from < firstKept ? (int)Math.Min(int.MaxValue, firstKept - from) : 0;
+            int dropped = start > 0 && start < firstKept ? (int)Math.Min(int.MaxValue, firstKept - start) : 0;
             if (dropped > 0) text.AppendLine($"{dropped} event(s) before this page were dropped (the ring keeps {Services.LiveSession.RingCapacity:N0})");
             var rows = new List<LiveEvent>();
             foreach (var e in events)
             {
                 string? name = null;
-                if (e.Address is { } addr && e.Kind is "stop" or "exception")
+                if (e.Address is { } addr && e.Kind is "stop" or "exception" or "call")
                 {
                     var at = live.Name(s, addr, ct: cancellationToken);
                     name = at.Module != null ? at.Display : null;
@@ -363,7 +489,7 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
                 rows.Add(new LiveEvent(e.Sequence, e.Kind, e.Thread?.ToString(CultureInfo.InvariantCulture), e.Address is { } x ? Hex(x) : null, name, e.Text));
                 text.AppendLine($"#{e.Sequence} {e.Kind}{(e.Thread != null ? " thread " + e.Thread : "")}{(e.Address is { } y ? " " + Hex(y) : "")}{(name != null ? " " + name : "")}: {e.Text}");
             }
-            var next = rows.Count > 0 ? rows[^1].Sequence + 1 : Math.Max(from, firstKept);
+            var next = rows.Count > 0 ? rows[^1].Sequence + 1 : Math.Max(start, firstKept);
             string? nextCursor = rows.Count > 0 && rows[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
             text.AppendLine(rows.Count == 0 ? "No events." : nextCursor != null ? $"more: cursor={nextCursor}" : $"end of the ring; poll again with cursor={next}");
             return ToolOutput.With(text.ToString(), new LiveEventPage(s.Id, rows, nextCursor, dropped) { NamedAddresses = Named(named) });

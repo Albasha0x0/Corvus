@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Corvus.Core;
 using Corvus.Native;
+using Corvus.Native.Calls;
 using Corvus.Native.Code;
 using Corvus.Native.Providers;
 using Corvus.Native.Providers.Live;
@@ -26,7 +27,8 @@ public sealed record LiveStopPointState(string Id, string Where, ulong Address, 
 /// <summary>A thread held at a stop point until it is resumed: its general registers and return addresses.</summary>
 public sealed record LiveHeldStop(long Sequence, long Thread, string Point, IReadOnlyDictionary<string, string> Registers, IReadOnlyList<ulong> Frames);
 
-public sealed record LiveRingEvent(long Sequence, string Kind, long? Thread, ulong? Address, string Text);
+/// <summary>An event; <see cref="Source"/> is the watch or user script it came from.</summary>
+public sealed record LiveRingEvent(long Sequence, string Kind, long? Thread, ulong? Address, string Text, string? Source = null);
 
 /// <summary>
 /// An address joined to the static model: its module, the loaded image and RVA, the containing function's name and offset,
@@ -57,6 +59,8 @@ public sealed class LiveSession
     private long _sequence;
     private long _waited;
     private int _nextPoint;
+    private int _nextWatch;
+    private int _nextScript;
 
     internal LiveSession(string id, string backend, string program, bool spawned, WorkerConnection worker)
     {
@@ -73,11 +77,16 @@ public sealed class LiveSession
     public bool Spawned { get; }
     public int ProcessId { get; internal set; }
     public string Arch { get; internal set; } = "";
+    /// <summary>windows, linux or darwin (Frida's names).</summary>
+    public string Platform { get; internal set; } = "";
     internal WorkerConnection Worker { get; }
     internal Timer? Deadline { get; set; }
     internal List<Task> Indexing { get; } = [];
     public List<LiveModuleState> Modules { get; } = [];
     public Dictionary<string, LiveStopPointState> StopPoints { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, LiveWatchState> Watches { get; } = new(StringComparer.Ordinal);
+    /// <summary>User scripts loaded with live_script: id to where the source came from.</summary>
+    public Dictionary<string, string> Scripts { get; } = new(StringComparer.Ordinal);
     public bool Suspended { get; internal set; }
     public string? Ended { get; internal set; }
     public bool Closed { get; internal set; }
@@ -104,13 +113,15 @@ public sealed class LiveSession
     }
 
     internal string NextPointId() => "s" + Interlocked.Increment(ref _nextPoint);
+    internal string NextWatchId() => "w" + Interlocked.Increment(ref _nextWatch);
+    internal string NextScriptId() => "u" + Interlocked.Increment(ref _nextScript);
 
-    internal long Add(string kind, long? thread, ulong? address, string text, Func<long, LiveHeldStop>? held = null)
+    internal long Add(string kind, long? thread, ulong? address, string text, Func<long, LiveHeldStop>? held = null, string? source = null)
     {
         lock (_gate)
         {
             var seq = ++_sequence;
-            _ring.Enqueue(new LiveRingEvent(seq, kind, thread, address, text));
+            _ring.Enqueue(new LiveRingEvent(seq, kind, thread, address, text, source));
             if (_ring.Count > RingCapacity)
             {
                 _ring.Dequeue();
@@ -168,12 +179,13 @@ public sealed class LiveSession
     }
 
     /// <summary>Events from <paramref name="from"/> (a sequence) on, filtered; the first sequence kept tells what was dropped.</summary>
-    internal (IReadOnlyList<LiveRingEvent> Events, long FirstKept, long Last) Page(long from, string? kind, long? thread, int limit)
+    internal (IReadOnlyList<LiveRingEvent> Events, long FirstKept, long Last) Page(long from, string? kind, long? thread, int limit, string? source = null)
     {
         lock (_gate)
         {
             var first = _ring.Count > 0 ? _ring.Peek().Sequence : _sequence + 1;
-            var rows = _ring.Where(e => e.Sequence >= from && (kind == null || e.Kind == kind) && (thread == null || e.Thread == thread))
+            var rows = _ring.Where(e => e.Sequence >= from && (kind == null || e.Kind == kind) && (thread == null || e.Thread == thread)
+                                        && (source == null || e.Source == source))
                 .Take(limit).ToList();
             return (rows, first, _sequence);
         }
@@ -191,6 +203,7 @@ public sealed class LiveSessionService(AssemblyWorkspace workspace, NativeCodeSe
     public const int MaxSessions = 8;
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
+    private const int MaxScriptText = 4096; // characters of one script message kept in its event
     private readonly ConcurrentDictionary<string, LiveSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private int _next;
 
@@ -230,6 +243,7 @@ public sealed class LiveSessionService(AssemblyWorkspace workspace, NativeCodeSe
             var info = await worker.RequestAsync("open", args, RequestTimeout, ct).ConfigureAwait(false);
             session.ProcessId = info.GetProperty("pid").GetInt32();
             session.Arch = info.GetProperty("arch").GetString() ?? "";
+            session.Platform = info.TryGetProperty("platform", out var platform) ? platform.GetString() ?? "" : "";
             session.Suspended = info.TryGetProperty("suspended", out var s) && s.GetBoolean();
             lock (session.Modules)
                 foreach (var m in info.GetProperty("modules").EnumerateArray().Select(Module))
@@ -304,6 +318,35 @@ public sealed class LiveSessionService(AssemblyWorkspace workspace, NativeCodeSe
                 var thread = Thread();
                 session.Add("stop", thread, frames.FirstOrDefault(), $"stop point {point} hit {hits}",
                     seq => new LiveHeldStop(seq, thread ?? 0, point, registers, frames));
+                break;
+            }
+            case "calls":
+            {
+                LiveWatchState? w;
+                lock (session.Watches) session.Watches.TryGetValue(body.GetProperty("watch").GetString() ?? "", out w);
+                if (w == null) break;
+                // each row: thread, program clock (ms), return address, argument values, return value
+                foreach (var row in body.GetProperty("rows").EnumerateArray())
+                {
+                    var values = row[3].EnumerateArray().Select(v => v.ValueKind == JsonValueKind.String ? v.GetString() : null).ToList();
+                    long ms = row[1].GetInt64();
+                    lock (w)
+                    {
+                        if (w.Calls++ == 0) w.FirstMs = ms;
+                        w.LastMs = ms;
+                    }
+                    session.Add("call", row[0].GetInt64(), Hex(row[2].GetString()), LiveWatchPlans.Describe(w.Plan, values, row[4].GetString()), source: w.Id);
+                }
+                lock (w) w.Skipped += body.GetProperty("skipped").GetInt64();
+                break;
+            }
+            case "user_script":
+            {
+                var id = body.GetProperty("script").GetString();
+                var text = body.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String ? "error: " + err.GetString()
+                    : body.TryGetProperty("payload", out var payload) ? payload.ValueKind == JsonValueKind.String ? payload.GetString()! : payload.GetRawText() : "";
+                if (body.TryGetProperty("bytes", out var bytes) && bytes.GetInt32() > 0) text += $" (+{bytes.GetInt32()} bytes of data)";
+                session.Add("script", null, null, $"{id}: {(text.Length > MaxScriptText ? text[..MaxScriptText] + "..." : text)}", source: id);
                 break;
             }
             case "module":
@@ -443,6 +486,65 @@ public sealed class LiveSessionService(AssemblyWorkspace workspace, NativeCodeSe
         var point = new LiveStopPointState(id, where.Trim(), address, Name(session, address, ct: ct));
         lock (session.StopPoints) session.StopPoints[id] = point;
         return point;
+    }
+
+    /// <summary>Records each call of the function at <paramref name="where"/>, decoded by the plan its name, PDB or DWARF gives.</summary>
+    public async Task<LiveWatchState> WatchAsync(LiveSession session, string where, int perSecond, int rawArguments, CancellationToken ct)
+    {
+        var address = await ResolveAsync(session, where, ct).ConfigureAwait(false);
+        var at = Name(session, address, ct: ct);
+        var bare = where.Trim();
+        // a known API is found by the name given (module!export) or the function's own name
+        var function = at.Function != null && at.Offset == 0 ? at.Function : bare.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? at.Display : bare;
+        if (ApiSignatures.Find(bare) is not null && !bare.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) function = ApiSignatures.BareName(bare);
+        var os = session.Platform switch { "windows" => ApiOs.Windows, "linux" => ApiOs.Linux, "darwin" => ApiOs.Darwin, _ => ApiOs.Unknown };
+        var plan = LiveWatchPlans.Build(function, at.Image, at.Rva, session.Arch is "x64" or "arm64", os, rawArguments);
+        var id = session.NextWatchId();
+        var w = new LiveWatchState(id, bare, address, at, plan, perSecond);
+        lock (session.Watches) session.Watches[id] = w;
+        try
+        {
+            await session.Worker.RequestAsync("watch", new JsonObject
+            {
+                ["id"] = id, ["address"] = $"0x{address:X}", ["args"] = new JsonArray(plan.ScriptKinds.Select(k => (JsonNode)k).ToArray()), ["perSecond"] = perSecond,
+            }, RequestTimeout, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            lock (session.Watches) session.Watches.Remove(id);
+            throw;
+        }
+        return w;
+    }
+
+    public async Task UnwatchAsync(LiveSession session, string id, CancellationToken ct)
+    {
+        LiveWatchState? w;
+        lock (session.Watches) session.Watches.TryGetValue(id, out w);
+        if (w == null || w.Cleared) throw new ToolError(ErrorCode.NotFound, $"Session {session.Id} has no watch '{id}'.", "live_watch action=list shows them");
+        // the script sends what it still holds before the watch ends, so the state stays for that last batch
+        await session.Worker.RequestAsync("unwatch", new JsonObject { ["id"] = id }, RequestTimeout, ct).ConfigureAwait(false);
+        w.Cleared = true;
+    }
+
+    /// <summary>Loads a user-supplied script into the session's program; its messages and errors go into the event ring.</summary>
+    public async Task<string> LoadScriptAsync(LiveSession session, string source, string origin, CancellationToken ct)
+    {
+        Live(session);
+        var id = session.NextScriptId();
+        await session.Worker.RequestAsync("load_script", new JsonObject { ["id"] = id, ["source"] = source }, RequestTimeout, ct).ConfigureAwait(false);
+        lock (session.Scripts) session.Scripts[id] = origin;
+        return id;
+    }
+
+    public async Task UnloadScriptAsync(LiveSession session, string id, CancellationToken ct)
+    {
+        Live(session);
+        lock (session.Scripts)
+            if (!session.Scripts.ContainsKey(id))
+                throw new ToolError(ErrorCode.NotFound, $"Session {session.Id} has no script '{id}'.", "live_script action=list shows them");
+        await session.Worker.RequestAsync("unload_script", new JsonObject { ["id"] = id }, RequestTimeout, ct).ConfigureAwait(false);
+        lock (session.Scripts) session.Scripts.Remove(id);
     }
 
     public async Task ClearAsync(LiveSession session, string id, CancellationToken ct)

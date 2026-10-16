@@ -1,0 +1,14 @@
+{
+  "tool": "live_script",
+  "arguments": {
+    "session": "live-1",
+    "action": "load",
+    "source": "send(Process.id);"
+  },
+  "isError": true,
+  "content": [
+    "Error (unsupported) in live_script: Sessions on running programs are off in this server.\nNext: start the server with --allow-live (or CORVUS_ALLOW_LIVE=1)",
+    "\n\nerror (json): {\"code\":\"unsupported\",\"retryable\":false,\"message\":\"Sessions on running programs are off in this server.\",\"next\":\"start the server with --allow-live (or CORVUS_ALLOW_LIVE=1)\",\"partial\":null,\"details\":null}"
+  ],
+  "structuredContent": null
+}

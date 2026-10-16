@@ -1,5 +1,6 @@
 // Session script loaded into the observed program: stop points hold the hitting thread until the worker posts its
-// resume token; module, thread and exception events are forwarded. Observation only: no writes to the program.
+// resume token; watched calls are recorded; module, thread and exception events are forwarded. Observation only: no
+// writes to the program.
 const points = {};
 const hits = {};
 let observing = false; // the observers first replay what is already there; open's info() reports that instead
@@ -36,7 +37,67 @@ Process.setExceptionHandler(d => {
   return false; // the program's own handlers decide
 });
 
+// Watched functions: each call's arguments (strings read while the call runs) and return value, sent in batches;
+// calls over a watch's rate limit are counted, not recorded, so the program keeps its speed.
+const watches = {};
+const BATCH_ROWS = 512;
+const FLUSH_MS = 100;
+const STRING_CHARS = 256;
+
+// Strings are read up to their terminator (a fixed length could run past the end of the page), then cut.
+function readArg(kind, p) {
+  if (kind === 'proc' && p.compare(ptr(0x10000)) < 0) return p.toString(); // an ordinal
+  if (kind !== 'cstr' && kind !== 'wstr' && kind !== 'proc') return p.toString();
+  if (p.isNull()) return null;
+  try {
+    let s;
+    if (kind === 'wstr') s = p.readUtf16String();
+    else {
+      try { s = p.readUtf8String(); } catch (e) { s = p.readCString(); }
+    }
+    return s === null ? null : s.length > STRING_CHARS ? s.substring(0, STRING_CHARS) + '...' : s;
+  } catch (e) {
+    return '<unreadable ' + p + '>';
+  }
+}
+
+function flush(w) {
+  if (w.rows.length === 0 && w.skipped === 0) return;
+  send({ type: 'calls', watch: w.id, rows: w.rows, skipped: w.skipped });
+  w.rows = [];
+  w.skipped = 0;
+}
+
+setInterval(() => { for (const id in watches) flush(watches[id]); }, FLUSH_MS);
+
+function watch(id, address, args, perSecond) {
+  const w = { id, rows: [], skipped: 0, tokens: perSecond, last: Date.now() };
+  w.listener = Interceptor.attach(ptr(address), {
+    onEnter(a) {
+      const now = Date.now();
+      w.tokens = Math.min(perSecond, w.tokens + (now - w.last) * perSecond / 1000);
+      w.last = now;
+      if (w.tokens < 1) { w.skipped++; this.row = null; return; }
+      w.tokens -= 1;
+      const values = new Array(args.length);
+      for (let i = 0; i < args.length; i++) values[i] = args[i] === 'skip' ? null : readArg(args[i], a[i]);
+      this.row = [Process.getCurrentThreadId(), now, this.returnAddress.toString(), values];
+    },
+    onLeave(r) {
+      if (this.row === null) return;
+      this.row.push(r.toString());
+      w.rows.push(this.row);
+      if (w.rows.length >= BATCH_ROWS) flush(w);
+    },
+  });
+  watches[id] = w;
+}
+
 rpc.exports = {
+  // runs before the script is unloaded, also when the program exits: the batches still held are sent
+  dispose() {
+    for (const id in watches) flush(watches[id]);
+  },
   info() {
     return { arch: Process.arch, platform: Process.platform, pointerSize: Process.pointerSize, pid: Process.id,
       modules: Process.enumerateModules().map(moduleRow) };
@@ -49,6 +110,18 @@ rpc.exports = {
     if (!points[id]) return false;
     points[id].detach();
     delete points[id];
+    return true;
+  },
+  watch(id, address, args, perSecond) {
+    watch(id, address, args, perSecond);
+    return true;
+  },
+  unwatch(id) {
+    const w = watches[id];
+    if (!w) return false;
+    w.listener.detach();
+    flush(w);
+    delete watches[id];
     return true;
   },
   read(address, length) {

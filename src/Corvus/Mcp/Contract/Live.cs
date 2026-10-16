@@ -13,8 +13,11 @@ public static partial class ToolEffects
         // the session tools change the session (opened, closed, stop points), never the observed program; gated by --allow-live
         ["live_session"] = Changes(destructive: false, idempotent: false, openWorld: true),
         ["live_break"] = Changes(destructive: false, idempotent: false, openWorld: true),
+        ["live_watch"] = Changes(destructive: false, idempotent: false, openWorld: true),
         ["live_read"] = Reads(openWorld: true),
         ["live_events"] = Reads(openWorld: true),
+        // a user script runs inside the observed program and may change it; gated by --live-scripting as well
+        ["live_script"] = Changes(destructive: true, idempotent: false, openWorld: true),
     };
 }
 
@@ -25,6 +28,8 @@ public static partial class ParameterDomains
         ["inspect_process"] = new Dictionary<string, Domain> { ["regionFilter"] = Of(["committed", "all", "executable", "writable", "image", "private", "mapped"]) },
         ["live_session"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "processes", "attach", "spawn", "status", "close"]) },
         ["live_break"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear", "continue"]) },
+        ["live_watch"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear"]) },
+        ["live_script"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "load", "unload"]) },
     };
 }
 
@@ -35,7 +40,9 @@ public sealed partial record ToolContract
         ["inspect_process"] = Row(O.Report, L.Interactive),
         ["live_session"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
         ["live_break"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
+        ["live_watch"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
         ["live_read"] = Row(O.Report, L.Interactive),
         ["live_events"] = Row(O.List, L.Instant, sort: "event sequence"),
+        ["live_script"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live and --live-scripting"),
     };
 }

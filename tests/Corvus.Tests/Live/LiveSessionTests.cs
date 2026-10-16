@@ -17,6 +17,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     /// <summary>Bytes the program holds, by address.</summary>
     public readonly Dictionary<ulong, byte[]> Memory = [];
     private readonly Dictionary<string, ulong> _points = [];
+    /// <summary>What the session script was told to read for each watch.</summary>
+    public readonly Dictionary<string, List<string>> WatchedKinds = [];
 
     public string Name => "scripted";
     public (string Reason, string Remediation)? Unavailable() => Missing == null ? null : (Missing, "install it");
@@ -34,6 +36,15 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
         ["registers"] = new JsonObject { ["pc"] = $"0x{_points[id]:x}", ["rcx"] = "0x5000", ["rsp"] = "0x9000" },
         ["frames"] = new JsonArray($"0x{_points[id]:x}", $"0x{caller:x}", "0x7ffe00001234"),
     });
+
+    /// <summary>A batch of recorded calls of watch <paramref name="id"/>: (thread, ms, return address, arguments, return value) rows.</summary>
+    public void Calls(string id, IEnumerable<(long Thread, long Ms, ulong Caller, string?[] Args, string Ret)> rows, long skipped) => Worker!.Emit(new JsonObject
+    {
+        ["event"] = "calls", ["watch"] = id, ["skipped"] = skipped,
+        ["rows"] = new JsonArray(rows.Select(r => (JsonNode)new JsonArray(r.Thread, r.Ms, $"0x{r.Caller:x}", new JsonArray(r.Args.Select(a => (JsonNode?)a).ToArray()), r.Ret)).ToArray()),
+    });
+
+    public void ScriptMessage(string id, JsonNode payload) => Worker!.Emit(new JsonObject { ["event"] = "user_script", ["script"] = id, ["payload"] = payload });
 
     private JsonNode? Handle(string op, JsonObject args)
     {
@@ -53,6 +64,12 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 _points[(string)args["id"]!] = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
                 return true;
             case "clear": return _points.Remove((string)args["id"]!);
+            case "watch":
+                WatchedKinds[(string)args["id"]!] = args["args"]!.AsArray().Select(k => (string)k!).ToList();
+                return true;
+            case "unwatch": return WatchedKinds.Remove((string)args["id"]!);
+            case "load_script": return new JsonObject { ["loaded"] = (string)args["id"]! };
+            case "unload_script": return new JsonObject { ["unloaded"] = true };
             case "resume": return new JsonObject { ["resumed"] = new JsonArray(), ["started"] = true };
             case "read":
                 var at = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
@@ -162,6 +179,57 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Equal("failed", _service.Get("live-1").State);
         Assert.Contains("exit", await _tools.LiveEvents("live-1", kind: "exit"));
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1", memory: "0x10"))).Code);
+    }
+
+    [Fact]
+    public async Task Watched_calls_go_into_the_ring_decoded_with_their_callers_named_and_counted()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var set = await _tools.LiveWatchCalls("live-1", "set", at: "e_sqlite3!sqlite3_open", arguments: 2);
+        Assert.Contains("w1 set at 0x", set);
+        Assert.Contains("e_sqlite3.dll!sqlite3_open: sqlite3_open(a0, a1) (raw values); at most 10,000 calls/s recorded", set);
+        Assert.Equal(["hex", "hex"], _backend.WatchedKinds["w1"]);
+        var rva = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default).AddressOfName("sqlite3_open")!.Value;
+        _backend.Calls("w1", Enumerable.Range(0, 3).Select(i => (5L, 1000L + i * 10, Base + rva + 0x4, new string?[] { $"0x{0x100 + i:x}", "0x0" }, "0x0")), skipped: 7);
+        for (int i = 0; i < 50 && !(await _tools.LiveWatchCalls("live-1")).Contains("3 call(s)"); i++) await Task.Delay(20);
+        var list = await _tools.LiveWatchCalls("live-1");
+        Assert.Contains("w1 e_sqlite3.dll!sqlite3_open: 3 call(s) recorded (100/s), 7 over the rate limit", list);
+        var events = await _tools.LiveEvents("live-1", from: "w1");
+        Assert.Contains("call thread 5 0x", events);
+        Assert.True(events.Contains("e_sqlite3.dll!sqlite3_open+0x4: sqlite3_open(a0=0x100, a1=0x0) -> 0x0"), events);
+        Assert.Contains("sqlite3_open(a0=0x102, a1=0x0)", events);
+        Assert.Contains("w1 cleared", await _tools.LiveWatchCalls("live-1", "clear", watch: "w1"));
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "clear", watch: "w1"))).Code);
+    }
+
+    [Fact]
+    public async Task A_user_script_loads_only_with_live_scripting_and_its_messages_are_events()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var off = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveScriptCalls("live-1", "load", source: "send(1);"));
+        Assert.Contains(ServerOptions.LiveScriptingOption, off.Remediation);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, LiveScripting = true }, _service);
+        var loaded = await tools.LiveScriptCalls("live-1", "load", source: "send({ hello: Process.id });");
+        Assert.Contains("u1 loaded (inline)", loaded);
+        _backend.ScriptMessage("u1", new JsonObject { ["hello"] = 4242 });
+        for (int i = 0; i < 50 && !(await tools.LiveEvents("live-1", kind: "script")).Contains("hello"); i++) await Task.Delay(20);
+        Assert.Contains("script: u1: {\"hello\":4242}", await tools.LiveEvents("live-1", kind: "script"));
+        Assert.Contains("u1 unloaded", await tools.LiveScriptCalls("live-1", "unload", script: "u1"));
+        Assert.Contains("0 script(s)", await tools.LiveScriptCalls("live-1"));
+    }
+
+    [Fact]
+    public void A_known_api_is_decoded_with_names_strings_and_flags()
+    {
+        var plan = LiveWatchPlans.Build("kernel32!CreateFileW", null, 0, x64: true, Corvus.Native.Calls.ApiOs.Windows, 4);
+        Assert.Equal("known API table", plan.Source);
+        Assert.Equal(["wstr", "hex", "hex", "hex", "hex", "hex", "hex"], plan.ScriptKinds);
+        var text = LiveWatchPlans.Describe(plan, ["C:\\data\\a.txt", "0x80000000", "0x1", "0x0", "0x3", "0x80", "0x0"], "0xffffffffffffffff");
+        Assert.Equal("CreateFileW(lpFileName=\"C:\\\\data\\\\a.txt\", dwDesiredAccess=GENERIC_READ, dwShareMode=FILE_SHARE_READ, lpSecurityAttributes=0x0, " +
+                     "dwCreationDisposition=OPEN_EXISTING, dwFlagsAndAttributes=FILE_ATTRIBUTE_NORMAL, hTemplateFile=0x0) -> 0xFFFFFFFFFFFFFFFF", text);
+        var raw = LiveWatchPlans.Build("sub_1000", null, 0x1000, x64: true, Corvus.Native.Calls.ApiOs.Windows, 2);
+        Assert.Equal("raw values", raw.Source);
+        Assert.Equal("f(a0=0x10, a1=?) -> 0x1", LiveWatchPlans.Describe(raw with { Function = "f" }, ["0x10"], "0x1"));
     }
 
     [Fact]

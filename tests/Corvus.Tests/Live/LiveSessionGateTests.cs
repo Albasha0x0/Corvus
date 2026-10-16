@@ -24,7 +24,8 @@ public class LiveSessionGateTests
         var tools = Tools();
         foreach (var call in new Func<Task<string>>[]
                  {
-                     () => tools.LiveSession("attach", program: "app.exe"), () => tools.LiveBreak("live-1"), () => tools.LiveRead("live-1"), () => tools.LiveEvents("live-1"),
+                     () => tools.LiveSession("attach", program: "app.exe"), () => tools.LiveBreak("live-1"), () => tools.LiveWatchCalls("live-1"), () => tools.LiveRead("live-1"),
+                     () => tools.LiveEvents("live-1"), () => tools.LiveScriptCalls("live-1"),
                  })
         {
             var e = await Assert.ThrowsAsync<ToolError>(call);
@@ -50,8 +51,9 @@ public class LiveSessionGateTests
         var off = ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true);
         Assert.Equal(ToolAvailability.SessionTools.Order(StringComparer.Ordinal), off.Select(u => u.Tool).Order(StringComparer.Ordinal));
         Assert.All(off, u => Assert.Contains(ServerOptions.AllowLiveOption, u.Remediation));
-        var spawn = Assert.Single(ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true));
-        Assert.Equal(("live_session", "action=spawn"), (spawn.Tool, spawn.Mode));
-        Assert.Empty(ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true, allowLiveSpawn: true));
+        var live = ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true);
+        Assert.Equal([("live_session", "action=spawn"), ("live_script", (string?)null)], live.Select(u => (u.Tool, u.Mode)));
+        Assert.Contains(ServerOptions.LiveScriptingOption, live[1].Remediation);
+        Assert.Empty(ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true, allowLiveSpawn: true, liveScripting: true));
     }
 }

@@ -26,6 +26,8 @@ public static partial class Guide
         program, or spawns one suspended (--allow-live-spawn), and matches its modules to loaded images; live_break sets stop
         points by name, module!export, address or file:line, continue resumes held threads (and starts a spawned program), and
         wait returns the next stop with a named stack; live_read reads a held thread's registers and memory as typed values;
-        live_events pages the event ring with a cursor. Close sessions when done: held threads are released, a spawned program ends.
+        live_watch records every call of a function with its arguments decoded (PDB prototype or known API) as call events;
+        live_script (--live-scripting) loads your own script; live_events pages the event ring with a cursor. Close sessions
+        when done: held threads are released, a spawned program ends.
         """;
 }

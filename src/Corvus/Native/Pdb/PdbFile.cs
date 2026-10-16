@@ -32,6 +32,11 @@ public sealed record PdbSymbol(PdbSymbolKind Kind, string Name, ushort Segment, 
     public string? LinkageName { get; init; }
     /// <summary>DWARF: a function's parameter names in order (null where unnamed).</summary>
     public IReadOnlyList<string?>? ParameterNames { get; init; }
+    /// <summary>
+    /// PDB: the variable names of a procedure's own scope in record order, only the parameters where S_LOCAL marks them.
+    /// MSVC and clang-cl write parameters first, so a prototype's n parameters are the first n.
+    /// </summary>
+    public IReadOnlyList<string>? FrameNames { get; init; }
 
     public bool IsFunction => Kind is PdbSymbolKind.GlobalProc or PdbSymbolKind.LocalProc or PdbSymbolKind.PublicFunction or PdbSymbolKind.Thunk;
     public bool IsPublic => Kind is PdbSymbolKind.PublicFunction or PdbSymbolKind.PublicData;
@@ -456,6 +461,10 @@ public sealed class PdbFile
         var r = new MsfStreamReader(msf, stream, start, length);
         var record = new byte[ushort.MaxValue + 1];
         int n = 0;
+        // the procedure whose own scope is being read (index in symbols, -1 for none), the scope depth and its variable names
+        int proc = -1, depth = 0;
+        List<string>? frame = null;
+        bool marked = false;
         while (r.Remaining >= 4)
         {
             if ((++n & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
@@ -479,9 +488,37 @@ public sealed class PdbFile
             {
                 if (symbols.Count >= PdbLimits.MaxSymbols) { AddTruncation($"symbols beyond {PdbLimits.MaxSymbols}"); return; }
                 symbols.Add(sym);
+                if (depth == 0 && module >= 0 && sym.Kind is PdbSymbolKind.GlobalProc or PdbSymbolKind.LocalProc)
+                    (proc, frame, marked) = (symbols.Count - 1, [], false);
+            }
+            if (module < 0) continue;
+            switch (kind)
+            {
+                case 0x1110 or 0x1147 or 0x110F or 0x1146 or 0x1155 or 0x1156 or 0x1102 or 0x1103 or 0x1104 or 0x1132 or 0x114D or 0x115D:
+                    depth++; // procedures, thunks, blocks, with, separated code and inlined call sites open a scope
+                    break;
+                case 0x0006 or 0x114F or 0x114E: // S_END, S_PROC_ID_END, S_INLINESITE_END
+                    if (depth > 0 && --depth == 0 && proc >= 0)
+                    {
+                        if (frame is { Count: > 0 }) symbols[proc] = symbols[proc] with { FrameNames = frame };
+                        (proc, frame) = (-1, null);
+                    }
+                    break;
+                case 0x1111 or 0x110B or 0x1106 or 0x113E when depth == 1 && frame is { Count: < MaxFrameNames }:
+                    // S_REGREL32 (offset, type, register), S_BPREL32 (offset, type), S_REGISTER (type, register), S_LOCAL (type, flags)
+                    int nameAt = kind switch { 0x1111 => 10, 0x110B => 8, _ => 6 };
+                    if (data.Length <= nameAt) break;
+                    bool parameter = kind == 0x113E && (Le16(data, 4) & 1) != 0;
+                    if (kind == 0x113E && !marked && parameter) { frame.Clear(); marked = true; } // S_LOCAL flags parameters: keep only those
+                    if (marked && !parameter) break;
+                    int z = data[nameAt..].IndexOf((byte)0);
+                    if (z > 0 && z <= PdbLimits.MaxNameLength) frame.Add(Encoding.UTF8.GetString(data.Slice(nameAt, z)));
+                    break;
             }
         }
     }
+
+    private const int MaxFrameNames = 32;
 
     private PdbSymbol? Parse(ushort kind, ReadOnlySpan<byte> d, int module)
     {

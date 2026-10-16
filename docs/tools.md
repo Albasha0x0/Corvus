@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-160 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+162 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -20,7 +20,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [engine](#engine) | 0 | 0 | 13: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | 0 | 0 | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | 0 | 0 | 7: crash dumps and crash text |
-| [live](#live) | 0 | 0 | 5: running programs: read-only inspection, and sessions with stop points |
+| [live](#live) | 0 | 0 | 7: running programs: read-only inspection, and sessions with stop points, call recording and user scripts |
 | [web](#web) | 0 | 0 | 1: JavaScript bundles and their source maps |
 
 ## session
@@ -2804,7 +2804,7 @@ Structured output: `folder`, `dumps`, `items`, `offset`, `total`, `failed`, `not
 
 ## live
 
-Running programs: read-only inspection, and sessions with stop points.
+Running programs: read-only inspection, and sessions with stop points, call recording and user scripts.
 
 ### inspect_process
 
@@ -2860,6 +2860,23 @@ Set, list or clear stop points by name, module!export, file:line or address; con
 
 Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.
 
+### live_watch
+
+**Record calls in a session** (edit, open-world)
+
+Record every call of a function with arguments and return value, decoded by PDB prototype or known API (flags by name), as events (live_events from=<watch>).
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session` | string | yes |  | Session id from live_session. |
+| `action` | string |  | `list` | list, set or clear. Values: list, set, clear. |
+| `at` | string |  |  | set: name, module!export or address. |
+| `watch` | string |  |  | clear: watch id. |
+| `rateLimit` | integer |  | `10000` | set: calls/s recorded (1-100000); the rest are counted. |
+| `arguments` | integer |  | `4` | set: raw values without a prototype (0-16). |
+
+Structured output: `session`, `watches`, `namedAddresses`.
+
 ### live_read
 
 **Read a stopped thread** (read-only, idempotent, open-world)
@@ -2887,12 +2904,29 @@ Page a session's event ring with a cursor and filters, so polling never re-sends
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
 | `cursor` | string |  |  | Cursor from an earlier page; default the oldest event kept. |
-| `kind` | string |  |  | Only this kind: stop, exception, module, thread, output, error or exit. |
+| `kind` | string |  |  | Only this kind: stop, call, script, exception, module, thread, output, error or exit. |
 | `thread` | string |  |  | Only this thread id. |
+| `from` | string |  |  | Only events of this watch or script id. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `session`, `items`, `cursor`, `dropped`, `namedAddresses`.
+
+### live_script
+
+**User script in a session** (destructive, open-world)
+
+Load, list or unload your own Frida script in a session's program; its messages become events (live_events from=<script>). Needs --live-scripting.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session` | string | yes |  | Session id from live_session. |
+| `action` | string |  | `list` | list, load or unload. Values: list, load, unload. |
+| `source` | string |  |  | load: JavaScript source. |
+| `path` | string |  |  | load: a .js file instead. |
+| `script` | string |  |  | unload: script id. |
+
+Structured output: `session`, `scripts`.
 
 ## web
 

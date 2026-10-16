@@ -92,6 +92,12 @@ public sealed class ServerOptions
     public const string AllowLiveSpawnOption = "--allow-live-spawn";
     public const string AllowLiveSpawnVariable = "CORVUS_ALLOW_LIVE_SPAWN";
 
+    /// <summary>Allow live_script, which loads a user-supplied script into a session's program (with <see cref="AllowLive"/>); default off.</summary>
+    public bool LiveScripting { get; set; }
+
+    public const string LiveScriptingOption = "--live-scripting";
+    public const string LiveScriptingVariable = "CORVUS_LIVE_SCRIPTING";
+
     /// <summary>Default engine of the native code tools when a call names none (see <see cref="EngineMode"/>).</summary>
     public EngineMode Engine { get; set; } = EngineMode.Auto;
 
@@ -171,6 +177,7 @@ public sealed class ServerOptions
                 case AllowDeviceChangesOption: o.AllowDeviceChanges = true; break;
                 case AllowLiveOption: o.AllowLive = true; break;
                 case AllowLiveSpawnOption: o.AllowLiveSpawn = true; break;
+                case LiveScriptingOption: o.LiveScripting = true; break;
                 case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
                 case "--index-cache-mb": cacheMb = long.TryParse(Next(), out var mb) && mb > 0 ? mb : throw new ArgumentException("--index-cache-mb must be a positive number"); break;
@@ -211,6 +218,7 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
         if (Environment.GetEnvironmentVariable(AllowLiveVariable)?.Trim() is "1" or "true" or "on") o.AllowLive = true;
         if (Environment.GetEnvironmentVariable(AllowLiveSpawnVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveSpawn = true;
+        if (Environment.GetEnvironmentVariable(LiveScriptingVariable)?.Trim() is "1" or "true" or "on") o.LiveScripting = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
         o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);
         o.EngineAnalysis = Environment.GetEnvironmentVariable(EngineAnalysisVariable)?.Trim().ToLowerInvariant() switch

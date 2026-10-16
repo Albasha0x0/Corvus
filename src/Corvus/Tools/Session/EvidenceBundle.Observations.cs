@@ -13,7 +13,7 @@ public static partial class EvidenceBundle
     /// <summary>Tools whose saved records are observations of a running program.</summary>
     public static readonly IReadOnlySet<string> ObservationTools = new HashSet<string>(StringComparer.Ordinal)
     {
-        "live_session", "live_break", "live_read", "live_events",
+        "live_session", "live_break", "live_watch", "live_read", "live_events", "live_script",
     };
 
     /// <summary>The field of an observation record that lists its named addresses.</summary>

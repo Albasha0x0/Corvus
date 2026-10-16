@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string"
+    },
+    "scripts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "description": "The source's file, or inline.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "session",
+    "scripts"
+  ]
+}

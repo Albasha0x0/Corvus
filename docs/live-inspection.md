@@ -81,7 +81,9 @@ starting a program needs `--allow-live-spawn` as well. A session runs a worker o
 | Set stop points before it runs | `live_break action=set at=Orders::AddLine` (or `module!export`, `orders.c:42`, an image or live address) |
 | Run to the next stop | `live_break action=continue wait=true` |
 | Read the held thread | `live_read registers=rcx,rdx memory=rcx type=int32[2]` |
-| Page what happened | `live_events cursor=<from the last page> kind=stop` |
+| Record every call of a function | `live_watch action=set at=AddLine` (or `kernelbase!CreateFileA`, an address) |
+| Page what happened | `live_events cursor=<from the last page> kind=stop`; one watch's calls: `live_events from=w1` |
+| Load your own script | `live_script action=load path=trace.js` (needs `--live-scripting`) |
 | End | `live_session action=close` |
 
 Addresses are joined to the static model: the program's own image is loaded and indexed when the session opens, so a
@@ -90,8 +92,21 @@ stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address; other mod
 A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` (default 30) and with the server; each releases every held
 thread, and a program the session started is ended. A started program's output arrives as `output` events.
 
+A watch records each call's arguments and return value without stopping the program. They are decoded from, in order:
+the known-API table (parameter names, ANSI and wide strings, flags and enumerations by name: `dwDesiredAccess=GENERIC_READ`),
+the PDB prototype (parameter names from the procedure's frame records, types from the type stream, enums by name), DWARF
+parameter names, else `arguments` raw values. Strings are read while the call runs, up to 256 characters. The session
+script sends calls in batches (512 calls or every 100 ms, and at exit); calls over a watch's `rateLimit` (default 10,000
+a second) are counted, not recorded, so a hot function does not slow the program. Each call is a `call` event named by
+its caller: `orders.exe!main+0xDC: AddLine(o=0xE1BAFFE50, qty=3) -> 3`.
+
+`live_script` loads a script you wrote into the program (Frida's JavaScript API); what it sends arrives as `script`
+events, and a script that does not compile is refused with the compiler's message. A script runs inside the program
+with its rights and can change it, so the tool is off unless the server also starts with `--live-scripting`.
+
 Measured on a small MSVC-built program (Windows 11, x64): session open with modules matched 1.1-1.5 s; a held stop to
-its named stack 1 ms; a stop point set by name 0.6 s on the first call (the image's index), then under 10 ms.
+its named stack 1 ms; a stop point set by name 0.6 s on the first call (the image's index), then under 10 ms; a watched
+function called 20,000 times in a loop: every call recorded at 107,000-136,000 calls a second (target 5,000).
 
 ## Limits
 
