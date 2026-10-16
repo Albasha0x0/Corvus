@@ -317,6 +317,31 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
         output.WriteLine($"{unity} Unity title(s) of {titles.Count} folders, {total.Elapsed.TotalSeconds:0.0} s");
     }
 
+    /// <summary>The unity_overview tool on each installed title: a Unity title's report within the report budget per part, with its engine version, backend and next steps.</summary>
+    [Fact, Trait("Data", "Real")]
+    public async Task Unity_overview_tool_reports_installed_titles()
+    {
+        var titles = Titles().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (titles.Count == 0) { output.WriteLine("No Unity titles found (Steam libraries, CORVUS_UNITY_TITLES)."); return; }
+        await using var server = await InProcessServer.StartAsync();
+        int unity = 0;
+        foreach (var title in titles)
+        {
+            var r = await server.Client.CallToolAsync("unity_overview", new Dictionary<string, object?> { ["path"] = title });
+            var text = string.Concat(r.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
+            if (r.IsError == true) { Assert.Contains("not_a_unity_title", text); continue; }
+            unity++;
+            var record = r.StructuredContent!.Value;
+            int budget = Corvus.Mcp.OutputClasses.Budget(Corvus.Mcp.ToolContract.Of("unity_overview").Output) * 105 / 100;
+            output.WriteLine($"{Path.GetFileName(title)}: text {TokenEstimate.Of(text)}, record {TokenEstimate.Of(record.GetRawText())} tokens");
+            Assert.True(TokenEstimate.Of(text) <= budget && TokenEstimate.Of(record.GetRawText()) <= budget, title);
+            Assert.False(string.IsNullOrEmpty(record.GetProperty("engine").GetProperty("version").GetString()));
+            Assert.Contains(record.GetProperty("backend").GetProperty("kind").GetString(), new[] { "mono", "il2cpp" });
+            Assert.True(record.GetProperty("nextSteps").GetArrayLength() > 0);
+        }
+        output.WriteLine($"{unity} Unity title(s) of {titles.Count} folders");
+    }
+
     private static IEnumerable<string> Titles()
     {
         if (Environment.GetEnvironmentVariable("CORVUS_UNITY_TITLES") is { Length: > 0 } list)
