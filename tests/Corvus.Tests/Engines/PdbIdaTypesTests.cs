@@ -273,6 +273,7 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
         var own = await rig3.Analysis.DecompileNative(native3.Id, $"rva:0x{scoreRva:X}");
         output.WriteLine($"own reader:\n{own}");
         var applied = NativePdbTypes.Current(await rig3.Engines.Session(native3, null, null, default))!;
+        Assert.True(applied.OwnApplied != null, $"own reader not applied: {applied.Error}; route {applied.Route}, fallback {applied.FallbackReason}");
         output.WriteLine("rejected prototypes: " + string.Join("; ", applied.OwnApplied!.Failures));
         Assert.Equal(0, applied.OwnApplied.DeclarationErrors);
         Assert.Equal(applied.Own!.Prototypes.Count, applied.OwnApplied.Typed);

@@ -796,9 +796,10 @@ def op_apply_types(args):
     result = {"decl_errors": 0, "typed": 0, "type_failures": 0, "failures": [], "structs": 0, "vftables_typed": 0, "methods_typed": 0}
     decls = args.get("decls")
     if decls:
-        errors, messages, _ = parse_decls_reporting(decls)
+        # not the kernel call with a message printer: on a PDB's thousands of declarations it ran past the request deadline
+        errors = idc.parse_decls(decls, idc.PT_SILENT)
         result["decl_errors"] = errors
-        result["decl_messages"] = (messages or (refused_decls(ti, decls) if errors else []))[:20]
+        result["decl_messages"] = refused_decls(ti, decls, errors) if errors else []
     for rva, decl in args.get("prototypes") or []:
         if user_typed(rva):
             continue
@@ -864,7 +865,7 @@ def apply_classes(m, ti, til, model, result):
         refused = idc.parse_decls(forward, idc.PT_SILENT)
         result["decl_errors"] += refused
         if refused:
-            result.setdefault("decl_messages", []).extend(refused_decls(ti, forward))
+            result.setdefault("decl_messages", []).extend(refused_decls(ti, forward, refused))
     # methods: first argument becomes a pointer to the class (functions without a type of their own only)
     skips = result.setdefault("method_skips", {})
 
@@ -1392,10 +1393,12 @@ def apply_stack(m, ti, rva, offset, name, typ):
     return ["stack", rva, target, True, None, old, offset, "%s %s" % (got[0].type, got[0].name) if got else None]
 
 
-def refused_decls(ti, text, limit=20):
+def refused_decls(ti, text, errors, limit=20, seconds=5.0):
     # without the kernel's messages: each top-level declaration parsed again on its own, after the whole text was; the
-    # refused ones (conflicts with the database's type libraries show only there)
+    # refused ones (conflicts with the database's type libraries show only there). Stops at the error count, the limit or
+    # the time budget: a PDB's declarations run to thousands, each parse costs milliseconds.
     import idc
+    import time
     parts, depth, start = [], 0, 0
     for i, ch in enumerate(text):
         if ch in "{(":
@@ -1405,9 +1408,11 @@ def refused_decls(ti, text, limit=20):
         elif ch == ";" and depth == 0:
             parts.append(text[start:i + 1].strip())
             start = i + 1
-    refused = []
+    refused, until = [], time.monotonic() + seconds
     for part in parts:
-        if part and idc.parse_decls(part, idc.PT_SILENT) and len(refused) < limit:
+        if len(refused) >= min(errors, limit) or time.monotonic() > until:
+            break
+        if part and idc.parse_decls(part, idc.PT_SILENT):
             refused.append("refused: " + " ".join(part.split())[:160])
     return refused
 
