@@ -35,24 +35,23 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         var names = dex.Names(index, mapping, ct);
         symbol = DexService.Resolve(index, names, symbol);
         var source = await DecompileDex(index, symbol, smaliFallback, ct).ConfigureAwait(false);
-        return names == null ? source : Renames(names, index, symbol, ct) + source;
+        return names == null || names.IsEmpty ? source : WithNames(source, names, index, symbol, ct);
     }
 
     /// <summary>
-    /// The original names of the class decompiled and of its members, as a comment block: the JADX server takes no mapping,
-    /// so its source keeps the package's names.
+    /// The source with original names in place (the JADX server takes no mapping), under a line counting them and naming
+    /// what stays as JADX wrote it.
     /// </summary>
-    private static string Renames(DexNames names, DexIndex index, string symbol, CancellationToken ct)
+    private static string WithNames(string source, DexNames names, DexIndex index, string symbol, CancellationToken ct)
     {
         bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
-        var cls = member ? index.Methods.GetValueOrDefault(index.ResolveMethod(symbol, ct)) is { } m ? new DexClassEntry(m.File, m.Class) : null : index.FindClass(symbol);
-        if (cls == null) return "";
-        var lines = new List<string>();
-        if (names.Display(cls.Class.Descriptor) is { } c) lines.Add($"// {cls.Class.Descriptor} = {c}");
-        var (fields, methods) = cls.File.ClassData(cls.Class);
-        foreach (var id in fields.Select(f => cls.File.Field(f.FieldIndex).Descriptor).Concat(methods.Select(x => cls.File.Method(x.MethodIndex).Descriptor)))
-            if (names.Member(id) != null && names.Display(id) is { } d) lines.Add($"// {id[(id.IndexOf("->", StringComparison.Ordinal) + 2)..]} = {d}");
-        return lines.Count == 0 ? "" : "// original names (mapping or recovered; JADX shows the package's own):\n" + string.Join("\n", lines.Take(400)) + "\n";
+        var descriptor = member ? index.Methods.GetValueOrDefault(index.ResolveMethod(symbol, ct))?.Class.Descriptor : index.FindClass(symbol)?.Class.Descriptor;
+        if (descriptor == null) return source;
+        var r = JavaSourceNames.Apply(source, names, index, descriptor, ct);
+        var basis = names.Mapping is { } m ? Path.GetFileName(m) : "Kotlin metadata";
+        var head = $"// original names from {basis}: {r.Renamed} identifier(s) replaced";
+        if (r.Undecided.Count > 0) head += $"; kept as JADX wrote them (the code's references name more than one): {string.Join(", ", r.Undecided.Take(20))}";
+        return head + "\n" + r.Text;
     }
 
     private async Task<string> DecompileDex(DexIndex index, string symbol, bool smaliFallback, CancellationToken ct)

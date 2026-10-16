@@ -57,7 +57,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [Fact]
-    public async Task Mapping_ResolvesOriginalNames_AndHeadsTheSourceWithThem()
+    public async Task Mapping_ResolvesOriginalNames_AndHeadsTheSourceWithACount()
     {
         var (service, env) = Fake();
         using (env)
@@ -66,9 +66,122 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
             var mapping = _dir.File("mapping.txt");
             File.WriteAllText(mapping, "com.example.Original -> com.example.app.Main:\n    int realCompute(int) -> compute\n");
             var text = await service.Decompile(Apk(), "com.example.Original", true, default, mapping);
-            Assert.StartsWith($"// original names (mapping or recovered; JADX shows the package's own):\n// {Main} = com.example.Original\n", text);
-            Assert.Contains("// compute(I)I = com.example.Original.realCompute(int) : int\n", text);
-            Assert.EndsWith($"// {Main} (JADX)\n// source of com.example.app.Main", text);
+            Assert.Equal($"// original names from mapping.txt: 0 identifier(s) replaced\n// {Main} (JADX)\n// source of com.example.app.Main", text);
+        }
+    }
+
+    /// <summary>An R8-shaped package (two classes in package a, overloads all named a, a field and a class both named b) and its mapping.</summary>
+    private (string Apk, string Mapping) Obfuscated()
+    {
+        var b = new DexBuilder();
+        var client = b.Class("La/a;", 1).Field("a", "Ljava/lang/String;", 1).Field("b", "I", 9);
+        client.Method("<init>", "V", [], 1, Asm.Invoke(0x70, "Ljava/lang/Object;-><init>()V", 0), Asm.ReturnVoid()).Registers = 1;
+        client.Method("a", "I", ["La/b;"], 1,
+            Asm.Invoke(0x6e, "La/b;->a()Ljava/lang/String;", 3),
+            Asm.Op11x(0x0c, 0),
+            Asm.Invoke(0x71, "La/b;->a(Ljava/lang/String;)V", 0),
+            Asm.Instance(0x54, 1, 2, "La/a;->a:Ljava/lang/String;"),
+            Asm.Invoke(0x71, "La/b;->a(Ljava/lang/String;)V", 1),
+            Asm.Static(0x60, 0, "La/a;->b:I"),
+            Asm.Return(0x0f, 0)).Registers = 4;
+        client.Method("a", "V", ["I"], 9, Asm.Static(0x67, 0, "La/a;->b:I"), Asm.ReturnVoid()).Registers = 1;
+        var request = b.Class("La/b;", 1).Field("a", "Ljava/lang/String;", 1);
+        request.Method("<init>", "V", [], 1, Asm.Invoke(0x70, "Ljava/lang/Object;-><init>()V", 0), Asm.ReturnVoid()).Registers = 1;
+        request.Method("a", "Ljava/lang/String;", [], 1, Asm.Instance(0x54, 0, 1, "La/b;->a:Ljava/lang/String;"), Asm.Return(0x11, 0)).Registers = 2;
+        request.Method("a", "V", ["Ljava/lang/String;"], 9, Asm.ReturnVoid()).Registers = 1;
+        var mapping = _dir.File("r8-mapping.txt");
+        File.WriteAllText(mapping, """
+            com.example.net.ApiClient -> a.a:
+                java.lang.String baseUrl -> a
+                int retries -> b
+                1:3:int send(com.example.net.Request) -> a
+                void setRetries(int) -> a
+            com.example.net.Request -> a.b:
+                java.lang.String url -> a
+                java.lang.String path() -> a
+                void log(java.lang.String) -> a
+            """.Replace("\r\n", "\n"));
+        return (Save(_dir, "r8.apk", AndroidSamples.Apk(30, ("classes.dex", b.Build()))), mapping);
+    }
+
+    /// <summary>The real JADX server's source of an R8-shaped class, with the mapping's names put into it.</summary>
+    [Trait("Speed", "Slow")]
+    [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER")]
+    public async Task RealJadx_MappingNamesInTheSource()
+    {
+        using var service = new JavaDecompilerService(new DexService());
+        var (apk, mapping) = Obfuscated();
+        var text = await service.Decompile(apk, "a.a", true, default, mapping);
+        output.WriteLine(text);
+        Assert.Contains("public class ApiClient {", text);
+        Assert.Contains("Request.log(bVar.path());", text);
+        Assert.Contains("Request.log(this.baseUrl);", text);
+        Assert.Contains("return retries;", text);
+        var request = await service.Decompile(apk, "a.b", true, default, mapping);
+        Assert.Contains("return this.url;", request);
+        var method = await service.Decompile(apk, "com.example.net.ApiClient::send", true, default, mapping);
+        Assert.Contains("public int send(Request bVar) {", method);
+    }
+
+    /// <summary>
+    /// JADX's text of an R8-shaped class (as the real server writes it, with its own f0a for a field) gets the mapping's names:
+    /// overloads told apart by declared parameter types and by the calls of the method around them, a field and a class both
+    /// named b told apart by the member after them; a call whose candidates disagree stays as written and is named in the header.
+    /// </summary>
+    [Fact]
+    public async Task Mapping_NamesGoIntoTheJavaText()
+    {
+        var (service, env) = Fake();
+        using (env)
+        using (service)
+        {
+            _fake.Set("mcp", new JsonObject
+            {
+                ["get_class_source"] = new JsonObject
+                {
+                    ["a.a"] = """
+                        package a;
+
+                        import java.util.List;
+
+                        /* JADX INFO: loaded from: classes.dex */
+                        public class a {
+                            public static int b;
+
+                            /* JADX INFO: renamed from: a, reason: collision with root package name */
+                            public String f0a;
+
+                            static {
+                                a(5);
+                            }
+
+                            public static void a(int i) {
+                                b = i;
+                            }
+
+                            public int a(b bVar) {
+                                b.a(bVar.a());
+                                b.a(this.f0a);
+                                String s = "a.a b.a";
+                                return b;
+                            }
+                        }
+                        """,
+                    ["*"] = "!class not found",
+                },
+            });
+            var (apk, mapping) = Obfuscated();
+            var text = await service.Decompile(apk, "a.a", true, default, mapping);
+            Assert.Equal("// original names from r8-mapping.txt: 15 identifier(s) replaced; kept as JADX wrote them (the code's references name more than one): a (setRetries | send | log)",
+                text[..text.IndexOf('\n')]);
+            Assert.Contains("package com.example.net;", text);
+            Assert.Contains("public class ApiClient {", text);
+            Assert.Contains("public static int retries;", text);
+            Assert.Contains("public String baseUrl;", text);
+            Assert.Contains("        a(5);", text);
+            Assert.Contains("public static void setRetries(int i) {\n        retries = i;", text);
+            Assert.Contains("public int send(Request bVar) {\n        Request.log(bVar.path());\n        Request.log(this.baseUrl);", text);
+            Assert.Contains("String s = \"a.a b.a\";\n        return retries;", text);
         }
     }
 
