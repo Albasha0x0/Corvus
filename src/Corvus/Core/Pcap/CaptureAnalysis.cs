@@ -10,7 +10,12 @@ public sealed record CaptureFlow(string Protocol, string Client, string Server, 
 public sealed record CaptureDnsName(string Name, int Queries, int Responses, IReadOnlyList<string> Types, IReadOnlyList<string> Answers);
 
 /// <summary>A TLS server name from ClientHello SNI, with the ALPN protocols offered and the servers it went to.</summary>
-public sealed record CaptureTlsName(string ServerName, int Hellos, IReadOnlyList<string> Alpn, IReadOnlyList<string> Servers);
+public sealed record CaptureTlsName(string ServerName, int Hellos, IReadOnlyList<string> Alpn, IReadOnlyList<string> Servers)
+{
+    /// <summary>The JA4 and JA3 fingerprints of the whole hellos.</summary>
+    public IReadOnlyList<string> Ja4 { get; init; } = [];
+    public IReadOnlyList<string> Ja3 { get; init; } = [];
+}
 
 /// <summary>An HTTP/1.x request line and its Host header, counted.</summary>
 public sealed record CaptureHttpRequest(string Method, string Host, string Target, int Count);
@@ -67,7 +72,7 @@ public sealed class CaptureAnalysis
     private sealed class TlsState
     {
         public int Hellos;
-        public readonly SortedSet<string> Alpn = new(StringComparer.Ordinal), Servers = new(StringComparer.Ordinal);
+        public readonly SortedSet<string> Alpn = new(StringComparer.Ordinal), Servers = new(StringComparer.Ordinal), Ja4 = new(StringComparer.Ordinal), Ja3 = new(StringComparer.Ordinal);
     }
 
     public static CaptureAnalysis Read(byte[] data, CancellationToken ct) => Read(new MemoryStream(data, writable: false), ct);
@@ -106,7 +111,7 @@ public sealed class CaptureAnalysis
         .Select(n => new CaptureDnsName(n.Key, n.Value.Queries, n.Value.Responses, [.. n.Value.Types], [.. n.Value.Answers]));
 
     public IEnumerable<CaptureTlsName> ServerNames() => _tls.OrderBy(n => n.Key, StringComparer.OrdinalIgnoreCase)
-        .Select(n => new CaptureTlsName(n.Key, n.Value.Hellos, [.. n.Value.Alpn], [.. n.Value.Servers]));
+        .Select(n => new CaptureTlsName(n.Key, n.Value.Hellos, [.. n.Value.Alpn], [.. n.Value.Servers]) { Ja4 = [.. n.Value.Ja4], Ja3 = [.. n.Value.Ja3] });
 
     public IEnumerable<CaptureHttpRequest> Requests() => _http.OrderBy(r => r.Key.Item2, StringComparer.Ordinal).ThenBy(r => r.Key.Item3, StringComparer.Ordinal)
         .Select(r => new CaptureHttpRequest(r.Key.Item1, r.Key.Item2, r.Key.Item3, r.Value));
@@ -190,7 +195,8 @@ public sealed class CaptureAnalysis
 
     private void Hello(FlowState? flow, in DecodedPacket p, ReadOnlySpan<byte> record)
     {
-        if (!ClientHello(record, out var sni, out var alpn)) return;
+        if (HelloFacts.Of(record) is not { } facts) return;
+        var (sni, alpn) = (facts.Sni, facts.Alpn);
         if (sni == null) { HellosWithoutSni++; return; }
         if (flow != null) flow.ServerName = sni;
         if (!_tls.TryGetValue(sni, out var state))
@@ -200,6 +206,8 @@ public sealed class CaptureAnalysis
         }
         state.Hellos++;
         foreach (var protocol in alpn) if (state.Alpn.Count < MaxListed) state.Alpn.Add(protocol);
+        if (facts.Ja4 != null && state.Ja4.Count < MaxListed) state.Ja4.Add(facts.Ja4);
+        if (facts.Ja3 != null && state.Ja3.Count < MaxListed) state.Ja3.Add(facts.Ja3);
         if (state.Servers.Count < MaxListed) state.Servers.Add(PacketDecoder.Endpoint(p.V6, p.Dst, p.DstPort));
     }
 

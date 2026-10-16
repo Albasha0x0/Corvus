@@ -268,7 +268,7 @@ public sealed class PcapTests : IDisposable
         File.WriteAllBytes(path, PcapNg(EthernetFrames(), Sll(Udp(Client, 40000, Resolver, 53, DnsQuery()))));
         var rows = new UnpackService(_ws).Search(path, "*", "endpoint", 100, AnalysisLimits.Default, default).Items.Select(m => $"{m.Name} | {m.Detail}").ToList();
         Assert.Contains("GET http://api.example.com/users/{n}?token=… | 1 request(s)", rows);
-        Assert.Contains("tls://api.example.com | 1 ClientHello(s), ALPN h2, http/1.1", rows);
+        Assert.Contains("tls://api.example.com | 1 ClientHello(s), ALPN h2, http/1.1, JA4 t12d0103h2_0f2cb44170f4_4298e3b3ed58", rows);
         Assert.Contains("dns://api.example.com | 2 query(ies), CNAME edge.example.net", rows);
         Assert.DoesNotContain(rows, r => r.Contains("secret", StringComparison.Ordinal));
     }

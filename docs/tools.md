@@ -643,7 +643,7 @@ Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`
 
 **Extract container** (edit, idempotent, long-running)
 
-Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: every file; JS: modules and the source map's original tree. Nothing runs; runnable extensions get .bin.
+Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: every file; pcap: HTTP objects and TCP streams; JS: modules and the source map's original tree. Nothing runs; runnable extensions get .bin.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -652,6 +652,7 @@ Extract the .NET assemblies inside a container and load them: single-file bundle
 | `extractOnly` | boolean |  |  | Extract without loading the assemblies; default: loaded, ids in loadedAs. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
+| `keyLog` | string |  |  | A pcap's TLS key log (SSLKEYLOGFILE) to decrypt with. |
 
 Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, `total`, `next`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

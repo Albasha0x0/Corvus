@@ -163,7 +163,7 @@ internal sealed class QuicTracker
         if (need > MaxHello || contiguous < need) return null;
         // a TLS record header in front, as the record reader expects one
         byte[] record = [0x16, 3, 1, (byte)(need >> 8), (byte)need, .. crypto.Data.AsSpan(0, need)];
-        return CaptureAnalysis.ClientHello(record, out var sni, out var alpn) ? new HelloFacts(sni, alpn) : null;
+        return HelloFacts.Of(record, quic: true);
     }
 
     private static bool Varint(ReadOnlySpan<byte> b, ref int at, out ulong value)

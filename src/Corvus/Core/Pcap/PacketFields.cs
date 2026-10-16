@@ -120,6 +120,8 @@ internal static class PacketFields
         Proto("tls", v => v.TlsRecord, hello);
         Text("tls.handshake.extensions_server_name", v => v.Hello?.Sni is { } s ? [s] : null, hello);
         Text("tls.handshake.extensions_alpn_str", v => v.Hello?.Alpn, hello);
+        Text("tls.handshake.ja3", v => v.Hello?.Ja3 is { } j ? [j] : null, hello);
+        Text("tls.handshake.ja4", v => v.Hello?.Ja4 is { } j ? [j] : null, hello);
         Add(new PacketField("tls.handshake.type", FieldType.Number, (v, o) => { if (v.Hello != null) o.Add(FieldValue.Of(1)); }, layers: hello));
 
         Proto("http2", v => v.Http2 != null, PacketLayers.Http2);
@@ -173,8 +175,17 @@ internal sealed record DnsFacts(int Id, bool Response, List<string> Names, List<
 /// <summary>An HTTP/1.x request or response start.</summary>
 internal sealed record HttpFacts(string? Method, string? Uri, string? Host, string? UserAgent, long? Status);
 
-/// <summary>A ClientHello's server name and ALPN protocols.</summary>
-internal sealed record HelloFacts(string? Sni, List<string> Alpn);
+/// <summary>A ClientHello's server name, ALPN protocols and, for a whole hello, its JA3 and JA4 fingerprints.</summary>
+internal sealed record HelloFacts(string? Sni, List<string> Alpn, string? Ja3 = null, string? Ja4 = null)
+{
+    /// <summary>A record holding a ClientHello (cut short: no fingerprints); null when it holds none.</summary>
+    public static HelloFacts? Of(ReadOnlySpan<byte> record, bool quic = false)
+    {
+        if (!CaptureAnalysis.ClientHello(record, out var sni, out var alpn)) return null;
+        var hello = record.Length > 5 ? TlsHello.Parse(record[5..]) : null;
+        return new HelloFacts(sni, alpn, hello?.Ja3(), hello?.Ja4(quic));
+    }
+}
 
 /// <summary>
 /// One frame as the filter reads it: the decoded IP / TCP / UDP headers at once, protocol fields on first use (cached for
@@ -293,9 +304,8 @@ internal sealed class PacketView
             if (_helloDone) return _hello;
             _helloDone = true;
             if (JoinedHello != null) return _hello = JoinedHello;
-            if (Tcp && Payload is { Length: >= 6 } p && p[0] == 0x16 && p[5] == 1 && CaptureAnalysis.ClientHello(p, out var sni, out var alpn)
-                && p.Length >= 5 + BinaryPrimitives.ReadUInt16BigEndian(p[3..]))
-                _hello = new HelloFacts(sni, alpn);
+            if (Tcp && Payload is { Length: >= 6 } p && p[0] == 0x16 && p[5] == 1 && p.Length >= 5 + BinaryPrimitives.ReadUInt16BigEndian(p[3..]))
+                _hello = HelloFacts.Of(p);
             return _hello;
         }
     }

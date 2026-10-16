@@ -4,7 +4,8 @@ namespace Corvus.Services.Analysis;
 
 /// <summary>
 /// view=pcap: a pcap or pcapng capture read in one streaming pass: link types, protocol counts, the largest flows, DNS
-/// names and answers, TLS ClientHello server names with ALPN, and HTTP/1.x request templates. No external decoder.
+/// names and answers, TLS ClientHello server names with ALPN and JA4 / JA3, HTTP/1.x request templates, and patterns worth
+/// reviewing (<see cref="CapturePatterns"/>). No external decoder.
 /// </summary>
 internal sealed class PcapFileView : IFileSummaryView
 {
@@ -15,7 +16,11 @@ internal sealed class PcapFileView : IFileSummaryView
 
     public sealed record Facts(string Format, IReadOnlyList<string> LinkTypes, int Interfaces, long Packets, long CapturedBytes, DateTime? First, DateTime? Last,
         IReadOnlyDictionary<string, long> Protocols, int FlowCount, IReadOnlyList<CaptureFlow> Flows, IReadOnlyList<CaptureDnsName> Dns,
-        IReadOnlyList<CaptureTlsName> Tls, IReadOnlyList<Request> Http, IReadOnlyList<string> Notes);
+        IReadOnlyList<CaptureTlsName> Tls, IReadOnlyList<Request> Http, IReadOnlyList<string> Notes)
+    {
+        /// <summary>DNS names that look like carried data, connections at a regular interval.</summary>
+        public IReadOnlyList<string> Noteworthy { get; init; } = [];
+    }
 
     public string Name => "pcap";
 
@@ -33,9 +38,12 @@ internal sealed class PcapFileView : IFileSummaryView
         if (dns.Count > MaxListed) notes.Add($"DNS names: the first {MaxListed} of {dns.Count:N0}");
         if (tls.Count > MaxListed) notes.Add($"TLS server names: the first {MaxListed} of {tls.Count:N0}");
         if (http.Count > MaxListed) notes.Add($"HTTP requests: the first {MaxListed} of {http.Count:N0}; search_container kind=endpoint lists them all");
-        notes.Add("TCP is not reassembled except a ClientHello split over in-order segments; HTTP request lines and Host headers are read from the segment that starts them.");
+        notes.Add("This view reads a ClientHello joined over in-order segments and HTTP request lines from the segment that starts them; unpack_container reassembles TCP, exports HTTP objects and decrypts TLS with a key log.");
         var facts = new Facts(c.Format, [.. c.LinkTypes.Select(PacketDecoder.LinkTypeName)], c.Interfaces, c.Packets, c.Bytes, c.First, c.Last, c.Protocols,
-            c.FlowCount, [.. c.Flows().OrderByDescending(f => f.Bytes).Take(MaxListed)], [.. dns.Take(MaxListed)], [.. tls.Take(MaxListed)], [.. http.Take(MaxListed)], notes);
+            c.FlowCount, [.. c.Flows().OrderByDescending(f => f.Bytes).Take(MaxListed)], [.. dns.Take(MaxListed)], [.. tls.Take(MaxListed)], [.. http.Take(MaxListed)], notes)
+        {
+            Noteworthy = CapturePatterns.Find(c),
+        };
 
         var span = c.First is { } first && c.Last is { } last ? $" over {(last - first).TotalSeconds:0.#} s" : "";
         var highlights = new List<string>
@@ -45,6 +53,7 @@ internal sealed class PcapFileView : IFileSummaryView
         if (tls.Count > 0) highlights.Add($"TLS server names: {List(tls.Select(t => t.ServerName), tls.Count)}.");
         if (http.Count > 0) highlights.Add($"HTTP requests: {List(http.Select(r => r.Template), http.Count)}.");
         if (dns.Count > 0) highlights.Add($"DNS names: {List(dns.Select(d => d.Name), dns.Count)}.");
+        highlights.AddRange(facts.Noteworthy.Select(n => $"Worth reviewing: {n}."));
         if (c.Issues.Count > 0) highlights.Add($"Capture structure issue: {c.Issues[0]}.");
         return new FileView(facts, highlights);
     }

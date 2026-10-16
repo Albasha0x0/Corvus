@@ -65,7 +65,7 @@ public static class PacketQuery
             p[..take].CopyTo(open.Buffer.AsSpan(open.Length));
             open.Length += take;
             if (open.Length < open.Buffer.Length) { open.Next = unchecked(open.Next + (uint)p.Length); pending[key] = open; return; }
-            if (CaptureAnalysis.ClientHello(open.Buffer, out var sni, out var alpn)) v.JoinedHello = new HelloFacts(sni, alpn);
+            if (HelloFacts.Of(open.Buffer) is { } joined) v.JoinedHello = joined;
             return;
         }
         if (p.Length < 6 || p[0] != 0x16 || p[5] != 1) return;

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using dnlib.DotNet;
 using Corvus.Core;
@@ -58,19 +59,28 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     }
 
     /// <param name="progress">Phase messages: reading, entries found, files written, assemblies loaded.</param>
-    public UnpackReport Unpack(string path, string? outputDirectory, bool load, AnalysisLimits limits, CancellationToken ct, Action<string>? progress = null)
+    /// <param name="keyLog">A packet capture's TLS key log (SSLKEYLOGFILE format).</param>
+    public UnpackReport Unpack(string path, string? outputDirectory, bool load, AnalysisLimits limits, CancellationToken ct, Action<string>? progress = null,
+        string? keyLog = null)
     {
         string source, sha;
         byte[]? data = null;
         Walked walked;
         progress?.Invoke($"reading {Path.GetFileName(path)}");
+        string kind = DotNet;
         if (WebcilFolder(path, limits, ct) is { } folder) (source, sha, walked) = folder;
+        else if (Capture(path, keyLog, limits, ct, progress) is { } capture)
+        {
+            (source, sha, walked) = capture;
+            kind = "packet capture";
+        }
         else
         {
+            if (keyLog != null) throw new ToolError(ErrorCode.InvalidArgument, "keyLog applies to a pcap or pcapng capture.", "omit keyLog, or pass a packet capture as path");
             (source, data, sha) = ReadSource(path, limits);
             walked = Walk(data, sha, source, limits, ct, allFiles: true, progress);
+            kind = Blob.Identify(data);
         }
-        var kind = data != null ? Blob.Identify(data) : DotNet;
         if (walked.Container == "none" && walked.Items.Count == 0 && kind != DotNet && !NativeKinds.Contains(kind))
             throw new ToolError(ErrorCode.Unsupported, $"{source} is not a known container ({kind}): nothing to unpack.",
                 $"summarize_file path={source} describes the file; tar, gzip and xz archives are not read yet");
@@ -105,6 +115,41 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         if (load) LoadAssemblies(files, notes, progress);
         files = [.. files.OrderBy(f => ListOrder(f.Origin, f.Path, f.Kind == DotNet))];
         return new UnpackReport(source, walked.Container, root, files, notes) { Next = NextOf(source, walked.Container, kind, files) };
+    }
+
+    /// <summary>
+    /// A pcap / pcapng file read as a stream (<see cref="Core.Pcap.CaptureObjects"/>): its HTTP objects and TCP streams, with
+    /// tls.json listing each TLS connection (version, cipher suite, ALPN, JA3, JA4, JA4S, decrypted or why not); null for another file.
+    /// </summary>
+    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+
+    private static (string Source, string Sha, Walked Walked)? Capture(string path, string? keyLog, AnalysisLimits limits, CancellationToken ct, Action<string>? progress)
+    {
+        string source;
+        try { source = Path.GetFullPath(path); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
+        if (!File.Exists(source)) return null;
+        var head = new byte[4];
+        using (var probe = File.OpenRead(source)) if (probe.ReadAtLeast(head, 4, throwOnEndOfStream: false) < 4 || !Core.Pcap.PcapReader.Looks(head)) return null;
+        source = InputFiles.RequireRegularFile(source, "capture file");
+        Core.Pcap.TlsKeyLog? keys = null;
+        if (keyLog != null)
+        {
+            var log = InputFiles.RequireRegularFile(keyLog, "keyLog");
+            if (!File.Exists(log)) throw Targets.FileNotFound(log);
+            keys = new Core.Pcap.TlsKeyLog();
+            keys.Add(File.ReadAllText(log));
+            if (keys.Sessions == 0) throw new ToolError(ErrorCode.InvalidArgument, $"{log} holds no key log lines.", "pass an SSLKEYLOGFILE: CLIENT_RANDOM or *_TRAFFIC_SECRET lines");
+        }
+        string sha;
+        using (var s = File.OpenRead(source)) sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(s));
+        progress?.Invoke("reassembling TCP");
+        Core.Pcap.CaptureObjects.Result result;
+        using (var s = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16)) result = Core.Pcap.CaptureObjects.Read(s, keys, limits, ct);
+        var top = result.Contents;
+        if (result.Tls.Count > 0)
+            top = top with { Items = [.. top.Items, new ExtractedItem("tls.json", JsonSerializer.SerializeToUtf8Bytes(result.Tls, Indented), "TLS connections")] };
+        return (source, sha, Walk(top, sha, limits, ct, allFiles: true, progress));
     }
 
     /// <summary>Where to go when nothing was extracted: the apphost's app, the native image, or the file's summary.</summary>

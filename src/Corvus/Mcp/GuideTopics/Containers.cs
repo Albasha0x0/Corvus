@@ -34,7 +34,9 @@ public static partial class Guide
         time, SSE / NDJSON message shapes and WebSocket messages; kind=packet takes a
         Wireshark display filter (ip.addr==10.0.0.1 and tcp.port==443, dns.qry.name contains "api", tls.sni==x, not udp) and lists a
         pcap / pcapng capture's matching frames, streamed at any size, with the fields it names (also h2c, QUIC Initial,
-        SMB2 and Kerberos names in-process; other fields through TShark when CORVUS_TSHARK finds it); kind=dart lists a
+        SMB2 and Kerberos names in-process, JA3 / JA4; other fields through TShark when CORVUS_TSHARK finds it). unpack_container on
+        a pcap reassembles TCP and writes HTTP/1.x and HTTP/2 responses as files, other streams under streams/, and tls.json
+        (version, cipher, JA3 / JA4 / JA4S); keyLog (SSLKEYLOGFILE) or the pcapng's secrets blocks decrypt TLS 1.2 / 1.3; kind=dart lists a
         Flutter app's Dart package: / dart: URIs and identifiers (summarize_file view=flutter gives its packages).
         summarize_file view=protobuf rebuilds embedded protobuf descriptors as .proto files.
         analyze_js on a .js file: bundler signatures and its source map; view=position maps a minified line:column to the original source.

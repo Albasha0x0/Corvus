@@ -26,6 +26,11 @@ public sealed class PcapReader(Stream stream)
     public int Interfaces { get; private set; }
     public List<string> Issues { get; } = [];
 
+    /// <summary>Receives the TLS key log text of each pcapng decryption secrets block, in file order.</summary>
+    public SpanAction? Secrets { get; init; }
+
+    public delegate void SpanAction(ReadOnlySpan<byte> data);
+
     public static bool Looks(ReadOnlySpan<byte> b) =>
         b.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(b) is 0xA1B2C3D4 or 0xD4C3B2A1 or 0xA1B23C4D or 0x4D3CB2A1 or 0x0A0D0D0A;
 
@@ -109,6 +114,9 @@ public sealed class PcapReader(Stream stream)
                         yield return new PcapFrame(linkType, Micros(ts, resolution), (int)Math.Min(origlen, int.MaxValue), _buf.AsMemory(8 + 20, (int)caplen));
                         break;
                     }
+                case 10: // decryption secrets: a TLS key log ("TLSK") is handed to Secrets
+                    if (body.Length >= 8 && U32(body) == 0x544C534B && U32(body[4..]) is var secretLength && secretLength <= body.Length - 8) Secrets?.Invoke(body.Slice(8, (int)secretLength));
+                    break;
                 case 3: // simple packet: interface 0, no time
                     {
                         if (body.Length < 4) { Issue("short simple packet block"); break; }

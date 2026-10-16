@@ -267,7 +267,7 @@ public sealed class PacketTSharkTests(ITestOutputHelper output) : IDisposable
                 "udp", "not udp", "ip.addr==8.8.8.8", "ip.src == 10.0.0.0/8 && tcp.port == 443", "ip.dst != 93.184.216.34", "tcp.flags.syn==1 and tcp.flags.ack==0",
                 "tcp.dstport in {80, 443} and tcp.len > 0", "dns", "dns.qry.name contains \"example\"", "dns.a == 93.184.216.34", "dns.cname == \"edge.example.net\"",
                 "dns.flags.response == 0", "dns.qry.type == 1", "http", "http.host == \"api.example.com\"", "http.request.method == \"GET\"", "http.request.uri contains \"/users/\"",
-                "http.user_agent == \"t\"", "tls", "tls.handshake.extensions_server_name == \"api.example.com\"", "tls.handshake.extensions_alpn_str == \"h2\"",
+                "http.user_agent == \"t\"", "tls", "tls.handshake.extensions_server_name == \"api.example.com\"", "tls.handshake.extensions_alpn_str == \"h2\"", "tls.handshake.ja4 == \"t12d0103h2_0f2cb44170f4_4298e3b3ed58\"",
             ]),
             ("http2", ProtocolCaptures.Http2(),
             [

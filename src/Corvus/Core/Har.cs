@@ -293,7 +293,7 @@ public static class Captures
     public static ContainerContents? Open(byte[] data, bool flows, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
         if (!flows) return OpenHar(new MemoryStream(data, writable: false), allFiles, limits, ct);
-        var collector = new Collector(true, allFiles, limits, ct);
+        var collector = new Collector(FlowKind, "flow", allFiles, limits, ct);
         foreach (var r in ReadFlows(data, collector.Notes, ct)) collector.Add(r);
         return collector.Contents();
     }
@@ -301,7 +301,7 @@ public static class Captures
     /// <summary>A mitmproxy flow file read from a seekable stream as a container (one flow in memory at a time).</summary>
     public static ContainerContents OpenFlows(Stream stream, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
-        var collector = new Collector(true, allFiles, limits, ct);
+        var collector = new Collector(FlowKind, "flow", allFiles, limits, ct);
         ReadFlows(stream, collector.Add, collector.Notes, limits.MaxItemBytes, ct);
         return collector.Contents();
     }
@@ -309,12 +309,12 @@ public static class Captures
     /// <summary>A HAR file read from a stream as a container (one entry in memory at a time); null for JSON that is not HAR.</summary>
     public static ContainerContents? OpenHar(Stream stream, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
-        var collector = new Collector(false, allFiles, limits, ct);
+        var collector = new Collector(HarKind, "HAR", allFiles, limits, ct);
         return ReadHar(stream, collector.Add, Math.Min(limits.MaxItemBytes * 2, Array.MaxLength), ct) ? collector.Contents() : null;
     }
 
     /// <summary>Responses turned into entries and, for the interesting ones (all with allFiles), extracted bodies.</summary>
-    private sealed class Collector(bool flows, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    internal sealed class Collector(string kind, string source, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
         public List<string> Notes { get; } = [];
         private readonly List<ContainerEntry> _entries = [];
@@ -351,14 +351,29 @@ public static class Captures
                 _stopped = true;
                 return;
             }
-            _items.Add(new ExtractedItem(path, body, $"{(flows ? "flow" : "HAR")} response {r.Method} {Clip(r.Url)}"));
+            _items.Add(new ExtractedItem(path, body, $"{source} response {r.Method} {Clip(r.Url)}"));
+        }
+
+        /// <summary>A file that is no response (a TCP stream), listed and extracted within the same limits.</summary>
+        public void AddFile(string path, byte[] bytes, string origin)
+        {
+            if (_stopped) return;
+            if (_entries.Count < MaxEntries) _entries.Add(new ContainerEntry(path, bytes.Length, origin));
+            if (bytes.Length == 0) return;
+            if (_items.Count >= limits.MaxItems || bytes.Length > limits.MaxItemBytes || (_total += bytes.Length) > limits.MaxTotalBytes)
+            {
+                Notes.Add("Stopped: the extraction limit was reached.");
+                _stopped = true;
+                return;
+            }
+            _items.Add(new ExtractedItem(path, bytes, origin));
         }
 
         public ContainerContents Contents()
         {
             Notes.Insert(0, $"{_responses} response(s), {_responses - _empty} with a body; files are named host/path, the query folded into a short hash.");
             if (_responses > MaxEntries) Notes.Insert(1, $"The first {MaxEntries:N0} responses are listed.");
-            return new ContainerContents(flows ? FlowKind : HarKind, _items, Notes) { Entries = _entries };
+            return new ContainerContents(kind, _items, Notes) { Entries = _entries };
         }
     }
 

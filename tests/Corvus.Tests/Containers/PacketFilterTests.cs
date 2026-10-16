@@ -41,6 +41,7 @@ public sealed class PacketFilterTests : IDisposable
     [InlineData("http.request.uri contains \"/users/\"", new long[] { 8 })]
     [InlineData("tls.sni == \"api.example.com\"", new long[] { 7 })]
     [InlineData("tls.handshake.extensions_alpn_str == h2", new long[] { 7 })]
+    [InlineData("tls.handshake.ja4 == \"t12d0103h2_0f2cb44170f4_4298e3b3ed58\" and tls.handshake.ja3 contains \"\"", new long[] { 7 })]
     [InlineData("tls", new long[] { 7 })]
     public void Dns_http_and_tls_fields(string filter, long[] frames) => Assert.Equal(frames, Frames(filter));
 

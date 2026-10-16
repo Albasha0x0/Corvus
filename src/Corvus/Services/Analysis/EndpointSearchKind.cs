@@ -231,7 +231,7 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
         .. PcapFileView.Requests(c).Select(r => new ContainerMatch(r.Host, r.Template, "endpoint") { Detail = $"{r.Count} request(s)" }),
         .. c.ServerNames().Select(t => new ContainerMatch(t.ServerName, $"tls://{t.ServerName}", "endpoint")
         {
-            Detail = $"{t.Hellos} ClientHello(s)" + (t.Alpn.Count > 0 ? $", ALPN {string.Join(", ", t.Alpn)}" : ""),
+            Detail = $"{t.Hellos} ClientHello(s)" + (t.Alpn.Count > 0 ? $", ALPN {string.Join(", ", t.Alpn)}" : "") + (t.Ja4.Count > 0 ? $", JA4 {string.Join(", ", t.Ja4)}" : ""),
         }),
         .. c.DnsNames().Select(d => new ContainerMatch(d.Name, $"dns://{d.Name}", "endpoint")
         {
