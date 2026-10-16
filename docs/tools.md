@@ -1167,18 +1167,18 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`, `image`, `funct
 
 **Inspect native instructions** (read-only, idempotent, open-world, long-running)
 
-What is at an address of a native image, instruction by instruction (decoded, mid_instruction, data...). An instruction: bytes, prefixes, encoding; operands (kind, size, access, registers, memory parts); registers and flags read and written; memory accesses; stack change; flow; references; call arguments; switch table. limit > 1 walks forward.
+What is at an address of a native image, instruction by instruction (decoded, mid_instruction, data...). An instruction: bytes, prefixes, encoding; operands (kind, size, access, registers, memory parts); registers and flags read and written; memory accesses; stack change; flow; references; call arguments; switch table; pages a walk of up to 64.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name. |
-| `limit` | integer |  | `1` | Instructions to inspect (1-64). |
+| `limit` | integer |  | `1` | Positions (1-64). |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | auto (default): IDA, else Ghidra, if it analyzed these bytes, else ours; or ida / ghidra. Values: auto, ours, ida, ghidra. |
 
-Structured output: `image`, `engine`, `engineNote`, `items`, `notes`, `code`, `offset`, `nextOffset`, `totalChars`.
+Structured output: `image`, `engine`, `engineNote`, `items`, `notes`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### search_instructions
 

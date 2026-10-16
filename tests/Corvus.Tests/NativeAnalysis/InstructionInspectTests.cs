@@ -162,7 +162,7 @@ public class InstructionInspectTests
         Assert.Equal($"0x{Base + s.At["indexed"]:X}", item.ContainingInstruction);
         Assert.Null(item.Instruction);
 
-        var (text, report) = Inspect(s.Index, s.At["indexed"] + 2, count: 3);
+        var (text, report) = Inspect(s.Index, s.At["indexed"] + 2, count: 4);
         Assert.Equal(["mid_instruction", "decoded", "decoded", "decoded"], report.Items.Select(i => i.Status));
         Assert.Equal([s.At["indexed"], s.At["locked"], s.At["global"]], report.Items.Skip(1).Select(i => Convert.ToUInt32(i.Rva, 16)));
         Assert.Contains("the walk starts there", text);
@@ -243,5 +243,26 @@ public class InstructionInspectTests
         var error = Assert.Throws<ToolError>(() => NativeCodeTools.Address(s.Index, "dup"));
         Assert.Equal(ErrorCode.Ambiguous, error.Code);
         Assert.Equal(s.At["indexed"], NativeCodeTools.Address(s.Index, $"rva:0x{s.At["indexed"]:X}"));
+    }
+
+    /// <summary>The walk pages as a list: items with the list envelope and no copy of the text; nextOffset continues at the next instruction.</summary>
+    [Fact]
+    public async Task The_walk_pages_as_a_list()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("walk.dll");
+        File.WriteAllBytes(path, NativePeTests.KitchenSink(is64: true));
+        await using var server = await InProcessServer.StartAsync();
+        async Task<System.Text.Json.JsonElement> Page(int offset) => (await server.Client.CallToolAsync("inspect_instruction",
+            new Dictionary<string, object?> { ["image"] = path, ["address"] = "First", ["limit"] = 2, ["offset"] = offset })).StructuredContent!.Value;
+        var first = await Page(0);
+        Assert.False(first.TryGetProperty("code", out _));
+        Assert.Equal((0, 2, true), (first.GetProperty("offset").GetInt32(), first.GetProperty("items").GetArrayLength(), first.GetProperty("hasMore").GetBoolean()));
+        Assert.True(first.GetProperty("total").GetInt32() > 2);
+        var last = first.GetProperty("items")[1];
+        var second = await Page(first.GetProperty("nextOffset").GetInt32());
+        Assert.Equal(2, second.GetProperty("offset").GetInt32());
+        Assert.Equal(Convert.ToUInt64(last.GetProperty("address").GetString(), 16) + (ulong)last.GetProperty("instruction").GetProperty("length").GetInt32(),
+            Convert.ToUInt64(second.GetProperty("items")[0].GetProperty("address").GetString(), 16));
     }
 }

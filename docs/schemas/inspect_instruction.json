@@ -381,16 +381,22 @@
         "type": "string"
       }
     },
-    "code": {
-      "type": "string"
-    },
     "offset": {
       "type": "integer"
     },
-    "nextOffset": {
+    "total": {
       "type": "integer"
     },
-    "totalChars": {
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "nextOffset": {
       "type": "integer"
     },
     "notices": {

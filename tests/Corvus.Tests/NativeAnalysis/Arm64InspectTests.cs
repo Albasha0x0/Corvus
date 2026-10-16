@@ -153,7 +153,7 @@ public class Arm64InspectTests
         var s = Build();
         var item = One(s.Index, s.At["cmp"] + 2);
         Assert.Equal(("mid_instruction", Va(s.At["cmp"])), (item.Status, item.ContainingInstruction));
-        var (_, walk) = Inspect(s.Index, s.At["cmp"] + 1, count: 3);
+        var (_, walk) = Inspect(s.Index, s.At["cmp"] + 1, count: 4);
         Assert.Equal(["mid_instruction", "decoded", "decoded", "decoded"], walk.Items.Select(i => i.Status));
         Assert.Equal([s.At["cmp"], s.At["bhi"], s.At["literal"]], walk.Items.Skip(1).Select(i => Convert.ToUInt32(i.Rva, 16)));
     }

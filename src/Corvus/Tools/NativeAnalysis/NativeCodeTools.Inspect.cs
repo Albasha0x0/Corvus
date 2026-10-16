@@ -14,7 +14,22 @@ using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
-public sealed record InstructionReport(string Image, string Engine, string? EngineNote, IReadOnlyList<InstructionItem> Items, IReadOnlyList<string> Notes);
+/// <summary>inspect_instruction's record: a page of the walk from the address (up to 64 positions), one item per position.</summary>
+public sealed record InstructionReport(string Image, string Engine, string? EngineNote, IReadOnlyList<InstructionItem> Items, IReadOnlyList<string> Notes)
+{
+    public int Offset { get; init; }
+
+    public int Total { get; init; }
+
+    /// <summary>Each item's text, in the order of <see cref="Items"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public IReadOnlyList<string> Texts { get; init; } = [];
+
+    /// <summary>Items [skip, skip + count) of a whole walk, with their texts.</summary>
+    public InstructionReport Page(int skip, int count) => this with
+    {
+        Items = [.. Items.Skip(skip).Take(count)], Texts = [.. Texts.Skip(skip).Take(count)], Offset = Offset + skip, Total = Math.Max(Total, Items.Count),
+    };
+}
 
 public sealed record InstructionItem(
     [property: Description("decoded, mid_instruction, data, not_in_function, unmapped, outside_image, invalid.")] string Status,
@@ -103,12 +118,12 @@ public sealed partial class NativeCodeTools
     [McpServerTool(Name = "inspect_instruction", Title = "Inspect native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionReport))]
     [Description("What is at an address of a native image, instruction by instruction (decoded, mid_instruction, data...). An instruction: bytes, " +
                  "prefixes, encoding; operands (kind, size, access, registers, memory parts); registers and flags read and written; memory " +
-                 "accesses; stack change; flow; references; call arguments; switch table. limit > 1 walks forward.")]
+                 "accesses; stack change; flow; references; call arguments; switch table; pages a walk of up to 64.")]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("Instructions to inspect (1-64).")] int limit = 1,
-        [Description(CharOffsetDescription)] int offset = 0,
+        [Description("Positions (1-64).")] int limit = 1,
+        [Description(RowOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -117,7 +132,7 @@ public sealed partial class NativeCodeTools
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var rva = Address(index, address);
-        int n = Math.Clamp(limit, 1, MaxInspectCount);
+        int n = Math.Clamp(limit, 1, MaxInspectCount), skip = Math.Clamp(offset, 0, MaxInspectCount);
         bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;
         bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
         // instruction details for other instruction sets come from an engine
@@ -125,41 +140,48 @@ public sealed partial class NativeCodeTools
         var choice = EngineChoice.Of(mode.Mode, mode.Named, engines, native, operands || wasm != null ? null
             : undecoded ? $"the built-in analysis does not decode {index.Image.ArchName()} instructions"
             : $"the built-in inspector reads x86 / x64 / ARM operands, not {index.Image.ArchName()}");
-        if (!choice.External && wasm != null)
-        {
-            var (wasmText, wasmReport) = InspectWasm(native.Id, index, wasm, rva, n, choice);
-            return ToolOutput.With(choice.Line + "\n" + pager.Page(wasmText, offset, maxTokens), wasmReport);
-        }
-        if (!choice.External && !operands) throw NativeEngineCode.Unsupported(index, engines);
-        var (text, report) = choice.External
-            ? await InspectWithEngine(native, index, rva, n, choice, progress, cancellationToken)
-            : await Task.Run(() => Inspect(native.Id, index, rva, n, choice, cancellationToken), cancellationToken);
-        return ToolOutput.With(choice.Line + "\n" + Coverage(index) + pager.Page(text, offset, maxTokens), report);
+        if (!choice.External && !operands && wasm == null) throw NativeEngineCode.Unsupported(index, engines);
+        // the engines and wasm walk the whole 64 positions (cheap there); ours classifies them all and describes the page only
+        var report = !choice.External && wasm != null ? InspectWasm(native.Id, index, wasm, rva, MaxInspectCount, choice).Report.Page(skip, n)
+            : choice.External ? (await InspectWithEngine(native, index, rva, MaxInspectCount, choice, progress, cancellationToken)).Report.Page(skip, n)
+            : await Task.Run(() => Inspect(native.Id, index, rva, n, choice, cancellationToken, skip, MaxInspectCount).Report, cancellationToken);
+        var header = choice.Line + "\n" + (wasm == null ? Coverage(index) : "") + string.Concat(report.Notes.Select(x => $"Note: {x}\n"));
+        var rows = report.Items.Zip(report.Texts).ToList();
+        return ToolOutput.List(rows, skip, n, report.Total, r => r.Second.TrimEnd('\n'),
+            page => report with { Items = [.. page.Select(r => r.First)], Texts = [.. page.Select(r => r.Second)] }, "address", header);
     });
 
-    internal static (string Text, InstructionReport Report) Inspect(string imageId, NativeCodeIndex index, uint rva, int count, EngineChoice choice, CancellationToken ct)
+    /// <summary>
+    /// Positions [skip, skip + count) of the walk from <paramref name="rva"/>; the walk is classified up to <paramref name="walk"/>
+    /// positions (at least the page's end), which sets the report's total. An address inside an instruction is a position of its own.
+    /// </summary>
+    internal static (string Text, InstructionReport Report) Inspect(string imageId, NativeCodeIndex index, uint rva, int count, EngineChoice choice, CancellationToken ct,
+        int skip = 0, int walk = 0)
     {
         var image = index.Image;
         var classifier = new AddressClassifier(index);
         var disassembler = index.CreateDisassembler();
         var calls = NativeCallTools.Sites(index);
         var items = new List<InstructionItem>();
+        var texts = new List<string>();
         var notes = new List<string>();
         var sb = new StringBuilder();
         string Va(uint r) => NativeAddress.Va(image, r);
+        int length = Math.Max(walk, skip + count);
+        var positions = new List<AddressClass>();
         uint at = rva;
-        for (int n = 0; n < count; n++)
+        while (positions.Count < length)
         {
             ct.ThrowIfCancellationRequested();
             var c = classifier.Classify(at, ct);
-            if (n == 0 && c.Status == AddressStatus.MidInstruction && count > 1)
+            if (positions.Count == 0 && c.Status == AddressStatus.MidInstruction && length > 1)
             {
                 notes.Add($"{Va(at)} is inside the instruction at {Va(c.InstructionStart!.Value)}; the walk starts there");
-                AppendItem(sb, items, index, classifier, disassembler, calls, c, ct);
+                positions.Add(c);
                 at = c.InstructionStart!.Value;
                 c = classifier.Classify(at, ct);
             }
-            AppendItem(sb, items, index, classifier, disassembler, calls, c, ct);
+            positions.Add(c);
             uint? next = c.Status switch
             {
                 AddressStatus.Decoded or AddressStatus.NotInFunction when c.InstructionLength > 0 => at + (uint)c.InstructionLength,
@@ -169,13 +191,20 @@ public sealed partial class NativeCodeTools
             };
             if (next == null || next <= at)
             {
-                if (n + 1 < count) notes.Add($"the walk stops at {Va(at)} ({c.StatusName})");
+                if (positions.Count < skip + count) notes.Add($"the walk stops at {Va(at)} ({c.StatusName})");
                 break;
             }
             at = next.Value;
         }
+        foreach (var c in positions.Skip(skip).Take(count))
+        {
+            int mark = sb.Length;
+            AppendItem(sb, items, index, classifier, disassembler, calls, c, ct);
+            texts.Add(sb.ToString(mark, sb.Length - mark));
+        }
         if (notes.Count > 0) sb.Append("Notes:\n").AppendJoin("", notes.Select(x => $"  {x}\n"));
-        return (sb.ToString(), new InstructionReport(imageId, choice.Engine, choice.Note, items, notes));
+        return (sb.ToString(), new InstructionReport(imageId, choice.Engine, choice.Note, items, notes)
+            { Offset = Math.Min(skip, positions.Count), Total = positions.Count, Texts = texts });
     }
 
     /// <summary>inspect_instruction through the engine session: its items, operands, flow and references; what it does not supply stays null.</summary>
@@ -198,9 +227,11 @@ public sealed partial class NativeCodeTools
         var sb = new StringBuilder();
         var items = new List<InstructionItem>();
         var notes = new List<string> { $"{NativeEngineService.DisplayName(choice.Engine)} does not report prefixes, encoding, CPUID features, register and flag use, memory accesses or the stack pointer change: those fields are null" };
+        var texts = new List<string>();
         foreach (var e in found)
         {
             ct.ThrowIfCancellationRequested();
+            int mark = sb.Length;
             string? function = e.Function is { } f ? (index.NameAt(f) ?? $"sub_{f:X}") + (e.Rva != f ? $"+0x{e.Rva - f:X}" : "") : null;
             var status = AddressClass.Name(e.Status);
             var section = image.SectionAt(e.Rva)?.Name;
@@ -226,9 +257,10 @@ public sealed partial class NativeCodeTools
                     null, flow, from, 0, [], null, null, index.Sourced.NameAt(e.Rva)?.Name, index.Sourced.CommentAt(e.Rva)?.Text);
             }
             items.Add(new InstructionItem(status, Va(e.Rva), $"0x{e.Rva:X}", function, null, containing, section, data, entry, e.Note));
+            texts.Add(sb.ToString(mark, sb.Length - mark));
         }
         sb.Append("Notes:\n").AppendJoin("", notes.Select(x => $"  {x}\n"));
-        return (sb.ToString(), new InstructionReport(imageId, choice.Engine, choice.Note, items, notes));
+        return (sb.ToString(), new InstructionReport(imageId, choice.Engine, choice.Note, items, notes) { Total = items.Count, Texts = texts });
     }
 
     private static void AppendItem(StringBuilder sb, List<InstructionItem> items, NativeCodeIndex index, AddressClassifier classifier, NativeDisassembler disassembler,

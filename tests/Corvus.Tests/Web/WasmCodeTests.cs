@@ -79,7 +79,7 @@ public sealed class WasmCodeTests(ITestOutputHelper output) : IDisposable
         var inspected = await h.CodeTools.InspectInstruction("control.wasm", "func_0", limit: 4);
         Assert.Contains("block", inspected);
         Assert.Contains("local.get 0", inspected);
-        Assert.Contains("br_if 1\n  operand stack: by its immediates; flow conditional_jump to label 1", inspected.Replace("\r\n", "\n"));
+        Assert.Matches(@"br_if 1\n +operand stack: by its immediates; flow conditional_jump to label 1", inspected.Replace("\r\n", "\n"));
     }
 
     [Fact]

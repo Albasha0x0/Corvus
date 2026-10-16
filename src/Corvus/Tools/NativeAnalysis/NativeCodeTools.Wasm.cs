@@ -18,13 +18,14 @@ public sealed partial class NativeCodeTools
         string Va(uint r) => NativeAddress.Va(w, r);
         var sb = new StringBuilder();
         var items = new List<InstructionItem>();
+        var texts = new List<string>();
         var notes = new List<string>();
         if (w.FunctionAt(rva) is not { } function || m.BodyOf(function) is not { } body)
         {
             var section = w.SectionAt(rva)?.Name;
             sb.AppendLine($"{Va(rva)}  not_in_function" + (section != null ? $"  section {section}" : ""));
             items.Add(new InstructionItem("not_in_function", Va(rva), $"0x{rva:X}", null, null, null, section, null, null, "WebAssembly code is in function bodies only"));
-            return (sb.ToString(), new InstructionReport(imageId, choice.Engine, choice.Note, items, notes));
+            return (sb.ToString(), new InstructionReport(imageId, choice.Engine, choice.Note, items, notes) { Total = 1, Texts = [sb.ToString()] });
         }
         string name = w.FunctionNames[(int)function];
         var code = new WasmCode(m.Bytes, body.CodeStart, body.End);
@@ -34,10 +35,13 @@ public sealed partial class NativeCodeTools
             uint at = (uint)ins.Offset, end = at + (uint)ins.Length;
             if (end <= rva) continue;
             string where = $"{name}+0x{at - body.Start:X}";
+            int mark = sb.Length;
             if (at < rva)
             {
                 sb.AppendLine($"{Va(rva)}  mid_instruction  in {name}+0x{rva - body.Start:X}\n  covered by the instruction at {Va(at)}; use address={Va(at)}");
                 items.Add(new InstructionItem("mid_instruction", Va(rva), $"0x{rva:X}", $"{name}+0x{rva - body.Start:X}", null, Va(at), "code", null, null, null));
+                texts.Add(sb.ToString(mark, sb.Length - mark));
+                mark = sb.Length;
                 if (count == 1) break;
                 notes.Add($"{Va(rva)} is inside the instruction at {Va(at)}; the walk starts there");
             }
@@ -55,10 +59,11 @@ public sealed partial class NativeCodeTools
             var entry = new InstructionEntry(bytes, ins.Length, text, $"operand stack {stack}", info.Name, null, null, null, false, [], null, null, null, null, null, null, null,
                 flow, from, 0, [], null, null, index.Sourced.NameAt(at)?.Name, index.Sourced.CommentAt(at)?.Text);
             items.Add(new InstructionItem("decoded", Va(at), $"0x{at:X}", where, null, null, "code", null, entry, null));
+            texts.Add(sb.ToString(mark, sb.Length - mark));
             done++;
         }
         if (notes.Count > 0) sb.Append("Notes:\n").AppendJoin("", notes.Select(x => $"  {x}\n"));
-        return (sb.ToString(), new InstructionReport(imageId, choice.Engine, choice.Note, items, notes));
+        return (sb.ToString(), new InstructionReport(imageId, choice.Engine, choice.Note, items, notes) { Total = items.Count, Texts = texts });
     }
 
     private static string Letters(string s) => string.Join(", ", s.Select(c => c switch
