@@ -81,6 +81,7 @@ public static class ServerHost
             .AddSingleton<Services.Mobile.AndroidPackageService>()
             .AddSingleton<Services.Mobile.DexService>()
             .AddSingleton<Services.Mobile.JniBindings>()
+            .AddSingleton<Services.Mobile.AppGraph>()
             .AddSingleton<Services.Mobile.AndroidProjectExport>()
             .AddSingleton<Services.Mobile.JavaDecompilerService>()
             .AddSingleton<ResourceSubscriptions>();

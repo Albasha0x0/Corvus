@@ -43,10 +43,12 @@ public sealed partial class JniBindings(DexService dex)
     private sealed record Entry(string Name, string Signature, uint Function);
     private sealed record Table(uint Rva, List<Entry> Entries);
 
-    public JniBindingList List(string path, string? abi, string? @class, string? kind, int offset, int limit, CancellationToken ct)
+    public JniBindingList List(string path, string? abi, string? @class, string? kind, int offset, int limit, CancellationToken ct) =>
+        Rows(path, abi, @class, kind, Math.Max(0, offset), Math.Clamp(limit, 1, 2000), ct);
+
+    /// <summary>The rows without the page bound (the app graph takes them all).</summary>
+    internal JniBindingList Rows(string path, string? abi, string? @class, string? kind, int offset, int limit, CancellationToken ct, long readCodeUpTo = long.MaxValue)
     {
-        offset = Math.Max(0, offset);
-        limit = Math.Clamp(limit, 1, 2000);
         var index = dex.Index(path, ct);
         var natives = new List<NativeMethod>();
         foreach (var m in index.Methods.Values)
@@ -72,6 +74,7 @@ public sealed partial class JniBindings(DexService dex)
         var rows = new List<JniBinding>();
         var libraries = new List<JniLibrary>();
         var bound = new HashSet<string>(StringComparer.Ordinal);
+        int unread = 0; // tables in libraries over readCodeUpTo whose class only the code tells
         foreach (var name in package.Entries.Where(e => e.StartsWith("lib/", StringComparison.Ordinal) && e.EndsWith(".so", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
         {
             ct.ThrowIfCancellationRequested();
@@ -109,7 +112,8 @@ public sealed partial class JniBindings(DexService dex)
                 if (!Unique(table, bySignature, out var byName))
                 {
                     owners ??= Owners(bytes);
-                    if (!owners.TryGetValue(table.Rva, out owner))
+                    if (!owners.TryGetValue(table.Rva, out owner) && bytes.Length > readCodeUpTo) unread++;
+                    else if (owner == null && !owners.ContainsKey(table.Rva))
                     {
                         code ??= BuildIndex(elf, notes, name, ct);
                         owner = code != null ? ClassString(code, table, natives) : null;
@@ -130,6 +134,7 @@ public sealed partial class JniBindings(DexService dex)
             libraries.Add(new(name, parts[1], javaExports, exports.ContainsKey("JNI_OnLoad"), tables.Count, registered));
         }
         if (libraries.Count == 0) notes.Add(abis.Count == 0 ? "The package has no native libraries (lib/<abi>/*.so)." : "No library of the selected ABI.");
+        if (unread > 0) notes.Add($"{unread} RegisterNatives table(s) are not tied to a class by name and signature; list_jni_bindings reads the code that passes them.");
         foreach (var n in natives)
             if (!bound.Contains(n.Id)) rows.Add(new(n.Id, null, null, null, "unresolved", null, null));
         if (rows.Any(r => r.Kind == "unresolved") && libraries.Any(l => l.HasJniOnLoad))

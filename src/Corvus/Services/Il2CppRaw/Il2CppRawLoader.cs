@@ -59,6 +59,16 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
         return read;
     }
 
+    /// <summary>The model of <paramref name="files"/> when a load already read it into the cache; null otherwise (nothing is read).</summary>
+    public Il2CppGameModel? Cached(Il2CppGameFiles files)
+    {
+        var dir = Path.Combine(Path.GetFullPath(cacheRoot ?? DefaultRoot), Key(files));
+        if (ReadMarker(dir) is not { } marker || marker.Format != CacheFormat || marker.Reader != ReaderVersion
+            || marker.BinaryStamp != Stamp(files.Binary) || marker.MetadataStamp != Stamp(files.Metadata)) return null;
+        try { return Model(Path.Combine(dir, Il2CppGameModel.FileName)); }
+        catch (IOException) { return null; }
+    }
+
     private static string Stamp(string path) => path.Length > 0 && new FileInfo(path) is { Exists: true } f ? $"{f.Length}:{f.LastWriteTimeUtc.Ticks}" : "-";
 
     private static string Key(Il2CppGameFiles files)

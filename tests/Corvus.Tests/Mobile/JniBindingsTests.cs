@@ -11,7 +11,7 @@ public class JniBindingsTests
 {
     private const string Native = "Lcom/example/jni/Native;", Other = "Lcom/example/jni/Other;", Third = "Lcom/example/jni/Third;", Nested = "Lcom/example/my_pkg/Na$Inner;";
 
-    private static byte[] Dex()
+    internal static byte[] Dex(Action<DexBuilder>? more = null)
     {
         var b = new DexBuilder();
         var n = b.Class(Native);
@@ -23,6 +23,7 @@ public class JniBindingsTests
         b.Class(Other).Method("init", "V", [], 0x109);
         b.Class(Third).Method("init", "V", [], 0x109);
         b.Class(Nested).Method("do_it", "V", ["Ljava/lang/String;", "[I"], 0x101);
+        more?.Invoke(b);
         return b.Build();
     }
 
@@ -35,7 +36,7 @@ public class JniBindingsTests
         return [adrp, add];
     }
 
-    private static byte[] Library(string soName = "libnative.so")
+    internal static byte[] Library(string soName = "libnative.so")
     {
         const uint Data = ElfWriter.DataRva, Text = ElfWriter.TextRva;
         var data = new byte[0x400];

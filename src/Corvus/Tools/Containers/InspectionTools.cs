@@ -10,14 +10,15 @@ using Corvus.Services.Analysis;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class InspectionTools(InspectionService inspection, AssemblyWorkspace? workspace = null, NativeCodeService? code = null, ResultStore? results = null)
+public sealed class InspectionTools(InspectionService inspection, AssemblyWorkspace? workspace = null, NativeCodeService? code = null, ResultStore? results = null,
+    Services.Mobile.AppGraph? graph = null)
 {
     private const string AssemblyParam = "A loaded assembly; pass this or path.";
     private const string PathParam = "A .NET assembly file to analyze without loading it; pass this or assembly.";
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights " +
-                 "(toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, nib, pcap, " +
+                 "(toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, layers, nib, pcap, " +
                  "plist, protobuf, rust, sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.")]
     public Task<string> SummarizeFile(
         [Description("File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder.")] string? path = null,
@@ -32,8 +33,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         {
             var name = string.IsNullOrWhiteSpace(view) ? "overview" : view.Trim().ToLowerInvariant();
             if ((table != null || columns != null) && name is not ("sqlite" or "sqlite-recover")
-                || (offset != 0 || limit != null) && name is not ("sqlite" or "sqlite-recover" or "protobuf"))
-                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (offset and limit also view=protobuf).",
+                || (offset != 0 || limit != null) && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers"))
+                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (offset and limit also view=protobuf and view=layers).",
                     "pass view=sqlite with table=, or drop them");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
             var options = new FileViewOptions(name, table, columns, offset, limit);
@@ -48,6 +49,11 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                 summary = summary with { Triage = await Task.Run(() => NativeTriageBuilder.Build(index, cancellationToken), cancellationToken) };
             }
             var record = ContainerText.Summary(summary, name);
+            if (name == "layers" && graph != null)
+            {
+                var facts = await Task.Run(() => graph.Build(summary.File.Path, (int)Math.Min(offset, int.MaxValue), limit ?? Services.Mobile.AppGraph.DefaultLimit, cancellationToken), cancellationToken);
+                record = record with { Detail = ToolOutput.Serialize(facts) as System.Text.Json.Nodes.JsonObject };
+            }
             return ToolOutput.Report(ContainerText.Summary(record), record);
         });
 
