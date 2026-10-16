@@ -391,6 +391,10 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "534883EC"),
         // the test process itself (the server is a child process): read-only, every handle closed
         ["inspect_process"] = (new() { ["process"] = Environment.ProcessId.ToString(), ["view"] = "modules", ["limit"] = 5 }, "\"detached\":true"),
+        ["live_session"] = (new() { ["action"] = "attach", ["program"] = Environment.ProcessId.ToString() }, "Error (unsupported) in live_session"),
+        ["live_break"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_break"),
+        ["live_read"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_read"),
+        ["live_events"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_events"),
         ["analyze_js"] = (new() { ["path"] = JsSample(dir), ["view"] = "position", ["line"] = 1, ["column"] = 30 }, "src/app.ts"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),

@@ -113,6 +113,11 @@ public partial class ProtocolSampleTests
         ["dump_stack"] = new() { ["dump"] = In + "synth.dmp" },
         ["read_dump_memory"] = new() { ["dump"] = In + "synth.dmp", ["address"] = "synth+0x1000", ["length"] = 32 },
         ["bucket_minidumps"] = new() { ["folder"] = In + "dumps" },
+        // Live sessions: refused here, as the sample server runs without --allow-live
+        ["live_session"] = new() { ["action"] = "attach", ["program"] = "app.exe" },
+        ["live_break"] = new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "kernel32!CreateFileW" },
+        ["live_read"] = new() { ["session"] = "live-1" },
+        ["live_events"] = new() { ["session"] = "live-1" },
         // Native reading (build A is never edited)
         ["get_pe_info"] = new() { ["image"] = BuildA },
         ["get_nativeaot_info"] = new() { ["image"] = In + "aot.dll" },

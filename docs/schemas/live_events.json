@@ -1,0 +1,97 @@
+{
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer"
+          },
+          "kind": {
+            "description": "stop, exception, module, thread or exit.",
+            "type": "string"
+          },
+          "thread": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "kind",
+          "text"
+        ]
+      }
+    },
+    "cursor": {
+      "description": "Cursor for the next page; null at the end of the ring.",
+      "type": "string"
+    },
+    "dropped": {
+      "description": "Events the ring dropped before this page (oldest first).",
+      "type": "integer"
+    },
+    "namedAddresses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "rva": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "image",
+          "sha256",
+          "rva",
+          "name"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "session",
+    "items",
+    "dropped"
+  ]
+}

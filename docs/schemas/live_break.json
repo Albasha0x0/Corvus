@@ -1,0 +1,125 @@
+{
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string"
+    },
+    "stopPoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "where": {
+            "description": "As given: a name, module!export, address or file:line.",
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "hits": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "where",
+          "hits"
+        ]
+      }
+    },
+    "stop": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "stop point, exception, exit or pause.",
+          "type": "string"
+        },
+        "stopPoint": {
+          "type": "string"
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "image": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "address"
+            ]
+          }
+        }
+      },
+      "required": [
+        "thread",
+        "reason",
+        "frames"
+      ]
+    },
+    "namedAddresses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "rva": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "image",
+          "sha256",
+          "rva",
+          "name"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "session",
+    "stopPoints"
+  ]
+}

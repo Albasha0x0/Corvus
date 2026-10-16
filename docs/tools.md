@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-156 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+160 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -20,7 +20,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [engine](#engine) | 0 | 0 | 13: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | 0 | 0 | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | 0 | 0 | 7: crash dumps and crash text |
-| [live](#live) | 0 | 0 | 1: read-only inspection of a running process |
+| [live](#live) | 0 | 0 | 5: running programs: read-only inspection, and sessions with stop points |
 | [web](#web) | 0 | 0 | 1: JavaScript bundles and their source maps |
 
 ## session
@@ -2801,7 +2801,7 @@ Structured output: `folder`, `dumps`, `items`, `offset`, `total`, `failed`, `not
 
 ## live
 
-Read-only inspection of a running process.
+Running programs: read-only inspection, and sessions with stop points.
 
 ### inspect_process
 
@@ -2823,6 +2823,72 @@ Inspects a running Windows process read-only, addresses named as in dumps. view=
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`, `runtime`, `access`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `notes`, `startTimeUtc`, `counts`, `mainModule`, `largestRegions`, `thread`, `stackStop`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+
+### live_session
+
+**Session on a local program** (edit, open-world)
+
+Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `action` | string |  | `list` | list, attach, spawn, status or close. Values: list, attach, spawn, status, close. |
+| `program` | string |  |  | attach: process id or name; spawn: program path. |
+| `arguments` | string |  |  | spawn: command-line arguments. |
+| `session` | string |  |  | Session id from live_session. |
+
+Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`.
+
+### live_break
+
+**Stop points in a session** (edit, open-world)
+
+Set, list or clear stop points in a session, by name, address or file:line. With wait, returns the next stop with a named stack.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session` | string | yes |  | Session id from live_session. |
+| `action` | string |  | `list` | list, set or clear. Values: list, set, clear. |
+| `at` | string |  |  | set: a name, module!export, address or file:line. |
+| `stopPoint` | string |  |  | clear: stop point id. |
+| `wait` | boolean |  |  | Wait for the next stop. |
+| `waitSeconds` | integer |  | `30` | wait: seconds (1-300). |
+
+Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.
+
+### live_read
+
+**Read a stopped thread** (read-only, idempotent, open-world)
+
+Read a stopped thread's registers and memory as typed values, using the image's types and names.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session` | string | yes |  | Session id from live_session. |
+| `thread` | string |  |  | Thread id; default the stopped one. |
+| `registers` | string |  |  | Register names, comma-separated; default the general ones. |
+| `memory` | string |  |  | An address or name to read. |
+| `type` | string |  |  | memory: a type name from the image's types. |
+| `length` | integer |  | `64` | memory: bytes without a type (max 4096). |
+
+Structured output: `session`, `thread`, `registers`, `memory`, `namedAddresses`.
+
+### live_events
+
+**Session events** (read-only, idempotent, open-world)
+
+Page a session's event ring with a cursor and filters, so polling never re-sends earlier events.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session` | string | yes |  | Session id from live_session. |
+| `cursor` | string |  |  | Cursor from an earlier page; default the oldest event kept. |
+| `kind` | string |  |  | Only this kind: stop, exception, module, thread or exit. |
+| `thread` | string |  |  | Only this thread id. |
+| `limit` | integer |  | `100` |  |
+| `maxTokens` | integer |  |  |  |
+
+Structured output: `session`, `items`, `cursor`, `dropped`, `namedAddresses`.
 
 ## web
 

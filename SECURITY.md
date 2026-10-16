@@ -66,7 +66,10 @@ Off by default, each needs a server option or environment variable chosen by the
 - `--allow-device-changes` (`CORVUS_ALLOW_DEVICE_CHANGES=1`) enables `install_android_package` and
   `uninstall_android_package`, which change a connected Android device through adb. The other device tools only read
   (device facts, package lists, files, logs).
-- `--toolsets live` registers `inspect_process` (read-only, above).
+- `--allow-live` (`CORVUS_ALLOW_LIVE=1`) enables the session tools (`live_session`, `live_break`, `live_read`,
+  `live_events`) on programs already running on this machine; `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`) also
+  lets `live_session` start a program.
+- `--toolsets live` registers `inspect_process` (read-only, above) and the session tools.
 
 ### Network
 

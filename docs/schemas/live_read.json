@@ -1,0 +1,92 @@
+{
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string"
+    },
+    "thread": {
+      "type": "string"
+    },
+    "registers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "value"
+        ]
+      }
+    },
+    "memory": {
+      "type": "array",
+      "items": {
+        "$ref": "#/properties/registers/items"
+      }
+    },
+    "namedAddresses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "rva": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "image",
+          "sha256",
+          "rva",
+          "name"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "session",
+    "thread",
+    "registers",
+    "memory"
+  ]
+}

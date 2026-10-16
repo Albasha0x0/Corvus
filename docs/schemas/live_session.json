@@ -1,0 +1,102 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string"
+    },
+    "session": {
+      "description": "Session id; null for action=list.",
+      "type": "string"
+    },
+    "backend": {
+      "type": "string"
+    },
+    "program": {
+      "type": "string"
+    },
+    "processId": {
+      "type": "integer"
+    },
+    "state": {
+      "description": "open, stopped, running, closed or failed.",
+      "type": "string"
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "base": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "base"
+        ]
+      }
+    },
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "program": {
+            "type": "string"
+          },
+          "processId": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "backend",
+          "program",
+          "processId",
+          "state"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "action",
+    "modules",
+    "sessions"
+  ]
+}
