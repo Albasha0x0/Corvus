@@ -165,7 +165,7 @@ public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceS
                 var asm = workspace.Get(assembly);
                 try
                 {
-                    text = resources.Get(asm, name, entry, outputPath, baml: bytes => decompiler.DecompileBaml(asm, bytes, cancellationToken), overwrite: overwrite);
+                    text = resources.Get(asm, name, entry, outputPath, baml: bytes => decompiler.DecompileBaml(asm, bytes, cancellationToken) is { } xaml ? xaml + XamlEvents.Footer(asm.Module, xaml) : null, overwrite: overwrite);
                 }
                 catch (ToolError ex) when (ex.Code == ErrorCode.NotFound && name.Contains('/') && workspace.NativeViewOf(asm) is { } view)
                 {
