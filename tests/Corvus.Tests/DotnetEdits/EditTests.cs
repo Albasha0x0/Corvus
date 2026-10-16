@@ -17,8 +17,8 @@ public class EditTests : IDisposable
     [Fact]
     public void RenamesAreVisibleImmediately()
     {
-        _env.Edit(() => _env.Edits.Rename(_env.One("Secret", SymbolKind.Type), "LicenseChecker"));
-        Assert.Contains("LicenseChecker.Validate", _env.Decompile("Account::CheckLicense"));
+        _env.Edit(() => _env.Edits.Rename(_env.One("Secret", SymbolKind.Type), "TokenValidator"));
+        Assert.Contains("TokenValidator.Validate", _env.Decompile("Account::CheckPreview"));
         Assert.True(_env.Fixture.IsDirty);
         Assert.Single(_env.Fixture.Edits);
     }
@@ -115,7 +115,7 @@ public class EditTests : IDisposable
         Assert.StartsWith("Dry run", _env.Edits.RenameNamespace(_env.Fixture, "Fixture.Model", "X", false, dryRun: true));
         Assert.False(_env.Fixture.IsDirty);
         Assert.Equal("Fixture.Model.Account", _env.Def<TypeDef>("Account", SymbolKind.Type).FullName);
-        Assert.Contains("Validate(\"LICENSE-KEY-123\")", _env.Decompile("Account::CheckLicense"));
+        Assert.Contains("Validate(\"PREVIEW-CODE-42\")", _env.Decompile("Account::CheckPreview"));
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public class EditTests : IDisposable
         var copy = _dir.File("Copy.dll");
         File.Copy(Env.FixturePath, copy);
         using var env = new Env(copy);
-        env.Edit(() => env.Edits.Rename(env.One("Account::CheckLicense"), "IsLicensed"));
+        env.Edit(() => env.Edits.Rename(env.One("Account::CheckPreview"), "HasPreview"));
         Assert.Throws<ToolError>(() => env.Edits.Save(env.Fixture, copy, overwrite: false));
         env.Edits.Save(env.Fixture, copy, overwrite: true);
         Assert.True(File.Exists(copy + ".bak"));
@@ -174,7 +174,7 @@ public class EditTests : IDisposable
 
         var fresh = env.Workspace.Reload(env.Fixture);
         Assert.False(fresh.IsDirty);
-        Assert.NotNull(env.Def<TypeDef>("Account", SymbolKind.Type).FindMethod("IsLicensed"));
+        Assert.NotNull(env.Def<TypeDef>("Account", SymbolKind.Type).FindMethod("HasPreview"));
     }
 
     [Fact]

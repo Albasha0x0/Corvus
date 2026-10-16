@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "1 note (showing 1-1):\n  <note> r1  question/open  edit.dll  checks the license\n[End: 1 note]\n"
+    "1 note (showing 1-1):\n  <note> r1  question/open  edit.dll  checks the preview gate\n[End: 1 note]\n"
   ],
   "structuredContent": {
     "items": [
@@ -14,7 +14,7 @@
         "id": "<note>",
         "kind": "question",
         "status": "open",
-        "text": "checks the license",
+        "text": "checks the preview gate",
         "tags": [],
         "evidence": [],
         "anchor": {

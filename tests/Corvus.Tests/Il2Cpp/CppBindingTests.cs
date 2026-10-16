@@ -24,7 +24,7 @@ public class CppBindingTests : IDisposable
         Assert.Contains("m_static = StaticData(api, klass);", code);
         Assert.Contains("int32_t Balance(const void* obj) const { return Read<int32_t>(obj, m_balanceOff); }", code);
         Assert.Contains("bool SetBalance(void* obj, int32_t value) const { return Write<int32_t>(obj, m_balanceOff, value); }", code);
-        Assert.Contains("api.class_get_method_from_name(klass, \"CheckLicense\", 0);", code);
+        Assert.Contains("api.class_get_method_from_name(klass, \"CheckPreview\", 0);", code);
         Assert.Contains("return CallValue<bool>(api, m_getIsActive, obj);", code);
         Assert.Contains("get(class_from_name, \"mono_class_from_name\");", code);
         Assert.Contains("namespace monobind {", code);
@@ -97,7 +97,7 @@ public class CppBindingTests : IDisposable
         Assert.Contains("m_accountCountStaticOff = h->StaticFieldOffset(klass, \"AccountCount\");", code);
         Assert.Contains("m_static = h->GetStaticFieldData(klass);", code);
         Assert.Contains("int32_t Balance(const HostApi* h, const void* obj) const { return ReadField<int32_t>(h, obj, m_balanceOff); }", code);
-        Assert.Contains("h->GetMethod(klass, \"CheckLicense\", 0);", code);
+        Assert.Contains("h->GetMethod(klass, \"CheckPreview\", 0);", code);
         Assert.Contains("return CallValue<bool>(h, m_getIsActive, obj);", code);
         // Without a project no includes or namespace are invented.
         Assert.DoesNotContain("#include", code);

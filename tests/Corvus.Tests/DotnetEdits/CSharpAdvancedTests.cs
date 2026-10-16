@@ -271,7 +271,7 @@ public class CSharpAdvancedTests : IDisposable
     public void PrivateMembersOfOtherTypesWorkAtRuntime()
     {
         // Compiled with access checks off; the runtime must still accept the private accesses.
-        Patch("Shop::PriceOf(string)", "var p = new Account(item); Account.Log(\"x\"); return p._balance + Secret.Validate(\"LICENSE-12345\").GetHashCode();");
+        Patch("Shop::PriceOf(string)", "var p = new Account(item); Account.Log(\"x\"); return p._balance + Secret.Validate(\"PREVIEW-12345\").GetHashCode();");
         using var run = new Runner(_env);
         Assert.Equal(100 + true.GetHashCode(), run.Call(run.New("Fixture.Model.Shop"), "PriceOf", "a"));
     }

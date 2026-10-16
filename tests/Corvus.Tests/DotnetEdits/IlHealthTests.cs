@@ -82,12 +82,12 @@ public class IlHealthTests : IDisposable
         var balance = env.Fixture.BodyHealth;
         Assert.InRange(balance.Invalid, 3, balance.Bodies - 1);
         Assert.False(balance.MostlyInvalid);
-        Assert.True(balance.IsInvalid(env.Def<dnlib.DotNet.MethodDef>("Fixture.Model.Account::CheckLicense")));
+        Assert.True(balance.IsInvalid(env.Def<dnlib.DotNet.MethodDef>("Fixture.Model.Account::CheckPreview")));
         Assert.False(balance.IsInvalid(env.Def<dnlib.DotNet.MethodDef>("Fixture.Model.Entity::Score")));
 
         var info = env.Workspace.Read(() => env.Report.Build(env.Fixture));
         Assert.Matches($@"IL: {balance.Invalid} of {balance.Bodies} method bodies are not valid IL \(e\.g\. .*Account", info);
-        Assert.Contains("// Warning: this method body is not valid IL", env.Decompile("Fixture.Model.Account::CheckLicense"));
+        Assert.Contains("// Warning: this method body is not valid IL", env.Decompile("Fixture.Model.Account::CheckPreview"));
         Assert.DoesNotContain("not valid IL", env.Decompile("Fixture.Model.Entity::Score"));
         Assert.StartsWith("// Warning: ", env.Workspace.Read(() =>
             env.Decompiler.DecompileType(env.Fixture, env.Def<dnlib.DotNet.TypeDef>("Fixture.Model.Account", SymbolKind.Type), default)));
@@ -102,7 +102,7 @@ public class IlHealthTests : IDisposable
         int invalid = env.Fixture.BodyHealth.Invalid;
         var note = $"Skipped: {invalid} method bodies not valid IL ({env.Fixture.Id} {invalid}), read only up to the first invalid instruction";
         var search = new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings);
-        Assert.Contains(note, await search.SearchStrings("license"));
+        Assert.Contains(note, await search.SearchStrings("preview"));
         Assert.Contains(note, await search.SearchStrings("no such text anywhere"));
         Assert.Contains(note, await search.SearchConstants("12345678"));
         Assert.Contains(note, await search.SearchIL("ldstr *"));
@@ -117,7 +117,7 @@ public class IlHealthTests : IDisposable
         Assert.Contains($"Skipped: 0 old and {invalid} new method bodies are not valid IL and were not compared",
             await compare.FindCounterpart("Fixture.Model.Account", clean.Fixture.Id, corrupt.Id));
         Assert.DoesNotContain("Skipped:", await new SearchTools(clean.Workspace, clean.Search, clean.Il2Cpp, clean.Il2CppStrings)
-            .SearchStrings("license", assembly: clean.Fixture.Id));
+            .SearchStrings("preview", assembly: clean.Fixture.Id));
     }
 
     [Fact]

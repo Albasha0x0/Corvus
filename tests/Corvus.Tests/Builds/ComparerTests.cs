@@ -16,7 +16,7 @@ public class ComparerTests(ITestOutputHelper output)
         var v2 = dir.File("TestFixture.dll");
         using (var build = new Env())
         {
-            build.Edit(() => build.Edits.Rename(build.One("Secret", SymbolKind.Type), "LicenseGuard"));
+            build.Edit(() => build.Edits.Rename(build.One("Secret", SymbolKind.Type), "TokenGuard"));
             build.Edit(() => build.Edits.Rename(build.One("Shop::Describe"), "Summary"));
             build.Edit(() => build.Edits.Rename(build.One("Shop::_credit"), "_coins"));
             build.Edit(() => build.Edits.StubMethod(build.One("Account::Score"), "5"));
@@ -32,7 +32,7 @@ public class ComparerTests(ITestOutputHelper output)
 
         var secret = cmp.Types.Single(t => t.Old?.Name == "Secret");
         Assert.Equal("renamed", secret.Change);
-        Assert.Equal("LicenseGuard", secret.New!.Name);
+        Assert.Equal("TokenGuard", secret.New!.Name);
 
         var shop = cmp.Types.Single(t => t.Old?.Name == "Shop").Members;
         Assert.Contains(shop, m => m.Change == "renamed" && m.Old!.Name == "Describe" && m.New!.Name == "Summary");

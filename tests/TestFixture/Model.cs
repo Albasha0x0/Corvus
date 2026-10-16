@@ -52,7 +52,7 @@ public class Account : Entity, IChargeable
 
     public override int Score() => _balance * 2;
 
-    public bool CheckLicense() => Secret.Validate("LICENSE-KEY-123");
+    public bool CheckPreview() => Secret.Validate("PREVIEW-CODE-42");
 
     public async Task<int> LoadAsync()
     {
@@ -94,7 +94,7 @@ public enum Team : byte { Red = 1, Blue = 2 }
 
 internal static class Secret
 {
-    public static bool Validate(string key) => key.StartsWith("LICENSE-") && key.Length > 10;
+    public static bool Validate(string code) => code.StartsWith("PREVIEW-") && code.Length > 10;
 }
 
 public class Container<T> where T : class

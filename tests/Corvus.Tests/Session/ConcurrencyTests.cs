@@ -33,7 +33,7 @@ public class ConcurrencyTests
         {
             Loop(() => env.Workspace.Read(() => env.Decompiler.DecompileType(env.Fixture, env.Def<dnlib.DotNet.TypeDef>("Shop", SymbolKind.Type), default))),
             Loop(() => env.Workspace.Read(() => env.References.FindReferences(env.One("Account::_balance"), true, 100, default).Total)),
-            Loop(() => env.Workspace.Read(() => env.Search.SearchStrings("LICENSE", false, env.Workspace.Assemblies, 10, default).Total)),
+            Loop(() => env.Workspace.Read(() => env.Search.SearchStrings("PREVIEW", false, env.Workspace.Assemblies, 10, default).Total)),
             Loop(() => env.Workspace.Read(() => env.Decompiler.Disassemble(env.Fixture, env.One("Account::Score").Member, default))),
         };
         int i = 0;

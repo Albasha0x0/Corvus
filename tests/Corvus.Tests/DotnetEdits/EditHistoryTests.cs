@@ -34,11 +34,11 @@ public class EditHistoryTests : IDisposable
     public void UndoThatBreaksALaterEditChangesNothing()
     {
         _env.Edit(() => _env.Edits.Rename(_env.One("Secret", SymbolKind.Type), "S2"));
-        _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::CheckLicense"), "return S2.Validate(\"LICENSE-OK-000\");", false, default));
+        _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::CheckPreview"), "return S2.Validate(\"PREVIEW-OK-000\");", false, default));
         var ex = Assert.Throws<ToolError>(() => _env.Edit(() => _env.Edits.Undo(_env.Fixture, 1, default)));
         Assert.Contains("could not be re-applied", ex.Message);
         Assert.Equal(2, _env.Fixture.Edits.Count);
-        Assert.Contains("S2.Validate", _env.Decompile("Account::CheckLicense"));
+        Assert.Contains("S2.Validate", _env.Decompile("Account::CheckPreview"));
     }
 
     [Fact]

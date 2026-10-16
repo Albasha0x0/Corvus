@@ -19,7 +19,7 @@ public class SaveIdentityTests : IDisposable
         return copy;
     }
 
-    private static void Rename(Env env) => env.Edit(() => env.Edits.Rename(env.One("Account::CheckLicense"), "IsLicensed"));
+    private static void Rename(Env env) => env.Edit(() => env.Edits.Rename(env.One("Account::CheckPreview"), "HasPreview"));
 
     [DirectoryLinkFact]
     public void OriginalThroughADirectoryLink_IsBackedUpBeforeItIsReplaced()

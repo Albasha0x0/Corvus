@@ -19,8 +19,8 @@ public class SearchTests : IDisposable
         var wildcard = _env.Search.SearchSymbols("Charg*", false, SymbolKind.Method, All, null, 100, default);
         Assert.All(wildcard.Items, s => Assert.StartsWith("Charg", s.Member.Name));
 
-        var regex = _env.Search.SearchSymbols("^Check.*e$", true, SymbolKind.Method, All, null, 100, default);
-        Assert.Equal("CheckLicense", Assert.Single(regex.Items).Member.Name);
+        var regex = _env.Search.SearchSymbols("^Check.*w$", true, SymbolKind.Method, All, null, 100, default);
+        Assert.Equal("CheckPreview", Assert.Single(regex.Items).Member.Name);
 
         var exactFirst = _env.Search.SearchSymbols("Account", false, SymbolKind.Any, All, null, 100, default);
         Assert.Equal("Account", exactFirst.Items[0].Member.Name);
@@ -76,8 +76,8 @@ public class SearchTests : IDisposable
     [Fact]
     public void StringsInBodiesAndConstants()
     {
-        var r = _env.Search.SearchStrings("license-", false, All, 50, default);
-        Assert.Contains(r.Items, h => h.Owner.Name == "CheckLicense" && h.ILOffset != null);
+        var r = _env.Search.SearchStrings("preview-", false, All, 50, default);
+        Assert.Contains(r.Items, h => h.Owner.Name == "CheckPreview" && h.ILOffset != null);
         Assert.Contains(r.Items, h => h.Owner.Name == "Validate");
         var re = _env.Search.SearchStrings(@"^\[Account\]", true, All, 50, default);
         Assert.Contains(re.Items, h => h.Owner.Name == "Log");
@@ -109,7 +109,7 @@ public class SearchTests : IDisposable
         Assert.Throws<ToolError>(() => _env.Search.SearchConstants("hello", All, 10, default));
 
     [Theory]
-    [InlineData("ldstr *LICENSE*; call *Validate*", "CheckLicense")]
+    [InlineData("ldstr *PREVIEW*; call *Validate*", "CheckPreview")]
     [InlineData("ldstr \"charged by \"; ...; call *::Log*", "Charge")]
     [InlineData("ldc.i4 0x3E8; ret", "Score")]
     [InlineData("callvirt *IChargeable::Charge*", "Bill")]

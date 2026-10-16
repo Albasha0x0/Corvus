@@ -16,7 +16,7 @@ public class ReferenceTests : IDisposable
     public void MethodCallSites()
     {
         var r = Assert.Single(Refs("Secret::Validate"));
-        Assert.Equal("CheckLicense", r.Where.Name);
+        Assert.Equal("CheckPreview", r.Where.Name);
         Assert.Equal("call", r.Kind);
         Assert.NotNull(r.ILOffset);
     }
@@ -140,7 +140,7 @@ public class ReferenceTests : IDisposable
         Assert.Equal(["Account", "PremiumAccount"], score.Select(s => ((MethodDef)s.Member).DeclaringType.Name.String).Order());
         Assert.Contains(_env.References.FindOverrides(_env.Def<MethodDef>("IChargeable::Charge"), default),
             s => ((MethodDef)s.Member).DeclaringType.Name == "Account");
-        Assert.Throws<ToolError>(() => _env.References.FindOverrides(_env.Def<MethodDef>("Account::CheckLicense"), default));
+        Assert.Throws<ToolError>(() => _env.References.FindOverrides(_env.Def<MethodDef>("Account::CheckPreview"), default));
     }
 
     [Fact]

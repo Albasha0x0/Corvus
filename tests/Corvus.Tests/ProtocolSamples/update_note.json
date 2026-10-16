@@ -8,13 +8,13 @@
   },
   "isError": false,
   "content": [
-    "id: <note>\nkind: question\nstatus: answered\ntext: checks the license\\nIt does.\nanchor:\n  kind: file\n  sha256: <id>\n  label: edit.dll\nrevision: 2\ncreated: <time>\nupdated: <time>\nauthor: testhost\n"
+    "id: <note>\nkind: question\nstatus: answered\ntext: checks the preview gate\\nIt does.\nanchor:\n  kind: file\n  sha256: <id>\n  label: edit.dll\nrevision: 2\ncreated: <time>\nupdated: <time>\nauthor: testhost\n"
   ],
   "structuredContent": {
     "id": "<note>",
     "kind": "question",
     "status": "answered",
-    "text": "checks the license\nIt does.",
+    "text": "checks the preview gate\nIt does.",
     "tags": [],
     "evidence": [],
     "anchor": {

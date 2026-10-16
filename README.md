@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 The installer verifies the download against the release's `SHA256SUMS` and registers Corvus with the MCP clients it
 finds. Restart your client and ask:
 
-> Load app.dll with Corvus and explain how it validates a license key. Cite the methods you read.
+> Load app.dll with Corvus and explain how it builds its export file. Cite the methods you read.
 
 From a terminal: `corvus decompile_member --load app.dll member=Ns.Type::Method` ([command line](docs/cli.md)).
 

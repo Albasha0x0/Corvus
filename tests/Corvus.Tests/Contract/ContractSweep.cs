@@ -169,7 +169,7 @@ public static partial class ContractSweep
         "newAssembly" => "TestFixture.Consumer",
         "type" => "Account",
         "symbol" or "to" => "Account::Charge(int)",
-        "member" or "method" => "Account::CheckLicense",
+        "member" or "method" => "Account::CheckPreview",
         "path" => Env.FixturePath,
         "directory" => Path.GetDirectoryName(Env.FixturePath),
         "query" or "pattern" or "filter" => "Charge",
@@ -606,7 +606,7 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.StartsWith("Error (invalid_argument) in load_assembly: invalid path", await Call("load_assembly", new() { ["path"] = "" }));
         Assert.Equal("Error (invalid_argument) in load_assembly: a path is too long.\nNext: Pass a shorter path.",
             await Call("load_assembly", new() { ["path"] = new string('A', 100_000) }));
-        Assert.Contains("none from offset", await Call("search_strings", new() { ["query"] = "LICENSE", ["offset"] = int.MaxValue }));
+        Assert.Contains("none from offset", await Call("search_strings", new() { ["query"] = "PREVIEW", ["offset"] = int.MaxValue }));
 
         // The same errors as JSON.
         var missing = McpProtocolTests.ErrorJson(await _client.CallToolAsync("get_type_info", new Dictionary<string, object?>()));

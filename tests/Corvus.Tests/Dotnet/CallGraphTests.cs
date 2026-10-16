@@ -19,12 +19,12 @@ public class CallGraphTests : IDisposable
     [Fact]
     public void CallerAndCalleeTrees()
     {
-        Assert.Contains("Fixture.Model.Account::CheckLicense()", Tree("Secret::Validate", callers: true));
+        Assert.Contains("Fixture.Model.Account::CheckPreview()", Tree("Secret::Validate", callers: true));
         var callees = Tree("Account::Charge(int, string)", callers: false);
         Assert.Contains("Fixture.Model.Account::Log(string)", callees);
         Assert.Contains("Fixture.Model.Account::Charge(int)", callees);
         Assert.Contains("String::Concat", Tree("Account::Charge(int, string)", callers: false, external: true));
-        Assert.Contains("no callers", Tree("Account::CheckLicense", callers: true));
+        Assert.Contains("no callers", Tree("Account::CheckPreview", callers: true));
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class CallGraphTests : IDisposable
 
         var validate = _env.Def<MethodDef>("Secret::Validate");
         var fromRoots = _env.Workspace.Read(() => _graph.Paths(null, validate, 8, 10, default));
-        Assert.Contains(fromRoots, p => p.First().Name == "CheckLicense" && p.Last() == validate);
+        Assert.Contains(fromRoots, p => p.First().Name == "CheckPreview" && p.Last() == validate);
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class CallGraphTests : IDisposable
     {
         _env.Workspace.Read(() => { _graph.EnsureBuilt(default); return 0; });
         Assert.True(_graph.IsBuilt);
-        _env.Edit(() => _env.Edits.StubMethod(_env.One("Account::CheckLicense"), "true")); // drops the call to Validate
+        _env.Edit(() => _env.Edits.StubMethod(_env.One("Account::CheckPreview"), "true")); // drops the call to Validate
         Assert.False(_graph.IsBuilt);
         Assert.Contains("no callers", Tree("Secret::Validate", callers: true));
     }

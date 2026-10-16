@@ -23,7 +23,7 @@ public class IlPatchTests : IDisposable
             ldc.i4.0
             ret
             """);
-        Assert.Contains("IsNullOrEmpty(key)", _env.Decompile("Secret::Validate"));
+        Assert.Contains("IsNullOrEmpty(code)", _env.Decompile("Secret::Validate"));
         Assert.True(_env.Fixture.IsDirty);
     }
 
@@ -47,7 +47,7 @@ public class IlPatchTests : IDisposable
     [Fact]
     public void ResolvesMembersBySymbolAcrossTypes()
     {
-        Patch("Account::CheckLicense", """
+        Patch("Account::CheckPreview", """
             ldstr "anything"
             call Fixture.Model.Secret::Validate(string)
             pop
@@ -55,7 +55,7 @@ public class IlPatchTests : IDisposable
             call Fixture.Model.Account::get_IsActive()
             ret
             """);
-        var code = _env.Decompile("Account::CheckLicense");
+        var code = _env.Decompile("Account::CheckPreview");
         Assert.Contains("Secret.Validate(\"anything\")", code);
         Assert.Contains("IsActive", code);
     }
@@ -180,14 +180,14 @@ public class CSharpPatchTests : IDisposable
     public void ReplacesBodyUsingPrivateStateAndInternalTypes()
     {
         // _balance is private and Secret is internal: both must be accessible.
-        Patch("Account::CheckLicense", """
+        Patch("Account::CheckPreview", """
             if (_balance <= 0)
                 return false;
-            return Secret.Validate("LICENSE-OVERRIDE-0001");
+            return Secret.Validate("PREVIEW-OVERRIDE-0001");
             """);
-        var code = _env.Decompile("Account::CheckLicense");
+        var code = _env.Decompile("Account::CheckPreview");
         Assert.Contains("_balance <= 0", code);
-        Assert.Contains("LICENSE-OVERRIDE-0001", code);
+        Assert.Contains("PREVIEW-OVERRIDE-0001", code);
         Assert.True(_env.Fixture.IsDirty);
     }
 
@@ -233,13 +233,13 @@ public class CSharpPatchTests : IDisposable
     [Fact]
     public void CompileErrorsPointAtUserCode()
     {
-        var ex = Assert.Throws<ToolError>(() => Patch("Account::CheckLicense", "return doesNotExist;"));
+        var ex = Assert.Throws<ToolError>(() => Patch("Account::CheckPreview", "return doesNotExist;"));
         Assert.Contains("CS0103", ex.Message);
         Assert.Contains("your code line 1", ex.Message);
         Assert.False(_env.Fixture.IsDirty);
-        Assert.Throws<ToolError>(() => Patch("Account::CheckLicense", "return 5;")); // wrong type
-        Assert.Throws<ToolError>(() => Patch("Account::CheckLicense", "public void X() {}")); // not statements
-        Assert.Throws<ToolError>(() => Patch("Account::CheckLicense", "   "));
+        Assert.Throws<ToolError>(() => Patch("Account::CheckPreview", "return 5;")); // wrong type
+        Assert.Throws<ToolError>(() => Patch("Account::CheckPreview", "public void X() {}")); // not statements
+        Assert.Throws<ToolError>(() => Patch("Account::CheckPreview", "   "));
     }
 
     [Fact]

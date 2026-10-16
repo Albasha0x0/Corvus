@@ -15,12 +15,12 @@ public static class Program
             case "export":
                 CsvExporter.Write(NoteStore.All(), Console.Out);
                 return 0;
-            case "license":
-                bool ok = args.Length > 1 && LicenseCheck.Check(args[1]);
-                Console.WriteLine(ok ? "licensed" : "not licensed");
+            case "preview":
+                bool ok = args.Length > 1 && PreviewGate.Check(args[1]);
+                Console.WriteLine(ok ? "preview enabled" : "preview unavailable");
                 return ok ? 0 : 1;
             default:
-                Console.Error.WriteLine("usage: Notes [list | export | license <key>]");
+                Console.Error.WriteLine("usage: Notes [list | export | preview <code>]");
                 return 2;
         }
     }

@@ -1,27 +1,27 @@
 {
   "tool": "search_strings",
   "arguments": {
-    "query": "LICENSE"
+    "query": "PREVIEW"
   },
   "isError": false,
   "content": [
-    "2 occurrences (showing 1-2):\n  \"LICENSE-KEY-123\"\n      in Fixture.Model.Account::CheckLicense() @IL_0000  [TestFixture] 0x0600001C\n  \"LICENSE-\"\n      in Fixture.Model.Secret::Validate(string) @IL_0001  [TestFixture] 0x06000025\n[End: 2 occurrences]\n"
+    "2 occurrences (showing 1-2):\n  \"PREVIEW-CODE-42\"\n      in Fixture.Model.Account::CheckPreview() @IL_0000  [TestFixture] 0x0600001C\n  \"PREVIEW-\"\n      in Fixture.Model.Secret::Validate(string) @IL_0001  [TestFixture] 0x06000025\n[End: 2 occurrences]\n"
   ],
   "structuredContent": {
     "items": [
       {
-        "value": "LICENSE-KEY-123",
+        "value": "PREVIEW-CODE-42",
         "source": "il",
         "owner": {
           "kind": "method",
-          "label": "Fixture.Model.Account::CheckLicense()",
+          "label": "Fixture.Model.Account::CheckPreview()",
           "assembly": "TestFixture",
           "token": "0x0600001C"
         },
         "ilOffset": 0
       },
       {
-        "value": "LICENSE-",
+        "value": "PREVIEW-",
         "source": "il",
         "owner": {
           "kind": "method",

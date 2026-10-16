@@ -203,13 +203,13 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
             var m = h.Env.Workspace.Read(() => oldAsm.Module.Find("N.Shop", false).Methods.Single(x => x.Name == name));
             return new NoteAnchor(NoteAnchor.DotNet, Sha256: oldAsm.OriginalSha256, Mvid: oldAsm.Module.Mvid.ToString(), Token: m.MDToken.Raw, Label: $"{oldAsm.Id}:N.Shop::{name}");
         }
-        h.Notes.Record("checks the license", null, null, On("Describe"), ["license"], null, null);
+        h.Notes.Record("checks the preview gate", null, null, On("Describe"), ["preview"], null, null);
         h.Notes.Record("dead code?", "question", null, On("Gone"), null, null, null);
         h.Notes.Record("transformed build", null, null, new NoteAnchor(NoteAnchor.File, Sha256: oldAsm.OriginalSha256, Label: oldAsm.Id), null, null, null);
 
         var dry = await h.Tools.Update(oldAsm.Id, newAsm.Id, include: ["notes"]);
         var summaryToken = h.Env.Workspace.Read(() => newAsm.Module.Find("N.Shop", false).Methods.Single(x => x.Name == "Summary").MDToken.Raw);
-        Assert.Equal(("would_carry", $"0x{summaryToken:X8}"), One(dry, "notes", i => i.Value == "checks the license") is var d ? (d.Outcome, d.NewAddress) : default);
+        Assert.Equal(("would_carry", $"0x{summaryToken:X8}"), One(dry, "notes", i => i.Value == "checks the preview gate") is var d ? (d.Outcome, d.NewAddress) : default);
         Assert.Equal(("refused", "no_counterpart"), One(dry, "notes", i => i.Value == "dead code?") is var g ? (g.Outcome, g.Reason) : default);
         Assert.Equal(("would_carry", "file"), One(dry, "notes", i => i.Value == "transformed build") is var f ? (f.Outcome, f.Reason) : default);
         Assert.Equal("reported", dry.Categories.Single(c => c.Category == "dotnet").Status);
@@ -218,7 +218,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         await h.Tools.Update(oldAsm.Id, newAsm.Id, dryRun: false, include: ["notes"]);
         var carried = h.Notes.Read(new NoteAnchor(NoteAnchor.DotNet, Mvid: newAsm.Module.Mvid.ToString()).StoreKey).Single();
         Assert.Equal((summaryToken, $"{newAsm.Id}:N.Shop::Summary(int)"), (carried.Anchor.Token!.Value, carried.Anchor.Label));
-        Assert.Equal(["license"], carried.Tags);
+        Assert.Equal(["preview"], carried.Tags);
         Assert.Single(h.Notes.Read(newAsm.OriginalSha256.ToLowerInvariant()));
 
         var again = await h.Tools.Update(oldAsm.Id, newAsm.Id, dryRun: false, include: ["notes"]);

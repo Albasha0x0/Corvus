@@ -122,7 +122,7 @@ public class ToolDetailTests : IDisposable
     [Fact]
     public void StubDryRun_NumbersTheInstructions()
     {
-        var preview = _env.Edits.StubMethod(_env.One("Account::CheckLicense"), "true", dryRun: true);
+        var preview = _env.Edits.StubMethod(_env.One("Account::CheckPreview"), "true", dryRun: true);
         Assert.Contains("IL_0000: ldc.i4 1", preview);
         Assert.Contains("IL_0005: ret", preview); // real offsets, not IL_0000 for every line
     }

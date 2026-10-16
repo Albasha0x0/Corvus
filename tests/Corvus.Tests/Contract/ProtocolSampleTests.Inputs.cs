@@ -62,7 +62,7 @@ public partial class ProtocolSampleTests
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         await CallAsync(client, "load_assembly", new() { ["path"] = In + "edit.dll" });
-        var note = await CallAsync(client, "record_note", new() { ["text"] = "checks the license", ["anchor"] = "edit.dll", ["kind"] = "question" });
+        var note = await CallAsync(client, "record_note", new() { ["text"] = "checks the preview gate", ["anchor"] = "edit.dll", ["kind"] = "question" });
         values["note"] = note.StructuredContent!.Value.GetProperty("id").GetString()!;
         foreach (var (tool, args) in (IEnumerable<(string, Dictionary<string, object?>)>)[.. Edited, ExportScript]) await CallAsync(client, tool, args);
         // The discarded edits' script is kept (no machine path in it, unlike a token map).

@@ -43,8 +43,8 @@ public class DecompilerTests : IDisposable
     [Fact]
     public void DisassemblesWithTokensAndOffsets()
     {
-        var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::CheckLicense").Member, default);
-        Assert.Contains("ldstr \"LICENSE-KEY-123\"", il);
+        var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::CheckPreview").Member, default);
+        Assert.Contains("ldstr \"PREVIEW-CODE-42\"", il);
         Assert.Contains("IL_0000", il);
         Assert.Matches(@"/\* 06[0-9A-F]{6} \*/", il);
     }
@@ -108,7 +108,7 @@ public class DecompilerTests : IDisposable
     [Fact]
     public void SimplifiedViewWithoutChangesIsThePlainDecompile()
     {
-        var member = _env.One("Account::CheckLicense").Member;
+        var member = _env.One("Account::CheckPreview").Member;
         var simplified = _env.Workspace.Read(() => _env.Decompiler.DecompileSimplified(_env.Fixture, [member], new Corvus.Services.Simplify.SimplifyOptions(), default));
         var plain = _env.Workspace.Read(() => _env.Decompiler.DecompileMembers(_env.Fixture, [member], default));
         Assert.StartsWith("// Simplified view (", simplified);

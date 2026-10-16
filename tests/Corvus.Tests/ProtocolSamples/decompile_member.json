@@ -1,21 +1,21 @@
 {
   "tool": "decompile_member",
   "arguments": {
-    "member": "Account::CheckLicense"
+    "member": "Account::CheckPreview"
   },
   "isError": false,
   "content": [
-    "// [TestFixture]\n// Fixture.Model.Account::CheckLicense()  [token 0x0600001C]\npublic bool CheckLicense()\n{\n\treturn Secret.Validate(\"LICENSE-KEY-123\");\n}\n"
+    "// [TestFixture]\n// Fixture.Model.Account::CheckPreview()  [token 0x0600001C]\npublic bool CheckPreview()\n{\n\treturn Secret.Validate(\"PREVIEW-CODE-42\");\n}\n"
   ],
   "structuredContent": {
     "language": "csharp",
-    "code": "// [TestFixture]\n// Fixture.Model.Account::CheckLicense()  [token 0x0600001C]\npublic bool CheckLicense()\n{\n\treturn Secret.Validate(\"LICENSE-KEY-123\");\n}\n",
+    "code": "// [TestFixture]\n// Fixture.Model.Account::CheckPreview()  [token 0x0600001C]\npublic bool CheckPreview()\n{\n\treturn Secret.Validate(\"PREVIEW-CODE-42\");\n}\n",
     "offset": 0,
     "totalChars": 153,
     "symbols": [
       {
         "kind": "method",
-        "label": "Fixture.Model.Account::CheckLicense()",
+        "label": "Fixture.Model.Account::CheckPreview()",
         "assembly": "TestFixture",
         "token": "0x0600001C"
       }

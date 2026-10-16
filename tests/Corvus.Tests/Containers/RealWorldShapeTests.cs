@@ -221,14 +221,14 @@ public class RealWorldShapeTests : IDisposable
     public void IlPrepend_OntoAnEncryptedBody_SaysWhy()
     {
         var bytes = File.ReadAllBytes(Env.FixturePath);
-        // Overwrite CheckLicense's code with an unused opcode.
+        // Overwrite CheckPreview's code with an unused opcode.
         using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
         {
             var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
             foreach (var h in md.MethodDefinitions)
             {
                 var def = md.GetMethodDefinition(h);
-                if (md.GetString(def.Name) != "CheckLicense") continue;
+                if (md.GetString(def.Name) != "CheckPreview") continue;
                 var body = System.Reflection.Metadata.PEReaderExtensions.GetMethodBody(pe, def.RelativeVirtualAddress);
                 var section = pe.PEHeaders.SectionHeaders.First(s => def.RelativeVirtualAddress >= s.VirtualAddress && def.RelativeVirtualAddress < s.VirtualAddress + s.VirtualSize);
                 int offset = def.RelativeVirtualAddress - section.VirtualAddress + section.PointerToRawData;
@@ -237,9 +237,9 @@ public class RealWorldShapeTests : IDisposable
             }
         }
         using var env = new Env(Save("enc/TestFixture.dll", bytes));
-        var error = Assert.Throws<ToolError>(() => env.Edit(() => env.Edits.PatchMethodIL(env.One("Account::CheckLicense"), "nop", "prepend", false))).Message;
+        var error = Assert.Throws<ToolError>(() => env.Edit(() => env.Edits.PatchMethodIL(env.One("Account::CheckPreview"), "nop", "prepend", false))).Message;
         Assert.Contains("is not valid IL (encrypted, or dumped from memory before decryption): there is no code to prepend to", error);
-        env.Edit(() => env.Edits.PatchMethodIL(env.One("Account::CheckLicense"), "ldc.i4.1\nret", "replace", false)); // replace still works
+        env.Edit(() => env.Edits.PatchMethodIL(env.One("Account::CheckPreview"), "ldc.i4.1\nret", "replace", false)); // replace still works
     }
 
     [Fact]

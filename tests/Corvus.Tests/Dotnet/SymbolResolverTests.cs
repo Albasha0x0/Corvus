@@ -26,12 +26,12 @@ public class SymbolResolverTests : IDisposable
         Assert.Equal(expected, _env.Def<TypeDef>(query, SymbolKind.Type).FullName);
 
     [Theory]
-    [InlineData("Fixture.Model.Account::CheckLicense")]
-    [InlineData("Fixture.Model.Account.CheckLicense")]
-    [InlineData("Account::CheckLicense")]
-    [InlineData("Account.CheckLicense()")]
-    [InlineData("account::checklicense")]
-    public void ResolvesMethodForms(string query) => Assert.Equal("CheckLicense", _env.One(query).Member.Name);
+    [InlineData("Fixture.Model.Account::CheckPreview")]
+    [InlineData("Fixture.Model.Account.CheckPreview")]
+    [InlineData("Account::CheckPreview")]
+    [InlineData("Account.CheckPreview()")]
+    [InlineData("account::checkpreview")]
+    public void ResolvesMethodForms(string query) => Assert.Equal("CheckPreview", _env.One(query).Member.Name);
 
     [Fact]
     public void OverloadsAreAllReturnedAndSignatureNarrows()
@@ -57,7 +57,7 @@ public class SymbolResolverTests : IDisposable
     {
         var account = _env.Def<TypeDef>("Account");
         Assert.Same(account, _env.One($"0x{account.MDToken.Raw:X8}").Member);
-        var method = account.FindMethod("CheckLicense");
+        var method = account.FindMethod("CheckPreview");
         Assert.Same(method, _env.One($"{method.MDToken.Raw:X8}").Member);
         Assert.Same(method, _env.One($"0x{method.MDToken.Raw:x8}").Member);
         Assert.Throws<ToolError>(() => _env.One("0x06FFFFFF"));
@@ -106,8 +106,8 @@ public class SymbolResolverTests : IDisposable
     [Fact]
     public void BareMemberNames_AreSearchedInEveryType()
     {
-        Assert.Equal("Fixture.Model.Account::CheckLicense()", _env.One("CheckLicense").Label);
-        Assert.Equal("Fixture.Model.Account::CheckLicense()", _env.One("checklicense").Label); // case-insensitive when nothing matches exactly
+        Assert.Equal("Fixture.Model.Account::CheckPreview()", _env.One("CheckPreview").Label);
+        Assert.Equal("Fixture.Model.Account::CheckPreview()", _env.One("checkpreview").Label); // case-insensitive when nothing matches exactly
         Assert.Equal("_balance", _env.One("_balance", SymbolKind.Field).Member.Name);
         // the same name on several types: all of them, and the ambiguity error lists them
         var score = SymbolResolver.Resolve(_env.Workspace, null, "Score");

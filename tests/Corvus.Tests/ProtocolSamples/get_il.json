@@ -1,21 +1,21 @@
 {
   "tool": "get_il",
   "arguments": {
-    "symbol": "Account::CheckLicense"
+    "symbol": "Account::CheckPreview"
   },
   "isError": false,
   "content": [
-    "// [TestFixture] Fixture.Model.Account::CheckLicense()\n// IL hash: 2b4f36fb70e4909f  raw IL SHA-256: 7ca6425d8eecfad5\n.method /* 0600001C */ public hidebysig \n\tinstance bool CheckLicense () cil managed \n{\n\t// Method begins at RVA 0x21d9\n\t// Header size: 1\n\t// Code size: 11 (0xb)\n\t.maxstack 8\n\n\tIL_0000: ldstr \"LICENSE-KEY-123\" /* 7000001B */\n\tIL_0005: call bool Fixture.Model.Secret::Validate(string) /* 06000025 */\n\tIL_000a: ret\n} // end of method Account::CheckLicense\n"
+    "// [TestFixture] Fixture.Model.Account::CheckPreview()\n// IL hash: 001fc5b5253a2a25  raw IL SHA-256: 7ca6425d8eecfad5\n.method /* 0600001C */ public hidebysig \n\tinstance bool CheckPreview () cil managed \n{\n\t// Method begins at RVA 0x21d9\n\t// Header size: 1\n\t// Code size: 11 (0xb)\n\t.maxstack 8\n\n\tIL_0000: ldstr \"PREVIEW-CODE-42\" /* 7000001B */\n\tIL_0005: call bool Fixture.Model.Secret::Validate(string) /* 06000025 */\n\tIL_000a: ret\n} // end of method Account::CheckPreview\n"
   ],
   "structuredContent": {
     "language": "il",
-    "code": "// [TestFixture] Fixture.Model.Account::CheckLicense()\n// IL hash: 2b4f36fb70e4909f  raw IL SHA-256: 7ca6425d8eecfad5\n.method /* 0600001C */ public hidebysig \n\tinstance bool CheckLicense () cil managed \n{\n\t// Method begins at RVA 0x21d9\n\t// Header size: 1\n\t// Code size: 11 (0xb)\n\t.maxstack 8\n\n\tIL_0000: ldstr \"LICENSE-KEY-123\" /* 7000001B */\n\tIL_0005: call bool Fixture.Model.Secret::Validate(string) /* 06000025 */\n\tIL_000a: ret\n} // end of method Account::CheckLicense\n",
+    "code": "// [TestFixture] Fixture.Model.Account::CheckPreview()\n// IL hash: 001fc5b5253a2a25  raw IL SHA-256: 7ca6425d8eecfad5\n.method /* 0600001C */ public hidebysig \n\tinstance bool CheckPreview () cil managed \n{\n\t// Method begins at RVA 0x21d9\n\t// Header size: 1\n\t// Code size: 11 (0xb)\n\t.maxstack 8\n\n\tIL_0000: ldstr \"PREVIEW-CODE-42\" /* 7000001B */\n\tIL_0005: call bool Fixture.Model.Secret::Validate(string) /* 06000025 */\n\tIL_000a: ret\n} // end of method Account::CheckPreview\n",
     "offset": 0,
     "totalChars": 472,
     "symbols": [
       {
         "kind": "method",
-        "label": "Fixture.Model.Account::CheckLicense()",
+        "label": "Fixture.Model.Account::CheckPreview()",
         "assembly": "TestFixture",
         "token": "0x0600001C"
       }

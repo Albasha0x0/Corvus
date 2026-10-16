@@ -18,7 +18,7 @@ public class DeterminismTests
         ("search_strings", new() { ["query"] = "e" }),
         ("get_type_info", new() { ["type"] = "Account" }),
         ("decompile_member", new() { ["member"] = "Account" }),
-        ("get_il", new() { ["symbol"] = "Account::CheckLicense" }),
+        ("get_il", new() { ["symbol"] = "Account::CheckPreview" }),
         ("find_references", new() { ["symbol"] = "Account::Charge(int)" }),
         ("get_call_tree", new() { ["method"] = "Account::Charge(int)" }),
         ("summarize_file", new() { ["path"] = Env.FixturePath }),

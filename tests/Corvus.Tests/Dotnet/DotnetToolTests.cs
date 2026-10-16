@@ -217,7 +217,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     [Fact]
     public async Task SearchIlShowsContextInstructions()
     {
-        var (_, record) = await Call("search_il", new() { ["pattern"] = "ldstr *LICENSE*", ["context"] = 1 });
+        var (_, record) = await Call("search_il", new() { ["pattern"] = "ldstr *PREVIEW*", ["context"] = 1 });
         Assert.All(record.GetProperty("items").EnumerateArray(), i => Assert.Single(i.GetProperty("instructions").EnumerateArray()));
     }
 
@@ -243,7 +243,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
         Assert.Equal("csharp", record.GetProperty("language").GetString());
         Assert.Contains("class Account", record.GetProperty("code").GetString());
         Assert.Equal("type", record.GetProperty("symbols")[0].GetProperty("kind").GetString());
-        var (ilText, il) = await Call("get_il", new() { ["symbol"] = "Account::CheckLicense" });
+        var (ilText, il) = await Call("get_il", new() { ["symbol"] = "Account::CheckPreview" });
         var hash = il.GetProperty("methods")[0].GetProperty("ilHash").GetString()!;
         Assert.Contains(hash[..16], ilText);
     }

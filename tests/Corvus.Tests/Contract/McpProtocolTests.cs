@@ -234,13 +234,13 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["get_type_hierarchy"] = (new() { ["type"] = "Entity" }, "Archive"),
         ["get_attributes"] = (new() { ["symbol"] = "NativeThing::First" }, "RVA = \"0x1000\""),
         ["resolve_symbol"] = (new() { ["symbol"] = "Account::Charge" }, "2 matches"),
-        ["decompile_member"] = (new() { ["member"] = "Account::CheckLicense" }, "Secret.Validate(\"LICENSE-KEY-123\")"),
-        ["get_il"] = (new() { ["symbol"] = "Account::CheckLicense" }, "ldstr"),
+        ["decompile_member"] = (new() { ["member"] = "Account::CheckPreview" }, "Secret.Validate(\"PREVIEW-CODE-42\")"),
+        ["get_il"] = (new() { ["symbol"] = "Account::CheckPreview" }, "ldstr"),
         ["export_project"] = (new() { ["assembly"] = "TestFixture.Consumer", ["outputDirectory"] = dir.File("export") }, "Exported"),
         ["search_symbols"] = (new() { ["query"] = "Charg*", ["kind"] = "method" }, "Charge"),
-        ["search_strings"] = (new() { ["query"] = "LICENSE" }, "CheckLicense"),
+        ["search_strings"] = (new() { ["query"] = "PREVIEW" }, "CheckPreview"),
         ["search_constants"] = (new() { ["value"] = "0x3E8" }, "PremiumAccount::Score"),
-        ["search_il"] = (new() { ["pattern"] = "ldstr *LICENSE*; call *Validate*" }, "CheckLicense"),
+        ["search_il"] = (new() { ["pattern"] = "ldstr *PREVIEW*; call *Validate*" }, "CheckPreview"),
         ["find_references"] = (new() { ["symbol"] = "Account::Charge(int)" }, "Consumer.Branch::Bill"),
         ["find_callees"] = (new() { ["method"] = "Account::Charge(int, string)", ["distinct"] = true }, "Log"),
         ["list_resources"] = (new() { ["assembly"] = "TestFixture" }, "hello.txt"),
@@ -291,7 +291,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["compare_assemblies"] = (new() { ["oldAssembly"] = "TestFixture", ["newAssembly"] = "TestFixture.Consumer" }, "Comparing TestFixture"),
         ["compare_folders"] = (new() { ["oldPath"] = FolderPair(dir, "old"), ["newPath"] = FolderPair(dir, "new") }, "\"modified\":1"),
         ["find_counterpart"] = (new() { ["symbol"] = "Shop", ["oldAssembly"] = "TestFixture", ["newAssembly"] = "TestFixture.Consumer" }, "not found"),
-        ["get_call_tree"] = (new() { ["method"] = "Secret::Validate", ["direction"] = "callers" }, "Account::CheckLicense"),
+        ["get_call_tree"] = (new() { ["method"] = "Secret::Validate", ["direction"] = "callers" }, "Account::CheckPreview"),
         ["find_call_paths"] = (new() { ["to"] = "Account::Charge(int)", ["from"] = "Consumer.Branch::Bill" }, "1 path"),
         ["export_il2cpp_symbols"] = (new() { ["outputDirectory"] = dir.File("il2cpp"), ["assembly"] = "TestFixture" }, "Exported 2 functions"),
         ["generate_cpp_binding"] = (new() { ["type"] = "Account" }, "FindClass(api, \"TestFixture\", \"Fixture.Model\", \"Account\")"),
@@ -513,7 +513,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 Assert.True(text.Contains(expect, StringComparison.Ordinal), $"{tool}: expected '{expect}' in:\n{text}");
             }
             Assert.Contains("return 7;", await Call("decompile_member", new() { ["member"] = "Account::Score" }));
-            Assert.Contains("// Simplified view", await Call("decompile_member", new() { ["member"] = "Account::CheckLicense", ["simplified"] = true }));
+            Assert.Contains("// Simplified view", await Call("decompile_member", new() { ["member"] = "Account::CheckPreview", ["simplified"] = true }));
             Assert.True(File.Exists(_dir.File("saved.dll")));
         }
     }
@@ -551,7 +551,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.Contains("TestFixture.Consumer", await Read("corvus://assemblies"));
             Assert.Contains("public class Account", await Read("corvus://assembly/TestFixture/type/Fixture.Model.Account"));
             Assert.Contains("class Inventory", await Read("corvus://assembly/TestFixture/type/Fixture.Model.Account%2BInventory"));
-            Assert.Contains("ldstr", await Read("corvus://assembly/TestFixture/il/Account::CheckLicense"));
+            Assert.Contains("ldstr", await Read("corvus://assembly/TestFixture/il/Account::CheckPreview"));
             Assert.Contains("Sections:", await Read("corvus://assembly/TestFixture/info"));
             await Assert.ThrowsAnyAsync<McpException>(() => Read("corvus://assembly/TestFixture/type/Nope.Missing"));
             Assert.Equal(Corvus.Mcp.Guide.Topics["native"], await Read("corvus://guide/native"));
@@ -574,9 +574,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.Equal(["analyze_assembly", "analyze_native", "check_reimplementation", "compare_builds", "explain_type", "find_api_usage", "find_feature", "getting_started", "guide", "investigate_feature",
                     "map_native_address", "patch_native", "plan_patch", "trace_native_feature", "triage_crash"],
                 prompts.Select(p => p.Name).Order());
-            var result = await _client.GetPromptAsync("find_feature", new Dictionary<string, object?> { ["feature"] = "license check", ["assembly"] = "TestFixture" });
+            var result = await _client.GetPromptAsync("find_feature", new Dictionary<string, object?> { ["feature"] = "update check", ["assembly"] = "TestFixture" });
             var text = string.Join("\n", result.Messages.Select(m => (m.Content as TextContentBlock)?.Text));
-            Assert.Contains("license check", text);
+            Assert.Contains("update check", text);
             Assert.Contains("search_strings", text);
 
             // Every tool a prompt names exists, so prompts cannot drift from the catalog; every prompt that interpolates text treats it as data.
@@ -941,7 +941,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             var calls = Enumerable.Range(0, 40).Select(i => (i % 5) switch
             {
                 0 => _client.CallToolAsync("decompile_member", new Dictionary<string, object?> { ["member"] = "Account" }),
-                1 => _client.CallToolAsync("search_strings", new Dictionary<string, object?> { ["query"] = "LICENSE" }),
+                1 => _client.CallToolAsync("search_strings", new Dictionary<string, object?> { ["query"] = "PREVIEW" }),
                 2 => _client.CallToolAsync("find_references", new Dictionary<string, object?> { ["symbol"] = "Account::_balance" }),
                 3 => _client.CallToolAsync("rename_symbol", new Dictionary<string, object?> { ["symbol"] = "Shop::Describe", ["newName"] = i % 2 == 0 ? "Describe" : "Describe", ["dryRun"] = false }),
                 _ => _client.CallToolAsync("stub_method", new Dictionary<string, object?> { ["method"] = "Account::Score", ["value"] = i.ToString(), ["dryRun"] = false }),

@@ -11,7 +11,7 @@ public static class WorkflowPrompts
     [Description("Load an assembly or application folder and produce an architecture overview.")]
     public static string AnalyzeAssembly(
         [Description("Path to an assembly file or folder.")] string path,
-        [Description("What you care about (optional), e.g. networking, persistence, licensing.")] string? focus = null) => $"""
+        [Description("What you care about (optional), e.g. networking, startup, updates.")] string? focus = null) => $"""
         Use the corvus tools to analyze {path}.
         1. load_assembly (path={path}; it can be a folder). Then get_assembly_info on the main assembly (for a Unity build: Assembly-CSharp).
         2. list_namespaces, then list_types per interesting namespace. Note Il2Cpp dummy DLLs (bodies are stubs) if reported.
@@ -24,7 +24,7 @@ public static class WorkflowPrompts
     [McpServerPrompt(Name = "find_feature", Title = "Find where a feature is implemented")]
     [Description("Locate the code that implements a behaviour, starting from strings, names and constants.")]
     public static string FindFeature(
-        [Description("The behaviour to find, e.g. 'license check', 'update download', 'settings file encryption'.")] string feature,
+        [Description("The behaviour to find, e.g. 'update check', 'file export', 'settings save'.")] string feature,
         [Description("Assembly id to focus on (optional).")] string? assembly = null) => $"""
         Find where "{feature}" is implemented{(assembly is null ? "" : $" in {assembly}")} using the corvus tools.
         - Start broad: search_strings for UI/log text related to it, search_symbols for likely names (use wildcards), search_constants for known magic numbers.
@@ -119,7 +119,7 @@ public static class WorkflowPrompts
     [McpServerPrompt(Name = "trace_native_feature", Title = "Trace a feature through a native binary")]
     [Description("Find the native code behind a behaviour, from strings, APIs and constants to the deciding function.")]
     public static string TraceNativeFeature(
-        [Description("The behaviour to find, e.g. 'license check', 'save file encryption', 'update download'.")] string feature,
+        [Description("The behaviour to find, e.g. 'update check', 'settings save', 'file export'.")] string feature,
         [Description("Native image id or path.")] string image) => $"""
         Find where "{feature}" is implemented in {image} with the corvus native tools.
         - Start with trace_native_feature for each word or API the feature implies (one call per query; regex=true for spelling variants): it ranks the
@@ -165,7 +165,7 @@ public static class WorkflowPrompts
     public static string CompareBuilds(
         [Description("The old build: a file or folder.")] string oldPath,
         [Description("The new build: a file or folder.")] string newPath,
-        [Description("What matters most (optional), e.g. 'networking' or 'the license check'.")] string? focus = null) => $"""
+        [Description("What matters most (optional), e.g. 'networking' or 'the startup path'.")] string? focus = null) => $"""
         Compare {oldPath} (old) with {newPath} (new) with the corvus tools.
         1. load_assembly both paths; note the ids each side gets (the new side's ids carry #2 when the names repeat).
         2. .NET: compare_assemblies oldAssembly=<old id> newAssembly=<new id> for every pair; native: compare_native_images oldImage=<old id> newImage=<new id>.
@@ -223,7 +223,7 @@ public static class WorkflowPrompts
     public static string CheckReimplementation(
         [Description("Native image id or path.")] string image,
         [Description("The function: address, export or name.")] string function,
-        [Description("What it is believed to compute, e.g. 'CRC-32 of a buffer', 'the license key checksum'.")] string computes,
+        [Description("What it is believed to compute, e.g. 'CRC-32 of a buffer', 'the settings file checksum'.")] string computes,
         [Description("Inputs and expected outputs (optional), e.g. \"'abc' -> 0x352441C2\".")] string? cases = null) => $"""
         Check that {function} in {image} computes {computes}.
         1. Read its parameters first: analyze_native_function address={function} (and decompile_native when an engine is available) gives the arguments,

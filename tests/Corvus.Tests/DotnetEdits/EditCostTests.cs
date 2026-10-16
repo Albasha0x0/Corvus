@@ -24,11 +24,11 @@ public sealed class EditCostTests : IDisposable
     [Fact]
     public void AnEditCompilesOnceForTheScratchCopyAndTheModule()
     {
-        Patch("Secret::Validate", "return key.Length > 3;");
+        Patch("Secret::Validate", "return code.Length > 3;");
         Assert.Equal(1, _patcher.Compiles);
         _env.Edit(() => _edits.AddMembersCSharp(_env.One("Account", SymbolKind.Type), "public int Twice(int x) { return x * 2; }", false, default));
         Assert.Equal(3, _patcher.Compiles); // declarations, then bodies as helpers
-        Assert.Contains("return key.Length > 3;", _env.Decompile("Secret::Validate"));
+        Assert.Contains("return code.Length > 3;", _env.Decompile("Secret::Validate"));
         Assert.Contains("x * 2", _env.Decompile("Account::Twice"));
     }
 
@@ -36,18 +36,18 @@ public sealed class EditCostTests : IDisposable
     [Fact]
     public void UndoReplaysCSharpEditsWithoutAScratchPass()
     {
-        Patch("Secret::Validate", "return key.Length > 3;");
+        Patch("Secret::Validate", "return code.Length > 3;");
         Patch("Account::Score", "return 7;");
         int before = _patcher.Compiles;
         _env.Edit(() => _edits.Undo(_env.Fixture, 2, default));
         Assert.Equal(before + 1, _patcher.Compiles);
-        Assert.Contains("return key.Length > 3;", _env.Decompile("Secret::Validate"));
+        Assert.Contains("return code.Length > 3;", _env.Decompile("Secret::Validate"));
     }
 
     [Fact]
     public void ACancelledUndoChangesNothing()
     {
-        Patch("Secret::Validate", "return key.Length > 3;");
+        Patch("Secret::Validate", "return code.Length > 3;");
         Patch("Account::Score", "return 7;");
         var module = _env.Fixture.Module;
         using var cancelled = new CancellationTokenSource();
