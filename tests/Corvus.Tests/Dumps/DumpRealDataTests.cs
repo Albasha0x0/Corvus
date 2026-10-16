@@ -94,7 +94,8 @@ public sealed class DumpRealDataTests(Xunit.Abstractions.ITestOutputHelper outpu
         }
         output.WriteLine($"read_dump_memory: 64 KiB in {pages} pages");
         Assert.Equal(65536 * 2, hex.Length);
-        Assert.InRange(pages, 15, 40);
+        // Measured 28 pages of about 2,400 bytes (text 5,625-5,697 estimated tokens against 6,000); fewer would under-count random bytes.
+        Assert.InRange(pages, 26, 30);
 
         var text = string.Concat(Enumerable.Repeat("System.InvalidOperationException: sample-probe\r\n   at FxProbe.Program.Inner()\r\n   at FxProbe.Program.Main(String[] args)\r\n", 60));
         var (_, symbolized) = await Call("symbolize_stack_text", new() { ["text"] = text });
