@@ -7,7 +7,7 @@
   },
   "isError": false,
   "content": [
-    "Engine: ours (server default auto: no engine has analyzed these bytes)\nCall targets in sample-build-a.dll, function First; engine ours\nBy status: ; by mechanism: \n0 sites (showing 0-0):\n"
+    "Engine: ours (server default auto: no engine has analyzed these bytes)\nCall targets in sample-build-a.dll, function First; engine ours\nBy status: ; by mechanism: \n0 sites:\n"
   ],
   "structuredContent": {
     "image": "sample-build-a.dll",

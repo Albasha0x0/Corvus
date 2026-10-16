@@ -195,7 +195,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         sb.AppendLine("By status: " + string.Join(", ", r.ByStatus.Select(kv => $"{kv.Key} {kv.Value}")) +
                       "; by mechanism: " + string.Join(", ", r.ByMechanism.Select(kv => $"{kv.Key} {kv.Value}")));
         if (r.TopUnresolved.Count > 0) sb.AppendLine("Most unresolved: " + string.Join(", ", r.TopUnresolved));
-        sb.AppendLine($"{ToolSupport.Plural(r.Total, "site")} (showing {(r.Items.Count == 0 ? 0 : r.Offset + 1)}-{r.Offset + r.Items.Count}):");
+        sb.AppendLine($"{ToolSupport.Plural(r.Total, "site")}{(r.Items.Count == 0 ? r.Offset > 0 ? $" (none from offset {r.Offset})" : "" : $" (showing {r.Offset + 1}-{r.Offset + r.Items.Count})")}:");
         foreach (var (s, instruction) in r.Items.Zip(instructions))
         {
             sb.Append("  ").Append(s.Address).Append("  ").Append(s.Function).Append("  ").Append(instruction).Append("  [").Append(s.Mechanism).Append(", ").Append(s.Status).Append(']');

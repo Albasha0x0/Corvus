@@ -144,7 +144,7 @@ public sealed partial class NativeCodeTools
                 var rows = filtered.SelectMany(p => p.Rows).ToList();
                 var page = rows.Skip(offset).Take(limit).ToList();
                 sb.Append(string.Concat(filtered.Select(p => p.Title))).AppendLine($"  {Plural(rows.Count, "row")}" +
-                    (page.Count < rows.Count ? $" (showing {(page.Count == 0 ? 0 : offset + 1)}-{offset + page.Count})" : ""));
+                    (page.Count == 0 ? offset > 0 && rows.Count > 0 ? $" (none from offset {offset})" : "" : page.Count < rows.Count ? $" (showing {offset + 1}-{offset + page.Count})" : ""));
                 foreach (var row in page) sb.Append("  ").AppendLine(row);
                 total += rows.Count;
                 if (page.Count > 0) items.AddRange(Xrefs(native.Id, filtered[0].Target, page, 0, page.Count, null, choice).Items.Select(e => e with { Of = inputs[i] }));

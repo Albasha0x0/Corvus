@@ -162,7 +162,7 @@ public sealed class OutputPager(ServerOptions options)
         {
             shown = Math.Min(shown, page.Count);
             var sb = new System.Text.StringBuilder()
-                .Append($"{rows.Count} {Noun(rows.Count, noun)} (showing {(shown == 0 ? 0 : offset + 1)}-{offset + shown}):\n");
+                .Append($"{rows.Count} {Noun(rows.Count, noun)}{(shown == 0 ? offset > 0 ? $" (none from offset {offset})" : "" : $" (showing {offset + 1}-{offset + shown})")}:\n");
             foreach (var r in page.Take(shown)) sb.Append("  ").Append(r).Append('\n');
             sb.Append(offset + shown < rows.Count ? More(offset + shown) : End(rows.Count, noun)).Append('\n');
             return sb.ToString();
