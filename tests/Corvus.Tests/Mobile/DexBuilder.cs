@@ -39,6 +39,7 @@ internal static class Asm
     public static DexInsn ConstClass(int reg, string type) => new(p => [U(0x1c, reg), (ushort)p.Type(type)], [], [type], [], []);
     public static DexInsn NewInstance(int reg, string type) => new(p => [U(0x22, reg), (ushort)p.Type(type)], [], [type], [], []);
     public static DexInsn CheckCast(int reg, string type) => new(p => [U(0x1f, reg), (ushort)p.Type(type)], [], [type], [], []);
+    public static DexInsn InstanceOf(int a, int b, string type) => new(p => [U(0x20, a | b << 4), (ushort)p.Type(type)], [], [type], [], []);
     public static DexInsn Goto(int offset) => Plain(U(0x28, offset & 0xFF));
     public static DexInsn IfEqz(int reg, short offset) => Plain(U(0x38, reg), (ushort)offset);
     public static DexInsn IfEq(int a, int b, short offset) => Plain(U(0x32, a | b << 4), (ushort)offset);
@@ -101,6 +102,8 @@ internal sealed class DexBuilder
         public string?[]? ParameterNames { get; set; }
         /// <summary>Method annotations, as <see cref="ClassDef.Annotations"/>.</summary>
         public List<(string Type, byte Visibility, (string Name, object Value)[] Elements)> Annotations { get; } = [];
+        /// <summary>Each parameter's annotations (an empty list for none), as <see cref="ClassDef.Annotations"/>.</summary>
+        public List<(string Type, byte Visibility, (string Name, object Value)[] Elements)>[]? ParameterAnnotations { get; set; }
     }
 
     public sealed class ClassDef(string descriptor, uint access, string? super, string? source)
@@ -200,7 +203,7 @@ internal sealed class DexBuilder
                 foreach (var t in m.Tries.SelectMany(t => t.Handlers).Select(h => h.Type).OfType<string>()) AddType(t);
                 foreach (var n in m.ParameterNames ?? []) if (n != null) strings.Add(n);
             }
-            foreach (var a in c.Annotations.Concat(c.Methods.SelectMany(m => m.Annotations)))
+            foreach (var a in c.Annotations.Concat(c.Methods.SelectMany(m => m.Annotations)).Concat(c.Methods.SelectMany(m => (m.ParameterAnnotations ?? []).SelectMany(x => x))))
             {
                 AddType(a.Type);
                 foreach (var (name, value) in a.Elements)
@@ -371,13 +374,16 @@ internal sealed class DexBuilder
             }
             return list;
         }
-        var annotated = classes.Where(c => c.Annotations.Count > 0 || c.Methods.Any(m => m.Annotations.Count > 0)).ToList();
+        var annotated = classes.Where(c => c.Annotations.Count > 0 || c.Methods.Any(m => m.Annotations.Count > 0 || m.ParameterAnnotations != null)).ToList();
         var classItems = new Dictionary<ClassDef, List<long>>();
         var methodItems = new Dictionary<ClassDef, List<(int Method, List<long> Items)>>();
+        var parameterItems = new Dictionary<ClassDef, List<(int Method, List<List<long>> Items)>>();
         foreach (var c in annotated)
         {
             if (c.Annotations.Count > 0) classItems[c] = Items(c.Annotations);
             methodItems[c] = [.. c.Methods.Where(m => m.Annotations.Count > 0).Select(m => (p.M[MethodId(c, m)], Items(m.Annotations))).OrderBy(x => x.Item1)];
+            parameterItems[c] = [.. c.Methods.Where(m => m.ParameterAnnotations != null)
+                .Select(m => (p.M[MethodId(c, m)], m.ParameterAnnotations!.Select(Items).ToList())).OrderBy(x => x.Item1)];
         }
         if (annotationCount > 0) map.Add((0x2004, annotationCount, annotationStart));
         long Set(List<long> list)
@@ -391,14 +397,29 @@ internal sealed class DexBuilder
         }
         var classSets = classItems.ToDictionary(x => x.Key, x => Set(x.Value));
         var methodSets = methodItems.ToDictionary(x => x.Key, x => x.Value.Select(m => (m.Method, Set: Set(m.Items))).ToList());
+        var parameterSets = parameterItems.ToDictionary(x => x.Key, x => x.Value.Select(m => (m.Method, Sets: m.Items.Select(i => i.Count > 0 ? Set(i) : 0).ToList())).ToList());
         if (setCount > 0) map.Add((0x1003, setCount, setStart));
+        // annotation_set_ref_list per method with parameter annotations
+        var refLists = new Dictionary<(ClassDef, int), long>();
+        long refStart = 0;
+        foreach (var (c, list) in parameterSets)
+            foreach (var (method, sets) in list)
+            {
+                Align4();
+                if (refLists.Count == 0) refStart = w.Length;
+                refLists[(c, method)] = w.Length;
+                U32((uint)sets.Count);
+                foreach (var s in sets) U32((uint)s);
+            }
+        if (refLists.Count > 0) map.Add((0x1002, refLists.Count, refStart));
         foreach (var c in annotated)
         {
             Align4();
             if (directories.Count == 0) dirStart = w.Length;
             directories[c] = w.Length;
-            U32(classSets.TryGetValue(c, out var set) ? (uint)set : 0); U32(0); U32((uint)methodSets[c].Count); U32(0);
+            U32(classSets.TryGetValue(c, out var set) ? (uint)set : 0); U32(0); U32((uint)methodSets[c].Count); U32((uint)parameterSets[c].Count);
             foreach (var (method, at) in methodSets[c]) { U32((uint)method); U32((uint)at); }
+            foreach (var (method, _) in parameterSets[c]) { U32((uint)method); U32((uint)refLists[(c, method)]); }
         }
         if (directories.Count > 0) map.Add((0x2006, directories.Count, dirStart));
 

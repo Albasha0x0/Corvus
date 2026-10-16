@@ -99,6 +99,63 @@ public sealed class ApiSurfaceTests : IDisposable
         Has(rows, "POST /demo.v1.Users/GetUser | grpc | Lcom/app/UsersGrpc;->method()V +0x4");
     }
 
+    /// <summary>
+    /// An app whose OkHttp, Ktor and Retrofit R8 renamed: OkHttp's url(String) known by its "ws:" / "wss:" rewrite, Ktor's URL
+    /// parser by "mailto" and "@/\?#", a wrapper passing its String parameter on, and Retrofit's @Query type by its parser's
+    /// instance-of order (Url, Path, Query, ... Field) with no annotation names left.
+    /// </summary>
+    private static byte[] RenamedDex()
+    {
+        var b = new DexBuilder();
+        var ok = b.Class("Lo/a;");
+        ok.Method("a", "Lo/a;", ["Ljava/lang/String;"], 1, Asm.ConstString(0, "ws:"), Asm.ConstString(0, "wss:"), Asm.ConstString(0, "http:"), Asm.Return(0x11, 1)).Registers = 3;
+        b.Class("Lk/b;").Method("a", "Lk/c;", ["Lk/c;", "Ljava/lang/String;"], 9,
+            Asm.ConstString(0, "mailto"), Asm.ConstString(0, "@/\\?#"), Asm.Return(0x11, 1)).Registers = 3;
+        b.Class("Lcom/app/Http;").Method("get", "V", ["Ljava/lang/String;"], 9,
+            Asm.NewInstance(0, "Lo/a;"), Asm.Invoke(0x6e, "Lo/a;->a(Ljava/lang/String;)Lo/a;", 0, 1), Asm.ReturnVoid()).Registers = 2;
+        var feed = b.Class("Lcom/app/Feed;");
+        feed.Method("load", "V", [], 1,
+            Asm.NewInstance(0, "Lo/a;"), Asm.ConstString(1, "https://feed.example/v2/items"),
+            Asm.Invoke(0x6e, "Lo/a;->a(Ljava/lang/String;)Lo/a;", 0, 1), Asm.ReturnVoid()).Registers = 3;
+        feed.Method("more", "V", [], 1,
+            Asm.ConstString(0, "https://feed.example/v2/more"), Asm.Invoke(0x71, "Lcom/app/Http;->get(Ljava/lang/String;)V", 0), Asm.ReturnVoid()).Registers = 2;
+        feed.Method("ping", "V", [], 1,
+            Asm.ConstString(1, "https://ktor.example/api/ping"), Asm.Invoke(0x71, "Lk/b;->a(Lk/c;Ljava/lang/String;)Lk/c;", 0, 1), Asm.ReturnVoid()).Registers = 3;
+
+        string[] chain = ["Lr/u;", "Lr/p;", "Lr/q;", "Lr/n;", "Lr/m;", "Lr/h;", "Lr/i;", "Lr/f;", "Lr/g;", "Lr/t;"];
+        foreach (var t in chain)
+        {
+            var a = b.Class(t, 0x2601);
+            if (t is "Lr/p;" or "Lr/q;" or "Lr/f;" or "Lr/h;") a.Method("value", "Ljava/lang/String;", [], 0x401);
+            if (t is "Lr/p;" or "Lr/q;" or "Lr/f;" or "Lr/n;" or "Lr/m;") a.Method("encoded", "Z", [], 0x401);
+        }
+        b.Class("Lr/z;").Method("a", "V", ["Ljava/lang/Object;"], 9, [.. chain.Select(t => Asm.InstanceOf(0, 1, t)), Asm.ReturnVoid()]).Registers = 2;
+        b.Class("Le/f;").Method("p", "V", ["Ljava/lang/Object;"], 0x9,
+            Asm.CheckCast(1, "La/b;"), Asm.ConstString(0, "GET"), Asm.CheckCast(1, "La/c;"), Asm.ConstString(0, "POST"),
+            Asm.CheckCast(1, "La/e;"), Asm.ConstString(0, "PUT"), Asm.CheckCast(1, "La/g;"), Asm.ConstString(0, "DELETE"), Asm.ReturnVoid()).Registers = 2;
+        var search = b.Class("Lc/d;", 0x601).Method("b", "Ljava/lang/Object;", ["Ljava/lang/String;", "Ljava/lang/String;", "I"], 0x401);
+        search.Annotations.Add(("La/b;", 1, [("value", "items/{id}")]));
+        search.ParameterAnnotations = [[("Lr/q;", 1, [("value", "term")])], [("Lr/p;", 1, [("value", "id")])], [("Lr/q;", 1, [("value", "page")])]];
+        return b.Build();
+    }
+
+    [Fact]
+    public void Renamed_okhttp_ktor_and_retrofit_query_are_recognized_by_their_code()
+    {
+        var path = _dir.File("app.apk");
+        File.WriteAllBytes(path, ContainerFixtures.Zip(("classes.dex", RenamedDex())));
+        var found = Endpoints(path);
+        var rows = found.Items.Select(Row).ToList();
+        Has(rows, "* https://feed.example/v2/items | okhttp (renamed) | Lcom/app/Feed;->load()V +0x4");
+        Has(rows, "* https://feed.example/v2/more | okhttp (renamed) | Lcom/app/Feed;->more()V +0x2");
+        Has(rows, "* https://ktor.example/api/ping | ktor (renamed) | Lcom/app/Feed;->ping()V +0x2");
+        Has(rows, "GET /items/{id}?page=…&term=… | retrofit | Lc/d;->b(Ljava/lang/String;Ljava/lang/String;I)Ljava/lang/Object; annotation");
+        Assert.DoesNotContain(rows, r => r.Contains("| url |", StringComparison.Ordinal));
+        // the header counts the code read, not the (absent) assemblies
+        Assert.Equal(1, found.Searched);
+        Assert.Contains("Code searched: 1 dex.", found.Notes);
+    }
+
     [Fact]
     public void Java_descriptor_data_constants_are_read_as_one_descriptor_with_its_grpc_methods()
     {

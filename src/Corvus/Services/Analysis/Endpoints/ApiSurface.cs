@@ -88,7 +88,7 @@ public sealed record ApiSurface(IReadOnlyList<CodeEndpoint> Endpoints, IReadOnly
             ct.ThrowIfCancellationRequested();
             try
             {
-                if (DexFile.IsDex(item.Bytes)) dex.Add(DexFile.Read(item.Bytes, item.Path), item.Path, ct);
+                if (DexFile.IsDex(item.Bytes)) dex.Add(DexFile.Read(item.Bytes, item.Path), item.Path);
                 else if (endpoints && (item.Kind == "javascript" || item.Kind == "text" && IsScript(item.Path)))
                 {
                     var parseNotes = new List<string>();
@@ -112,7 +112,7 @@ public sealed record ApiSurface(IReadOnlyList<CodeEndpoint> Endpoints, IReadOnly
                 notes.Add($"{item.Path}: not read ({ex.Message}).");
             }
         }
-        dex.Finish(rows, descriptors);
+        dex.Finish(rows, descriptors, notes, ct);
         foreach (var d in descriptors)
             foreach (var s in d.File.Services)
                 foreach (var m in s.Methods)

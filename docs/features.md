@@ -267,9 +267,11 @@ bridge call to its preload method, ending at sinks and native calls, a native ca
 registration names (one row per chain, the steps in the detail). `kind=endpoint` on a HAR or mitmproxy capture lists each request template once (numeric and id
 path segments folded, query values never shown) with its request count and statuses, the capture read as a stream at any size (one entry or flow in memory). On app code (an APK, AAB, `.ipa`,
 DEX, .NET assembly, Mach-O or a container of them) `kind=endpoint` lists the endpoints the code names, each with its
-client, method id or member and location: Retrofit methods from their HTTP annotations (R8-renamed annotation types
-mapped back through Retrofit's own parser) joined to `baseUrl` through `create(Api.class)`, OkHttp / Ktor / Volley /
-`java.net.URL` / WebView calls with `StringBuilder` and Kotlin template URLs folded to `{}` templates, Refit attributes
+client, method id or member and location: Retrofit methods from their HTTP annotations and `@Query` names (R8-renamed
+annotation types mapped back through Retrofit's own parser: HTTP methods by the verb each type is parsed to, `@Query` by the
+parser's instance-of order) joined to `baseUrl` through `create(Api.class)`, OkHttp / Ktor / Volley /
+`java.net.URL` / WebView calls (R8-renamed OkHttp and Ktor known by their own URL handling code and followed through
+wrappers that pass a String parameter on, marked renamed; the header counts the code files read) with `StringBuilder` and Kotlin template URLs folded to `{}` templates, Refit attributes
 (with `RestService.For` base URLs and the query names unannotated parameters become), `HttpClient` /
 `HttpRequestMessage` / `WebClient` calls with interpolated and concatenated URLs, generated gRPC client methods in Java
 and C#, every gRPC method of an embedded descriptor, Mach-O URL strings with the functions that load them, and absolute

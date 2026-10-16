@@ -26,6 +26,16 @@ public sealed record ContainerScope(string Source, string Container, IReadOnlyLi
 {
     /// <summary>kind=endpoint: a capture whose requests are joined to the code's endpoints.</summary>
     public string? Capture { get; init; }
+
+    /// <summary>What a kind read when it reads more than <see cref="Items"/> (DEX files, native images, an app image), for the result header.</summary>
+    public SearchTally Tally { get; init; } = new();
+}
+
+/// <summary>The files a search kind read and a note naming them; null Files counts the scope's items.</summary>
+public sealed class SearchTally
+{
+    public int? Files { get; set; }
+    public string? Note { get; set; }
 }
 
 /// <summary>A search_container match: the inner path, the name the query matched and the kind.</summary>

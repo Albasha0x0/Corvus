@@ -204,7 +204,9 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         var scope = (Scope: scope0 with { Capture = capture }, Notes: notes0);
         var matcher = SearchService.CreateMatcher(query, regex: false);
         var all = provider.Search(scope.Scope, kind, matcher, ct).ToList();
-        return Ranked(scope.Scope.Source, scope.Scope.Container, scope.Scope.Items.Count, all, query, offset, limit, scope.Notes);
+        var tally = scope.Scope.Tally;
+        if (tally.Note != null) scope.Notes.Insert(0, tally.Note);
+        return Ranked(scope.Scope.Source, scope.Scope.Container, tally.Files ?? scope.Scope.Items.Count, all, query, offset, limit, scope.Notes);
     }
 
     /// <summary>A search kind's rows ranked on the last part of the name (a file name, a member name), as the managed search ranks short names, and paged.</summary>

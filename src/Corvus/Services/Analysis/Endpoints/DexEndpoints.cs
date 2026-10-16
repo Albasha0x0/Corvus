@@ -25,8 +25,17 @@ internal sealed class DexEndpoints
     ];
 
     private sealed record Annotated(string Type, IReadOnlyList<(string Name, DexValue Value)> Elements, string Member, string Interface, string File,
-        IReadOnlyList<string> Query);
+        IReadOnlyList<(string Type, string Value)> Parameters);
 
+    /// <summary>A method of an HTTP library R8 renamed, found by its own code: the client and the String parameters that carry the URL.</summary>
+    private sealed record Sink(string Client, IReadOnlyList<int> UrlParameters, bool Library);
+
+    private const string QueryType = "Lretrofit2/http/Query;";
+    private readonly List<(DexFile Dex, string File)> _dexes = [];
+    private readonly Dictionary<string, Sink> _sinks = new(StringComparer.Ordinal); // renamed library methods (and wrappers) by id
+    private readonly HashSet<string> _libraryClasses = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _valueAndEncoded = new(StringComparer.Ordinal); // annotation types with value() and encoded()
+    private readonly List<List<string>> _instanceOfChains = [];
     private readonly List<Annotated> _annotated = [];
     private readonly Dictionary<string, string> _verbOfType = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _baseOfInterface = new(StringComparer.Ordinal);
@@ -47,7 +56,10 @@ internal sealed class DexEndpoints
         public static readonly Reg Unknown = new() { Text = "{}" };
     }
 
-    public void Add(DexFile dex, string file, CancellationToken ct)
+    /// <summary>Keeps a DEX for <see cref="Finish"/>: renamed library methods are found across all of them before any call is read.</summary>
+    public void Add(DexFile dex, string file) => _dexes.Add((dex, file));
+
+    private void Scan(DexFile dex, string file, CancellationToken ct)
     {
         var relevant = new bool[dex.StringCount];
         bool anyDescriptor = false;
@@ -69,9 +81,21 @@ internal sealed class DexEndpoints
             ct.ThrowIfCancellationRequested();
             bool isInterface = (c.Access & 0x200) != 0;
             if (isInterface && c.AnnotationsOffset != 0) Annotations(dex, c, file);
-            foreach (var em in dex.ClassData(c).Methods)
+            var methods = dex.ClassData(c).Methods;
+            if ((c.Access & 0x2000) != 0)
+            {
+                var shape = methods.Select(m => dex.Method(m.MethodIndex)).Select(m => m.Name + m.Proto.Descriptor).ToHashSet(StringComparer.Ordinal);
+                if (shape.Contains("value()Ljava/lang/String;") && shape.Contains("encoded()Z")) _valueAndEncoded.Add(c.Descriptor);
+            }
+            foreach (var em in methods)
             {
                 if (em.CodeOffset == 0 || dex.Code(em.CodeOffset) is not { } code) continue;
+                if (Count(code.Instructions, 0x20) >= 8)
+                {
+                    // Retrofit's parameter annotation parser: one instance-of per annotation type, in its source order
+                    var chain = Dalvik.Decode(code.Instructions).Where(i => i.Opcode == 0x20).Select(i => dex.Type(i.Index)).Distinct().ToList();
+                    if (chain.Count >= 8) _instanceOfChains.Add(chain);
+                }
                 if (!Interesting(code.Instructions, relevant, sinks)) continue;
                 var instructions = Dalvik.Decode(code.Instructions);
                 Method(dex, file, dex.Method(em.MethodIndex), instructions);
@@ -103,6 +127,114 @@ internal sealed class DexEndpoints
         return false;
     }
 
+    /// <summary>Raw code units walked instruction by instruction (payloads skipped): each opcode with its unit offset.</summary>
+    private static IEnumerable<(int Op, int At)> Ops(ushort[] code)
+    {
+        for (int at = 0; at < code.Length;)
+        {
+            ushort u = code[at];
+            int op = u & 0xFF;
+            if (op == 0 && (u >> 8) is 1 or 2 or 3)
+            {
+                if (Dalvik.DecodeOne(code, at) is not { } payload) yield break;
+                at += payload.Length;
+                continue;
+            }
+            int units = Dalvik.Units(Dalvik.Ops[op].Format);
+            if (at + units > code.Length) yield break;
+            yield return (op, at);
+            at += units;
+        }
+    }
+
+    private static int Count(ushort[] code, int opcode) => Ops(code).Count(o => o.Op == opcode);
+
+    /// <summary>
+    /// OkHttp and Ktor methods R8 renamed, by their own code: OkHttp's Request.Builder.url(String) rewrites "ws:" / "wss:",
+    /// its HttpUrl parser throws "Expected URL scheme 'http' or 'https'..."; Ktor's URL parser tests "mailto", "about", "tel"
+    /// and splits on "@/\?#". Their String parameters carry the URL. Then, up to three levels, any method passing one of
+    /// its own String parameters straight to such a parameter is a wrapper with the same client.
+    /// </summary>
+    private void RenamedClients(CancellationToken ct)
+    {
+        foreach (var (dex, _) in _dexes)
+        {
+            var marks = new Dictionary<int, string>();
+            for (int i = 0; i < dex.StringCount; i++)
+            {
+                var s = dex.String(i);
+                if (s is "ws:" or "wss:" or "mailto" or "about" or "tel" or "@/\\?#") marks[i] = s;
+                else if (s.StartsWith("Expected URL scheme 'http' or 'https'", StringComparison.Ordinal)) marks[i] = "scheme";
+            }
+            if (marks.Count == 0) continue;
+            foreach (var c in dex.Classes)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (Client(c.Descriptor) != null) continue;
+                foreach (var em in dex.ClassData(c).Methods)
+                {
+                    if (em.CodeOffset == 0 || dex.Code(em.CodeOffset) is not { } code) continue;
+                    var seen = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var (op, at) in Ops(code.Instructions))
+                        if (op == 0x1a && marks.TryGetValue(code.Instructions[at + 1], out var m)) seen.Add(m);
+                        else if (op == 0x1b && marks.TryGetValue(code.Instructions[at + 1] | code.Instructions[at + 2] << 16, out var m2)) seen.Add(m2);
+                    string? client = seen.Contains("ws:") && seen.Contains("wss:") || seen.Contains("scheme") ? "okhttp"
+                        : seen.Contains("mailto") && (seen.Contains("@/\\?#") || seen.Contains("about") && seen.Contains("tel")) ? "ktor" : null;
+                    var method = dex.Method(em.MethodIndex);
+                    var urls = method.Proto.Parameters.Select((p, k) => (p, k)).Where(x => x.p == "Ljava/lang/String;").Select(x => x.k).ToList();
+                    if (client == null || urls.Count == 0) continue;
+                    _sinks.TryAdd(method.Descriptor, new Sink(client, urls, true));
+                    _libraryClasses.Add(c.Descriptor);
+                }
+            }
+        }
+        for (int round = 0; round < 3 && _sinks.Count > 0; round++)
+        {
+            int before = _sinks.Count;
+            foreach (var (dex, _) in _dexes)
+            {
+                var targets = new Dictionary<int, Sink>();
+                for (int i = 0; i < dex.MethodCount; i++)
+                    if (_sinks.TryGetValue(dex.Method(i).Descriptor, out var s)) targets[i] = s;
+                if (targets.Count == 0) continue;
+                foreach (var c in dex.Classes)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    foreach (var em in dex.ClassData(c).Methods)
+                    {
+                        if (em.CodeOffset == 0 || dex.Code(em.CodeOffset) is not { } code) continue;
+                        var method = dex.Method(em.MethodIndex);
+                        if (_sinks.ContainsKey(method.Descriptor) || !method.Proto.Parameters.Contains("Ljava/lang/String;")) continue;
+                        if (!Ops(code.Instructions).Any(o => o.Op is >= 0x6e and <= 0x72 or >= 0x74 and <= 0x78 && targets.ContainsKey(code.Instructions[o.At + 1]))) continue;
+                        // the register of each String parameter: parameters take the last Ins registers, this first
+                        var parameterOf = new Dictionary<int, int>();
+                        int r = code.Registers - code.Ins + ((em.Access & 0x8) == 0 ? 1 : 0);
+                        for (int k = 0; k < method.Proto.Parameters.Count; k++)
+                        {
+                            if (method.Proto.Parameters[k] == "Ljava/lang/String;") parameterOf[r] = k;
+                            r += method.Proto.Parameters[k] is "J" or "D" ? 2 : 1;
+                        }
+                        var urls = new SortedSet<int>();
+                        string? client = null;
+                        foreach (var i in Dalvik.Decode(code.Instructions))
+                        {
+                            if (!i.IsInvoke || i.Ref != DalvikRef.Method || !targets.TryGetValue(i.Index, out var sink)) continue;
+                            var callee = dex.Method(i.Index);
+                            int arg = i.Opcode is 0x71 or 0x77 ? 0 : 1;
+                            for (int k = 0; k < callee.Proto.Parameters.Count && arg < i.Arguments.Count; k++)
+                            {
+                                if (sink.UrlParameters.Contains(k) && parameterOf.TryGetValue(i.Arguments[arg], out var mine)) { urls.Add(mine); client = sink.Client; }
+                                arg += callee.Proto.Parameters[k] is "J" or "D" ? 2 : 1;
+                            }
+                        }
+                        if (client != null) _sinks.TryAdd(method.Descriptor, new Sink(client, [.. urls], false));
+                    }
+                }
+            }
+            if (_sinks.Count == before) break;
+        }
+    }
+
     private void Annotations(DexFile dex, DexClass c, string file)
     {
         var a = dex.Annotations(c);
@@ -112,12 +244,12 @@ internal sealed class DexEndpoints
                 if (an.Visibility != "runtime") continue;
                 bool path = an.Elements.Any(e => e.Name is "value" or "path" && e.Value.Kind == "string");
                 if (!path) continue;
-                var query = new List<string>();
+                var named = new List<(string, string)>();
                 if (a.Parameters.TryGetValue(methodIndex, out var parameters))
                     foreach (var p in parameters)
                         foreach (var pa in p)
-                            if (pa.Type == "Lretrofit2/http/Query;" && pa.Elements.FirstOrDefault(e => e.Name == "value").Value is { Kind: "string", Value: string q }) query.Add(q);
-                _annotated.Add(new Annotated(an.Type, an.Elements, dex.Method(methodIndex).Descriptor, c.Descriptor, file, query));
+                            if (pa.Elements.FirstOrDefault(e => e.Name == "value").Value is { Kind: "string", Value: string q }) named.Add((pa.Type, q));
+                _annotated.Add(new Annotated(an.Type, an.Elements, dex.Method(methodIndex).Descriptor, c.Descriptor, file, named));
             }
     }
 
@@ -125,7 +257,7 @@ internal sealed class DexEndpoints
     {
         var regs = new Dictionary<int, Reg>();
         var consumed = new HashSet<int>();
-        bool library = Client(method.Class) != null; // the HTTP library's own code calling itself
+        bool library = Client(method.Class) != null || _libraryClasses.Contains(method.Class); // the HTTP library's own code calling itself
         Reg result = Reg.Unknown;
         string? lastType = null;
         var verbCandidates = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -241,6 +373,13 @@ internal sealed class DexEndpoints
                 Row(args[1].Int is { } v and >= 0 and <= 7 ? VolleyVerbs[v] : "*", args[2], "volley", i.Offset);
                 continue;
             }
+            if (!library && _sinks.TryGetValue(callee.Descriptor, out var renamed))
+            {
+                int first = args.Count - callee.Proto.Parameters.Count;
+                foreach (var p in renamed.UrlParameters)
+                    if (first + p < args.Count && args[first + p] is { Literal: true, Text: { } t } arg && LooksLikeUrl(t)) Row("*", arg, renamed.Client + " (renamed)", i.Offset);
+                continue;
+            }
             if (Client(cls) is { } client && !library)
             {
                 var parameters = callee.Proto.Parameters;
@@ -316,8 +455,18 @@ internal sealed class DexEndpoints
     }
 
     /// <summary>The rows of every added DEX: Retrofit methods resolved through the annotation types seen in all of them.</summary>
-    public void Finish(List<CodeEndpoint> endpoints, List<FoundDescriptor> descriptors)
+    public void Finish(List<CodeEndpoint> endpoints, List<FoundDescriptor> descriptors, List<string> notes, CancellationToken ct)
     {
+        RenamedClients(ct);
+        foreach (var (dex, file) in _dexes)
+        {
+            try { Scan(dex, file, ct); }
+            catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException or ArgumentException or IndexOutOfRangeException)
+            {
+                notes.Add($"{file}: not read ({ex.Message}).");
+            }
+        }
+        var query = QueryAnnotation();
         foreach (var a in _annotated)
         {
             string? verb = a.Type.StartsWith("Lretrofit2/http/", StringComparison.Ordinal) ? a.Type[16..^1] : _verbOfType.GetValueOrDefault(a.Type);
@@ -331,10 +480,22 @@ internal sealed class DexEndpoints
             if (verb == null || !Verbs.Contains(verb) && verb.Any(c => !char.IsAsciiLetterUpper(c)) || path == null) continue;
             var baseUrl = _baseOfInterface.GetValueOrDefault(a.Interface);
             var url = baseUrl != null ? EndpointTemplates.Join(baseUrl, path) : EndpointTemplates.Rooted(path);
-            if (a.Query.Count > 0) url += (url.Contains('?', StringComparison.Ordinal) ? "&" : "?") + string.Join("&", a.Query.Distinct().Order(StringComparer.Ordinal).Select(q => q + "=…"));
+            var names = a.Parameters.Where(p => p.Type == QueryType || p.Type == query).Select(p => p.Value).Distinct().Order(StringComparer.Ordinal).ToList();
+            if (names.Count > 0) url += (url.Contains('?', StringComparison.Ordinal) ? "&" : "?") + string.Join("&", names.Select(q => q + "=…"));
             endpoints.Add(new CodeEndpoint(verb, url, "retrofit", a.File, a.Member, "annotation") { Base = baseUrl });
         }
         endpoints.AddRange(_rows);
         descriptors.AddRange(_descriptors);
+    }
+
+    /// <summary>
+    /// Retrofit's @Query type when R8 renamed it: its parameter parser tests each annotation type in source order (Url, Path,
+    /// Query, ..., Field, ...), and of those with value() and encoded() Query is the second (after Path, before Field).
+    /// </summary>
+    private string? QueryAnnotation()
+    {
+        var votes = _instanceOfChains.Select(c => c.Where(_valueAndEncoded.Contains).ToList()).Where(c => c.Count >= 3).Select(c => c[1])
+            .GroupBy(t => t).OrderByDescending(g => g.Count()).FirstOrDefault();
+        return votes?.Key;
     }
 }

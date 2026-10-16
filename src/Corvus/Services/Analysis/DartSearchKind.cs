@@ -15,7 +15,9 @@ internal sealed class DartSearchKind : IContainerSearchKind
         byte[] file;
         try { file = File.ReadAllBytes(scope.Source); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { yield break; }
+        scope.Tally.Files = 0;
         if (DartPoolScan.AppImage(file, out var inner) is not { } bytes) yield break;
+        scope.Tally.Files = 1;
         var snapshots = DartScan.Snapshots(bytes, ct);
         if (DartPoolScan.Isolate(snapshots) is not { } isolate) yield break;
         var path = inner ?? Path.GetFileName(scope.Source);

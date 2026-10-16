@@ -20,10 +20,17 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
     {
         var captured = CaptureRows(scope.Source, ct);
         List<ContainerMatch> rows;
-        if (captured != null) rows = [.. captured.Select(r => r with { Seen = "capture" })];
+        if (captured != null)
+        {
+            rows = [.. captured.Select(r => r with { Seen = "capture" })];
+            scope.Tally.Files = 1;
+        }
         else
         {
-            var surface = ApiSurface.Read(ApiSurface.CodeItems(scope.Source, scope.Items, AnalysisLimits.Default, ct), ct);
+            var code = ApiSurface.CodeItems(scope.Source, scope.Items, AnalysisLimits.Default, ct);
+            scope.Tally.Files = code.Count;
+            scope.Tally.Note = "Code searched: " + (code.Count == 0 ? "none" : string.Join(", ", code.GroupBy(c => c.Kind).Select(g => $"{g.Count()} {g.Key}"))) + ".";
+            var surface = ApiSurface.Read(code, ct);
             rows = [.. surface.Endpoints.Select(e => new ContainerMatch(e.File, e.Text, "endpoint")
             {
                 Detail = e.Client + (e.Base != null ? $", base {e.Base}" : ""), Member = e.Member, Location = e.Location, Seen = "code",
