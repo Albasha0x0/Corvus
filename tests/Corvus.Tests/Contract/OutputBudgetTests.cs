@@ -130,6 +130,30 @@ public sealed partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHelp
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
+    /// <summary>
+    /// Every native reading tool's default page on a C++ ELF (libSkiaSharp), a C PE and a C ELF (e_sqlite3): within its class
+    /// budget per part, same rows in both parts, one continuation.
+    /// </summary>
+    [Theory]
+    [InlineData("SkiaSharp.NativeAssets.Linux", "3.119.4", "linux-x64", "libSkiaSharp.so", "sk_canvas_draw_rect")]
+    [InlineData("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "win-x64", "e_sqlite3.dll", "sqlite3_open")]
+    [InlineData("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "linux-x64", "libe_sqlite3.so", "sqlite3_open")]
+    public async Task DefaultNativePagesFitTheirBudget(string package, string version, string rid, string file, string function)
+    {
+        var image = RealPackages.File(package, version, "runtimes", rid, "native", file);
+        Dictionary<string, object?> On(params (string Key, object? Value)[] more) => new[] { ("image", (object?)image) }.Concat(more).ToDictionary(p => p.Item1, p => p.Item2);
+        var problems = await Run(
+        [
+            ("list_exports", On()), ("list_imports", On()), ("list_functions", On()), ("list_globals", On()), ("list_cpp_classes", On()),
+            ("get_exception_info", On()), ("get_pe_info", On()), ("search_native_strings", On()), ("search_instructions", On(("mnemonic", "^call$"))),
+            ("find_xrefs", On(("address", function))), ("disassemble", On(("address", function))), ("inspect_instruction", On(("address", function), ("limit", 64))),
+            ("get_cfg", On(("address", function))), ("native_call_tree", On(("function", function))), ("analyze_native_function", On(("address", function))),
+            ("get_call_arguments", On(("address", function))), ("resolve_call_targets", On(("scope", "image"))), ("trace_native_values", On(("address", function), ("argument", "1"))),
+            ("find_virtual_calls", On()), ("find_similar_functions", On(("view", "duplicates"))), ("read_bytes", On(("address", function), ("length", 65536))),
+        ]);
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
     /// <summary>FINDINGS-4 on a real APK (CORVUS_ANDROID_PACKAGE): pages with nextOffset, not limit_exceeded.</summary>
     [RequiresRealDataFact(RealData.AndroidPackage)]
     public async Task AndroidListsArePagesNotErrors()
