@@ -229,20 +229,24 @@ internal sealed class DebugContainer : IDisposable
         if (shstrndx == 0xFFFF) shstrndx = (long)U(first, Is64 ? 0x28 : 0x18, 4);
         if (shnum > MaxSectionHeaders) { Notes.Add($"{shnum} section headers; the first {MaxSectionHeaders} are read"); shnum = MaxSectionHeaders; }
         var table = Head(shoff, (int)(shnum * shentsize)).ToArray();
-        (long Offset, long Size, uint Type, ulong Flags, uint NameAt) Section(long i)
+        (long Offset, long Size, uint Type, ulong Flags, uint NameAt, uint Link, uint Info, ulong Address) Section(long i)
         {
             int at = (int)(i * shentsize);
             return Is64
-                ? ((long)U(table, at + 0x18, 8), (long)U(table, at + 0x20, 8), (uint)U(table, at + 4, 4), U(table, at + 8, 8), (uint)U(table, at, 4))
-                : ((long)U(table, at + 0x10, 4), (long)U(table, at + 0x14, 4), (uint)U(table, at + 4, 4), U(table, at + 8, 4), (uint)U(table, at, 4));
+                ? ((long)U(table, at + 0x18, 8), (long)U(table, at + 0x20, 8), (uint)U(table, at + 4, 4), U(table, at + 8, 8), (uint)U(table, at, 4),
+                    (uint)U(table, at + 0x28, 4), (uint)U(table, at + 0x2C, 4), U(table, at + 0x10, 8))
+                : ((long)U(table, at + 0x10, 4), (long)U(table, at + 0x14, 4), (uint)U(table, at + 4, 4), U(table, at + 8, 4), (uint)U(table, at, 4),
+                    (uint)U(table, at + 0x18, 4), (uint)U(table, at + 0x1C, 4), U(table, at + 0x0C, 4));
         }
         if (shstrndx >= table.Length / shentsize) { Notes.Add("the section name table index is out of range"); return; }
         var names = Section(shstrndx);
         var nameBytes = Head(names.Offset, (int)Math.Min(names.Size, 16 << 20)).ToArray();
+        var relocatable = FileType == 1 ? new List<DebugRelocations.Header>() : null;
         for (long i = 1; i < table.Length / shentsize; i++)
         {
             var s = Section(i);
             string name = CString(nameBytes, (int)s.NameAt);
+            relocatable?.Add(new DebugRelocations.Header((int)i, name, s.Type, s.Offset, s.Size, s.Link, s.Info, s.Address));
             if (s.Type == 8) continue; // SHT_NOBITS: an executable's sections in a debug-only file
             if (s.Type == 7 && (name == ".note.gnu.build-id" || BuildId == null)) ReadNotes(s.Offset, s.Size);
             if (name == ".gnu_debuglink")
@@ -287,7 +291,10 @@ internal sealed class DebugContainer : IDisposable
             }
             else _sections.TryAdd(key, new DebugSectionInfo(key, s.Offset, s.Size));
         }
+        if (relocatable != null) _relocations = DebugRelocations.Of(relocatable, (ushort)U(e, 18, 2), Is64, BigEndian, (o, n) => Head(o, n).ToArray(), Notes);
     }
+
+    private DebugRelocations? _relocations;
 
     private void ReadNotes(long offset, long size)
     {
@@ -380,8 +387,10 @@ internal sealed class DebugContainer : IDisposable
             if (!_sections.TryGetValue(name, out var info)) return null;
             DwarfSection? section;
             if (info.Compression != 0) section = Inflate(info);
-            else if (info.Size <= WholeSectionBytes) section = new DwarfSection(name, _bytes.Slice(_base + info.Offset, (int)info.Size));
+            else if (info.Size <= WholeSectionBytes || _relocations?.Has(name) == true) section = new DwarfSection(name, _bytes.Slice(_base + info.Offset, (int)Math.Min(info.Size, int.MaxValue)));
             else section = new DwarfSection(name, _bytes, _base + info.Offset, info.Size);
+            // a relocatable object's DWARF holds zeros where the linker writes offsets and addresses
+            if (section != null && _relocations?.Has(name) == true) section = new DwarfSection(name, _relocations.Apply(name, section.Slice(0, section.Length).ToArray()));
             if (section != null) _opened[name] = section;
             return section;
         }

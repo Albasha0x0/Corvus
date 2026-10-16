@@ -39,6 +39,7 @@ internal static class DwarfDebugInfo
         var unitRanges = new List<(ulong Low, ulong High, int Header)>();
         int lineTables = 0, inlined = 0, issuesDropped = 0;
         ulong imageBase = image.ImageBase;
+        bool relocatable = container.FileType == 1;
         uint sizeOfImage = image.SizeOfImage;
 
         for (int h = 0; h < reader.UnitHeaders.Count; h++)
@@ -60,7 +61,7 @@ internal static class DwarfDebugInfo
                 modules.Add(new PdbModule(module, unit.Name ?? "", unit.CompDir ?? "", -1, 0));
                 if (unit.StmtList >= 0) lineTables++;
                 foreach (var (lo, hi) in reader.RangesOf(unit, root))
-                    if (!DwarfLineTable.Tombstone(lo)) unitRanges.Add((lo, hi, h));
+                    if (!DwarfLineTable.Tombstone(lo, relocatable)) unitRanges.Add((lo, hi, h));
             }
             if (IsSkeleton(unit))
             {
@@ -80,7 +81,7 @@ internal static class DwarfDebugInfo
                     {
                         var ranges = reader.RangesOf(unit, d);
                         if (ranges.Count == 0 && (d.Pc & 1) != 0) ranges.Add((d.LowPc, d.LowPc)); // empty, folded onto another function
-                        if (ranges.Count == 0 || DwarfLineTable.Tombstone(ranges[0].Low)) break;
+                        if (ranges.Count == 0 || DwarfLineTable.Tombstone(ranges[0].Low, relocatable)) break;
                         var (low, high) = (d.Pc & 1) != 0 ? ranges.FirstOrDefault(r => r.Low == d.LowPc, ranges[0]) : ranges[0];
                         if (!unitHasRanges) foreach (var r in ranges) unitRanges.Add((r.Low, r.High, h));
                         var named = Naming(reader, unit, d);
@@ -93,7 +94,7 @@ internal static class DwarfDebugInfo
                             (uint)Math.Min(high - low, uint.MaxValue), module, type) { LinkageName = named.Linkage, ParameterNames = parameters.Count > 0 ? parameters : null });
                         break;
                     }
-                    case Dw.TagVariable when d.HasLocation && !DwarfLineTable.Tombstone(d.Location):
+                    case Dw.TagVariable when d.HasLocation && !DwarfLineTable.Tombstone(d.Location, relocatable):
                     {
                         var named = Naming(reader, unit, d);
                         if (named.Name == null) break;
@@ -128,7 +129,7 @@ internal static class DwarfDebugInfo
         var built = types.Build();
         if (types.Full) notes.Add($"type records past {DwarfTypes.MaxBytes:N0} bytes are not written");
         unitRanges.Sort((a, b) => a.Low.CompareTo(b.Low));
-        var source = new SourceLookup(reopen, imageBase, unitRanges.ToArray(), lineTables, inlined);
+        var source = new SourceLookup(reopen, imageBase, unitRanges.ToArray(), lineTables, inlined, relocatable);
         return PdbFile.FromDebugInfo(container.Path, container.FileLength, container.BuildId, modules, symbols, types.Typedefs,
             (built.Bytes, built.Offsets, notes), issues, truncations, source);
     }
@@ -199,7 +200,7 @@ internal static class DwarfDebugInfo
     }
 
     /// <summary>Source lines and inlined frames by address: the unit is found by its address ranges, then read again with its line table.</summary>
-    private sealed class SourceLookup(Func<DebugContainer> reopen, ulong imageBase, (ulong Low, ulong High, int Header)[] units, int lineTables, int inlined)
+    private sealed class SourceLookup(Func<DebugContainer> reopen, ulong imageBase, (ulong Low, ulong High, int Header)[] units, int lineTables, int inlined, bool relocatable)
         : IDebugSourceLookup
     {
         public int LineTables => lineTables;
@@ -229,7 +230,7 @@ internal static class DwarfDebugInfo
                         DwarfLineTable? lines = null;
                         if (unit.StmtList >= 0 && reader.Line != null)
                             lines = DwarfLineTable.Read(reader.Line, unit.StmtList, unit.AddressSize, reader.BigEndian, unit.CompDir, container.Section(".debug_str"),
-                                container.Section(".debug_line_str"), _ => null);
+                                container.Section(".debug_line_str"), _ => null, relocatable);
                         reader.Remember(unit);
                         if (IsSkeleton(unit) && reader.Family.Splits(container.Path).Resolve(unit, ct) is { Dies.Count: > 0 } split) unit = split;
                         parsed[h] = entry = (unit, lines);

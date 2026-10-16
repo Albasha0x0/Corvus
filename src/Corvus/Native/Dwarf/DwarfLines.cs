@@ -40,7 +40,7 @@ internal sealed class DwarfLineTable
     }
 
     public static DwarfLineTable Read(DwarfSection section, long offset, int addressSize, bool bigEndian, string? compDir, DwarfSection? str, DwarfSection? lineStr,
-        DwarfReaderStrings strx)
+        DwarfReaderStrings strx, bool relocatable = false)
     {
         var head = section.Slice(offset, 12).Span;
         var hc = new DwarfCursor(head, bigEndian);
@@ -158,7 +158,7 @@ internal sealed class DwarfLineTable
             if (c.Overrun) { problem = $"line table at 0x{offset:X}: the program runs past its end"; break; }
         }
         Flush();
-        var sorted = SortSequences(rows);
+        var sorted = SortSequences(rows, relocatable);
         return new DwarfLineTable { Files = files, Rows = sorted, Problem = problem, FirstFile = version >= 5 ? 0 : 1 };
     }
 
@@ -166,14 +166,14 @@ internal sealed class DwarfLineTable
     /// Orders whole sequences by start address (each is already ascending). Sequences of discarded code (the linker's
     /// tombstones: address 0, or -1 / -2) are dropped: they would overlap real code.
     /// </summary>
-    private static DwarfLineRow[] SortSequences(List<DwarfLineRow> rows)
+    private static DwarfLineRow[] SortSequences(List<DwarfLineRow> rows, bool relocatable)
     {
         var sequences = new List<(int Start, int Count)>();
         for (int i = 0, start = 0; i < rows.Count; i++)
             if (rows[i].End || i == rows.Count - 1)
             {
                 ulong first = rows[start].Address;
-                if (!Tombstone(first)) sequences.Add((start, i - start + 1));
+                if (!Tombstone(first, relocatable)) sequences.Add((start, i - start + 1));
                 start = i + 1;
             }
         sequences.Sort((a, b) => rows[a.Start].Address.CompareTo(rows[b.Start].Address));
@@ -187,8 +187,8 @@ internal sealed class DwarfLineTable
         return result;
     }
 
-    /// <summary>An address the linker writes for discarded code (0, or -1 / -2 in either width).</summary>
-    public static bool Tombstone(ulong a) => a is 0 or 0xFFFF_FFFF or 0xFFFF_FFFE or >= 0xFFFF_FFFF_FFFF_FFFE;
+    /// <summary>An address the linker writes for discarded code (0, or -1 / -2 in either width); 0 is a real address in a relocatable object.</summary>
+    public static bool Tombstone(ulong a, bool relocatable = false) => a is 0xFFFF_FFFF or 0xFFFF_FFFE or >= 0xFFFF_FFFF_FFFF_FFFE || (a == 0 && !relocatable);
 
     private static string Join(string? dir, string name)
     {
