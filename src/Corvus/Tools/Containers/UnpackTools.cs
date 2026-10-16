@@ -33,7 +33,7 @@ public sealed class UnpackTools(UnpackService unpacker)
     [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
     [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, " +
                  "nested) or an assembly, without extracting: substring or * / ? wildcards. kind=file: inner " +
-                 "file paths; packet: a pcap display filter; endpoint: endpoints in code or a capture; feature: JS text to native code.")]
+                 "file paths; packet: a pcap display filter; endpoint: endpoints in code or a capture; request: a capture's requests; feature: JS text to native code.")]
     public async Task<string> SearchContainer(
         [Description("Container or assembly file (absolute).")] string path,
         [Description("Name or part of a name.")] string query,
@@ -41,10 +41,11 @@ public sealed class UnpackTools(UnpackService unpacker)
         [Description(LimitDescription)] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("kind=endpoint: a HAR, mitmproxy, .saz or pcap capture to join.")] string? capture = null,
+        [Description("kind=endpoint: a HAR, mitmproxy, .saz or pcap capture to join, or to compare when path is a capture.")] string? capture = null,
+        [Description("kind=request: show header, cookie and query values.")] bool values = false,
         CancellationToken cancellationToken = default)
     {
-        var found = await Task.Run(() => unpacker.Search(path, query, kind, ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset, capture), cancellationToken);
+        var found = await Task.Run(() => unpacker.Search(path, query, kind, ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset, capture, values), cancellationToken);
         return ContainerText.Search(found, ClampLimit(limit));
     }
 }

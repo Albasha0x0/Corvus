@@ -66,7 +66,11 @@ public static class Captures
     /// holds one entry (at most <paramref name="maxEntryBytes"/> of JSON) rather than the document. False when there is no
     /// log.entries array. Without <paramref name="bodies"/> the response bodies are not decoded (Body null).
     /// </summary>
-    public static bool ReadHar(Stream stream, Action<CapturedResponse> response, long maxEntryBytes, CancellationToken ct, bool bodies = true)
+    public static bool ReadHar(Stream stream, Action<CapturedResponse> response, long maxEntryBytes, CancellationToken ct, bool bodies = true) =>
+        ReadHarEntries(stream, e => response(Response(e, bodies)), maxEntryBytes, ct);
+
+    /// <summary>Streams the elements of log.entries, each parsed on its own; false when there is no log.entries array.</summary>
+    internal static bool ReadHarEntries(Stream stream, Action<JsonElement> entry, long maxEntryBytes, CancellationToken ct)
     {
         var buffer = new byte[1 << 16];
         int length = 0;
@@ -119,7 +123,7 @@ public static class Captures
                         case JsonTokenType.StartObject when depth == 3 && inEntries:
                             var probe = reader;
                             if (!probe.TrySkip()) { consumed = at; resume = before; goto refill; }
-                            using (var entry = JsonDocument.ParseValue(ref reader)) response(Response(entry.RootElement, bodies));
+                            using (var document = JsonDocument.ParseValue(ref reader)) entry(document.RootElement);
                             break;
                         case JsonTokenType.StartArray or JsonTokenType.String or JsonTokenType.Number or JsonTokenType.True or JsonTokenType.False or JsonTokenType.Null
                             when depth == 0:
@@ -199,7 +203,16 @@ public static class Captures
     /// Streams a mitmproxy flow file: each top-level flow is read and parsed on its own, so memory holds one flow (at most
     /// <paramref name="maxFlowBytes"/>) rather than the file. HTTP flows go to <paramref name="response"/>.
     /// </summary>
-    public static void ReadFlows(Stream stream, Action<CapturedResponse> response, List<string> notes, long maxFlowBytes, CancellationToken ct)
+    public static void ReadFlows(Stream stream, Action<CapturedResponse> response, List<string> notes, long maxFlowBytes, CancellationToken ct) =>
+        ReadFlowObjects(stream, flow =>
+        {
+            if (Flow(flow) is not { } r) return false;
+            response(r);
+            return true;
+        }, notes, maxFlowBytes, ct);
+
+    /// <summary>Streams the top-level flows of a mitmproxy flow file as tnetstring values; <paramref name="flow"/> says whether it took the flow (an HTTP one).</summary>
+    internal static void ReadFlowObjects(Stream stream, Func<object?, bool> flow, List<string> notes, long maxFlowBytes, CancellationToken ct)
     {
         long length = stream.Length;
         // flows are read through a window, so small ones cost no seek each
@@ -235,22 +248,22 @@ public static class Captures
                 stream.ReadExactly(buffer);
             }
             int p = 0;
-            object? flow;
-            try { flow = TNetString.Read(buffer, ref p, 0); }
+            object? value;
+            try { value = TNetString.Read(buffer, ref p, 0); }
             catch (FormatException ex)
             {
                 notes.Add($"Flow file damaged at byte {at + p}: {ex.Message}; {read} flow(s) read before it.");
                 break;
             }
             at += p;
-            if (Flow(flow) is { } r) { read++; response(r); }
+            if (flow(value)) read++;
             else other++;
         }
         if (other > 0) notes.Add($"{other} flow(s) that are not HTTP (WebSocket, TCP, DNS) or have no request skipped.");
     }
 
     /// <summary>An HTTP flow's request and response; null for another kind of flow or one without a request.</summary>
-    private static CapturedResponse? Flow(object? flow)
+    internal static CapturedResponse? Flow(object? flow)
     {
         if (flow is not Dictionary<string, object?> f) return null;
         if (Text(f.GetValueOrDefault("type")) is { } type && type != "http") return null;

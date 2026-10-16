@@ -277,7 +277,14 @@ wrappers that pass a String parameter on, marked renamed; the header counts the 
 and C#, every gRPC method of an embedded descriptor, Mach-O URL strings with the functions that load them, and absolute
 URL literals no call consumes (XML namespaces left out). `capture=` (HAR, mitmproxy, `.saz`, pcap) joins both sides:
 a code row a captured request instantiates is marked `code+capture` and names the requests, captured templates no code
-explains are marked `capture`. `kind=packet` on a pcap or pcapng
+explains are marked `capture`. With a capture as `path` and another as `capture=`, the two are compared template by
+template: `added`, `removed`, `changed` (statuses, request header names, response types, response JSON, SSE, NDJSON and
+WebSocket message shapes, or GraphQL operations differ, each difference named) and `same`. `kind=request` on a HAR,
+mitmproxy or `.saz` capture lists every request in capture order, streamed at any size (a 524 MB HAR in 2.4 s): the URL
+template, request header and cookie names, request body type and size, GraphQL operation names from the body or the
+query, status, HTTP version, time, response type and size, server-sent event and NDJSON messages grouped by event and
+JSON key shape, and WebSocket messages by direction and shape; header, cookie and query values and message text only
+with `values=true`. `kind=packet` on a pcap or pcapng
 capture takes a Wireshark display filter as the query and lists the matching frames in capture order: frame number, time,
 source and destination with ports, the top protocol decoded, and the values of the fields the filter names. The filter
 compares with `==`, `!=`, `>`, `<`, `>=`, `<=`, `contains`, `matches` (case-insensitive regex) and `in {…}`, takes networks

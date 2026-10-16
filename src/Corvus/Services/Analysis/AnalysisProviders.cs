@@ -38,6 +38,9 @@ public sealed class SearchTally
     public string? Note { get; set; }
 }
 
+/// <summary>search_container arguments some kinds take: a second capture (endpoint) and shown values (request).</summary>
+public sealed record ContainerSearchArgs(string? Capture = null, bool Values = false);
+
 /// <summary>A search_container match: the inner path, the name the query matched and the kind.</summary>
 public sealed record ContainerMatch(string Path, string Name, string Kind)
 {
@@ -50,7 +53,7 @@ public sealed record ContainerMatch(string Path, string Name, string Kind)
     /// <summary>kind=endpoint: where in <see cref="Member"/> (code offset, IL offset, address), or "annotation" / "attribute".</summary>
     public string? Location { get; init; }
 
-    /// <summary>kind=endpoint: code, capture, or code+capture.</summary>
+    /// <summary>kind=endpoint: code, capture, or code+capture; between two captures: added, removed, changed or same.</summary>
     public string? Seen { get; init; }
 }
 
@@ -64,7 +67,7 @@ public interface IContainerSearchKind
     IEnumerable<ContainerMatch> Search(ContainerScope scope, string kind, Func<string, bool> matches, CancellationToken ct);
 
     /// <summary>A kind that reads the file itself, streamed at any size, and pages its own rows in file order; null searches the container's files.</summary>
-    UnpackService.ContainerSearch? SearchFile(string path, string query, int offset, int limit, CancellationToken ct) => null;
+    UnpackService.ContainerSearch? SearchFile(string path, string query, int offset, int limit, ContainerSearchArgs args, CancellationToken ct) => null;
 }
 
 /// <summary>What survey_features rules run over: a managed module's scan or a native image's code index.</summary>

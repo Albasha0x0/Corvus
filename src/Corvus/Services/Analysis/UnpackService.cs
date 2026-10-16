@@ -186,15 +186,19 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     };
 
     /// <summary>A search by a kind= value: a provider's kind, else the managed symbols.</summary>
-    public ContainerSearch Search(string path, string query, string? kind, int limit, AnalysisLimits limits, CancellationToken ct, int offset = 0, string? capture = null)
+    public ContainerSearch Search(string path, string query, string? kind, int limit, AnalysisLimits limits, CancellationToken ct, int offset = 0, string? capture = null,
+        bool values = false)
     {
         var name = kind?.Trim().ToLowerInvariant();
         if (capture != null && name != "endpoint")
             throw new ToolError(ErrorCode.InvalidArgument, "capture applies to kind=endpoint only.", "pass kind=endpoint, or omit capture");
+        if (values && name != "request")
+            throw new ToolError(ErrorCode.InvalidArgument, "values applies to kind=request only.", "pass kind=request, or omit values");
         if (capture != null) capture = InputFiles.RequireRegularFile(capture, "capture");
         var provider = name is null or "" ? null : Providers.Of<IContainerSearchKind>().FirstOrDefault(p => p.Kinds.Contains(name));
         if (provider == null) return Search(path, query, ParseSearchKind(kind), limit, limits, ct, offset);
-        return provider.SearchFile(path, query, Math.Max(0, offset), limit, ct) ?? SearchFiles(path, query, provider, name!, limit, limits, ct, offset, capture);
+        return provider.SearchFile(path, query, Math.Max(0, offset), limit, new ContainerSearchArgs(capture, values), ct)
+               ?? SearchFiles(path, query, provider, name!, limit, limits, ct, offset, capture);
     }
 
     private static ContainerSearch SearchFiles(string path, string query, IContainerSearchKind provider, string kind, int limit, AnalysisLimits limits,

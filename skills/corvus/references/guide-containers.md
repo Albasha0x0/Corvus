@@ -28,7 +28,9 @@ the package.json main entry and webPreferences values (nodeIntegration, contextI
 search_container kind=electron lists preload scripts, contextBridge keys, IPC channels, child_process / shell sinks and
 native add-ons with file:line:column; kind=endpoint lists a capture's request templates, or the endpoints an APK, .NET or iOS
 app's code names (Retrofit, OkHttp, HttpClient, Refit, gRPC, URL strings) by method, and capture= joins the two (code,
-capture, code+capture); kind=packet takes a
+capture, code+capture), or compares two captures (added, removed, changed, same); kind=request lists a HAR, mitmproxy or
+.saz capture's requests in order: header and cookie names (values=true shows values), body, GraphQL operations, status,
+time, SSE / NDJSON message shapes and WebSocket messages; kind=packet takes a
 Wireshark display filter (ip.addr==10.0.0.1 and tcp.port==443, dns.qry.name contains "api", tls.sni==x, not udp) and lists a
 pcap / pcapng capture's matching frames, streamed at any size, with the fields it names (also h2c, QUIC Initial,
 SMB2 and Kerberos names in-process; other fields through TShark when CORVUS_TSHARK finds it); kind=dart lists a

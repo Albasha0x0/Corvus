@@ -15,7 +15,7 @@ internal sealed class PacketSearchKind : IContainerSearchKind
 
     public IEnumerable<ContainerMatch> Search(ContainerScope scope, string kind, Func<string, bool> matches, CancellationToken ct) => [];
 
-    public UnpackService.ContainerSearch SearchFile(string path, string query, int offset, int limit, CancellationToken ct)
+    public UnpackService.ContainerSearch SearchFile(string path, string query, int offset, int limit, ContainerSearchArgs args, CancellationToken ct)
     {
         var source = InputFiles.RequireRegularFile(path, "capture file");
         if (!File.Exists(source)) throw Targets.FileNotFound(source);

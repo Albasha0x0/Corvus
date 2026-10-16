@@ -15,7 +15,7 @@ internal sealed class FeatureSearchKind : IContainerSearchKind
 
     public IEnumerable<ContainerMatch> Search(ContainerScope scope, string kind, Func<string, bool> matches, CancellationToken ct) => [];
 
-    public UnpackService.ContainerSearch SearchFile(string path, string query, int offset, int limit, CancellationToken ct)
+    public UnpackService.ContainerSearch SearchFile(string path, string query, int offset, int limit, ContainerSearchArgs args, CancellationToken ct)
     {
         var full = InputFiles.RequireRegularFile(path, "app or script");
         if (string.IsNullOrWhiteSpace(query) || query.Trim() is "*" or "") throw new ToolError(ErrorCode.InvalidArgument, "kind=feature needs the text to follow.", "pass query=<a UI, log or error text>");

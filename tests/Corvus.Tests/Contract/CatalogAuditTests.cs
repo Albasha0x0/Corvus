@@ -145,10 +145,10 @@ public class CatalogAuditTests
         Ratchet.Check("output-schema-bytes", $"an output schema is at most {MaxOutputSchemaBytes} bytes in tools/list (S8.1)", outputs);
     }
 
-    /// <summary>Per profile: tool count and model-facing bytes (names, descriptions, input schemas); measured 40,584 (lean) and 101,524 (core) after S-TRIM, plus about 1%; lean 41,100 for the summarize_file views of C-APL and C-PCAP, 41,250 for read_result evidence and the C-FMT2 views; 41,550 for ARCH-2 (measured 41,535); lean 42,400 and core 103,250 for NATIVE-1 (measured 42,399 and 103,213); lean 42,800 and core 103,800 for WEB-1 and MANAGED-1 (measured 42,793 and 103,757); core 103,950 for EM-3 (measured 103,920); lean 43,150 and core 104,300 for DF-2 and ARCH-3 (measured 43,136 and 104,263); lean 43,200 and core 104,700 for SL-4 and X4 (measured 43,181 and 104,695); lean 43,250 and core 104,750 for SL-4 storage and X3 (measured 43,216 and 104,749); core 104,800 for WEB-3 (measured 104,788); lean 38,700 and core 92,900 after R-CAT (measured 38,679 and 92,882); lean 38,750 and core 92,950 for maxTokens on 15 more list tools (measured 38,727 and 92,920).</summary>
+    /// <summary>Per profile: tool count and model-facing bytes (names, descriptions, input schemas); measured 40,584 (lean) and 101,524 (core) after S-TRIM, plus about 1%; lean 41,100 for the summarize_file views of C-APL and C-PCAP, 41,250 for read_result evidence and the C-FMT2 views; 41,550 for ARCH-2 (measured 41,535); lean 42,400 and core 103,250 for NATIVE-1 (measured 42,399 and 103,213); lean 42,800 and core 103,800 for WEB-1 and MANAGED-1 (measured 42,793 and 103,757); core 103,950 for EM-3 (measured 103,920); lean 43,150 and core 104,300 for DF-2 and ARCH-3 (measured 43,136 and 104,263); lean 43,200 and core 104,700 for SL-4 and X4 (measured 43,181 and 104,695); lean 43,250 and core 104,750 for SL-4 storage and X3 (measured 43,216 and 104,749); core 104,800 for WEB-3 (measured 104,788); lean 38,700 and core 92,900 after R-CAT (measured 38,679 and 92,882); lean 38,750 and core 92,950 for maxTokens on 15 more list tools (measured 38,727 and 92,920); core 93,050 for WEB-4's kind=request and values (measured 93,046).</summary>
     [Theory]
     [InlineData(Toolsets.Lean, 40, 38_750)]
-    [InlineData(Toolsets.CoreName, 100, 92_950)]
+    [InlineData(Toolsets.CoreName, 100, 93_050)]
     public void ProfilesStayWithinTheirCeilings(string profile, int maxTools, int maxModelFacing)
     {
         var tools = Catalog.OfThisBuild(Toolsets.Parse(profile)).Tools;

@@ -103,7 +103,7 @@ public sealed class CaptureTests : IDisposable
     }
 
     /// <summary>tnetstring encoding: byte[] ',' string ';' long '#' bool '!' null '~' dictionary '}' list ']'.</summary>
-    private static byte[] TNet(object? value)
+    internal static byte[] TNet(object? value)
     {
         byte[] body;
         char type;
@@ -112,6 +112,7 @@ public sealed class CaptureTests : IDisposable
             case byte[] b: body = b; type = ','; break;
             case string s: body = Encoding.UTF8.GetBytes(s); type = ';'; break;
             case int or long: body = Encoding.ASCII.GetBytes(Convert.ToString(value, CultureInfo.InvariantCulture)!); type = '#'; break;
+            case double d: body = Encoding.ASCII.GetBytes(d.ToString("R", CultureInfo.InvariantCulture)); type = '^'; break;
             case bool v: body = Encoding.ASCII.GetBytes(v ? "true" : "false"); type = '!'; break;
             case null: body = []; type = '~'; break;
             case IDictionary<string, object?> d: body = [.. d.SelectMany(kv => TNet(Encoding.UTF8.GetBytes(kv.Key)).Concat(TNet(kv.Value)))]; type = '}'; break;
