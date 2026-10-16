@@ -108,6 +108,8 @@ internal sealed class DebugContainer : IDisposable
     public string? BuildId { get; private set; }
     /// <summary>.gnu_debuglink: the debug file's name and the CRC-32 of its contents.</summary>
     public (string Name, uint Crc)? DebugLink { get; private set; }
+    /// <summary>.gnu_debugaltlink: the dwz supplementary file's path and build-id.</summary>
+    public (string Name, string? BuildId)? AltLink { get; private set; }
     /// <summary>ELF e_type (1 relocatable) or Mach-O filetype (10 dSYM companion).</summary>
     public uint FileType { get; private set; }
     public IReadOnlyCollection<DebugSectionInfo> Sections => _sections.Values;
@@ -252,6 +254,13 @@ internal sealed class DebugContainer : IDisposable
                     int crcAt = (z + 4) & ~3;
                     DebugLink = (Encoding.UTF8.GetString(d, 0, z), (uint)U(d, crcAt, 4));
                 }
+                continue;
+            }
+            if (name == ".gnu_debugaltlink")
+            {
+                var d = Head(s.Offset, (int)Math.Min(s.Size, 4096)).ToArray();
+                int z = Array.IndexOf(d, (byte)0);
+                if (z > 0) AltLink = (Encoding.UTF8.GetString(d, 0, z), z + 1 < d.Length ? Convert.ToHexStringLower(d, z + 1, d.Length - z - 1) : null);
                 continue;
             }
             bool gnuCompressed = name.StartsWith(".zdebug_", StringComparison.Ordinal);

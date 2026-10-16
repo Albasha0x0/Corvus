@@ -89,6 +89,24 @@ public static class LlvmOracle
         public const string TypeUnits = "-fdebug-types-section";
         public const string CompressDebug = "-gz=";
         public const string CPlusPlus = "-x c++";
+        /// <summary>Split DWARF: skeleton units in the output, split units in .dwo files beside it.</summary>
+        public const string SplitDwarf = "-gsplit-dwarf";
+        public const string CompileOnly = "-c";
+        /// <summary>llvm-dwp: package the .dwo files an executable's skeletons name (then -o FILE).</summary>
+        public const string DwpFromExecutable = "-e";
+        public const string Output = "-o";
+    }
+
+    /// <summary>Runs <paramref name="tool"/> (clang, llvm-dwp, ...) from CORVUS_LLVM_BIN in <paramref name="workingDirectory"/>; null on success, else its output.</summary>
+    public static string? Tool(string tool, string workingDirectory, params string[] args)
+    {
+        if (Bin is not { } bin) return $"{Variable} is not set";
+        var exe = System.IO.Path.Combine(bin, OperatingSystem.IsWindows() ? tool + ".exe" : tool);
+        if (!System.IO.File.Exists(exe)) return $"{exe} not found";
+        var psi = new ProcessStartInfo(exe) { WorkingDirectory = workingDirectory };
+        foreach (var a in args) foreach (var o in a.Split(' ', StringSplitOptions.RemoveEmptyEntries)) psi.ArgumentList.Add(o);
+        var (code, log) = Tools.Run(psi, 120_000);
+        return code == 0 ? null : log;
     }
 
     /// <summary>

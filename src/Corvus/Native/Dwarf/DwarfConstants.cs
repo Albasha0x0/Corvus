@@ -15,7 +15,7 @@ internal static class Dw
         AtCount = 0x37, AtDataMemberLocation = 0x38, AtDeclFile = 0x3a, AtDeclLine = 0x3b, AtDeclaration = 0x3c, AtEncoding = 0x3e, AtExternal = 0x3f,
         AtSpecification = 0x47, AtType = 0x49, AtVirtuality = 0x4c, AtEntryPc = 0x52, AtRanges = 0x55, AtCallFile = 0x58, AtCallLine = 0x59,
         AtArtificial = 0x34, AtSignature = 0x69, AtDataBitOffset = 0x6b, AtLinkageName = 0x6e, AtStrOffsetsBase = 0x72, AtAddrBase = 0x73,
-        AtRnglistsBase = 0x74, AtMipsLinkageName = 0x2007, AtGnuAddrBase = 0x2133, AtGnuRangesBase = 0x2132, AtDwoName = 0x76, AtGnuDwoName = 0x2130;
+        AtRnglistsBase = 0x74, AtMipsLinkageName = 0x2007, AtGnuAddrBase = 0x2133, AtGnuRangesBase = 0x2132, AtDwoName = 0x76, AtGnuDwoName = 0x2130, AtGnuDwoId = 0x2131;
 
     public const int FormAddr = 0x01, FormBlock2 = 0x03, FormBlock4 = 0x04, FormData2 = 0x05, FormData4 = 0x06, FormData8 = 0x07, FormString = 0x08,
         FormBlock = 0x09, FormBlock1 = 0x0a, FormData1 = 0x0b, FormFlag = 0x0c, FormSdata = 0x0d, FormStrp = 0x0e, FormUdata = 0x0f, FormRefAddr = 0x10,

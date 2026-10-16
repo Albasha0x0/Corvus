@@ -163,6 +163,10 @@ internal sealed class DwarfUnit
     public long TypeOffset = -1;
     public bool InTypes;
     public int Index;
+    /// <summary>Skeleton and split units: the DWO id (DWARF 5 header, or DW_AT_GNU_dwo_id); 0 otherwise.</summary>
+    public ulong DwoId;
+    /// <summary>A skeleton unit's DW_AT_dwo_name / DW_AT_GNU_dwo_name: the split unit's file.</summary>
+    public string? DwoName;
     public List<DwarfDie> Dies = [];
     public ulong BaseAddress;
     public long StrOffsetsBase = -1, AddrBase = -1, RnglistsBase = -1;
@@ -222,9 +226,11 @@ internal readonly record struct DwarfUnitHeader(long Offset, long End, int Versi
 /// GNU index forms), string forms through .debug_str / .debug_line_str / .debug_str_offsets, address indices through
 /// .debug_addr, and range lists (.debug_ranges, .debug_rnglists). Malformed data ends a unit with a
 /// <see cref="DwarfUnit.Problem"/>, never an exception. A unit is parsed on its own (its bytes and entries live
-/// while it is used); references into other units go through a small unit cache.
+/// while it is used); references into other units go through a small unit cache. Readers of one read share a
+/// <see cref="DwarfReaders"/> family (a dwz supplementary file, split units): each owns an offset space, and
+/// references, entries and ranges of another space are answered by its reader.
 /// </summary>
-internal sealed class DwarfReader
+internal sealed class DwarfReader : IDisposable
 {
     /// <summary>Marks offsets in .debug_types (DWARF 4 type units).</summary>
     public const long TypesFlag = 1L << 48;
@@ -245,26 +251,57 @@ internal sealed class DwarfReader
     public DwarfSection? Line { get; }
     public IReadOnlyList<DwarfUnitHeader> UnitHeaders => _headers;
     public List<string> Problems { get; } = [];
+    /// <summary>The readers of this read; the first is the main file's.</summary>
+    public DwarfReaders Family { get; }
+    /// <summary>This reader's offset space (high bits of every unit, entry and reference offset it gives out).</summary>
+    public long Space { get; }
+    /// <summary>The dwz supplementary file's reader (DW_FORM_GNU_ref_alt, DW_FORM_ref_sup, DW_FORM_GNU_strp_alt, DW_FORM_strp_sup).</summary>
+    public DwarfReader? Supplement { get; set; }
+    /// <summary>Split units: the skeleton's .debug_addr base, low_pc and DWARF 4 ranges base, which split units do not carry.</summary>
+    internal long SplitAddrBase = -1, SplitRangesBase = -1;
+    internal ulong SplitBaseAddress;
+    internal bool Split;
 
-    public DwarfReader(DebugContainer c)
+    public DwarfReader(DebugContainer c) : this(c.Section, c.BigEndian, c.Is64 ? 8 : 4, null) { }
+
+    /// <summary>A reader over the sections <paramref name="section"/> gives (by their .debug_* names), joining <paramref name="family"/>.</summary>
+    public DwarfReader(Func<string, DwarfSection?> section, bool bigEndian, int addressSize, DwarfReaders? family)
     {
-        BigEndian = c.BigEndian;
-        DefaultAddressSize = c.Is64 ? 8 : 4;
-        _info = c.Section(".debug_info");
-        _types = c.Section(".debug_types");
-        _abbrev = c.Section(".debug_abbrev");
-        _str = c.Section(".debug_str");
-        _lineStr = c.Section(".debug_line_str");
-        _strOffsets = c.Section(".debug_str_offsets");
-        _addr = c.Section(".debug_addr");
-        _ranges = c.Section(".debug_ranges");
-        _rnglists = c.Section(".debug_rnglists");
-        Line = c.Section(".debug_line");
+        BigEndian = bigEndian;
+        DefaultAddressSize = addressSize;
+        Family = family ?? new DwarfReaders();
+        Space = Family.Add(this);
+        if (Space == 0) Family.MainSections = section;
+        _info = section(".debug_info");
+        _types = section(".debug_types");
+        _abbrev = section(".debug_abbrev");
+        _str = section(".debug_str");
+        _lineStr = section(".debug_line_str");
+        _strOffsets = section(".debug_str_offsets");
+        _addr = section(".debug_addr");
+        _ranges = section(".debug_ranges");
+        _rnglists = section(".debug_rnglists");
+        Line = section(".debug_line");
+        Loclists = section(".debug_loclists");
+        Loc = section(".debug_loc");
         ScanHeaders(_info, false);
         ScanHeaders(_types, true);
     }
 
+    /// <summary>DWARF 5 location lists (.debug_loclists) and DWARF 2-4 ones (.debug_loc).</summary>
+    public DwarfSection? Loclists { get; }
+    public DwarfSection? Loc { get; }
+
+    /// <summary>Disposes the family's files when this is the family's main reader.</summary>
+    public void Dispose()
+    {
+        if (Space == 0) Family.Dispose();
+    }
+
     public bool HasInfo => _info != null && _abbrev != null;
+
+    /// <summary>The reader owning <paramref name="offset"/>'s space: this one, or another of the family.</summary>
+    private DwarfReader? Owner(long offset) => (offset & DwarfReaders.SpaceMask) == Space ? this : Family.For(offset);
 
     private void ScanHeaders(DwarfSection? section, bool types)
     {
@@ -301,15 +338,17 @@ internal sealed class DwarfReader
             if (version is >= 2 and <= 5)
             {
                 _headers.Add(new DwarfUnitHeader(at, end, version, types, unitType, signature, typeOffset));
-                if (signature != 0 && typeOffset > 0) _signatures.TryAdd(signature, at + typeOffset + (types ? TypesFlag : 0));
+                if (signature != 0 && typeOffset > 0) _signatures.TryAdd(signature, at + typeOffset + (types ? TypesFlag : 0) + Space);
             }
             else Problems.Add($"{section.Name} unit at 0x{at:X}: DWARF version {version} is not read");
             at = end;
         }
     }
 
-    /// <summary>The entry a type signature names (DW_FORM_ref_sig8), or -1.</summary>
-    public long BySignature(ulong signature) => _signatures.TryGetValue(signature, out var o) ? o : -1;
+    /// <summary>The entry a type signature names (DW_FORM_ref_sig8): this reader's type units first, then the family's; -1 when none.</summary>
+    public long BySignature(ulong signature) => _signatures.TryGetValue(signature, out var o) ? o : Family.BySignature(signature, this);
+
+    internal bool OwnSignature(ulong signature, out long offset) => _signatures.TryGetValue(signature, out offset);
 
     private Dictionary<ulong, DwarfAbbrev>? Abbrevs(long offset, bool types, List<string> problems)
     {
@@ -350,7 +389,7 @@ internal sealed class DwarfReader
     public DwarfUnit Parse(DwarfUnitHeader h, int index, CancellationToken ct = default)
     {
         var section = h.InTypes ? _types! : _info!;
-        long flag = h.InTypes ? TypesFlag : 0;
+        long flag = (h.InTypes ? TypesFlag : 0) + Space;
         var bytes = section.Slice(h.Offset, h.End - h.Offset);
         var u = new DwarfUnit { Offset = h.Offset + flag, End = h.End + flag, Version = h.Version, InTypes = h.InTypes, Index = index, UnitType = h.UnitType,
             TypeSignature = h.TypeSignature };
@@ -364,7 +403,7 @@ internal sealed class DwarfReader
             c.U8();
             u.AddressSize = c.U8();
             u.AbbrevOffset = (long)c.Sized(u.OffsetSize);
-            if (h.UnitType is Dw.UtSkeleton or Dw.UtSplitCompile) c.U64();
+            if (h.UnitType is Dw.UtSkeleton or Dw.UtSplitCompile) u.DwoId = c.U64();
             else if (h.UnitType is Dw.UtType or Dw.UtSplitType) { c.U64(); u.TypeOffset = (long)c.Sized(u.OffsetSize); }
         }
         else
@@ -384,6 +423,14 @@ internal sealed class DwarfReader
         var probe = new DwarfCursor(bytes.Span, BigEndian) { Pos = start };
         ReadEntries(ref probe, u, abbrevs, bytes.Span, flag, rootOnly: true, ct);
         u.Dies.Clear();
+        if (Split)
+        {
+            if (u.AddrBase < 0) u.AddrBase = SplitAddrBase;
+            if (u.RnglistsBase < 0 && u.Version < 5) u.RnglistsBase = SplitRangesBase;
+            // DWARF 4 split units (GNU) index .debug_str_offsets.dwo from 0; DWARF 5 ones from past its header
+            if (u.StrOffsetsBase < 0 && u.Version < 5) u.StrOffsetsBase = 0;
+            u.BaseAddress = SplitBaseAddress;
+        }
         ReadEntries(ref c, u, abbrevs, bytes.Span, flag, rootOnly: false, ct);
         if (u.Dies.Count > 0)
         {
@@ -457,13 +504,13 @@ internal sealed class DwarfReader
             case Dw.FormString:
             {
                 var s = c.CStringBytes();
-                text = attr is Dw.AtName or Dw.AtLinkageName or Dw.AtMipsLinkageName or Dw.AtCompDir ? Encoding.UTF8.GetString(s) : null;
+                text = Wanted(attr) ? Encoding.UTF8.GetString(s) : null;
                 kind = 4;
                 break;
             }
             case Dw.FormStrp: value = c.Sized(u.OffsetSize); kind = 4; text = Wanted(attr) ? _str?.CString((long)value) : null; break;
             case Dw.FormLineStrp: value = c.Sized(u.OffsetSize); kind = 4; text = Wanted(attr) ? _lineStr?.CString((long)value) : null; break;
-            case Dw.FormStrpSup or Dw.FormGnuStrpAlt: c.Sized(u.OffsetSize); kind = 5; break;
+            case Dw.FormStrpSup or Dw.FormGnuStrpAlt: value = c.Sized(u.OffsetSize); kind = 4; text = Wanted(attr) ? Supplement?._str?.CString((long)value) : null; break;
             case Dw.FormStrx or Dw.FormGnuStrIndex: value = c.Uleb(); kind = 4; text = Wanted(attr) && !root ? StrIndex(u, value) : null; break;
             case Dw.FormStrx1: value = c.U8(); kind = 4; text = Wanted(attr) && !root ? StrIndex(u, value) : null; break;
             case Dw.FormStrx2: value = c.U16(); kind = 4; text = Wanted(attr) && !root ? StrIndex(u, value) : null; break;
@@ -479,7 +526,7 @@ internal sealed class DwarfReader
             case Dw.FormRef4: value = (ulong)(u.Offset + c.U32()); kind = 3; break;
             case Dw.FormRef8: value = (ulong)(u.Offset + (long)c.U64()); kind = 3; break;
             case Dw.FormRefUdata: value = (ulong)(u.Offset + (long)c.Uleb()); kind = 3; break;
-            case Dw.FormRefAddr: value = c.Sized(u.Version <= 2 ? u.AddressSize : u.OffsetSize); kind = 3; break;
+            case Dw.FormRefAddr: value = c.Sized(u.Version <= 2 ? u.AddressSize : u.OffsetSize) + (ulong)Space; kind = 3; break;
             case Dw.FormRefSig8:
             {
                 long target = BySignature(c.U64());
@@ -487,9 +534,11 @@ internal sealed class DwarfReader
                 kind = target >= 0 ? 3 : 5;
                 break;
             }
-            case Dw.FormRefSup4: c.U32(); kind = 5; break;
-            case Dw.FormRefSup8: c.U64(); kind = 5; break;
-            case Dw.FormGnuRefAlt: c.Sized(u.OffsetSize); kind = 5; break;
+            case Dw.FormRefSup4 or Dw.FormRefSup8 or Dw.FormGnuRefAlt:
+                value = form == Dw.FormRefSup4 ? c.U32() : form == Dw.FormRefSup8 ? c.U64() : c.Sized(u.OffsetSize);
+                if (Supplement != null) { value += (ulong)Supplement.Space; kind = 3; }
+                else kind = 5;
+                break;
             case Dw.FormSecOffset: value = c.Sized(u.OffsetSize); kind = 8; break;
             case Dw.FormLoclistx: c.Uleb(); kind = 5; break;
             case Dw.FormRnglistx: value = c.Uleb(); kind = 9; break;
@@ -516,6 +565,8 @@ internal sealed class DwarfReader
             case Dw.AtName: die.Name = text; break;
             case Dw.AtLinkageName or Dw.AtMipsLinkageName: die.LinkageName = text; break;
             case Dw.AtCompDir: u.CompDir = text; break;
+            case Dw.AtDwoName or Dw.AtGnuDwoName: u.DwoName = text; break;
+            case Dw.AtGnuDwoId when kind == 0: u.DwoId = value; break;
             case Dw.AtType when kind == 3: die.Type = (long)value; break;
             case Dw.AtSpecification when kind == 3: die.Specification = (long)value; break;
             case Dw.AtAbstractOrigin when kind == 3: die.AbstractOrigin = (long)value; break;
@@ -551,7 +602,7 @@ internal sealed class DwarfReader
         return true;
     }
 
-    private static bool Wanted(int attr) => attr is Dw.AtName or Dw.AtLinkageName or Dw.AtMipsLinkageName or Dw.AtCompDir;
+    private static bool Wanted(int attr) => attr is Dw.AtName or Dw.AtLinkageName or Dw.AtMipsLinkageName or Dw.AtCompDir or Dw.AtDwoName or Dw.AtGnuDwoName;
 
     /// <summary>DW_OP_plus_uconst n (DWARF 2 member locations), else -1.</summary>
     private long PlusUconst(ReadOnlySpan<byte> expr)
@@ -589,6 +640,7 @@ internal sealed class DwarfReader
     /// <summary>Entry <paramref name="index"/> of the unit's .debug_addr table; 0 when out of range.</summary>
     public ulong Address(DwarfUnit u, ulong index)
     {
+        if (Owner(u.Offset) is { } owner && owner != this) return owner.Address(u, index);
         if (_addr == null) return 0;
         long b = u.AddrBase >= 0 ? u.AddrBase : 8;
         var c = new DwarfCursor(_addr.Slice(b + (long)index * u.AddressSize, u.AddressSize).Span, BigEndian);
@@ -598,6 +650,7 @@ internal sealed class DwarfReader
     /// <summary>The address ranges of an entry: [low, high) pairs from low_pc/high_pc or its range list.</summary>
     public List<(ulong Low, ulong High)> RangesOf(DwarfUnit u, DwarfDie d)
     {
+        if (Owner(u.Offset) is { } owner && owner != this) return owner.RangesOf(u, d);
         var list = new List<(ulong, ulong)>();
         if ((d.Pc & 3) == 3)
         {
@@ -607,7 +660,7 @@ internal sealed class DwarfReader
         else if (d.Ranges >= 0)
         {
             if (u.Version >= 5) RngLists(u, d, list);
-            else Ranges(u, (ulong)d.Ranges, list);
+            else Ranges(u, (ulong)d.Ranges + (ulong)(Split && u.RnglistsBase > 0 ? u.RnglistsBase : 0), list);
         }
         else if ((d.Pc & 1) != 0) list.Add((d.LowPc, d.LowPc + 1));
         return list;
@@ -665,6 +718,8 @@ internal sealed class DwarfReader
     /// <summary>The unit holding <paramref name="offset"/> (parsed, or from the cache), or null.</summary>
     public DwarfUnit? UnitAt(long offset, CancellationToken ct = default)
     {
+        if (Owner(offset) is not { } owner) return null;
+        if (owner != this) return owner.UnitAt(offset, ct);
         lock (_gate)
         {
             foreach (var cached in _cache)
@@ -675,8 +730,9 @@ internal sealed class DwarfReader
                     return cached;
                 }
         }
-        bool types = offset >= TypesFlag;
-        long raw = offset - (types ? TypesFlag : 0);
+        long raw = offset - Space;
+        bool types = raw >= TypesFlag;
+        if (types) raw -= TypesFlag;
         int lo = 0, hi = _headers.Count - 1, found = -1;
         while (lo <= hi)
         {

@@ -135,7 +135,8 @@ public static class DwarfLocator
         _ => ReadOnlyMemory<byte>.Empty,
     };
 
-    private static IEnumerable<string> Roots()
+    /// <summary>The folders of <see cref="DirsVariable"/>, then /usr/lib/debug on Linux and macOS hosts.</summary>
+    internal static IEnumerable<string> Roots()
     {
         if (Environment.GetEnvironmentVariable(DirsVariable) is { Length: > 0 } dirs)
             foreach (var d in dirs.Split(System.IO.Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))

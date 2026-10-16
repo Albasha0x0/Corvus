@@ -28,8 +28,9 @@ internal static class DwarfDebugInfo
     {
         var issues = new List<ParseIssue>();
         var truncations = new List<string>();
+        var notes = new List<string>();
         foreach (var n in container.Notes) issues.Add(new ParseIssue("dwarf", n));
-        var reader = new DwarfReader(container);
+        using var reader = Open(container, issues);
         foreach (var p in reader.Problems) issues.Add(new ParseIssue("dwarf", p));
         int pointerSize = image.Is64Bit ? 8 : 4;
         var types = new DwarfTypes(reader, pointerSize);
@@ -50,7 +51,6 @@ internal static class DwarfDebugInfo
                 else issuesDropped++;
             }
             if (unit.Dies.Count == 0) continue;
-            types.Begin(unit);
             reader.Remember(unit);
             var root = unit.Dies[0];
             int module = -1;
@@ -62,6 +62,13 @@ internal static class DwarfDebugInfo
                 foreach (var (lo, hi) in reader.RangesOf(unit, root))
                     if (!DwarfLineTable.Tombstone(lo)) unitRanges.Add((lo, hi, h));
             }
+            if (IsSkeleton(unit))
+            {
+                if (reader.Family.Splits(container.Path).Resolve(unit, ct) is not { Dies.Count: > 0 } split) continue;
+                if (split.Problem != null && issues.Count < 200) issues.Add(new ParseIssue("dwarf", $"split unit {unit.DwoName}: {split.Problem}"));
+                unit = split;
+            }
+            types.Begin(unit);
             bool unitHasRanges = unitRanges.Count > 0 && unitRanges[^1].Header == h;
             for (int i = 0; i < unit.Dies.Count; i++)
             {
@@ -111,16 +118,31 @@ internal static class DwarfDebugInfo
             if (types.Full) Truncate(truncations, $"type records beyond {DwarfTypes.MaxBytes:N0} bytes");
         }
         if (issuesDropped > 0) issues.Add(new ParseIssue("dwarf", $"{issuesDropped} more units with problems"));
+        if (reader.Family.Splits(container.Path) is { Missing: > 0 } splits)
+        {
+            issues.Add(new ParseIssue("dwarf", $"split DWARF: {splits.Missing} of {splits.Read + splits.Missing} split units not found; their functions and types are not read"));
+            foreach (var p in splits.Problems) issues.Add(new ParseIssue("dwarf", p));
+        }
         if (types.Skipped.Count > 0)
             issues.Add(new ParseIssue("dwarf", "types not written: " + string.Join(", ", types.Skipped.OrderByDescending(kv => kv.Value).Take(8).Select(kv => $"{kv.Value} {kv.Key}"))));
         var built = types.Build();
-        var notes = new List<string>();
         if (types.Full) notes.Add($"type records past {DwarfTypes.MaxBytes:N0} bytes are not written");
         unitRanges.Sort((a, b) => a.Low.CompareTo(b.Low));
         var source = new SourceLookup(reopen, imageBase, unitRanges.ToArray(), lineTables, inlined);
         return PdbFile.FromDebugInfo(container.Path, container.FileLength, container.BuildId, modules, symbols, types.Typedefs,
             (built.Bytes, built.Offsets, notes), issues, truncations, source);
     }
+
+    /// <summary>The main reader of <paramref name="container"/> with its dwz supplementary file attached when it names one.</summary>
+    internal static DwarfReader Open(DebugContainer container, List<ParseIssue>? issues = null)
+    {
+        var reader = new DwarfReader(container);
+        if (DwarfReaders.AttachSupplement(reader, container) is { } why) issues?.Add(new ParseIssue("dwarf", why));
+        return reader;
+    }
+
+    /// <summary>A skeleton unit (DWARF 5) or a DWARF 4 compile unit naming a .dwo file: its entries are in the split unit.</summary>
+    internal static bool IsSkeleton(DwarfUnit unit) => unit.UnitType == Dw.UtSkeleton || unit.DwoName != null || unit.Dies is [{ Tag: Dw.TagSkeletonUnit }, ..];
 
     private static void Truncate(List<string> truncations, string text)
     {
@@ -192,7 +214,7 @@ internal static class DwarfDebugInfo
             try { container = reopen(); }
             catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException) { return result; }
             using var _ = container;
-            var reader = new DwarfReader(container);
+            using var reader = Open(container);
             var parsed = new Dictionary<int, (DwarfUnit Unit, DwarfLineTable? Lines)>();
             for (int i = 0; i < rvas.Count; i++)
             {
@@ -209,6 +231,7 @@ internal static class DwarfDebugInfo
                             lines = DwarfLineTable.Read(reader.Line, unit.StmtList, unit.AddressSize, reader.BigEndian, unit.CompDir, container.Section(".debug_str"),
                                 container.Section(".debug_line_str"), _ => null);
                         reader.Remember(unit);
+                        if (IsSkeleton(unit) && reader.Family.Splits(container.Path).Resolve(unit, ct) is { Dies.Count: > 0 } split) unit = split;
                         parsed[h] = entry = (unit, lines);
                     }
                     if (Describe(reader, entry.Unit, entry.Lines, address) is { } info) { result[i] = info; break; }
