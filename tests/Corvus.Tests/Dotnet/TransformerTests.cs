@@ -5,8 +5,8 @@ using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
 
-/// <summary>The .NET obfuscator named from what each leaves in a module: markers and the shapes of its runtime code.</summary>
-public sealed class ObfuscatorTests : IDisposable
+/// <summary>The .NET transformation tool named from what each leaves in a module: markers and the shapes of its runtime code.</summary>
+public sealed class TransformerTests : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly AssemblyWorkspace _workspace = new();
@@ -17,7 +17,7 @@ public sealed class ObfuscatorTests : IDisposable
         _dir.Dispose();
     }
 
-    private static List<ObfuscatorFinding> Identify(Action<ModuleDefUser> build) => Obfuscators.Identify(ModuleDefMD.Load(ContainerFixtures.Module("App", build)));
+    private static List<TransformerFinding> Identify(Action<ModuleDefUser> build) => Transformers.Identify(ModuleDefMD.Load(ContainerFixtures.Module("App", build)));
 
     private static MethodDefUser Static(ModuleDef m, string name, TypeSig ret, params TypeSig[] parameters) =>
         new(name, MethodSig.CreateStatic(ret, parameters), MethodImplAttributes.IL | MethodImplAttributes.Managed, MethodAttributes.Public | MethodAttributes.Static);
@@ -106,7 +106,7 @@ public sealed class ObfuscatorTests : IDisposable
             ModuleDefMD module;
             try { module = ModuleDefMD.Load(b); }
             catch (Exception) { return; } // a module dnlib refuses is not ours to read
-            using (module) Obfuscators.Identify(module);
+            using (module) Transformers.Identify(module);
         }, 800);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
     }
@@ -117,10 +117,10 @@ public sealed class ObfuscatorTests : IDisposable
         var path = _dir.File("app.dll");
         File.WriteAllBytes(path, ContainerFixtures.Module("App", Confuser));
         var summary = new InspectionService(_workspace).Summarize(null, path, default);
-        Assert.Contains(summary.Highlights, h => h.StartsWith("Protected with ConfuserEx (strong: constants decoder", StringComparison.Ordinal));
+        Assert.Contains(summary.Highlights, h => h.StartsWith("Transformed with ConfuserEx (strong: constants decoder", StringComparison.Ordinal));
         var asm = _workspace.Load(path);
         var text = new Corvus.Services.AssemblyReport(_workspace, new Corvus.Services.Il2CppService(_workspace)).Build(asm, "summary", out var record);
-        Assert.Contains("Obfuscator: ConfuserEx (strong): constants decoder", text);
-        Assert.Equal("ConfuserEx", Assert.Single(record.Obfuscators!).Name);
+        Assert.Contains("Transformer: ConfuserEx (strong): constants decoder", text);
+        Assert.Equal("ConfuserEx", Assert.Single(record.Transformers!).Name);
     }
 }

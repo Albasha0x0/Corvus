@@ -84,8 +84,8 @@
       "description": "Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.",
       "type": "integer"
     },
-    "obfuscators": {
-      "description": "The obfuscator, with evidence.",
+    "transformers": {
+      "description": "The transformation tool, with evidence.",
       "type": "array",
       "items": {
         "type": "object",

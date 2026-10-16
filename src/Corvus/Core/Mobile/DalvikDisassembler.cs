@@ -175,7 +175,7 @@ public sealed class DalvikDisassembler(DexFile dex)
         foreach (var i in insns)
         {
             if (lineAt.TryGetValue(i.Offset, out var line)) sb.Append("    .line ").Append(line.ToString(CultureInfo.InvariantCulture)).Append('\n');
-            // A label inside an instruction (malformed or obfuscated code) is placed before the next instruction.
+            // A label inside an instruction (malformed or transformed code) is placed before the next instruction.
             while (pending.Count > 0 && pending.Peek() <= i.Offset)
                 foreach (var n in labels[pending.Dequeue()].OrderBy(LabelOrder).ThenBy(n => n, StringComparer.Ordinal)) sb.Append("    ").Append(n).Append('\n');
             if (i.IsPayload) Payload(sb, code.Instructions, i, payloadOwner.GetValueOrDefault(i.Offset));

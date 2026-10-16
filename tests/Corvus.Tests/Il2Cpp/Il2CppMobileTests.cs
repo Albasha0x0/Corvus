@@ -234,7 +234,7 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
         {
             using var ws = new AssemblyWorkspace();
             var error = await Assert.ThrowsAsync<ToolError>(() => Tools(ws).LoadAssembly(apk));
-            Assert.Contains("encrypted_or_obfuscated", error.Message);
+            Assert.Contains("encrypted_or_transformed", error.Message);
             Assert.Empty(ws.Assemblies);
         }
         finally { Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, previous); }

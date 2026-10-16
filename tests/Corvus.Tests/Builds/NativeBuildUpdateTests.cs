@@ -205,13 +205,13 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         }
         h.Notes.Record("checks the license", null, null, On("Describe"), ["license"], null, null);
         h.Notes.Record("dead code?", "question", null, On("Gone"), null, null, null);
-        h.Notes.Record("obfuscated build", null, null, new NoteAnchor(NoteAnchor.File, Sha256: oldAsm.OriginalSha256, Label: oldAsm.Id), null, null, null);
+        h.Notes.Record("transformed build", null, null, new NoteAnchor(NoteAnchor.File, Sha256: oldAsm.OriginalSha256, Label: oldAsm.Id), null, null, null);
 
         var dry = await h.Tools.Update(oldAsm.Id, newAsm.Id, include: ["notes"]);
         var summaryToken = h.Env.Workspace.Read(() => newAsm.Module.Find("N.Shop", false).Methods.Single(x => x.Name == "Summary").MDToken.Raw);
         Assert.Equal(("would_carry", $"0x{summaryToken:X8}"), One(dry, "notes", i => i.Value == "checks the license") is var d ? (d.Outcome, d.NewAddress) : default);
         Assert.Equal(("refused", "no_counterpart"), One(dry, "notes", i => i.Value == "dead code?") is var g ? (g.Outcome, g.Reason) : default);
-        Assert.Equal(("would_carry", "file"), One(dry, "notes", i => i.Value == "obfuscated build") is var f ? (f.Outcome, f.Reason) : default);
+        Assert.Equal(("would_carry", "file"), One(dry, "notes", i => i.Value == "transformed build") is var f ? (f.Outcome, f.Reason) : default);
         Assert.Equal("reported", dry.Categories.Single(c => c.Category == "dotnet").Status);
         Assert.Equal("not_applicable", (await h.Tools.Update(oldAsm.Id, newAsm.Id)).Categories.Single(c => c.Category == "names").Status);
 

@@ -172,7 +172,7 @@
         "type": "object",
         "properties": {
           "category": {
-            "description": "anti_cheat, obfuscator, packer, encryption, mod_loader, build, middleware or toolchain.",
+            "description": "guard, transformer, packing, encryption, mod_loader, build, middleware or toolchain.",
             "type": "string"
           },
           "name": {

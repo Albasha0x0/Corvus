@@ -237,7 +237,7 @@ Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2
 | `assembly` | string | yes |  | Assembly id, name or path. |
 | `view` | string |  | `summary` | summary, references, metadata or all. Values: summary, references, metadata, all. |
 
-Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `referenceCount`, `unresolvedReferences`, `metadataIssueCount`, `obfuscators`, `references`, `attributes`, `tables`, `heaps`, `metadataIssues`.
+Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `referenceCount`, `unresolvedReferences`, `metadataIssueCount`, `transformers`, `references`, `attributes`, `tables`, `heaps`, `metadataIssues`.
 
 ### get_attributes
 
@@ -553,7 +553,7 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, ATT&CK features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, nib, pcap, plist, protobuf, rust, sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.
+First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, nib, pcap, plist, protobuf, rust, sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -571,13 +571,13 @@ Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views
 
 **Survey features** (read-only, idempotent)
 
-Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, evasion, code loading, injection, crypto) with ATT&CK ids; category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings (WebView, TLS, pinning, root / instrumentation, code loading, weak crypto, keys) by method offset.
+Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, system changes, code loading, cross-process, crypto); category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings (WebView, TLS, pinning, root / instrumentation, code loading, weak crypto, keys) by method offset.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
 | `path` | string |  |  | A .NET, native or app file, read without loading. |
-| `category` | string |  |  | Category, ATT&CK (T1055) or MASVS prefix: with evidence; all: everything. |
+| `category` | string |  |  | Category or MASVS prefix: with evidence; all: everything. |
 | `image` | string |  |  | A native image, loaded or a path (instead of assembly). |
 
 Structured output: `assembly`, `methodsScanned`, `features`, `category`, `notes`.

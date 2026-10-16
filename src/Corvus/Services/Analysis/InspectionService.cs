@@ -185,7 +185,6 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         category == null || category.Equals("all", StringComparison.OrdinalIgnoreCase) ? report : report with
         {
             Features = [.. report.Features.Where(c => c.Category.Equals(category, StringComparison.OrdinalIgnoreCase)
-                                                     || (c.Attack?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false)
                                                      || (c.Rule?.Masvs?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false))],
         };
 
@@ -743,20 +742,26 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return token == null || token.IsNullOrEmpty ? null : token.ToString();
     }
 
-    /// <summary>Categories whose ATT&amp;CK-mapped features appear in highlights.</summary>
+    /// <summary>Feature categories that appear in highlights.</summary>
     private static readonly HashSet<string> NotableCategories = new(StringComparer.Ordinal)
     {
-        "injection", "persistence", "collection", "credential access", "anti-analysis", "defense evasion", "privilege escalation",
-        "impact", "code loading", "execution",
+        "cross-process", "autostart", "local data", "protected storage", "environment checks", "system changes", "privileges",
+        "system control", "code loading", "execution",
+    };
+
+    /// <summary>Network features that always appear in highlights.</summary>
+    private static readonly HashSet<string> NotableNames = new(StringComparer.Ordinal)
+    {
+        "download files", "communicate through a web service (Telegram, Discord, Pastebin...)", "use raw TCP / UDP sockets",
     };
 
     private static List<string> Highlights(IdentityFacts identity, SignatureFacts signature, MarkerFacts markers, WrappingFacts wrapping,
         IReadOnlyList<Feature> features, ValueSummary values, IReadOnlyList<EntryPoint> entryPoints)
     {
         var h = new List<string>();
-        var obfuscators = markers.Obfuscators ?? [];
-        foreach (var o in obfuscators) h.Add($"Protected with {o.Name} ({o.Confidence}: {string.Join("; ", o.Evidence)}).");
-        foreach (var tool in markers.Tools.Where(t => !obfuscators.Any(o => t.Contains(o.Name, StringComparison.Ordinal))))
+        var transformers = markers.Transformers ?? [];
+        foreach (var o in transformers) h.Add($"Transformed with {o.Name} ({o.Confidence}: {string.Join("; ", o.Evidence)}).");
+        foreach (var tool in markers.Tools.Where(t => !transformers.Any(o => t.Contains(o.Name, StringComparison.Ordinal))))
             h.Add($"Processed with {tool} (toolchain marker found).");
         h.AddRange(markers.Indicators.Take(2));
         if (signature.Certificate is { Present: true } sig) h.AddRange(SignatureHighlights(sig, "the assembly"));
@@ -773,9 +778,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         }
         if (wrapping.Contents.Count > 5) h.Add($"{wrapping.Contents.Count - 5} more embedded item(s) listed.");
         foreach (var s in wrapping.HighEntropySections) h.Add($"High-entropy PE section {s}: wrapped or encrypted code?");
-        foreach (var c in features.Where(c => c.Attack != null && NotableCategories.Contains(c.Category)
-                                                  || c.Attack is "T1105" or "T1102" or "T1095"))
-            h.Add($"Can {c.Name} ({c.Attack} {c.AttackName}).");
+        foreach (var c in features.Where(c => NotableCategories.Contains(c.Category) || NotableNames.Contains(c.Name)))
+            h.Add($"Can {c.Name} ({c.Category}).");
         var network = new[] { "url", "domain", "ipv4", "ipv6" }.Where(values.ByType.ContainsKey).Select(t => $"{values.ByType[t]} {t}").ToList();
         if (network.Count > 0) h.Add($"Network values: {string.Join(", ", network)}.");
         foreach (var e in entryPoints.Where(e => e.Kind is not "Main"))

@@ -5,7 +5,7 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// Reads the metadata attributes that Il2CppDumper / Cpp2IL inject into "dummy" DLLs
+/// Reads the metadata attributes that Il2CppDumper / Cpp2IL add to "dummy" DLLs
 /// ([Address(RVA=..., Offset=..., VA=..., Slot=...)], [FieldOffset(Offset=...)], [Token(Token=...)])
 /// and maps native addresses back to managed methods, for cross-referencing with IDA/Ghidra.
 /// </summary>

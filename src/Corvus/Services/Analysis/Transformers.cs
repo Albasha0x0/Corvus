@@ -5,29 +5,29 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>A .NET obfuscator named from what it leaves in the module.</summary>
-public sealed record ObfuscatorFinding(string Name,
+/// <summary>A .NET transformation tool named from what it leaves in the module.</summary>
+public sealed record TransformerFinding(string Name,
     [property: Description("marker (its type or attribute), strong or likely (the shape of its runtime code).")] string Confidence,
     IReadOnlyList<string> Evidence);
 
 /// <summary>
-/// Names the obfuscator of a module from its marker types and attributes and the shapes of the runtime code it injects
-/// (ConfuserEx, .NET Reactor, Eazfuscator.NET, SmartAssembly, Babel, Dotfuscator). Reads metadata and IL only; no pass runs.
+/// Names the transformation tool of a module from its marker types and attributes and the shapes of the runtime code
+/// it adds. Reads metadata and IL only; no pass runs.
 /// </summary>
-public static partial class Obfuscators
+public static partial class Transformers
 {
     private const int MaxEvidence = 4;
 
-    /// <summary>The obfuscators found; none when the metadata is too damaged to read (dnlib reads it lazily and throws on bad rows).</summary>
-    public static List<ObfuscatorFinding> Identify(ModuleDef module)
+    /// <summary>The tools found; none when the metadata is too damaged to read (dnlib reads it lazily and throws on bad rows).</summary>
+    public static List<TransformerFinding> Identify(ModuleDef module)
     {
         try { return Read(module); }
         catch (Exception) { return []; }
     }
 
-    private static List<ObfuscatorFinding> Read(ModuleDef module)
+    private static List<TransformerFinding> Read(ModuleDef module)
     {
-        var found = new List<ObfuscatorFinding>();
+        var found = new List<TransformerFinding>();
         List<TypeDef> types;
         try { types = [.. module.GetTypes()]; }
         catch (Exception) { return found; }
@@ -46,7 +46,7 @@ public static partial class Obfuscators
 
         void Add(string name, string confidence, List<string> evidence)
         {
-            if (evidence.Count > 0) found.Add(new ObfuscatorFinding(name, confidence, [.. evidence.Take(MaxEvidence)]));
+            if (evidence.Count > 0) found.Add(new TransformerFinding(name, confidence, [.. evidence.Take(MaxEvidence)]));
         }
 
         // ConfuserEx: its runtime is merged into <Module>, started from <Module>.cctor
@@ -108,7 +108,7 @@ public static partial class Obfuscators
             .Select(i => (i.Operand as IMethod)?.FullName).OfType<string>()];
     }
 
-    /// <summary>A name with non-printing characters escaped, as obfuscated names often have them.</summary>
+    /// <summary>A name with non-printing characters escaped, as transformed names often have them.</summary>
     private static string Safe(UTF8String name) =>
         string.Concat(name.String.Select(c => char.IsControl(c) || char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.Format
             or System.Globalization.UnicodeCategory.PrivateUse or System.Globalization.UnicodeCategory.SpaceSeparator ? $"\\u{(int)c:x4}" : c.ToString()));

@@ -46,8 +46,8 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     public IEnumerable<Features.Rule> Rules =>
     [
-        new("block cipher or stream cipher constants", "crypto", null, null, [["const:aes", "const:blowfish", "const:chacha", "const:tea"]]),
-        new("hash or checksum constants", "crypto", null, null, [["const:sha256", "const:sha256-code", "const:sha512", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3"]]),
+        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:chacha", "const:tea"]]),
+        new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3"]]),
     ];
 
     public Evidence? Evaluate(SurveySubject subject, string feature, CancellationToken ct)

@@ -36,7 +36,7 @@ public sealed class ContainerProviderTests : IDisposable
 
     internal sealed class MarkerRules : ISurveyRuleProvider
     {
-        public IEnumerable<Features.Rule> Rules => [new("carry the test marker", "test", null, null, [["marker:Account"]])];
+        public IEnumerable<Features.Rule> Rules => [new("carry the test marker", "test", [["marker:Account"]])];
         public IReadOnlyCollection<string> Kinds => ["marker"];
 
         public Evidence? Evaluate(SurveySubject subject, string feature, CancellationToken ct)

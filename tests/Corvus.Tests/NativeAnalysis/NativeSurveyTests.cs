@@ -70,7 +70,7 @@ public class NativeSurveyTests(ITestOutputHelper output)
         var rwx = Assert.Single(found, f => f.Name == "allocate or make memory writable and executable");
         Assert.Contains("PAGE_EXECUTE_READWRITE", rwx.Evidence[0].Locations[0]);
         Assert.Contains(found, f => f.Name == "create a suspended process");
-        Assert.Contains(found, f => f.Name == "run the Windows command shell" && f.Attack == "T1059.003");
+        Assert.Contains(found, f => f.Name == "run the Windows command shell");
         Assert.Contains(found, f => f.Name == "check for a debugger");
         Assert.DoesNotContain(found, f => f.Name == "have a writable and executable section");
     }
@@ -86,9 +86,9 @@ public class NativeSurveyTests(ITestOutputHelper output)
         var loaded = inspection.SurveyFeatures(id, null, null, default);
         Assert.Equal(id, loaded.Assembly);
         Assert.Contains(loaded.Notes, n => n.StartsWith("native image", StringComparison.Ordinal));
-        var file = new InspectionService(env.Workspace).SurveyFeatures(null, path, "anti-analysis", default);
+        var file = new InspectionService(env.Workspace).SurveyFeatures(null, path, "environment checks", default);
         Assert.Equal("native.dll", file.Assembly);
-        Assert.All(file.Features, f => Assert.Equal("anti-analysis", f.Category));
+        Assert.All(file.Features, f => Assert.Equal("environment checks", f.Category));
     }
 
     [Fact]

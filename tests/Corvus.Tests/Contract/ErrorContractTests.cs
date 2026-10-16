@@ -184,7 +184,7 @@ public class ErrorContractTests
             Assert.Equal(l, Limitations.Parse(Limitations.Id(l)));
         }
         Assert.Null(Limitations.Parse("free text"));
-        foreach (var id in new[] { "analysis-partial", "engine-profile-standard", "regex-timeouts", "row-cap", "obfuscated-names", "no-pdb", "heuristic-boundaries" })
+        foreach (var id in new[] { "analysis-partial", "engine-profile-standard", "regex-timeouts", "row-cap", "transformed-names", "no-pdb", "heuristic-boundaries" })
             Assert.NotNull(Limitations.Parse(id));
     }
 

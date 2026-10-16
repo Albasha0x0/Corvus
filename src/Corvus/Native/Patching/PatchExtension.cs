@@ -34,7 +34,7 @@ public enum StubMode
 /// stub address, and a jump back to the instruction after the site. The stub goes in a file-backed code cave, else in
 /// a new section (<see cref="GrowSection"/>). One <see cref="NativePatch"/> holds site and <see cref="NativeStub"/>, so
 /// undo, export and save treat them as a unit. The stub gets no CFG flags (a jmp target, not an indirect-call target)
-/// and on x64 no .pdata entry (no frame, entered and left by jmp): injected code that calls or faults and must unwind
+/// and on x64 no .pdata entry (no frame, entered and left by jmp): generated code that calls or faults and must unwind
 /// needs a RUNTIME_FUNCTION added by hand. Refused with a reason code when a branch targets inside the displaced range,
 /// a displaced instruction cannot be relocated, no cave fits (placement=cave), an x64 unwind prologue would be split,
 /// the architecture is not x86/x64, or the section growth is refused.

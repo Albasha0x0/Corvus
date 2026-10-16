@@ -1,6 +1,6 @@
 # Guide 2: decode and patch
 
-Code that ships obfuscated hides its strings behind decoder calls and its control flow behind a state-machine switch.
+Code that ships transformed hides its strings behind decoder calls and its control flow behind a state-machine switch.
 `LicenseCheck` in the Notes sample ([source](../../samples/Notes/v1/LicenseCheck.cs)) is written in that shape on
 purpose. This guide turns it back into plain code, finds the valid key, makes the check accept any key and saves a
 patched copy. Build the sample first ([guide 1](1-first-session.md#build-the-sample)).

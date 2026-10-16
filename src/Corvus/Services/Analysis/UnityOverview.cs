@@ -67,7 +67,7 @@ public static class UnityOverview
         [property: Description("Identifiers read for unreadableNameRatio.")] int NamesRead);
 
     public sealed record MarkerFact(
-        [property: Description("anti_cheat, obfuscator, packer, encryption, mod_loader, build, middleware or toolchain.")] string Category,
+        [property: Description("guard, transformer, packing, encryption, mod_loader, build, middleware or toolchain.")] string Category,
         string Name, string Evidence,
         [property: Description("layout (file and folder names), pe_sections, assembly_markers, metadata_names or detect_it_easy.")] string Source);
 
@@ -406,8 +406,8 @@ public static class UnityOverview
                     markers.Add(new MarkerFact("encryption", "encrypted Il2Cpp metadata", $"{state}: {reason}", "metadata_names"));
             }
         }
-        if (ratio is >= 0.3 && namesRead >= 100 && !markers.Any(m => m.Category == "obfuscator"))
-            markers.Add(new MarkerFact("obfuscator", "renamed identifiers", $"{Corvus.Core.Format.Percent(ratio.Value)} of {namesRead} identifiers are unreadable or one or two characters long", kind == "mono" ? "assembly_markers" : "metadata_names"));
+        if (ratio is >= 0.3 && namesRead >= 100 && !markers.Any(m => m.Category == "transformer"))
+            markers.Add(new MarkerFact("transformer", "renamed identifiers", $"{Corvus.Core.Format.Percent(ratio.Value)} of {namesRead} identifiers are unreadable or one or two characters long", kind == "mono" ? "assembly_markers" : "metadata_names"));
         string? monoRuntime = mono == null ? null : Path.GetFileNameWithoutExtension(mono) is var n && n.Contains("bdwgc", StringComparison.OrdinalIgnoreCase)
             ? $"{n} (MonoBleedingEdge, .NET 4.x profile)" : $"{n} (legacy Mono, .NET 3.5 profile)";
         return new BackendFacts(kind, evidence, managed, managedDlls.Count, managedState, kind == "mono" ? monoRuntime : null, profile, binary, metadata, size, version,
@@ -425,7 +425,7 @@ public static class UnityOverview
         uint magic = BinaryPrimitives.ReadUInt32LittleEndian(head);
         int version = BinaryPrimitives.ReadInt32LittleEndian(head.AsSpan(4));
         if (magic != MetadataMagic)
-            return ("encrypted", $"starts with 0x{magic:X8}, not the metadata magic 0x{MetadataMagic:X8} (encrypted or obfuscated; the running game holds it decrypted)", null, size);
+            return ("encrypted", $"starts with 0x{magic:X8}, not the metadata magic 0x{MetadataMagic:X8} (encrypted or transformed; the running game holds it decrypted)", null, size);
         if (version is < 16 or > 64)
             return ("header_tampered", $"magic present but the version field is {version} (0x{version:X8}): the header after the magic is encrypted or scrambled", version, size);
         // The header is (offset, size) pairs, (offset, size, count) from version 38; the first section starts right after it.
@@ -475,7 +475,7 @@ public static class UnityOverview
         }
         var identifiers = names.Where(n => n.Length > 0 && n[0] != '<' && !n.Contains('.') && !n.Contains('`')).ToList();
         if (names.Any(n => n.StartsWith("Beebyte.Obfuscator", StringComparison.Ordinal) || n == "Beebyte.Obfuscator"))
-            markers.Add(new MarkerFact("obfuscator", "Beebyte Obfuscator", "Beebyte.Obfuscator namespace in the metadata strings", "metadata_names"));
+            markers.Add(new MarkerFact("transformer", "Beebyte Obfuscator", "Beebyte.Obfuscator namespace in the metadata strings", "metadata_names"));
         BeebyteStyle(identifiers, markers, "metadata_names");
         if (identifiers.Count == 0) return (null, 0);
         return (Math.Round((double)identifiers.Count(Markers.IsUnreadable) / identifiers.Count, 3), identifiers.Count);
@@ -486,7 +486,7 @@ public static class UnityOverview
     {
         int styled = identifiers.Count(n => n.Length == 11 && n.All(char.IsAsciiLetterUpper));
         if (styled >= 50 && styled >= identifiers.Count / 50 && !markers.Any(m => m.Name == "Beebyte Obfuscator"))
-            markers.Add(new MarkerFact("obfuscator", "Beebyte Obfuscator", $"{styled} of {identifiers.Count} identifiers are eleven capital letters (its default renaming)", source));
+            markers.Add(new MarkerFact("transformer", "Beebyte Obfuscator", $"{styled} of {identifiers.Count} identifiers are eleven capital letters (its default renaming)", source));
     }
 
     /// <summary>Assembly-CSharp: readable or not, marker types (survey markers), and the unreadable share of its type and method names.</summary>
@@ -508,7 +508,7 @@ public static class UnityOverview
             foreach (var ca in (module.Assembly?.CustomAttributes ?? []).Concat(module.CustomAttributes))
                 if (ca.AttributeType?.FullName is { } n) full.Add(n);
             foreach (var tool in Markers.ToolsFromNames(full))
-                markers.Add(new MarkerFact("obfuscator", tool, $"marker type or attribute in {Path.GetFileName(path)}", "assembly_markers"));
+                markers.Add(new MarkerFact("transformer", tool, $"marker type or attribute in {Path.GetFileName(path)}", "assembly_markers"));
             identifiers = [.. identifiers.Where(n => n.Length > 0 && n[0] != '<' && !n.StartsWith("CS$", StringComparison.Ordinal))];
             BeebyteStyle(identifiers, markers, "assembly_markers");
             return ("readable", identifiers.Count == 0 ? null : Math.Round((double)identifiers.Count(Markers.IsUnreadable) / identifiers.Count, 3), identifiers.Count);
@@ -548,13 +548,13 @@ public static class UnityOverview
     /// <summary>(category, name, file or folder names, matched case-insensitively in the game folder, the data folder and Plugins).</summary>
     private static readonly (string Category, string Name, string[] Files)[] LayoutSignatures =
     [
-        ("anti_cheat", "Easy Anti-Cheat", ["EasyAntiCheat", "start_protected_game.exe", "EasyAntiCheat_EOS_Setup.exe", "EasyAntiCheat_x64.dll", "EasyAntiCheat_EOS.sys"]),
+        ("guard", "EasyAntiCheat", ["EasyAntiCheat", "start_protected_game.exe", "EasyAntiCheat_EOS_Setup.exe", "EasyAntiCheat_x64.dll", "EasyAntiCheat_EOS.sys"]),
         ("anti_cheat", "BattlEye", ["BattlEye", "BEService.exe", "BEService_x64.exe", "BEClient_x64.dll"]),
-        ("anti_cheat", "nProtect GameGuard", ["GameGuard", "GameMon.des", "npggNT.des", "GameGuard.des"]),
+        ("guard", "GameGuard", ["GameGuard", "GameMon.des", "npggNT.des", "GameGuard.des"]),
         ("anti_cheat", "XIGNCODE3", ["XIGNCODE", "x3.xem", "xhunter1.sys"]),
-        ("anti_cheat", "Anti-Cheat Expert (Tencent ACE)", ["AntiCheatExpert", "ACE-Base64.dll", "SGuard64.exe", "ACE-BASE.sys"]),
-        ("anti_cheat", "mhyprot", ["mhyprot2.sys", "mhyprot3.sys"]),
-        ("anti_cheat", "Denuvo Anti-Cheat", ["denuvo-anti-cheat.sys", "denuvo-anti-cheat-update-service.exe"]),
+        ("guard", "Tencent ACE", ["AntiCheatExpert", "ACE-Base64.dll", "SGuard64.exe", "ACE-BASE.sys"]),
+        ("guard", "mhyprot", ["mhyprot2.sys", "mhyprot3.sys"]),
+        ("guard", "Denuvo", ["denuvo-anti-cheat.sys", "denuvo-anti-cheat-update-service.exe"]),
         ("mod_loader", "BepInEx", ["BepInEx", "winhttp.dll", "doorstop_config.ini"]),
         ("mod_loader", "MelonLoader", ["MelonLoader", "version.dll"]),
         ("build", "Burst", ["lib_burst_generated.dll", "lib_burst_generated.so"]),
@@ -576,7 +576,7 @@ public static class UnityOverview
         ("middleware", "Mirror", "Mirror"),
         ("middleware", "Netcode for GameObjects", "Unity.Netcode.Runtime"),
         ("middleware", "Odin Inspector", "Sirenix."),
-        ("obfuscator", "Beebyte Obfuscator", "Beebyte"),
+        ("transformer", "Beebyte Obfuscator", "Beebyte"),
         ("mod_loader", "Harmony", "0Harmony"),
         ("toolchain", "xLua", "XLua"),
         ("toolchain", "HybridCLR (hot-update Il2Cpp interpreter)", "HybridCLR"),
@@ -647,10 +647,10 @@ public static class UnityOverview
             if (PeImage.TryParse(head) is not { } pe) continue;
             var named = pe.Sections.Where(s => packer.IsMatch(s.Name)).Select(s => s.Name).ToList();
             if (named.Count > 0)
-                markers.Add(new MarkerFact("packer", PackerName(named[0]), $"{Path.GetFileName(file)}: section(s) {string.Join(", ", named)}", "pe_sections"));
-            var hollow = pe.Sections.Where(s => s.RawSize == 0 && s.VirtualSize > 0x10000 && s.Name is ".text" or "" or ".code").ToList();
-            if (hollow.Count > 0)
-                markers.Add(new MarkerFact("packer", "code unpacked at run time", $"{Path.GetFileName(file)}: {string.Join(", ", hollow.Select(s => $"'{s.Name}' {s.VirtualSize:N0} bytes in memory, none on disk"))}", "pe_sections"));
+                markers.Add(new MarkerFact("packing", PackerName(named[0]), $"{Path.GetFileName(file)}: section(s) {string.Join(", ", named)}", "pe_sections"));
+            var uninitialized = pe.Sections.Where(s => s.RawSize == 0 && s.VirtualSize > 0x10000 && s.Name is ".text" or "" or ".code").ToList();
+            if (uninitialized.Count > 0)
+                markers.Add(new MarkerFact("packing", "code unpacked at run time", $"{Path.GetFileName(file)}: {string.Join(", ", uninitialized.Select(s => $"'{s.Name}' {s.VirtualSize:N0} bytes in memory, none on disk"))}", "pe_sections"));
         }
     }
 
@@ -706,9 +706,9 @@ public static class UnityOverview
                         if (text.Length == 0) continue;
                         var category = type.ToLowerInvariant() switch
                         {
-                            "packer" => "packer",
-                            "protector" or "protection" => "packer",
-                            "obfuscator" or "(heur)obfuscator" => "obfuscator",
+                            "packer" => "packing",
+                            "protector" or "protection" => "packing",
+                            "obfuscator" or "(heur)obfuscator" => "transformer",
                             "cryptor" => "encryption",
                             _ => "toolchain",
                         };
@@ -798,7 +798,7 @@ public static class UnityOverview
         var steps = new List<NextStep>();
         var process = layout.Exe != null ? Path.GetFileName(layout.Exe) : "<the game's process>";
         Dictionary<string, string> Args(params (string Key, string Value)[] args) => args.ToDictionary(a => a.Key, a => a.Value);
-        bool protectedBinary = markers.Any(m => m.Category == "packer" && backend.NativeBinary != null && m.Evidence.StartsWith(Path.GetFileName(backend.NativeBinary), StringComparison.OrdinalIgnoreCase));
+        bool protectedBinary = markers.Any(m => m.Category == "packing" && backend.NativeBinary != null && m.Evidence.StartsWith(Path.GetFileName(backend.NativeBinary), StringComparison.OrdinalIgnoreCase));
         switch (backend.Kind)
         {
             case "mono" when backend.ManagedState == "encrypted":
@@ -809,10 +809,10 @@ public static class UnityOverview
                     "Read-only view of the running game: confirms the Mono runtime module and where it is loaded."));
                 break;
             case "mono" when backend.ManagedDirectory != null:
-                var obfuscated = markers.Where(m => m.Category == "obfuscator").Select(m => m.Name).ToList();
+                var transformersFound = markers.Where(m => m.Category == "transformer").Select(m => m.Name).ToList();
                 steps.Add(new NextStep("load_assembly", "load_assembly", Args(("path", backend.ManagedDirectory)),
                     "Mono build: the game's C# is IL in the Managed folder; loading it decompiles directly" +
-                    (obfuscated.Count > 0 ? $" (names obfuscated: {string.Join(", ", obfuscated)}; rename_symbol as you go)." : ".")));
+                    (transformersFound.Count > 0 ? $" (names transformed: {string.Join(", ", transformersFound)}; rename_symbol as you go)." : ".")));
                 steps.Add(new NextStep("list_namespaces", "list_namespaces", Args(("assembly", "Assembly-CSharp")), "The game's own code is in Assembly-CSharp (and Assembly-CSharp-firstpass)."));
                 break;
             case "il2cpp" when backend.MetadataState == "readable" && backend.NativeBinary != null && !protectedBinary:

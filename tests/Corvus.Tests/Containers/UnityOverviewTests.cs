@@ -62,7 +62,7 @@ public sealed class UnityOverviewTests : IDisposable
         Assert.Equal(("windows", "x64"), (r.Platform, r.Architecture));
         Assert.Equal(("Studio", "Mono Game"), (r.Company, r.Product));
         var names = r.Markers.Select(m => m.Name).ToList();
-        Assert.Contains("Easy Anti-Cheat", names);
+        Assert.Contains("EasyAntiCheat", names);
         Assert.Contains("Burst", names);
         Assert.Contains("Addressables", names);
         Assert.Contains(r.Folders, f => f.Kind == "addressables" && f.Note!.Contains("catalog.json"));

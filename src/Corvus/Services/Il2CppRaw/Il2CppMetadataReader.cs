@@ -16,7 +16,7 @@ namespace Corvus.Services;
 /// (<see cref="Il2CppGameModel"/>). A memory image of the binary (a process dump) is read with its sections at their
 /// RVAs; 32-bit ARM code pointers lose their Thumb bit. When the Unity version is not known from the player or the data folder, each
 /// sub-version of the metadata's version is tried and the first whose method pointers land in code is kept. Unreadable
-/// metadata is a typed error (encrypted or obfuscated header, unsupported version, mismatched binary); unreadable single
+/// metadata is a typed error (encrypted or transformed header, unsupported version, mismatched binary); unreadable single
 /// items are listed in <see cref="Il2CppGameModel.Unreadables"/>. LibCpp2IL keeps one game in process-wide state, so
 /// reads are serialized.
 /// </summary>
@@ -52,7 +52,7 @@ public static class Il2CppMetadataReader
         int version = BitConverter.ToInt32(head[4..]);
         if (magic != Magic)
             throw new ToolError(ErrorCode.MalformedInput,
-                $"{metadataPath} does not start with the Il2Cpp metadata magic 0x{Magic:X8} (found 0x{magic:X8}): reason encrypted_or_obfuscated — the game encrypts or " +
+                $"{metadataPath} does not start with the Il2Cpp metadata magic 0x{Magic:X8} (found 0x{magic:X8}): reason encrypted_or_transformed — the game encrypts or " +
                 "obfuscates its metadata, or this is not a global-metadata.dat.",
                 "dump the decrypted metadata from the running game's memory (the runtime holds it decrypted, starting with AF 1B B1 FA) and load that file");
         if (version < MinVersion || version > MaxVersion)
@@ -146,7 +146,7 @@ public static class Il2CppMetadataReader
                             "load the arm64-v8a build of the same game (the package with slice=arm64-v8a, or its lib/arm64-v8a/libil2cpp.so), or a memory dump of the library");
                     throw new ToolError(ErrorCode.MalformedInput,
                         $"The metadata (v{headerVersion}) could not be read with {Path.GetFileName(files.Binary)}: reason " +
-                        (registration ? "binary_mismatch_or_protected — the code/metadata registration was not found in the binary: it was built from other metadata, or it is packed/protected on disk"
+                        (registration ? "binary_mismatch_or_transformed — the code/metadata registration was not found in the binary: it was built from other metadata, or it is packed/protected on disk"
                                       : "unreadable_structures — no Unity sub-version's layout reads it") +
                         $". Tried: {string.Join("; ", tried)}",
                         registration ? "use the game binary of the same build, or a memory dump of it from the running game"

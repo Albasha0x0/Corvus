@@ -87,7 +87,7 @@ internal sealed class MobileRules : ISurveyRuleProvider
         Rule("apple", id, masvs, severity, name, review, features);
 
     private static Features.Rule Rule(string platform, string id, string masvs, string severity, string name, string review, string[] features) =>
-        new(name, masvs.Split('-')[1].ToLowerInvariant(), null, null, [features])
+        new(name, masvs.Split('-')[1].ToLowerInvariant(), [features])
         {
             Id = id, Masvs = masvs, Severity = severity, Review = review, Platform = platform,
         };
@@ -124,11 +124,11 @@ internal sealed class MobileRules : ISurveyRuleProvider
             "Any CA the user (or a device policy) installs can intercept the app's TLS; check that this is meant outside debug-overrides.",
             "apk:user-certificates"),
         Android("android-pinning", "MASVS-NETWORK-2", "info", "pin server certificates",
-            "Check the pinned hosts, backup pins and expiry; these are also the methods a pinning bypass hooks.",
+            "Check the pinned hosts, backup pins and expiry; these are also the methods an interception layer wraps.",
             "dex:call:Lokhttp3/CertificatePinner$Builder;->add(", "dex:call:Lcom/squareup/okhttp/CertificatePinner$Builder;->add(", "apk:pins",
             "dex:class:Lcom/datatheorem/android/trustkit/TrustKit;", @"dex:str:^sha(?:256|1)/[A-Za-z0-9+/]{27,43}=*$"),
         Android("android-root-detection", "MASVS-RESILIENCE-1", "info", "look for root (su binaries, root managers)",
-            "Root checks are bypassable on a rooted device; check what the app does when one fires (or whether the app uses root itself).",
+            "Root checks can be worked around on a rooted device; check what the app does when one fires (or whether the app uses root itself).",
             @"dex:str:^/(?:system/(?:xbin|bin|sbin|sd/xbin|bin/failsafe)/su|sbin/su|su/bin/su|data/local/(?:xbin|bin)/su|data/local/su|system/app/Superuser\.apk|cache/su|dev/su)$",
             @"dex:str:^(?:com\.topjohnwu\.magisk|eu\.chainfire\.supersu|com\.noshufou\.android\.su(?:\.elite)?|com\.koushikdutta\.superuser|com\.thirdparty\.superuser|com\.kingroot\.kinguser|com\.yellowes\.su|com\.devadvance\.rootcloak2?|de\.robv\.android\.xposed\.installer|com\.saurik\.substrate)$",
             "dex:class:Lcom/scottyab/rootbeer/RootBeer;"),
@@ -141,8 +141,8 @@ internal sealed class MobileRules : ISurveyRuleProvider
         Android("android-emulator-detection", "MASVS-RESILIENCE-1", "info", "look for emulator files or properties",
             "Check what the app does on an emulator; these checks are routine in anti-fraud SDKs too.",
             @"dex:str:^(?:/dev/qemu_pipe|/dev/socket/qemud|/dev/goldfish_pipe|/system/lib(?:64)?/libc_malloc_debug_qemu\.so|/sys/qemu_trace|/system/bin/qemu-props|/system/bin/qemud|ro\.kernel\.qemu(?:\.gles)?|init\.goldfish\.rc|ueventd\.ranchu\.rc|/system/lib/libdroid4x\.so|/system/bin/nox-prop|/system/bin/ttVM-prop|fstab\.vbox86|ueventd\.vbox86\.rc|/dev/vboxguest|/dev/vboxuser)$"),
-        Android("android-instrumentation-detection", "MASVS-RESILIENCE-4", "info", "look for Frida, Xposed or Substrate",
-            "Check what the app does when it finds them; the strings are also what a bypass script renames.",
+        Android("android-instrumentation-detection", "MASVS-RESILIENCE-4", "info", "look for instrumentation frameworks",
+            "Check what the app does when it finds them; the strings are also what an interception script renames.",
             "dex:str:" + FridaNames, @"dex:str:^(?:de\.robv\.android\.xposed\.XposedBridge|XposedBridge\.jar|/system/framework/XposedBridge\.jar|com\.saurik\.substrate\.MS\$2)$"),
         Android("android-debugger-detection", "MASVS-RESILIENCE-4", "info", "check for an attached debugger",
             "Check what the app does when a debugger is attached.",
@@ -158,7 +158,7 @@ internal sealed class MobileRules : ISurveyRuleProvider
             "System.load takes any path, unlike loadLibrary; check that the file cannot be replaced by another app or a download.",
             "dex:call:Ljava/lang/System;->load(Ljava/lang/String;)V", "dex:call:Ljava/lang/Runtime;->load(Ljava/lang/String;)V"),
         Android("android-weak-hash", "MASVS-CRYPTO-1", "low", "hash with MD5 or SHA-1",
-            "Broken for signatures, passwords and integrity against an attacker; fine for cache keys and checksums. Check what the digest protects.",
+            "Not collision-resistant, so unsuitable for signatures, passwords and integrity; fine for cache keys and checksums. Check what the digest protects.",
             @"dex:call:Ljava/security/MessageDigest;->getInstance(*#0=s:(?i)^(?:MD2|MD4|MD5|SHA-?1|SHA)$"),
         Android("android-weak-cipher", "MASVS-CRYPTO-1", "medium", "encrypt with a weak cipher or ECB mode",
             "DES, 3DES, RC4 and Blowfish are weak; ECB (also bare \"AES\") leaks patterns. Check what the cipher protects.",
@@ -185,11 +185,11 @@ internal sealed class MobileRules : ISurveyRuleProvider
             "objc:check:trust-unchecked", "objc:sel:setAllowInvalidCertificates:", @"sym:(?:DisabledTrustEvaluator|DisabledEvaluator)",
             "sym:^kCFStreamSSLValidatesCertificateChain$"),
         Apple("apple-pinning", "MASVS-NETWORK-2", "info", "pin server certificates",
-            "Check the pinned hosts, backup pins and expiry; these are also the functions a pinning bypass hooks.",
+            "Check the pinned hosts, backup pins and expiry; these are also the functions an interception layer wraps.",
             "plist:pinned-domains", @"sym:(?:PinnedCertificatesTrustEvaluator|PublicKeysTrustEvaluator)", "objc:class:TSKPinningValidator",
             "objc:class:TrustKit", "objc:sel:policyWithPinningMode:", "str:^TSKPublicKeyHashes$"),
         Apple("apple-jailbreak-detection", "MASVS-RESILIENCE-1", "info", "look for a jailbreak",
-            "Jailbreak checks are bypassable on a jailbroken device; check what the app does when one fires. Swift strings under 16 bytes live in code and are not seen.",
+            "Jailbreak checks can be worked around on a jailbroken device; check what the app does when one fires. Swift strings under 16 bytes live in code and are not seen.",
             @"str:^(?:/Applications/(?:Cydia|Sileo|Zebra|blackra1n|FakeCarrier|Icy|IntelliScreen|MxTube|RockApp|SBSettings|WinterBoard)\.app/?|/Library/MobileSubstrate/(?:MobileSubstrate\.dylib|DynamicLibraries/?)|/private/var/lib/(?:apt|cydia)/?|/private/var/stash|/private/jailbreak\.txt|/var/jb/?|/usr/libexec/cydia/?|/var/checkra1n\.dmg|/\.bootstrapped_electra|/usr/lib/libjailbreak\.dylib|/etc/apt/?|/jb/lzma|/\.installed_unc0ver)$",
             @"str:^(?:cydia|sileo|zbra|undecimus|filza)://"),
         Apple("apple-instrumentation-detection", "MASVS-RESILIENCE-4", "info", "look for Frida, Cycript or Substrate",
@@ -202,7 +202,7 @@ internal sealed class MobileRules : ISurveyRuleProvider
             "System frameworks are routine; check that no path comes from a download or the app's writable folders.",
             "sym:^dlopen$", "objc:sel:loadAndReturnError:"),
         Apple("apple-weak-hash", "MASVS-CRYPTO-1", "low", "hash with MD5 or SHA-1",
-            "Broken for signatures, passwords and integrity against an attacker; fine for cache keys and checksums. Check what the digest protects.",
+            "Not collision-resistant, so unsuitable for signatures, passwords and integrity; fine for cache keys and checksums. Check what the digest protects.",
             "sym:^CC_(?:MD2|MD4|MD5|SHA1)$", @"sym:CryptoKit8InsecureO(?:3MD5|4SHA1)V"),
         Apple("apple-keychain-always", "MASVS-STORAGE-1", "medium", "store keychain items readable while the device is locked",
             "kSecAttrAccessibleAlways* items are readable without the passcode; check which items use it.",

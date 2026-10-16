@@ -32,7 +32,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     {
         var encrypted = Assert.Throws<ToolError>(() => Il2CppMetadataReader.CheckHeader(Metadata("enc.dat", 0x12345678, 29)));
         Assert.Equal(ErrorCode.MalformedInput, encrypted.Code);
-        Assert.Contains("encrypted_or_obfuscated", encrypted.Message);
+        Assert.Contains("encrypted_or_transformed", encrypted.Message);
         foreach (var version in new[] { 23, 40 })
         {
             var old = Assert.Throws<ToolError>(() => Il2CppMetadataReader.CheckHeader(Metadata($"v{version}.dat", 0xFAB11BAF, version)));
@@ -64,7 +64,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         var il2cpp = new Il2CppService(ws);
         var tools = new Corvus.Tools.WorkspaceTools(ws, il2cpp, new IndexingService(ws, new CallGraphService(ws), options), new Corvus.Services.Analysis.UnpackService(ws));
         var error = await Assert.ThrowsAsync<ToolError>(() => tools.LoadAssembly(game));
-        Assert.Contains("encrypted_or_obfuscated", error.Message);
+        Assert.Contains("encrypted_or_transformed", error.Message);
         Assert.Empty(ws.Assemblies); // nothing half-loaded
         // GameAssembly.dll alone still loads as a native image, with the way to its metadata.
         Assert.Contains("Il2Cpp game: its metadata is", await tools.LoadAssembly(Path.Combine(game, "GameAssembly.dll")));

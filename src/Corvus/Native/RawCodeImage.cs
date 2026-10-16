@@ -102,7 +102,7 @@ public sealed record RawLayout(RawArch Isa, ulong Base, uint EntryOffset)
     }
 }
 
-/// <summary>A headerless file (shellcode, firmware, a memory region) mapped as one executable section at a chosen base.</summary>
+/// <summary>A headerless file (firmware, a memory region, a raw code blob) mapped as one executable section at a chosen base.</summary>
 public sealed class RawCodeImage : INativeImage
 {
     private readonly byte[] _data;

@@ -20,7 +20,7 @@ public sealed class RawImageTests : IDisposable
 
     private string Blob()
     {
-        var path = _dir.File("shellcode.bin");
+        var path = _dir.File("rawcode.bin");
         File.WriteAllBytes(path, Shellcode);
         return path;
     }
@@ -32,8 +32,8 @@ public sealed class RawImageTests : IDisposable
         await using var server = await InProcessServer.StartAsync();
         var load = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x400000" });
         Assert.False(load.IsError, load.Text);
-        Assert.Contains("shellcode.bin[x64@0x400000]", load.Text);
-        const string id = "shellcode.bin[x64@0x400000]";
+        Assert.Contains("rawcode.bin[x64@0x400000]", load.Text);
+        const string id = "rawcode.bin[x64@0x400000]";
 
         var info = await Call(server, "get_pe_info", new() { ["image"] = id });
         Assert.False(info.IsError, info.Text);
@@ -62,19 +62,19 @@ public sealed class RawImageTests : IDisposable
         await using var server = await InProcessServer.StartAsync();
         Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x400000" })).IsError);
         var again = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x400000" });
-        Assert.Contains("shellcode.bin[x64@0x400000]", again.Text);
+        Assert.Contains("rawcode.bin[x64@0x400000]", again.Text);
         var other = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "thumb", ["base"] = "0x8000000", ["entry"] = "0x8000004" });
         Assert.False(other.IsError, other.Text);
-        Assert.Contains("shellcode.bin[thumb@0x8000000]", other.Text);
+        Assert.Contains("rawcode.bin[thumb@0x8000000]", other.Text);
         Assert.Contains("entry 0x8000004", other.Text);
 
         var list = await Call(server, "list_assemblies", new());
-        Assert.Contains("shellcode.bin[x64@0x400000]", list.Text);
-        Assert.Contains("shellcode.bin[thumb@0x8000000]", list.Text);
+        Assert.Contains("rawcode.bin[x64@0x400000]", list.Text);
+        Assert.Contains("rawcode.bin[thumb@0x8000000]", list.Text);
 
         var mips = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "mipsel", ["base"] = "0x80000000" });
         Assert.False(mips.IsError, mips.Text);
-        Assert.Contains("unsupported", (await Call(server, "disassemble", new() { ["image"] = "shellcode.bin[mipsel@0x80000000]", ["address"] = "0x80000000", ["engine"] = "ours" })).Text);
+        Assert.Contains("unsupported", (await Call(server, "disassemble", new() { ["image"] = "rawcode.bin[mipsel@0x80000000]", ["address"] = "0x80000000", ["engine"] = "ours" })).Text);
 
         Assert.Contains("needs arch",(await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw" })).Text);
         Assert.Contains("not 4 KiB aligned", (await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x401" })).Text);

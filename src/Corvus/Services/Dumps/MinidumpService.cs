@@ -312,7 +312,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             if (HostsClr(dump, out var runtime) && (region == null || region.IsExecutable))
                 return new Location(null, null, null, null, null, null, "managed",
                     $"not in a module: JIT-compiled managed code ({runtime} is loaded); the runtime's DAC names it when one is available (open_minidump dacPath or downloadDac)");
-            string what = region == null ? "not in a module" : region.IsExecutable ? "not in a module: generated or injected code (executable private memory)"
+            string what = region == null ? "not in a module" : region.IsExecutable ? "not in a module: generated code (executable private memory)"
                 : "not in a module and not executable memory";
             return new Location(null, null, null, null, null, null, "unknown", what);
         }

@@ -3,8 +3,8 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>A matched rule with its optional MITRE ATT&amp;CK technique and evidence.</summary>
-public sealed record Feature(string Name, string Category, string? Attack, string? AttackName, IReadOnlyList<Evidence> Evidence)
+/// <summary>A matched rule with its evidence.</summary>
+public sealed record Feature(string Name, string Category, IReadOnlyList<Evidence> Evidence)
 {
     /// <summary>The mobile rule that matched (one with a MASVS id), else null.</summary>
     public Features.Rule? Rule { get; init; }
@@ -26,13 +26,12 @@ public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> L
 /// (P/Invoke, or a native image's static and late-bound imports; extension ignored, A / W suffix accepted), "str:"
 /// (regex over strings), and for native images "arg:module!Api#i=ENTRY" (a call whose argument i is a constant with that
 /// flag or enumeration value), "section:entropy>x" / "section:name=regex" / "section:wx" and "rtti:regex" (MSVC RTTI class
-/// names). A rule matches when every group has a matching feature. ATT&amp;CK ids are set only when the operation itself
-/// is the technique.
+/// names). A rule matches when every group has a matching feature.
 /// </summary>
 public static class Features
 {
     /// <summary>All groups must match; within a group, any feature.</summary>
-    public sealed record Rule(string Name, string Category, string? Attack, string? AttackName, string[][] Groups)
+    public sealed record Rule(string Name, string Category, string[][] Groups)
     {
         /// <summary>Mobile rules: a stable id, the MASVS control, a severity (high, medium, low, info) and what to check.</summary>
         public string? Id { get; init; }
@@ -44,13 +43,13 @@ public static class Features
         public string? Platform { get; init; }
     }
 
-    private static Rule Any(string name, string category, string? attack, string? attackName, params string[] features) =>
-        new(name, category, attack, attackName, [features]);
+    private static Rule Any(string name, string category, params string[] features) =>
+        new(name, category, [features]);
 
-    private static Rule All(string name, string category, string? attack, string? attackName, params string[][] groups) =>
-        new(name, category, attack, attackName, groups);
+    private static Rule All(string name, string category, params string[][] groups) =>
+        new(name, category, groups);
 
-    /// <summary>Section names left by known packers and protectors (UPX, ASPack, MPRESS, Themida, VMProtect, Enigma...).</summary>
+    /// <summary>Section names left by known executable packing tools.</summary>
     public const string PackerSectionNames = @"^(?:UPX\d|\.aspack|\.adata|\.petite|\.nsp\d|\.MPRESS\d|\.themida|\.vmp\d|\.enigma\d|\.yP|PEC2\w*|\.packed|\.boom)$";
 
     private static readonly string[] CreateProcess =
@@ -66,169 +65,169 @@ public static class Features
 
     public static readonly IReadOnlyList<Rule> Rules =
     [
-        Any("send HTTP requests", "network", "T1071.001", "Application Layer Protocol: Web Protocols",
+        Any("send HTTP requests", "network",
             "api:System.Net.Http.HttpClient::*Async", "api:System.Net.Http.HttpMessageInvoker::SendAsync", "api:System.Net.WebClient::Download*",
             "api:System.Net.WebClient::Upload*", "api:System.Net.WebClient::OpenRead*", "api:System.Net.WebRequest::Create*",
             "api:System.Net.WebRequest::GetResponse*", "api:System.Net.HttpWebRequest::GetResponse*", "native:wininet!InternetOpenUrl*",
             "native:wininet!HttpSendRequest*", "native:winhttp!WinHttpSendRequest", @"rtti:^(?:web::http::|cpr::|httplib::)"),
-        Any("download files", "network", "T1105", "Ingress Tool Transfer",
+        Any("download files", "network",
             "api:System.Net.WebClient::DownloadFile*", "api:System.Net.WebClient::DownloadData*", "api:System.Net.Http.HttpClient::GetByteArrayAsync",
             "api:System.Net.Http.HttpClient::GetStreamAsync", "native:urlmon!URLDownloadToFile*"),
-        Any("use raw TCP / UDP sockets", "network", "T1095", "Non-Application Layer Protocol",
+        Any("use raw TCP / UDP sockets", "network",
             "api:System.Net.Sockets.Socket::Connect*", "api:System.Net.Sockets.TcpClient::Connect*", "api:System.Net.Sockets.TcpClient::.ctor(System.String,System.Int32)",
             "api:System.Net.Sockets.UdpClient::Send*", "native:ws2_32!connect", "native:ws2_32!WSAConnect", "native:ws2_32!sendto",
             @"rtti:^boost::asio::ip::(?:tcp|udp)\b"),
-        Any("use WebSockets", "network", "T1071.001", "Application Layer Protocol: Web Protocols",
+        Any("use WebSockets", "network",
             "api:System.Net.WebSockets.ClientWebSocket::ConnectAsync", "native:winhttp!WinHttpWebSocketCompleteUpgrade", "rtti:^websocketpp::"),
-        Any("send email", "network", "T1071.003", "Application Layer Protocol: Mail Protocols",
+        Any("send email", "network",
             "api:System.Net.Mail.SmtpClient::Send*"),
-        Any("communicate through a web service (Telegram, Discord, Pastebin...)", "network", "T1102", "Web Service",
+        Any("communicate through a web service (Telegram, Discord, Pastebin...)", "network",
             @"str:api\.telegram\.org|discord(?:app)?\.com/api/webhooks|pastebin\.com/raw|hastebin\.com|transfer\.sh|anonfiles\.com"),
-        Any("resolve DNS names", "network", null, null,
+        Any("resolve DNS names", "network",
             "api:System.Net.Dns::GetHost*", "api:System.Net.Dns::Resolve", "native:dnsapi!DnsQuery*"),
-        Any("listen for incoming connections", "network", null, null,
+        Any("listen for incoming connections", "network",
             "api:System.Net.Sockets.TcpListener::Start", "api:System.Net.HttpListener::Start", "api:System.Net.Sockets.Socket::Listen"),
 
-        Any("create processes", "execution", null, null, CreateProcess),
-        All("run the Windows command shell", "execution", "T1059.003", "Command and Scripting Interpreter: Windows Command Shell",
+        Any("create processes", "execution", CreateProcess),
+        All("run the Windows command shell", "execution",
             CreateProcess, [@"str:(?i)(?:^|[\\\s""])cmd(?:\.exe)?(?:$|[\s""])|\bcmd(?:\.exe)?\s+/[ck]\b"]),
-        All("run PowerShell", "execution", "T1059.001", "Command and Scripting Interpreter: PowerShell",
+        All("run PowerShell", "execution",
             [.. CreateProcess, "api:System.Management.Automation.PowerShell::Invoke*"],
             [@"str:(?i)\b(?:powershell|pwsh)(?:\.exe)?\b", "api:System.Management.Automation.PowerShell::*"]),
-        Any("use WMI", "execution", "T1047", "Windows Management Instrumentation",
+        Any("use WMI", "execution",
             "api:System.Management.ManagementObjectSearcher::*", "api:System.Management.ManagementClass::*", "api:System.Management.ManagementScope::*"),
-        Any("hide the window of created processes", "defense evasion", "T1564.003", "Hide Artifacts: Hidden Window",
+        Any("start processes without a window", "system changes",
             "api:System.Diagnostics.ProcessStartInfo::set_CreateNoWindow", "api:System.Diagnostics.ProcessStartInfo::set_WindowStyle"),
-        Any("terminate processes", "execution", null, null,
+        Any("terminate processes", "execution",
             "api:System.Diagnostics.Process::Kill", "native:kernel32!TerminateProcess"),
-        Any("stop services", "impact", "T1489", "Service Stop",
+        Any("stop services", "system control",
             "api:System.ServiceProcess.ServiceController::Stop", "native:advapi32!ControlService"),
-        Any("shut down or restart the system", "impact", "T1529", "System Shutdown/Reboot",
+        Any("shut down or restart the system", "system control",
             @"str:(?i)\bshutdown(?:\.exe)?\s+[/-][srt]\b", "native:user32!ExitWindowsEx", "native:advapi32!InitiateSystemShutdown*"),
 
-        Any("query the registry", "registry", "T1012", "Query Registry",
+        Any("query the registry", "registry",
             "api:Microsoft.Win32.RegistryKey::GetValue*", "api:Microsoft.Win32.RegistryKey::OpenSubKey", "api:Microsoft.Win32.RegistryKey::GetSubKeyNames",
             "api:Microsoft.Win32.Registry::GetValue", "native:advapi32!RegQueryValue*", "native:advapi32!RegOpenKey*"),
-        Any("modify the registry", "registry", "T1112", "Modify Registry",
+        Any("modify the registry", "registry",
             [.. RegistryWrite, "api:Microsoft.Win32.RegistryKey::DeleteValue", "api:Microsoft.Win32.RegistryKey::DeleteSubKey*", "native:advapi32!RegDeleteKey*"]),
-        All("persist through a Run registry key", "persistence", "T1547.001", "Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder",
+        All("auto-start through a Run registry key", "autostart",
             [@"str:(?i)\\CurrentVersion\\Run(?:Once)?(?:\\|$)"], RegistryWrite),
-        Any("persist through the Startup folder", "persistence", "T1547.001", "Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder",
+        Any("auto-start through the Startup folder", "autostart",
             @"str:(?i)\\Start Menu\\Programs\\Startup"),
-        Any("persist through a scheduled task", "persistence", "T1053.005", "Scheduled Task/Job: Scheduled Task",
+        Any("run on a schedule through Task Scheduler", "autostart",
             @"str:(?i)\bschtasks(?:\.exe)?\b|Schedule\.Service", "api:Microsoft.Win32.TaskScheduler.TaskService::*"),
-        Any("install a Windows service", "persistence", "T1543.003", "Create or Modify System Process: Windows Service",
+        Any("install a Windows service", "autostart",
             "native:advapi32!CreateService*", @"str:(?i)\bsc(?:\.exe)?\s+create\b", "api:System.Configuration.Install.ManagedInstallerClass::InstallHelper"),
 
-        Any("log keystrokes", "collection", "T1056.001", "Input Capture: Keylogging",
+        Any("read keyboard input", "local data",
             "native:user32!SetWindowsHookEx*", "native:user32!GetAsyncKeyState", "native:user32!GetKeyboardState"),
-        Any("install a keyboard hook", "collection", "T1056.001", "Input Capture: Keylogging",
+        Any("register a system-wide keyboard callback", "local data",
             "arg:user32!SetWindowsHookEx*#0=WH_KEYBOARD_LL", "arg:user32!SetWindowsHookEx*#0=WH_KEYBOARD"),
-        All("capture the screen", "collection", "T1113", "Screen Capture",
+        All("capture the screen", "local data",
             ["api:System.Drawing.Graphics::CopyFromScreen", "native:gdi32!BitBlt"],
             ["api:System.Drawing.Graphics::CopyFromScreen", "native:user32!GetDesktopWindow", "native:user32!GetWindowDC", "native:user32!GetDC"]),
-        Any("read the clipboard", "collection", "T1115", "Clipboard Data",
+        Any("read the clipboard", "local data",
             "api:System.Windows.Forms.Clipboard::Get*", "api:System.Windows.Clipboard::Get*", "native:user32!GetClipboardData"),
-        Any("access browser credential stores", "credential access", "T1555.003", "Credentials from Password Stores: Credentials from Web Browsers",
+        Any("read browser login data files", "protected storage",
             @"str:(?i)\\(?:Google\\Chrome|Microsoft\\Edge|BraveSoftware\\Brave-Browser|Opera Software|Yandex\\YandexBrowser)\\User Data|\bLogin Data\b|\blogins\.json\b|\bkey4\.db\b|\bsignons\.sqlite\b"),
-        Any("access cryptocurrency wallets", "collection", "T1005", "Data from Local System",
+        Any("reference cryptocurrency wallet files", "local data",
             @"str:(?i)\\(?:Exodus|Electrum|Ethereum\\keystore|Atomic\\Local Storage|Coinomi)\b|\bwallet\.dat\b"),
-        Any("decrypt data with DPAPI", "credential access", null, null,
+        Any("unprotect data with DPAPI", "protected storage",
             "api:System.Security.Cryptography.ProtectedData::Unprotect", "native:crypt32!CryptUnprotectData"),
 
-        Any("check for a debugger", "anti-analysis", "T1622", "Debugger Evasion",
+        Any("check for a debugger", "environment checks",
             "api:System.Diagnostics.Debugger::get_IsAttached", "api:System.Diagnostics.Debugger::IsLogging", "native:kernel32!IsDebuggerPresent",
             "native:kernel32!CheckRemoteDebuggerPresent", "native:ntdll!NtQueryInformationProcess",
             "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugPort", "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugObjectHandle",
             "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugFlags"),
-        Any("hide threads from a debugger", "anti-analysis", "T1622", "Debugger Evasion",
+        Any("exclude threads from debugger notification", "environment checks",
             "arg:ntdll!NtSetInformationThread#1=ThreadHideFromDebugger"),
-        Any("contain packed or encrypted sections", "anti-analysis", "T1027.002", "Obfuscated Files or Information: Software Packing",
+        Any("contain high-entropy sections", "environment checks",
             "section:entropy>7.2"),
-        Any("be packed with a known packer", "anti-analysis", "T1027.002", "Obfuscated Files or Information: Software Packing",
+        Any("use a known executable packing tool", "environment checks",
             "section:name=" + PackerSectionNames),
-        Any("have a writable and executable section", "defense evasion", null, null, "section:wx"),
-        Any("detect virtual machines and sandboxes", "anti-analysis", "T1497.001", "Virtualization/Sandbox Evasion: System Checks",
+        Any("have a writable and executable section", "system changes", "section:wx"),
+        Any("detect virtual machines and instrumented environments", "environment checks",
             @"str:(?i)\b(?:vbox\w*|virtualbox|vmware|qemu|parallels)\b|\bsbiedll\.dll\b|\bwine_get_unix_file_name\b",
             // CPUID hypervisor vendor ids
             @"str:VMwareVMware|KVMKVMKVM|Microsoft Hv|XenVMMXenVMM|prl hyperv|VBoxVBoxVBox|TCGTCGTCGTCG"),
-        Any("look for analysis tools", "anti-analysis", "T1518.001", "Software Discovery: Security Software Discovery",
+        Any("reference diagnostic tool names", "environment checks",
             @"str:(?i)\b(?:ollydbg|x64dbg|x32dbg|windbg|immunitydebugger|idaq64|ida64|procmon\d*|processhacker|wireshark|fiddler|dnspy|ghidra)(?:\.exe)?\b"),
-        Any("disable or bypass Windows Defender", "defense evasion", "T1562.001", "Impair Defenses: Disable or Modify Tools",
+        Any("change Windows Defender settings", "system changes",
             @"str:(?i)Add-MpPreference|Set-MpPreference|DisableRealtimeMonitoring|\\Windows Defender\\Exclusions"),
-        Any("bypass User Account Control", "privilege escalation", "T1548.002", "Abuse Elevation Control Mechanism: Bypass User Account Control",
+        Any("reference auto-elevated system components", "privileges",
             @"str:(?i)\b(?:fodhelper|eventvwr|computerdefaults|sdclt)(?:\.exe)?\b|ms-settings\\shell\\open\\command|mscfile\\shell\\open\\command"),
-        Any("delete itself after running", "defense evasion", "T1070.004", "Indicator Removal: File Deletion",
+        Any("schedule its own deletion", "system changes",
             @"str:(?i)\bping\b[^""]*&[^""]*\b(?:del|erase)\b|\bchoice\s+/c\s+y\s+/n\s+/d\s+y\s+/t\b"),
-        Any("change file timestamps", "defense evasion", "T1070.006", "Indicator Removal: Timestomp",
+        Any("change file timestamps", "system changes",
             "api:System.IO.File::SetCreationTime*", "api:System.IO.File::SetLastWriteTime*", "api:System.IO.File::SetLastAccessTime*",
             "api:System.IO.FileSystemInfo::set_CreationTime*", "api:System.IO.FileSystemInfo::set_LastWriteTime*"),
-        Any("adjust token privileges", "privilege escalation", "T1134", "Access Token Manipulation",
+        Any("adjust token privileges", "privileges",
             "native:advapi32!AdjustTokenPrivileges", "native:advapi32!DuplicateToken*", "native:advapi32!ImpersonateLoggedOnUser"),
 
-        Any("load .NET assemblies from memory", "code loading", "T1620", "Reflective Code Loading",
+        Any("load .NET assemblies from memory", "code loading",
             "api:System.Reflection.Assembly::Load(System.Byte[]*", "api:System.AppDomain::Load(System.Byte[]*",
             "api:System.Runtime.Loader.AssemblyLoadContext::LoadFromStream"),
-        Any("compile code at run time", "code loading", "T1027.004", "Obfuscated Files or Information: Compile After Delivery",
+        Any("compile code at run time", "code loading",
             "api:Microsoft.CSharp.CSharpCodeProvider::*", "api:System.CodeDom.Compiler.CodeDomProvider::CompileAssembly*",
             "api:Microsoft.CodeAnalysis.CSharp.CSharpCompilation::Create"),
-        Any("invoke code through reflection", "code loading", null, null,
+        Any("invoke code through reflection", "code loading",
             "api:System.Reflection.MethodBase::Invoke", "api:System.Reflection.MethodInfo::Invoke", "api:System.Type::InvokeMember",
             "api:System.Delegate::DynamicInvoke", "api:System.Activator::CreateInstance"),
-        Any("generate IL at run time", "code loading", null, null,
+        Any("generate IL at run time", "code loading",
             "api:System.Reflection.Emit.ILGenerator::Emit*", "api:System.Reflection.Emit.DynamicMethod::.ctor"),
-        Any("resolve native functions at run time", "code loading", "T1106", "Native API",
+        Any("resolve native functions at run time", "code loading",
             "native:kernel32!GetProcAddress", "native:kernel32!LoadLibrary*", "native:ntdll!LdrGetProcedureAddress*", "api:System.Runtime.InteropServices.NativeLibrary::GetExport",
             "api:System.Runtime.InteropServices.Marshal::GetDelegateForFunctionPointer*"),
-        All("inject code into another process", "injection", "T1055", "Process Injection",
+        All("write code into another process and run it", "cross-process",
             ["native:kernel32!VirtualAllocEx", "native:ntdll!NtAllocateVirtualMemory"],
             ["native:kernel32!WriteProcessMemory", "native:ntdll!NtWriteVirtualMemory"],
             ["native:kernel32!CreateRemoteThread*", "native:ntdll!NtCreateThreadEx", "native:ntdll!RtlCreateUserThread", "native:kernel32!QueueUserAPC"]),
-        All("hollow a process", "injection", "T1055.012", "Process Injection: Process Hollowing",
+        All("replace a suspended process's image", "cross-process",
             ["native:ntdll!NtUnmapViewOfSection", "native:ntdll!ZwUnmapViewOfSection"],
             ["native:kernel32!SetThreadContext", "native:kernel32!Wow64SetThreadContext"],
             ["native:kernel32!ResumeThread"]),
-        All("run shellcode in its own process", "injection", null, null,
+        All("run generated machine code in its own process", "cross-process",
             ["native:kernel32!VirtualAlloc", "native:kernel32!VirtualProtect"],
             ["native:kernel32!CreateThread", "api:System.Runtime.InteropServices.Marshal::GetDelegateForFunctionPointer*"]),
-        Any("allocate or make memory writable and executable", "code loading", null, null,
+        Any("allocate or make memory writable and executable", "code loading",
             "arg:kernel32!VirtualAlloc#3=PAGE_EXECUTE_READWRITE", "arg:kernel32!VirtualAllocEx#4=PAGE_EXECUTE_READWRITE",
             "arg:kernel32!VirtualProtect#2=PAGE_EXECUTE_READWRITE", "arg:kernel32!VirtualProtectEx#3=PAGE_EXECUTE_READWRITE",
             "arg:ntdll!NtAllocateVirtualMemory#5=PAGE_EXECUTE_READWRITE", "arg:ntdll!NtProtectVirtualMemory#3=PAGE_EXECUTE_READWRITE",
             "arg:kernel32!VirtualAlloc#3=PAGE_EXECUTE_WRITECOPY", "arg:kernel32!VirtualProtect#2=PAGE_EXECUTE_WRITECOPY"),
-        Any("create a suspended process", "injection", null, null,
+        Any("create a suspended process", "cross-process",
             "arg:kernel32!CreateProcess*#5=CREATE_SUSPENDED", "arg:advapi32!CreateProcessAsUser*#6=CREATE_SUSPENDED"),
 
-        Any("get system information", "discovery", "T1082", "System Information Discovery",
+        Any("get system information", "discovery",
             "api:System.Environment::get_OSVersion", "api:System.Environment::get_MachineName", "api:System.Runtime.InteropServices.RuntimeInformation::get_OSDescription",
             "native:kernel32!GetSystemInfo", "native:kernel32!GetNativeSystemInfo", "native:kernel32!GetVersionEx*", "native:kernel32!GetComputerName*"),
-        Any("get the user name", "discovery", "T1033", "System Owner/User Discovery",
+        Any("get the user name", "discovery",
             "api:System.Environment::get_UserName", "api:System.Security.Principal.WindowsIdentity::GetCurrent", "native:advapi32!GetUserName*"),
-        Any("enumerate processes", "discovery", "T1057", "Process Discovery",
+        Any("enumerate processes", "discovery",
             "api:System.Diagnostics.Process::GetProcesses*", "native:kernel32!CreateToolhelp32Snapshot", "native:kernel32!Process32First*", "native:psapi!EnumProcesses", "native:kernel32!K32EnumProcesses"),
-        Any("enumerate network configuration", "discovery", "T1016", "System Network Configuration Discovery",
+        Any("enumerate network configuration", "discovery",
             "api:System.Net.NetworkInformation.NetworkInterface::GetAllNetworkInterfaces", "api:System.Net.NetworkInformation.IPGlobalProperties::*",
             "native:iphlpapi!GetAdaptersInfo", "native:iphlpapi!GetAdaptersAddresses"),
-        Any("enumerate files and directories", "discovery", "T1083", "File and Directory Discovery",
+        Any("enumerate files and directories", "discovery",
             "api:System.IO.Directory::GetFiles", "api:System.IO.Directory::EnumerateFiles", "api:System.IO.Directory::GetDirectories",
             "api:System.IO.Directory::EnumerateDirectories", "api:System.IO.DirectoryInfo::GetFiles", "api:System.IO.DriveInfo::GetDrives", "native:kernel32!FindFirstFile*"),
-        Any("check for administrator rights", "discovery", null, null,
+        Any("check for administrator rights", "discovery",
             "api:System.Security.Principal.WindowsPrincipal::IsInRole", "native:shell32!IsUserAnAdmin", "native:advapi32!CheckTokenMembership"),
 
-        Any("encrypt or decrypt data", "crypto", null, null,
+        Any("encrypt or decrypt data", "crypto",
             "api:*::CreateDecryptor", "api:*::CreateEncryptor", "api:System.Security.Cryptography.Aes::Create", "api:*::DecryptCbc", "api:*::EncryptCbc",
             "api:System.Security.Cryptography.AesGcm::Decrypt", "api:System.Security.Cryptography.RSA::Decrypt", "native:advapi32!CryptDecrypt",
             "native:advapi32!CryptEncrypt", "native:bcrypt!BCryptEncrypt", "native:bcrypt!BCryptDecrypt", "rtti:^CryptoPP::"),
-        Any("hash data", "crypto", null, null,
+        Any("hash data", "crypto",
             "api:System.Security.Cryptography.HashAlgorithm::ComputeHash", "api:System.Security.Cryptography.SHA256::HashData", "api:System.Security.Cryptography.MD5::HashData",
             "api:System.Security.Cryptography.SHA1::HashData",
             "native:advapi32!CryptCreateHash", "native:bcrypt!BCryptCreateHash", "native:bcrypt!BCryptHash"),
-        Any("decode base64", "encoding", null, null, "api:System.Convert::FromBase64String", "native:crypt32!CryptStringToBinary*"),
-        Any("compress or decompress data", "data", null, null,
+        Any("decode base64", "encoding", "api:System.Convert::FromBase64String", "native:crypt32!CryptStringToBinary*"),
+        Any("compress or decompress data", "data",
             "api:System.IO.Compression.GZipStream::.ctor", "api:System.IO.Compression.DeflateStream::.ctor", "api:System.IO.Compression.ZipArchive::.ctor",
             "api:System.IO.Compression.ZipFile::*",
             "native:ntdll!RtlDecompressBuffer*", "native:cabinet!Decompress", "native:cabinet!Compress", @"rtti:^boost::iostreams::(?:zlib|gzip)"),
-        Any("create a mutex", "synchronization", null, null,
+        Any("create a mutex", "synchronization",
             "api:System.Threading.Mutex::.ctor", "api:System.Threading.Mutex::OpenExisting", "api:System.Threading.Mutex::TryOpenExisting", "native:kernel32!CreateMutex*"),
     ];
 
@@ -282,7 +281,7 @@ public static class Features
                 if (hits.Count == 0) { all = false; break; }
                 evidence.AddRange(hits.Where(h => !evidence.Any(x => x.Feature == h.Feature)));
             }
-            if (all) found.Add(new Feature(rule.Name, rule.Category, rule.Attack, rule.AttackName, evidence) { Rule = rule.Masvs != null ? rule : null });
+            if (all) found.Add(new Feature(rule.Name, rule.Category, evidence) { Rule = rule.Masvs != null ? rule : null });
         }
         return found;
     }

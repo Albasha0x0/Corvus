@@ -19,7 +19,7 @@ public sealed record MetadataIssue(
 /// <summary>
 /// Structural checks of the metadata root and the tables stream header straight from the file bytes, independent of
 /// dnlib and System.Reflection.Metadata (which either read malformed metadata silently or refuse it without saying
-/// where). Obfuscators produce these on purpose: duplicate or bogus streams, Valid bits for tables that do not exist,
+/// where). Transformation tools produce these on purpose: duplicate or bogus streams, Valid bits for tables that do not exist,
 /// the extra-data flag. The runtime, like dnlib, uses the last of duplicate streams.
 /// </summary>
 public static class MetadataSurvey

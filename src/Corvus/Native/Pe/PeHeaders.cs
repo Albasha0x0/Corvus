@@ -55,7 +55,7 @@ public sealed record PeDataDirectory(int Index, string Name, uint Rva, uint Size
 /// </summary>
 public sealed record PeSectionLayout(NativeSection Section, uint MappedSize, long LoadedFileOffset, uint LoadedFileSize, IReadOnlyList<string> CharacteristicNames);
 
-/// <summary>Exploit mitigations the headers, load config and debug directory declare.</summary>
+/// <summary>Hardening flags the headers, load config and debug directory declare.</summary>
 /// <param name="Aslr">DYNAMIC_BASE set and relocations not stripped.</param>
 /// <param name="HighEntropyVa">64-bit ASLR with HIGH_ENTROPY_VA.</param>
 /// <param name="Dep">NX_COMPAT set, or a 64-bit image (DEP is always on for 64-bit processes).</param>

@@ -21,12 +21,6 @@
           "matches": {
             "type": "integer"
           },
-          "attack": {
-            "type": "string"
-          },
-          "attackName": {
-            "type": "string"
-          },
           "basis": {
             "type": "string"
           },

@@ -85,7 +85,7 @@ breaking changes.
 
 156 tools (2.0.2 had 155): `analyze_js` is new, in the `web` toolset. No breaking changes.
 
-- **Raw images.** `load_assembly format=raw arch= base= entry=` maps headerless code (firmware, shellcode, ROM dumps).
+- **Raw images.** `load_assembly format=raw arch= base= entry=` maps headerless code (firmware, ROM dumps, raw blobs).
   Our index decodes x86, x64, ARM, Thumb and ARM64; MIPS, PowerPC, RISC-V and 6502 go to IDA and Ghidra, which set
   the processor, bitness, base and entry before analysis. DOS `.COM` (`x86-16`) and MZ (`dos-mz`) images load too.
   Each layout gets its own id (`name[x64@0x400000]`), database and project.
@@ -761,7 +761,7 @@ work across the server and its engine workers.
   1,474 s to 12 s (ARM32), over 900 s to 7 s (ARM64).
 - **Patching ELF and Mach-O:** `patch_bytes`, `patch_asm`, undo and `save_native` (universal files keep their other
   slices); bytes the loader rewrites are refused unless forced, encrypted bytes refused.
-- **Packaging tools and protectors** reported with evidence in `summarize_file` and `get_pe_info` (detection only).
+- **Packaging and hardening tools** reported with evidence in `summarize_file` and `get_pe_info` (detection only).
 
 ### Native analysis
 

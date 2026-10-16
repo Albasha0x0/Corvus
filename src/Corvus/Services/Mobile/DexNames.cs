@@ -6,7 +6,7 @@ using Corvus.Core.Mobile;
 namespace Corvus.Services.Mobile;
 
 /// <summary>
-/// Original names for an obfuscated package: an R8 / ProGuard mapping.txt (classes, fields and methods, inlined frames
+/// Original names for an renamed package: an R8 / ProGuard mapping.txt (classes, fields and methods, inlined frames
 /// skipped), and for classes it leaves out, names recovered from Kotlin @Metadata (d2) or the SourceFile attribute. Ids
 /// stay the package's own; this layer annotates them and translates original names given as input.
 /// </summary>
@@ -15,10 +15,10 @@ public sealed partial class DexNames
     /// <summary>A recovered class name and where it came from (mapping, kotlin metadata, source file).</summary>
     public sealed record ClassName(string Name, string Basis);
 
-    private readonly Dictionary<string, ClassName> _classes = new(StringComparer.Ordinal); // obfuscated descriptor -> name
-    private readonly Dictionary<string, string> _original = new(StringComparer.Ordinal); // original descriptor -> obfuscated
-    private readonly Dictionary<string, string> _members = new(StringComparer.Ordinal); // obfuscated member id -> original id
-    private readonly Dictionary<string, List<string>> _byName = new(StringComparer.Ordinal); // original class->name -> obfuscated ids
+    private readonly Dictionary<string, ClassName> _classes = new(StringComparer.Ordinal); // renamed descriptor -> name
+    private readonly Dictionary<string, string> _original = new(StringComparer.Ordinal); // original descriptor -> renamed
+    private readonly Dictionary<string, string> _members = new(StringComparer.Ordinal); // renamed member id -> original id
+    private readonly Dictionary<string, List<string>> _byName = new(StringComparer.Ordinal); // original class->name -> renamed ids
 
     public string? Mapping { get; private init; }
     public int MappedClasses { get; private set; }
@@ -27,14 +27,14 @@ public sealed partial class DexNames
 
     public bool IsEmpty => _classes.Count == 0 && _members.Count == 0;
 
-    /// <summary>The original descriptor (mapping or Kotlin metadata) of an obfuscated one, else null.</summary>
-    public string? Descriptor(string obfuscated) =>
-        _classes.TryGetValue(obfuscated, out var c) && c.Basis != "source file" ? c.Name : null;
+    /// <summary>The original descriptor (mapping or Kotlin metadata) of an renamed one, else null.</summary>
+    public string? Descriptor(string renamed) =>
+        _classes.TryGetValue(renamed, out var c) && c.Basis != "source file" ? c.Name : null;
 
-    public ClassName? Class(string obfuscated) => _classes.GetValueOrDefault(obfuscated);
+    public ClassName? Class(string renamed) => _classes.GetValueOrDefault(renamed);
 
-    /// <summary>The original id of an obfuscated field or method id, else null.</summary>
-    public string? Member(string obfuscatedId) => _members.GetValueOrDefault(obfuscatedId);
+    /// <summary>The original id of an renamed field or method id, else null.</summary>
+    public string? Member(string renamedId) => _members.GetValueOrDefault(renamedId);
 
     /// <summary>A type descriptor with every class in it named by its original (arrays kept).</summary>
     public string Type(string descriptor)
@@ -112,8 +112,8 @@ public sealed partial class DexNames
     private static string Java(string parameters) => parameters.Trim().Replace(" ", "", StringComparison.Ordinal).Replace(",", ", ", StringComparison.Ordinal);
 
     /// <summary>
-    /// Parses mapping.txt against <paramref name="index"/>: "original -> obfuscated:" class lines, then four-space member lines
-    /// "type name -> obf" and "[a:b:]ret name(params)[:x[:y]] -> obf". Of lines sharing a line range and an obfuscated name,
+    /// Parses mapping.txt against <paramref name="index"/>: "original -> renamed:" class lines, then four-space member lines
+    /// "type name -> obf" and "[a:b:]ret name(params)[:x[:y]] -> obf". Of lines sharing a line range and an renamed name,
     /// the last is the method and the others are frames inlined into it.
     /// </summary>
     public static DexNames Read(string mappingPath, DexIndex index, CancellationToken ct)
@@ -121,7 +121,7 @@ public sealed partial class DexNames
         var full = InputFiles.RequireRegularFile(mappingPath, "mapping.txt");
         if (!File.Exists(full)) throw Targets.FileNotFound(full);
         var names = new DexNames { Mapping = full };
-        var classLines = new List<(string Original, string Obfuscated, List<string> Members)>();
+        var classLines = new List<(string Original, string Renamed, List<string> Members)>();
         List<string>? current = null;
         int lineNo = 0, bad = 0;
         foreach (var raw in File.ReadLines(full))
@@ -138,19 +138,19 @@ public sealed partial class DexNames
             current = [];
             classLines.Add((raw[..arrow].Trim(), raw[(arrow + 4)..].TrimEnd().TrimEnd(':').Trim(), current));
         }
-        foreach (var (original, obfuscated, _) in classLines)
+        foreach (var (original, renamed, _) in classLines)
         {
             var o = FromJava(original);
-            var x = FromJava(obfuscated);
+            var x = FromJava(renamed);
             names._original.TryAdd(o, x);
             if (o != x) names._classes[x] = new ClassName(o, "mapping");
         }
         int classesFound = 0, members = 0, membersFound = 0;
         HashSet<string>? fields = null;
-        foreach (var (original, obfuscated, lines) in classLines)
+        foreach (var (original, renamed, lines) in classLines)
         {
             ct.ThrowIfCancellationRequested();
-            var owner = FromJava(obfuscated);
+            var owner = FromJava(renamed);
             var originalOwner = FromJava(original);
             if (index.Classes.ContainsKey(owner)) classesFound++;
             for (int i = 0; i < lines.Count; i++)
@@ -159,7 +159,7 @@ public sealed partial class DexNames
                 if (!m.Success) { bad++; continue; }
                 var (range, type, name, parameters, obfName) = (m.Groups[1].Value, m.Groups[2].Value, m.Groups[3].Value, m.Groups[4], m.Groups[5].Value);
                 bool method = parameters.Success;
-                // inlined frames: the next line shares the range and obfuscated name; a qualified name is from another class
+                // inlined frames: the next line shares the range and renamed name; a qualified name is from another class
                 if (method && range.Length > 0 && i + 1 < lines.Count && MemberLine().Match(lines[i + 1]) is { Success: true } next
                     && next.Groups[1].Value == range && next.Groups[5].Value == obfName) continue;
                 if (name.Contains('.', StringComparison.Ordinal)) continue;
@@ -169,14 +169,14 @@ public sealed partial class DexNames
                 {
                     var ps = parameters.Value.Length == 0 ? [] : parameters.Value.Split(',', StringSplitOptions.TrimEntries);
                     var originalSig = "(" + string.Concat(ps.Select(FromJava)) + ")" + FromJava(type);
-                    var obfSig = "(" + string.Concat(ps.Select(p => names.Obfuscated(FromJava(p)))) + ")" + names.Obfuscated(FromJava(type));
+                    var obfSig = "(" + string.Concat(ps.Select(p => names.Renamed(FromJava(p)))) + ")" + names.Renamed(FromJava(type));
                     id = $"{owner}->{obfName}{obfSig}";
                     originalId = $"{originalOwner}->{name}{originalSig}";
                     if (index.Methods.ContainsKey(id)) membersFound++;
                 }
                 else
                 {
-                    id = $"{owner}->{obfName}:{names.Obfuscated(FromJava(type))}";
+                    id = $"{owner}->{obfName}:{names.Renamed(FromJava(type))}";
                     originalId = $"{originalOwner}->{name}:{FromJava(type)}";
                     fields ??= [.. index.Classes.Values.SelectMany(e => e.File.ClassData(e.Class).Fields.Select(f => e.File.Field(f.FieldIndex).Descriptor))];
                     if (fields.Contains(id)) membersFound++;
@@ -204,7 +204,7 @@ public sealed partial class DexNames
         return names;
     }
 
-    private string Obfuscated(string descriptor)
+    private string Renamed(string descriptor)
     {
         int dims = 0;
         while (dims < descriptor.Length && descriptor[dims] == '[') dims++;
@@ -212,7 +212,7 @@ public sealed partial class DexNames
     }
 
     /// <summary>
-    /// Names for obfuscated-looking classes the mapping does not cover: the class name Kotlin @Metadata d2 records (when it is
+    /// Names for renamed-looking classes the mapping does not cover: the class name Kotlin @Metadata d2 records (when it is
     /// another descriptor), else the SourceFile stem for a top-level class (a hint, not an id).
     /// </summary>
     private void Recover(DexIndex index)
@@ -220,7 +220,7 @@ public sealed partial class DexNames
         int kotlin = 0, source = 0;
         foreach (var (descriptor, e) in index.Classes)
         {
-            if (_classes.ContainsKey(descriptor) || !LooksObfuscated(descriptor)) continue;
+            if (_classes.ContainsKey(descriptor) || !LooksRenamed(descriptor)) continue;
             var annotations = e.File.Annotations(e.Class).Class;
             if (annotations.FirstOrDefault(a => a.Type == "Lkotlin/Metadata;") is { } m
                 && m.Elements.FirstOrDefault(x => x.Name == "d2").Value?.Value is IReadOnlyList<DexValue> d2
@@ -249,7 +249,7 @@ public sealed partial class DexNames
     }
 
     /// <summary>A class whose simple name is one to three lowercase letters or digits, as R8 and ProGuard name them.</summary>
-    internal static bool LooksObfuscated(string descriptor)
+    internal static bool LooksRenamed(string descriptor)
     {
         var simple = descriptor.TrimEnd(';');
         simple = simple[(Math.Max(simple.LastIndexOf('/'), simple.LastIndexOf('$')) + 1)..];

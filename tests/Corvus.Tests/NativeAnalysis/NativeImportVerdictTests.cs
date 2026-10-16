@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// verify_native_imports verdicts beyond the export check: run-time loading found in the IL (dynamic_only), and
-/// assemblies with obfuscator-style malformed metadata (synthesized by patching a compiled fixture), which must give
+/// assemblies with transformed malformed metadata (synthesized by patching a compiled fixture), which must give
 /// typed results with locations in verify_native_imports, load_assembly, get_assembly_info and the decompiler.
 /// </summary>
 public class NativeImportVerdictTests(ITestOutputHelper output)
@@ -84,7 +84,7 @@ public class NativeImportVerdictTests(ITestOutputHelper output)
     /// <summary>One compile shared by the tests here (a release build is cached per name and source).</summary>
     private static byte[] Fixture() => Roslyn.Release("Dyn", Source + Resolver);
 
-    /// <summary>The compiled fixture with one obfuscator-style change each.</summary>
+    /// <summary>The compiled fixture with one transformed-metadata change each.</summary>
     internal static Dictionary<string, byte[]> MalformedCases(byte[] clean)
     {
         int map = MetadataPatcher.ImplMapRidOf(clean, "GetCurrentThreadId");
@@ -125,7 +125,7 @@ public class NativeImportVerdictTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public void ObfuscatorStyleMetadataGivesTypedResultsWithLocations()
+    public void TransformedMetadataGivesTypedResultsWithLocations()
     {
         using var env = new Env();
         using var dir = new TempDir();

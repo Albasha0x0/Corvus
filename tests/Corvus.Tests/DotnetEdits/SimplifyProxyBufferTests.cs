@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// A buffer held in a static field and passed through a call whose target is resolved (a call through a static delegate
-/// field, as obfuscators route calls): the proof that the buffer stays as its initializer left it follows the call into
+/// field, as transformation tools route calls): the proof that the buffer stays as its initializer left it follows the call into
 /// the target, a framework method or a module method, so calls reading the buffer through the proxy fold; a target that
 /// writes into the buffer keeps the bail-out. The fixture runs before and after.
 /// </summary>

@@ -233,7 +233,7 @@ public class ExportBuildTests
     public void ExportReferencingALibraryWithAnyVersionCoreLibraryBuilds()
     {
         using var dir = new TempDir();
-        // A .NET Framework library as some obfuscators write it: mscorlib, Version=65535.65535.65535.65535.
+        // A .NET Framework library as some transformation tools write it: mscorlib, Version=65535.65535.65535.65535.
         var mscorlib = new dnlib.DotNet.AssemblyRefUser("mscorlib", new Version(65535, 65535, 65535, 65535),
             new dnlib.DotNet.PublicKeyToken("b77a5c561934e089"));
         var module = new dnlib.DotNet.ModuleDefUser("Lib.dll", Guid.NewGuid(), mscorlib) { Kind = dnlib.DotNet.ModuleKind.Dll };

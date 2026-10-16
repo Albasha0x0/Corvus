@@ -36,7 +36,7 @@ public sealed class PackerDetectionTests
     {
         var found = Assert.Single(PackerDetection.OfFile("packed.exe", UpxPe()));
         Assert.Equal("UPX", found.Name);
-        Assert.Equal("packer", found.Kind);
+        Assert.Equal("packing tool", found.Kind);
         Assert.Contains("section names UPX0, UPX1", found.Evidence);
         Assert.Contains("UPX! pack header at file 0x1E5, UPX 3.96, win64/pe", found.Evidence);
     }
@@ -64,7 +64,7 @@ public sealed class PackerDetectionTests
         b.Add(".vmp0", new byte[0x200], 0x60000020);
         b.Add(".vmp1", new byte[0x200], 0xE0000040);
         var vmp = Assert.Single(PackerDetection.OfFile("p.dll", b.Build()));
-        Assert.Equal(("VMProtect", "protector", "section names .vmp0, .vmp1"), (vmp.Name, vmp.Kind, vmp.Evidence));
+        Assert.Equal(("VMProtect", "hardening tool", "section names .vmp0, .vmp1"), (vmp.Name, vmp.Kind, vmp.Evidence));
 
         var plain = new PeBuilder();
         plain.Add(".text", Noise(0x4000), 0x60000020);
@@ -97,9 +97,9 @@ public sealed class PackerDetectionTests
         var path = dir.File("packed.exe");
         File.WriteAllBytes(path, UpxPe());
         using var h = new NativeToolHarness(backgroundIndexing: false);
-        Assert.Contains("Packed: UPX (packer): section names UPX0, UPX1; UPX! pack header", await h.Native.GetPeInfo(path));
+        Assert.Contains("Packed: UPX (packing tool): section names UPX0, UPX1; UPX! pack header", await h.Native.GetPeInfo(path));
         var summary = new InspectionService(new Core.AssemblyWorkspace(new Core.ServerOptions())).Summarize(null, path, CancellationToken.None);
-        Assert.Contains(summary.Highlights, l => l.StartsWith("Packed with UPX (packer): section names UPX0, UPX1", StringComparison.Ordinal));
+        Assert.Contains(summary.Highlights, l => l.StartsWith("Packed with UPX (packing tool): section names UPX0, UPX1", StringComparison.Ordinal));
         Assert.Equal("UPX", Assert.Single(summary.Packers!).Name);
     }
 }

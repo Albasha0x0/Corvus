@@ -17,7 +17,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights " +
-                 "(toolchain, ATT&CK features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, nib, pcap, " +
+                 "(toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, nib, pcap, " +
                  "plist, protobuf, rust, sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.")]
     public Task<string> SummarizeFile(
         [Description("File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder.")] string? path = null,
@@ -69,13 +69,13 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true, OutputSchemaType = typeof(SurveyRecord))]
     [Description("Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, " +
-                 "evasion, code loading, injection, crypto) with ATT&CK ids; category= adds evidence. Native: imports, call " +
+                 "system changes, code loading, cross-process, crypto); category= adds evidence. Native: imports, call " +
                  "arguments, strings, sections, RTTI. Apps: MASVS findings (WebView, TLS, pinning, root / instrumentation, " +
                  "code loading, weak crypto, keys) by method offset.")]
     public async Task<string> SurveyFeatures(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A .NET, native or app file, read without loading.")] string? path = null,
-        [Description("Category, ATT&CK (T1055) or MASVS prefix: with evidence; all: everything.")] string? category = null,
+        [Description("Category or MASVS prefix: with evidence; all: everything.")] string? category = null,
         [Description("A native image, loaded or a path (instead of assembly).")] string? image = null,
         CancellationToken cancellationToken = default)
     {

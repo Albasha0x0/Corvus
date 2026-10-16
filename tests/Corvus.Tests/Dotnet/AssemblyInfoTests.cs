@@ -68,7 +68,7 @@ public class AssemblyInfoTests
         }
     }
 
-    /// <summary>Rows broken the way obfuscators break them: each is reported with its column, reason and file offset; get_assembly_info lists them.</summary>
+    /// <summary>Rows broken the way transformation tools break them: each is reported with its column, reason and file offset; get_assembly_info lists them.</summary>
     [Fact]
     public void RowSweep_BadIndexes_ReportedWithReasonAndOffset()
     {

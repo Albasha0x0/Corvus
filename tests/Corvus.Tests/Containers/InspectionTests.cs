@@ -230,22 +230,20 @@ public class InspectionTests : IDisposable
         var report = Inspection.SurveyFeatures(null, Save("EverydayApis.dll", EverydayApis()), null, default);
         var byName = report.Features.ToDictionary(c => c.Name);
 
-        Assert.Equal("T1071.001", byName["send HTTP requests"].Attack);
         Assert.Contains(byName["send HTTP requests"].Evidence, e => e.Feature == "api:System.Net.Http.HttpClient::*Async");
-        Assert.Equal("T1105", byName["download files"].Attack);
-        Assert.Equal("T1012", byName["query the registry"].Attack);
-        Assert.Equal("T1112", byName["modify the registry"].Attack);
+        Assert.Equal("network", byName["download files"].Category);
+        Assert.Equal("registry", byName["query the registry"].Category);
+        Assert.Equal("registry", byName["modify the registry"].Category);
         Assert.Contains(byName["create processes"].Evidence, e => e.Feature == "api:System.Diagnostics.Process::Start" && e.Locations.Any(l => l.Contains("Everyday::OpenEditor")));
-        Assert.Equal("T1070.006", byName["change file timestamps"].Attack); // File.SetCreationTime
+        Assert.Equal("system changes", byName["change file timestamps"].Category); // File.SetCreationTime
 
         // Benign file, process and registry use must not match the stronger features.
         Assert.DoesNotContain("run the Windows command shell", byName.Keys);
-        Assert.DoesNotContain("persist through a Run registry key", byName.Keys);
+        Assert.DoesNotContain("auto-start through a Run registry key", byName.Keys);
         Assert.True(report.MethodsScanned > 5);
 
         var registry = Inspection.SurveyFeatures(null, _dir.File("EverydayApis.dll"), "registry", default);
         Assert.Equal(["modify the registry", "query the registry"], registry.Features.Select(c => c.Name).Order());
-        Assert.Equal(["download files"], Inspection.SurveyFeatures(null, _dir.File("EverydayApis.dll"), "T1105", default).Features.Select(c => c.Name));
     }
 
     /// <summary>extract_strings pages its rows and keeps every value: read_result text is the CSV, json the records.</summary>
@@ -288,7 +286,7 @@ public class InspectionTests : IDisposable
         var page = Assert.IsType<Corvus.Tools.SurveyRecord>(collector.Value);
         var start = page.Features.Single(f => f.Name == "create processes");
         Assert.Equal((2, null, null), (start.Matches, start.Basis, start.Evidence));
-        Assert.Equal("derived", page.Features.Single(f => f.Category == "network" && f.Attack == "T1102").Basis);
+        Assert.Equal("derived", page.Features.Single(f => f.Name.StartsWith("communicate through a web service", StringComparison.Ordinal)).Basis);
         Assert.Contains("create processes, 2 matches", text);
         Assert.Contains("Evidence: category=", text);
         Assert.DoesNotContain("Bot::Run", text);
@@ -297,7 +295,7 @@ public class InspectionTests : IDisposable
         text = await tools.SurveyFeatures(path: path, category: "all");
         var all = Assert.IsType<Corvus.Tools.SurveyRecord>(collector.Value);
         Assert.Equal(page.Features.Select(f => f.Name), all.Features.Select(f => f.Name));
-        var url = Assert.Single(all.Features.Single(f => f.Attack == "T1102").Evidence!);
+        var url = Assert.Single(all.Features.Single(f => f.Name.StartsWith("communicate through a web service", StringComparison.Ordinal)).Evidence!);
         Assert.Equal("derived", url.Basis);
         Assert.Null(Assert.Single(all.Features.Single(f => f.Name == "create processes").Evidence!).Basis);
         Assert.Contains("api:System.Diagnostics.Process::Start x2", text);
@@ -630,7 +628,7 @@ public class InspectionTests : IDisposable
         Assert.Equal("library", one.Identity.Kind);
         Assert.Contains(one.Features, c => c.Name == "download files");
         Assert.True(one.Values.ByType["url"] >= 2);
-        Assert.Contains(report.Highlights, h => h.StartsWith("Can download files (T1105"));
+        Assert.Contains(report.Highlights, h => h.StartsWith("Can download files (network"));
 
         var zip = Save("bundle.zip", ContainerFixtures.Zip(("app/EverydayApis.dll", File.ReadAllBytes(path)), ("lib/Encoded.dll", EncodedFixture())));
         var container = Inspection.Summarize(null, zip, default);

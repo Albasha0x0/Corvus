@@ -37,7 +37,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         [property: System.ComponentModel.Description("References that resolve to nothing.")] int UnresolvedReferences,
         [property: System.ComponentModel.Description("Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.")] int MetadataIssueCount)
     {
-        [System.ComponentModel.Description("The obfuscator, with evidence.")] public IReadOnlyList<Analysis.ObfuscatorFinding>? Obfuscators { get; init; }
+        [System.ComponentModel.Description("The transformation tool, with evidence.")] public IReadOnlyList<Analysis.TransformerFinding>? Transformers { get; init; }
         [System.ComponentModel.Description("view=references or all.")] public IReadOnlyList<ReferenceStatus>? References { get; init; }
         [System.ComponentModel.Description("view=metadata or all: assembly attributes (first 40).")] public IReadOnlyList<string>? Attributes { get; init; }
         [System.ComponentModel.Description("view=metadata or all: row counts of the non-empty metadata tables, in table order.")] public IReadOnlyList<TableRows>? Tables { get; init; }
@@ -93,8 +93,8 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
             sb.AppendLine($"Exception clauses: {health.InvalidClauseCount} invalid in {health.InvalidClauses.Count} method(s) (e.g. " +
                           string.Join("; ", m.GetTypes().SelectMany(t => t.Methods).Where(x => health.ClauseIssues(x).Count > 0).Take(3)
                               .Select(x => $"{Format.MemberLabel(x)} {health.ClauseIssues(x)[0]}")) + "); get_il shows them per method.");
-        var obfuscators = Analysis.Obfuscators.Identify(m);
-        foreach (var o in obfuscators) sb.AppendLine($"Obfuscator: {o.Name} ({o.Confidence}): {string.Join("; ", o.Evidence)}");
+        var transformers = Analysis.Transformers.Identify(m);
+        foreach (var o in transformers) sb.AppendLine($"Transformer: {o.Name} ({o.Confidence}): {string.Join("; ", o.Evidence)}");
         if (ReadyToRunService.Summary(workspace, asm) is { } readyToRun)
             sb.AppendLine(readyToRun);
         if (asm.IsDirty)
@@ -148,7 +148,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
             MetadataUtil.IsReferenceAssembly(m), addressed, health.Invalid, health.InvalidClauseCount, asm.Edits.Select(e => e.ToString()).ToList(),
             referenceRows.Count, unresolved, issueCount)
         {
-            Obfuscators = obfuscators.Count > 0 ? obfuscators : null,
+            Transformers = transformers.Count > 0 ? transformers : null,
             References = references ? referenceRows : null,
             Attributes = metadata ? attrs.Take(40).Select(Format.Attribute).ToList() : null,
             Tables = metadata ? tables : null,

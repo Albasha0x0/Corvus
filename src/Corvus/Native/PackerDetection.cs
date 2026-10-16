@@ -20,13 +20,13 @@ public static class PackerDetection
 
     private static readonly (string Prefix, string Name, string Kind)[] SectionNames =
     [
-        ("UPX", "UPX", "packer"), (".aspack", "ASPack", "packer"), (".adata", "ASPack", "packer"), (".petite", "Petite", "packer"),
-        (".nsp", "NsPack", "packer"), (".MPRESS", "MPRESS", "packer"), ("PEC2", "PECompact", "packer"), ("pec1", "PECompact", "packer"),
-        ("FSG!", "FSG", "packer"), (".RLPack", "RLPack", "packer"), (".packed", "RLPack", "packer"), ("kkrunchy", "kkrunchy", "packer"),
-        ("MEW", "MEW", "packer"), (".boom", "The Boomerang", "packer"), (".neolit", "NeoLite", "packer"),
-        (".themida", "Themida", "protector"), (".winlice", "WinLicense", "protector"), (".vmp", "VMProtect", "protector"),
-        (".enigma", "Enigma Protector", "protector"), (".yP", "Y0da Protector", "protector"), (".svkp", "SVKP", "protector"),
-        (".pelock", "PELock", "protector"), ("ExeS", "EXE Stealth", "protector"), (".sforce", "StarForce", "protector"),
+        ("UPX", "UPX", "packing tool"), (".aspack", "ASPack", "packing tool"), (".adata", "ASPack", "packing tool"), (".petite", "Petite", "packing tool"),
+        (".nsp", "NsPack", "packing tool"), (".MPRESS", "MPRESS", "packing tool"), ("PEC2", "PECompact", "packing tool"), ("pec1", "PECompact", "packing tool"),
+        ("FSG!", "FSG", "packing tool"), (".RLPack", "RLPack", "packing tool"), (".packed", "RLPack", "packing tool"), ("kkrunchy", "kkrunchy", "packing tool"),
+        ("MEW", "MEW", "packing tool"), (".boom", "The Boomerang", "packing tool"), (".neolit", "NeoLite", "packing tool"),
+        (".themida", "Themida", "hardening tool"), (".winlice", "WinLicense", "hardening tool"), (".vmp", "VMProtect", "hardening tool"),
+        (".enigma", "Enigma Protector", "hardening tool"), (".yP", "Y0da Protector", "hardening tool"), (".svkp", "SVKP", "hardening tool"),
+        (".pelock", "PELock", "hardening tool"), ("ExeS", "EXE Stealth", "hardening tool"), (".sforce", "StarForce", "hardening tool"),
     ];
 
     /// <summary>The UPX format numbers seen most (UPX's own table), for the evidence text.</summary>
@@ -106,7 +106,7 @@ public static class PackerDetection
         int info = file.IndexOf(UpxInfo);
         if (info >= 0) evidence.Add($"stub string \"$Info: This file is packed with the UPX executable packer\" at file 0x{Math.Max(0, info - 7):X}");
         // a lone magic is weak: real UPX output has two signs or more
-        return evidence.Count >= 2 || sections.Count > 0 ? new PackerFinding("UPX", "packer", string.Join("; ", evidence)) : null;
+        return evidence.Count >= 2 || sections.Count > 0 ? new PackerFinding("UPX", "packing tool", string.Join("; ", evidence)) : null;
     }
 
     private static IEnumerable<PackerFinding> Heuristics(INativeImage image)

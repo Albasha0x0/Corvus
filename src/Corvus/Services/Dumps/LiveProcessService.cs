@@ -280,7 +280,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         $"process: OpenProcess PROCESS_QUERY_INFORMATION | PROCESS_VM_READ (0x{LiveProcess.ProcessAccess:X})",
         $"each listed thread, one at a time: OpenThread THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION (0x{LiveProcess.ThreadAccess:X})",
         "thread list: system snapshot (CreateToolhelp32Snapshot TH32CS_SNAPTHREAD), no handle to the process",
-        "never: memory writes, protection changes, breakpoints, debugger attach, thread suspend/resume/creation, code injection",
+        "never: memory writes, protection changes, breakpoints, debugger attach, thread suspend/resume/creation, adding code to the process",
     ];
 
     private static bool Matches(DumpMemoryRegion r, string filter) => filter switch

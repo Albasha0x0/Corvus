@@ -18,8 +18,6 @@ public sealed record SurveyRecord(string Assembly, int MethodsScanned, IReadOnly
 /// <summary>Basis "derived": every piece of evidence is a string or argument constant.</summary>
 public sealed record SurveyFeature(string Name, string Category, int Matches)
 {
-    public string? Attack { get; init; }
-    public string? AttackName { get; init; }
     public string? Basis { get; init; }
     public IReadOnlyList<Evidence>? Evidence { get; init; }
 
@@ -295,8 +293,6 @@ internal static class ContainerText
     {
         var features = report.Features.Select(f => new SurveyFeature(f.Name, f.Category, f.Evidence.Sum(e => e.Count))
         {
-            Attack = f.Attack,
-            AttackName = category != null ? f.AttackName : null,
             Basis = f.Evidence.Count > 0 && f.Evidence.All(e => e.Basis == "derived") ? "derived" : null,
             Evidence = category != null ? f.Evidence : null,
             Rule = f.Rule?.Id,
@@ -324,7 +320,6 @@ internal static class ContainerText
             foreach (var f in group)
             {
                 sb.Append("  ").Append(f.Name);
-                if (f.Attack != null) sb.Append($" [{f.Attack}{(f.AttackName != null ? " " + f.AttackName : "")}]");
                 if (f.Masvs != null) sb.Append($" [{f.Masvs} {f.Rule}, {f.Severity}]");
                 sb.Append($", {f.Matches} match{(f.Matches == 1 ? "" : "es")}{(f.Library is { } lib ? $" (+{lib} in libraries)" : "")}" +
                           $"{(f.Basis != null ? " (derived from strings or constants)" : "")}\n");

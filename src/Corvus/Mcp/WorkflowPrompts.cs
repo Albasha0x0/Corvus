@@ -52,7 +52,7 @@ public static class WorkflowPrompts
         [Description("Assembly id (optional).")] string? assembly = null) => $"""
         Goal: {goal}{(assembly is null ? "" : $" (assembly {assembly})")}.
         1. Locate the decisive method (search_strings / search_symbols / find_references) and read it with decompile_member.
-        2. Pick the smallest change: stub_method for "always return X"; patch_method_csharp for logic changes (lambdas, async and LINQ work); add_members_csharp / add_types_csharp for new code; patch_method_il for surgical prepend hooks or IL that C# cannot express. Check the result with diff_edits; undo_edit if it is wrong.
+        2. Pick the smallest change: stub_method for "always return X"; patch_method_csharp for logic changes (lambdas, async and LINQ work); add_members_csharp / add_types_csharp for new code; patch_method_il for targeted prologue prepends or IL that C# cannot express. Check the result with diff_edits; undo_edit if it is wrong.
         3. Run the edit with dryRun=true first and check the result; then apply it and re-read with decompile_member.
         4. save_assembly to a new file (never overwrite the original unless explicitly asked). Report exactly what changed and how to revert.
         {DataRule}
@@ -212,7 +212,7 @@ public static class WorkflowPrompts
         4. Evidence: read_result format=evidence id=last:N (or the kept r-... ids, comma-separated) outputPath={evidencePath ?? "<target folder>/evidence.json"}
            bundles the calls that showed the chain; read_result format=verify id=<that path> re-runs them and names any record that differs.
            record_note kind=finding per conclusion, anchored to the deciding member or address.
-        5. Unknowns: list what the tools could not show (unresolved indirect calls, missing engine, obfuscated names); record_note kind=question for each.
+        5. Unknowns: list what the tools could not show (unresolved indirect calls, missing engine, transformed names); record_note kind=question for each.
         6. Optional, native code: check a reimplementation of the deciding function as in the check_reimplementation prompt.
         Report the chain from trigger to effect with tokens or addresses, the evidence bundle path, and the unknowns.
         {Evidence}

@@ -88,7 +88,7 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
             {
                 LiveNative.ERROR_ACCESS_DENIED => new ToolError(ErrorCode.AccessDenied,
                     $"Windows denied read access to process {pid} (PROCESS_QUERY_INFORMATION | PROCESS_VM_READ): it runs as another user, elevated, or protected.",
-                    "run the server as the same user with the same elevation as the target; protected processes (anti-malware, DRM, system) cannot be read")
+                    "run the server as the same user with the same elevation as the target; protected processes (system, DRM) cannot be read")
                 { Details = new { reason = "access_denied", pid } },
                 LiveNative.ERROR_INVALID_PARAMETER => new ToolError(ErrorCode.NotFound, $"no running process has id {pid} (it may have exited).", "pass a running process id or a process name")
                 { Details = new { reason = "process_not_found", pid } },

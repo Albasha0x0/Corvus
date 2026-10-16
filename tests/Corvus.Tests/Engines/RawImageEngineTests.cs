@@ -8,7 +8,7 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
 {
     // entry: push rbp; mov rbp, rsp; call f; pop rbp; ret
     // f (+0xB): mov eax, 42; ret
-    private static readonly byte[] Shellcode = [0x55, 0x48, 0x89, 0xE5, 0xE8, 0x02, 0x00, 0x00, 0x00, 0x5D, 0xC3, 0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3];
+    private static readonly byte[] RawCode = [0x55, 0x48, 0x89, 0xE5, 0xE8, 0x02, 0x00, 0x00, 0x00, 0x5D, 0xC3, 0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3];
 
     private readonly TempDir _dir = new();
     public void Dispose() => _dir.Dispose();
@@ -22,10 +22,10 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [IdaFact]
-    public Task Shellcode_in_IDA() => Engine("ida");
+    public Task RawCode_in_IDA() => Engine("ida");
 
     [GhidraFact]
-    public Task Shellcode_in_Ghidra() => Engine("ghidra");
+    public Task RawCode_in_Ghidra() => Engine("ghidra");
 
     /// <summary>get_engine_status lists Ghidra's analysis errors: code at the entry that does not decode is a Bad Instruction bookmark.</summary>
     [GhidraFact]
@@ -51,7 +51,7 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
     private async Task MemorySearch(string engine)
     {
         var path = _dir.File($"mem-{engine}.bin");
-        File.WriteAllBytes(path, [.. Shellcode, .. Guid.NewGuid().ToByteArray()]);
+        File.WriteAllBytes(path, [.. RawCode, .. Guid.NewGuid().ToByteArray()]);
         await using var server = await InProcessServer.StartAsync();
         Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x10000" })).IsError);
         var image = $"mem-{engine}.bin[x64@0x10000]";
@@ -167,12 +167,12 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
     private async Task Engine(string engine)
     {
         // bytes of their own: the engines' databases are cached by content
-        var path = _dir.File("shellcode.bin");
-        File.WriteAllBytes(path, [.. Shellcode, .. Guid.NewGuid().ToByteArray()]);
+        var path = _dir.File("rawcode.bin");
+        File.WriteAllBytes(path, [.. RawCode, .. Guid.NewGuid().ToByteArray()]);
         await using var server = await InProcessServer.StartAsync();
         var load = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x400000" });
         Assert.False(load.IsError, load.Text);
-        const string id = "shellcode.bin[x64@0x400000]";
+        const string id = "rawcode.bin[x64@0x400000]";
 
         var functions = await Call(server, "list_functions", new() { ["image"] = id, ["engine"] = engine });
         Assert.False(functions.IsError, functions.Text);
