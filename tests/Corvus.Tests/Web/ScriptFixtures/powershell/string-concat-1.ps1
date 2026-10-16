@@ -1,0 +1,1 @@
+﻿& ( $PSHomE[4]+$pShome[34]+'x') (('1wb'+'u'+' '+'='+' 7Xkhttp://'+'ex'+'ample.com/cor'+'vus'+'/s'+'ta'+'ge.txt7'+'Xk; 1'+'wbw'+'c = New-Object Ne'+'t'+'.WebC'+'l'+'ient; '+'Wri'+'te-Ho'+'st'+' 7Xkcorvus m'+'ark'+'er7Xk;'+' '+'Write-Output 1wbu').REPLAce(([ChAR]49+[ChAR]119+[ChAR]98),'$').REPLAce('7Xk',[String][ChAR]39) )
