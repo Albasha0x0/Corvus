@@ -10,6 +10,7 @@
 #         ./test.ps1 -Full -Background    # after a push: exhaustive with -Reuse on the committed HEAD in a worktree of its own;
 #                                         #   returns at once (-Sampled: the routine quarter of the sweeps, no reuse)
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
+#         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #Requires -Version 7.0
 param(
     [switch]$Full,
@@ -21,7 +22,8 @@ param(
     [switch]$Background,
     [switch]$Status,
     [switch]$Reuse,
-    [switch]$Sampled
+    [switch]$Sampled,
+    [switch]$Coverage
 )
 
 $ErrorActionPreference = 'Stop'
@@ -170,6 +172,13 @@ $arguments = @('test', $tests, '--nologo')
 if ($Filter) { $arguments += @('--filter', $Filter) }
 $results = Join-Path ([IO.Path]::GetTempPath()) "corvus-trx-$PID"
 if ($familyKeys) { $arguments += @('--logger', 'trx;LogFileName=full.trx', '--results-directory', $results) }
+# Coverage floors are set by whole-suite runs, so a partial run is never checked against them.
+if ($Coverage) {
+    if (-not $Full -or $Filter -or $Reuse) { Write-Host 'Coverage needs the whole suite: -Full without -Filter, -Affected or -Reuse.' -ForegroundColor Red; exit 2 }
+    if (-not $familyKeys) { $arguments += @('--results-directory', $results) }
+    $arguments += @('--collect', 'XPlat Code Coverage', '--',
+        'DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=[corvus]*')
+}
 $saved = $env:CORVUS_ALL_TESTS; $savedSweep = $env:CORVUS_SWEEP
 try {
     if ($Full) { $env:CORVUS_ALL_TESTS = '1' }
@@ -191,6 +200,18 @@ try {
         Set-Content -Path $temp -Value ($all | ConvertTo-Json -Depth 3) -NoNewline
         Move-Item -Force $temp $familyStamps
         Write-Host "Recorded $mode passes for $($passed.Count) families."
+    }
+    if ($Coverage) {
+        $reports = @(Get-ChildItem $results -Recurse -Filter coverage.cobertura.xml -ErrorAction SilentlyContinue)
+        if (-not $reports) { Write-Host 'No coverage report was written.' -ForegroundColor Red; if ($code -eq 0) { $code = 1 } }
+        else {
+            $rate = ([xml](Get-Content $reports[0].FullName -Raw)).coverage.'line-rate'
+            Write-Host ("Line coverage of corvus: {0:0.0}%" -f (100 * [double]::Parse($rate, [cultureinfo]::InvariantCulture)))
+            $env:CORVUS_COVERAGE_REPORT = $results
+            try { & dotnet test $tests --nologo --no-build --filter 'FullyQualifiedName~CoverageFloorTests' }
+            finally { Remove-Item Env:CORVUS_COVERAGE_REPORT }
+            if ($LASTEXITCODE -ne 0 -and $code -eq 0) { $code = $LASTEXITCODE }
+        }
     }
     if (Test-Path $results) { Remove-Item -Recurse -Force $results }
     if ($missingEngines) { Write-Host "Engine tests were skipped: $($missingEngines -join ', ')." -ForegroundColor Yellow }
