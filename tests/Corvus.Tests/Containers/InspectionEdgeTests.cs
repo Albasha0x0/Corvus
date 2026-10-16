@@ -149,23 +149,32 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(fixtures.Items.Count, fixtures.Total);
     }
 
-    /// <summary>load, reload and unload_assembly and add_search_directory return the ids they changed beside their text (S4).</summary>
+    /// <summary>
+    /// load, reload and unload_assembly and add_search_directory return a record of what they changed (S4): the ids, the
+    /// loaded images (kind, path, name and version or machine and SHA-256), the search directories; never a copy of the text.
+    /// </summary>
     [Fact]
-    public async Task WorkspaceChangesReturnTheirIds()
+    public async Task WorkspaceChangesReturnTheirRecords()
     {
         var tools = new WorkspaceTools(_workspace, new Il2CppService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
-        async Task<WorkspaceTools.WorkspaceChange> Change(Func<Task<string>> call)
+        async Task<T> Change<T>(Func<Task<string>> call)
         {
             var collector = Corvus.Mcp.ToolOutput.Collect();
-            var text = await call();
-            var record = Assert.IsType<WorkspaceTools.WorkspaceChange>(collector.Value);
-            Assert.Equal(text, record.Text);
-            return record;
+            await call();
+            return Assert.IsType<T>(collector.Value);
         }
-        var id = Assert.Single((await Change(() => tools.LoadAssembly(Env.FixturePath))).Ids);
-        Assert.Equal([id], (await Change(() => tools.ReloadAssembly(id))).Ids);
-        Assert.Empty((await Change(() => tools.AddSearchDirectory(_dir.Path))).Ids);
-        Assert.Equal([id], (await Change(() => tools.UnloadAssembly(id))).Ids);
+        var load = await Change<WorkspaceTools.ImageChange>(() => tools.LoadAssembly(Env.FixturePath));
+        var id = Assert.Single(load.Ids);
+        var row = Assert.Single(load.Entries);
+        Assert.Equal(("assembly", id, Env.FixturePath), (row.Kind, row.Id, row.Path));
+        Assert.StartsWith("TestFixture", row.Name);
+        var native = await Change<WorkspaceTools.ImageChange>(() => tools.LoadAssembly(McpProtocolTests.NativeSample(_dir)));
+        Assert.Equal(("native", "AMD64"), (native.Entries[0].Kind, native.Entries[0].Machine));
+        Assert.Equal(64, native.Entries[0].Sha256!.Length);
+        Assert.Equal(id, Assert.Single((await Change<WorkspaceTools.ImageChange>(() => tools.ReloadAssembly(id))).Entries).Id);
+        var search = await Change<WorkspaceTools.SearchDirectoryChange>(() => tools.AddSearchDirectory(_dir.Path));
+        Assert.Contains(Path.GetFullPath(_dir.Path), search.SearchDirectories);
+        Assert.Equal(id, Assert.Single((await Change<WorkspaceTools.UnloadChange>(() => tools.UnloadAssembly(id))).Ids));
     }
 
     [Fact]

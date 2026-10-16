@@ -11,6 +11,14 @@
     "ids": [
       "loaded.dll"
     ],
-    "text": "Reloaded loaded.dll from <fixtures>/samples/loaded.dll (sha256 bde7d94c07e13285)."
+    "entries": [
+      {
+        "kind": "native",
+        "id": "loaded.dll",
+        "path": "<fixtures>/samples/loaded.dll",
+        "machine": "AMD64",
+        "sha256": "<id>"
+      }
+    ]
   }
 }

@@ -7,8 +7,48 @@
         "type": "string"
       }
     },
-    "text": {
-      "type": "string"
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "assembly or native.",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "machine": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "path"
+        ]
+      }
+    },
+    "skipped": {
+      "description": "Folder load: files that are not .NET assemblies or could not be read.",
+      "type": "integer"
+    },
+    "discardedEdits": {
+      "description": "Unsaved edits the reload discarded.",
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -31,6 +71,6 @@
   },
   "required": [
     "ids",
-    "text"
+    "entries"
   ]
 }

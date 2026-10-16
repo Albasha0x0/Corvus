@@ -8,7 +8,9 @@
     "Added <fixtures>/samples. Search directories:\n  <fixtures>\n  <fixtures>/samples"
   ],
   "structuredContent": {
-    "ids": [],
-    "text": "Added <fixtures>/samples. Search directories:\n  <fixtures>\n  <fixtures>/samples"
+    "searchDirectories": [
+      "<fixtures>",
+      "<fixtures>/samples"
+    ]
   }
 }

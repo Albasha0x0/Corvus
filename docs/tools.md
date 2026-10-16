@@ -50,7 +50,7 @@ Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Man
 | `disableAnalyzers` | string[] |  |  | Analyzers off at import (AF_FLIRT, 'Decompiler Switch Analysis'). |
 | `program` | string |  |  | A .gpr's program path, e.g. /app.exe (default: its only one). |
 
-Structured output: `ids`, `text`.
+Structured output: `ids`, `entries`, `skipped`, `discardedEdits`.
 
 ### unload_assembly
 
@@ -62,7 +62,7 @@ Remove an assembly from the workspace (unsaved edits are discarded).
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
 
-Structured output: `ids`, `text`.
+Structured output: `ids`, `discardedEdits`.
 
 ### reload_assembly
 
@@ -74,7 +74,7 @@ Re-read an assembly from disk (after an update or an overwriting save), discardi
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
 
-Structured output: `ids`, `text`.
+Structured output: `ids`, `entries`, `skipped`, `discardedEdits`.
 
 ### add_search_directory
 
@@ -86,7 +86,7 @@ Add a folder (application or framework) where unloaded referenced assemblies are
 |---|---|---|---|---|
 | `directory` | string | yes |  | Directory path. |
 
-Structured output: `ids`, `text`.
+Structured output: `searchDirectories`, `suggested`.
 
 ### list_assemblies
 

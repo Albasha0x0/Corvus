@@ -1,14 +1,19 @@
 {
   "type": "object",
   "properties": {
-    "ids": {
+    "searchDirectories": {
+      "description": "Every search directory after the call.",
       "type": "array",
       "items": {
         "type": "string"
       }
     },
-    "text": {
-      "type": "string"
+    "suggested": {
+      "description": "Subfolders holding assemblies, when the folder itself has none (subfolders are not searched).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "notices": {
       "type": "array",
@@ -30,7 +35,6 @@
     }
   },
   "required": [
-    "ids",
-    "text"
+    "searchDirectories"
   ]
 }

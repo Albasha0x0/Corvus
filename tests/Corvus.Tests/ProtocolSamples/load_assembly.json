@@ -11,6 +11,14 @@
     "ids": [
       "loaded.dll"
     ],
-    "text": "Loaded native image loaded.dll: AMD64 executable, WINDOWS_CUI\n  <fixtures>/samples/loaded.dll\n  4 sections, 2 imports, 2 exports, 1 unwind entry"
+    "entries": [
+      {
+        "kind": "native",
+        "id": "loaded.dll",
+        "path": "<fixtures>/samples/loaded.dll",
+        "machine": "AMD64",
+        "sha256": "<id>"
+      }
+    ]
   }
 }

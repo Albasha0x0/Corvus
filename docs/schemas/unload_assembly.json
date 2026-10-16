@@ -7,8 +7,9 @@
         "type": "string"
       }
     },
-    "text": {
-      "type": "string"
+    "discardedEdits": {
+      "description": "Unsaved edits the unload discarded.",
+      "type": "integer"
     },
     "notices": {
       "type": "array",
@@ -30,7 +31,6 @@
     }
   },
   "required": [
-    "ids",
-    "text"
+    "ids"
   ]
 }
