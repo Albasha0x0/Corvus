@@ -553,13 +553,13 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, layers, nib, pcap, plist, protobuf, rust, script (layers peeled to plain text), sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.
+First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, layers, nib, pcap, package (npm, PyPI, VSIX, browser extension review), plist, protobuf, rust, script (layers peeled to plain text), sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, hermes, layers, native, nib, pcap, plist, protobuf, rust, script, sqlite, sqlite-recover, wasm, all. |
+| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, hermes, layers, native, nib, package, pcap, plist, protobuf, rust, script, sqlite, sqlite-recover, wasm, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: the table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
 | `offset` | integer |  |  |  |

