@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 /// <summary>
 /// A worker thread behind anonymous pipes, speaking <see cref="WorkerProtocol"/> with concurrent requests. Ops: echo,
 /// save, sleep {ms} (cancellable), hold (until <see cref="Release"/>, cancellable), partial (until cancelled, then a result marked partial), stubborn (ignores cancel),
-/// timeout (the request's time limit), set {key,value} / get {key} (per-process state), crash, close, cancel.
+/// timeout (the request's time limit), set {key,value} / get {key} (per-process state), crash, close, cancel; <see cref="Ops"/> adds or replaces ops.
 /// </summary>
 internal sealed class FakeWorkerProcess : ChildProcess
 {
@@ -31,6 +31,12 @@ internal sealed class FakeWorkerProcess : ChildProcess
     public readonly ConcurrentQueue<long> Received = new();
     public int Cancelled;
     private readonly ManualResetEventSlim _released = new();
+
+    /// <summary>Ops answered before the built-in ones: a result, or null to fall through.</summary>
+    public Func<string, JsonObject, JsonNode?>? Ops { get; init; }
+
+    /// <summary>Writes an event line, as a worker does between responses.</summary>
+    public void Emit(JsonObject e) => Reply(e);
 
     /// <summary>Lets every held request answer.</summary>
     public void Release() => _released.Set();
@@ -85,6 +91,11 @@ internal sealed class FakeWorkerProcess : ChildProcess
     {
         try
         {
+            if (Ops?.Invoke(op, args) is { } handled)
+            {
+                Reply(Ok(id, handled));
+                return;
+            }
             switch (op)
             {
                 case "echo" or "save":

@@ -24,7 +24,7 @@ public static partial class ParameterDomains
     {
         ["inspect_process"] = new Dictionary<string, Domain> { ["regionFilter"] = Of(["committed", "all", "executable", "writable", "image", "private", "mapped"]) },
         ["live_session"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "attach", "spawn", "status", "close"]) },
-        ["live_break"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear"]) },
+        ["live_break"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear", "continue"]) },
     };
 }
 

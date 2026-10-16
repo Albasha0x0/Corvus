@@ -63,6 +63,7 @@ public static class ServerHost
             .AddSingleton<NativeLinkService>()
             .AddSingleton<NativeEditJournal>()
             .AddSingleton<NativeEditService>()
+            .AddSingleton<LiveSessionService>()
             .AddSingleton<Il2CppNativeNames>()
             .AddSingleton<NativeNamePush>()
             .AddSingleton<NativeTypePush>()

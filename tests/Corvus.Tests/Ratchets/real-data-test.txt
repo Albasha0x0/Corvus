@@ -8,10 +8,6 @@ install_android_package # permanent: changes a real device; DeviceTests cover it
 list_android_devices # permanent: needs a real device; DeviceTests cover the parsing against a fake adb
 list_android_packages # permanent: needs a real device; DeviceTests cover the parsing against a fake adb
 list_android_resources # permanent: no package ships a resources.arsc; AndroidResourceTests cover built ones
-live_break # permanent: no session backend yet; LIVE-1 piece 6 adds the real-backend test on a child process, and this entry goes
-live_events # permanent: no session backend yet; LIVE-1 piece 6 adds the real-backend test on a child process, and this entry goes
-live_read # permanent: no session backend yet; LIVE-1 piece 6 adds the real-backend test on a child process, and this entry goes
-live_session # permanent: no session backend yet; LIVE-1 piece 6 adds the real-backend test on a child process, and this entry goes
 pull_android_file # permanent: needs a real device; DeviceTests cover it against a fake adb
 pull_android_package # permanent: needs a real device; DeviceTests cover it against a fake adb
 read_android_log # permanent: needs a real device; DeviceTests cover the parsing against a fake adb

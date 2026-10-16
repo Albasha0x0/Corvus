@@ -18,7 +18,7 @@
       "type": "integer"
     },
     "state": {
-      "description": "open, stopped, running, closed or failed.",
+      "description": "suspended, running, stopped, exited, closed or failed.",
       "type": "string"
     },
     "modules": {

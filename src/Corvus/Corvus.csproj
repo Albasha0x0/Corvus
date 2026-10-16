@@ -54,6 +54,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Native\Providers\Ida\ida_worker.py" LogicalName="Corvus.Native.Providers.Ida.ida_worker.py" />
+    <EmbeddedResource Include="Native\Providers\Live\live_worker.py" LogicalName="Corvus.Native.Providers.Live.live_worker.py" />
+    <EmbeddedResource Include="Native\Providers\Live\live_agent.js" LogicalName="Corvus.Native.Providers.Live.live_agent.js" />
     <EmbeddedResource Include="Native\Providers\Ghidra\worker\*.java" LogicalName="Corvus.Native.Providers.Ghidra.worker.%(Filename)%(Extension)" />
   </ItemGroup>
 

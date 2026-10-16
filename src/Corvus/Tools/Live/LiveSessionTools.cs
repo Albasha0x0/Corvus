@@ -1,7 +1,11 @@
+using System.Buffers.Binary;
 using System.ComponentModel;
+using System.Globalization;
+using System.Text;
 using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Mcp;
+using Corvus.Services;
 
 namespace Corvus.Tools;
 
@@ -10,7 +14,7 @@ namespace Corvus.Tools;
 /// calls unless the server starts with --allow-live, and starting a program also needs --allow-live-spawn.
 /// </summary>
 [McpServerToolType]
-public sealed class LiveSessionTools(ServerOptions options)
+public sealed class LiveSessionTools(ServerOptions options, LiveSessionService live)
 {
     private const string SessionDescription = "Session id from live_session.";
 
@@ -25,7 +29,7 @@ public sealed class LiveSessionTools(ServerOptions options)
     public sealed record LiveSessionReport(string Action,
         [property: Description("Session id; null for action=list.")] string? Session,
         string? Backend, string? Program, int? ProcessId,
-        [property: Description("open, stopped, running, closed or failed.")] string? State,
+        [property: Description("suspended, running, stopped, exited, closed or failed.")] string? State,
         IReadOnlyList<LiveModule> Modules, IReadOnlyList<LiveSessionRow> Sessions);
 
     public sealed record LiveStopPoint(string Id,
@@ -51,7 +55,7 @@ public sealed class LiveSessionTools(ServerOptions options)
     }
 
     public sealed record LiveEvent(long Sequence,
-        [property: Description("stop, exception, module, thread or exit.")] string Kind,
+        [property: Description("stop, exception, module, thread, output, error or exit.")] string Kind,
         string? Thread, string? Address, string? Name, string Text);
 
     public sealed record LiveEventPage(string Session, IReadOnlyList<LiveEvent> Items,
@@ -65,54 +69,247 @@ public sealed class LiveSessionTools(ServerOptions options)
     [Description("Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images.")]
     public Task<string> LiveSession(
         [Description("list, attach, spawn, status or close.")] string action = "list",
-        [Description("attach: process id or name; spawn: program path.")] string? program = null,
-        [Description("spawn: command-line arguments.")] string? arguments = null,
+        [Description("attach: process id or name; spawn: program path, started suspended.")] string? program = null,
+        [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description(SessionDescription)] string? session = null,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() =>
+        Task.Run(async () =>
         {
-            Require(action.Trim().Equals("spawn", StringComparison.OrdinalIgnoreCase));
-            return NoBackend();
+            var a = action.Trim().ToLowerInvariant();
+            Require(a == "spawn");
+            switch (a)
+            {
+                case "list":
+                    var rows = live.Sessions.Select(s => new LiveSessionRow(s.Id, s.Backend, s.Program, s.ProcessId, s.State)).ToList();
+                    return ToolOutput.With(rows.Count == 0 ? "No sessions.\n"
+                            : string.Concat(rows.Select(r => $"{r.Session} ({r.Backend}): {r.Program} pid {r.ProcessId}, {r.State}\n")),
+                        new LiveSessionReport("list", null, null, null, null, null, [], rows));
+                case "attach" or "spawn":
+                    if (string.IsNullOrWhiteSpace(program))
+                        throw new ToolError(ErrorCode.InvalidArgument, $"action={a} needs program.", a == "spawn" ? "program=<path to the program>" : "program=<process id or name>");
+                    var opened = await live.OpenAsync(a == "spawn", program, arguments ?? [], cancellationToken).ConfigureAwait(false);
+                    return Report(a, opened);
+                case "status":
+                    return Report(a, live.Get(RequireSession(session)));
+                case "close":
+                    var closing = live.Get(RequireSession(session));
+                    await live.CloseAsync(closing, "closed by request").ConfigureAwait(false);
+                    return Report(a, closing);
+                default:
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, attach, spawn, status or close");
+            }
         }, cancellationToken);
 
+    private static string RequireSession(string? session) =>
+        string.IsNullOrWhiteSpace(session) ? throw new ToolError(ErrorCode.InvalidArgument, "This action needs session.", "session=<id from live_session action=list>") : session;
+
+    private static string Report(string action, Services.LiveSession s)
+    {
+        List<LiveModuleState> modules;
+        lock (s.Modules) modules = s.Modules.ToList();
+        var rows = modules.Select(m => new LiveModule(m.Name, Hex(m.Base), m.Image?.Id, m.Image?.OriginalSha256)).ToList();
+        var text = new StringBuilder($"{s.Id} ({s.Backend}): {s.Program} pid {s.ProcessId}, {s.State}");
+        if (s.Ended != null) text.Append($" ({s.Ended})");
+        if (s.State == "suspended") text.Append("; set stop points, then live_break action=continue starts it");
+        text.AppendLine();
+        text.AppendLine($"{rows.Count} modules, {rows.Count(r => r.Image != null)} matched to loaded images:");
+        foreach (var m in rows) text.AppendLine($"  {m.Base} {m.Name}{(m.Image != null ? "  = " + m.Image : "")}");
+        return ToolOutput.With(text.ToString(), new LiveSessionReport(action, s.Id, s.Backend, s.Program, s.ProcessId, s.State, rows, []));
+    }
+
     [McpServerTool(Name = "live_break", Title = "Stop points in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveStopPointReport))]
-    [Description("Set, list or clear stop points in a session, by name, address or file:line. With wait, returns the next stop with a named stack.")]
+    [Description("Set, list or clear stop points by name, module!export, file:line or address; continue resumes held threads. With wait, returns the next stop with a named stack.")]
     public Task<string> LiveBreak(
         [Description(SessionDescription)] string session,
-        [Description("list, set or clear.")] string action = "list",
+        [Description("list, set, clear or continue.")] string action = "list",
         [Description("set: a name, module!export, address or file:line.")] string? at = null,
         [Description("clear: stop point id.")] string? stopPoint = null,
+        [Description("continue: thread id; default all.")] string? thread = null,
         [Description("Wait for the next stop.")] bool wait = false,
         [Description("wait: seconds (1-300).")] int waitSeconds = 30,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() =>
+        Task.Run(async () =>
         {
             Require(spawn: false);
-            return NoBackend();
+            var s = live.Get(session);
+            var a = action.Trim().ToLowerInvariant();
+            var head = new StringBuilder();
+            switch (a)
+            {
+                case "list":
+                    break;
+                case "set":
+                    LiveSessionService.Live(s);
+                    if (string.IsNullOrWhiteSpace(at)) throw new ToolError(ErrorCode.InvalidArgument, "action=set needs at.", "at=<name>, module!export, file:line or 0xADDRESS");
+                    var point = await live.SetAsync(s, at, cancellationToken).ConfigureAwait(false);
+                    head.AppendLine($"{point.Id} set at {Hex(point.Address)} {point.At.Display}{Src(point.At.Source)}");
+                    break;
+                case "clear":
+                    LiveSessionService.Live(s);
+                    if (string.IsNullOrWhiteSpace(stopPoint)) throw new ToolError(ErrorCode.InvalidArgument, "action=clear needs stopPoint.", "stopPoint=<id from action=list>");
+                    await live.ClearAsync(s, stopPoint.Trim(), cancellationToken).ConfigureAwait(false);
+                    head.AppendLine($"{stopPoint.Trim()} cleared");
+                    break;
+                case "continue":
+                    var (resumed, started) = await live.ResumeAsync(s, ThreadId(thread), cancellationToken).ConfigureAwait(false);
+                    head.AppendLine(started ? "program started" + (resumed.Count > 0 ? $"; resumed {resumed.Count} thread(s)" : "")
+                        : resumed.Count == 0 ? "no thread was held" : $"resumed thread(s) {string.Join(", ", resumed)}");
+                    break;
+                default:
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, set, clear or continue");
+            }
+            LiveStop? stop = null;
+            var named = new List<EvidenceName>();
+            if (wait)
+            {
+                var held = await s.NextStopAsync(TimeSpan.FromSeconds(Math.Clamp(waitSeconds, 1, 300)), cancellationToken).ConfigureAwait(false);
+                if (held == null) head.AppendLine($"no stop within {Math.Clamp(waitSeconds, 1, 300)} s; the session is {s.State}");
+                else
+                {
+                    await live.IndexedAsync(s, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+                    stop = Stop(s, held, head, named, cancellationToken);
+                }
+            }
+            List<LiveStopPointState> points;
+            lock (s.StopPoints) points = s.StopPoints.Values.OrderBy(p => int.Parse(p.Id[1..], CultureInfo.InvariantCulture)).ToList();
+            head.AppendLine($"{s.Id}: {s.State}, {points.Count} stop point(s)");
+            foreach (var p in points) head.AppendLine($"  {p.Id} {p.Where} at {Hex(p.Address)} {p.At.Display}, {p.Hits} hit(s)");
+            named.AddRange(points.Select(p => p.At.Named).OfType<EvidenceName>());
+            var rows = points.Select(p => new LiveStopPoint(p.Id, p.Where, Hex(p.Address), p.Hits)).ToList();
+            return ToolOutput.With(head.ToString(), new LiveStopPointReport(s.Id, rows, stop) { NamedAddresses = Named(named) });
         }, cancellationToken);
 
+    private LiveStop Stop(Services.LiveSession s, LiveHeldStop held, StringBuilder text, List<EvidenceName> named, CancellationToken ct)
+    {
+        var frames = held.Frames.Select((f, i) => live.Name(s, f, returnAddress: i > 0, ct)).ToList();
+        named.AddRange(frames.Select(f => f.Named).OfType<EvidenceName>());
+        text.AppendLine($"thread {held.Thread} stopped at {held.Point} ({frames.FirstOrDefault()?.Display ?? "?"})");
+        for (int i = 0; i < frames.Count; i++) text.AppendLine($"  #{i} {Hex(frames[i].Address)} {frames[i].Display}{Src(frames[i].Source)}");
+        return new LiveStop(held.Thread.ToString(CultureInfo.InvariantCulture), "stop point", held.Point,
+            frames.Select(f => new LiveFrame(Hex(f.Address), f.Image?.Id, f.Function == null ? null : f.Display, f.Source)).ToList());
+    }
+
     [McpServerTool(Name = "live_read", Title = "Read a stopped thread", UseStructuredContent = true, OutputSchemaType = typeof(LiveReadReport))]
-    [Description("Read a stopped thread's registers and memory as typed values, using the image's types and names.")]
+    [Description("Read a held thread's registers and program memory as typed values, named through the loaded images.")]
     public Task<string> LiveRead(
         [Description(SessionDescription)] string session,
-        [Description("Thread id; default the stopped one.")] string? thread = null,
-        [Description("Register names, comma-separated; default the general ones.")] string? registers = null,
-        [Description("An address or name to read.")] string? memory = null,
-        [Description("memory: a type name from the image's types.")] string? type = null,
+        [Description("Thread id; default the earliest held one.")] string? thread = null,
+        [Description("Register names, comma-separated; default all.")] string? registers = null,
+        [Description("An address, register or name to read.")] string? memory = null,
+        [Description("memory: int8..uint64, float, double, pointer, cstring, utf16; [n] for arrays.")] string? type = null,
         [Description("memory: bytes without a type (max 4096).")] int length = 64,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() =>
+        Task.Run(async () =>
         {
             Require(spawn: false);
-            return NoBackend();
+            var s = live.Get(session);
+            LiveSessionService.Live(s);
+            var heldAll = s.Held;
+            var tid = ThreadId(thread);
+            var held = tid == null ? heldAll.FirstOrDefault() : heldAll.FirstOrDefault(h => h.Thread == tid);
+            if (tid != null && held == null)
+                throw new ToolError(ErrorCode.NotFound, $"Thread {tid} is not held at a stop point.", "live_break wait=true returns the next stop; registers are read from held threads");
+            var text = new StringBuilder();
+            var named = new List<EvidenceName>();
+            var regs = new List<LiveValue>();
+            if (held != null)
+            {
+                var wanted = registers?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                text.AppendLine($"thread {held.Thread} (held at {held.Point})");
+                foreach (var (name, value) in held.Registers)
+                {
+                    if (wanted != null && !wanted.Contains(name)) continue;
+                    var at = Number(value) is { } v ? live.Name(s, v, ct: cancellationToken) : null;
+                    if (at?.Named is { } n) named.Add(n);
+                    var where = at?.Module != null ? at.Display : null;
+                    regs.Add(new LiveValue(name, "pointer", value, where));
+                    text.AppendLine($"  {name,-4} {value}{(where != null ? "  " + where : "")}");
+                }
+                if (wanted != null && wanted.Except(held.Registers.Keys, StringComparer.OrdinalIgnoreCase).ToList() is { Count: > 0 } unknown)
+                    throw new ToolError(ErrorCode.InvalidArgument, $"No register {string.Join(", ", unknown)} on {s.Arch}.", $"registers from: {string.Join(", ", held.Registers.Keys)}");
+            }
+            else if (memory == null)
+                throw new ToolError(ErrorCode.InvalidArgument, "No thread is held, so there are no registers to read.", "pass memory=<address>, or live_break wait=true for a stop");
+            var values = new List<LiveValue>();
+            if (memory != null)
+            {
+                var address = held != null && held.Registers.TryGetValue(memory.Trim(), out var reg) && Number(reg) is { } r ? r
+                    : await live.ResolveAsync(s, memory, cancellationToken).ConfigureAwait(false);
+                var (kind, size, count) = ParseType(type, length);
+                var bytes = await live.ReadAsync(s, address, size * count, cancellationToken).ConfigureAwait(false)
+                            ?? throw new ToolError(ErrorCode.NotFound, $"The program has no readable memory at {Hex(address)}.", "check the address with live_session action=status (module ranges)");
+                var at = live.Name(s, address, ct: cancellationToken);
+                if (at.Named is { } n) named.Add(n);
+                text.AppendLine($"{Hex(address)}{(at.Module != null ? " " + at.Display : "")}: {kind}{(type != null && count > 1 ? $"[{count}]" : "")}");
+                for (int i = 0; i < count; i++)
+                {
+                    var v = Decode(kind, bytes.AsSpan(i * size, size));
+                    var name = count == 1 ? memory.Trim() : $"{memory.Trim()}[{i}]";
+                    values.Add(new LiveValue(name, kind, v, Hex(address + (ulong)(i * size))));
+                    text.AppendLine(count == 1 ? $"  {v}" : $"  [{i}] {v}");
+                }
+            }
+            return ToolOutput.With(text.ToString(), new LiveReadReport(s.Id, held?.Thread.ToString(CultureInfo.InvariantCulture) ?? "", regs, values) { NamedAddresses = Named(named) });
         }, cancellationToken);
+
+    private static readonly Dictionary<string, int> Sizes = new(StringComparer.Ordinal)
+    {
+        ["int8"] = 1, ["uint8"] = 1, ["int16"] = 2, ["uint16"] = 2, ["int32"] = 4, ["uint32"] = 4, ["int64"] = 8, ["uint64"] = 8,
+        ["float"] = 4, ["double"] = 8, ["pointer"] = 8,
+    };
+
+    /// <summary>The element kind, its size and the count to read; untyped reads are one "bytes" element of <paramref name="length"/>.</summary>
+    private static (string Kind, int Size, int Count) ParseType(string? type, int length)
+    {
+        if (string.IsNullOrWhiteSpace(type)) return ("bytes", Math.Clamp(length, 1, 4096), 1);
+        var t = type.Trim().ToLowerInvariant();
+        int count = 1;
+        if (t.EndsWith(']') && t.IndexOf('[') is > 0 and var open)
+        {
+            if (!int.TryParse(t[(open + 1)..^1], NumberStyles.None, CultureInfo.InvariantCulture, out count) || count < 1)
+                throw new ToolError(ErrorCode.InvalidArgument, $"Bad array count in '{type}'.", "type=uint32[4]");
+            t = t[..open];
+        }
+        if (t is "cstring" or "utf16") return (t, Math.Clamp(length, 2, 4096), 1);
+        if (!Sizes.TryGetValue(t, out var size))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown type '{type}'.", "int8-int64, uint8-uint64, float, double, pointer, cstring or utf16, with [n] for an array");
+        if (size * count > 4096) throw new ToolError(ErrorCode.InvalidArgument, $"{type} is {size * count} bytes; at most 4096 per read.", "read fewer elements");
+        return (t, size, count);
+    }
+
+    private static string Decode(string kind, ReadOnlySpan<byte> b) => kind switch
+    {
+        "int8" => ((sbyte)b[0]).ToString(CultureInfo.InvariantCulture),
+        "uint8" => b[0].ToString(CultureInfo.InvariantCulture),
+        "int16" => BinaryPrimitives.ReadInt16LittleEndian(b).ToString(CultureInfo.InvariantCulture),
+        "uint16" => BinaryPrimitives.ReadUInt16LittleEndian(b).ToString(CultureInfo.InvariantCulture),
+        "int32" => BinaryPrimitives.ReadInt32LittleEndian(b).ToString(CultureInfo.InvariantCulture),
+        "uint32" => BinaryPrimitives.ReadUInt32LittleEndian(b).ToString(CultureInfo.InvariantCulture),
+        "int64" => BinaryPrimitives.ReadInt64LittleEndian(b).ToString(CultureInfo.InvariantCulture),
+        "uint64" => BinaryPrimitives.ReadUInt64LittleEndian(b).ToString(CultureInfo.InvariantCulture),
+        "float" => BinaryPrimitives.ReadSingleLittleEndian(b).ToString("R", CultureInfo.InvariantCulture),
+        "double" => BinaryPrimitives.ReadDoubleLittleEndian(b).ToString("R", CultureInfo.InvariantCulture),
+        "pointer" => Hex(BinaryPrimitives.ReadUInt64LittleEndian(b)),
+        "cstring" => Quote(Encoding.UTF8.GetString(b[..Math.Max(0, b.IndexOf((byte)0) is var z and >= 0 ? z : b.Length)])),
+        "utf16" => Quote(Utf16(b)),
+        _ => Convert.ToHexStringLower(b),
+    };
+
+    private static string Utf16(ReadOnlySpan<byte> b)
+    {
+        var chars = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, char>(b[..(b.Length & ~1)]);
+        int end = chars.IndexOf('\0');
+        return new string(end >= 0 ? chars[..end] : chars);
+    }
+
+    private static string Quote(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r") + "\"";
 
     [McpServerTool(Name = "live_events", Title = "Session events", UseStructuredContent = true, OutputSchemaType = typeof(LiveEventPage))]
     [Description("Page a session's event ring with a cursor and filters, so polling never re-sends earlier events.")]
     public Task<string> LiveEvents(
         [Description(SessionDescription)] string session,
         [Description("Cursor from an earlier page; default the oldest event kept.")] string? cursor = null,
-        [Description("Only this kind: stop, exception, module, thread or exit.")] string? kind = null,
+        [Description("Only this kind: stop, exception, module, thread, output, error or exit.")] string? kind = null,
         [Description("Only this thread id.")] string? thread = null,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
@@ -120,8 +317,47 @@ public sealed class LiveSessionTools(ServerOptions options)
         Task.Run(() =>
         {
             Require(spawn: false);
-            return NoBackend();
+            var s = live.Get(session);
+            long from = 0;
+            if (!string.IsNullOrWhiteSpace(cursor) && !long.TryParse(cursor.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out from))
+                throw new ToolError(ErrorCode.InvalidArgument, $"Bad cursor '{cursor}'.", "pass the cursor of an earlier page");
+            var (events, firstKept, last) = s.Page(from, kind?.Trim().ToLowerInvariant(), ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000));
+            var named = new List<EvidenceName>();
+            var text = new StringBuilder();
+            int dropped = from > 0 && from < firstKept ? (int)Math.Min(int.MaxValue, firstKept - from) : 0;
+            if (dropped > 0) text.AppendLine($"{dropped} event(s) before this page were dropped (the ring keeps {Services.LiveSession.RingCapacity:N0})");
+            var rows = new List<LiveEvent>();
+            foreach (var e in events)
+            {
+                string? name = null;
+                if (e.Address is { } addr && e.Kind is "stop" or "exception")
+                {
+                    var at = live.Name(s, addr, ct: cancellationToken);
+                    name = at.Module != null ? at.Display : null;
+                    if (at.Named is { } n) named.Add(n);
+                }
+                rows.Add(new LiveEvent(e.Sequence, e.Kind, e.Thread?.ToString(CultureInfo.InvariantCulture), e.Address is { } x ? Hex(x) : null, name, e.Text));
+                text.AppendLine($"#{e.Sequence} {e.Kind}{(e.Thread != null ? " thread " + e.Thread : "")}{(e.Address is { } y ? " " + Hex(y) : "")}{(name != null ? " " + name : "")}: {e.Text}");
+            }
+            var next = rows.Count > 0 ? rows[^1].Sequence + 1 : Math.Max(from, firstKept);
+            string? nextCursor = rows.Count > 0 && rows[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
+            text.AppendLine(rows.Count == 0 ? "No events." : nextCursor != null ? $"more: cursor={nextCursor}" : $"end of the ring; poll again with cursor={next}");
+            return ToolOutput.With(text.ToString(), new LiveEventPage(s.Id, rows, nextCursor, dropped) { NamedAddresses = Named(named) });
         }, cancellationToken);
+
+    private static IReadOnlyList<LiveNamedAddress>? Named(List<EvidenceName> named) =>
+        named.Count == 0 ? null : named.Distinct().Select(n => new LiveNamedAddress(n.Image, n.Sha256, $"0x{n.Rva:X}", n.Name)).ToList();
+
+    private static long? ThreadId(string? thread) =>
+        string.IsNullOrWhiteSpace(thread) ? null
+            : long.TryParse(thread.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var t) ? t
+            : throw new ToolError(ErrorCode.InvalidArgument, $"Bad thread id '{thread}'.", "a decimal thread id from a stop or live_events");
+
+    private static ulong? Number(string s) =>
+        s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && ulong.TryParse(s[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) ? v : null;
+
+    private static string Hex(ulong v) => $"0x{v:X}";
+    private static string Src(string? source) => source != null ? "  " + source : "";
 
     /// <summary>The opt-in flags: sessions need --allow-live, starting a program --allow-live-spawn as well.</summary>
     private void Require(bool spawn)
@@ -133,7 +369,4 @@ public sealed class LiveSessionTools(ServerOptions options)
             throw new ToolError(ErrorCode.Unsupported, "Starting a program under a session is off in this server.",
                 $"start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1) as well");
     }
-
-    private static string NoBackend() =>
-        throw new ToolError(ErrorCode.ProviderUnavailable, "No session backend is set up in this server.", "check server_status for the session backend");
 }

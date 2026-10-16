@@ -221,6 +221,8 @@ Server options and their environment variables are in the README ("Server option
 | `CORVUS_OFFLINE` | `1`: never download reference packs, symbols or a runtime DAC. |
 | `CORVUS_IDA_DIR`, `CORVUS_IDA_PYTHON` | IDA installation folder and the Python interpreter for idalib (found automatically otherwise). |
 | `CORVUS_GHIDRA_DIR`, `CORVUS_GHIDRA_JAVA`, `CORVUS_GHIDRA_ANALYSIS`, `CORVUS_GHIDRA_COMPLETION`, `CORVUS_GHIDRA_MAXMEM`, `CORVUS_GHIDRA_OPTIONS`, `CORVUS_GHIDRA_EXTENSIONS`, `CORVUS_GHIDRA_DECOMPILE_TIMEOUT`, `CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB` | Ghidra installation, JDK, analysis profile, JVM heap, analyzer options, extension zips and decompiler limits (README, "Server options"). |
+| `CORVUS_FRIDA_PYTHON` | The Python interpreter with Frida's bindings (`pip install frida`) that runs the session tools' worker (found automatically otherwise). |
+| `CORVUS_LIVE_MAX_MINUTES` | How long a session stays open before it is closed (default 30). |
 | `CORVUS_ENGINE_MEMORY_MB` | Memory limit of each IDA or Ghidra worker in MB (`0` removes it). |
 | `CORVUS_ENGINE_ANALYSIS` | `none`: IDA and Ghidra open images without auto-analysis (functions are made where a tool asks), kept in a database or project of their own; default `full`. |
 | `CORVUS_ENGINE_REQUEST_TIMEOUT`, `CORVUS_ENGINE_OPEN_TIMEOUT` | Seconds each IDA or Ghidra request may take (default 120) and an engine's start plus auto-analysis (default 1200). |

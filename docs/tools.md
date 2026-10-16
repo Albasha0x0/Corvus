@@ -2833,8 +2833,8 @@ Open, list, inspect or close a session on a local program. Returns the session i
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `action` | string |  | `list` | list, attach, spawn, status or close. Values: list, attach, spawn, status, close. |
-| `program` | string |  |  | attach: process id or name; spawn: program path. |
-| `arguments` | string |  |  | spawn: command-line arguments. |
+| `program` | string |  |  | attach: process id or name; spawn: program path, started suspended. |
+| `arguments` | string[] |  |  | spawn: program arguments. |
 | `session` | string |  |  | Session id from live_session. |
 
 Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`.
@@ -2843,14 +2843,15 @@ Structured output: `action`, `session`, `backend`, `program`, `processId`, `stat
 
 **Stop points in a session** (edit, open-world)
 
-Set, list or clear stop points in a session, by name, address or file:line. With wait, returns the next stop with a named stack.
+Set, list or clear stop points by name, module!export, file:line or address; continue resumes held threads. With wait, returns the next stop with a named stack.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
-| `action` | string |  | `list` | list, set or clear. Values: list, set, clear. |
+| `action` | string |  | `list` | list, set, clear or continue. Values: list, set, clear, continue. |
 | `at` | string |  |  | set: a name, module!export, address or file:line. |
 | `stopPoint` | string |  |  | clear: stop point id. |
+| `thread` | string |  |  | continue: thread id; default all. |
 | `wait` | boolean |  |  | Wait for the next stop. |
 | `waitSeconds` | integer |  | `30` | wait: seconds (1-300). |
 
@@ -2860,15 +2861,15 @@ Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.
 
 **Read a stopped thread** (read-only, idempotent, open-world)
 
-Read a stopped thread's registers and memory as typed values, using the image's types and names.
+Read a held thread's registers and program memory as typed values, named through the loaded images.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
-| `thread` | string |  |  | Thread id; default the stopped one. |
-| `registers` | string |  |  | Register names, comma-separated; default the general ones. |
-| `memory` | string |  |  | An address or name to read. |
-| `type` | string |  |  | memory: a type name from the image's types. |
+| `thread` | string |  |  | Thread id; default the earliest held one. |
+| `registers` | string |  |  | Register names, comma-separated; default all. |
+| `memory` | string |  |  | An address, register or name to read. |
+| `type` | string |  |  | memory: int8..uint64, float, double, pointer, cstring, utf16; [n] for arrays. |
 | `length` | integer |  | `64` | memory: bytes without a type (max 4096). |
 
 Structured output: `session`, `thread`, `registers`, `memory`, `namedAddresses`.
@@ -2883,7 +2884,7 @@ Page a session's event ring with a cursor and filters, so polling never re-sends
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
 | `cursor` | string |  |  | Cursor from an earlier page; default the oldest event kept. |
-| `kind` | string |  |  | Only this kind: stop, exception, module, thread or exit. |
+| `kind` | string |  |  | Only this kind: stop, exception, module, thread, output, error or exit. |
 | `thread` | string |  |  | Only this thread id. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |

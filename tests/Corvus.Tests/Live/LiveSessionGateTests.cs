@@ -1,5 +1,6 @@
 using Corvus.Core;
 using Corvus.Mcp;
+using Corvus.Services;
 using Corvus.Tools;
 
 namespace Corvus.Tests;
@@ -7,7 +8,15 @@ namespace Corvus.Tests;
 /// <summary>The session tools are registered everywhere and refuse calls until the server starts with their opt-in flags.</summary>
 public class LiveSessionGateTests
 {
-    private static LiveSessionTools Tools(bool live = false, bool spawn = false) => new(new ServerOptions { AllowLive = live, AllowLiveSpawn = spawn });
+    private static LiveSessionTools Tools(bool live = false, bool spawn = false)
+    {
+        var workspace = new AssemblyWorkspace();
+        var service = new LiveSessionService(workspace, new NativeCodeService(workspace, new ServerOptions()))
+        {
+            Backend = new ScriptedLiveBackend("app.exe", 0, 1) { Missing = "no session backend" },
+        };
+        return new(new ServerOptions { AllowLive = live, AllowLiveSpawn = spawn }, service);
+    }
 
     [Fact]
     public async Task Every_session_tool_refuses_without_allow_live()
@@ -30,7 +39,7 @@ public class LiveSessionGateTests
         var e = await Assert.ThrowsAsync<ToolError>(() => Tools(live: true).LiveSession("spawn", program: "app.exe"));
         Assert.Equal(ErrorCode.Unsupported, e.Code);
         Assert.Contains(ServerOptions.AllowLiveSpawnOption, e.Remediation);
-        // past the gates: no session backend yet
+        // past the gates: the backend's own answer
         Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => Tools(live: true).LiveSession("attach", program: "app.exe"))).Code);
     }
 
