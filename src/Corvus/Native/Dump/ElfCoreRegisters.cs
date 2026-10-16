@@ -1,8 +1,9 @@
 namespace Corvus.Native.Dump;
 
 /// <summary>
-/// The register file of one core architecture, indexed by DWARF register number (the numbering .eh_frame rules use);
-/// <see cref="Pc"/> is a DWARF column on x86 and x64, an extra slot past the DWARF registers elsewhere.
+/// The register file of one core architecture by slot: the DWARF register number (the numbering .eh_frame rules use) for
+/// general registers, PowerPC's link and count registers through <see cref="Slot"/>; <see cref="Pc"/> is a DWARF column
+/// on x86 and x64, an extra slot past the DWARF registers elsewhere.
 /// </summary>
 public sealed class ElfCoreArch
 {
@@ -38,7 +39,11 @@ public sealed class ElfCoreArch
     /// <summary>Stacks are walked (CFI and frame pointer).</summary>
     public bool Unwinds { get; }
     /// <summary>Slots below this are DWARF registers; CFI rules for higher numbers (vector registers) are ignored.</summary>
-    public int DwarfCount => Name switch { "x64" => 17, "x86" => 9, "ARM64" => 32, "ARM" => 16, _ => 0 };
+    public int DwarfCount => Name switch { "x64" => 17, "x86" => 9, "ARM64" => 32, "ARM" => 16, "ppc64" or "ppc64le" => 32, "s390x" => 16, "riscv64" => 32, _ => 0 };
+
+    /// <summary>The slot of DWARF register <paramref name="dwarf"/>, or -1 when it is not kept (vector and floating-point registers).</summary>
+    public int Slot(int dwarf) => dwarf >= 0 && dwarf < DwarfCount ? dwarf
+        : Arch == NativeArch.PowerPc ? dwarf switch { 65 => 33, 66 => 34, _ => -1 } : -1;
     public int PointerSize => Is64 ? 8 : 4;
 
     public static readonly ElfCoreArch X64 = new(NativeArch.X64, "x64", true, false,
@@ -55,14 +60,14 @@ public sealed class ElfCoreArch
         [.. Enumerable.Range(0, 11).Select(i => $"r{i}"), "fp", "ip", "sp", "lr", "pc", "cpsr"], 15, 13, 11, 14, 14, true);
 
     public static ElfCoreArch Ppc64(bool bigEndian) => new(NativeArch.PowerPc, bigEndian ? "ppc64" : "ppc64le", true, bigEndian,
-        [.. Enumerable.Range(0, 32).Select(i => $"r{i}"), "nip", "lr", "ctr", "msr"], 32, 1, 31, 33, 33, false);
+        [.. Enumerable.Range(0, 32).Select(i => $"r{i}"), "nip", "lr", "ctr", "msr"], 32, 1, 31, 33, 33, true);
 
     public static readonly ElfCoreArch S390x = new(NativeArch.Other, "s390x", true, true,
-        [.. Enumerable.Range(0, 16).Select(i => $"r{i}"), "psw_addr", "psw_mask"], 16, 15, 11, 14, 14, false);
+        [.. Enumerable.Range(0, 16).Select(i => $"r{i}"), "psw_addr", "psw_mask"], 16, 15, 11, 14, 14, true);
 
     public static readonly ElfCoreArch RiscV64 = new(NativeArch.RiscV, "riscv64", true, false,
         ["zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", .. Enumerable.Range(0, 8).Select(i => $"a{i}"), .. Enumerable.Range(2, 10).Select(i => $"s{i}"),
-         "t3", "t4", "t5", "t6", "pc"], 32, 2, 8, 1, 1, false);
+         "t3", "t4", "t5", "t6", "pc"], 32, 2, 8, 1, 1, true);
 
     /// <summary>The register file for e_machine, or null when the core's machine is not read.</summary>
     public static ElfCoreArch? For(ushort machine, bool is64, bool bigEndian) => machine switch

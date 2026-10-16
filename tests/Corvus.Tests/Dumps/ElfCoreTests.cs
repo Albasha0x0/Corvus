@@ -361,19 +361,6 @@ public sealed class ElfCoreTests
     }
 
     [Fact]
-    public void Unwinding_is_not_supported_for_other_architectures()
-    {
-        var regs = new ElfCoreRegisters(ElfCoreArch.RiscV64);
-        regs.Pc = 0x1000;
-        regs.Sp = 0x2000;
-        using var core = ElfCoreFile.FromBytes(SyntheticCore.Core(arm64: false));
-        var walk = new ElfCoreUnwinder(core, ElfCoreArch.RiscV64, _ => null).Walk(regs, 0, 0, 10);
-        Assert.Equal("unsupported_architecture", walk.Stop);
-        Assert.Contains("unwinding not supported for riscv64", Assert.Single(walk.Notes));
-        Assert.Single(walk.Frames);
-    }
-
-    [Fact]
     [FuzzEntry(typeof(ElfCoreFile), typeof(ElfMemoryHeader))]
     public void Fuzzed_cores_never_throw()
     {

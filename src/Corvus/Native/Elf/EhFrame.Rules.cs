@@ -3,16 +3,16 @@ namespace Corvus.Native.Elf;
 /// <summary>How a register's caller value is found from the CFA (DWARF register rules).</summary>
 internal enum CfiRuleKind : byte { Undefined, SameValue, Offset, ValOffset, Register, Expression, ValExpression }
 
-/// <summary>One register rule: an offset from the CFA, or a register number for <see cref="CfiRuleKind.Register"/>.</summary>
-internal readonly record struct CfiRule(CfiRuleKind Kind, long Operand);
+/// <summary>One register rule: an offset from the CFA, a register number for <see cref="CfiRuleKind.Register"/>, or the DWARF expression of the two expression kinds.</summary>
+internal readonly record struct CfiRule(CfiRuleKind Kind, long Operand, byte[]? Expression = null);
 
 /// <summary>One row of the CFI table: the CFA (a register plus an offset) and the rules of the registers it saves.</summary>
 internal sealed class CfiRow
 {
     public int CfaRegister = -1;
     public long CfaOffset;
-    /// <summary>The CFA is a DWARF expression (not evaluated).</summary>
-    public bool CfaExpression;
+    /// <summary>The CFA's DWARF expression (DW_CFA_def_cfa_expression), or null for a register plus an offset.</summary>
+    public byte[]? CfaExpression;
     /// <summary>AArch64: the return address is signed (DW_CFA_AARCH64_negate_ra_state).</summary>
     public bool RaSigned;
     /// <summary>The CIE's return address column.</summary>
@@ -91,17 +91,17 @@ internal static partial class EhFrame
                             var saved = remembered.Pop();
                             (row.CfaRegister, row.CfaOffset, row.CfaExpression, row.RaSigned, row.Rules) = (saved.CfaRegister, saved.CfaOffset, saved.CfaExpression, saved.RaSigned, saved.Rules);
                             break;
-                        case 0x0C: row.CfaRegister = Reg(ref r); row.CfaOffset = (long)r.Uleb(); row.CfaExpression = false; break;
-                        case 0x0D: row.CfaRegister = Reg(ref r); row.CfaExpression = false; break;
+                        case 0x0C: row.CfaRegister = Reg(ref r); row.CfaOffset = (long)r.Uleb(); row.CfaExpression = null; break;
+                        case 0x0D: row.CfaRegister = Reg(ref r); row.CfaExpression = null; break;
                         case 0x0E: row.CfaOffset = (long)r.Uleb(); break;
-                        case 0x0F: Skip(ref r); row.CfaExpression = true; break;
-                        case 0x10: { int reg = Reg(ref r); Skip(ref r); row.Rules[reg] = new(CfiRuleKind.Expression, 0); break; }
+                        case 0x0F: row.CfaExpression = Block(span, ref r); break;
+                        case 0x10: { int reg = Reg(ref r); row.Rules[reg] = new(CfiRuleKind.Expression, 0, Block(span, ref r)); break; }
                         case 0x11: { int reg = Reg(ref r); row.Rules[reg] = new(CfiRuleKind.Offset, r.Sleb() * daf); break; }
-                        case 0x12: row.CfaRegister = Reg(ref r); row.CfaOffset = r.Sleb() * daf; row.CfaExpression = false; break;
+                        case 0x12: row.CfaRegister = Reg(ref r); row.CfaOffset = r.Sleb() * daf; row.CfaExpression = null; break;
                         case 0x13: row.CfaOffset = r.Sleb() * daf; break;
                         case 0x14: { int reg = Reg(ref r); row.Rules[reg] = new(CfiRuleKind.ValOffset, (long)r.Uleb() * daf); break; }
                         case 0x15: { int reg = Reg(ref r); row.Rules[reg] = new(CfiRuleKind.ValOffset, r.Sleb() * daf); break; }
-                        case 0x16: { int reg = Reg(ref r); Skip(ref r); row.Rules[reg] = new(CfiRuleKind.ValExpression, 0); break; }
+                        case 0x16: { int reg = Reg(ref r); row.Rules[reg] = new(CfiRuleKind.ValExpression, 0, Block(span, ref r)); break; }
                         case 0x2D: row.RaSigned = !row.RaSigned; break; // AArch64 negate_ra_state (SPARC window_save)
                         case 0x2E: r.Uleb(); break; // GNU_args_size
                         case 0x2F: { int reg = Reg(ref r); row.Rules[reg] = new(CfiRuleKind.Offset, -((long)r.Uleb() * daf)); break; }
@@ -128,9 +128,13 @@ internal static partial class EhFrame
         else row.Rules.Remove(reg);
     }
 
-    private static void Skip(ref LebReader r)
+    /// <summary>A ULEB128 length and that many bytes; a block past the end marks the reader failed.</summary>
+    private static byte[] Block(ReadOnlySpan<byte> span, ref LebReader r)
     {
         ulong length = r.Uleb();
-        r.Position = (int)Math.Min((ulong)r.Position + length, int.MaxValue);
+        if (r.Failed || length > (ulong)(span.Length - r.Position)) { r.Failed = true; return []; }
+        var block = span.Slice(r.Position, (int)length).ToArray();
+        r.Position += (int)length;
+        return block;
     }
 }

@@ -1,16 +1,20 @@
+using System.Buffers.Binary;
+using Corvus.Native.Dwarf;
 using Corvus.Native.Elf;
 
 namespace Corvus.Native.Dump;
 
 /// <summary>
-/// Walks a core thread's stack: DWARF CFI from each module's .eh_frame (the CFA rule, then each saved register;
-/// expressions are not evaluated), else the frame pointer chain (x64, x86, AArch64), else for the top frame of ARM
-/// and AArch64 the link register. Frames are bounded by <c>maxFrames</c>, the thread's stack mapping and stack
-/// pointer progress.
+/// Walks a core thread's stack: DWARF CFI from each module's .eh_frame (the CFA rule, then each saved register, DWARF
+/// expressions evaluated against the frame's registers and the core's memory), else the frame chain (the frame record
+/// at the frame pointer on x64, x86 and AArch64, below it on RISC-V, the back chain on PowerPC), else for the top frame
+/// the link register. Frames are bounded by <c>maxFrames</c>, the thread's stack mapping and stack pointer progress.
 /// </summary>
 public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Func<ulong, ElfCoreImage?> imageAt)
 {
     private const ulong PacMask = 0x0000_FFFF_FFFF_FFFF;
+    /// <summary>The ELF ABI's link register save slot above the back chain word (PowerPC64, ELFv1 and ELFv2).</summary>
+    private const ulong PpcLrSave = 16;
 
     public WalkResult Walk(ElfCoreRegisters start, ulong stackLow, ulong stackHigh, int maxFrames, CancellationToken ct = default)
     {
@@ -70,66 +74,129 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
         }
         else why = failure ?? "no CFI";
 
-        if (FramePointer(regs) is { } chained) return (chained, FrameMethod.FramePointer, $"no CFI ({why}); followed the frame pointer", null);
+        if (FrameChain(regs) is { } chained) return (chained, FrameMethod.FramePointer, $"no CFI ({why}); followed the {ChainName}", null);
         if (top && arch.Link is int lr && regs.TryGet(lr, out ulong ra) && Strip(ra) is var target && target != 0 && target != regs.Pc && IsCode(target))
         {
             var leaf = regs.Clone();
             leaf.Pc = target;
             return (leaf, FrameMethod.Leaf, $"no CFI ({why}); the return address is the link register", null);
         }
-        return (null, "", $"walk ended at 0x{regs.Pc:X}: {why}, and no usable frame pointer", "no_unwind_data");
+        return (null, "", $"walk ended at 0x{regs.Pc:X}: {why}, and no usable {ChainName}", "no_unwind_data");
     }
+
+    private string ChainName => arch.Arch == NativeArch.PowerPc ? "back chain" : "frame pointer";
 
     private (ElfCoreRegisters? Next, string? Problem) ApplyCfi(ElfCoreRegisters regs, CfiRow row)
     {
-        if (row.CfaExpression) return (null, "the CFA is a DWARF expression");
-        if (row.CfaRegister < 0 || row.CfaRegister >= arch.DwarfCount || !regs.TryGet(row.CfaRegister, out ulong cfaBase))
-            return (null, $"the CFA register {row.CfaRegister} is not known");
-        ulong cfa = cfaBase + (ulong)row.CfaOffset;
+        ulong cfa;
+        if (row.CfaExpression is { } cfaExpr)
+        {
+            if (!Evaluate(regs, cfaExpr, null, out cfa, out var why)) return (null, $"the CFA expression: {why}");
+        }
+        else if (regs.TryGet(arch.Slot(row.CfaRegister), out ulong cfaBase)) cfa = cfaBase + (ulong)row.CfaOffset;
+        else return (null, $"the CFA register {row.CfaRegister} is not known");
         if (!arch.Is64) cfa &= 0xFFFFFFFF;
         if (row.Rules.TryGetValue(row.ReturnColumn, out var raRule) && raRule.Kind == CfiRuleKind.Undefined) return (null, "end_of_stack");
         var next = regs.Clone();
         foreach (var (reg, rule) in row.Rules)
         {
-            if (reg >= arch.DwarfCount) continue;
+            int slot = arch.Slot(reg);
+            if (slot < 0) continue;
             switch (rule.Kind)
             {
                 case CfiRuleKind.Offset:
-                    if (memory.TryReadPointer(cfa + (ulong)rule.Operand, out ulong saved)) next.Set(reg, saved);
+                    if (ReadWord(cfa + (ulong)rule.Operand, out ulong saved)) next.Set(slot, saved);
                     else if (reg == row.ReturnColumn) return (null, $"the return address slot 0x{cfa + (ulong)rule.Operand:X} is not in the core");
-                    else next.Forget(reg);
+                    else next.Forget(slot);
                     break;
-                case CfiRuleKind.ValOffset: next.Set(reg, cfa + (ulong)rule.Operand); break;
+                case CfiRuleKind.ValOffset: next.Set(slot, cfa + (ulong)rule.Operand); break;
                 case CfiRuleKind.Register:
-                    if (regs.TryGet((int)rule.Operand, out ulong value)) next.Set(reg, value); else next.Forget(reg);
+                    if (regs.TryGet(arch.Slot((int)rule.Operand), out ulong value)) next.Set(slot, value); else next.Forget(slot);
                     break;
+                case CfiRuleKind.Expression or CfiRuleKind.ValExpression:
+                {
+                    ulong result = 0;
+                    bool ok = Evaluate(regs, rule.Expression ?? [], cfa, out ulong at, out string? why);
+                    if (ok && rule.Kind == CfiRuleKind.ValExpression) result = at;
+                    else if (ok && !ReadWord(at, out result)) (ok, why) = (false, $"0x{at:X} is not in the core");
+                    if (ok) next.Set(slot, result);
+                    else if (reg == row.ReturnColumn) return (null, $"the return address expression: {why}");
+                    else next.Forget(slot);
+                    break;
+                }
                 case CfiRuleKind.SameValue: break;
-                default: next.Forget(reg); break;
+                default: next.Forget(slot); break;
             }
         }
         if (!row.Rules.ContainsKey(arch.Sp)) next.Sp = cfa;
-        // without a rule the return column keeps its value: the link register on ARM and AArch64
-        if (row.ReturnColumn >= arch.Count || !next.TryGet(row.ReturnColumn, out ulong ra) || (row.ReturnColumn == arch.Pc && !row.Rules.ContainsKey(arch.Pc)))
+        // without a rule the return column keeps its value: the link register on ARM, AArch64, PowerPC, s390x and RISC-V
+        int raSlot = arch.Slot(row.ReturnColumn);
+        if (raSlot < 0 || !next.TryGet(raSlot, out ulong ra) || (raSlot == arch.Pc && !row.Rules.ContainsKey(row.ReturnColumn)))
             return (null, "the return address has no rule");
         if (row.RaSigned) ra &= PacMask;
         next.Pc = Strip(ra);
         return (next, null);
     }
 
-    /// <summary>The frame record at the frame pointer: the caller's frame pointer, then the return address.</summary>
-    private ElfCoreRegisters? FramePointer(ElfCoreRegisters regs)
+    private bool Evaluate(ElfCoreRegisters regs, byte[] expr, ulong? cfa, out ulong value, out string? why) =>
+        DwarfExpression.TryEvaluate(expr, arch.PointerSize, arch.BigEndian, (int dwarf, out ulong v) => regs.TryGet(arch.Slot(dwarf), out v), Read, cfa, out value, out why);
+
+    private bool Read(ulong address, int size, out ulong value)
     {
-        if (arch.Arch == NativeArch.Arm || !regs.TryGet(arch.Fp, out ulong fp)) return null;
-        ulong ptr = (ulong)arch.PointerSize;
-        if (fp < regs.Sp || fp % ptr != 0 || memory.RegionAt(fp) is not { } region || !region.Contains(regs.Sp)) return null;
-        if (!memory.TryReadPointer(fp, out ulong savedFp) || !memory.TryReadPointer(fp + ptr, out ulong ra)) return null;
-        var next = regs.Clone();
-        next.Set(arch.Fp, savedFp);
-        next.Sp = fp + 2 * ptr;
-        next.Pc = Strip(ra);
-        if (arch.Link is int lr) next.Forget(lr);
-        return next;
+        Span<byte> b = stackalloc byte[8];
+        value = 0;
+        if (memory.ReadMemory(address, b[..size]) < size) return false;
+        for (int i = 0; i < size; i++) value |= (ulong)b[arch.BigEndian ? size - 1 - i : i] << (8 * i);
+        return true;
     }
+
+    private bool ReadWord(ulong address, out ulong value) => Read(address, arch.PointerSize, out value);
+
+    /// <summary>
+    /// The caller from the frame chain: the record at the frame pointer (saved frame pointer, then return address) on x64,
+    /// x86 and AArch64; the record just below it on RISC-V; PowerPC's back chain at the stack pointer with the link
+    /// register saved two words above the caller's back chain. None on ARM and s390x (no chain in the default ABI).
+    /// </summary>
+    private ElfCoreRegisters? FrameChain(ElfCoreRegisters regs)
+    {
+        ulong ptr = (ulong)arch.PointerSize;
+        var next = regs.Clone();
+        switch (arch.Arch)
+        {
+            case NativeArch.PowerPc:
+            {
+                ulong sp = regs.Sp;
+                if (sp % ptr != 0 || !ReadWord(sp, out ulong caller) || caller <= sp || !SameRegion(caller, sp) || !ReadWord(caller + PpcLrSave, out ulong lr)) return null;
+                next.Sp = caller;
+                next.Pc = lr;
+                if (arch.Link is int link) next.Forget(link);
+                return next;
+            }
+            case NativeArch.RiscV:
+            {
+                if (!regs.TryGet(arch.Fp, out ulong fp) || fp <= regs.Sp || fp % ptr != 0 || !SameRegion(fp - 1, regs.Sp)) return null;
+                if (!ReadWord(fp - ptr, out ulong ra) || !ReadWord(fp - 2 * ptr, out ulong savedFp)) return null;
+                next.Set(arch.Fp, savedFp);
+                next.Sp = fp;
+                next.Pc = ra;
+                if (arch.Link is int link) next.Forget(link);
+                return next;
+            }
+            case NativeArch.X64 or NativeArch.X86 or NativeArch.Arm64:
+            {
+                if (!regs.TryGet(arch.Fp, out ulong fp) || fp < regs.Sp || fp % ptr != 0 || !SameRegion(fp, regs.Sp)) return null;
+                if (!ReadWord(fp, out ulong savedFp) || !ReadWord(fp + ptr, out ulong ra)) return null;
+                next.Set(arch.Fp, savedFp);
+                next.Sp = fp + 2 * ptr;
+                next.Pc = Strip(ra);
+                if (arch.Link is int link) next.Forget(link);
+                return next;
+            }
+            default: return null;
+        }
+    }
+
+    private bool SameRegion(ulong address, ulong sp) => memory.RegionAt(address) is { } region && region.Contains(sp);
 
     private ulong Strip(ulong address) => arch.Arch switch
     {
