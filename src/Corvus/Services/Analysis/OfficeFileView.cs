@@ -4,7 +4,7 @@ using Corvus.Core.Documents;
 namespace Corvus.Services.Analysis;
 
 /// <summary>
-/// view=office: the active content of an OLE, OOXML or SYLK Office document (<see cref="OfficeDocument"/>): VBA projects and
+/// view=office: the active content of an OLE, OOXML, SYLK or OneNote Office document (<see cref="OfficeDocument"/>): VBA projects and
 /// modules, Excel 4.0 macro sheets with their visibility, OLE Package objects, external relationships, and findings over the
 /// macro text with the module and line of each (autorun entry points, noteworthy calls, URLs, decoded hex and base64).
 /// </summary>
@@ -27,7 +27,7 @@ internal sealed class OfficeFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        bool ole = CompoundFile.Looks(file.Head) && !Core.Installers.MsiDatabase.Looks(file.Head);
+        bool ole = CompoundFile.Looks(file.Head) && !Core.Installers.MsiDatabase.Looks(file.Head) || OneNoteReader.Looks(file.Head);
         if (!ole && !(file.Kind == "text" && XlmMacros.IsSylk(file.Head)) && !(file.Kind == "zip" && file.HasZipEntry(n => n == "[Content_Types].xml"))) return null;
         if (file.Length > MaxDocument) return null;
         var doc = OfficeDocument.Read(file.Bytes, System.IO.Path.GetFileName(file.Path), ct);

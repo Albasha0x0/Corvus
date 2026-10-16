@@ -167,6 +167,40 @@ public sealed class OfficeDocumentTests
         Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "EXEC" });
     }
 
+    /// <summary>A OneNote section: its header GUID, a UTF-16 file name property and FileDataStoreObject records.</summary>
+    internal static byte[] OneNoteSection(params byte[][] files)
+    {
+        var o = new MemoryStream();
+        o.Write(new Guid("7B5C52E4-D88C-4DA7-AEB1-5378D02996D3").ToByteArray());
+        o.Write(new byte[64]);
+        o.Write(Encoding.Unicode.GetBytes("\0invoice.hta\0"));
+        foreach (var f in files)
+        {
+            while (o.Length % 8 != 0) o.WriteByte(0);
+            o.Write(new Guid("BDE316E7-2665-4511-A4C4-8D4D0B7A9EAC").ToByteArray());
+            o.Write(BitConverter.GetBytes((ulong)f.Length)); o.Write(new byte[12]); o.Write(f);
+            while (o.Length % 8 != 0) o.WriteByte(0);
+            o.Write(new Guid("71FBA722-0F79-4A0B-BB13-899256426B24").ToByteArray());
+        }
+        return o.ToArray();
+    }
+
+    [Fact]
+    public void A_onenote_section_gives_its_embedded_files_named_by_content()
+    {
+        var hta = "<html><head><HTA:APPLICATION id=\"x\"/><script>new ActiveXObject('WScript.Shell').Run('calc')</script></head></html>"u8.ToArray();
+        var exe = ContainerFixtures.Module("Payload");
+        var one = OneNoteSection(hta, exe);
+        var c = Containers.Open(one, "a.one", AnalysisLimits.Default, default);
+        Assert.Equal("OneNote section", c.Kind);
+        Assert.Equal(hta, c.Items.Single(i => i.Name == "embedded_1.hta").Bytes);
+        Assert.Equal(exe, c.Items.Single(i => i.Name == "embedded_2.dll").Bytes);
+        Assert.Contains(c.Notes, n => n.Contains("invoice.hta", StringComparison.Ordinal));
+        var f = View(one, "a.one")!;
+        Assert.Equal(2, f.Objects.Count);
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "embedded_1.hta" });
+    }
+
     [Fact]
     public void A_looping_sector_chain_ends_with_a_note()
     {
@@ -179,14 +213,14 @@ public sealed class OfficeDocumentTests
     }
 
     [Fact]
-    [FuzzEntry(typeof(CompoundFileReader), typeof(CompoundFile), typeof(OfficeDocument), typeof(OfficeFileView))]
+    [FuzzEntry(typeof(CompoundFileReader), typeof(CompoundFile), typeof(OfficeDocument), typeof(OfficeFileView), typeof(OneNoteReader))]
     public void Fuzzed_documents_never_throw_past_a_tool_error()
     {
         var bin = Compound(VbaStreams("", ("Module1", "standard", Dropper)));
         var seeds = new[]
         {
             ("doc.doc", WordDocument()), ("b.xls", Compound([("Workbook", Biff8Workbook("M", 1, Call(110, "calc")))])),
-            ("a.docm", Ooxml(("word/document.xml", "<w:document/>"u8.ToArray()), ("word/vbaProject.bin", bin))),
+            ("a.docm", Ooxml(("word/document.xml", "<w:document/>"u8.ToArray()), ("word/vbaProject.bin", bin))), ("a.one", OneNoteSection("@echo off"u8.ToArray(), [1, 2, 3])),
         };
         foreach (var (name, seed) in seeds)
         {

@@ -36,6 +36,16 @@ internal sealed class OfficeDocument
     public static OfficeDocument? Read(byte[] data, string name, CancellationToken ct)
     {
         if (CompoundFile.Looks(data)) return FromCompound(CompoundFile.Read(data, name), ct);
+        if (OneNoteReader.Looks(data))
+        {
+            var one = new OfficeDocument { Format = "OneNote section" };
+            int n = 0;
+            foreach (var (offset, bytes) in OneNoteReader.Files(data, MaxPart, one.Notes, ct))
+                one.Objects.Add(new EmbeddedObject($"0x{offset:X}", $"embedded_{++n}{OneNoteReader.Extension(bytes)}", null, bytes));
+            if (OneNoteReader.Names(data) is { Count: > 0 } names) one.Notes.Add($"file names in the section: {string.Join(", ", names.Take(20))}");
+            one.Scan();
+            return one;
+        }
         if (XlmMacros.IsSylk(data))
         {
             var slk = new OfficeDocument { Format = "SYLK spreadsheet" };
@@ -274,6 +284,10 @@ internal sealed class OfficeDocument
 
     public static string Printable(string path) => string.Concat(path.Select(c => c < 32 ? $"\\x{(int)c:X2}" : c.ToString()));
 
+    /// <summary>Extensions Windows runs or hands to a script host when an embedded file is opened.</summary>
+    private static readonly HashSet<string> Runnable =
+        [".exe", ".dll", ".scr", ".com", ".pif", ".hta", ".bat", ".cmd", ".js", ".jse", ".vbs", ".vbe", ".wsf", ".wsh", ".ps1", ".lnk", ".chm", ".cpl", ".msi", ".jar", ".reg", ".url", ".iso", ".img", ".vhd", ".vhdx"];
+
     private void Scan()
     {
         var texts = Projects.SelectMany(p => p.Modules.Select(m => (m.Name, m.Source))).ToList();
@@ -282,6 +296,8 @@ internal sealed class OfficeDocument
         if (Xlm?.HasMacroSheets == true) Findings.Add(new MacroFinding("Suspicious", "XLM macro", "Excel 4.0 macro sheets, which can run commands"));
         foreach (var link in Links.Where(l => l.Type is "attachedTemplate" or "oleObject" or "frame" or "subDocument"))
             Findings.Add(new MacroFinding("IOC", link.Target, $"external {link.Type} relationship, loaded when the document opens") { Location = link.Part });
+        foreach (var o in Objects.Where(o => Runnable.Contains(Path.GetExtension(o.Name).ToLowerInvariant())))
+            Findings.Add(new MacroFinding("Suspicious", o.Name, $"an embedded {Path.GetExtension(o.Name)} file, which opens or runs when double-clicked") { Location = o.Path });
         foreach (var m in Projects.SelectMany(p => p.Modules).Where(m => m.SourceMissing))
             Findings.Add(new MacroFinding("Suspicious", "VBA source missing", $"module {m.Name} has no readable source text at its offset (removed or damaged)") { Location = m.Stream });
     }
