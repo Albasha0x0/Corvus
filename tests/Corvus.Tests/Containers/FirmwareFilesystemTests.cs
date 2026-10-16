@@ -37,16 +37,16 @@ public sealed class FirmwareFilesystemTests
     private static List<string> Files(ContainerContents c) =>
         [.. c.Entries!.Where(e => e.Detail == null).Select(e => $"{e.Path} {e.Size}").Order(StringComparer.Ordinal)];
 
-    /// <summary>Same files and bytes as the source tree; the symbolic link with its target.</summary>
-    internal static void AssertTree(ContainerContents c, bool links = true)
+    /// <summary>Same files and bytes as the source tree (with <paramref name="extra"/> files); the symbolic link with its target.</summary>
+    internal static void AssertTree(ContainerContents c, params string[] extra)
     {
-        Assert.Equal(Tree(), Files(c));
+        Assert.Equal(Tree().Concat(extra).Order(StringComparer.Ordinal), Files(c));
         var items = c.Items.ToDictionary(i => i.Name, i => i.Bytes);
         Assert.Equal(LargeConf(), items["etc/config/large.conf"]);
         Assert.Equal(Isa("mips32be.elf"), items["bin/busybox"]);
         Assert.Equal(Isa("armbe.elf"), items["lib/libuci.so"]);
         Assert.Equal("root:x:0:0:root:/root:/bin/sh\n", Encoding.ASCII.GetString(items["etc/passwd"]));
-        if (links) Assert.Contains(c.Entries!, e => e.Path == "sbin/init" && e.Detail == "symbolic link to ../bin/busybox");
+        Assert.Contains(c.Entries!, e => e.Path == "sbin/init" && e.Detail == "symbolic link to ../bin/busybox");
     }
 
     public static TheoryData<string> Compressors => new() { "gzip", "lzma", "lzo", "lz4", "xz", "zstd" };
