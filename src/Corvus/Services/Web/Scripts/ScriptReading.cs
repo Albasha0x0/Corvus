@@ -15,6 +15,9 @@ public sealed record ScriptReading(string Language, string Plain, IReadOnlyList<
 {
     /// <summary>False when the budget ran out or a layer could not be decoded.</summary>
     public bool Complete { get; init; } = true;
+
+    /// <summary>The transformations undone besides layers (obfuscator.io string array, control-flow flattening, ...).</summary>
+    public IReadOnlyList<string> Recovered { get; init; } = [];
 }
 
 /// <summary>The budget of one reading: evaluation steps, time and the largest string built.</summary>
@@ -50,6 +53,7 @@ internal sealed class ScriptContext(ScriptBudget budget)
     public List<string> Notes { get; } = [];
     public int Folded { get; set; }
     public bool Incomplete { get; set; }
+    public SortedSet<string> Recovered { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Environment variables a layer set (batch set, $env:), read by later layers in any language.</summary>
     public Dictionary<string, string> Environment { get; } = new(StringComparer.OrdinalIgnoreCase);

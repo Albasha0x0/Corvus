@@ -90,6 +90,39 @@ public sealed class ScriptReaderTests
     }
 
     [Fact]
+    public void The_script_view_pages_the_plain_text_and_names_the_layers()
+    {
+        var path = Fixture("powershell", "compress-1.ps1");
+        var bytes = File.ReadAllBytes(path);
+        var view = new Corvus.Services.Analysis.ScriptFileView().Inspect(new Corvus.Services.Analysis.FileInput(path, bytes, Corvus.Core.Blob.Identify(bytes))
+            { Options = new Corvus.Services.Analysis.FileViewOptions("script", Offset: 5) }, default)!;
+        var facts = (Corvus.Services.Analysis.ScriptFileView.Facts)view.Detail;
+        Assert.Equal("powershell", facts.Language);
+        Assert.Equal("Invoke-Expression of deflate", Assert.Single(facts.Layers).Via);
+        Assert.Equal(5, facts.Offset);
+        Assert.StartsWith("'http://example.com/corvus/stage.txt';", facts.Plain);
+        Assert.StartsWith("PowerShell script: 1 transformation layer(s) peeled (powershell via Invoke-Expression of deflate)", view.Highlights[0]);
+    }
+
+    [Fact]
+    public void A_plain_javascript_file_has_no_script_view_in_the_overview()
+    {
+        var bytes = Encoding.UTF8.GetBytes("export function add(a, b) { return a + b; }\n");
+        Assert.Null(new Corvus.Services.Analysis.ScriptFileView().Inspect(new Corvus.Services.Analysis.FileInput("add.js", bytes, Corvus.Core.Blob.Identify(bytes)), default));
+    }
+
+    [Fact]
+    public void An_html_application_reads_its_script_blocks()
+    {
+        var hta = "<html><head><script language=\"VBScript\">Execute Chr(77) & \"sgBox \"\"corvus marker\"\"\"</script></head></html>";
+        var bytes = Encoding.UTF8.GetBytes(hta);
+        var view = new Corvus.Services.Analysis.ScriptFileView().Inspect(new Corvus.Services.Analysis.FileInput("a.hta", bytes, Corvus.Core.Blob.Identify(bytes)), default)!;
+        var facts = (Corvus.Services.Analysis.ScriptFileView.Facts)view.Detail;
+        Assert.Contains("MsgBox \"corvus marker\"", facts.Plain);
+        Assert.Equal("vbscript", facts.Language);
+    }
+
+    [Fact]
     public void An_encoded_command_is_a_layer_with_its_decoding_chain()
     {
         var inner = Convert.ToBase64String(Encoding.Unicode.GetBytes("Write-Host 'stage two'"));

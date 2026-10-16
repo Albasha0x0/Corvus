@@ -80,6 +80,11 @@ public sealed class FileViewFuzzTests : IDisposable
     public void Protobuf() => Fuzz(new ProtobufFileView(), "demo.pb", 500, ProtoWriter.Demo());
 
     [Fact]
+    [FuzzEntry(typeof(ScriptFileView))]
+    public void Script() => Fuzz(new ScriptFileView(), "drop.ps1", 120,
+        Encoding.UTF8.GetBytes("& ( $PSHomE[4]+$pShome[34]+'x') (('1wb'+'u = 7Xkhttp://'+'ex'+'ample.com/cor'+'vus7Xk').REPLAce(([ChAR]49+[ChAR]119+[ChAR]98),'$').REPLAce('7Xk',[String][ChAR]39))"));
+
+    [Fact]
     [FuzzEntry(typeof(SqliteRecoverFileView))]
     public void SqliteRecover() => Fuzz(new SqliteRecoverFileView(), "msg.db", 300,
         NativeSqlite.Build("CREATE TABLE msg(id INTEGER PRIMARY KEY, body TEXT);", "INSERT INTO msg(body) VALUES ('one'), ('two'), ('three');", "DELETE FROM msg WHERE id = 2;"));

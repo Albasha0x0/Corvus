@@ -542,6 +542,7 @@ internal sealed class JsPass
             if (node is VariableDeclarator { Id: Identifier id, Init: Identifier init } alias && aliases.Contains(id.Name) && aliases.Contains(init.Name))
                 RemoveDeclarator(alias);
         _ctx.Note($"obfuscator.io string array of {array.Items.Count} strings decoded ({array.Encoding}), {done} calls inlined.");
+        _ctx.Recovered.Add("obfuscator.io string array");
     }
 
     private void Remove(Node n)
@@ -634,7 +635,7 @@ internal sealed class JsPass
                 if (value is FunctionExpression fn)
                 {
                     if (outer is not CallExpression call || call.Callee != m) continue;
-                    if (Inline(fn, call) is { } text) { _edits.Set(call.Start, call.End, text); inlined++; }
+                    if (Inline(fn, call) is { } text) { _edits.Set(call.Start, call.End, text); inlined++; _ctx.Recovered.Add("proxy objects"); }
                 }
                 else if (!(outer is CallExpression c2 && c2.Callee == m))
                 {
@@ -699,6 +700,7 @@ internal sealed class JsPass
             }
             if (!ok) continue;
             _edits.Set(loop.Start, loop.End, sb.ToString());
+            _ctx.Recovered.Add("control-flow flattening");
             var a = _parents.GetValueOrDefault(seqDecl);
             if (a == _parents.GetValueOrDefault(counterDecl) && a is VariableDeclaration { Declarations.Count: 2 } both) _edits.Set(both.Start, both.End, "");
             else
@@ -723,6 +725,7 @@ internal sealed class JsPass
             {
                 var taken = JsConstants.Truthy(test) ? s.Consequent : s.Alternate;
                 _edits.Set(s.Start, s.End, taken == null ? "" : taken is BlockStatement b ? Body(b) : Src(taken));
+                _ctx.Recovered.Add("dead branches");
             }
             else if (node is ConditionalExpression c && Pure(c.Test) && _eval.Eval(c.Test) is { } ct && JsConstants.Known(ct))
             {

@@ -19,7 +19,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights " +
                  "(toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, layers, nib, pcap, " +
-                 "plist, protobuf, rust, sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.")]
+                 "plist, protobuf, rust, script (layers peeled to plain text), sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.")]
     public Task<string> SummarizeFile(
         [Description("File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
@@ -33,8 +33,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         {
             var name = string.IsNullOrWhiteSpace(view) ? "overview" : view.Trim().ToLowerInvariant();
             if ((table != null || columns != null) && name is not ("sqlite" or "sqlite-recover")
-                || (offset != 0 || limit != null) && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers"))
-                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (offset and limit also view=protobuf and view=layers).",
+                || limit != null && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers")
+                || offset != 0 && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "script"))
+                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (offset and limit also view=protobuf and view=layers, offset view=script).",
                     "pass view=sqlite with table=, or drop them");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
             var options = new FileViewOptions(name, table, columns, offset, limit);

@@ -48,7 +48,7 @@ public static class ScriptReader
             ctx.Note($"The {language} reader stopped: {failure.GetType().Name}.");
             ctx.Incomplete = true;
         }
-        return new ScriptReading(language, plain ?? text, ctx.Layers, ctx.Folded, ctx.Calls.ToList(), ctx.Notes) { Complete = !ctx.Incomplete && !ctx.Budget.Exhausted };
+        return new ScriptReading(language, plain ?? text, ctx.Layers, ctx.Folded, ctx.Calls.ToList(), ctx.Notes) { Complete = !ctx.Incomplete && !ctx.Budget.Exhausted, Recovered = ctx.Recovered.ToList() };
     }
 
     /// <summary>One layer's plain text in its language.</summary>
