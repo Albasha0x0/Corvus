@@ -19,8 +19,8 @@ internal sealed class DartSearchKind : IContainerSearchKind
         var snapshots = DartScan.Snapshots(bytes, ct);
         if (DartPoolScan.Isolate(snapshots) is not { } isolate) yield break;
         var path = inner ?? Path.GetFileName(scope.Source);
-        foreach (var s in DartPoolScan.Read(bytes, isolate, ct).Strings)
+        foreach (var s in DartPoolScan.Read(bytes, isolate, ct, FlutterFileView.Images(bytes, path, isolate)).Strings)
             if (matches(s.Value) || matches(s.Kind))
-                yield return new ContainerMatch(path, s.Value, "dart") { Detail = $"{s.Kind} at 0x{s.Offset:x}" };
+                yield return new ContainerMatch(path, s.Value, "dart") { Detail = $"{s.Kind} at 0x{s.Offset:x}" + (s.Image != null ? $" in the {s.Image}" : "") };
     }
 }

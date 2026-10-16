@@ -170,6 +170,81 @@ public sealed class FlutterViewTests
         Assert.Equal(6, new UnpackService(ws).Search(path, "identifier", "dart", 100, AnalysisLimits.Default, default).Total);
     }
 
+    /// <summary>
+    /// An app whose string objects sit after the clustered data in the data image, as older ARM32 snapshots keep them: header
+    /// (class id at bit 12, size tag at bit 8), hash, Smi length, characters; 8-byte aligned. One repeats a clustered string.
+    /// </summary>
+    private static byte[] ImageApp(bool bits32)
+    {
+        const uint oneByte = 94;
+        var features = bits32 ? "product arm android no-compressed-pointers" : "product arm64 android no-compressed-pointers";
+        int align = bits32 ? 8 : 16, dataAt = bits32 ? 12 : 16;
+        var texts = Enumerable.Range(0, 20).Select(i => $"Value not in range {i}").Append("MyHomePage").Append("line one\nline two").ToList();
+        byte[] Build(int pad)
+        {
+            var pool = new List<byte>();
+            DartString(pool, "MyHomePage");
+            var isolate = Snapshot(features: features);
+            BinaryPrimitives.WriteInt64LittleEndian(isolate.AsSpan(4), isolate.Length - 4 + pool.Count);
+            var image = new List<byte>(new byte[pad]);
+            void Object(uint cid, byte[] chars, int n)
+            {
+                int size = (dataAt + chars.Length + align - 1) / align;
+                var header = new byte[dataAt];
+                BinaryPrimitives.WriteUInt32LittleEndian(header, cid << 12 | (uint)size << 8 | 2);
+                if (bits32) { BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4), 0x1234); BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(8), (uint)n << 1); }
+                else BinaryPrimitives.WriteInt64LittleEndian(header.AsSpan(8), (long)n << 1);
+                image.AddRange(header);
+                image.AddRange(chars);
+                while ((image.Count - pad) % align != 0) image.Add(0);
+            }
+            foreach (var t in texts) Object(oneByte, Encoding.Latin1.GetBytes(t), t.Length);
+            Object(oneByte + 1, Encoding.Unicode.GetBytes("✓ done"), 6);
+            Object(oneByte + 7, Encoding.ASCII.GetBytes("other class"), 11); // not a string class
+            var data = new byte[0x100 + isolate.Length + pool.Count + image.Count];
+            Snapshot().CopyTo(data, 0);
+            isolate.CopyTo(data, 0x100);
+            pool.CopyTo(data, 0x100 + isolate.Length);
+            image.CopyTo(data, 0x100 + isolate.Length + pool.Count);
+            return new ElfWriter
+            {
+                Data = data,
+                Symbols = [new("_kDartVmSnapshotData", ElfWriter.DataRva, 0x100, Type: 1), new("_kDartIsolateSnapshotData", ElfWriter.DataRva + 0x100, (uint)(data.Length - 0x100), Type: 1)],
+            }.Build();
+        }
+        // place the image at an aligned file offset: the data section's offset is known after a first build
+        var first = Build(0);
+        var isolateAt = DartScan.Snapshots(first)[1].Offset;
+        var imageAt = isolateAt + Snapshot(features: features).Length + 11;
+        return Build((int)((align - imageAt % align) % align));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Strings_only_in_the_data_image_are_found_as_string_objects(bool bits32)
+    {
+        var app = ImageApp(bits32);
+        var view = View(app)!;
+        var pool = ((FlutterFileView.Facts)view.Detail).StringPool!;
+        Assert.Equal(22, pool.ImageStrings);
+        Assert.Contains(view.Highlights, h => h.StartsWith("22 strings only as string objects", StringComparison.Ordinal));
+        var isolate = DartPoolScan.Isolate(DartScan.Snapshots(app))!;
+        var strings = DartPoolScan.Read(app, isolate, default, FlutterFileView.Images(app, "libapp.so", isolate)).Strings;
+        Assert.Equal(("text", "data image"), strings.Where(s => s.Value == "Value not in range 7").Select(s => (s.Kind, s.Image)).Single());
+        Assert.Null(Assert.Single(strings, s => s.Value == "MyHomePage").Image); // the clustered copy only
+        Assert.Contains(strings, s => s.Value == "line one\nline two");
+        Assert.Contains(strings, s => s.Value == "✓ done");
+        Assert.DoesNotContain(strings, s => s.Value == "other class");
+
+        using var dir = new TempDir();
+        var path = dir.File("app.apk");
+        File.WriteAllBytes(path, ContainerFixtures.Zip(("lib/arm64-v8a/libapp.so", app)));
+        using var ws = new AssemblyWorkspace();
+        var row = Assert.Single(new UnpackService(ws).Search(path, "Value not in range 3", "dart", 10, AnalysisLimits.Default, default).Items);
+        Assert.Matches("^text at 0x[0-9a-f]+ in the data image$", row.Detail);
+    }
+
     /// <summary>The pool scan of a 100 MB isolate snapshot dense with strings.</summary>
     [Trait("Speed", "Slow")]
     [Fact]

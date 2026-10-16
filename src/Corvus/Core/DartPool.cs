@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.ComponentModel;
 using System.IO.Compression;
 using System.Text;
@@ -7,7 +8,14 @@ namespace Corvus.Core;
 
 /// <summary>A string of a Dart AOT snapshot at its file offset (inside the AOT image).</summary>
 public sealed record DartString(long Offset,
-    [property: Description("package-uri, dart-uri or identifier.")] string Kind, string Value);
+    [property: Description("package-uri, dart-uri, identifier or text.")] string Kind, string Value)
+{
+    /// <summary>The image a string object was read from (data image, instructions image); null for the clustered data.</summary>
+    public string? Image { get; init; }
+}
+
+/// <summary>A region of a snapshot read as objects: the read-only data image after the clustered data, or the instructions image.</summary>
+public sealed record DartImage(long Start, long End, string Name);
 
 /// <summary>A package the snapshot's package: URIs name.</summary>
 public sealed record DartPackage(string Name,
@@ -18,7 +26,11 @@ public sealed record DartPackage(string Name,
 /// <summary>The strings of an isolate snapshot: distinct URIs and identifier tokens in file order, and the packages and dart: libraries they name.</summary>
 public sealed record DartPool(long Start, long End, IReadOnlyList<DartString> Strings, IReadOnlyList<DartPackage> Packages, IReadOnlyList<string> Libraries,
     int PackageUris, int DartUris, int Identifiers,
-    [property: Description("More distinct strings than the cap: the rest are counted, not kept.")] bool Capped);
+    [property: Description("More distinct strings than the cap: the rest are counted, not kept.")] bool Capped)
+{
+    /// <summary>Strings found only as objects of the data or instructions image (older layouts keep string objects there).</summary>
+    public int ImageStrings { get; init; }
+}
 
 /// <summary>
 /// The string pool of a Dart AOT isolate snapshot. Strings are stored as a varint length ((length &lt;&lt; 1) | one-byte flag in
@@ -40,7 +52,7 @@ public static partial class DartPoolScan
         snapshots.FirstOrDefault(s => s.Symbol == "kDartIsolateSnapshotData")
         ?? (snapshots.Count(s => s.Kind == "full-aot") > 1 ? snapshots.Where(s => s.Kind == "full-aot").ElementAt(1) : snapshots.LastOrDefault());
 
-    public static DartPool Read(ReadOnlySpan<byte> data, DartSnapshot isolate, CancellationToken ct = default)
+    public static DartPool Read(ReadOnlySpan<byte> data, DartSnapshot isolate, CancellationToken ct = default, IReadOnlyList<DartImage>? images = null)
     {
         int start = (int)Math.Clamp(isolate.Offset, 0, data.Length);
         int end = (int)Math.Clamp(isolate.Offset + 4 + isolate.Length, start, data.Length);
@@ -50,13 +62,16 @@ public static partial class DartPoolScan
         var versions = new Dictionary<string, string>(StringComparer.Ordinal);
         var libraries = new SortedSet<string>(StringComparer.Ordinal);
         string? app = null;
-        int packageUris = 0, dartUris = 0, identifiers = 0;
+        int packageUris = 0, dartUris = 0, identifiers = 0, imageStrings = 0;
         bool capped = false;
 
         void Add(int offset, string kind, ReadOnlySpan<byte> bytes)
         {
-            if (!seen.Add(System.IO.Hashing.XxHash3.HashToUInt64(bytes))) return;
-            var value = Encoding.ASCII.GetString(bytes);
+            if (seen.Add(System.IO.Hashing.XxHash3.HashToUInt64(bytes))) Keep(offset, kind, Encoding.ASCII.GetString(bytes), null);
+        }
+
+        void Keep(long offset, string kind, string value, string? image)
+        {
             switch (kind)
             {
                 case "package-uri":
@@ -69,11 +84,12 @@ public static partial class DartPoolScan
                     dartUris++;
                     libraries.Add("dart:" + LibraryName(value.AsSpan(5)));
                     break;
-                default:
+                case "identifier":
                     identifiers++;
                     break;
             }
-            if (strings.Count < MaxStrings) strings.Add(new DartString(offset, kind, value));
+            if (image != null) imageStrings++;
+            if (strings.Count < MaxStrings) strings.Add(new DartString(offset, kind, value) { Image = image });
             else capped = true;
         }
 
@@ -123,12 +139,97 @@ public static partial class DartPoolScan
             foreach (Match m in PubPath().Matches(text)) versions.TryAdd(m.Groups[1].Value, m.Groups[2].Value);
         }
 
+        foreach (var image in images ?? [])
+            foreach (var (offset, value, bytes) in ImageObjects(data, image, isolate, ct))
+            {
+                if (!seen.Add(System.IO.Hashing.XxHash3.HashToUInt64(bytes))) continue;
+                var kind = value.StartsWith("package:", StringComparison.Ordinal) && value.EndsWith(".dart", StringComparison.Ordinal) && value.IndexOf('/') is > 8 and var slash
+                           && PackageName(Encoding.Latin1.GetBytes(value[8..slash])) ? "package-uri"
+                    : value.StartsWith("dart:", StringComparison.Ordinal) && value.Length > 5 && char.IsAsciiLetter(value[5]) ? "dart-uri"
+                    : value.All(char.IsAscii) && IsIdentifier(Encoding.ASCII.GetBytes(value)) ? "identifier" : "text";
+                Keep(offset, kind, value, image.Name);
+            }
+
         foreach (var (name, version) in versions)
             if (!packages.ContainsKey(name)) packages[name] = 0;
         var list = packages.Select(kv => new DartPackage(kv.Key, kv.Key == app ? "app" : FlutterPackages.Contains(kv.Key) ? "flutter" : "pub",
                 versions.GetValueOrDefault(kv.Key), kv.Value))
             .OrderBy(x => x.Kind switch { "app" => 0, "pub" => 1, _ => 2 }).ThenBy(x => x.Name, StringComparer.Ordinal).ToList();
-        return new DartPool(start, end, strings, list, [.. libraries], packageUris, dartUris, identifiers, capped);
+        return new DartPool(start, end, strings, list, [.. libraries], packageUris, dartUris, identifiers, capped) { ImageStrings = imageStrings };
+    }
+
+    /// <summary>
+    /// The string objects of an image: at each object-aligned offset, a header whose class id is the image's dominant string
+    /// class (voted over all candidates; the two-byte string class follows it), a Smi length, and a size tag that matches the
+    /// object's size. Layout by target: 32-bit and compressed pointers put the length at +8 (4 bytes) and the characters at
+    /// +12; plain 64-bit puts an 8-byte length at +8 and the characters at +16. Objects align to 8 bytes on 32-bit, 16 on 64-bit.
+    /// </summary>
+    private static List<(long Offset, string Value, byte[] Bytes)> ImageObjects(ReadOnlySpan<byte> data, DartImage image, DartSnapshot isolate, CancellationToken ct)
+    {
+        bool bits32 = isolate.Architecture is "arm" or "ia32" or "riscv32" or "simarm";
+        bool compressed = isolate.Features.Split(' ').Contains("compressed-pointers");
+        int align = bits32 ? 8 : 16, lengthSize = bits32 || compressed ? 4 : 8, dataAt = lengthSize == 4 ? 12 : 16;
+        long from = (Math.Max(0, image.Start) + align - 1) / align * align, to = Math.Min(image.End, data.Length);
+        var found = new List<(long Offset, string Value, byte[] Bytes)>();
+        if (to - from < dataAt + 1) return found;
+
+        static (uint Cid, int Length)? Header(ReadOnlySpan<byte> data, long p, int charSize, long to, int align, int lengthSize, int dataAt)
+        {
+            if (p + dataAt > to) return null;
+            uint tags = BinaryPrimitives.ReadUInt32LittleEndian(data[(int)p..]);
+            long smi = lengthSize == 4 ? BinaryPrimitives.ReadInt32LittleEndian(data[(int)(p + 8)..]) : BinaryPrimitives.ReadInt64LittleEndian(data[(int)(p + 8)..]);
+            if ((smi & 1) != 0 || smi <= 0 || smi >> 1 > MaxRun) return null;
+            int n = (int)(smi >> 1);
+            if (p + dataAt + (long)n * charSize > to) return null;
+            long size = (dataAt + (long)n * charSize + align - 1) / align;
+            uint sizeTag = (tags >> 8) & 0xF;
+            if (sizeTag != (size <= 15 ? size : 0)) return null;
+            return ((tags >> 12) & 0xFFFFF, n);
+        }
+
+        // vote: one-byte candidates are objects whose characters are all printable
+        var votes = new Dictionary<uint, int>();
+        for (long p = from; p + dataAt < to; p += align)
+        {
+            if (((p - from) & 0xFFFFF) == 0) ct.ThrowIfCancellationRequested();
+            if (Header(data, p, 1, to, align, lengthSize, dataAt) is not { } h || h.Cid == 0) continue;
+            var chars = data.Slice((int)(p + dataAt), h.Length);
+            if (chars.IndexOfAnyExceptInRange((byte)0x20, (byte)0x7E) < 0) votes[h.Cid] = votes.GetValueOrDefault(h.Cid) + 1;
+        }
+        if (votes.Count == 0) return found;
+        var (oneByte, count) = votes.MaxBy(v => v.Value);
+        if (count < 16 || count * 2 < votes.Values.Sum()) return found;
+
+        for (long p = from; p + dataAt < to; p += align)
+        {
+            if (((p - from) & 0xFFFFF) == 0) ct.ThrowIfCancellationRequested();
+            if (Header(data, p, 1, to, align, lengthSize, dataAt) is { } one && one.Cid == oneByte)
+            {
+                var chars = data.Slice((int)(p + dataAt), one.Length);
+                var value = Encoding.Latin1.GetString(chars);
+                if (Text(value)) found.Add((p + dataAt, value, chars.ToArray()));
+            }
+            else if (Header(data, p, 2, to, align, lengthSize, dataAt) is { } two && two.Cid == oneByte + 1)
+            {
+                var chars = data.Slice((int)(p + dataAt), two.Length * 2);
+                var value = Encoding.Unicode.GetString(chars);
+                if (Text(value) && value.Any(ch => ch > 0xFF)) found.Add((p + dataAt, value, chars.ToArray()));
+            }
+        }
+        return found;
+    }
+
+    /// <summary>No control characters but tab and line breaks, no unpaired surrogate.</summary>
+    private static bool Text(string value)
+    {
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (char.IsControl(c) && c is not ('\t' or '\n' or '\r')) return false;
+            if (char.IsHighSurrogate(c) && (i + 1 >= value.Length || !char.IsLowSurrogate(value[++i]))) return false;
+            if (char.IsLowSurrogate(c)) return false;
+        }
+        return true;
     }
 
     private static bool Printable(byte b) => b is >= 0x20 and <= 0x7E;
