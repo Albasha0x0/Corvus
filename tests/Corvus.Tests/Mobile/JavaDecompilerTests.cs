@@ -29,7 +29,34 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
             ["get_methods_of_class"] = FakeTool.Json(new { items = new[] { new { name = "compute", signature = "compute(int): int" }, new { name = "compute", signature = "compute(String): int" } } }),
         });
         var env = new EnvironmentScope().Set("CORVUS_JAVA", _fake.CopyAs("java")).Set("CORVUS_JAVA_DECOMPILER", jar);
-        return (new JavaDecompilerService(new DexService()) { Environment = _fake.Environment }, env);
+        return (new JavaDecompilerService(new DexService()) { Environment = _fake.Environment, Cache = new JavaSourceCache(_dir.File("java-cache")) }, env);
+    }
+
+    /// <summary>A later server answers from the disk cache without starting JADX, under 50 ms; a changed package is decompiled again.</summary>
+    [Fact]
+    public async Task DiskCache_AnswersAcrossServers_WithoutJadx()
+    {
+        var (first, env) = Fake();
+        using (env)
+        {
+            var apk = Apk();
+            string cold;
+            using (first) cold = await first.Decompile(apk, "com.example.app.Main", true, default);
+            int starts = _fake.ArgumentLists.Count(a => a.Contains("-jar"));
+            using var second = new JavaDecompilerService(new DexService()) { Environment = _fake.Environment, Cache = first.Cache };
+            await second.Decompile(apk, "com.example.app.Main", true, default); // the JIT's first pass
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var warm = await second.Decompile(apk, "com.example.app.Main", true, default);
+            watch.Stop();
+            output.WriteLine($"warm {watch.Elapsed.TotalMilliseconds:0.0} ms");
+            Assert.Equal(cold, warm);
+            Assert.True(watch.ElapsedMilliseconds < 50, $"{watch.ElapsedMilliseconds} ms");
+            Assert.Equal(starts, _fake.ArgumentLists.Count(a => a.Contains("-jar")));
+            File.SetLastWriteTimeUtc(apk, DateTime.UtcNow.AddMinutes(1));
+            File.AppendAllText(apk, "x");
+            _fake.Set("crashOnLoad", true);
+            await Assert.ThrowsAsync<ToolError>(() => second.Decompile(apk, "com.example.app.Main", true, default));
+        }
     }
 
     [Fact]

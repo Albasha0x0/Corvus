@@ -237,6 +237,7 @@ Server options and their environment variables are in the README ("Server option
 | `CORVUS_RESULT_MODE` | `json`: the text block of a structured result is its compact JSON (the MCP spec's suggestion) instead of readable text. |
 | `CORVUS_LOG_FORMAT` | `json`: stderr log entries as JSON lines (each value of the per-call line its own field); single text lines otherwise. |
 | `CORVUS_ANNOTATIONS_DIR` | Folder of saved native names, comments and imported name layers. |
+| `CORVUS_JAVA_CACHE` | Folder of kept `decompile_java` output (default `java-sources` in the data folder; `off` keeps none), keyed by the package's SHA-256, the decompiler build and the class or method, so a later server answers without starting Java. |
 | `CORVUS_IL2CPP_CACHE` | Folder of the dummy assemblies made by the built-in Il2Cpp metadata reader. |
 | `CORVUS_SYMBOL_CACHE` | Folder of downloaded PDBs and runtime DACs (`open_minidump downloadDac=true`). |
 | `CORVUS_DEBUG_DIRS` | Folders (a path list) searched for the separate DWARF of ELF and Mach-O images: `.build-id` trees, `.gnu_debuglink` names, dSYM bundles, dwz supplementary files (`.dwz/` paths and build-ids). |

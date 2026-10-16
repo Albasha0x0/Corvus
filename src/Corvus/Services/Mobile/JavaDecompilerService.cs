@@ -26,9 +26,23 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     /// <summary>Extra environment for the server process (tests).</summary>
     internal IReadOnlyDictionary<string, string?>? Environment { get; init; }
 
+    /// <summary>Output kept on disk across servers; null keeps nothing.</summary>
+    internal JavaSourceCache? Cache { get; init; } = JavaSourceCache.Default();
+
     public async Task<string> Decompile(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping = null)
     {
         symbol = symbol.Trim();
+        // Keyed by the symbol as asked, so a warm call needs no DEX index either.
+        var entry = Cache != null && JavaSourceCache.Engine(ExternalTools.JavaDecompiler) is { } engine
+            ? Cache.Entry(path, engine, $"{symbol}|{smaliFallback}", mapping) : null;
+        if (JavaSourceCache.Read(entry) is { } cached) return cached;
+        var text = await DecompileUncached(path, symbol, smaliFallback, ct, mapping).ConfigureAwait(false);
+        JavaSourceCache.Write(entry, text);
+        return text;
+    }
+
+    private async Task<string> DecompileUncached(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping)
+    {
         DexIndex index;
         try { index = dex.Index(path, ct); }
         catch (ToolError e) when (e.Code == ErrorCode.NotFound && ClassFileJar(path) is { } jar) { return await DecompileJar(jar, symbol, smaliFallback, ct).ConfigureAwait(false); }
