@@ -386,14 +386,27 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
             depthOf[n.Id] = d;
             return d;
         }
+        static string Edge(TraceEdgeRecord e) => e.Site != null ? $"{e.Kind} at {e.Site}" : e.Kind;
+        var shown = new HashSet<TraceEdgeRecord>();
         foreach (var n in r.Nodes)
         {
             var node = g.Nodes[n.Id];
             var arrow = node.Kind == TraceNodeKind.Seed ? "" : node.Backward ? "<- " : "-> ";
-            sb.Append(' ', 2 * Indent(node) + 2).Append('#').Append(n.Id).Append(' ').Append(arrow).Append(n.Kind).Append(": ").Append(Format.Clip(n.Text, 200));
+            int indent = 2 * Indent(node) + 2;
+            sb.Append(' ', indent).Append('#').Append(n.Id).Append(' ').Append(arrow).Append(n.Kind).Append(": ").Append(Format.Clip(n.Text, 200));
             if (n.Decoded != null && !n.Text.Contains(n.Decoded, StringComparison.Ordinal)) sb.Append(" [").Append(n.Decoded).Append(']');
             if (n.Function != null && node.Kind != TraceNodeKind.Seed) sb.Append("  @").Append(n.Image != null ? $"[{n.Image}] " : "").Append(n.Function);
+            // the edge to the parent rides on the node's line; the rest are listed after the nodes
+            if (n.Parent >= 0 && r.Edges.FirstOrDefault(e => (e.From, e.To) == (n.Id, n.Parent) || (e.From, e.To) == (n.Parent, n.Id)) is { } up && shown.Add(up))
+                sb.Append("  (").Append(Edge(up)).Append(')');
             sb.AppendLine();
+            if (!string.IsNullOrEmpty(n.Derivation)) sb.Append(' ', indent + 2).Append("= ").AppendLine(Format.Clip(n.Derivation, 200));
+        }
+        var other = r.Edges.Where(e => !shown.Contains(e)).ToList();
+        if (other.Count > 0)
+        {
+            sb.AppendLine("Other edges:");
+            foreach (var e in other) sb.AppendLine($"  #{e.From} -> #{e.To} {Edge(e)}");
         }
         if (r.Frontier.Count > 0)
         {
@@ -404,7 +417,6 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         foreach (var note in r.Notes) sb.AppendLine("Note: " + note);
         if (index.Truncations.Count > 0) sb.AppendLine("Note: " + string.Join("; ", index.Truncations));
         if (r.Truncated) sb.AppendLine($"[More: offset={r.Offset + r.Nodes.Count}]");
-        sb.AppendLine("Derivations and edges are in the structured output.");
         return sb.ToString();
     }
 }

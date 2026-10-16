@@ -208,4 +208,17 @@ public sealed class ValueTraceImagesTests : IDisposable
         NativeLinkTests.Has(text, "<- call_result: result of provlib!Get");
         NativeLinkTests.Has(text, "@[provlib.dll] Get+0x");
     }
+
+    /// <summary>The text alone carries each node's derivation and every edge of the page, for clients that show no structured output.</summary>
+    [Fact]
+    public async Task Text_carries_derivations_and_edges()
+    {
+        var (tools, ws) = Rig();
+        using var _ = ws;
+        var text = await tools.TraceNativeValues("app.dll", "0x180001017", argument: "1");
+        Assert.DoesNotContain("structured output", text);
+        NativeLinkTests.Has(text, "@Main+0xF  (argument at 0x180001017)");
+        NativeLinkTests.Has(text, "Get+0x0  (return at 0x18000100F)");
+        NativeLinkTests.Has(text, "= mov eax,7 @0x180001010");
+    }
 }
