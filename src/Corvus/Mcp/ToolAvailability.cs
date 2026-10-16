@@ -56,6 +56,9 @@ public static class ToolAvailability
     /// <summary>Device tools that change the device, allowed only with --allow-device-changes.</summary>
     public static readonly IReadOnlyList<string> DeviceChanging = ["install_android_package", "uninstall_android_package"];
 
+    /// <summary>The session tools, allowed only with --allow-live (starting a program also needs --allow-live-spawn).</summary>
+    public static readonly IReadOnlyList<string> SessionTools = ["live_session", "live_break", "live_read", "live_events"];
+
     /// <summary>Tools whose availability depends on programs found on this machine.</summary>
     public static IEnumerable<string> ExternalProgramTools => ExternalPrograms().Select(p => p.Tool).Distinct();
 
@@ -65,7 +68,7 @@ public static class ToolAvailability
 
     /// <summary>What does not work here among <paramref name="registered"/> tools, given the engines' static availability.</summary>
     public static List<Unavailable> Of(IReadOnlySet<string> registered, IReadOnlyList<ProviderAvailability> engines, bool idaScripting, bool isWindows,
-        bool allowDeviceChanges = false, bool ghidraScripting = false)
+        bool allowDeviceChanges = false, bool ghidraScripting = false, bool allowLive = false, bool allowLiveSpawn = false)
     {
         var result = new List<Unavailable>();
         ProviderAvailability? Missing(string provider) => engines.FirstOrDefault(e => e.ProviderId == provider && !e.IsAvailable)
@@ -105,6 +108,12 @@ public static class ToolAvailability
         foreach (var tool in DeviceChanging.Where(registered.Contains).Where(_ => !allowDeviceChanges))
             result.Add(new(tool, null, "off: it changes a connected device",
                 $"start the server with {Core.ServerOptions.AllowDeviceChangesOption} (or {Core.ServerOptions.AllowDeviceChangesVariable}=1)"));
+        foreach (var tool in SessionTools.Where(registered.Contains).Where(_ => !allowLive))
+            result.Add(new(tool, null, "off: it opens sessions on running programs",
+                $"start the server with {Core.ServerOptions.AllowLiveOption} (or {Core.ServerOptions.AllowLiveVariable}=1)"));
+        if (allowLive && !allowLiveSpawn && registered.Contains("live_session"))
+            result.Add(new("live_session", "action=spawn", "off: it starts a program under a session",
+                $"start the server with {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
         return result;
     }
 }

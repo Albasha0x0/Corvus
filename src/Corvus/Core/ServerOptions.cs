@@ -80,6 +80,18 @@ public sealed class ServerOptions
     public const string AllowDeviceChangesOption = "--allow-device-changes";
     public const string AllowDeviceChangesVariable = "CORVUS_ALLOW_DEVICE_CHANGES";
 
+    /// <summary>Allow the session tools on programs already running on this machine; default off.</summary>
+    public bool AllowLive { get; set; }
+
+    public const string AllowLiveOption = "--allow-live";
+    public const string AllowLiveVariable = "CORVUS_ALLOW_LIVE";
+
+    /// <summary>Allow live_session action=spawn, which starts a program under a session (with <see cref="AllowLive"/>); default off.</summary>
+    public bool AllowLiveSpawn { get; set; }
+
+    public const string AllowLiveSpawnOption = "--allow-live-spawn";
+    public const string AllowLiveSpawnVariable = "CORVUS_ALLOW_LIVE_SPAWN";
+
     /// <summary>Default engine of the native code tools when a call names none (see <see cref="EngineMode"/>).</summary>
     public EngineMode Engine { get; set; } = EngineMode.Auto;
 
@@ -157,6 +169,8 @@ public sealed class ServerOptions
                 case "--ida-scripting": o.IdaScripting = true; break;
                 case GhidraScriptingOption: o.GhidraScripting = true; break;
                 case AllowDeviceChangesOption: o.AllowDeviceChanges = true; break;
+                case AllowLiveOption: o.AllowLive = true; break;
+                case AllowLiveSpawnOption: o.AllowLiveSpawn = true; break;
                 case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
                 case "--index-cache-mb": cacheMb = long.TryParse(Next(), out var mb) && mb > 0 ? mb : throw new ArgumentException("--index-cache-mb must be a positive number"); break;
@@ -195,6 +209,8 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(IdaScriptingVariable)?.Trim() is "1" or "true" or "on") o.IdaScripting = true;
         if (Environment.GetEnvironmentVariable(GhidraScriptingVariable)?.Trim() is "1" or "true" or "on") o.GhidraScripting = true;
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
+        if (Environment.GetEnvironmentVariable(AllowLiveVariable)?.Trim() is "1" or "true" or "on") o.AllowLive = true;
+        if (Environment.GetEnvironmentVariable(AllowLiveSpawnVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveSpawn = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
         o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);
         o.EngineAnalysis = Environment.GetEnvironmentVariable(EngineAnalysisVariable)?.Trim().ToLowerInvariant() switch

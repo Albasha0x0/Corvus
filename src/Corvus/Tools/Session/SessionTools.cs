@@ -135,7 +135,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             toolCount, loaded, indexing.Status, Environment.WorkingSet / (1024 * 1024), capabilities,
             ToolEffects.LongRunning.Where(registered.Contains).ToList(),
             Core.Toolsets.Families.Select(f => new Toolset(f.Name, f.Tools.Any(registered.Contains), Profiles.InCore(f), f.Tools.Length, f.Description)).ToList(),
-            Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting)),
+            Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting, options.AllowLive, options.AllowLiveSpawn)),
             NoteCountsOf(notes),
             new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds),
             (engines?.SessionStates() ?? []).Select(e => new EngineSession(e.Image, e.State.Engine, e.State.WorkerPid, e.State.State, e.State.BusyOp,
