@@ -50,6 +50,12 @@ with sh. Piped into `sh`, the confirmation is read from the terminal.
 **Offline install.** Download the archive for your system and `SHA256SUMS` from the release page, then run the script
 with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 
+**Verifying a release.** Every asset has a signed SLSA build provenance attestation made by the release workflow
+(`gh attestation verify corvus-win-x64.zip --repo Albasha0x0/Corvus`), and `corvus-sbom.cdx.json` is the release's
+CycloneDX SBOM (the server's NuGet package graph), attested against the archives, bundles and the .NET tool package
+(`gh attestation verify <asset> --repo Albasha0x0/Corvus --predicate-type https://cyclonedx.org/bom`). The workflow
+pins every action by commit SHA.
+
 **From source.** `./publish.ps1` (add `-SelfContained` for a build that needs no .NET), then
 `publish/corvus install`.
 

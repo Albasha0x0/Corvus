@@ -26,8 +26,8 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
       - run: dotnet test -c Release --blame-hang-timeout 15m
@@ -48,8 +48,8 @@ jobs:
           - { rid: osx-arm64, os: macos-latest, smoke: true, bundle: true }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
 
@@ -86,7 +86,7 @@ jobs:
         run: |
           tar -czf corvus-${{ matrix.rid }}.tar.gz -C out .
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: package-${{ matrix.rid }}
           path: |
@@ -96,9 +96,18 @@ jobs:
   release:
     needs: package
     runs-on: ubuntu-latest
+    # Attestations: id-token signs them (Sigstore), attestations and artifact-metadata store them on the repository.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: package-*
           merge-multiple: true
@@ -106,10 +115,32 @@ jobs:
       - name: Bundles
         shell: pwsh
         run: ./release.ps1 -Version $env:GITHUB_REF_NAME -Bundle .
+      # CycloneDX SBOM of the server's package graph, the one every archive, bundle and the .NET tool ship.
+      - name: SBOM
+        run: |
+          dotnet restore src/Corvus/Corvus.csproj
+          dotnet tool install CycloneDX --version 6.2.0 --tool-path "$RUNNER_TEMP/cyclonedx"
+          "$RUNNER_TEMP/cyclonedx/dotnet-CycloneDX" src/Corvus/Corvus.csproj -o . -fn corvus-sbom.cdx.json -F Json -sn Corvus -sv "${GITHUB_REF_NAME#v}"
       # The installers and `update` refuse a build whose SHA-256 is not listed here.
       - name: Checksums
         run: sha256sum corvus-* CorvusRE.*.nupkg > SHA256SUMS && cat SHA256SUMS
-      - uses: softprops/action-gh-release@v3
+      # SLSA build provenance for every asset; `gh attestation verify <asset> --repo <owner/name>` checks one.
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            corvus-*
+            CorvusRE.*.nupkg
+            SHA256SUMS
+      # The SBOM attested against the packages it describes.
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            corvus-*.zip
+            corvus-*.tar.gz
+            corvus-*.mcpb
+            CorvusRE.*.nupkg
+          sbom-path: corvus-sbom.cdx.json
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             corvus-*
@@ -131,15 +162,15 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       # The workflow's own commit: a republish takes the current server.json with the tag's version.
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
       - name: Package from the release
         run: |
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "CorvusRE.*.nupkg" --pattern SHA256SUMS --dir dist
           cd dist && sha256sum --check --ignore-missing --strict SHA256SUMS
-      - uses: NuGet/login@v1
+      - uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         id: nuget
         with:
           user: Albasha0x0
