@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A small package for the installer tests: two folders of files in an embedded MSZIP cabinet and a Run key; build-msi.sh
+     adds the custom actions wixl cannot write (a Binary-table VBScript run deferred as LocalSystem, inline JScript, a property). -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="11111111-2222-3333-4444-555555555555" Name="Corvus Sample" Language="1033" Version="1.2.3" Manufacturer="Corvus Tests" UpgradeCode="66666666-7777-8888-9999-000000000000">
+    <Package InstallerVersion="200" Compressed="yes" Comments="installer test package" />
+    <Media Id="1" Cabinet="sample.cab" EmbedCab="yes" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLDIR" Name="Corvus Sample">
+          <Component Id="Main" Guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee">
+            <File Id="readme" Name="readme.txt" Source="files/readme.txt" KeyPath="yes" />
+            <File Id="setupzip" Name="setup.zip" Source="files/setup.zip" />
+            <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="CorvusSample" Value="[INSTALLDIR]readme.txt" Type="string" />
+          </Component>
+          <Directory Id="DOCS" Name="docs">
+            <Component Id="Docs" Guid="aaaaaaaa-bbbb-cccc-dddd-ffffffffffff">
+              <File Id="report" Name="Quarterly Report (final).txt" Source="files/report.txt" KeyPath="yes" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="All" Level="1">
+      <ComponentRef Id="Main" />
+      <ComponentRef Id="Docs" />
+    </Feature>
+  </Product>
+</Wix>

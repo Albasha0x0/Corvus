@@ -202,6 +202,38 @@ public sealed class OfficeDocumentTests
     }
 
     [Fact]
+    public void A_version_4_compound_file_reads_its_4096_byte_sectors_after_a_full_sector_header()
+    {
+        // version 4: a 4096-byte header sector, one FAT sector, one directory sector holding the root and one stream
+        var data = new byte[4096 * 4];
+        new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 }.CopyTo(data, 0);
+        BitConverter.GetBytes((ushort)0x3E).CopyTo(data, 24); BitConverter.GetBytes((ushort)4).CopyTo(data, 26);
+        BitConverter.GetBytes((ushort)0xFFFE).CopyTo(data, 28); BitConverter.GetBytes((ushort)12).CopyTo(data, 30); BitConverter.GetBytes((ushort)6).CopyTo(data, 32);
+        BitConverter.GetBytes(1u).CopyTo(data, 44); BitConverter.GetBytes(1u).CopyTo(data, 48); BitConverter.GetBytes(4096u).CopyTo(data, 56);
+        BitConverter.GetBytes(0xFFFFFFFEu).CopyTo(data, 60); BitConverter.GetBytes(0xFFFFFFFEu).CopyTo(data, 68);
+        for (int i = 0; i < 109; i++) BitConverter.GetBytes(i == 0 ? 0u : 0xFFFFFFFFu).CopyTo(data, 76 + i * 4);
+        var fat = new uint[1024];
+        Array.Fill(fat, 0xFFFFFFFFu);
+        fat[0] = 0xFFFFFFFD; fat[1] = 0xFFFFFFFE; fat[2] = 0xFFFFFFFE;
+        Buffer.BlockCopy(fat, 0, data, 4096, 4096);
+        void Entry(int index, string name, byte type, uint child, uint start, uint size)
+        {
+            int at = 4096 * 2 + index * 128;
+            var n = Encoding.Unicode.GetBytes(name);
+            n.CopyTo(data, at);
+            BitConverter.GetBytes((ushort)(n.Length + 2)).CopyTo(data, at + 64);
+            data[at + 66] = type;
+            BitConverter.GetBytes(0xFFFFFFFFu).CopyTo(data, at + 68); BitConverter.GetBytes(0xFFFFFFFFu).CopyTo(data, at + 72); BitConverter.GetBytes(child).CopyTo(data, at + 76);
+            BitConverter.GetBytes(start).CopyTo(data, at + 116); BitConverter.GetBytes(size).CopyTo(data, at + 120);
+        }
+        Entry(0, "Root Entry", 5, 1, 0xFFFFFFFE, 0);
+        Entry(1, "Big", 2, 0xFFFFFFFF, 2, 4096);
+        "payload"u8.ToArray().CopyTo(data, 4096 * 3);
+        var cf = CompoundFile.Read(data, "v4.bin");
+        Assert.StartsWith("payload", Encoding.ASCII.GetString(cf.Read(cf.Find("Big")!, 1 << 20)), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_looping_sector_chain_ends_with_a_note()
     {
         var doc = WordDocument();

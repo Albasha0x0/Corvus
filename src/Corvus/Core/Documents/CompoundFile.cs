@@ -101,14 +101,14 @@ internal sealed class CompoundFile
         return new CompoundFile(data, name);
     }
 
-    private long SectorCount => (_data.Length - 512L + _sectorSize - 1) / _sectorSize;
+    private long SectorCount => (_data.Length - (long)_sectorSize + _sectorSize - 1) / _sectorSize;
 
-    private bool InFile(uint sector) => sector <= MaxRegSect && 512L + (long)sector * _sectorSize < _data.Length;
+    private bool InFile(uint sector) => sector <= MaxRegSect && ((long)sector + 1) * _sectorSize < _data.Length;
 
     /// <summary>One sector; the last sector of a truncated file is padded with zeros.</summary>
     private ReadOnlySpan<byte> Sector(uint s)
     {
-        long at = 512L + (long)s * _sectorSize;
+        long at = ((long)s + 1) * _sectorSize; // the header fills the first sector (512 or 4096 bytes)
         if (at + _sectorSize <= _data.Length) return _data.AsSpan((int)at, _sectorSize);
         var pad = new byte[_sectorSize];
         _data.AsSpan((int)at).CopyTo(pad);
