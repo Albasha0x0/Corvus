@@ -48,7 +48,7 @@ internal sealed class ScriptFileView : IFileSummaryView
             if (language == null) return null;
             // a JavaScript file in the overview: only with signs of a transformation (decoders, eval layers, packers)
             if (language == "javascript" && !asked && !Regex.IsMatch(text.Length > 200_000 ? text[..200_000] : text,
-                    @"\b_0x[0-9a-f]{4,6}\b|\beval\s*\(|\bnew\s+Function\s*\(|\bFunction\s*\(\s*(?:atob|unescape|String\.fromCharCode)|\}\('|\\x[0-9a-f]{2}\\x[0-9a-f]{2}|\bActiveXObject\b"))
+                    @"\b_0x[0-9a-f]{4,6}\b.{0,200}\b_0x[0-9a-f]{4,6}\b|\beval\s*\(\s*(?:atob|unescape|String\.fromCharCode|decodeURIComponent|function\s*\(p,a,c,k)|\b(?:new\s+)?Function\s*\(\s*(?:atob|unescape|String\.fromCharCode)|(?:\\x[0-9a-f]{2}){8}|\bActiveXObject\b"))
                 return null;
             reading = ScriptReader.Read(text, language, ct, asked ? 4_000 : 1_500);
         }

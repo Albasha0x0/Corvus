@@ -553,7 +553,7 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, layers, nib, pcap, package (npm, PyPI, VSIX, browser extension review), plist, protobuf, rust, script (layers peeled to plain text), sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.
+First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, layers, nib, pcap, package (review before install), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
