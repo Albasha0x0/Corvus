@@ -321,7 +321,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["get_cfg"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "block"),
         ["find_xrefs"] = (new() { ["image"] = NativeSample(dir), ["address"] = "KERNEL32!ExitProcess" }, "References to"),
         ["get_call_arguments"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"scope\""),
-        ["resolve_call_targets"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["scope"] = "function" }, "sites (showing"),
+        ["resolve_call_targets"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["scope"] = "function" }, "Call targets in native.dll"),
         ["trace_native_values"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["location"] = "rcx" }, "Value trace (backward) of rcx"),
         ["native_call_tree"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First" }, "First"),
         ["analyze_native_function"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" },

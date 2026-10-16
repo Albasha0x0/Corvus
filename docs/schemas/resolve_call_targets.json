@@ -95,6 +95,7 @@
                   "type": "string"
                 },
                 "evidence": {
+                  "description": "Absent for an engine's own reference or call (the basis says it).",
                   "type": "string"
                 }
               },
@@ -102,8 +103,7 @@
                 "address",
                 "name",
                 "basis",
-                "confidence",
-                "evidence"
+                "confidence"
               ]
             }
           },

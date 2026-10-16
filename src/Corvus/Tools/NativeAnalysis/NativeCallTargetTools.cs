@@ -23,7 +23,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         [property: Description("direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible, " +
                                "global_writers, initial_contents, pointer_table, caller_argument, interface_dispatch_cell, ida_xref, hexrays_direct, ghidra_xref, ghidra_direct.")] string Basis,
         [property: Description("exact, possible, or candidate (incomplete set, or another engine's view only).")] string Confidence,
-        string Evidence);
+        [property: Description("Absent for an engine's own reference or call (the basis says it).")] string? Evidence);
 
     [Description("One call or tail-jump site.")]
     public sealed record CallTargetSiteRecord(
@@ -142,7 +142,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
             : [];
         var items = page.Select(s => new CallTargetSiteRecord(Va(s.Rva), $"{s.Function.Name}+0x{s.Rva - s.Function.Start:X}", s.Mechanism, s.Status,
             s.TargetCount > s.Targets.Count ? s.TargetCount : null,
-            s.Targets.Count == 0 ? null : s.Targets.Select(t => new CallTargetRecord(Va(t.Address), t.Name, t.Basis, t.Confidence, t.Evidence)).ToList(), s.Reason, s.Hint)).ToList();
+            s.Targets.Count == 0 ? null : s.Targets.Select(t => new CallTargetRecord(Va(t.Address), t.Name, t.Basis, t.Confidence, EngineBasis(t.Basis) ? null : t.Evidence)).ToList(), s.Reason, s.Hint)).ToList();
         var report = new CallTargetsReport(native.Id, scopeText, engineText, choice.Note, filtered.Count, byStatus, byMechanism, top, start, start + page.Count < filtered.Count, items, notes);
         return ToolOutput.With(Text(report, choice.Line, page.Select(s => s.Text).ToList()), report);
     });
@@ -186,12 +186,15 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         return s with { Status = status, Targets = targets.Take(CallTargets.MaxTargets).ToList(), TargetCount = s.TargetCount + added.Count, Reason = reason };
     }
 
+    private static bool EngineBasis(string basis) => basis is "ida_xref" or "hexrays_direct" or "ghidra_xref" or "ghidra_direct";
+
     /// <summary>The engine line, the summary and one line per site with its instruction (the record leaves the instruction out).</summary>
     private static string Text(CallTargetsReport r, string engineLine, IReadOnlyList<string> instructions)
     {
         var sb = new StringBuilder();
         sb.AppendLine(engineLine);
         sb.AppendLine($"Call targets in {r.Image}, {r.Scope}; engine {r.Engine}");
+        if (r.Total == 0) { sb.AppendLine("0 sites."); return sb.ToString(); }
         sb.AppendLine("By status: " + string.Join(", ", r.ByStatus.Select(kv => $"{kv.Key} {kv.Value}")) +
                       "; by mechanism: " + string.Join(", ", r.ByMechanism.Select(kv => $"{kv.Key} {kv.Value}")));
         if (r.TopUnresolved.Count > 0) sb.AppendLine("Most unresolved: " + string.Join(", ", r.TopUnresolved));
