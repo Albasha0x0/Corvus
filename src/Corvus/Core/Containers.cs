@@ -107,6 +107,7 @@ public static class Containers
             if (NativeAotImageOf(data) is { } aot) return new ContainerContents("NativeAOT executable", [], [NativeAotNote(aot.Describe)]);
         }
         if (ReaderFor(data, name) is { } reader) return reader.Open(data, name, allFiles, limits, ct);
+        if (kind == "data" && Firmware.FirmwareCarve.Open(data, name, limits, ct) is { } firmware) return firmware;
         return Carve(data, name, pe != null ? "native PE" : kind, limits, ct);
     }
 
@@ -280,6 +281,11 @@ public static class Containers
         {
             using var s = open();
             return reader.Open(s, name, allFiles: false, limits, ct);
+        }
+        if (kind == "data")
+        {
+            using var s = open();
+            return Firmware.FirmwareCarve.Open(s, name, limits, ct);
         }
         return null;
     }

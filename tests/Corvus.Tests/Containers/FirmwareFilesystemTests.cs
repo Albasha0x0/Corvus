@@ -14,7 +14,7 @@ public sealed class FirmwareFilesystemTests
     internal static string FixtureDir => Path.Combine(AppContext.BaseDirectory, "Containers", "FirmwareFixtures");
 
     /// <summary>A fixture image, ungzipped.</summary>
-    internal static byte[] Fixture(string name)
+    internal static byte[] FsFixture(string name)
     {
         using var z = new GZipStream(File.OpenRead(Path.Combine(FixtureDir, name + ".gz")), CompressionMode.Decompress);
         var o = new MemoryStream();
@@ -55,7 +55,7 @@ public sealed class FirmwareFilesystemTests
     [MemberData(nameof(Compressors))]
     public void Squashfs_lists_what_unsquashfs_lists(string compressor)
     {
-        var image = Fixture($"squashfs-{compressor}.img");
+        var image = FsFixture($"squashfs-{compressor}.img");
         var c = Containers.Open(image, "rootfs.squashfs", AnalysisLimits.Default, default, allFiles: true);
         Assert.Equal("squashfs", c.Kind);
         AssertTree(c);
@@ -80,7 +80,7 @@ public sealed class FirmwareFilesystemTests
     [InlineData("cpio-bin.cpio", "cpio")]
     public void Image_lists_the_source_tree(string fixture, string kind)
     {
-        var image = Fixture(fixture);
+        var image = FsFixture(fixture);
         var c = Containers.Open(image, fixture, AnalysisLimits.Default, default, allFiles: true);
         Assert.Equal(kind, c.Kind);
         AssertTree(c);
@@ -99,7 +99,7 @@ public sealed class FirmwareFilesystemTests
     [InlineData("fat32.img", "FAT32")]
     public void Fat_lists_the_source_tree_with_long_names(string fixture, string kind)
     {
-        var image = Fixture(fixture);
+        var image = FsFixture(fixture);
         var c = Containers.Open(image, fixture, AnalysisLimits.Default, default, allFiles: true);
         Assert.Equal(kind, c.Kind);
         Assert.Equal(Tree().Append("Long File Name.txt 30").Order(StringComparer.Ordinal), Files(c));
@@ -113,7 +113,7 @@ public sealed class FirmwareFilesystemTests
     {
         foreach (var f in new[] { "ext2.img", "ext4.img", "fat12.img", "fat32.img" })
         {
-            var failures = FormatFuzz.Run(Fixture(f), b => { try { Containers.Open(b, f, AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { } }, 300);
+            var failures = FormatFuzz.Run(FsFixture(f), b => { try { Containers.Open(b, f, AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { } }, 300);
             Assert.True(failures.Count == 0, f + ": " + string.Join("\n", failures.Take(20)));
         }
     }
@@ -124,7 +124,7 @@ public sealed class FirmwareFilesystemTests
     {
         foreach (var f in new[] { "cramfs-le.img", "cramfs-be.img" })
         {
-            var failures = FormatFuzz.Run(Fixture(f), b => { try { Containers.Open(b, f, AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { } }, 300);
+            var failures = FormatFuzz.Run(FsFixture(f), b => { try { Containers.Open(b, f, AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { } }, 300);
             Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
         }
     }
@@ -135,7 +135,7 @@ public sealed class FirmwareFilesystemTests
     {
         foreach (var c in new[] { "gzip", "lzo" })
         {
-            var failures = FormatFuzz.Run(Fixture($"squashfs-{c}.img"), b => { try { Containers.Open(b, "x.squashfs", AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { } }, 300);
+            var failures = FormatFuzz.Run(FsFixture($"squashfs-{c}.img"), b => { try { Containers.Open(b, "x.squashfs", AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { } }, 300);
             Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
         }
     }
