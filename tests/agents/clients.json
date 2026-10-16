@@ -5,7 +5,6 @@
       "variable": "CORVUS_CLIENT_CLAUDE",
       "command": "claude",
       "mcp": "file",
-      "env": { "MCP_TIMEOUT": "120000", "ENABLE_TOOL_SEARCH": "false" },
       "output": "claude-stream",
       "args": ["-p", "{prompt}", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
                "--strict-mcp-config", "--mcp-config", "{mcpConfig}", "--setting-sources", "project",
