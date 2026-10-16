@@ -286,4 +286,98 @@ public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisp
         Assert.True(((PcapFileView.Facts)summary.Views["pcap"].Detail).Packets > 1_000_000);
         Assert.True(peak - baseline < 200L << 20, $"working set grew by {(peak - baseline) >> 20} MB");
     }
+
+    private static void Pattern(Stream o, long count)
+    {
+        var block = new byte[1 << 20];
+        new Random(7).NextBytes(block);
+        for (long w = 0; w < count; w += block.Length) o.Write(block, 0, (int)Math.Min(block.Length, count - w));
+    }
+
+    /// <summary>A 1 GiB input of each streamed kind: a native image with an overlay, an APK, a flow file, a module, a binary plist, a HAR.</summary>
+    private string Gigabyte(string kind)
+    {
+        const long Size = 1L << 30;
+        var path = _dir.File("large." + kind);
+        using var f = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20);
+        switch (kind)
+        {
+            case "so":
+                f.Write(new NativeFormats.ElfWriter().Build());
+                Pattern(f, Size);
+                break;
+            case "apk":
+                using (var zip = new ZipArchive(f, ZipArchiveMode.Create, leaveOpen: true))
+                {
+                    foreach (var (name, data) in new[] { ("AndroidManifest.xml", AndroidSamples.Manifest()), ("resources.arsc", AndroidSamples.Resources()), ("classes.dex", AndroidSamples.Dex()) })
+                        using (var e = zip.CreateEntry(name).Open()) e.Write(data);
+                    using var big = zip.CreateEntry("assets/big.bin", CompressionLevel.NoCompression).Open();
+                    Pattern(big, Size);
+                }
+                break;
+            case "flows":
+                static byte[] B(byte[] b) => [.. Encoding.ASCII.GetBytes($"{b.Length}:"), .. b, (byte)','];
+                static byte[] S(string s) => B(Encoding.UTF8.GetBytes(s));
+                static byte[] D(params byte[][] items) { byte[] inner = [.. items.SelectMany(x => x)]; return [.. Encoding.ASCII.GetBytes($"{inner.Length}:"), .. inner, (byte)'}']; }
+                var flow = D(S("type"), S("http"), S("request"), D(S("method"), S("GET"), S("scheme"), S("https"), S("host"), S("a.example"), S("path"), S("/items/1")),
+                    S("response"), D(S("status_code"), "3:200#"u8.ToArray(), S("content"), B(new byte[64 << 10])));
+                for (long w = 0; w < Size; w += flow.Length) f.Write(flow);
+                break;
+            case "wasm":
+                f.Write([0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x00, .. WasmAsm.Leb(1 + 3 + (ulong)Size), 3, .. "big"u8]);
+                Pattern(f, Size);
+                break;
+            case "plist":
+                f.Write([.. "bplist00"u8, 0x4F, 0x13]);
+                Span<byte> be = stackalloc byte[8];
+                BinaryPrimitives.WriteInt64BigEndian(be, Size);
+                f.Write(be);
+                Pattern(f, Size);
+                long table = f.Position;
+                BinaryPrimitives.WriteInt64BigEndian(be, 8);
+                f.Write(be);
+                var trailer = new byte[32];
+                (trailer[6], trailer[7]) = (8, 1);
+                BinaryPrimitives.WriteInt64BigEndian(trailer.AsSpan(8), 1);
+                BinaryPrimitives.WriteInt64BigEndian(trailer.AsSpan(24), table);
+                f.Write(trailer);
+                break;
+            case "har":
+                var entry = Encoding.UTF8.GetBytes("""{"request":{"method":"GET","url":"https://a.example/items/1"},"response":{"status":200,"content":{"text":" """.TrimEnd() + new string('x', 60_000) + "\"}}}");
+                f.Write("""{"log":{"entries":["""u8);
+                for (long w = 0; w < Size; w += entry.Length + 1) { f.Write(entry); f.WriteByte((byte)','); }
+                f.Write(entry);
+                f.Write("]}}"u8);
+                break;
+        }
+        return path;
+    }
+
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [InlineData("so")]
+    [InlineData("apk")]
+    [InlineData("flows")]
+    [InlineData("wasm")]
+    [InlineData("plist")]
+    [InlineData("har")]
+    public void Gigabyte_inputs_stay_within_the_memory_ceiling(string kind)
+    {
+        var path = Gigabyte(kind);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        long baseline = Environment.WorkingSet, peak = baseline;
+        using var done = new ManualResetEventSlim();
+        var sampler = new Thread(() => { while (!done.Wait(20)) peak = Math.Max(peak, Environment.WorkingSet); }) { IsBackground = true };
+        sampler.Start();
+        var clock = Stopwatch.StartNew();
+        if (kind == "har") Assert.Single(new UnpackService(_ws).Search(path, "*", "endpoint", 100, AnalysisLimits.Default, default).Items);
+        else new InspectionService(_ws).Summarize(null, path, default, new FileViewOptions("all"));
+        clock.Stop();
+        done.Set();
+        sampler.Join();
+        peak = Math.Max(peak, Environment.WorkingSet);
+        output.WriteLine($"{kind}: {new FileInfo(path).Length:N0} bytes in {clock.Elapsed.TotalSeconds:F1} s; working set +{(peak - baseline) >> 20} MB");
+        Assert.True(peak - baseline < 200L << 20, $"working set grew by {(peak - baseline) >> 20} MB");
+    }
 }

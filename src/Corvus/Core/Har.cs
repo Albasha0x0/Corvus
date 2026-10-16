@@ -201,24 +201,39 @@ public static class Captures
     /// </summary>
     public static void ReadFlows(Stream stream, Action<CapturedResponse> response, List<string> notes, long maxFlowBytes, CancellationToken ct)
     {
-        var prefix = new byte[11];
         long length = stream.Length;
+        // flows are read through a window, so small ones cost no seek each
+        var window = new byte[(int)Math.Min(1 << 20, Math.Max(length, 1))];
+        long start = 0;
+        int filled = 0;
+        ReadOnlySpan<byte> At(long at, int count)
+        {
+            if (at < start || at + count > start + filled)
+            {
+                stream.Position = start = at;
+                filled = stream.ReadAtLeast(window, (int)Math.Min(window.Length, length - at), throwOnEndOfStream: false);
+            }
+            return window.AsSpan((int)(at - start), (int)Math.Min(count, start + filled - at));
+        }
         int read = 0, other = 0;
         for (long at = 0; at < length;)
         {
             ct.ThrowIfCancellationRequested();
-            stream.Position = at;
-            int got = stream.ReadAtLeast(prefix, prefix.Length, throwOnEndOfStream: false);
             // a length past the file is left to the parser, which says so; one that fits but is too large stops the read
-            long size = FirstFlowEnd(prefix.AsSpan(0, got)) is { } end && end < length - at ? end + 1 : length - at;
+            long size = FirstFlowEnd(At(at, 11)) is { } end && end < length - at ? end + 1 : length - at;
             if (size > maxFlowBytes)
             {
                 notes.Add($"A flow at byte {at:N0} is larger than {maxFlowBytes:N0} bytes; {read} flow(s) read before it.");
                 break;
             }
-            var buffer = new byte[size];
-            stream.Position = at;
-            stream.ReadExactly(buffer);
+            byte[] buffer;
+            if (size <= window.Length) buffer = At(at, (int)size).ToArray();
+            else
+            {
+                buffer = new byte[size];
+                stream.Position = at;
+                stream.ReadExactly(buffer);
+            }
             int p = 0;
             object? flow;
             try { flow = TNetString.Read(buffer, ref p, 0); }
@@ -295,6 +310,9 @@ public static class Captures
         private int _responses, _empty;
         private bool _stopped;
 
+        /// <summary>Responses listed as entries; past this the capture is still read and counted.</summary>
+        private const int MaxEntries = 200_000;
+
         public void Add(CapturedResponse r)
         {
             ct.ThrowIfCancellationRequested();
@@ -312,7 +330,7 @@ public static class Captures
             }
             if (r.Problem != null) detail.Append(", ").Append(r.Problem);
             if (body == null || body.Length == 0) { _empty++; detail.Append(", no body"); }
-            _entries.Add(new ContainerEntry(path, body?.Length ?? 0, $"{detail}; {Clip(r.Url)}"));
+            if (_entries.Count < MaxEntries) _entries.Add(new ContainerEntry(path, body?.Length ?? 0, $"{detail}; {Clip(r.Url)}"));
             if (body is not { Length: > 0 } || !(allFiles || Containers.IsInteresting(path))) return;
             if (_items.Count >= limits.MaxItems || body.Length > limits.MaxItemBytes || (_total += body.Length) > limits.MaxTotalBytes)
             {
@@ -326,6 +344,7 @@ public static class Captures
         public ContainerContents Contents()
         {
             Notes.Insert(0, $"{_responses} response(s), {_responses - _empty} with a body; files are named host/path, the query folded into a short hash.");
+            if (_responses > MaxEntries) Notes.Insert(1, $"The first {MaxEntries:N0} responses are listed.");
             return new ContainerContents(flows ? FlowKind : HarKind, _items, Notes) { Entries = _entries };
         }
     }
