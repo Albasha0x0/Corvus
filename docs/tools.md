@@ -2811,7 +2811,7 @@ Inspects a running Windows process read-only, addresses named as in dumps. view=
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `process` | string | yes |  | Process id (decimal or 0x hex) or name (notepad[.exe]); a shared name is refused with the ids. |
+| `process` | string | yes |  | Process id (decimal or 0x hex), name (notepad[.exe]; a shared name is refused with the ids) or session id (live-1). |
 | `view` | string |  | `summary` | summary, modules, regions, threads or stacks. |
 | `thread` | string |  |  | threads: only this one; stacks: the thread walked (default first). Id or name. |
 | `offset` | integer |  |  |  |
@@ -2832,12 +2832,12 @@ Open, list, inspect or close a session on a local program. Returns the session i
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | list, attach, spawn, status or close. Values: list, attach, spawn, status, close. |
-| `program` | string |  |  | attach: process id or name; spawn: program path, started suspended. |
+| `action` | string |  | `list` | list, processes, attach, spawn, status or close. Values: list, processes, attach, spawn, status, close. |
+| `program` | string |  |  | attach: process id or name; spawn: program path, started suspended; processes: a name filter. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `session` | string |  |  | Session id from live_session. |
 
-Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`.
+Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`.
 
 ### live_break
 

@@ -165,6 +165,15 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task Processes_lists_local_programs_by_a_name_filter()
+    {
+        var self = System.Diagnostics.Process.GetCurrentProcess();
+        var rows = await _tools.LiveSession("processes", program: self.ProcessName);
+        Assert.Contains($"{self.Id,7} {self.ProcessName}", rows);
+        Assert.Equal("No process matches.\n", await _tools.LiveSession("processes", program: "no-such-program-" + Guid.NewGuid().ToString("N")));
+    }
+
+    [Fact]
     public async Task A_missing_backend_names_its_next_step()
     {
         var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 1) { Missing = "no frida" } };

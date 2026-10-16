@@ -5,7 +5,7 @@
       "type": "string"
     },
     "session": {
-      "description": "Session id; null for action=list.",
+      "description": "Session id; null for action=list and processes.",
       "type": "string"
     },
     "backend": {
@@ -72,6 +72,24 @@
           "program",
           "processId",
           "state"
+        ]
+      }
+    },
+    "processes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "processId": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "processId",
+          "name"
         ]
       }
     },

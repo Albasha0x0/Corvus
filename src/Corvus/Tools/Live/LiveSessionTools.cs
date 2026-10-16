@@ -26,11 +26,16 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
 
     public sealed record LiveSessionRow(string Session, string Backend, string Program, int ProcessId, string State);
 
+    public sealed record LiveProcessRow(int ProcessId, string Name);
+
     public sealed record LiveSessionReport(string Action,
-        [property: Description("Session id; null for action=list.")] string? Session,
+        [property: Description("Session id; null for action=list and processes.")] string? Session,
         string? Backend, string? Program, int? ProcessId,
         [property: Description("suspended, running, stopped, exited, closed or failed.")] string? State,
-        IReadOnlyList<LiveModule> Modules, IReadOnlyList<LiveSessionRow> Sessions);
+        IReadOnlyList<LiveModule> Modules, IReadOnlyList<LiveSessionRow> Sessions)
+    {
+        public IReadOnlyList<LiveProcessRow>? Processes { get; init; }
+    }
 
     public sealed record LiveStopPoint(string Id,
         [property: Description("As given: a name, module!export, address or file:line.")] string Where,
@@ -68,8 +73,8 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
     [McpServerTool(Name = "live_session", Title = "Session on a local program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
     [Description("Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images.")]
     public Task<string> LiveSession(
-        [Description("list, attach, spawn, status or close.")] string action = "list",
-        [Description("attach: process id or name; spawn: program path, started suspended.")] string? program = null,
+        [Description("list, processes, attach, spawn, status or close.")] string action = "list",
+        [Description("attach: process id or name; spawn: program path, started suspended; processes: a name filter.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description(SessionDescription)] string? session = null,
         CancellationToken cancellationToken = default) =>
@@ -84,6 +89,10 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
                     return ToolOutput.With(rows.Count == 0 ? "No sessions.\n"
                             : string.Concat(rows.Select(r => $"{r.Session} ({r.Backend}): {r.Program} pid {r.ProcessId}, {r.State}\n")),
                         new LiveSessionReport("list", null, null, null, null, null, [], rows));
+                case "processes":
+                    var procs = LocalProcesses(program);
+                    return ToolOutput.With(procs.Count == 0 ? "No process matches.\n" : string.Concat(procs.Select(p => $"{p.ProcessId,7} {p.Name}\n")),
+                        new LiveSessionReport("processes", null, null, null, null, null, [], []) { Processes = procs });
                 case "attach" or "spawn":
                     if (string.IsNullOrWhiteSpace(program))
                         throw new ToolError(ErrorCode.InvalidArgument, $"action={a} needs program.", a == "spawn" ? "program=<path to the program>" : "program=<process id or name>");
@@ -96,9 +105,24 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
                     await live.CloseAsync(closing, "closed by request").ConfigureAwait(false);
                     return Report(a, closing);
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, attach, spawn, status or close");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status or close");
             }
         }, cancellationToken);
+
+    /// <summary>Local processes by name (then id), those whose name contains <paramref name="filter"/> when given.</summary>
+    private static List<LiveProcessRow> LocalProcesses(string? filter)
+    {
+        var rows = new List<LiveProcessRow>();
+        foreach (var p in System.Diagnostics.Process.GetProcesses())
+            using (p)
+            {
+                string name;
+                try { name = p.ProcessName; }
+                catch (InvalidOperationException) { continue; } // exited meanwhile
+                if (string.IsNullOrWhiteSpace(filter) || name.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase)) rows.Add(new LiveProcessRow(p.Id, name));
+            }
+        return rows.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.ProcessId).ToList();
+    }
 
     private static string RequireSession(string? session) =>
         string.IsNullOrWhiteSpace(session) ? throw new ToolError(ErrorCode.InvalidArgument, "This action needs session.", "session=<id from live_session action=list>") : session;

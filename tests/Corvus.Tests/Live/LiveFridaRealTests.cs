@@ -131,6 +131,11 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         output.WriteLine($"held stop to named stack {namedMs} ms (target 300)");
         Assert.True(namedMs < 2_000, $"naming took {namedMs} ms");
 
+        var (summary, e5) = await Call(server, "inspect_process", new() { ["process"] = "live-1" });
+        Assert.False(e5, summary);
+        Assert.Contains($"{pid}", summary);
+        Assert.Contains("orders.exe", summary);
+
         var (events, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "stop" });
         Assert.Matches(@"#\d+ stop thread \d+ 0x[0-9A-F]+ orders\.exe!AddLine: stop point s1 hit 1", events);
 

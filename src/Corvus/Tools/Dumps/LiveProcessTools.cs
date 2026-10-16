@@ -7,14 +7,14 @@ namespace Corvus.Tools;
 
 /// <summary>Read-only inspection of a running local process.</summary>
 [McpServerToolType]
-public sealed class LiveProcessTools(LiveProcessService live)
+public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService sessions)
 {
     [McpServerTool(Name = "inspect_process", Title = "Inspect a running process (read-only)", UseStructuredContent = true, OutputSchemaType = typeof(LiveProcessService.LiveReport))]
     [Description("Inspects a running Windows process read-only, addresses named as in dumps. view=summary: identity, " +
                  "counts, main module, largest committed regions; modules (PDB, file on disk), regions, threads (TEB, stack, start), stacks " +
                  "(registers and frames): paged rows. Query, VM-read and get-context access only; nothing is written, suspended or connected.")]
     public Task<string> InspectProcess(
-        [Description("Process id (decimal or 0x hex) or name (notepad[.exe]); a shared name is refused with the ids.")] string process,
+        [Description("Process id (decimal or 0x hex), name (notepad[.exe]; a shared name is refused with the ids) or session id (live-1).")] string process,
         [Description("summary, modules, regions, threads or stacks.")] string view = "summary",
         [Description("threads: only this one; stacks: the thread walked (default first). Id or name.")] string? thread = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
@@ -26,6 +26,9 @@ public sealed class LiveProcessTools(LiveProcessService live)
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
+        // a session id names the process that session observes
+        if (process.Trim().StartsWith("live-", StringComparison.OrdinalIgnoreCase) && sessions.Sessions.FirstOrDefault(s => s.Id.Equals(process.Trim(), StringComparison.OrdinalIgnoreCase)) is { } session)
+            process = session.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var r = await live.Inspect(process, view, thread, offset, limit, regionFilter, maxFrames, imageDirectories, timeoutSeconds, cancellationToken);
         var header = DumpText.LiveHeader(r);
         return r.View switch

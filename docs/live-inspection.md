@@ -1,4 +1,4 @@
-# Live process inspection (read-only)
+# Live process inspection and sessions
 
 Tool: `inspect_process` (src/Corvus/Tools/Dumps/LiveProcessTools.cs, Services/LiveProcessService.cs,
 Native/Live/LiveProcess.cs, Native/Live/LiveNative.cs). Windows only; elsewhere it fails with `provider_unavailable`.
@@ -68,6 +68,30 @@ leave the process running, but:
   discovered functions), so the naming would have to be redone on top of it anyway, while the minidump stack walker and
   namer already work on any `IProcessMemory`;
 - the System32 dbgeng.dll is an old, partly documented COM surface; the Win32 route needs no extra component.
+
+## Sessions
+
+The session tools observe a program while it runs. They are off unless the server starts with `--allow-live`, and
+starting a program needs `--allow-live-spawn` as well. A session runs a worker on Frida's Python bindings
+(`pip install frida`; `CORVUS_FRIDA_PYTHON` names the interpreter when the first one found lacks them).
+
+| Step | Call |
+|---|---|
+| Start a program suspended, or attach to a running one | `live_session action=spawn program=app.exe` / `action=attach program=<pid or name>` |
+| Set stop points before it runs | `live_break action=set at=Orders::AddLine` (or `module!export`, `orders.c:42`, an image or live address) |
+| Run to the next stop | `live_break action=continue wait=true` |
+| Read the held thread | `live_read registers=rcx,rdx memory=rcx type=int32[2]` |
+| Page what happened | `live_events cursor=<from the last page> kind=stop` |
+| End | `live_session action=close` |
+
+Addresses are joined to the static model: the program's own image is loaded and indexed when the session opens, so a
+stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address; other modules join once loaded with
+`load_assembly`. Stop points hold only the thread that hits them; other threads run on. Memory is read, never written.
+A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` (default 30) and with the server; each releases every held
+thread, and a program the session started is ended. A started program's output arrives as `output` events.
+
+Measured on a small MSVC-built program (Windows 11, x64): session open with modules matched 1.1-1.5 s; a held stop to
+its named stack 1 ms; a stop point set by name 0.6 s on the first call (the image's index), then under 10 ms.
 
 ## Limits
 
