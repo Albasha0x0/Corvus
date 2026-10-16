@@ -143,10 +143,12 @@ if (-not $VerifyOnly) {
         $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
         if ($bumped -eq $csproj -and $csproj -notmatch "<Version>$([regex]::Escape($Version))</Version>") { Fail "no <Version> in $project" }
         [IO.File]::WriteAllText($project, $bumped)
-        # The MCP Registry entry packed into the .NET tool and the bundle manifest name the same version (their tests check).
-        foreach ($file in 'src/Corvus/.mcp/server.json', 'mcpb/manifest.json') {
+        # The MCP Registry entry packed into the .NET tool, the bundle manifest and the plugins name the same version
+        # (their tests check); the plugins also run that version of the .NET tool.
+        foreach ($file in 'src/Corvus/.mcp/server.json', 'mcpb/manifest.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.codex-plugin/plugin.json') {
             $path = Join-Path $root $file
-            [IO.File]::WriteAllText($path, [regex]::Replace((Get-Content $path -Raw), '"version": "[^"]+"', "`"version`": `"$Version`""))
+            $text = [regex]::Replace((Get-Content $path -Raw), '"version": "[^"]+"', "`"version`": `"$Version`"")
+            [IO.File]::WriteAllText($path, [regex]::Replace($text, '"CorvusRE@[^"]+"', "`"CorvusRE@$Version`""))
         }
 
         # Generated docs and the skill can name the version; regenerate them with a quick run.
@@ -237,7 +239,7 @@ Write-Host "  [ ] Announce: the release notes link, https://github.com/$Repo/rel
 Write-Host "  [ ] nuget.org: CorvusRE lists $Version (release.yml's publish job)."
 Write-Host "  [ ] MCP Registry: io.github.Albasha0x0/corvus lists $Version (the same job, after nuget.org)."
 Write-Host "  [ ] winget, Scoop, Homebrew: manifests in their own repositories, with the archive hashes below."
-Write-Host "  [ ] Claude Code plugin marketplace entry."
+Write-Host "  [ ] Claude Code and Codex plugin marketplace: install corvus from $Repo in each; the server reports $Version."
 Write-Host "  Archive hashes for package manifests:"
 foreach ($asset in $assets | Where-Object { $_ -ne 'SHA256SUMS' }) { Write-Host ("    {0}  {1}" -f $sums[$asset], $asset) }
 Remove-Item $work -Recurse -Force

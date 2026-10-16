@@ -31,7 +31,9 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 ```
 
 The installer verifies the download against the release's `SHA256SUMS` and registers Corvus with the MCP clients it
-finds. Restart your client and ask:
+finds. As a plugin (server and skill; needs the .NET 10 SDK): `/plugin install corvus --marketplace Albasha0x0/Corvus`
+in Claude Code, `codex plugin marketplace add Albasha0x0/Corvus` then `corvus` in `/plugins` in Codex
+([installation](docs/installation.md#claude-code-and-codex-plugins)). Restart your client and ask:
 
 > Load app.dll with Corvus and explain how it builds its export file. Cite the methods you read.
 

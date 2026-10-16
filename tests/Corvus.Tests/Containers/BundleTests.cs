@@ -98,7 +98,7 @@ public partial class BundleTests
     private static List<string> Bundled() =>
         [.. Regex.Matches(Read(".github/workflows/release.yml"), @"rid: ([a-z0-9-]+)[^}\n]*bundle: true").Select(m => m.Groups[1].Value)];
 
-    private static string? FindOnPath(string name) =>
+    internal static string? FindOnPath(string name) =>
         (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
             .Select(d => Path.Combine(d, name)).FirstOrDefault(File.Exists);
 }

@@ -71,6 +71,21 @@ self-contained build as the archive, so it needs no .NET. A bundle is updated by
 bundle; `corvus update` and the install scripts manage only the script install. The bundle runs with the Claude
 Desktop profile (`--client claude-desktop`) and asks for a tool profile: `full` (default), `core` or `lean`.
 
+## Claude Code and Codex plugins
+
+The repository is a plugin marketplace for Claude Code and Codex (`.claude-plugin/marketplace.json`). The `corvus`
+plugin registers the server and installs the skill (`skills/corvus`):
+
+```text
+/plugin install corvus --marketplace Albasha0x0/Corvus      # Claude Code
+codex plugin marketplace add Albasha0x0/Corvus              # Codex, then install corvus from /plugins
+```
+
+The plugin runs the .NET tool of its own release, `dotnet tool exec CorvusRE@<version> --yes -- --client <client>`
+(`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`), so it needs the .NET 10 SDK; NuGet downloads and caches the
+package on first start. A plugin is updated through the client's plugin manager, not `corvus update`. If Corvus is
+also registered by the install script, the client lists two servers: remove one (`corvus uninstall` or the plugin).
+
 ## .NET tool
 
 Corvus is also a NuGet .NET tool, `CorvusRE` (command `corvus`), for machines with the .NET 10 SDK. It is not on

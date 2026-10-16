@@ -1,0 +1,21 @@
+{
+  "name": "corvus",
+  "owner": {
+    "name": "Albasha0x0",
+    "url": "https://github.com/Albasha0x0"
+  },
+  "metadata": {
+    "description": "The Corvus MCP server and skill for Claude Code and Codex."
+  },
+  "plugins": [
+    {
+      "name": "corvus",
+      "source": "./",
+      "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare builds, patch and save.",
+      "version": "2.3.0",
+      "category": "development",
+      "homepage": "https://github.com/Albasha0x0/Corvus",
+      "license": "MIT"
+    }
+  ]
+}
