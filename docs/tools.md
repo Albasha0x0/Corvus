@@ -559,7 +559,7 @@ First look at a file or loaded assembly (never executed): type, hashes, signatur
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, hermes, layers, native, nib, package, pcap, plist, protobuf, rust, script, sqlite, sqlite-recover, wasm, all. |
+| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, hermes, layers, native, nib, package, office, pcap, plist, protobuf, rust, script, sqlite, sqlite-recover, wasm, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: the table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
 | `offset` | integer |  |  |  |
