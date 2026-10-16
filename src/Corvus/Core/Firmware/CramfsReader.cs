@@ -101,27 +101,27 @@ internal sealed class CramfsReader : IContainerReader
                     switch (mode & 0xF000)
                     {
                         case 0x4000: Directory(child, dataAt, length, depth + 1); break;
-                        case 0x8000: _tree.File(child, length, () => Data(dataAt, length)); break;
-                        case 0xA000: _tree.Link(child, Encoding.UTF8.GetString(Data(dataAt, length))); break;
+                        case 0x8000: _tree.File(child, length, n => Data(dataAt, length, (int)n)); break;
+                        case 0xA000: _tree.Link(child, Encoding.UTF8.GetString(Data(dataAt, length, Math.Min(length, 4096)))); break;
                     }
                 }
                 catch (Exception ex) when (FsTree.Damaged(ex)) { _tree.Unreadable(child, ex); }
             }
         }
 
-        /// <summary>A file's bytes: one block pointer per page, then the pages.</summary>
-        private byte[] Data(long offset, int size)
+        /// <summary>The first <paramref name="count"/> bytes of a file of <paramref name="size"/>: one block pointer per page, then the pages.</summary>
+        private byte[] Data(long offset, int size, int count)
         {
-            var bytes = new byte[size];
-            if (size == 0) return bytes;
-            int pages = (size + Page - 1) / Page;
+            var bytes = new byte[count];
+            if (count == 0) return bytes;
+            int pages = (count + Page - 1) / Page;
             var pointers = _src.Read(offset, pages * 4);
-            long start = offset + pages * 4;
+            long start = offset + (size + Page - 1) / Page * 4L;
             var page = new byte[Page];
             for (int i = 0; i < pages; i++)
             {
                 uint ptr = U32(pointers, i * 4);
-                int want = Math.Min(Page, size - i * Page);
+                int want = Math.Min(Page, count - i * Page);
                 var into = bytes.AsSpan(i * Page, want);
                 bool uncompressed = (ptr & 0x80000000) != 0, direct = (ptr & 0x40000000) != 0;
                 long end = ptr & 0x3FFFFFFF;

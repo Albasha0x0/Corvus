@@ -223,15 +223,15 @@ internal sealed class SquashfsReader : IContainerReader
             if (size < 0 || full > _src.Length) { _tree.Notes.Add($"{path}: a squashfs file of {size:N0} bytes cannot fit the image"); return; }
             // the block size list follows the inode; it is read now, while the metadata position is at hand
             var sizes = full > 0 && size <= _tree.Limits.MaxItemBytes ? Meta(ref block, ref offset, checked((int)full * 4)) : [];
-            _tree.File(path, size, () =>
+            _tree.File(path, size, count =>
             {
-                var bytes = new byte[size];
+                var bytes = new byte[count];
                 long pos = blocksStart;
-                for (long i = 0; i < full; i++)
+                for (long i = 0; i < full && i * _blockSize < count; i++)
                 {
                     uint word = BinaryPrimitives.ReadUInt32LittleEndian(sizes.AsSpan((int)i * 4));
                     int stored = (int)(word & 0xFFFFFF);
-                    int want = (int)Math.Min(_blockSize, size - i * _blockSize);
+                    int want = (int)Math.Min(_blockSize, count - i * _blockSize);
                     var into = bytes.AsSpan((int)(i * _blockSize), want);
                     if (stored == 0) continue; // a sparse block reads as zeros
                     var raw = _src.Read(pos, stored);
@@ -244,13 +244,13 @@ internal sealed class SquashfsReader : IContainerReader
                         block8.AsSpan(0, Math.Min(n, want)).CopyTo(into);
                     }
                 }
-                if (hasFragment)
+                if (hasFragment && full * _blockSize < count)
                 {
                     long tailAt = full * _blockSize;
                     var frag = Fragment(fragment);
                     int tail = (int)(size - tailAt);
                     if (fragOffset > frag.Length || tail > frag.Length - fragOffset) throw new InvalidDataException("the file's tail lies outside its squashfs fragment");
-                    frag.AsSpan((int)fragOffset, tail).CopyTo(bytes.AsSpan((int)tailAt));
+                    frag.AsSpan((int)fragOffset, (int)Math.Min(tail, count - tailAt)).CopyTo(bytes.AsSpan((int)tailAt));
                 }
                 return bytes;
             });

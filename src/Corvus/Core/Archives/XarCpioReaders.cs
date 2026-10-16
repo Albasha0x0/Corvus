@@ -150,7 +150,7 @@ internal sealed class CpioReader : IContainerReader
             if (usable && (mode & 0xF000) == 0x8000)
             {
                 long at = dataAt, size = fileSize;
-                tree.File(path, size, () => src.Read(at, (int)size));
+                tree.File(path, size, n => src.Read(at, (int)n));
             }
             else if (usable && (mode & 0xF000) == 0xA000 && fileSize <= 4096)
                 tree.Link(path, Encoding.UTF8.GetString(src.Read(dataAt, (int)fileSize)));

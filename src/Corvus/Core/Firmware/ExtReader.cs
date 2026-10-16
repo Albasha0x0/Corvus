@@ -130,7 +130,7 @@ internal sealed class ExtReader : IContainerReader
                     switch (BinaryPrimitives.ReadUInt16LittleEndian(c) & 0xF000)
                     {
                         case 0x4000: Directory(full, child, depth + 1); break;
-                        case 0x8000: _tree.File(full, length, () => Data(c, length)); break;
+                        case 0x8000: _tree.File(full, length, n => Data(c, n)); break;
                         case 0xA000:
                             // a fast link keeps its target in the block pointers
                             bool fast = length < 60 && (U32(c, 32) & 0x10080000) == 0;

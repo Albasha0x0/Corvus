@@ -117,7 +117,7 @@ internal sealed class Jffs2Reader : IContainerReader
                     switch (mode & 0xF000)
                     {
                         case 0x4000: Walk(e.Inode, full, depth + 1); break;
-                        case 0x8000: tree.File(full, latest?.FileSize ?? 0, () => Build(src, data ?? [], latest?.FileSize ?? 0, limits)); break;
+                        case 0x8000: tree.File(full, latest?.FileSize ?? 0, n => Build(src, data ?? [], (uint)n, limits)); break;
                         case 0xA000: tree.Link(full, Encoding.UTF8.GetString(Build(src, data ?? [], Math.Min(latest?.FileSize ?? 0, 4096), limits))); break;
                     }
                 }

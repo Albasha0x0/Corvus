@@ -61,14 +61,23 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
     /// <summary>A name read from the image that is usable as one path component.</summary>
     public static bool UsableName(string name) => name.Length > 0 && name is not ("." or "..") && name.IndexOfAny(['/', '\0']) < 0;
 
-    public void File(string path, long size, Func<byte[]> read, string? detail = null)
+    /// <summary>Bytes read to classify a file before reading all of it (as much as a streamed file's head).</summary>
+    private const int Head = 1 << 20;
+
+    /// <summary>A regular file; <paramref name="read"/> gives its first n bytes (n at most <paramref name="size"/>).</summary>
+    public void File(string path, long size, Func<long, byte[]> read, string? detail = null)
     {
         ct.ThrowIfCancellationRequested();
         _entries.Add(new ContainerEntry(path, size, detail));
         if (_items.Count >= limits.MaxItems) return;
         if (size < 0 || size > limits.MaxItemBytes) { Notes.Add($"{path}: {size:N0} bytes, over the item limit; listed, not extracted"); return; }
         byte[] bytes;
-        try { bytes = read(); }
+        try
+        {
+            // a large file is read whole only when its start shows a binary or a package
+            if (!allFiles && size > Head && !ArchiveItems.Wanted(read(Head))) return;
+            bytes = read(size);
+        }
         catch (Exception ex) when (Damaged(ex))
         {
             Unreadable(path, ex);

@@ -88,6 +88,29 @@ public sealed class FirmwareFilesystemTests
         Assert.Equal(c.Items.Select(i => Blob.Sha256(i.Bytes)), streamed.Items.Select(i => Blob.Sha256(i.Bytes)));
     }
 
+    /// <summary>A file over 1 MiB is classified by its start: a large program is extracted, a large data file only listed.</summary>
+    [Fact]
+    public void Large_files_are_classified_by_their_start()
+    {
+        var elf = new byte[3 << 20];
+        Isa("mips32be.elf").CopyTo(elf, 0);
+        var text = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("log line\n", 300_000)));
+        var o = new MemoryStream();
+        void Entry(string n, byte[] b, uint mode)
+        {
+            o.Write(Encoding.ASCII.GetBytes($"070701{0:X8}{mode:X8}{0:X8}{0:X8}{1:X8}{0:X8}{b.Length:X8}{0:X8}{0:X8}{0:X8}{0:X8}{n.Length + 1:X8}{0:X8}{n}\0"));
+            while (o.Length % 4 != 0) o.WriteByte(0);
+            o.Write(b);
+            while (o.Length % 4 != 0) o.WriteByte(0);
+        }
+        Entry("bin/large", elf, 0x81ED);
+        Entry("var/log.txt", text, 0x81A4);
+        Entry("TRAILER!!!", [], 0);
+        var c = Containers.Open(o.ToArray(), "big.cpio", AnalysisLimits.Default, default);
+        Assert.Equal(["bin/large", "var/log.txt"], c.Entries!.Select(e => e.Path));
+        Assert.Equal(elf, Assert.Single(c.Items).Bytes);
+    }
+
     [Theory]
     [InlineData("ext2.img", "ext2")]
     [InlineData("ext4.img", "ext4")]

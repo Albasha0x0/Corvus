@@ -211,7 +211,7 @@ internal sealed class UbifsReader : IContainerReader
                     switch (ino.Mode & 0xF000)
                     {
                         case 0x4000: Walk(d.Inode, full, depth + 1); break;
-                        case 0x8000: tree.File(full, ino.Size, () => Data(src, byInode.GetValueOrDefault((uint)d.Inode), ino.Size, limits)); break;
+                        case 0x8000: tree.File(full, ino.Size, n => Data(src, byInode.GetValueOrDefault((uint)d.Inode), n, limits)); break;
                         case 0xA000: tree.Link(full, Encoding.UTF8.GetString(src.Read(ino.DataAt, Math.Max(0, ino.DataLength)))); break;
                     }
                 }
