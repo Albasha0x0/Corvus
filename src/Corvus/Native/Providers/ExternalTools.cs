@@ -48,8 +48,8 @@ public static partial class ExternalTools
         ["jadx-headless-mcp*.jar"], [], 0, "Java / Kotlin source for decompile_java", false,
         Ops(("server", ["--threads", "{threads}", "--decompile-timeout-ms", "{timeoutMs}", "--max-source-bytes", "{maxBytes}", "--resources", "none"])));
 
-    public static readonly ExternalTool JavaDecompiler2 = new("vineflower", "Vineflower (second Java decompiler, jar)", "CORVUS_JAVA_DECOMPILER2", ExternalToolKind.Jar,
-        ["vineflower*.jar"], [], 0, "Java source for decompile_java engine=vineflower (jars and .class files)", false,
+    public static readonly ExternalTool JavaDecompiler2 = new("vineflower", "Vineflower (jar)", "CORVUS_JAVA_DECOMPILER2", ExternalToolKind.Jar,
+        ["vineflower*.jar"], [], 0, "decompile_java engine=vineflower", false,
         Ops(("decompile", ["-log=WARN", "{input}", "{output}"]), ("library", ["-e={jar}"])));
 
     public static readonly ExternalTool Adb = new("adb", "Android Debug Bridge (adb)", "CORVUS_ADB", ExternalToolKind.Executable, ["adb" + Exe], ["version"], 0,
