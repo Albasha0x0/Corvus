@@ -2,15 +2,82 @@ using System.Text;
 
 namespace Corvus.Core.WebAssembly;
 
-/// <summary>A value type: numbers, v128 and the two reference types.</summary>
-public enum WasmType : byte
+/// <summary>
+/// A value type: numbers, v128, the nullable abstract reference shorthands by their byte, and any other reference type
+/// "(ref null? heap)" packed by <see cref="WasmRef"/>.
+/// </summary>
+public enum WasmType
 {
     I32 = 0x7F, I64 = 0x7E, F32 = 0x7D, F64 = 0x7C, V128 = 0x7B, FuncRef = 0x70, ExternRef = 0x6F, ExnRef = 0x69,
+    AnyRef = 0x6E, EqRef = 0x6D, I31Ref = 0x6C, StructRef = 0x6B, ArrayRef = 0x6A, NullRef = 0x71, NullExternRef = 0x72, NullFuncRef = 0x73, NullExnRef = 0x74,
+}
+
+/// <summary>
+/// Reference types of the GC and typed function reference proposals. A heap type is a type index (0 and up) or an
+/// abstract heap type by its byte (func 0x70 ... noexn 0x74). A nullable abstract reference is its shorthand byte
+/// (anyref = 0x6E); any other is packed: bit 28 marks it, bit 27 nullable, bit 24 abstract (its byte below), else the index.
+/// </summary>
+public static class WasmRef
+{
+    private const int Marker = 1 << 28, Null = 1 << 27, Abstract = 1 << 24;
+
+    /// <summary>The heap type bytes: func, extern, any, eq, i31, struct, array, exn, none, noextern, nofunc, noexn.</summary>
+    public static bool IsAbstractHeap(int b) => b is >= 0x69 and <= 0x74;
+
+    /// <summary>(ref null? heap): heap a type index, or an abstract heap type's byte given as -(0x80 - byte) (its s33 value).</summary>
+    public static WasmType Make(bool nullable, long heap)
+    {
+        if (heap < 0)
+        {
+            int b = (int)(heap + 0x80);
+            return nullable ? (WasmType)b : (WasmType)(Marker | Abstract | b);
+        }
+        return (WasmType)(Marker | (nullable ? Null : 0) | (int)heap);
+    }
+
+    public static bool IsRef(WasmType t) => (int)t is >= 0x69 and <= 0x74 || ((int)t & Marker) != 0;
+
+    public static bool Nullable(WasmType t) => (int)t is >= 0x69 and <= 0x74 || ((int)t & (Marker | Null)) == (Marker | Null);
+
+    /// <summary>The heap type: (true, byte) for an abstract one, (false, index) for a defined type.</summary>
+    public static (bool Abstract, int Value) Heap(WasmType t) =>
+        (int)t is >= 0x69 and <= 0x74 ? (true, (int)t) : ((int)t & Abstract) != 0 ? (true, (int)t & 0xFF) : (false, (int)t & 0xFFFFFF);
+
+    public static WasmType WithNull(WasmType t, bool nullable)
+    {
+        var (isAbstract, value) = Heap(t);
+        return Make(nullable, isAbstract ? value - 0x80 : value);
+    }
+
+    public static string HeapName(int b) => b switch
+    {
+        0x70 => "func", 0x6F => "extern", 0x6E => "any", 0x6D => "eq", 0x6C => "i31", 0x6B => "struct", 0x6A => "array", 0x69 => "exn",
+        0x71 => "none", 0x72 => "noextern", 0x73 => "nofunc", 0x74 => "noexn", _ => $"heap_0x{b:x2}",
+    };
 }
 
 public enum WasmExternal : byte { Func, Table, Memory, Global, Tag }
 
 public sealed record WasmFuncType(WasmType[] Params, WasmType[] Results);
+
+public enum WasmComposite : byte { Func, Struct, Array }
+
+/// <summary>A struct field or array element: its value type, or a packed i8 / i16 (Packed 8 or 16, Type i32), and whether it is mutable.</summary>
+public readonly record struct WasmField(WasmType Type, byte Packed, bool Mutable)
+{
+    /// <summary>The type a read gives: a packed field reads as i32.</summary>
+    public WasmType Unpacked => Packed != 0 ? WasmType.I32 : Type;
+}
+
+/// <summary>
+/// A defined type of the GC proposal: func, struct (fields) or array (one element field); whether it is final, its declared
+/// supertypes, and its recursion group (first index and size).
+/// </summary>
+public sealed record WasmTypeDef(WasmComposite Kind, WasmFuncType? Func, WasmField[] Fields, bool Final, uint[] Supers, int Group, int GroupSize)
+{
+    /// <summary>A plain function type: final, no supertypes, alone in its group (the MVP form 0x60).</summary>
+    public bool Plain => Kind == WasmComposite.Func && Final && Supers.Length == 0 && GroupSize == 1;
+}
 
 public readonly record struct WasmLimits(ulong Min, ulong? Max, bool Shared, bool Is64);
 
@@ -82,7 +149,12 @@ public sealed class WasmBinary
 {
     public byte[] Bytes { get; }
     public uint Version { get; private set; }
+    /// <summary>The function type of each type index; a struct or array type holds an empty one (see <see cref="TypeDefs"/>).</summary>
     public List<WasmFuncType> Types { get; } = [];
+    /// <summary>Every defined type with its kind, fields, supertypes and recursion group, by type index.</summary>
+    public List<WasmTypeDef> TypeDefs { get; } = [];
+    /// <summary>The module uses the GC proposal (struct / array / sub / rec types or reference types beyond funcref, externref and exnref).</summary>
+    public bool Gc { get; private set; }
     public List<WasmImport> Imports { get; } = [];
     /// <summary>Type index of each defined function.</summary>
     public List<uint> Functions { get; } = [];
@@ -196,11 +268,15 @@ public sealed class WasmBinary
             case 1:
                 for (uint i = 0, n = Count(ref r); i < n; i++)
                 {
-                    byte form = r.Byte();
-                    if (form != 0x60) { Unsupported ??= $"type form 0x{form:X2} (GC types)"; throw new WasmFormatException($"type {i} has form 0x{form:X2}, which is not read"); }
-                    var ps = ValTypes(ref r);
-                    var rs = ValTypes(ref r);
-                    Types.Add(new WasmFuncType(ps, rs));
+                    if (r.Peek() == 0x4E)
+                    {
+                        r.Byte();
+                        Gc = true;
+                        uint size = Count(ref r);
+                        int group = Types.Count;
+                        for (uint k = 0; k < size; k++) SubType(ref r, group, (int)size);
+                    }
+                    else SubType(ref r, Types.Count, 1);
                 }
                 break;
             case 2:
@@ -368,6 +444,58 @@ public sealed class WasmBinary
         return n;
     }
 
+    /// <summary>One subtype: [sub [final] supertypes] then a func (0x60), struct (0x5F) or array (0x5E) composite type.</summary>
+    private void SubType(ref WasmReader r, int group, int groupSize)
+    {
+        byte b = r.Byte();
+        bool final = true;
+        uint[] supers = [];
+        if (b is 0x50 or 0x4F)
+        {
+            Gc = true;
+            final = b == 0x4F;
+            supers = new uint[Count(ref r)];
+            for (int s = 0; s < supers.Length; s++) supers[s] = r.U32();
+            b = r.Byte();
+        }
+        switch (b)
+        {
+            case 0x60:
+                {
+                    var func = new WasmFuncType(ValTypes(ref r), ValTypes(ref r));
+                    Types.Add(func);
+                    TypeDefs.Add(new WasmTypeDef(WasmComposite.Func, func, [], final, supers, group, groupSize));
+                    break;
+                }
+            case 0x5F:
+                {
+                    Gc = true;
+                    var fields = new WasmField[Count(ref r)];
+                    for (int f = 0; f < fields.Length; f++) fields[f] = FieldType(ref r);
+                    Types.Add(new WasmFuncType([], []));
+                    TypeDefs.Add(new WasmTypeDef(WasmComposite.Struct, null, fields, final, supers, group, groupSize));
+                    break;
+                }
+            case 0x5E:
+                Gc = true;
+                Types.Add(new WasmFuncType([], []));
+                TypeDefs.Add(new WasmTypeDef(WasmComposite.Array, null, [FieldType(ref r)], final, supers, group, groupSize));
+                break;
+            default:
+                throw new WasmFormatException($"type {Types.Count} has form 0x{b:X2}");
+        }
+    }
+
+    private WasmField FieldType(ref WasmReader r)
+    {
+        byte packed = r.Peek() switch { 0x78 => 8, 0x77 => 16, _ => 0 };
+        var type = packed != 0 ? WasmType.I32 : ValType(ref r);
+        if (packed != 0) r.Byte();
+        byte mut = r.Byte();
+        if (mut > 1) throw new WasmFormatException($"field mutability {mut}");
+        return new WasmField(type, packed, mut == 1);
+    }
+
     private WasmType[] ValTypes(ref WasmReader r)
     {
         uint n = Count(ref r);
@@ -378,29 +506,55 @@ public sealed class WasmBinary
 
     internal WasmType ValType(ref WasmReader r)
     {
-        byte b = r.Byte();
-        if (IsValType(b)) return (WasmType)b;
-        Unsupported ??= $"value type 0x{b:X2} (typed references)";
-        throw new WasmFormatException($"value type 0x{b:X2} is not read");
+        var t = ReadValType(ref r);
+        if (WasmRef.IsRef(t) && t is not (WasmType.FuncRef or WasmType.ExternRef or WasmType.ExnRef)) Gc = true;
+        return t;
     }
 
-    internal static bool IsValType(byte b) => b is 0x7F or 0x7E or 0x7D or 0x7C or 0x7B or 0x70 or 0x6F or 0x69;
+    /// <summary>A value type: one byte, or 0x63 (ref null) / 0x64 (ref) followed by a heap type (s33: an abstract byte or a type index).</summary>
+    internal static WasmType ReadValType(ref WasmReader r)
+    {
+        byte b = r.Byte();
+        if (IsValType(b)) return (WasmType)b;
+        if (b is 0x63 or 0x64)
+        {
+            long heap = r.S33();
+            if (heap < 0 && !WasmRef.IsAbstractHeap((int)(heap + 0x80))) throw new WasmFormatException($"heap type {heap}");
+            if (heap >= 1 << 24) throw new WasmFormatException($"heap type {heap} is out of range");
+            return WasmRef.Make(b == 0x63, heap);
+        }
+        throw new WasmFormatException($"value type 0x{b:X2}");
+    }
+
+    /// <summary>A one-byte value type: a number, v128, or a nullable abstract reference shorthand.</summary>
+    internal static bool IsValType(byte b) => b is 0x7F or 0x7E or 0x7D or 0x7C or 0x7B || WasmRef.IsAbstractHeap(b);
 
     private WasmTableType TableType(ref WasmReader r)
     {
         var type = ValType(ref r);
-        if (type is not (WasmType.FuncRef or WasmType.ExternRef or WasmType.ExnRef)) throw new WasmFormatException($"table element type {type}");
+        if (!WasmRef.IsRef(type)) throw new WasmFormatException($"table element type {TypeName(type)}");
         return new WasmTableType(type, Limits(ref r, memory: false));
     }
 
-    private static WasmGlobalType GlobalType(ref WasmReader r)
+    private WasmGlobalType GlobalType(ref WasmReader r)
     {
-        byte b = r.Byte();
-        if (!IsValType(b)) throw new WasmFormatException($"global type 0x{b:X2}");
+        var type = ValType(ref r);
         byte mut = r.Byte();
         if (mut > 1) throw new WasmFormatException($"global mutability {mut}");
-        return new WasmGlobalType((WasmType)b, mut == 1);
+        return new WasmGlobalType(type, mut == 1);
     }
+
+    /// <summary>The single result of a block type that names a value type, else null (empty, or a type index).</summary>
+    public static WasmType? BlockResult(long blockType) => blockType switch
+    {
+        -0x40 or >= 0 => null,
+        <= WasmCode.TypedBlock => (WasmType)(int)(WasmCode.TypedBlock - blockType),
+        _ => (WasmType)(int)(blockType & 0x7F),
+    };
+
+    /// <summary>The function type at a type index, or null when the index is out of range or names a struct or array.</summary>
+    public WasmFuncType? FuncTypeAt(long index) =>
+        index >= 0 && index < Types.Count && (index >= TypeDefs.Count || TypeDefs[(int)index].Kind == WasmComposite.Func) ? Types[(int)index] : null;
 
     private static WasmLimits Limits(ref WasmReader r, bool memory)
     {
@@ -469,7 +623,7 @@ public sealed class WasmBinary
         if (index < ImportedFunctions) type = ImportAt(WasmExternal.Func, index)!.TypeIndex;
         else if (index - ImportedFunctions < Functions.Count) type = Functions[(int)(index - ImportedFunctions)];
         else return null;
-        return type < Types.Count ? Types[(int)type] : null;
+        return FuncTypeAt(type);
     }
 
     public uint? FunctionTypeIndex(uint index) =>
@@ -504,11 +658,24 @@ public sealed class WasmBinary
     /// <summary>The body of function <paramref name="index"/>, or null for an import or a missing body.</summary>
     public WasmBody? BodyOf(uint index) => index >= ImportedFunctions && index - ImportedFunctions < Bodies.Count ? Bodies[(int)(index - ImportedFunctions)] : null;
 
-    public static string TypeName(WasmType t) => t switch
+    /// <summary>The text format of a value type; a defined heap type by its index (<paramref name="typeName"/> may name it).</summary>
+    public static string TypeName(WasmType t, Func<int, string>? typeName = null) => t switch
     {
         WasmType.I32 => "i32", WasmType.I64 => "i64", WasmType.F32 => "f32", WasmType.F64 => "f64", WasmType.V128 => "v128",
-        WasmType.FuncRef => "funcref", WasmType.ExternRef => "externref", WasmType.ExnRef => "exnref", _ => $"type_0x{(byte)t:x2}",
+        _ when (int)t is >= 0x69 and <= 0x74 => (int)t switch
+        {
+            0x71 => "nullref", 0x72 => "nullexternref", 0x73 => "nullfuncref", 0x74 => "nullexnref", var b => WasmRef.HeapName(b) + "ref",
+        },
+        _ when WasmRef.IsRef(t) => $"(ref {(WasmRef.Nullable(t) ? "null " : "")}{HeapText(WasmRef.Heap(t), typeName)})",
+        _ => $"type_0x{(int)t:x2}",
     };
+
+    public static string HeapText((bool Abstract, int Value) heap, Func<int, string>? typeName = null) =>
+        heap.Abstract ? WasmRef.HeapName(heap.Value) : typeName?.Invoke(heap.Value) ?? heap.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>A heap type immediate (s33) as text: an abstract name or a type index.</summary>
+    public static string HeapText(long heap, Func<int, string>? typeName = null) =>
+        heap < 0 ? WasmRef.HeapName((int)(heap + 0x80)) : HeapText((false, (int)heap), typeName);
 
     /// <summary>A UTF-8 string of the module (names), decoded with replacement characters for invalid sequences.</summary>
     internal static string Utf8(ReadOnlySpan<byte> b) => Encoding.UTF8.GetString(b);

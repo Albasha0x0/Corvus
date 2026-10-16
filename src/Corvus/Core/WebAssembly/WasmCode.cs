@@ -12,7 +12,11 @@ internal struct WasmInstr
     public int Op;
     public uint A, B;
     public long Value;
-    /// <summary>Block type: -0x40 empty, a negative value type code (-0x01 for i32 = 0x7F...), or a type index.</summary>
+    /// <summary>
+    /// Block type: -0x40 empty, a negative one-byte value type code (-0x01 for i32 = 0x7F...), a type index, or at or below
+    /// <see cref="WasmCode.TypedBlock"/> a reference type with a heap type (<see cref="WasmBinary.BlockResult"/>). br_on_cast
+    /// keeps its second heap type here, its first in <see cref="Value"/> and its flags in <see cref="Lane"/>.
+    /// </summary>
     public long BlockType;
     public uint Align, Memory;
     public ulong MemOffset;
@@ -24,6 +28,9 @@ internal struct WasmInstr
 /// <summary>Decodes instructions one at a time from a range of a module; a malformed instruction stops it with <see cref="Error"/>.</summary>
 internal struct WasmCode(byte[] bytes, int pos, int end)
 {
+    /// <summary>Block types at or below this hold a reference type: TypedBlock - (int)type.</summary>
+    public const long TypedBlock = -(1L << 33);
+
     private WasmReader _r = new(bytes, pos, end);
 
     public readonly int Pos => _r.Pos;
@@ -38,7 +45,7 @@ internal struct WasmCode(byte[] bytes, int pos, int end)
         try
         {
             int op = _r.Byte();
-            if (op is 0xFC or 0xFD or 0xFE) op = op << 16 | (int)_r.U32();
+            if (op is 0xFB or 0xFC or 0xFD or 0xFE) op = op << 16 | (int)_r.U32();
             var info = WasmOps.Get(op);
             if (info == null) { Error = $"unknown opcode {Describe(op)} at 0x{start:X}"; _r.Pos = start; return false; }
             ins.Op = op;
@@ -63,7 +70,7 @@ internal struct WasmCode(byte[] bytes, int pos, int end)
         switch (ins.Info.Imm)
         {
             case WasmImm.None: break;
-            case WasmImm.BlockType: ins.BlockType = _r.S33(); break;
+            case WasmImm.BlockType: ins.BlockType = ReadBlockType(); break;
             case WasmImm.Label or WasmImm.Func or WasmImm.TypeIndex or WasmImm.Local or WasmImm.Global or WasmImm.Table or WasmImm.Tag
                 or WasmImm.Data or WasmImm.Elem:
                 ins.A = _r.U32();
@@ -101,13 +108,12 @@ internal struct WasmCode(byte[] bytes, int pos, int end)
                     if (n > _r.End - _r.Pos) throw new WasmFormatException("select types run past the body");
                     ins.ImmStart = _r.Pos;
                     ins.Count = (int)n;
-                    for (uint i = 0; i < n; i++)
-                        if (!WasmBinary.IsValType(_r.Byte())) throw new WasmFormatException("select type is not a value type");
+                    for (uint i = 0; i < n; i++) WasmBinary.ReadValType(ref _r);
                     break;
                 }
             case WasmImm.TryTable:
                 {
-                    ins.BlockType = _r.S33();
+                    ins.BlockType = ReadBlockType();
                     uint n = _r.U32();
                     if (n > _r.End - _r.Pos) throw new WasmFormatException("try_table runs past the body");
                     ins.ImmStart = _r.Pos;
@@ -131,10 +137,28 @@ internal struct WasmCode(byte[] bytes, int pos, int end)
             case WasmImm.TwoMemories: ins.A = _r.U32(); ins.B = _r.U32(); break;
             case WasmImm.ElemTable: ins.A = _r.U32(); ins.B = _r.U32(); break;
             case WasmImm.TwoTables: ins.A = _r.U32(); ins.B = _r.U32(); break;
+            case WasmImm.TypeField or WasmImm.TypeCount or WasmImm.TypeData or WasmImm.TypeElem or WasmImm.TwoTypes:
+                ins.A = _r.U32();
+                ins.B = _r.U32();
+                break;
+            case WasmImm.BrOnCast:
+                ins.Lane = _r.Byte();
+                if (ins.Lane > 3) throw new WasmFormatException($"br_on_cast flags {ins.Lane}");
+                ins.A = _r.U32();
+                ins.Value = _r.S33();
+                ins.BlockType = _r.S33();
+                break;
             case WasmImm.Fence:
                 if (_r.Byte() != 0) throw new WasmFormatException("atomic.fence reserved byte is not 0");
                 break;
         }
+    }
+
+    /// <summary>A block type: 0x40, a value type (0x63 / 0x64 with its heap type too), or an s33 type index.</summary>
+    private long ReadBlockType()
+    {
+        if (_r.Peek() is 0x63 or 0x64) return TypedBlock - (int)WasmBinary.ReadValType(ref _r);
+        return _r.S33();
     }
 
     /// <summary>alignment (bit 6 flags a memory index) and offset; memory64 offsets are 64-bit.</summary>

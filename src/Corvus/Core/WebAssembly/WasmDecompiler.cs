@@ -92,7 +92,7 @@ public sealed class WasmDecompiler
             {
                 case 0x02 or 0x03 or 0x04 or 0x06 or 0x1F: ids.Add(++next); break;
                 case 0x0B: if (ids.Count > 0) ids.RemoveAt(ids.Count - 1); break;
-                case 0x0C or 0x0D or 0xD4 or 0xD6: Mark(ins.A); break;
+                case 0x0C or 0x0D or 0xD5 or 0xD6 or (WasmOps.Fb | 24) or (WasmOps.Fb | 25): Mark(ins.A); break;
                 case 0x0E: foreach (var t in WasmCode.Targets(_m.Bytes, ins)) Mark(t); break;
             }
         }
@@ -292,9 +292,128 @@ public sealed class WasmDecompiler
                     return;
                 }
         }
+        if (ins.Op >> 16 == 0xFB || ins.Op is 0x14 or 0x15 or 0xD3 or 0xD4 or 0xD5 or 0xD6) { Gc(ins); return; }
         if (info.IsMemoryAccess) { Memory(ins); return; }
         Operator(ins);
     }
+
+    /// <summary>A type's name for the GC forms: the name section's, else type_N.</summary>
+    private string TypeLabel(uint type) => Identifier(_m.Names.Types.TryGetValue(type, out var n) && n.Length > 0 ? n : $"type_{type}");
+
+    private WasmField? FieldOf(uint type, uint field) =>
+        type < _m.TypeDefs.Count && field < _m.TypeDefs[(int)type].Fields.Length ? _m.TypeDefs[(int)type].Fields[field] : null;
+
+    /// <summary>
+    /// GC and typed reference instructions: new T{...}, x.field_N, a[i], a.length, x is T, (T)x, x!, i31(x), call_ref as
+    /// (*f)(...); the cast branches are written as a line beside the value they keep.
+    /// </summary>
+    private void Gc(in WasmInstr ins)
+    {
+        var self = WasmRef.Make(false, ins.A);
+        string T = TypeLabel(ins.A);
+        Ex Make(string text, WasmType type, params Ex[] from) => new(text, 16, from.Any(f => f.Impure), type, Union(from));
+        void Statement(string text) { Spill(); Line(text + ";"); }
+        switch (ins.Op)
+        {
+            case 0x14 or 0x15:
+                {
+                    var f = Pop();
+                    Call(_m.FuncTypeAt(ins.A), $"(*{Paren(f, 15)})", ins.Op == 0x15, f);
+                    return;
+                }
+            case 0xD3: { var b = Pop(); var a = Pop(); Push(new Ex($"{Paren(a, 10)} == {Paren(b, 10)}", 9, a.Impure || b.Impure, WasmType.I32, Union(a, b))); return; }
+            case 0xD4: { var r = Pop(); Push(Make(Paren(r, 15) + "!", WasmRef.WithNull(r.Type is var t && WasmRef.IsRef(t) ? t : WasmType.AnyRef, false), r)); return; }
+            case 0xD5 or 0xD6:
+                {
+                    var r = Pop();
+                    Spill();
+                    string temp = Temp(r.Type, r.Text);
+                    if (ins.Op == 0xD6) Push(new Ex(temp, 16, false, r.Type));
+                    Branch(ins.A, new Ex($"{temp} {(ins.Op == 0xD5 ? "==" : "!=")} null", 9, false, WasmType.I32));
+                    if (ins.Op == 0xD5) Push(new Ex(temp, 16, false, r.Type));
+                    else Pop();
+                    return;
+                }
+        }
+        int sub = ins.Op & 0xFFFF;
+        switch (sub)
+        {
+            case 0:
+                {
+                    int n = ins.A < _m.TypeDefs.Count ? _m.TypeDefs[(int)ins.A].Fields.Length : 0;
+                    var args = Pop(n);
+                    Push(Make($"new {T}{{{string.Join(", ", args.Select(a => a.Text))}}}", self, [.. args]));
+                    return;
+                }
+            case 1: Push(new Ex($"new {T}{{}}", 16, false, self)); return;
+            case 2 or 3 or 4:
+                {
+                    var o = Pop();
+                    var f = FieldOf(ins.A, ins.B);
+                    string cast = sub == 3 ? (f?.Packed == 8 ? "(i8)" : "(i16)") : "";
+                    Push(Make($"{cast}{Paren(o, 15)}.field_{ins.B}", f?.Unpacked ?? WasmType.I32, o));
+                    return;
+                }
+            case 5: { var v = Pop(); var o = Pop(); Statement($"{Paren(o, 15)}.field_{ins.B} = {v.Text}"); return; }
+            case 6: { var n = Pop(); var v = Pop(); Push(Make($"new {T}[{n.Text}]({v.Text})", self, v, n)); return; }
+            case 7: { var n = Pop(); Push(Make($"new {T}[{n.Text}]", self, n)); return; }
+            case 8:
+                {
+                    var args = Pop((int)Math.Min(ins.B, 10_000u));
+                    Push(Make($"new {T}{{{string.Join(", ", args.Select(a => a.Text))}}}", self, [.. args]));
+                    return;
+                }
+            case 9 or 10:
+                {
+                    var args = Pop(2);
+                    string segment = sub == 9 ? $"data_{ins.B}" : $"elem_{ins.B}";
+                    Push(Make($"{Identifier(ins.Info.Name)}<{T}>({segment}, {args[0].Text}, {args[1].Text})", self, [.. args]));
+                    return;
+                }
+            case 11 or 12 or 13:
+                {
+                    var i = Pop();
+                    var a = Pop();
+                    var e = FieldOf(ins.A, 0);
+                    string cast = sub == 12 ? (e?.Packed == 8 ? "(i8)" : "(i16)") : "";
+                    Push(Make($"{cast}{Paren(a, 15)}[{i.Text}]", e?.Unpacked ?? WasmType.I32, a, i));
+                    return;
+                }
+            case 14: { var v = Pop(); var i = Pop(); var a = Pop(); Statement($"{Paren(a, 15)}[{i.Text}] = {v.Text}"); return; }
+            case 15: { var a = Pop(); Push(Make($"{Paren(a, 15)}.length", WasmType.I32, a)); return; }
+            case 16 or 17 or 18 or 19:
+                {
+                    var args = Pop(sub == 17 ? 5 : 4);
+                    Statement($"{Identifier(ins.Info.Name)}({string.Join(", ", args.Select(a => a.Text))})");
+                    return;
+                }
+            case 20 or 21 or 22 or 23:
+                {
+                    var r = Pop();
+                    var target = WasmRef.Make(sub is 21 or 23, ins.Value);
+                    string name = TargetType(target);
+                    if (sub <= 21) Push(new Ex($"{Paren(r, 10)} is {name}", 9, r.Impure, WasmType.I32, Union(r)));
+                    else Push(Make($"({name}){Paren(r, 15)}", target, r));
+                    return;
+                }
+            case 24 or 25:
+                {
+                    var r = Pop();
+                    Spill();
+                    string temp = Temp(r.Type, r.Text);
+                    var to = WasmRef.Make((ins.Lane & 2) != 0, ins.BlockType);
+                    Push(new Ex(temp, 16, false, r.Type));
+                    Branch(ins.A, new Ex($"{(sub == 25 ? "!" : "")}({temp} is {TargetType(to)})", 15, false, WasmType.I32));
+                    return;
+                }
+            case 26 or 27: { var r = Pop(); Push(Make(r.Text, sub == 26 ? WasmType.AnyRef : WasmType.ExternRef, r)); return; }
+            case 28: { var v = Pop(); Push(Make($"i31({v.Text})", WasmRef.Make(false, 0x6C - 0x80), v)); return; }
+            default: { var r = Pop(); Push(Make($"{Identifier(ins.Info.Name)}({r.Text})", WasmType.I32, r)); return; }
+        }
+    }
+
+    private string TargetType(WasmType t) =>
+        WasmRef.Heap(t) is (false, var index) ? TypeLabel((uint)index) + (WasmRef.Nullable(t) ? "?" : "") : WasmBinary.TypeName(t);
 
     private void Dead() => _dead = 1;
 
@@ -617,8 +736,8 @@ public sealed class WasmDecompiler
     private (WasmType[] Params, WasmType[] Results) BlockType(long bt)
     {
         if (bt == -0x40) return ([], []);
-        if (bt < 0) return ([], [(WasmType)(byte)(bt & 0x7F)]);
-        if (bt < _m.Types.Count) return (_m.Types[(int)bt].Params, _m.Types[(int)bt].Results);
+        if (WasmBinary.BlockResult(bt) is { } single) return ([], [single]);
+        if (_m.FuncTypeAt(bt) is { } t) return (t.Params, t.Results);
         return ([], []);
     }
 

@@ -80,7 +80,7 @@ public static class WasmInterface
     private static int Size(WasmBinary m, uint f) => m.BodyOf(f) is { } body ? body.End - body.Start : 0;
 
     public static string Signature(WasmFuncType? t) =>
-        t == null ? "?" : $"({string.Join(", ", t.Params.Select(WasmBinary.TypeName))}) -> ({string.Join(", ", t.Results.Select(WasmBinary.TypeName))})";
+        t == null ? "?" : $"({string.Join(", ", t.Params.Select(t => WasmBinary.TypeName(t)))}) -> ({string.Join(", ", t.Results.Select(t => WasmBinary.TypeName(t)))})";
 
     private static string Describe(WasmBinary m, WasmImport i) => i.Kind switch
     {

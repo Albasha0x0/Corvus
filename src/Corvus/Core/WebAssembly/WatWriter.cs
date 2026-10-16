@@ -7,7 +7,8 @@ namespace Corvus.Core.WebAssembly;
 /// <summary>
 /// The WebAssembly text format of a module or one function, as wasm2wat (WABT) writes it by default: flat instructions,
 /// index comments, name-section names as $names, "label = @n" comments, hexadecimal floats with their decimal value.
-/// The spacing follows WABT's pending-separator scheme so the output is byte-equal to it.
+/// The spacing follows WABT's pending-separator scheme so the output is byte-equal to it. GC types (rec groups, sub
+/// types, struct and array) and instructions are written in the specification's text format.
 /// </summary>
 public sealed class WatWriter
 {
@@ -187,7 +188,19 @@ public sealed class WatWriter
 
     private const string Hex = "0123456789abcdef";
 
-    private void Type(WasmType t, Next next) => Puts(WasmBinary.TypeName(t), next);
+    private void Type(WasmType t, Next next) => Puts(TypeText(t), next);
+
+    /// <summary>A value type's text; a defined heap type by its $name or index.</summary>
+    private string TypeText(WasmType t) => WasmBinary.TypeName(t, TypeRef);
+
+    private string TypeRef(int index) => index < _typeNames.Length && _typeNames[index] is { } name ? Sanitized(name) : index.ToString(CultureInfo.InvariantCulture);
+
+    private static string Sanitized(string name)
+    {
+        var sb = new StringBuilder(name.Length);
+        foreach (byte c in Encoding.UTF8.GetBytes(name)) sb.Append(c < 128 && ValidNameChar[c] ? (char)c : '_');
+        return sb.ToString();
+    }
 
     private void Types(IReadOnlyList<WasmType> types, string name)
     {
@@ -222,7 +235,17 @@ public sealed class WatWriter
         OpenSpace("module");
         if (_m.Names.Module is { Length: > 0 } module) Name("$" + module, Next.Newline);
         else Newline(false);
-        for (uint i = 0; i < _m.Types.Count; i++) WriteType(i);
+        for (int i = 0; i < _m.Types.Count;)
+        {
+            var def = i < _m.TypeDefs.Count ? _m.TypeDefs[i] : null;
+            if (def == null || def.GroupSize <= 1) { WriteType((uint)i++); continue; }
+            // a recursion group of several types (one of one reads the same as a lone type)
+            OpenSpace("rec");
+            Newline(false);
+            int end = Math.Min(_m.Types.Count, def.Group + def.GroupSize);
+            for (; i < end; i++) WriteType((uint)i);
+            CloseNewline();
+        }
         uint func = 0, table = 0, memory = 0, global = 0, tag = 0;
         foreach (var import in _m.Imports)
         {
@@ -281,13 +304,54 @@ public sealed class WatWriter
     private void WriteType(uint index)
     {
         var t = _m.Types[(int)index];
+        var def = index < _m.TypeDefs.Count ? _m.TypeDefs[(int)index] : null;
         OpenSpace("type");
         NameOrIndex(_typeNames[index], index, Next.Space);
-        OpenSpace("func");
-        Types(t.Params, "param");
-        Types(t.Results, "result");
-        CloseSpace();
+        bool sub = def != null && (!def.Final || def.Supers.Length > 0);
+        if (sub)
+        {
+            OpenSpace("sub");
+            if (def!.Final) Writef("final");
+            foreach (var s in def.Supers) Var(_typeNames, s, Next.Space);
+        }
+        switch (def?.Kind ?? WasmComposite.Func)
+        {
+            case WasmComposite.Func:
+                OpenSpace("func");
+                Types(t.Params, "param");
+                Types(t.Results, "result");
+                CloseSpace();
+                break;
+            case WasmComposite.Struct:
+                OpenSpace("struct");
+                foreach (var f in def!.Fields) Field(f);
+                CloseSpace();
+                break;
+            default:
+                OpenSpace("array");
+                FieldType(def!.Fields[0]);
+                CloseSpace();
+                break;
+        }
+        if (sub) CloseSpace();
         CloseNewline();
+    }
+
+    private void Field(WasmField f)
+    {
+        OpenSpace("field");
+        FieldType(f);
+        CloseSpace();
+    }
+
+    /// <summary>A storage type (i8, i16 or a value type), in (mut ...) when mutable.</summary>
+    private void FieldType(WasmField f)
+    {
+        string text = f.Packed switch { 8 => "i8", 16 => "i16", _ => TypeText(f.Type) };
+        if (!f.Mutable) { Puts(text, Next.Space); return; }
+        OpenSpace("mut");
+        Puts(text, Next.Space);
+        CloseSpace();
     }
 
     private void TypeUse(uint type)
@@ -378,7 +442,7 @@ public sealed class WatWriter
         while (code.Next(out var ins) && ins.Op != 0x0B)
         {
             var sig = ins.Info.Signature;
-            int arity = sig == "*" ? 0 : sig.IndexOf(':');
+            int arity = ins.Op >> 16 == 0xFB ? ConstArity(ins) : sig == "*" ? 0 : sig.IndexOf(':');
             int take = Math.Min(arity, stack.Count);
             var node = new Tree(ins, stack.GetRange(stack.Count - take, take));
             stack.RemoveRange(stack.Count - take, take);
@@ -388,6 +452,16 @@ public sealed class WatWriter
         foreach (var tree in stack) WriteTree(tree);
         _next = Next.Space;
     }
+
+    /// <summary>The operand count of a constant GC instruction, for folding.</summary>
+    private int ConstArity(in WasmInstr ins) => (ins.Op & 0xFFFF) switch
+    {
+        0 => ins.A < _m.TypeDefs.Count ? _m.TypeDefs[(int)ins.A].Fields.Length : 0,
+        6 => 2,
+        8 => (int)Math.Min(ins.B, 100_000u),
+        7 or 26 or 27 or 28 => 1,
+        _ => 0,
+    };
 
     private void WriteTree(Tree t)
     {
@@ -566,6 +640,13 @@ public sealed class WatWriter
     private void BlockType(long blockType)
     {
         if (blockType == -0x40) return;
+        if (WasmBinary.BlockResult(blockType) is { } single)
+        {
+            OpenSpace("result");
+            Type(single, Next.Space);
+            CloseSpace();
+            return;
+        }
         if (blockType >= 0) // written inline, without its (type n)
         {
             if (blockType < _m.Types.Count)
@@ -651,17 +732,47 @@ public sealed class WatWriter
                 return;
             case WasmImm.HeapType:
                 PutsSpace(info.Name);
-                Puts(ins.Value switch { -0x10 => "func", -0x11 => "extern", -0x17 => "exn", var v => v >= 0 ? v.ToString(CultureInfo.InvariantCulture) : $"heap_0x{(byte)v:x2}" }, Next.Newline);
+                // ref.test / ref.cast name a reference type, ref.null a heap type
+                if (ins.Op >> 16 == 0xFB) Puts(TypeText(WasmRef.Make((ins.Op & 1) != 0, ins.Value)), Next.Newline);
+                else Puts(WasmBinary.HeapText(ins.Value, TypeRef), Next.Newline);
                 return;
             case WasmImm.SelectTypes:
                 {
                     PutsSpace("select");
                     var types = new WasmType[ins.Count];
-                    for (int i = 0; i < ins.Count; i++) types[i] = (WasmType)_b[ins.ImmStart + i];
+                    var r = new WasmReader(_b, ins.ImmStart, ins.Offset + ins.Length);
+                    for (int i = 0; i < ins.Count; i++) types[i] = WasmBinary.ReadValType(ref r);
                     Types(types, "result");
                     Newline(false);
                     return;
                 }
+            case WasmImm.TypeField or WasmImm.TypeCount:
+                PutsSpace(info.Name);
+                Var(_typeNames, ins.A, Next.Space);
+                Writef(ins.B.ToString(CultureInfo.InvariantCulture));
+                Newline(false);
+                return;
+            case WasmImm.TypeData:
+                PutsSpace(info.Name);
+                Var(_typeNames, ins.A, Next.Space);
+                Var(_dataNames, ins.B, Next.Newline);
+                return;
+            case WasmImm.TypeElem:
+                PutsSpace(info.Name);
+                Var(_typeNames, ins.A, Next.Space);
+                Var(_elemNames, ins.B, Next.Newline);
+                return;
+            case WasmImm.TwoTypes:
+                PutsSpace(info.Name);
+                Var(_typeNames, ins.A, Next.Space);
+                Var(_typeNames, ins.B, Next.Newline);
+                return;
+            case WasmImm.BrOnCast:
+                PutsSpace(info.Name);
+                BrVar(ins.A, Next.Space);
+                Puts(TypeText(WasmRef.Make((ins.Lane & 1) != 0, ins.Value)), Next.Space);
+                Puts(TypeText(WasmRef.Make((ins.Lane & 2) != 0, ins.BlockType)), Next.Newline);
+                return;
             case WasmImm.Lane: PutsSpace(info.Name); Writef(ins.Lane.ToString(CultureInfo.InvariantCulture)); Newline(false); return;
             case WasmImm.V128:
                 {

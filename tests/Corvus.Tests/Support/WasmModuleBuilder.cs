@@ -80,6 +80,20 @@ internal sealed class WasmModuleBuilder
 
     public uint Type(WasmType[] parameters, WasmType[] results) { _types.Add([0x60, .. Types(parameters), .. Types(results)]); return (uint)_types.Count - 1; }
 
+    /// <summary>A type section entry as raw bytes (a GC rec group or sub type); the caller counts the type indexes it defines.</summary>
+    public void RawType(params byte[] entry) => _types.Add(entry);
+
+    /// <summary>A function whose local declarations are given as raw bytes (count, then (n, value type) groups), for reference types.</summary>
+    public void FuncRawLocals(uint type, byte[] locals, byte[] body)
+    {
+        _funcs.Add(type);
+        byte[] code = [.. locals, .. body, 0x0B];
+        _codes.Add([.. WasmAsm.Leb((ulong)code.Length), .. code]);
+    }
+
+    /// <summary>A global with its type as raw bytes (a reference type with a heap type).</summary>
+    public void GlobalRaw(byte[] type, bool mutable, byte[] init) => _globals.Add([.. type, (byte)(mutable ? 1 : 0), .. init, 0x0B]);
+
     public uint ImportFunc(string module, string name, uint type) { _imports.Add([.. Name(module), .. Name(name), 0, .. WasmAsm.Leb(type)]); return (uint)_importedFuncs++; }
     public void ImportTable(string module, string name, WasmType element, uint min, uint? max = null) => _imports.Add([.. Name(module), .. Name(name), 1, (byte)element, .. Limits(min, max)]);
     public void ImportMemory(string module, string name, uint min, uint? max = null, bool shared = false) => _imports.Add([.. Name(module), .. Name(name), 2, .. Limits(min, max, shared)]);

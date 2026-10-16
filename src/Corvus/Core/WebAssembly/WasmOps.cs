@@ -34,6 +34,15 @@ public enum WasmImm : byte
     Elem,
     TwoTables,
     Fence,
+    /// <summary>A type index and a field index (struct.get).</summary>
+    TypeField,
+    /// <summary>A type index and an element count (array.new_fixed).</summary>
+    TypeCount,
+    TypeData,
+    TypeElem,
+    TwoTypes,
+    /// <summary>br_on_cast flags, label and two heap types.</summary>
+    BrOnCast,
 }
 
 /// <summary>
@@ -48,12 +57,12 @@ public sealed record WasmOp(int Code, string Name, WasmImm Imm, string Signature
 
 /// <summary>
 /// The opcode table: MVP, sign extension, saturating truncation, bulk memory, reference types, SIMD and relaxed SIMD,
-/// threads, tail calls, exception handling (legacy and try_table) and typed function references. A prefixed opcode's
+/// threads, tail calls, exception handling (legacy and try_table), typed function references and GC. A prefixed opcode's
 /// code is prefix &lt;&lt; 16 | sub-opcode.
 /// </summary>
 public static class WasmOps
 {
-    public const int Fc = 0xFC << 16, Fd = 0xFD << 16, Fe = 0xFE << 16;
+    public const int Fb = 0xFB << 16, Fc = 0xFC << 16, Fd = 0xFD << 16, Fe = 0xFE << 16;
 
     private static readonly Dictionary<int, WasmOp> ByCode = [];
 
@@ -121,7 +130,7 @@ public static class WasmOps
         ];
         foreach (var (code, name, sig) in conversions) Add(code, name, sig: sig);
         Add(0xD0, "ref.null", WasmImm.HeapType); Add(0xD1, "ref.is_null"); Add(0xD2, "ref.func", WasmImm.Func);
-        Add(0xD3, "ref.as_non_null"); Add(0xD4, "br_on_null", WasmImm.Label); Add(0xD5, "ref.eq"); Add(0xD6, "br_on_non_null", WasmImm.Label);
+        Add(0xD3, "ref.eq"); Add(0xD4, "ref.as_non_null"); Add(0xD5, "br_on_null", WasmImm.Label); Add(0xD6, "br_on_non_null", WasmImm.Label);
 
         string[] saturating = ["i32.trunc_sat_f32_s", "i32.trunc_sat_f32_u", "i32.trunc_sat_f64_s", "i32.trunc_sat_f64_u",
             "i64.trunc_sat_f32_s", "i64.trunc_sat_f32_u", "i64.trunc_sat_f64_s", "i64.trunc_sat_f64_u"];
@@ -134,6 +143,24 @@ public static class WasmOps
 
         Atomics();
         Simd();
+        Gc();
+    }
+
+    private static void Gc()
+    {
+        Add(Fb | 0, "struct.new", WasmImm.TypeIndex); Add(Fb | 1, "struct.new_default", WasmImm.TypeIndex);
+        Add(Fb | 2, "struct.get", WasmImm.TypeField); Add(Fb | 3, "struct.get_s", WasmImm.TypeField); Add(Fb | 4, "struct.get_u", WasmImm.TypeField);
+        Add(Fb | 5, "struct.set", WasmImm.TypeField);
+        Add(Fb | 6, "array.new", WasmImm.TypeIndex); Add(Fb | 7, "array.new_default", WasmImm.TypeIndex); Add(Fb | 8, "array.new_fixed", WasmImm.TypeCount);
+        Add(Fb | 9, "array.new_data", WasmImm.TypeData); Add(Fb | 10, "array.new_elem", WasmImm.TypeElem);
+        Add(Fb | 11, "array.get", WasmImm.TypeIndex); Add(Fb | 12, "array.get_s", WasmImm.TypeIndex); Add(Fb | 13, "array.get_u", WasmImm.TypeIndex);
+        Add(Fb | 14, "array.set", WasmImm.TypeIndex); Add(Fb | 15, "array.len"); Add(Fb | 16, "array.fill", WasmImm.TypeIndex);
+        Add(Fb | 17, "array.copy", WasmImm.TwoTypes); Add(Fb | 18, "array.init_data", WasmImm.TypeData); Add(Fb | 19, "array.init_elem", WasmImm.TypeElem);
+        Add(Fb | 20, "ref.test", WasmImm.HeapType); Add(Fb | 21, "ref.test", WasmImm.HeapType);
+        Add(Fb | 22, "ref.cast", WasmImm.HeapType); Add(Fb | 23, "ref.cast", WasmImm.HeapType);
+        Add(Fb | 24, "br_on_cast", WasmImm.BrOnCast); Add(Fb | 25, "br_on_cast_fail", WasmImm.BrOnCast);
+        Add(Fb | 26, "any.convert_extern"); Add(Fb | 27, "extern.convert_any");
+        Add(Fb | 28, "ref.i31"); Add(Fb | 29, "i31.get_s"); Add(Fb | 30, "i31.get_u");
     }
 
     private static void Simple(int first, string sig, params string[] names)

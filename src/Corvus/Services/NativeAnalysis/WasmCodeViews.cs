@@ -24,7 +24,7 @@ public static class WasmCodeViews
     {
         var m = w.Module;
         var type = m.FunctionType(index);
-        string signature = type == null ? "?" : $"({string.Join(", ", type.Params.Select(WasmBinary.TypeName))}) -> ({string.Join(", ", type.Results.Select(WasmBinary.TypeName))})";
+        string signature = type == null ? "?" : $"({string.Join(", ", type.Params.Select(t => WasmBinary.TypeName(t)))}) -> ({string.Join(", ", type.Results.Select(t => WasmBinary.TypeName(t)))})";
         string where = m.BodyOf(index) is { } b ? $"at 0x{b.Start:X}, {b.End - b.Start:N0} bytes" : $"imported from {m.ImportAt(WasmExternal.Func, index)?.Module}";
         return $"{comment} {w.FunctionNames[(int)index]}: function {index.ToString(CultureInfo.InvariantCulture)}, type {m.FunctionTypeIndex(index)} {signature}, {where}" +
                $" (name from {w.NameSources[(int)index]})\n";

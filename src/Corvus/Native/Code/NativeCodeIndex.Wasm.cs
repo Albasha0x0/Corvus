@@ -200,7 +200,7 @@ public sealed partial class NativeCodeIndex
             }
             switch (ins.Op)
             {
-                case 0x0C or 0x0D or 0xD4 or 0xD6: targets[i] = [Target(ins.A)]; break;
+                case 0x0C or 0x0D or 0xD5 or 0xD6 or 0xFB0018 or 0xFB0019: targets[i] = [Target(ins.A)]; break;
                 case 0x0E: targets[i] = [.. WasmCode.Targets(m.Bytes, ins).Select(Target)]; break;
             }
             if (ins.Op is 0x02 or 0x03 or 0x04 or 0x06 or 0x1F) open.Add(i);
@@ -210,7 +210,7 @@ public sealed partial class NativeCodeIndex
         for (int i = 0; i < n; i++)
         {
             var ins = list[i];
-            if (ins.Op is 0x0C or 0x0D or 0x0E or 0x0F or 0x00 or 0x04 or 0x05 or 0x0B or 0x08 or 0x09 or 0x0A or 0x12 or 0x13 or 0x03 or 0xD4 or 0xD6)
+            if (ins.Op is 0x0C or 0x0D or 0x0E or 0x0F or 0x00 or 0x04 or 0x05 or 0x0B or 0x08 or 0x09 or 0x0A or 0x12 or 0x13 or 0x03 or 0xD5 or 0xD6 or 0xFB0018 or 0xFB0019)
                 if (i + 1 < n) leaders.Add(After(i));
             if (ins.Op == 0x04 && elseOf[i] >= 0) leaders.Add(After(elseOf[i]));
             foreach (var t in targets.GetValueOrDefault(i) ?? []) if (t is { } at && at < body.End) leaders.Add(at);
@@ -231,7 +231,7 @@ public sealed partial class NativeCodeIndex
             var term = list[last];
             var kind = term.Op switch
             {
-                0x0C => BlockEnd.Jump, 0x0D or 0xD4 or 0xD6 or 0x04 => BlockEnd.ConditionalJump, 0x0E => BlockEnd.Switch, 0x0F => BlockEnd.Return,
+                0x0C => BlockEnd.Jump, 0x0D or 0xD5 or 0xD6 or 0xFB0018 or 0xFB0019 or 0x04 => BlockEnd.ConditionalJump, 0x0E => BlockEnd.Switch, 0x0F => BlockEnd.Return,
                 0x00 or 0x08 or 0x09 or 0x0A => BlockEnd.Trap, 0x12 or 0x13 => BlockEnd.TailCall, 0x05 => BlockEnd.Jump,
                 0x0B when last == n - 1 => BlockEnd.Return, _ => BlockEnd.FallThrough,
             };
@@ -243,7 +243,7 @@ public sealed partial class NativeCodeIndex
             switch (term.Op)
             {
                 case 0x0C: if (targets[last][0] is { } t) pending.Add((block, t, EdgeKind.Jump)); break;
-                case 0x0D or 0xD4 or 0xD6:
+                case 0x0D or 0xD5 or 0xD6 or 0xFB0018 or 0xFB0019:
                     if (targets[last][0] is { } c) pending.Add((block, c, EdgeKind.ConditionalTaken));
                     pending.Add((block, next, EdgeKind.ConditionalFallThrough));
                     break;

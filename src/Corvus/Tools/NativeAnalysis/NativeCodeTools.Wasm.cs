@@ -77,7 +77,7 @@ public sealed partial class NativeCodeTools
         0x11 => new InstructionFlow("indirect_call", null, null, null, next),
         0x12 or 0x13 => new InstructionFlow("jump", null, call?.To, call?.Name, null),
         0x0C => new InstructionFlow("jump", null, null, $"label {ins.A}", null),
-        0x0D or 0x04 or 0xD4 or 0xD6 => new InstructionFlow("conditional_jump", null, null, ins.Op == 0x04 ? null : $"label {ins.A}", next),
+        0x0D or 0x04 or 0xD5 or 0xD6 or 0xFB0018 or 0xFB0019 => new InstructionFlow("conditional_jump", null, null, ins.Op == 0x04 ? null : $"label {ins.A}", next),
         0x0E => new InstructionFlow("indirect_jump", null, null, "br_table", null),
         0x0F => new InstructionFlow("return", null, null, null, null),
         0x00 or 0x08 or 0x09 or 0x0A => new InstructionFlow("trap", null, null, null, null),
