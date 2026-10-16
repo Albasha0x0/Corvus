@@ -657,7 +657,7 @@ internal sealed class VbsInterpreter
         "chr", "chrw", "chrb", "asc", "ascw", "ascb", "len", "mid", "left", "right", "strreverse", "replace", "lcase", "ucase", "trim", "ltrim",
         "rtrim", "split", "join", "array", "ubound", "lbound", "instr", "instrrev", "cstr", "cint", "clng", "cbyte", "cdbl", "csng", "int", "fix",
         "abs", "hex", "oct", "space", "string", "escape", "unescape", "isnumeric", "isarray", "cbool", "sgn", "strcomp", "isempty", "isnull",
-        "isobject", "typename", "vartype", "rnd", "now", "date", "time", "timer", "val", "mid$", "chr$", "strconv", "filter",
+        "isobject", "typename", "vartype", "rnd", "now", "date", "time", "timer", "val", "mid$", "chr$", "strconv", "filter", "close",
     };
 
     private static bool IsBuiltinName(string name) => BuiltinNames.Contains(name);

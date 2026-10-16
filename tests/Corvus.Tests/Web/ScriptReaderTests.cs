@@ -54,6 +54,15 @@ public sealed class ScriptReaderTests
     }
 
     [Fact]
+    public void Layers_cross_languages_from_batch_through_vbscript_to_a_command_line()
+    {
+        var r = ScriptReader.Read(File.ReadAllText(Fixture("batch", "mshta-vbscript.cmd")), "batch");
+        Assert.Equal(["vbscript", "vbscript", "batch", "batch"], r.Layers.Select(l => l.Language));
+        Assert.Equal("WScript.Shell.Run", r.Layers[2].Via);
+        Assert.Contains("WScript.Shell.Run \"cmd /c echo corvus marker\"", r.Calls);
+    }
+
+    [Fact]
     public void An_encoded_command_is_a_layer_with_its_decoding_chain()
     {
         var inner = Convert.ToBase64String(Encoding.Unicode.GetBytes("Write-Host 'stage two'"));
@@ -101,6 +110,7 @@ public sealed class ScriptReaderTests
                  {
                      ("powershell", "string-reverse-1.ps1"), ("powershell", "encoding-bxor-1.ps1"), ("powershell", "compress-1.ps1"),
                      ("powershell", "token-all-1.ps1"), ("vbscript", "hex-function.vbs"), ("vbscript", "msxml-base64.vbs"),
+                     ("batch", "for-loop.bat"), ("batch", "mshta-vbscript.cmd"),
                  })
             failures.AddRange(FormatFuzz.Run(File.ReadAllBytes(Fixture(language, name)), b =>
             {
