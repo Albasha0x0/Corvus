@@ -35,6 +35,10 @@ public class CoverageFloorTests
             Class(@"C:\r\src\Corvus\Native\Elf\ElfFile.cs", (2, 1)),                // a nested class: line 2 is covered after all
             Class("/r/src/Corvus/Core/Pool.cs", (10, 0), (11, 0)),
             Class("/r/obj/Generated.cs", (1, 1))))))).Save(file);
+        var relative = Path.Combine(dir.Path, "relative.cobertura.xml");
+        new XDocument(new XElement("coverage", new XElement("sources", new XElement("source", @"D:\w\src\Corvus\")),
+            new XElement("packages", new XElement("package", new XElement("classes", Class(@"Tools\Dotnet\Decompile.cs", (5, 1), (6, 0))))))).Save(relative);
+        Assert.Equal(50.0, Measure([relative])["src/Corvus/Tools/Dotnet"]);
         var measured = Measure([file]);
         Assert.Equal(100.0, measured["src/Corvus/Native/Elf"]);
         Assert.Equal(0.0, measured["src/Corvus/Core"]);
@@ -47,11 +51,16 @@ public class CoverageFloorTests
     {
         var lines = new Dictionary<(string File, int Line), bool>();
         foreach (var report in reports)
-            foreach (var cls in XDocument.Load(report).Descendants("class"))
+        {
+            var document = XDocument.Load(report);
+            // coverlet writes file names relative to the <source> folder of their project.
+            var source = ((string?)document.Descendants("source").FirstOrDefault() ?? "").Replace('\\', '/');
+            foreach (var cls in document.Descendants("class"))
             {
                 var path = ((string?)cls.Attribute("filename") ?? "").Replace('\\', '/');
+                if (!path.Contains("src/Corvus/", StringComparison.Ordinal)) path = source.TrimEnd('/') + "/" + path;
                 var at = path.IndexOf("src/Corvus/", StringComparison.Ordinal);
-                if (at < 0) continue;
+                if (at < 0 || path.Contains("/obj/", StringComparison.Ordinal)) continue; // generated sources
                 path = path[at..];
                 foreach (var line in cls.Descendants("line"))
                 {
@@ -59,6 +68,7 @@ public class CoverageFloorTests
                     lines[key] = lines.GetValueOrDefault(key) || (long)line.Attribute("hits")! > 0;
                 }
             }
+        }
         static string Area(string path)
         {
             var parts = path.Split('/');
