@@ -1364,7 +1364,7 @@ Targets of call and tail-jump sites in native code (x86 / x64 / ARM) with basis 
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `image`, `scope`, `engine`, `total`, `byStatus`, `byMechanism`, `topUnresolved`, `offset`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `scope`, `engine`, `engineNote`, `total`, `byStatus`, `byMechanism`, `topUnresolved`, `offset`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### analyze_native_function
 

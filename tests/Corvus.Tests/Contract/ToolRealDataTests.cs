@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
+using Corvus.Core;
 
 namespace Corvus.Tests;
 
@@ -57,6 +58,15 @@ public sealed class ToolRealDataTests : IDisposable
         Assert.True((await Call(c, "find_xrefs", On(("address", "sqlite3_free")))).Record.GetProperty("total").GetInt32() >= 1);
         await Call(c, "get_call_arguments", On(("address", "sqlite3_open")));
         await Call(c, "resolve_call_targets", On(("address", "sqlite3_open"), ("scope", "function")));
+        // compact record: the engine note in its own field, no instruction text per site (the text has it), no empty target lists
+        var (targetsText, targets) = await Call(c, "resolve_call_targets", On(("scope", "image")));
+        Assert.StartsWith("ours", targets.GetProperty("engine").GetString());
+        Assert.False(string.IsNullOrEmpty(targets.GetProperty("engineNote").GetString()));
+        Assert.DoesNotContain(targets.GetProperty("notes").EnumerateArray(), n => n.GetString()!.StartsWith("Engine:", StringComparison.Ordinal));
+        Assert.All(targets.GetProperty("items").EnumerateArray(), i => Assert.False(i.TryGetProperty("text", out _)));
+        // measured 1.32x (PE) and 1.41x (ELF: import targets carry evidence the text leaves out), from 1.64x
+        int recordTokens = TokenEstimate.Of(targets.GetRawText()), textTokens = TokenEstimate.Of(targetsText);
+        Assert.True(recordTokens <= textTokens * 145 / 100, $"record {recordTokens}, text {textTokens}");
         Assert.Contains($"of {firstArgument}", (await Call(c, "trace_native_values", On(("address", "sqlite3_open"), ("location", firstArgument)))).Text);
         Assert.Contains("sqlite3_open", (await Call(c, "native_call_tree", On(("function", "sqlite3_open"), ("depth", 2)))).Text);
         Assert.Contains("== callers", (await Call(c, "analyze_native_function", On(("address", "sqlite3_open")))).Text);

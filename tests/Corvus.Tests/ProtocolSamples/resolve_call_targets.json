@@ -7,21 +7,20 @@
   },
   "isError": false,
   "content": [
-    "Call targets in sample-build-a.dll, function First; engine ours\nBy status: ; by mechanism: \n0 sites (showing 0-0):\nNote: Engine: ours (server default auto: no engine has analyzed these bytes)\n"
+    "Engine: ours (server default auto: no engine has analyzed these bytes)\nCall targets in sample-build-a.dll, function First; engine ours\nBy status: ; by mechanism: \n0 sites (showing 0-0):\n"
   ],
   "structuredContent": {
     "image": "sample-build-a.dll",
     "scope": "function First",
     "engine": "ours",
+    "engineNote": "server default auto: no engine has analyzed these bytes",
     "total": 0,
     "byStatus": {},
     "byMechanism": {},
     "topUnresolved": [],
     "offset": 0,
     "items": [],
-    "notes": [
-      "Engine: ours (server default auto: no engine has analyzed these bytes)"
-    ],
+    "notes": [],
     "limit": 75,
     "totalExact": true,
     "hasMore": false

@@ -29,12 +29,11 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
     public sealed record CallTargetSiteRecord(
         [property: Description("VA of the instruction.")] string Address,
         [property: Description("Function and offset.")] string Function,
-        [property: Description("The instruction.")] string Text,
         [property: Description("direct, import_slot, thunk, register, memory_pointer, vftable_slot, cfg_dispatch, tail_jump, pointer_table or interface_dispatch.")] string Mechanism,
         [property: Description("direct, import, resolved (complete set), possible (several or unproven), virtual_exact, virtual_possible, " +
                                "ambiguous (engines disagree), unresolved.")] string Status,
-        [property: Description("Distinct targets (all of them; at most 64 listed).")] int TargetCount,
-        IReadOnlyList<CallTargetRecord> Targets,
+        [property: Description("Distinct targets, when more than listed (at most 64 are).")] int? TargetCount,
+        [property: Description("Absent when none is known.")] IReadOnlyList<CallTargetRecord>? Targets,
         [property: Description("Why unresolved, or why the set may be incomplete.")] string? Reason,
         [property: Description("The call that traces the target's value.")] string? Hint);
 
@@ -42,6 +41,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         [property: Description("Image id.")] string Image,
         [property: Description("site, function or image.")] string Scope,
         [property: Description("Engines whose views are merged: ours, ours+ida or ours+ghidra.")] string Engine,
+        [property: Description(EngineDoc.Note)] string EngineNote,
         [property: Description("Sites matching the filter.")] int Total,
         [property: Description("Sites per status, before the filter.")] IReadOnlyDictionary<string, int> ByStatus,
         [property: Description("Sites per mechanism, before the filter.")] IReadOnlyDictionary<string, int> ByMechanism,
@@ -131,7 +131,6 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
             if (rows.Skipped > 0) notes.Add($"{display} had no time for {rows.Skipped} functions" +
                 (rows.Partial != null ? $" (PARTIAL: {NativeCodeTools.PartialReason(rows.Partial)}; call again with a larger timeoutSeconds, or a smaller limit)" : ""));
         }
-        notes.Add(choice.Line);
         if (start + page.Count < filtered.Count) notes.Add($"{filtered.Count - start - page.Count} more: offset={start + page.Count}");
         notes.AddRange(index.Truncations);
 
@@ -141,10 +140,11 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
             ? sites.Where(s => s.Status == "unresolved").GroupBy(s => s.Function).OrderByDescending(g => g.Count()).ThenBy(g => g.Key.Start).Take(10)
                 .Select(g => $"{g.Key.Name} ({g.Count()})").ToList()
             : [];
-        var items = page.Select(s => new CallTargetSiteRecord(Va(s.Rva), $"{s.Function.Name}+0x{s.Rva - s.Function.Start:X}", s.Text, s.Mechanism, s.Status, s.TargetCount,
-            s.Targets.Select(t => new CallTargetRecord(Va(t.Address), t.Name, t.Basis, t.Confidence, t.Evidence)).ToList(), s.Reason, s.Hint)).ToList();
-        var report = new CallTargetsReport(native.Id, scopeText, engineText, filtered.Count, byStatus, byMechanism, top, start, start + page.Count < filtered.Count, items, notes);
-        return ToolOutput.With(Text(report), report);
+        var items = page.Select(s => new CallTargetSiteRecord(Va(s.Rva), $"{s.Function.Name}+0x{s.Rva - s.Function.Start:X}", s.Mechanism, s.Status,
+            s.TargetCount > s.Targets.Count ? s.TargetCount : null,
+            s.Targets.Count == 0 ? null : s.Targets.Select(t => new CallTargetRecord(Va(t.Address), t.Name, t.Basis, t.Confidence, t.Evidence)).ToList(), s.Reason, s.Hint)).ToList();
+        var report = new CallTargetsReport(native.Id, scopeText, engineText, choice.Note, filtered.Count, byStatus, byMechanism, top, start, start + page.Count < filtered.Count, items, notes);
+        return ToolOutput.With(Text(report, choice.Line, page.Select(s => s.Text).ToList()), report);
     });
 
     private static bool Matches(CallTargetSite s, string filter) => filter switch
@@ -186,20 +186,23 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         return s with { Status = status, Targets = targets.Take(CallTargets.MaxTargets).ToList(), TargetCount = s.TargetCount + added.Count, Reason = reason };
     }
 
-    private static string Text(CallTargetsReport r)
+    /// <summary>The engine line, the summary and one line per site with its instruction (the record leaves the instruction out).</summary>
+    private static string Text(CallTargetsReport r, string engineLine, IReadOnlyList<string> instructions)
     {
         var sb = new StringBuilder();
+        sb.AppendLine(engineLine);
         sb.AppendLine($"Call targets in {r.Image}, {r.Scope}; engine {r.Engine}");
         sb.AppendLine("By status: " + string.Join(", ", r.ByStatus.Select(kv => $"{kv.Key} {kv.Value}")) +
                       "; by mechanism: " + string.Join(", ", r.ByMechanism.Select(kv => $"{kv.Key} {kv.Value}")));
         if (r.TopUnresolved.Count > 0) sb.AppendLine("Most unresolved: " + string.Join(", ", r.TopUnresolved));
         sb.AppendLine($"{ToolSupport.Plural(r.Total, "site")} (showing {(r.Items.Count == 0 ? 0 : r.Offset + 1)}-{r.Offset + r.Items.Count}):");
-        foreach (var s in r.Items)
+        foreach (var (s, instruction) in r.Items.Zip(instructions))
         {
-            sb.Append("  ").Append(s.Address).Append("  ").Append(s.Function).Append("  ").Append(s.Text).Append("  [").Append(s.Mechanism).Append(", ").Append(s.Status).Append(']');
-            if (s.Targets.Count > 0)
-                sb.Append(" -> ").Append(string.Join(" | ", s.Targets.Take(8).Select(t => $"{t.Name} ({t.Basis}, {t.Confidence})")))
-                  .Append(s.TargetCount > 8 ? $" | ... {s.TargetCount - 8} more" : "");
+            sb.Append("  ").Append(s.Address).Append("  ").Append(s.Function).Append("  ").Append(instruction).Append("  [").Append(s.Mechanism).Append(", ").Append(s.Status).Append(']');
+            int count = s.TargetCount ?? s.Targets?.Count ?? 0;
+            if (s.Targets is { Count: > 0 } targets)
+                sb.Append(" -> ").Append(string.Join(" | ", targets.Take(8).Select(t => $"{t.Name} ({t.Basis}, {t.Confidence})")))
+                  .Append(count > 8 ? $" | ... {count - 8} more" : "");
             if (s.Reason != null) sb.Append("; ").Append(s.Reason);
             if (s.Hint != null) sb.Append("; next: ").Append(s.Hint);
             sb.AppendLine();

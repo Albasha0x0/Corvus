@@ -13,6 +13,10 @@
       "description": "Engines whose views are merged: ours, ours+ida or ours+ghidra.",
       "type": "string"
     },
+    "engineNote": {
+      "description": "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).",
+      "type": "string"
+    },
     "total": {
       "description": "Sites matching the filter.",
       "type": "integer"
@@ -56,10 +60,6 @@
             "description": "Function and offset.",
             "type": "string"
           },
-          "text": {
-            "description": "The instruction.",
-            "type": "string"
-          },
           "mechanism": {
             "description": "direct, import_slot, thunk, register, memory_pointer, vftable_slot, cfg_dispatch, tail_jump, pointer_table or interface_dispatch.",
             "type": "string"
@@ -69,10 +69,11 @@
             "type": "string"
           },
           "targetCount": {
-            "description": "Distinct targets (all of them; at most 64 listed).",
+            "description": "Distinct targets, when more than listed (at most 64 are).",
             "type": "integer"
           },
           "targets": {
+            "description": "Absent when none is known.",
             "type": "array",
             "items": {
               "description": "One target of a call site.",
@@ -118,11 +119,8 @@
         "required": [
           "address",
           "function",
-          "text",
           "mechanism",
-          "status",
-          "targetCount",
-          "targets"
+          "status"
         ]
       }
     },
@@ -167,6 +165,7 @@
     "image",
     "scope",
     "engine",
+    "engineNote",
     "total",
     "byStatus",
     "byMechanism",
