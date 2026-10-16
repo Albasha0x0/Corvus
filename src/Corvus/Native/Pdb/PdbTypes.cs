@@ -275,12 +275,20 @@ public sealed class PdbTypes
 
         long end = 0;
         int pad = 0;
+        // padding names no member has (glibc's FILE has its own __pad1..__pad5)
+        var memberNames = members.Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
+        string Pad()
+        {
+            string n;
+            do n = $"__pad{pad++}"; while (memberNames.Contains(n) || !names.Add(n));
+            return n;
+        }
         var ordered = members.Select((m, i) => (m, i)).OrderBy(x => x.m.Offset).ThenBy(x => x.i).Select(x => x.m).ToList();
         for (int i = 0; i < ordered.Count; i++)
         {
             var m = ordered[i];
             if (m.Offset < end || m.Offset < 0) { Skip("overlapping_member"); continue; }
-            if (m.Offset > end) sb.Append($"  unsigned char __pad{pad++}[{m.Offset - end}];\n");
+            if (m.Offset > end) sb.Append($"  unsigned char {Pad()}[{m.Offset - end}];\n");
             if (m.BitLength >= 0)
             {
                 // the bit fields sharing this storage unit, in bit order, unused bits as unnamed fields
@@ -308,7 +316,7 @@ public sealed class PdbTypes
             sb.Append("  ").Append(Plain(m, Unique(m.Name))).Append(";\n");
             end = m.Offset + size;
         }
-        if (a.Size > end) sb.Append($"  unsigned char __pad{pad}[{a.Size - end}];\n");
+        if (a.Size > end) sb.Append($"  unsigned char {Pad()}[{a.Size - end}];\n");
         return sb.Length == 0 ? null : sb.ToString();
     }
 

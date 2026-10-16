@@ -796,7 +796,9 @@ def op_apply_types(args):
     result = {"decl_errors": 0, "typed": 0, "type_failures": 0, "failures": [], "structs": 0, "vftables_typed": 0, "methods_typed": 0}
     decls = args.get("decls")
     if decls:
-        result["decl_errors"] = idc.parse_decls(decls, idc.PT_SILENT)
+        errors, messages, _ = parse_decls_reporting(decls)
+        result["decl_errors"] = errors
+        result["decl_messages"] = (messages or (refused_decls(ti, decls) if errors else []))[:20]
     for rva, decl in args.get("prototypes") or []:
         if user_typed(rva):
             continue
@@ -859,7 +861,10 @@ def apply_classes(m, ti, til, model, result):
     # forward declarations, so pointers to every class resolve
     forward = "".join("struct %s; struct %s_vftable;" % (c["name"], c["name"]) for c in classes)
     if forward:
-        result["decl_errors"] += idc.parse_decls(forward, idc.PT_SILENT)
+        refused = idc.parse_decls(forward, idc.PT_SILENT)
+        result["decl_errors"] += refused
+        if refused:
+            result.setdefault("decl_messages", []).extend(refused_decls(ti, forward))
     # methods: first argument becomes a pointer to the class (functions without a type of their own only)
     skips = result.setdefault("method_skips", {})
 
@@ -1385,6 +1390,26 @@ def apply_stack(m, ti, rva, offset, name, typ):
     _, now = frame_members(m, f)
     got = [x for x in now if x.offset == offset]
     return ["stack", rva, target, True, None, old, offset, "%s %s" % (got[0].type, got[0].name) if got else None]
+
+
+def refused_decls(ti, text, limit=20):
+    # without the kernel's messages: each top-level declaration parsed again on its own, after the whole text was; the
+    # refused ones (conflicts with the database's type libraries show only there)
+    import idc
+    parts, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch in "{(":
+            depth += 1
+        elif ch in "})":
+            depth -= 1
+        elif ch == ";" and depth == 0:
+            parts.append(text[start:i + 1].strip())
+            start = i + 1
+    refused = []
+    for part in parts:
+        if part and idc.parse_decls(part, idc.PT_SILENT) and len(refused) < limit:
+            refused.append("refused: " + " ".join(part.split())[:160])
+    return refused
 
 
 def parse_decls_reporting(text):

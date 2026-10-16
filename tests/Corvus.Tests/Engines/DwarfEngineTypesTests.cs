@@ -54,6 +54,7 @@ public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("SystemNative_FStat(", text);
         Assert.Contains("FileStatus *output", text);
         Assert.Contains("output->Size = ", text);
+        Assert.DoesNotContain("declaration errors", text); // generated padding never takes a member's name (glibc FILE's __pad1)
     }
 
     [GhidraFact]
