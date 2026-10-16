@@ -166,6 +166,10 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         var (result, ghidra, java) = Static();
         if (!result.IsAvailable)
             throw new ToolError(ErrorCode.ProviderUnavailable, result.Reason!, result.Remediation);
+        if (IsWasm(imagePath) && !HasWasmLanguage(ghidra!))
+            throw new ToolError(ErrorCode.Unsupported,
+                $"Ghidra {ghidra!.Version} has no WebAssembly language (no Wasm processor in its Ghidra/Processors or in an extension of {GhidraOptions.ExtensionsVariable}): it finds no loader for the module.",
+                $"omit engine for the built-in WebAssembly lift, disassembly and call tree; or put a WebAssembly extension zip built for Ghidra {ghidra.Version} in {GhidraOptions.ExtensionsVariable}");
         var session = new GhidraSession(this, ghidra!, java!, options ?? new NativeOpenOptions());
         _sessions[session] = 0;
         try
@@ -178,6 +182,53 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             session.Dispose();
             throw;
         }
+    }
+
+    private static bool IsWasm(string path)
+    {
+        try
+        {
+            using var f = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[4];
+            return f.ReadAtLeast(head, 4, throwOnEndOfStream: false) == 4 && head.SequenceEqual("\0asm"u8);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+    }
+
+    private bool? _wasmLanguage;
+
+    /// <summary>
+    /// Whether a language definition (.ldefs) of the installation or of a configured extension names a WebAssembly processor.
+    /// Workers use a private settings directory, so extensions the user installed in their own Ghidra do not count.
+    /// </summary>
+    private bool HasWasmLanguage(GhidraInstallation ghidra) => _wasmLanguage ??= ComputeWasmLanguage(ghidra);
+
+    private bool ComputeWasmLanguage(GhidraInstallation ghidra)
+    {
+        static bool Names(string text) => text.Contains("processor=\"Webassembly\"", StringComparison.OrdinalIgnoreCase)
+                                          || text.Contains("processor=\"Wasm\"", StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            var processors = Path.Combine(ghidra.Directory, "Ghidra", "Processors");
+            if (Directory.Exists(processors) && Directory.EnumerateFiles(processors, "*.ldefs", SearchOption.AllDirectories).Any(f => Names(File.ReadAllText(f))))
+                return true;
+            foreach (var e in Extensions)
+            {
+                if (Directory.Exists(e.Source))
+                {
+                    if (Directory.EnumerateFiles(e.Source, "*.ldefs", SearchOption.AllDirectories).Any(f => Names(File.ReadAllText(f)))) return true;
+                    continue;
+                }
+                using var zip = System.IO.Compression.ZipFile.OpenRead(e.Source);
+                foreach (var entry in zip.Entries.Where(x => x.FullName.EndsWith(".ldefs", StringComparison.OrdinalIgnoreCase)))
+                {
+                    using var r = new StreamReader(entry.Open());
+                    if (Names(r.ReadToEnd())) return true;
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { }
+        return false;
     }
 
     /// <summary>What a Ghidra archive records of the file it was made from; <see cref="Path"/>: its bytes, when the archive keeps them.</summary>
