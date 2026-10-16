@@ -269,7 +269,7 @@ public static class Blob
         catch (FileNotFoundException) { return false; }
     }
 
-    /// <summary>Writes to a unique path under root; never overwrites a different file.</summary>
+    /// <summary>Writes an extracted file to a unique path under root, not flushed to disk; never overwrites a different file.</summary>
     public static string WriteUnique(string root, string relative, ReadOnlySpan<byte> bytes)
     {
         var path = UnderRoot(root, relative);
@@ -278,7 +278,7 @@ public static class Blob
         var ext = Path.GetExtension(path);
         for (int i = 2; ; i++)
         {
-            try { return SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false); }
+            try { return SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false, flush: false); }
             catch (ToolError ex) when (ex.Code == ErrorCode.Conflict)
             {
                 if (SameContent(path, bytes)) return path;

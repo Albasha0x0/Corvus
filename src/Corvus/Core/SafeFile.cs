@@ -98,14 +98,18 @@ public static class SafeFile
     /// <summary>Writes UTF-8 text (no BOM) atomically; an existing file is a Conflict unless <paramref name="overwrite"/>.</summary>
     public static string WriteAllText(string path, string text, bool overwrite) => WriteAllBytes(path, Encoding.UTF8.GetBytes(text), overwrite);
 
-    /// <summary>Writes under <paramref name="root"/>: the target and every directory below the root must not be links.</summary>
-    public static string WriteUnderRoot(string root, string relative, ReadOnlySpan<byte> bytes, bool overwrite)
+    /// <summary>
+    /// Writes under <paramref name="root"/>: the target and every directory below the root must not be links. Without
+    /// <paramref name="flush"/> (extracted files, which their source can give again) the file is not forced to disk before
+    /// it is placed: about 15 ms per file less on Windows.
+    /// </summary>
+    public static string WriteUnderRoot(string root, string relative, ReadOnlySpan<byte> bytes, bool overwrite, bool flush = true)
     {
         var full = UnderRoot(root, relative);
-        return Write(full, FullPath(root), bytes, overwrite);
+        return Write(full, FullPath(root), bytes, overwrite, flush: flush);
     }
 
-    private static string Write(string full, string? root, ReadOnlySpan<byte> bytes, bool overwrite, Action<string>? beforeReplace = null)
+    private static string Write(string full, string? root, ReadOnlySpan<byte> bytes, bool overwrite, Action<string>? beforeReplace = null, bool flush = true)
     {
         var dir = Path.GetDirectoryName(full)!;
         Directory.CreateDirectory(dir);
@@ -119,7 +123,7 @@ public static class SafeFile
             using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16))
             {
                 stream.Write(bytes);
-                stream.Flush(flushToDisk: true);
+                stream.Flush(flushToDisk: flush);
             }
             beforeReplace?.Invoke(temp);
             // Without overwrite the placement itself refuses an existing target, so a file created since the check is never
