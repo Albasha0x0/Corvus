@@ -1,5 +1,7 @@
 using System.Text;
 using Corvus.Core;
+using Corvus.Core.WebAssembly;
+using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
 
@@ -34,11 +36,50 @@ public sealed class WasmTests
         Assert.Equal(("processed-by", "rustc 1.80.0"), Assert.Single(m.Producers));
     }
 
+    /// <summary>A module with code, a 17 MiB data segment, a passive one and a 2 MiB DWARF section.</summary>
+    private static byte[] Bulky()
+    {
+        var b = new WasmModuleBuilder();
+        uint t = b.Type([WasmType.I32], [WasmType.I32]);
+        b.Memory(400);
+        b.Func(t, new WasmAsm().Op(0x20, 0x00).Bytes);
+        b.Export("id", WasmExternal.Func, 0);
+        b.Data(16, new byte[17 << 20]);
+        b.PassiveData([1, 2, 3]);
+        b.Custom(".debug_info", new byte[2 << 20]);
+        b.Custom("producers", [0x01, .. Str("processed-by"), 0x01, .. Str("clang"), .. Str("19")]);
+        return b.Build();
+    }
+
     [Fact]
-    [FuzzEntry(typeof(WasmModule))]
+    public void A_streamed_module_keeps_its_facts_without_its_bulk()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("bulky.wasm");
+        File.WriteAllBytes(path, Bulky());
+        var whole = (WasmFileView.Facts)new WasmFileView().Inspect(new FileInput(path, File.ReadAllBytes(path), "wasm"), default)!.Detail;
+        var view = new WasmFileView().Inspect(FileInput.Open(path, streamAbove: 64), default)!;
+        var streamed = (WasmFileView.Facts)view.Detail;
+        Assert.Equal(whole.Sections, streamed.Sections);
+        Assert.Equal((whole.DataSegments, whole.DefinedFunctions, whole.Validation, whole.Toolchain), (streamed.DataSegments, streamed.DefinedFunctions, streamed.Validation, streamed.Toolchain));
+        Assert.Equal("valid", streamed.Validation);
+        Assert.Contains(view.Highlights, h => h.StartsWith("Read as a stream: ", StringComparison.Ordinal));
+        using var stream = File.OpenRead(path);
+        Assert.True(WasmCompact.Read(stream, default).Bytes.Length < 64 << 10);
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(WasmModule), typeof(WasmCompact))]
     public void Fuzzed_modules_never_throw()
     {
         var failures = FormatFuzz.Run(Sample(), b => WasmModule.Read(b), 2000);
+        var sections = new WasmModuleBuilder();
+        sections.Memory(1);
+        sections.Data(8, [1, 2, 3, 4]);
+        sections.DataIn(0, 4, [5]);
+        sections.PassiveData([6, 7]);
+        sections.Custom("dwarf", [9, 9, 9]);
+        failures.AddRange(FormatFuzz.Run(sections.Build(), m => WasmModule.Read(WasmCompact.Read(new MemoryStream(m), default, 0, 0).Bytes), 500));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }
 }

@@ -328,9 +328,14 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) Managed(
         FileInput input, string sha, AnalysisLimits limits, CancellationToken ct)
     {
-        if (input.Streamed && Containers.OpenStream(input.OpenRead, input.Head, Path.GetFileName(input.Path), limits, ct) is { } top)
+        if (!input.Streamed) return Managed(input.Path, input.Bytes, sha, Walk(input.Bytes, sha, input.Path, limits, ct), limits);
+        var name = Path.GetFileName(input.Path);
+        if (Containers.OpenStream(input.OpenRead, input.Head, name, limits, ct) is { } top)
             return Managed(input.Path, null, sha, Walk(top, sha, limits, ct), limits);
-        return Managed(input.Path, input.Bytes, sha, Walk(input.Bytes, sha, input.Path, limits, ct), limits);
+        // a native image is held without its overlay; anything else is carved in windows
+        bool native = Native.NativeImageLoader.Detect(input.Head) is not (Native.NativeFileKind.Unknown or Native.NativeFileKind.Wasm);
+        var large = Containers.OpenLarge(input.OpenRead, input.Head, native ? input.Image : null, input.Length, name, limits, ct);
+        return Managed(input.Path, native ? input.Image : null, sha, Walk(large, sha, limits, ct), limits);
     }
 
     private static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) Managed(

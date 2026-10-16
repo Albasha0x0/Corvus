@@ -27,7 +27,11 @@ internal sealed class NibFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         if (!NibArchive.IsNibArchive(file.Head) && !Plist.IsBinary(file.Head)) return null;
-        if (NibArchive.Read(file.Bytes) is not { } graph) return null;
+        NibArchive.Graph? read;
+        if (!file.Streamed) read = NibArchive.Read(file.Bytes);
+        else
+            using (var stream = file.OpenRead()) read = NibArchive.Read(stream, 1 << 20); // a keyed archive's values kept to 1 MiB
+        if (read is not { } graph) return null;
         var connectors = graph.Objects.Where(o => OutletClasses.Contains(o.Class) || ActionClasses.Contains(o.Class)).ToList();
         // a keyed archive that is not a nib (no connector, no UI or AppKit classes) belongs to view=plist
         if (graph.Format != "NIBArchive" && connectors.Count == 0 && !graph.Objects.Any(o => o.Class.StartsWith("UI", StringComparison.Ordinal) || o.Class.StartsWith("NSNib", StringComparison.Ordinal)))

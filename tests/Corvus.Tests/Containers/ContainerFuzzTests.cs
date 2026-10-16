@@ -76,7 +76,7 @@ public sealed class ContainerFuzzTests
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }
 
-    private static byte[] SignedFixture()
+    internal static byte[] SignedFixture()
     {
         var folder = Path.GetDirectoryName(ContainerFixtures.NuGetPackage("Microsoft.CodeAnalysis.Common"))!;
         var signed = File.ReadAllBytes(Directory.EnumerateFiles(Path.Combine(folder, "lib"), "Microsoft.CodeAnalysis.dll", SearchOption.AllDirectories).Order(StringComparer.Ordinal).First());

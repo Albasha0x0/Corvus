@@ -33,6 +33,9 @@ public static class Containers
         0x13, 0xf5, 0xb9, 0xe6, 0xef, 0xae, 0x33, 0x18, 0xee, 0x3b, 0x2d, 0xce, 0x24, 0xb3, 0x6a, 0xae,
     ];
 
+    /// <summary>A bundle manifest is read in one range of at most this many bytes (20,000 records of a long path fit).</summary>
+    private const int MaxManifest = 16 << 20;
+
     private static readonly Regex CosturaName = new(@"^costura(?:32|64)?\.(?<name>.+?)(?<compressed>\.compressed)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>The simple name of the assembly in a PE image, or null.</summary>
@@ -136,17 +139,25 @@ public static class Containers
                "automatically (list_functions, disassemble, decompile_native); get_nativeaot_info lists the recovered types, methods and strings.";
     }
 
-    private static ContainerContents? OpenBundle(byte[] data, AnalysisLimits limits, CancellationToken ct)
+    private static ContainerContents? OpenBundle(byte[] data, AnalysisLimits limits, CancellationToken ct) =>
+        OpenBundle(data, data.Length, (at, n) => data.AsSpan((int)at, n).ToArray(), limits, ct);
+
+    /// <summary>
+    /// A single-file bundle: the apphost's bundle marker in <paramref name="image"/>, the manifest and entries read by
+    /// <paramref name="read"/> (offset, count) from a file of <paramref name="length"/> bytes, where they follow the image.
+    /// </summary>
+    private static ContainerContents? OpenBundle(ReadOnlySpan<byte> image, long length, Func<long, int, byte[]> read, AnalysisLimits limits, CancellationToken ct)
     {
-        int sig = data.AsSpan().IndexOf(BundleSignature);
+        int sig = image.IndexOf(BundleSignature);
         if (sig < 8) return null;
-        long headerOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(sig - 8));
+        long headerOffset = BinaryPrimitives.ReadInt64LittleEndian(image[(sig - 8)..]);
         if (headerOffset == 0)
             return new ContainerContents(".NET apphost (not bundled)", [],
                 ["An apphost launcher without a bundle: the application is the .dll of the same name next to it."]);
-        if (headerOffset < 0 || headerOffset >= data.Length) throw new ToolError(ErrorCode.MalformedInput, $"Corrupt single-file bundle: header offset 0x{headerOffset:X} is outside the file.");
+        if (headerOffset < 0 || headerOffset >= length) throw new ToolError(ErrorCode.MalformedInput, $"Corrupt single-file bundle: header offset 0x{headerOffset:X} is outside the file.");
 
-        var r = new SpanReader(data, (int)headerOffset);
+        // the manifest: a header and one record per file, read in one range
+        var r = new SpanReader(read(headerOffset, (int)Math.Min(length - headerOffset, MaxManifest)), 0);
         uint major = r.UInt32(), minor = r.UInt32();
         int count = r.Int32();
         string bundleId = r.String();
@@ -164,7 +175,7 @@ public static class Containers
             byte type = r.Byte();
             string path = r.String();
             long stored = compressed > 0 ? compressed : size;
-            if (offset < 0 || size < 0 || stored < 0 || offset > data.Length - stored) // avoids overflow of offset + stored
+            if (offset < 0 || size < 0 || stored < 0 || stored > int.MaxValue || offset > length - stored) // avoids overflow of offset + stored
             {
                 notes.Add($"Skipped {path}: its data lies outside the file (corrupt manifest).");
                 continue;
@@ -175,8 +186,8 @@ public static class Containers
                 continue;
             }
             byte[]? bytes = compressed > 0
-                ? Blob.TryDecompress(data.AsSpan((int)offset, (int)compressed), "deflate", limits.MaxItemBytes)
-                : data.AsSpan((int)offset, (int)size).ToArray();
+                ? Blob.TryDecompress(read(offset, (int)compressed), "deflate", limits.MaxItemBytes)
+                : read(offset, (int)size);
             if (bytes == null || bytes.Length != size)
             {
                 notes.Add($"Skipped {path}: decompression failed or produced the wrong size.");
@@ -271,6 +282,95 @@ public static class Containers
             return reader.Open(s, name, allFiles: false, limits, ct);
         }
         return null;
+    }
+
+    /// <summary>
+    /// A file too large to read whole that no stream reader took. A native image (<paramref name="image"/>, its bytes without
+    /// the overlay) is opened as <see cref="Open"/> opens it, a single-file bundle's manifest and entries read from the
+    /// stream where they follow the image; embedded .NET images and XALZ chunks are carved from the rest of the file in
+    /// 64 MiB windows, each one read on its own.
+    /// </summary>
+    public static ContainerContents OpenLarge(Func<Stream> open, ReadOnlySpan<byte> head, byte[]? image, long length, string name, AnalysisLimits limits, CancellationToken ct)
+    {
+        using var s = open();
+        byte[] Read(long at, int n) => ReadRange(s, at, n);
+        ContainerContents? top = null;
+        long from = 0;
+        string kind = Blob.Identify(image ?? head);
+        if (image != null)
+        {
+            var pe = PeImage.TryParse(image);
+            if ((pe != null && !pe.IsDotNet(image)) || (pe == null && kind is "elf" or "mach-o")) top = OpenBundle(image, length, Read, limits, ct);
+            top ??= Open(image, name, limits, ct);
+            if (pe != null && kind != ".NET assembly") kind = "native PE";
+            from = image.Length;
+        }
+        if (top != null && !top.Kind.EndsWith("with embedded .NET images", StringComparison.Ordinal) && top.Kind != "none") return top;
+        var (items, native) = CarveRange(s, from, length, limits, ct);
+        if (top == null)
+        {
+            var notes = new List<string>();
+            if (native > 0) notes.Add($"{native} embedded native PE image(s) found (not extracted).");
+            if (items.Count == 0) notes.Add($"Not a known container ({kind}) and no embedded .NET images were found.");
+            return new ContainerContents(items.Count > 0 ? $"{kind} with embedded .NET images" : "none", items, notes);
+        }
+        if (items.Count == 0 && native == 0) return top;
+        var merged = new List<ExtractedItem>([.. top.Items, .. items]);
+        var mergedNotes = items.Count > 0 ? top.Notes.Where(n => !n.Contains("no embedded .NET images", StringComparison.Ordinal) && !n.StartsWith("A native executable with no .NET bundle", StringComparison.Ordinal)).ToList() : [.. top.Notes];
+        if (native > 0) mergedNotes.Add($"{native} embedded native PE image(s) found after the image (not extracted).");
+        return new ContainerContents(merged.Count > 0 ? $"{kind} with embedded .NET images" : top.Kind, merged, mergedNotes);
+    }
+
+    /// <summary>.NET images and XALZ chunks carved from bytes [<paramref name="from"/>, <paramref name="to"/>) of a stream, read in windows; with the count of native PE images seen.</summary>
+    private static (List<ExtractedItem> Items, int Native) CarveRange(Stream s, long from, long to, AnalysisLimits limits, CancellationToken ct)
+    {
+        const int Window = 64 << 20, Overlap = 1 << 16;
+        var items = new List<ExtractedItem>();
+        int native = 0;
+        if (from >= to) return (items, 0);
+        var buffer = new byte[(int)Math.Min(Window, to - from)];
+        long next = from; // the first offset not inside an image already found
+        for (long w = from; w < to && items.Count + native < limits.MaxItems; w += Window - Overlap)
+        {
+            ct.ThrowIfCancellationRequested();
+            int n = (int)Math.Min(buffer.Length, to - w);
+            s.Position = w;
+            s.ReadExactly(buffer, 0, n);
+            var span = buffer.AsSpan(0, n);
+            bool last = w + n >= to;
+            int limit = last ? n : n - Overlap; // a start in the overlap is the next window's, which holds its headers
+            for (int i = (int)Math.Clamp(next - w, 0, n); i < limit && items.Count + native < limits.MaxItems;)
+            {
+                int at = span[i..limit].IndexOf("MZ"u8);
+                if (at < 0) break;
+                at += i;
+                var pe = PeImage.TryParse(span, at);
+                if (pe == null || pe.EndOfImage <= 0 || w + at + pe.EndOfImage > to) { i = at + 1; continue; }
+                long end = w + at + pe.EndOfImage;
+                byte[]? bytes = at + pe.EndOfImage <= n ? span.Slice(at, (int)pe.EndOfImage).ToArray()
+                    : pe.EndOfImage <= limits.MaxItemBytes ? ReadRange(s, w + at, (int)pe.EndOfImage) : null;
+                if (bytes != null && PeImage.TryParse(bytes)?.IsDotNet(bytes) == true) items.Add(new ExtractedItem($"carved_0x{w + at:X}.dll", bytes, $"carved .NET image at 0x{w + at:X}"));
+                else native++;
+                next = end;
+                if (end - w >= n) break;
+                i = (int)(end - w);
+            }
+            foreach (int at in Blob.FindAll(span[..limit], "XALZ"u8, limits.MaxItems))
+            {
+                ReadOnlySpan<byte> chunk = at +(long)(16 << 20) <= n ? span[at..] : ReadRange(s, w + at, (int)Math.Min(to - (w + at), 64 << 20));
+                if (Blob.TryXalz(chunk, limits.MaxItemBytes) is { } decoded) items.Add(new ExtractedItem($"xalz_0x{w + at:X}.dll", decoded, $"XALZ (LZ4) chunk at 0x{w + at:X}"));
+            }
+            if (last) break;
+        }
+        return (items, native);
+    }
+
+    private static byte[] ReadRange(Stream s, long at, int n)
+    {
+        var b = new byte[n];
+        s.Position = at;
+        s.ReadExactly(b);
+        return b;
     }
 
     private static List<(string FullName, Func<byte[]?> Read)> ZipReaders(IEnumerable<ZipArchiveEntry> entries, AnalysisLimits limits) =>

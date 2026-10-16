@@ -25,7 +25,7 @@ internal sealed class ElectronFileView : IFileSummaryView
     public string Name => "electron";
 
     public FileView? Inspect(FileInput file, CancellationToken ct) =>
-        file.Kind is "asar" or "native PE" or "elf" or "mach-o" && ElectronInspector.Of(file.Path, file.Bytes, ct) is { } facts ? new FileView(facts, [.. facts.Highlights()]) : null;
+        file.Kind is "asar" or "native PE" or "elf" or "mach-o" && ElectronInspector.Of(file.Path, file.Kind == "asar" ? file.Bytes : file.Image, ct) is { } facts ? new FileView(facts, [.. facts.Highlights()]) : null;
 }
 
 /// <summary>view=go: toolchain, main package and module, dependencies and build settings.</summary>
@@ -34,7 +34,7 @@ internal sealed class GoFileView : IFileSummaryView
     public string Name => "go";
 
     public FileView? Inspect(FileInput file, CancellationToken ct) =>
-        Native.NativeImageLoader.Detect(file.Head) != Native.NativeFileKind.Unknown && InspectionService.GoBuildFacts.Of(file.Path, file.Bytes) is { } go ? new FileView(go, [go.Highlight()]) : null;
+        Native.NativeImageLoader.Detect(file.Head) != Native.NativeFileKind.Unknown && InspectionService.GoBuildFacts.Of(file.Path, file.Image) is { } go ? new FileView(go, [go.Highlight()]) : null;
 }
 
 /// <summary>view=native: ELF / Mach-O facts, packers and protectors, NativeAOT recovery counts.</summary>
@@ -47,9 +47,9 @@ internal sealed class NativeFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         if (Native.NativeImageLoader.Detect(file.Head) is Native.NativeFileKind.Unknown or Native.NativeFileKind.Wasm) return null; // wasm: view=wasm
-        var image = NativeImageFacts.Of(file.Path, file.Bytes);
-        var packers = Native.PackerDetection.OfFile(file.Path, file.Bytes);
-        var aot = NativeAot(file.Kind, file.Bytes, ct);
+        var image = NativeImageFacts.Of(file.Path, file.Image);
+        var packers = Native.PackerDetection.OfFile(file.Path, file.Image);
+        var aot = NativeAot(file.Kind, file.Image, ct);
         if (image == null && packers.Count == 0 && aot == null) return null;
         var highlights = new List<string>(image?.Highlights ?? []);
         foreach (var p in packers)

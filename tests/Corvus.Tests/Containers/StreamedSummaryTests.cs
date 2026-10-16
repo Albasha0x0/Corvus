@@ -146,6 +146,73 @@ public sealed class StreamedSummaryTests : IDisposable
     }
 
     [Fact]
+    public void Native_images_are_held_without_their_overlay()
+    {
+        var overlay = new byte[300_000];
+        new Random(2).NextBytes(overlay);
+        var pe = new PeBuilder { Overlay = overlay };
+        pe.Sections.Add(new PeBuilder.Section { Name = ".text", Data = new byte[0x400], Characteristics = 0x60000020 });
+        var elf = new NativeFormats.ElfWriter().Build();
+        var macho = new NativeFormats.MachOWriter().Build();
+        foreach (var (name, image, appended) in new[] { ("a.dll", pe.Build(), Array.Empty<byte>()), ("a.so", elf, overlay), ("a.dylib", macho, overlay) })
+        {
+            var path = _dir.File(name);
+            File.WriteAllBytes(path, [.. image, .. appended]);
+            var input = FileInput.Open(path, streamAbove: 64);
+            Assert.Equal(new FileInfo(path).Length - overlay.Length, input.Image.Length);
+            var whole = Summary(path, streamed: false);
+            var streamed = Summary(path, streamed: true);
+            Assert.Equal(whole.File.Type, streamed.File.Type);
+            Assert.Equal(whole.Views.Keys.Order(), streamed.Views.Keys.Order());
+            Assert.Contains(streamed.Notes, n => n.Contains($"the {overlay.Length:N0} bytes after it (an overlay) are not held", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(ImageExtent))]
+    public void Fuzzed_image_extents_never_throw()
+    {
+        var failures = new List<string>();
+        foreach (var seed in new[] { new NativeFormats.ElfWriter().Build(), new NativeFormats.ElfWriter { Is64 = false }.Build(), new NativeFormats.MachOWriter().Build(),
+                     NativeFormats.MachOWriter.Fat([(NativeFormats.MachOWriter.CpuArm64, 0, new NativeFormats.MachOWriter().Build())]) })
+            failures.AddRange(FormatFuzz.Run(seed, b =>
+            {
+                if (ImageExtent.Of(b, b.Length, (at, n) => b.AsSpan((int)at, n).ToArray()) is { } end) Assert.InRange(end, 1, b.Length);
+                Containers.OpenLarge(() => new MemoryStream(b, writable: false), b, b, b.Length, "x", AnalysisLimits.Default, default);
+            }, 300));
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+    }
+
+    [Fact]
+    public void A_streamed_pe_signature_is_verified_in_ranges()
+    {
+        var folder = Path.GetDirectoryName(ContainerFixtures.NuGetPackage("Microsoft.CodeAnalysis.Common"))!;
+        var signed = Directory.EnumerateFiles(Path.Combine(folder, "lib"), "Microsoft.CodeAnalysis.dll", SearchOption.AllDirectories).Order(StringComparer.Ordinal).First();
+        var path = _dir.File("signed.dll");
+        File.Copy(signed, path);
+        var whole = Summary(path, streamed: false).File.Certificate;
+        Assert.True(whole.Present && whole.DigestMatches == true, whole.ToString());
+        Assert.Equal(whole, Summary(path, streamed: true).File.Certificate);
+        var grafted = _dir.File("grafted.dll"); // a signature over other bytes
+        File.WriteAllBytes(grafted, ContainerFuzzTests.SignedFixture());
+        Assert.Equal((true, false), (Summary(grafted, streamed: true).File.Certificate.Present, Summary(grafted, streamed: true).File.Certificate.DigestMatches));
+    }
+
+    [Fact]
+    public void Embedded_assemblies_are_carved_from_a_stream_in_windows()
+    {
+        var path = _dir.File("blob.bin");
+        var padding = new byte[100_000];
+        new Random(3).NextBytes(padding);
+        File.WriteAllBytes(path, [.. padding, .. File.ReadAllBytes(Env.FixturePath), .. padding]);
+        var whole = Summary(path, streamed: false);
+        var streamed = Summary(path, streamed: true);
+        Assert.Equal(whole.Container, streamed.Container);
+        Assert.Equal(whole.Assemblies.Select(a => (a.Path, a.Sha256)), streamed.Assemblies.Select(a => (a.Path, a.Sha256)));
+        Assert.Single(streamed.Assemblies);
+    }
+
+    [Fact]
     public void Hermes_view_reads_a_package_whole_only_when_it_names_a_bundle()
     {
         var path = _dir.File("app.apk");

@@ -36,7 +36,7 @@ internal sealed class FlutterFileView : IFileSummaryView
             if (file.HasZipEntry(DartPoolScan.IsAppEntry))
                 using (var package = file.OpenRead()) bytes = DartPoolScan.AppImage(package, out inner);
         }
-        else bytes = NativeImageLoader.Detect(file.Head) == NativeFileKind.Unknown ? null : file.Bytes;
+        else bytes = NativeImageLoader.Detect(file.Head) == NativeFileKind.Unknown ? null : file.Image;
         if (bytes == null || NativeImageLoader.Detect(bytes) == NativeFileKind.Unknown) return null;
         var snapshots = DartScan.Snapshots(bytes, ct);
         if (snapshots.Count > 0)

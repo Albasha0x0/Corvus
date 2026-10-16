@@ -48,7 +48,7 @@ public sealed class WasmModule
         return m;
     }
 
-    private static readonly string[] Names = ["custom", "type", "import", "function", "table", "memory", "global", "export", "start", "element", "code", "data", "datacount", "tag"];
+    internal static readonly string[] Names = ["custom", "type", "import", "function", "table", "memory", "global", "export", "start", "element", "code", "data", "datacount", "tag"];
     private static string KindName(byte k) => k switch { 0 => "func", 1 => "table", 2 => "memory", 3 => "global", 4 => "tag", _ => $"kind {k}" };
 
     private void Section(byte id, byte[] d, int p, int end)

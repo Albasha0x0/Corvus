@@ -41,7 +41,7 @@ internal sealed class ProtobufFileView : IFileSummaryView
             bool native = NativeImageLoader.Detect(head) != NativeFileKind.Unknown;
             bool dex = DexFile.IsDex(head);
             if (!native && !dex) return null;
-            var bytes = file.Bytes;
+            var bytes = native ? file.Image : file.Bytes;
             // C# descriptors reference Google.Protobuf; the others keep ".proto" names in their bytes
             bool dotnet = file.Kind == ".NET assembly";
             if (!asked && bytes.AsSpan().IndexOf(dotnet ? "Google.Protobuf"u8 : ".proto"u8) < 0) return null;

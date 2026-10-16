@@ -6,8 +6,9 @@ namespace Corvus.Services.Analysis;
 /// <summary>
 /// A file as summarize_file reads it. A file up to <see cref="StreamAbove"/> bytes is read whole; a larger one keeps only its
 /// <see cref="Head"/> in memory and is read through <see cref="OpenRead"/> by the views that stream (pcap, SQLite, zip, HAR,
-/// archives); <see cref="Bytes"/> reads it whole on first use, for the formats that need the whole image.
-/// <see cref="Kind"/> is Blob.Identify of the head (of the whole file for an MZ image, whose PE checks need it).
+/// archives); <see cref="Image"/> holds a native image without the overlay after it; <see cref="Bytes"/> reads it whole on
+/// first use, for the formats that need the whole file. <see cref="Kind"/> is Blob.Identify of the head (of the image for an
+/// MZ file, whose PE checks need its sections).
 /// </summary>
 public sealed class FileInput
 {
@@ -38,7 +39,7 @@ public sealed class FileInput
     }
 
     public string Path { get; }
-    public string Kind { get; }
+    public string Kind { get; private set; }
     public long Length { get; }
 
     /// <summary>The start of the file (all of it when it is in memory).</summary>
@@ -52,6 +53,55 @@ public sealed class FileInput
 
     /// <summary>The whole file, read on first use when streamed.</summary>
     public byte[] Bytes => _bytes ??= ReadWhole();
+
+    private byte[]? _image;
+    private long? _imageLength;
+
+    /// <summary>
+    /// What the parsers of a native image read: a streamed PE, ELF or Mach-O file up to the end of its last section or
+    /// segment (<see cref="ImageExtent"/>), so an overlay appended after it is not held; the whole file otherwise.
+    /// </summary>
+    public byte[] Image
+    {
+        get
+        {
+            if (_image != null) return _image;
+            if (Streamed && _bytes == null && Wasm is { } wasm) return _image = wasm.Bytes;
+            if (!Streamed || _bytes != null || ImageLength >= Length) return _image = Bytes;
+            if (ImageLength > Array.MaxLength)
+                throw new ToolError(ErrorCode.LimitExceeded, $"{Path}'s image is too large to read whole ({ImageLength:N0} bytes); only the views that stream it apply.");
+            var image = new byte[ImageLength];
+            using (var s = OpenRead()) s.ReadExactly(image);
+            return _image = image;
+        }
+    }
+
+    private WasmCompact? _wasm;
+
+    /// <summary>A streamed WebAssembly module without its bulk (data segment contents, large custom sections); null otherwise.</summary>
+    public WasmCompact? Wasm
+    {
+        get
+        {
+            if (_wasm != null || !Streamed || !WasmModule.IsWasm(Head)) return _wasm;
+            using var s = OpenRead();
+            return _wasm = WasmCompact.Read(s, default);
+        }
+    }
+
+    /// <summary>The end of a streamed native image in its file (<see cref="ImageExtent"/>), else the file's length.</summary>
+    public long ImageLength => _imageLength ??= Streamed ? ImageExtent.Of(Head, Length, ReadAt) ?? Length : Length;
+
+    /// <summary><paramref name="count"/> bytes at <paramref name="offset"/>.</summary>
+    public byte[] ReadAt(long offset, int count)
+    {
+        if (_bytes != null) return _bytes.AsSpan((int)offset, count).ToArray();
+        var b = new byte[count];
+        using var s = OpenRead();
+        s.Position = offset;
+        s.ReadExactly(b);
+        return b;
+    }
 
     /// <summary>A seekable read-only stream over the file; the caller disposes it.</summary>
     public Stream OpenRead() => _bytes != null
@@ -87,11 +137,7 @@ public sealed class FileInput
         var head = new byte[Math.Min(HeadBytes, length)];
         using (var f = File.OpenRead(full)) f.ReadExactly(head);
         var input = new FileInput(full, length, head);
-        if (head[0] == 'M' && head[1] == 'Z')
-        {
-            var bytes = input.Bytes; // the PE checks behind Identify need the whole image
-            return new FileInput(full, bytes, Blob.Identify(bytes));
-        }
+        if (head[0] == 'M' && head[1] == 'Z') input.Kind = Blob.Identify(input.Image); // the PE checks behind Identify read its sections
         return input;
     }
 

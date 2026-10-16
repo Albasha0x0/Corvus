@@ -231,6 +231,18 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
+    public void A_streamed_bundle_reads_its_manifest_and_entries_past_the_image()
+    {
+        InspectionService.FileSummary Summary(long streamAbove) => new InspectionService(_workspace) { StreamAbove = streamAbove }.Summarize(null, fx.Bundle, default);
+        var whole = Summary(FileInput.StreamAbove);
+        var streamed = Summary(64);
+        Assert.Equal(".NET single-file bundle", streamed.Container);
+        Assert.Equal(whole.Assemblies.Select(a => (a.Path, a.Sha256)), streamed.Assemblies.Select(a => (a.Path, a.Sha256)));
+        Assert.Equal(whole.File.Type, streamed.File.Type);
+        Assert.Contains(streamed.Notes, n => n.Contains("(an overlay) are not held", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void BlazorFolderWithoutItsAssembliesIsNotFound()
     {
         var app = Path.Combine(_dir.Path, "app");

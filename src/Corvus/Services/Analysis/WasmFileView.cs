@@ -22,8 +22,16 @@ internal sealed class WasmFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         if (!WasmModule.IsWasm(file.Head)) return null;
-        var m = WasmModule.Read(file.Bytes);
-        var binary = Core.WebAssembly.WasmBinary.Read(file.Bytes, ct);
+        var compact = file.Wasm;
+        var bytes = compact?.Bytes ?? file.Bytes;
+        var m = WasmModule.Read(bytes);
+        var binary = Core.WebAssembly.WasmBinary.Read(bytes, ct);
+        if (compact != null)
+        {
+            // sizes as the file has them; the bulk left out is named
+            m.Sections.Clear();
+            m.Sections.AddRange(compact.Sections);
+        }
         var validation = Core.WebAssembly.WasmValidator.Validate(binary, ct);
         var glue = Core.WebAssembly.WasmGlue.Beside(binary, file.Path, ct);
         var toolchain = Toolchain(m);
@@ -45,6 +53,9 @@ internal sealed class WasmFileView : IFileSummaryView
             $"WebAssembly module: {m.DefinedFunctions:N0} functions, {m.Imports.Count} imports from {facts.ImportsByModule.Count} module(s), {m.Exports.Count} exports" +
             (toolchain != null ? $"; built by {toolchain}" : "") + ".",
         };
+        if (compact is { Omitted: > 0 })
+            highlights.Add($"Read as a stream: {compact.Omitted:N0} bytes of data segment contents and large custom sections not held" +
+                           (compact.OmittedBeforeCode > 0 ? $"; code offsets are {compact.OmittedBeforeCode:N0} lower than the file's." : "."));
         if (m.FunctionNames.Count > 0) highlights.Add($"Name section: {m.FunctionNames.Count:N0} function names (debug names kept).");
         if (m.Issues.Count > 0) highlights.Add($"{m.Issues.Count} structure issue(s): {m.Issues[0]}.");
         if (glue != null)

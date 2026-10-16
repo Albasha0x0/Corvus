@@ -34,28 +34,62 @@ public static class Certificates
 
     public static CertificateInfo Read(byte[] file) => Read(file, out _);
 
-    private static CertificateInfo Read(byte[] file, out SignedCms? signed)
+    private static CertificateInfo Read(byte[] file, out SignedCms? signed) =>
+        Read(file, file.Length, (at, n) => file.AsSpan((int)at, n).ToArray(), (hash, at, n) => hash.AppendData(file, (int)at, (int)n), out signed);
+
+    /// <summary>
+    /// The Authenticode signature of a PE in a seekable stream: its headers from <paramref name="headers"/>, then the
+    /// certificate table and the image digest read in ranges, so a large file is never held whole.
+    /// </summary>
+    public static CertificateInfo Read(Stream file, ReadOnlySpan<byte> headers)
+    {
+        var buffer = new byte[1 << 20];
+        byte[] Read(long at, int n)
+        {
+            var b = new byte[n];
+            file.Position = at;
+            file.ReadExactly(b);
+            return b;
+        }
+        void Append(IncrementalHash hash, long at, long n)
+        {
+            file.Position = at;
+            for (long done = 0; done < n;)
+            {
+                int got = file.Read(buffer, 0, (int)Math.Min(buffer.Length, n - done));
+                if (got <= 0) throw new EndOfStreamException();
+                hash.AppendData(buffer, 0, got);
+                done += got;
+            }
+        }
+        return Certificates.Read(headers, file.Length, Read, Append, out _);
+    }
+
+    /// <summary>The signature of the PE whose headers are <paramref name="headers"/>, its other bytes read by <paramref name="read"/> and hashed by <paramref name="append"/>.</summary>
+    private static CertificateInfo Read(ReadOnlySpan<byte> headers, long fileLength, Func<long, int, byte[]> read, Action<IncrementalHash, long, long> append,
+        out SignedCms? signed)
     {
         signed = null;
-        var pe = PeImage.TryParse(file);
+        var pe = PeImage.TryParse(headers);
         if (pe == null) return new CertificateInfo(false, Problem: "not a PE file");
-        var (offset, size) = pe.Directory(file, SecurityDirectory); // file offset, not an RVA
+        var (offset, size) = pe.Directory(headers, SecurityDirectory); // file offset, not an RVA
         if (offset == 0 || size == 0) return new CertificateInfo(false);
-        if (offset < 8 || (long)offset + size > file.Length || size < 8)
+        if (offset < 8 || (long)offset + size > fileLength || size < 8)
             return new CertificateInfo(true, Problem: "the certificate table lies outside the file (truncated or corrupt)");
 
-        uint length = BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan((int)offset));
-        ushort type = BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan((int)offset + 6));
+        var table = read(offset, (int)size);
+        uint length = BinaryPrimitives.ReadUInt32LittleEndian(table);
+        ushort type = BinaryPrimitives.ReadUInt16LittleEndian(table.AsSpan(6));
         if (type != WinCertTypePkcsSignedData || length < 8 || length > size)
             return new CertificateInfo(true, Problem: $"unsupported certificate entry (type {type}, length {length})");
 
         var cms = new SignedCms();
-        try { cms.Decode(file.AsSpan((int)offset + 8, (int)length - 8)); }
+        try { cms.Decode(table.AsSpan(8, (int)length - 8)); }
         catch (CryptographicException ex) { return new CertificateInfo(true, Problem: $"signature unreadable: {ex.Message}"); }
         // SignedCms parses certificates lazily; damaged ones throw on first use.
         try
         {
-            var info = Read(file, pe, offset, size, cms);
+            var info = Read(fileLength, append, pe, offset, size, cms);
             signed = cms;
             return info;
         }
@@ -65,7 +99,7 @@ public static class Certificates
         }
     }
 
-    private static CertificateInfo Read(byte[] file, PeImage pe, uint offset, uint size, SignedCms cms)
+    private static CertificateInfo Read(long fileLength, Action<IncrementalHash, long, long> append, PeImage pe, uint offset, uint size, SignedCms cms)
     {
         if (cms.SignerInfos.Count == 0) return new CertificateInfo(true, Problem: "the signature has no signer");
 
@@ -75,7 +109,7 @@ public static class Certificates
         bool? matches = null;
         if (algorithm != null && expected != null && HashName(algorithm) is { } hash
             && offset >= pe.DirectoryEntryOffset(SecurityDirectory) + 8) // a table inside the headers cannot be excluded from the hash
-            matches = ImageDigest(file, pe, offset, size, hash).AsSpan().SequenceEqual(expected);
+            matches = ImageDigest(fileLength, append, pe, offset, size, hash).AsSpan().SequenceEqual(expected);
 
         bool? valid;
         try { signer.CheckSignature(verifySignatureOnly: true); valid = true; }
@@ -142,16 +176,16 @@ public static class Certificates
     /// <summary>
     /// Authenticode image digest: the whole file except CheckSum, the security directory entry and the certificate table.
     /// </summary>
-    internal static byte[] ImageDigest(byte[] file, PeImage pe, uint certOffset, uint certSize, HashAlgorithmName algorithm)
+    private static byte[] ImageDigest(long fileLength, Action<IncrementalHash, long, long> append, PeImage pe, uint certOffset, uint certSize, HashAlgorithmName algorithm)
     {
         using var hash = IncrementalHash.CreateHash(algorithm);
         int checksum = pe.ChecksumOffset;
         int entry = pe.DirectoryEntryOffset(SecurityDirectory);
-        hash.AppendData(file, 0, checksum);
-        hash.AppendData(file, checksum + 4, entry - (checksum + 4));
-        hash.AppendData(file, entry + 8, (int)certOffset - (entry + 8));
+        append(hash, 0, checksum);
+        append(hash, checksum + 4, entry - (checksum + 4));
+        append(hash, entry + 8, certOffset - (entry + 8));
         long after = (long)certOffset + certSize;
-        if (after < file.Length) hash.AppendData(file, (int)after, file.Length - (int)after);
+        if (after < fileLength) append(hash, after, fileLength - after);
         return hash.GetHashAndReset();
     }
 

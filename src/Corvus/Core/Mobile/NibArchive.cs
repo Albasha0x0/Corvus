@@ -42,9 +42,21 @@ public static class NibArchive
     public static Graph? Read(byte[] data)
     {
         if (IsNibArchive(data)) return ReadNibArchive(data);
-        var doc = Plist.Read(data);
-        return KeyedArchive.IsKeyedArchive(doc.Root) && doc.Root is PlistDict root ? FromKeyedArchive(root) : null;
+        return Keyed(Plist.Read(data));
     }
+
+    /// <summary>The graph of a seekable stream: a keyed archive read without holding the file (values kept to <paramref name="maxValue"/> bytes), a NIBArchive read whole.</summary>
+    public static Graph? Read(Stream data, int maxValue)
+    {
+        var head = new byte[50];
+        data.Position = 0;
+        int n = data.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+        data.Position = 0;
+        if (IsNibArchive(head.AsSpan(0, n))) return ReadNibArchive(Blob.ReadBounded(data, Array.MaxLength) ?? []);
+        return Keyed(Plist.Read(data, maxValue));
+    }
+
+    private static Graph? Keyed(PlistDocument doc) => KeyedArchive.IsKeyedArchive(doc.Root) && doc.Root is PlistDict root ? FromKeyedArchive(root) : null;
 
     private static Graph ReadNibArchive(byte[] d)
     {

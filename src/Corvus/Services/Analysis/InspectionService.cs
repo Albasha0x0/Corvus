@@ -481,8 +481,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             return WithViews(new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message, .. viewNotes]));
         }
         var reportNotes = new List<string>(managed.Notes);
-        if (!input.Streamed) reportNotes.AddRange(MappingNotes(input.Bytes));
-        else reportNotes.Add($"Read as a stream ({input.Length:N0} bytes): hashes, captures, databases, zip, HAR and archives in bounded memory.");
+        reportNotes.AddRange(MappingNotes(input.Streamed ? input.Head : input.Bytes)); // the section table is in the headers
+        if (input.Streamed)
+        {
+            reportNotes.Add($"Read as a stream ({input.Length:N0} bytes): hashes, captures, databases, zip, HAR, flows, packages and archives in bounded memory.");
+            if (input.ImageLength < input.Length)
+                reportNotes.Add($"The native image ends at byte {input.ImageLength:N0}; the {input.Length - input.ImageLength:N0} bytes after it (an overlay) are not held.");
+        }
         var summarized = new List<AssemblySummary>();
         // Order: host, main, libraries, framework; satellite assemblies are skipped.
         var ranked = managed.Assemblies.Select((a, i) => (a, i, Rank: Rank(a, full))).ToList();
@@ -613,7 +618,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     {
         if (!input.Streamed) return Facts(input.Path, input.Bytes);
         var (md5, sha1, sha256, entropy) = input.Hashes(ct);
-        return new(input.Path, input.Length, md5, sha1, sha256, input.Kind, Math.Round(entropy, 2), new CertificateInfo(false));
+        CertificateInfo certificate;
+        if (PeImage.TryParse(input.Head) == null) certificate = new CertificateInfo(false);
+        else
+            using (var stream = input.OpenRead()) certificate = Certificates.Read(stream, input.Head);
+        return new(input.Path, input.Length, md5, sha1, sha256, input.Kind, Math.Round(entropy, 2), certificate);
     }
 
     private static FileFacts Facts(string path, byte[] bytes) =>
