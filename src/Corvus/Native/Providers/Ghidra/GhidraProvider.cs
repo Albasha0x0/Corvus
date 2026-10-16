@@ -21,6 +21,8 @@ public sealed record GhidraProviderOptions
     public string? ExtraOptions { get; init; }
     /// <summary>Directory of Ghidra extensions to install for the workers; null: CORVUS_GHIDRA_EXTENSIONS.</summary>
     public string? ExtensionsDirectory { get; init; }
+    /// <summary>A Python with PyGhidra that hosts the workers (else <see cref="GhidraOptions.PythonVariable"/>); Python scripts need it.</summary>
+    public string? Python { get; init; }
     /// <summary>Per-function decompiler limit; null: CORVUS_GHIDRA_DECOMPILE_TIMEOUT, else 60 s.</summary>
     public TimeSpan? DecompileTimeout { get; init; }
     /// <summary>Decompiler response limit in MB; null: CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB, else 200.</summary>
@@ -73,6 +75,12 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     /// <summary>The extensions the workers load (read with the static checks).</summary>
     internal IReadOnlyList<GhidraExtension> Extensions { get; private set; } = [];
+
+    /// <summary>The Python that hosts the workers under PyGhidra (read with the static checks); null runs a plain JVM, Java scripts only.</summary>
+    internal string? PythonHost { get; private set; }
+
+    /// <summary>Why the configured Python cannot host the workers, or null.</summary>
+    internal string? PythonProblem { get; private set; }
 
     public ProviderAvailability CheckAvailability() => Static().Result;
 
@@ -130,6 +138,9 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             details["decompile"] = $"{DecompileTimeout.TotalSeconds:0} s, {DecompilePayloadMb} MB";
             Extensions = GhidraExtensions.Configured(_options.ExtensionsDirectory ?? Environment.GetEnvironmentVariable(GhidraOptions.ExtensionsVariable));
             if (Extensions.Count > 0) details["extensions"] = string.Join(", ", Extensions.Select(e => e.Name));
+            (PythonHost, PythonProblem) = PyGhidraPython(_options.Python ?? Environment.GetEnvironmentVariable(GhidraOptions.PythonVariable));
+            if (PythonHost != null) details["python"] = PythonHost + " (PyGhidra)";
+            else if (PythonProblem != null) details["python"] = PythonProblem;
         }
         catch (ToolError e)
         {
@@ -182,6 +193,21 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             session.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// The configured Python when it imports PyGhidra and JPype (install them from the Ghidra release, offline:
+    /// python -m pip install --no-index -f Ghidra/Features/PyGhidra/pypkg/dist pyghidra); else why not.
+    /// </summary>
+    private static (string? Python, string? Problem) PyGhidraPython(string? configured)
+    {
+        if (string.IsNullOrWhiteSpace(configured)) return (null, null);
+        var python = configured.Trim().Trim('"');
+        if (!File.Exists(python)) return (null, $"{GhidraOptions.PythonVariable}: {python} does not exist");
+        var run = PythonLocator.RunCapture(python, ["-I", "-c", "import pyghidra, jpype; print(pyghidra.__version__)"], TimeSpan.FromSeconds(30));
+        if (run.StartError != null || run.TimedOut || run.ExitCode != 0)
+            return (null, $"{GhidraOptions.PythonVariable}: {python} cannot import pyghidra ({run.StartError ?? (run.TimedOut ? "timed out" : run.Stderr.Trim().Split('\n').LastOrDefault())})");
+        return (python, null);
     }
 
     private static bool IsWasm(string path)
@@ -293,9 +319,16 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             throw new ToolError(ErrorCode.IoError, $"Installing the Ghidra extensions into {dirs.Settings} failed: {ex.Message}",
                 $"Check the extensions in {GhidraOptions.ExtensionsVariable} and that the analysis cache is writable.");
         }
-        var vmArgs = await Task.Run(() => GhidraLaunch.VmArgs(ghidra, java), cancellationToken).ConfigureAwait(false);
         var memory = GhidraOptions.MaxMemory(_options.MaxMemory ?? Environment.GetEnvironmentVariable(GhidraOptions.MaxMemoryVariable), imageBytes);
-        var start = new ChildProcessStart(java.Java, GhidraLaunch.Arguments(ghidra, vmArgs, memory, dirs, jars.Boot, jars.Worker))
+        ChildProcessStart start;
+        if (PythonHost is { } python)
+            start = new ChildProcessStart(python, ["-I", .. GhidraLaunch.PyGhidraArguments(ghidra, java, memory, dirs, jars.Boot, jars.Worker)]);
+        else
+        {
+            var vmArgs = await Task.Run(() => GhidraLaunch.VmArgs(ghidra, java), cancellationToken).ConfigureAwait(false);
+            start = new ChildProcessStart(java.Java, GhidraLaunch.Arguments(ghidra, vmArgs, memory, dirs, jars.Boot, jars.Worker));
+        }
+        start = start with
         {
             WorkingDirectory = dirs.Temp,
             // Options a user set for their own Java programs must not reach the worker (a second -Xmx, an agent, a debugger).

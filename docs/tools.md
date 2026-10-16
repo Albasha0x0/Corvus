@@ -2301,15 +2301,16 @@ Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `sa
 
 **Run a Ghidra script on a native image** (destructive, open-world, long-running)
 
-Run Java in the Ghidra worker of a native image: a GhidraScript class, run()'s body (imports first; currentProgram, println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.
+Run Java or Python (PyGhidra, CORVUS_GHIDRA_PYTHON) in the Ghidra worker of a native image: a GhidraScript class, run()'s body (imports first; currentProgram, println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
-| `code` | string |  |  | Java source: a class extending GhidraScript, or statements for run(). |
+| `code` | string |  |  | Java (a class extending GhidraScript, or statements for run()) or Python source. |
 | `name` | string |  |  | Instead of code: a script in Ghidra's script folders, then <data>/ghidra_scripts. |
 | `args` | string[] |  |  | With name: the script's arguments (getScriptArgs). |
 | `timeoutSeconds` | integer |  | `120` | Seconds before the script is cancelled (1-3600). |
+| `language` | string |  |  | java (default) or python; name *.py is Python. |
 | `engine` | string |  |  | Default auto. Values: auto, ghidra. |
 | `maxTokens` | integer |  |  |  |
 | `allowError` | boolean |  |  | Return an exception as the result instead of an error. |

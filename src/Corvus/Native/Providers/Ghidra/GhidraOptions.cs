@@ -31,6 +31,8 @@ public static class GhidraOptions
     public const string OptionsVariable = "CORVUS_GHIDRA_OPTIONS";
     /// <summary>A directory of Ghidra extensions (zips or unpacked) installed into the workers' private settings (see <see cref="GhidraExtensions"/>).</summary>
     public const string ExtensionsVariable = "CORVUS_GHIDRA_EXTENSIONS";
+    /// <summary>A Python (3.9+) with PyGhidra installed: workers start under it so Python GhidraScripts run (see pyghidra_host.py).</summary>
+    public const string PythonVariable = "CORVUS_GHIDRA_PYTHON";
 
     /// <summary>Bumped when the worker protocol or what the worker stores in a project changes; part of the profile key.</summary>
     public const int ProtocolVersion = 1;

@@ -50,24 +50,37 @@ public static class GhidraLaunch
 
     /// <summary>Arguments after the java executable: <paramref name="vmArgs"/>, heap, private directories, then ghidra.Ghidra starting the boot class.</summary>
     public static IReadOnlyList<string> Arguments(GhidraInstallation ghidra, IReadOnlyList<string> vmArgs, string maxMemory, GhidraDirectories dirs,
+        string bootJar, string workerJar) =>
+        [.. vmArgs, .. ServerVmArgs(maxMemory, dirs, workerJar), "-cp", ghidra.UtilityJar + Path.PathSeparator + bootJar, "ghidra.Ghidra", BootClass];
+
+    /// <summary>The server's VM arguments: heap, GC threads, headless, the private directories and the worker jar.</summary>
+    private static List<string> ServerVmArgs(string maxMemory, GhidraDirectories dirs, string workerJar) =>
+    [
+        "-Xmx" + maxMemory,
+        "-XX:ParallelGCThreads=" + Math.Clamp(Environment.ProcessorCount / 2, 1, 4),
+        "-Djava.awt.headless=true",
+        "-Duser.home=" + dirs.Home,
+        "-Dapplication.settingsdir=" + dirs.Settings,
+        "-Dapplication.cachedir=" + dirs.Cache,
+        "-Dapplication.tempdir=" + dirs.Temp,
+        "-Djava.io.tmpdir=" + dirs.Temp,
+        $"-D{WorkerJarProperty}={workerJar}",
+    ];
+
+    /// <summary>
+    /// Arguments after the Python executable when PyGhidra hosts the worker: the host script and a JSON file of the install,
+    /// the JDK, the server's VM arguments and the boot jar; PyGhidra adds Ghidra's own VM arguments from launch.properties.
+    /// </summary>
+    public static IReadOnlyList<string> PyGhidraArguments(GhidraInstallation ghidra, JavaRuntime java, string maxMemory, GhidraDirectories dirs,
         string bootJar, string workerJar)
     {
-        var args = new List<string>(vmArgs)
+        var host = EmbeddedScript.Extract("Corvus.Native.Providers.Ghidra.pyghidra_host.py", dirs.Workers, "pyghidra_host", ".py");
+        var config = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object>
         {
-            "-Xmx" + maxMemory,
-            "-XX:ParallelGCThreads=" + Math.Clamp(Environment.ProcessorCount / 2, 1, 4),
-            "-Djava.awt.headless=true",
-            "-Duser.home=" + dirs.Home,
-            "-Dapplication.settingsdir=" + dirs.Settings,
-            "-Dapplication.cachedir=" + dirs.Cache,
-            "-Dapplication.tempdir=" + dirs.Temp,
-            "-Djava.io.tmpdir=" + dirs.Temp,
-            $"-D{WorkerJarProperty}={workerJar}",
-            "-cp",
-            ghidra.UtilityJar + Path.PathSeparator + bootJar,
-            "ghidra.Ghidra",
-            BootClass,
-        };
-        return args;
+            ["ghidra"] = ghidra.Directory, ["java_home"] = java.Home, ["vmargs"] = ServerVmArgs(maxMemory, dirs, workerJar), ["boot_jar"] = bootJar,
+        });
+        var file = Path.Combine(dirs.Temp, "pyghidra-" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(config)))[..12] + ".json");
+        if (!File.Exists(file)) File.WriteAllText(file, config);
+        return [host, file];
     }
 }

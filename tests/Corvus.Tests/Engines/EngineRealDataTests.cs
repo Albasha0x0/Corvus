@@ -80,9 +80,32 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
             "import ghidra.app.script.GhidraScript;\npublic class EchoArgs extends GhidraScript {\n    @Override\n    public void run() throws Exception { println(\"args \" + String.join(\"|\", getScriptArgs())); }\n}\n");
         Assert.Contains("args a|b c", await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "EchoArgs", ["args"] = new[] { "a", "b c" }, ["engine"] = "ghidra" }));
         var python = await c.CallToolAsync("ghidra_script", new Dictionary<string, object?> { ["image"] = image, ["name"] = "Example.py", ["engine"] = "ghidra" });
-        Assert.Contains("unsupported", string.Concat(python.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text)));
+        // without a PyGhidra Python the workers run in a plain JVM
+        if (Environment.GetEnvironmentVariable(Corvus.Native.Providers.Ghidra.GhidraOptions.PythonVariable) is not { Length: > 0 })
+            Assert.Contains("CORVUS_GHIDRA_PYTHON", string.Concat(python.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text)));
         var pcode = await Log(c, "decompile_native", new() { ["image"] = image, ["address"] = function, ["view"] = "pcode", ["engine"] = "ghidra" });
         Assert.Contains("block 0", pcode);
         Assert.Contains("RETURN", pcode);
+    }
+
+    /// <summary>With CORVUS_GHIDRA_PYTHON (a Python with PyGhidra) the worker runs under PyGhidra: Python code and installed .py scripts run in it.</summary>
+    [RequiresRealDataFact("CORVUS_GHIDRA_DIR", "CORVUS_GHIDRA_PYTHON")]
+    public async Task Ghidra_python_scripts_run_under_pyghidra()
+    {
+        var image = Image();
+        await using var c = await McpProtocolTests.StartServerInAsync(_dir.Path, "--ghidra-scripting");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var text = await Log(c, "ghidra_script", new()
+        {
+            ["image"] = image, ["language"] = "python", ["engine"] = "ghidra",
+            ["code"] = "fm = currentProgram.getFunctionManager()\nprint('python', currentProgram.getName(), fm.getFunctionCount() > 0)",
+        });
+        output.WriteLine($"first python script {clock.ElapsedMilliseconds} ms (worker start and analysis included)");
+        Assert.Contains("python jitinterface_x64.dll True", text);
+        var userScripts = Directory.CreateDirectory(Path.Combine(Corvus.Native.Providers.DataFolder.Root, "ghidra_scripts")).FullName;
+        File.WriteAllText(Path.Combine(userScripts, "echo_args.py"), "print('args ' + '|'.join(getScriptArgs()))\n");
+        Assert.Contains("args a|b c", await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "echo_args.py", ["args"] = new[] { "a", "b c" }, ["engine"] = "ghidra" }));
+        // Java still runs in the same worker
+        Assert.Contains("jitinterface_x64.dll", await Log(c, "ghidra_script", new() { ["image"] = image, ["code"] = "println(currentProgram.getName());", ["engine"] = "ghidra" }));
     }
 }

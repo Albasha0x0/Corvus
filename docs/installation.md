@@ -220,7 +220,7 @@ Server options and their environment variables are in the README ("Server option
 | `CORVUS_RELAY_DIR` | Folder of the development reload relay's staged copies. |
 | `CORVUS_OFFLINE` | `1`: never download reference packs, symbols or a runtime DAC. |
 | `CORVUS_IDA_DIR`, `CORVUS_IDA_PYTHON` | IDA installation folder and the Python interpreter for idalib (found automatically otherwise). |
-| `CORVUS_GHIDRA_DIR`, `CORVUS_GHIDRA_JAVA`, `CORVUS_GHIDRA_ANALYSIS`, `CORVUS_GHIDRA_COMPLETION`, `CORVUS_GHIDRA_MAXMEM`, `CORVUS_GHIDRA_OPTIONS`, `CORVUS_GHIDRA_EXTENSIONS`, `CORVUS_GHIDRA_DECOMPILE_TIMEOUT`, `CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB` | Ghidra installation, JDK, analysis profile, JVM heap, analyzer options, extension zips and decompiler limits (README, "Server options"). |
+| `CORVUS_GHIDRA_DIR`, `CORVUS_GHIDRA_JAVA`, `CORVUS_GHIDRA_ANALYSIS`, `CORVUS_GHIDRA_COMPLETION`, `CORVUS_GHIDRA_MAXMEM`, `CORVUS_GHIDRA_OPTIONS`, `CORVUS_GHIDRA_EXTENSIONS`, `CORVUS_GHIDRA_DECOMPILE_TIMEOUT`, `CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB`, `CORVUS_GHIDRA_PYTHON` | Ghidra installation, JDK, analysis profile, JVM heap, analyzer options, extension zips, decompiler limits and the Python with PyGhidra that hosts the workers for Python scripts (README, "Server options"). |
 | `CORVUS_FRIDA_PYTHON` | The Python interpreter with Frida's bindings (`pip install frida`) that runs the session tools' worker (found automatically otherwise). |
 | `CORVUS_LIVE_MAX_MINUTES` | How long a session stays open before it is closed (default 30). |
 | `CORVUS_ENGINE_MEMORY_MB` | Memory limit of each IDA or Ghidra worker in MB (`0` removes it). |
@@ -323,7 +323,10 @@ options (`Name=value;...`), and `CORVUS_GHIDRA_EXTENSIONS` a directory of Ghidra
 analyzer, for example), installed into the workers' private settings; nothing is downloaded. Projects are kept per file hash
 and configuration, so a changed profile or extension set analyzes again once. `CORVUS_GHIDRA_DECOMPILE_TIMEOUT` (seconds, default 60)
 and `CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB` (default 200) bound one decompilation; a timeout or an oversized result is retried once
-with four times the time and twice the data.
+with four times the time and twice the data. `CORVUS_GHIDRA_PYTHON` names a Python 3.9+ with PyGhidra, installed offline from the
+Ghidra release (`python -m pip install --no-index -f <ghidra>/Ghidra/Features/PyGhidra/pypkg/dist pyghidra`): the workers then
+start under it (PyGhidra runs Python only in a JVM its own process starts) and `ghidra_script language=python` or a `.py` name runs
+Python scripts; without it they run in a plain JVM and take Java scripts only.
 
 Other external programs are optional and each is found through one variable (a file or its folder), then as listed;
 `server_status` reports where each was found, its version, or the fix. They run in their own process tree with a minimal

@@ -96,15 +96,16 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     private const int MaxScriptBytes = 1 << 20;
 
     [McpServerTool(Name = "ghidra_script", Title = "Run a Ghidra script on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
-    [Description("Run Java in the Ghidra worker of a native image: a GhidraScript class, run()'s body (imports first; currentProgram, " +
-                 "println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back on an exception. " +
-                 "Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.")]
+    [Description("Run Java or Python (PyGhidra, CORVUS_GHIDRA_PYTHON) in the Ghidra worker of a native image: a GhidraScript class, run()'s body " +
+                 "(imports first; currentProgram, println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back " +
+                 "on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.")]
     public Task<string> GhidraScript(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Java source: a class extending GhidraScript, or statements for run().")] string? code = null,
+        [Description("Java (a class extending GhidraScript, or statements for run()) or Python source.")] string? code = null,
         [Description("Instead of code: a script in Ghidra's script folders, then <data>/ghidra_scripts.")] string? name = null,
         [Description("With name: the script's arguments (getScriptArgs).")] string[]? args = null,
         [Description("Seconds before the script is cancelled (1-3600).")] int timeoutSeconds = 120,
+        [Description("java (default) or python; name *.py is Python.")] string? language = null,
         [Description("Default auto.")] string? engine = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description("Return an exception as the result instead of an error.")] bool allowError = false,
@@ -121,7 +122,18 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         var id = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? "ghidra" : engine.Trim();
         if (!id.Equals("ghidra", StringComparison.OrdinalIgnoreCase))
             throw new ToolError(ErrorCode.InvalidArgument, $"ghidra_script runs in Ghidra, not in '{id}'.", "omit engine or pass engine=ghidra");
-        engines.Provider("ghidra");
+        bool python = (language?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "java" => false,
+            "python" or "py" => true,
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"unknown language '{language}'.", "language=java or language=python"),
+        }) || name?.Trim().EndsWith(".py", StringComparison.OrdinalIgnoreCase) == true;
+        var provider = engines.Provider("ghidra");
+        if (python && provider is Native.Providers.Ghidra.GhidraProvider { PythonHost: null } plain)
+            throw new ToolError(ErrorCode.Unsupported,
+                "Python scripts run through PyGhidra, which runs Python only in a JVM its Python process starts: the Ghidra workers here run in a plain JVM" +
+                (plain.PythonProblem is { } problem ? $" ({problem})." : "."),
+                $"set {Native.Providers.Ghidra.GhidraOptions.PythonVariable} to a Python 3.9+ with PyGhidra (python -m pip install --no-index -f <ghidra>/Ghidra/Features/PyGhidra/pypkg/dist pyghidra) and restart the server; or write the script in Java");
         var (native, _) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, nativeCode, image, "rva:0"), cancellationToken);
         var session = await engines.Session(native, "ghidra", new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
@@ -130,7 +142,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         if (types != null) await types.EnsureAsync(native, session, cancellationToken);
         if (userTypes != null) await userTypes.EnsureAsync(native, session, cancellationToken);
         var r = session is Native.Providers.Ghidra.GhidraSession ghidra
-            ? await ghidra.RunJavaAsync(code ?? "", timeoutSeconds, cancellationToken, name, args, Native.Providers.DataFolder.Combine("ghidra_scripts"))
+            ? await ghidra.RunJavaAsync(code ?? "", timeoutSeconds, cancellationToken, name, args, Native.Providers.DataFolder.Combine("ghidra_scripts"), python ? "python" : null)
             : await session.RunScriptAsync(code ?? "", false, cancellationToken);
         NativeUserTypePush.Touch(session);
         return Outcome(native.Id, "ghidra", r, r.Error == null, allowError, "the script failed (changes rolled back)");

@@ -624,10 +624,10 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     /// the program after it: the script is not journaled (a restart could not replay it), its committed changes are on disk.
     /// </summary>
     internal async Task<NativeScriptResult> RunJavaAsync(string code, double seconds, CancellationToken cancellationToken = default,
-        string? name = null, IReadOnlyList<string>? args = null, string? userDirectory = null)
+        string? name = null, IReadOnlyList<string>? args = null, string? userDirectory = null, string? language = null)
     {
         ArgumentNullException.ThrowIfNull(code);
-        var request = WorkerRows.Args(("code", code), ("timeout", seconds), ("name", name), ("user_dir", userDirectory));
+        var request = WorkerRows.Args(("code", code), ("timeout", seconds), ("name", name), ("user_dir", userDirectory), ("language", language));
         if (args is { Count: > 0 }) request["args"] = new System.Text.Json.Nodes.JsonArray([.. args.Select(a => (System.Text.Json.Nodes.JsonNode?)a)]);
         var r = await CallAsync("script", request, cancellationToken, saves: true,
             timeout: TimeSpan.FromSeconds(seconds + 30)).ConfigureAwait(false);
