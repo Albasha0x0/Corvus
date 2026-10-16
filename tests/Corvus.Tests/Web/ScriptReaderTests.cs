@@ -63,6 +63,33 @@ public sealed class ScriptReaderTests
     }
 
     [Fact]
+    public void An_obfuscator_io_string_array_is_decoded_and_its_machinery_removed()
+    {
+        var r = ScriptReader.Read(File.ReadAllText(Fixture("javascript", "obfuscator-preset-high.js")), "javascript");
+        Assert.Contains("var _0x59f227='corvus marker';", r.Plain);
+        Assert.DoesNotContain("_0x41a7", r.Plain); // decoder, rotation, wrappers and aliases gone
+        Assert.Contains(r.Notes, n => n.StartsWith("obfuscator.io string array of 90 strings decoded (rc4)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_flattened_switch_loop_is_put_back_in_order()
+    {
+        const string script = "function f(){var s='2|0|1'.split('|'),i=0;while(!![]){switch(s[i++]){case'0':second();continue;case'1':third();continue;case'2':first();continue;}break;}}";
+        var r = ScriptReader.Read(script, "javascript");
+        int a = r.Plain.IndexOf("first();", StringComparison.Ordinal), b = r.Plain.IndexOf("second();", StringComparison.Ordinal), c = r.Plain.IndexOf("third();", StringComparison.Ordinal);
+        Assert.True(a >= 0 && a < b && b < c, r.Plain);
+        Assert.DoesNotContain("switch", r.Plain);
+    }
+
+    [Fact]
+    public void A_packed_script_is_unpacked_as_a_layer()
+    {
+        var r = ScriptReader.Read(File.ReadAllText(Fixture("javascript", "packer.js")), "javascript");
+        Assert.Equal("eval of a packer", Assert.Single(r.Layers).Via);
+        Assert.StartsWith("var u = 'http://example.com/corvus/stage.txt';", r.Plain);
+    }
+
+    [Fact]
     public void An_encoded_command_is_a_layer_with_its_decoding_chain()
     {
         var inner = Convert.ToBase64String(Encoding.Unicode.GetBytes("Write-Host 'stage two'"));
@@ -110,7 +137,8 @@ public sealed class ScriptReaderTests
                  {
                      ("powershell", "string-reverse-1.ps1"), ("powershell", "encoding-bxor-1.ps1"), ("powershell", "compress-1.ps1"),
                      ("powershell", "token-all-1.ps1"), ("vbscript", "hex-function.vbs"), ("vbscript", "msxml-base64.vbs"),
-                     ("batch", "for-loop.bat"), ("batch", "mshta-vbscript.cmd"),
+                     ("batch", "for-loop.bat"), ("batch", "mshta-vbscript.cmd"), ("javascript", "obfuscator-strings-rc4.js"),
+                     ("javascript", "obfuscator-control-flow.js"), ("javascript", "packer.js"),
                  })
             failures.AddRange(FormatFuzz.Run(File.ReadAllBytes(Fixture(language, name)), b =>
             {

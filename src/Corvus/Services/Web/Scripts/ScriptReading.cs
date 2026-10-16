@@ -59,8 +59,18 @@ internal sealed class ScriptContext(ScriptBudget budget)
         if (Notes.Count < 40 && !Notes.Contains(note)) Notes.Add(note);
     }
 
-    /// <summary>Records a layer and returns its plain text, read by the reader of its language; null past the layer limit.</summary>
+    private readonly Dictionary<(string, string), string?> _read = [];
+
+    /// <summary>Records a layer and returns its plain text, read by the reader of its language; null past the layer limit. A layer met again is read once.</summary>
     public string? Peel(string language, string text, string via, int depth)
+    {
+        if (_read.TryGetValue((language, text), out var known)) return known;
+        var plain = PeelOnce(language, text, via, depth);
+        _read[(language, text)] = plain;
+        return plain;
+    }
+
+    private string? PeelOnce(string language, string text, string via, int depth)
     {
         if (Layers.Count >= MaxLayers || depth > MaxLayers)
         {

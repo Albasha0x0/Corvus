@@ -57,6 +57,7 @@ public static class ScriptReader
         "powershell" => PsInterpreter.Read(text, ctx, depth),
         "vbscript" => VbsInterpreter.Read(text, ctx, depth),
         "batch" => BatchReader.Read(text, ctx, depth),
+        "javascript" => JsLayers.Read(text, ctx, depth),
         _ => text,
     };
 }
