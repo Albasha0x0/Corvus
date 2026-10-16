@@ -1,0 +1,7 @@
+bin/busybox 1548
+etc/config/large.conf 186000
+etc/empty 0
+etc/passwd 30
+lib/libuci.so 1064
+usr/share/doc/deep/er/notes.txt 10
+www/index.html 33

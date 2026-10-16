@@ -1,0 +1,109 @@
+using Corvus.Core.Archives;
+
+namespace Corvus.Core.Firmware;
+
+/// <summary>Random-access reads of one filesystem image: a region of a seekable stream, or bytes in memory.</summary>
+internal sealed class FsSource
+{
+    private readonly Stream _stream;
+    private readonly long _base;
+
+    public FsSource(Stream stream, long @base, long length, string name)
+    {
+        _stream = stream;
+        _base = @base;
+        Length = Math.Max(0, Math.Min(length, stream.Length - @base));
+        Name = name;
+    }
+
+    public static FsSource Of(byte[] data, string name) => new(new MemoryStream(data, writable: false), 0, data.Length, name);
+
+    public long Length { get; }
+    public string Name { get; }
+
+    /// <summary><paramref name="n"/> bytes at <paramref name="at"/>; a read past the end is malformed input.</summary>
+    public byte[] Read(long at, int n)
+    {
+        if (at < 0 || n < 0 || at > Length - n) throw Malformed($"a structure at 0x{at:X} ({n:N0} bytes) runs past the end of the image");
+        var b = new byte[n];
+        _stream.Position = _base + at;
+        _stream.ReadExactly(b);
+        return b;
+    }
+
+    /// <summary>The bytes from <paramref name="at"/> to at most <paramref name="n"/>, shorter at the end of the image.</summary>
+    public byte[] ReadUpTo(long at, int n) => at < 0 || at >= Length ? [] : Read(at, (int)Math.Min(n, Length - at));
+
+    public ToolError Malformed(string what) => new(ErrorCode.MalformedInput, $"{Name}: {what}.");
+}
+
+/// <summary>
+/// The files of one filesystem image as a container level: every regular file and symbolic link listed, binaries and nested
+/// packages (all files with allFiles) extracted within the limits; a file that cannot be read becomes a note.
+/// </summary>
+internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+{
+    private readonly List<ExtractedItem> _items = [];
+    private readonly List<ContainerEntry> _entries = [];
+    private long _total;
+    private int _unread;
+
+    public List<string> Notes { get; } = [];
+    public string Kind => kind;
+    public CancellationToken Token => ct;
+    public AnalysisLimits Limits => limits;
+
+    /// <summary>Directory nesting kept; deeper trees are cut with a note (a loop in corrupt metadata ends here too).</summary>
+    public const int MaxDepth = 64;
+
+    public int Count => _entries.Count;
+
+    /// <summary>A name read from the image that is usable as one path component.</summary>
+    public static bool UsableName(string name) => name.Length > 0 && name is not ("." or "..") && name.IndexOfAny(['/', '\0']) < 0;
+
+    public void File(string path, long size, Func<byte[]> read, string? detail = null)
+    {
+        ct.ThrowIfCancellationRequested();
+        _entries.Add(new ContainerEntry(path, size, detail));
+        if (_items.Count >= limits.MaxItems) return;
+        if (size < 0 || size > limits.MaxItemBytes) { Notes.Add($"{path}: {size:N0} bytes, over the item limit; listed, not extracted"); return; }
+        byte[] bytes;
+        try { bytes = read(); }
+        catch (Exception ex) when (Damaged(ex))
+        {
+            Unreadable(path, ex);
+            return;
+        }
+        _total += bytes.Length;
+        if (_total > limits.MaxTotalBytes)
+            throw new ToolError(ErrorCode.LimitExceeded, $"extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
+        if (allFiles || ArchiveItems.Wanted(bytes)) _items.Add(new ExtractedItem(path, bytes, $"{kind} file"));
+    }
+
+    /// <summary>Damaged structure or data: the exceptions a reader turns into a note or a malformed-input error.</summary>
+    public static bool Damaged(Exception ex) => ex is InvalidDataException or ToolError { Code: ErrorCode.MalformedInput } or EndOfStreamException;
+
+    public void Unreadable(string path, Exception ex)
+    {
+        if (++_unread <= 20) Notes.Add($"{path}: unreadable ({(ex is ToolError t ? t.Message : ex.Message)})");
+    }
+
+    /// <summary>Runs a reader; damaged structure outside any one file is malformed input.</summary>
+    public static ContainerContents Guard(FsSource src, Func<ContainerContents> read)
+    {
+        try { return read(); }
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException) { throw src.Malformed(ex.Message); }
+    }
+
+    public void Link(string path, string target) => _entries.Add(new ContainerEntry(path, target.Length, $"symbolic link to {target}"));
+
+    public ContainerContents Done()
+    {
+        if (_unread > 20) Notes.Add($"{_unread - 20} more files unreadable");
+        if (_entries.Count == 0) Notes.Add($"no files were recovered from this {kind} image: nothing extracted");
+        int files = _entries.Count(e => e.Detail == null || !e.Detail.StartsWith("symbolic link", StringComparison.Ordinal));
+        if (!allFiles && files > _items.Count)
+            Notes.Add($"{files - _items.Count} of {files} files not extracted (not binaries or packages; allFiles extracts every file).");
+        return new ContainerContents(kind, _items, Notes) { Entries = _entries };
+    }
+}

@@ -45,6 +45,7 @@
     <None Include="Engines\IsaFixtures\*.elf;Engines\IsaFixtures\*.bin" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Dumps\CfiFixtures\*.so" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Web\HermesFixtures\*.hbc" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Containers\FirmwareFixtures\*.gz;Containers\FirmwareFixtures\*.list" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Real libraries the tests decompile, compare and export (downloaded on restore, not referenced). -->

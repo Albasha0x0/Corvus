@@ -1,0 +1,20 @@
+drwxr-xr-x root/root                82 2026-01-01 00:00 squashfs-root
+drwxr-xr-x root/root                30 2026-01-01 00:00 squashfs-root/bin
+-rwxr-xr-x root/root              1548 2026-01-01 00:00 squashfs-root/bin/busybox
+drwxr-xr-x root/root                56 2026-01-01 00:00 squashfs-root/etc
+drwxr-xr-x root/root                33 2026-01-01 00:00 squashfs-root/etc/config
+-rw-r--r-- root/root            186000 2026-01-01 00:00 squashfs-root/etc/config/large.conf
+-rw-r--r-- root/root                 0 2026-01-01 00:00 squashfs-root/etc/empty
+-rw-r--r-- root/root                30 2026-01-01 00:00 squashfs-root/etc/passwd
+drwxr-xr-x root/root                32 2026-01-01 00:00 squashfs-root/lib
+-rwxr-xr-x root/root              1064 2026-01-01 00:00 squashfs-root/lib/libuci.so
+drwxr-xr-x root/root                27 2026-01-01 00:00 squashfs-root/sbin
+lrwxrwxrwx root/root                14 2026-01-01 00:00 squashfs-root/sbin/init -> ../bin/busybox
+drwxr-xr-x root/root                28 2026-01-01 00:00 squashfs-root/usr
+drwxr-xr-x root/root                26 2026-01-01 00:00 squashfs-root/usr/share
+drwxr-xr-x root/root                27 2026-01-01 00:00 squashfs-root/usr/share/doc
+drwxr-xr-x root/root                25 2026-01-01 00:00 squashfs-root/usr/share/doc/deep
+drwxr-xr-x root/root                32 2026-01-01 00:00 squashfs-root/usr/share/doc/deep/er
+-rw-r--r-- root/root                10 2026-01-01 00:00 squashfs-root/usr/share/doc/deep/er/notes.txt
+drwxr-xr-x root/root                33 2026-01-01 00:00 squashfs-root/www
+-rw-r--r-- root/root                33 2026-01-01 00:00 squashfs-root/www/index.html

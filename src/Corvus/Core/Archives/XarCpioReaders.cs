@@ -15,10 +15,13 @@ internal static class ArchiveItems
         total += bytes.Length;
         if (total > limits.MaxTotalBytes)
             throw new ToolError(ErrorCode.LimitExceeded, $"extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
-        if (allFiles || Blob.Identify(bytes) is ".NET assembly" or "native PE" or "NativeAOT executable" or "elf" or "mach-o" or "zip" or "gzip" or "7z" or "asar" or "wasm"
-            || XarReader.IsXar(bytes) || CpioReader.IsCpio(bytes))
-            items.Add(new ExtractedItem(path, bytes, $"{kind} entry"));
+        if (allFiles || Wanted(bytes)) items.Add(new ExtractedItem(path, bytes, $"{kind} entry"));
     }
+
+    /// <summary>Binaries and nested packages (any format a container reader takes): what is extracted without allFiles.</summary>
+    public static bool Wanted(byte[] bytes) =>
+        Blob.Identify(bytes) is ".NET assembly" or "native PE" or "NativeAOT executable" or "elf" or "mach-o" or "zip" or "gzip" or "7z" or "asar" or "wasm"
+        || Containers.ReaderFor(bytes, "") != null;
 }
 
 /// <summary>xar archives (macOS .pkg, .xip): the zlib-compressed XML table of contents, then each file's data from the heap.</summary>
@@ -89,48 +92,74 @@ internal sealed class XarReader : IContainerReader
     }
 }
 
-/// <summary>cpio archives, odc (070707) and newc / crc (070701, 070702): .pkg Payloads, initramfs, RPM payloads.</summary>
+/// <summary>
+/// cpio archives, odc (070707), newc / crc (070701, 070702) and old binary (either byte order): .pkg Payloads, initramfs,
+/// RPM payloads; read entry by entry from a stream.
+/// </summary>
 internal sealed class CpioReader : IContainerReader
 {
     public string Kind => "cpio";
 
-    public static bool IsCpio(ReadOnlySpan<byte> b) => b.Length >= 6 && (b.StartsWith("070707"u8) || b.StartsWith("070701"u8) || b.StartsWith("070702"u8));
+    public static bool IsCpio(ReadOnlySpan<byte> b) =>
+        b.Length >= 6 && (b.StartsWith("070707"u8) || b.StartsWith("070701"u8) || b.StartsWith("070702"u8))
+        || b.Length >= 26 && (b.StartsWith((ReadOnlySpan<byte>)[0xC7, 0x71]) || b.StartsWith((ReadOnlySpan<byte>)[0x71, 0xC7])) && Binary(b, b[0] == 0x71) is { NameSize: > 1 and <= 4096 };
 
     public bool Accepts(ReadOnlySpan<byte> data, string name) => IsCpio(data);
 
-    public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
+        Read(Firmware.FsSource.Of(data, name), allFiles, limits, ct);
+
+    public ContainerContents? Open(Stream stream, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
+        Read(new Firmware.FsSource(stream, 0, stream.Length, name), allFiles, limits, ct);
+
+    /// <summary>The fields of an old binary header (26 bytes, 16-bit words, 32-bit values high word first).</summary>
+    private static (int Mode, int NameSize, long FileSize) Binary(ReadOnlySpan<byte> h, bool big)
     {
-        var items = new List<ExtractedItem>();
-        var entries = new List<ContainerEntry>();
-        var notes = new List<string>();
-        long total = 0;
-        int p = 0;
-        while (p + 6 <= data.Length)
-        {
-            ct.ThrowIfCancellationRequested();
-            bool newc = data.AsSpan(p, 6).SequenceEqual("070701"u8) || data.AsSpan(p, 6).SequenceEqual("070702"u8);
-            bool odc = data.AsSpan(p, 6).SequenceEqual("070707"u8);
-            if (!newc && !odc) { notes.Add($"no cpio header at offset {p}: stopped"); break; }
-            int headerLength = newc ? 110 : 76;
-            if (p + headerLength > data.Length) { notes.Add("truncated header"); break; }
-            long mode = newc ? Hex(data, p + 14, 8) : Oct(data, p + 18, 6);
-            long nameSize = newc ? Hex(data, p + 94, 8) : Oct(data, p + 59, 6);
-            long fileSize = newc ? Hex(data, p + 54, 8) : Oct(data, p + 65, 11);
-            int nameAt = p + headerLength;
-            if (nameSize <= 0 || nameSize > 4096 || fileSize < 0 || fileSize > limits.MaxItemBytes || nameAt + nameSize > data.Length) { notes.Add($"bad header at offset {p}"); break; }
-            var path = Encoding.UTF8.GetString(data, nameAt, (int)nameSize - 1).TrimStart('.', '/');
-            int dataAt = newc ? Align4(nameAt + (int)nameSize) : nameAt + (int)nameSize;
-            if (path == "TRAILER!!!") break;
-            if (dataAt + fileSize > data.Length) { notes.Add($"{path}: data runs past the end"); break; }
-            // regular files only (S_IFREG); directories, links and devices are skipped
-            if ((mode & 0xF000) == 0x8000 && path.Length > 0 && !path.Split('/').Contains(".."))
-                ArchiveItems.Take(items, entries, "cpio", path, data.AsSpan(dataAt, (int)fileSize).ToArray(), allFiles, limits, ref total);
-            p = newc ? Align4(dataAt + (int)fileSize) : dataAt + (int)fileSize;
-        }
-        return new ContainerContents("cpio", items, notes) { Entries = entries };
+        Span<int> w = stackalloc int[13];
+        for (int i = 0; i < 13; i++) w[i] = big ? BinaryPrimitives.ReadUInt16BigEndian(h[(i * 2)..]) : BinaryPrimitives.ReadUInt16LittleEndian(h[(i * 2)..]);
+        return (w[3], w[10], ((long)w[11] << 16) | (uint)w[12]);
     }
 
-    private static int Align4(int n) => (n + 3) & ~3;
+    private static ContainerContents Read(Firmware.FsSource src, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    {
+        var tree = new Firmware.FsTree("cpio", allFiles, limits, ct);
+        long p = 0;
+        while (p + 6 <= src.Length)
+        {
+            ct.ThrowIfCancellationRequested();
+            var magic = src.ReadUpTo(p, 26);
+            bool newc = magic.AsSpan().StartsWith("070701"u8) || magic.AsSpan().StartsWith("070702"u8);
+            bool odc = magic.AsSpan().StartsWith("070707"u8);
+            bool binLe = magic.AsSpan().StartsWith((ReadOnlySpan<byte>)[0xC7, 0x71]), binBe = magic.AsSpan().StartsWith((ReadOnlySpan<byte>)[0x71, 0xC7]);
+            if (!newc && !odc && !binLe && !binBe) { tree.Notes.Add($"no cpio header at offset {p}: stopped"); break; }
+            int headerLength = newc ? 110 : odc ? 76 : 26;
+            if (p + headerLength > src.Length) { tree.Notes.Add("truncated header"); break; }
+            var h = src.Read(p, headerLength);
+            long mode, nameSize, fileSize;
+            if (newc) (mode, nameSize, fileSize) = (Hex(h, 14, 8), Hex(h, 94, 8), Hex(h, 54, 8));
+            else if (odc) (mode, nameSize, fileSize) = (Oct(h, 18, 6), Oct(h, 59, 6), Oct(h, 65, 11));
+            else (mode, nameSize, fileSize) = Binary(h, binBe);
+            long nameAt = p + headerLength;
+            if (nameSize <= 0 || nameSize > 4096 || fileSize < 0 || nameAt + nameSize > src.Length) { tree.Notes.Add($"bad header at offset {p}"); break; }
+            var path = Encoding.UTF8.GetString(src.Read(nameAt, (int)nameSize - 1)).TrimEnd('\0').TrimStart('.', '/');
+            long dataAt = newc ? Align(nameAt + nameSize, 4) : binLe || binBe ? Align(nameAt + nameSize, 2) : nameAt + nameSize;
+            if (path == "TRAILER!!!") break;
+            if (dataAt + fileSize > src.Length) { tree.Notes.Add($"{path}: data runs past the end"); break; }
+            bool usable = path.Length > 0 && !path.Split('/').Contains("..");
+            // regular files and symbolic links; directories and devices are skipped
+            if (usable && (mode & 0xF000) == 0x8000)
+            {
+                long at = dataAt, size = fileSize;
+                tree.File(path, size, () => src.Read(at, (int)size));
+            }
+            else if (usable && (mode & 0xF000) == 0xA000 && fileSize <= 4096)
+                tree.Link(path, Encoding.UTF8.GetString(src.Read(dataAt, (int)fileSize)));
+            p = newc ? Align(dataAt + fileSize, 4) : binLe || binBe ? Align(dataAt + fileSize, 2) : dataAt + fileSize;
+        }
+        return tree.Done();
+    }
+
+    private static long Align(long n, int to) => (n + to - 1) & ~(long)(to - 1);
 
     private static long Hex(byte[] d, int at, int length) =>
         long.TryParse(Encoding.ASCII.GetString(d, at, length), System.Globalization.NumberStyles.HexNumber, null, out var v) ? v : -1;
