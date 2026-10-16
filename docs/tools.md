@@ -642,7 +642,7 @@ Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`
 
 **Extract container** (edit, idempotent, long-running)
 
-Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data and HAR / mitmproxy captures give every file. Nothing is executed; runnable extensions get .bin.
+Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: every file; JS: modules and the source map's original tree. Nothing runs; runnable extensions get .bin.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

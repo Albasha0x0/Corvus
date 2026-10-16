@@ -13,8 +13,8 @@ public sealed class UnpackTools(UnpackService unpacker)
 {
     [McpServerTool(Name = "unpack_container", Title = "Extract container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
     [Description("Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / " +
-                 ".aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data and HAR / mitmproxy captures give " +
-                 "every file. Nothing is executed; runnable extensions get .bin.")]
+                 ".aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: " +
+                 "every file; JS: modules and the source map's original tree. Nothing runs; runnable extensions get .bin.")]
     public Task<string> UnpackContainer(
         [Description("Container file, or a Blazor _framework folder.")] string path,
         [Description("New or empty directory, or an earlier extract of this file; default under temp.")] string? outputDirectory = null,

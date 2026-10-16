@@ -25,10 +25,44 @@ public sealed class JsBundleFilesTests : IDisposable
     {
         var files = Unpack("main.js", "(()=>{var m={\n12:(e,t,n)=>{e.exports=n(34)+1},\n34:(e,t,n)=>{e.exports=41},\n56:(e,t,n)=>{e.exports=0}\n};})();",
             """{"version":3,"sources":["webpack://app/./src/a.js","webpack://app/./src/b.js"],"names":[],"mappings":";AAAA;ACAA"}""");
-        Assert.Equal(["modules.json", "modules/56.js.bin", "src/a.js.bin", "src/b.js.bin"], files);
+        Assert.Equal(["modules.json", "modules/56.js.bin", "sources.json", "src/a.js.bin", "src/b.js.bin"], files);
         var a = File.ReadAllText(Path.Combine(_dir.File("main.js_out"), "src", "a.js.bin"));
         Assert.StartsWith("// module 12 (webpack, source map) of main.js", a);
         Assert.Contains("// requires: 34", a);
+    }
+
+    [Fact]
+    public void Source_map_original_tree_is_written_with_every_source_accounted_for()
+    {
+        // webpack:// prefixes, a duplicate name, a source with no content but a file beside the map, and one missing
+        Directory.CreateDirectory(_dir.File("lib"));
+        File.WriteAllText(_dir.File("lib/vendor.js"), "export const v = 1;\n");
+        var map = """
+            {"version":3,"sources":["webpack://app/./src/App.tsx","webpack://app/./src/api/client.ts","webpack:///./src/App.tsx","lib/vendor.js","webpack://app/./src/gone.ts","webpack://app/webpack/bootstrap"],
+             "sourcesContent":["export const App = () => null;\n","export const get = (u: string) => fetch(u);\n","// second App.tsx\n",null,null,"// runtime\n"],
+             "names":[],"mappings":"AAAA"}
+            """;
+        var files = Unpack("app.js", "console.log(1);\n//# sourceMappingURL=app.js.map\n", map);
+        Assert.Equal(["original/lib/vendor.js.bin", "original/src/App.tsx", "original/src/App~2.tsx", "original/src/api/client.ts", "original/webpack/bootstrap", "sources.json"], files);
+        var output = _dir.File("app.js_out");
+        Assert.Equal("export const get = (u: string) => fetch(u);\n", File.ReadAllText(Path.Combine(output, "original", "src", "api", "client.ts")));
+        Assert.Equal("export const v = 1;\n", File.ReadAllText(Path.Combine(output, "original", "lib", "vendor.js.bin")));
+        using var manifest = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "sources.json")));
+        var rows = manifest.RootElement.EnumerateArray().ToList();
+        Assert.Equal(6, rows.Count);
+        Assert.Equal(["sourcesContent", "sourcesContent", "sourcesContent", "file beside the map", "missing", "sourcesContent"], rows.Select(r => r.GetProperty("content").GetString()));
+        Assert.Equal("src/gone.ts", rows[4].GetProperty("source").GetString());
+
+        // the .map alone gives the same tree
+        Assert.Contains("original/src/api/client.ts", Unpack("other.js.map", map));
+    }
+
+    [Fact]
+    public void A_script_without_map_or_modules_is_not_a_container()
+    {
+        var path = _dir.File("plain.js");
+        File.WriteAllText(path, "console.log(1);\n");
+        Assert.Null(JsBundleFiles.Open(File.ReadAllBytes(path), path, default));
     }
 
     [Fact]

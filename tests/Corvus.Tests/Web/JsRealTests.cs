@@ -39,4 +39,18 @@ public sealed class JsRealTests
         Assert.True(checkedNames > 1000, $"{checkedNames} named segments checked");
         Assert.Empty(map.Issues);
     }
+
+    /// <summary>jQuery's map has no sourcesContent: its one source is the unminified file beside the map, written as the original tree.</summary>
+    [Fact]
+    public void Minified_jQuery_unpacks_to_its_original_tree()
+    {
+        using var dir = new TempDir();
+        using var ws = new Corvus.Core.AssemblyWorkspace();
+        var report = new Corvus.Services.Analysis.UnpackService(ws).Unpack(Script("jquery-3.7.1.min.js"), dir.File("out"), load: false, Corvus.Core.AnalysisLimits.Default, default);
+        var map = JsAnalysis.Map(Script("jquery-3.7.1.min.js"));
+        var written = report.Files.Where(f => f.Origin.Contains(" of the map (", StringComparison.Ordinal)).ToList();
+        Assert.Equal(map.Sources.Count, written.Count);
+        Assert.Equal(File.ReadAllBytes(Script("jquery-3.7.1.js")), File.ReadAllBytes(Assert.Single(written).Path));
+        Assert.Contains(report.Notes, n => n.StartsWith("1 source(s) in the map, written under original/: 0 from sourcesContent, 1 from files beside the map, 0 without content", StringComparison.Ordinal));
+    }
 }
