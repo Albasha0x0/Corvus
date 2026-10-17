@@ -48,7 +48,7 @@ public static bool Verify(string code)
 			num = ((code.Length == 14) ? 1 : 3);
 			break;
 		case 1:
-			num = (code.StartsWith(Strings.D("\u000f\r\u0017\u0001\u0016k", 65), StringComparison.Ordinal) ? 2 : 3);
+			num = (code.StartsWith(Strings.D("\u0004\u0003\u0011\b\u001ck", 65), StringComparison.Ordinal) ? 2 : 3);
 			break;
 		case 2:
 			if (code.Substring(6) == Strings.D("$R&W.)Z(", 19))
@@ -58,7 +58,7 @@ public static bool Verify(string code)
 			num = 3;
 			break;
 		default:
-			Console.Error.WriteLine(Strings.D("FBOH@\\U\u0011YVM\u0015DRR\\YOYY", 42));
+			Console.Error.WriteLine(Strings.D("CEZLBFT\u0011BAQC_RO\u0019YTXX", 42));
 			return false;
 		}
 	}
@@ -66,7 +66,7 @@ public static bool Verify(string code)
 === [3/8] simplify_methods
 [Notes] Simplified Notes.PreviewGate::Verify(string) (fold,cfg,inline): 1 of 1 method(s) changed.
 Notes.PreviewGate::Verify(string)  [46 -> 24 instructions]
-  folded Notes.Strings::D(string, int) -> "NOTES-" at IL_002F
+  folded Notes.Strings::D(string, int) -> "EARLY-" at IL_002F
   folded Notes.Strings::D(string, int) -> "7F3A91C2" at IL_0051
   folded Notes.Strings::D(string, int) -> "invalid preview code" at IL_006F
   collapsed 4 branch chain(s), normalized 1 switch dispatcher(s) (6 transition(s) go straight to their case), removed 5 unreachable block(s) (8 instructions)

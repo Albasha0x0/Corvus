@@ -44,10 +44,10 @@ Member matches: 73 exact, 2 strong, 1 structural, 0 ambiguous (by tier: full nam
   Notes.CsvExporter
       body      method Write(IEnumerable<Note>, TextWriter): 47 -> 47 instructions
       renamed   method Quote(string) -> Escape(string)  (identical body (renamed); tier: IL hash, strong)
-  Notes.PreviewGate
-      renamed   method Verify(string) -> Check(string)  (identical body shape (renamed); tier: body shape, structural)  +body: 46 -> 46 instructions
   Notes.NoteStore
       body      method All(): 25 -> 32 instructions
+  Notes.PreviewGate
+      renamed   method Verify(string) -> Check(string)  (identical body shape (renamed); tier: body shape, structural)  +body: 46 -> 46 instructions
   Notes.Program
       body      method Main(string[]): 90 -> 90 instructions
   Notes.Strings  (removed)
