@@ -144,6 +144,42 @@ public sealed class NotesTests : IDisposable
 
     /// <summary>MB N1: an evidence entry names a call made here; its resultSha256 is filled in, and re-running the call reproduces it.</summary>
     [Fact]
+    public async Task A_hypothesis_flips_when_its_linked_record_verifies_and_names_its_anchor()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var sqlite = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll");
+        await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = sqlite });
+        Assert.NotEqual(true, (await server.Client.CallToolAsync("disassemble", new Dictionary<string, object?> { ["image"] = "e_sqlite3.dll", ["address"] = "sqlite3_complete" })).IsError);
+
+        async Task<JsonNode> Note(string tool, Dictionary<string, object?> args)
+        {
+            var r = await server.Client.CallToolAsync(tool, args);
+            Assert.NotEqual(true, r.IsError);
+            return JsonNode.Parse(r.StructuredContent!.Value.GetRawText())!;
+        }
+        string result = "last:1";
+        async Task<JsonNode> Hypothesis(string anchor, string expect)
+        {
+            var n = await Note("record_note", new() { ["text"] = "checked against the listing", ["kind"] = "hypothesis", ["anchor"] = anchor,
+                ["evidence"] = new object[] { new { result, expect } } });
+            var linked = n["evidence"]![0]!;
+            result = (string)linked["result"]!; // last:1 is kept under its content id
+            Assert.Matches("^r-[0-9a-f]{12}$", result);
+            Assert.Equal("disassemble", (string)linked["tool"]!);
+            return await Note("update_note", new() { ["id"] = (string)n["id"]!, ["expectedRevision"] = 1, ["verify"] = true });
+        }
+
+        var confirmed = await Hypothesis("e_sqlite3.dll@sqlite3_complete", "supports");
+        Assert.Equal("confirmed", (string)confirmed["status"]!);
+        Assert.StartsWith("verified: same content", (string)confirmed["evidence"]![0]!["verdict"]!);
+        Assert.Equal("refuted", (string)(await Hypothesis("e_sqlite3.dll@sqlite3_complete", "refutes"))["status"]!);
+        // the record verifies but is about another function: the hypothesis stays open
+        var open = await Hypothesis("e_sqlite3.dll@sqlite3_open_v2", "supports");
+        Assert.Equal("open", (string)open["status"]!);
+        Assert.StartsWith("does not name the note's anchor", (string)open["evidence"]![0]!["verdict"]!);
+    }
+
+    [Fact]
     public async Task EvidenceReRunsAndMatchesByResultSha256()
     {
         await using var server = await InProcessServer.StartAsync();
@@ -184,7 +220,7 @@ public sealed class NotesTests : IDisposable
         Assert.Equal(new NoteEvidence(Text: "get_il x"), Assert.Single(old.Evidence));
         var updated = store.Update(old.Id, 1, new NoteChange(AddEvidence: [new NoteEvidence("get_il", new JsonObject { ["symbol"] = "A::B" })]));
         Assert.Equal(2, updated.Evidence.Count);
-        Assert.Contains("\"format\": \"corvus-notes/2\"", File.ReadAllText(Path.Combine(store.Root, "global.json")));
+        Assert.Contains("\"format\": \"corvus-notes/3\"", File.ReadAllText(Path.Combine(store.Root, "global.json")));
         Assert.Equal(updated.Evidence[1].Args!.ToJsonString(), Store().All().Single().Evidence[1].Args!.ToJsonString());
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NotesService.CheckEvidence([new NoteEvidence()])).Code);
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NotesService.CheckEvidence([new NoteEvidence("x", ResultSha256: "abc")])).Code);

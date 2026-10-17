@@ -151,7 +151,7 @@ public sealed partial class LiveSessionTools
         return ToolOutput.List(rows, offset, limit, x => $"{Count(r, x.Hits),8}  {x.Address}  {x.Name}", page => new LiveCoverageReport(Summary(r), page, offset, rows.Count, [])
         {
             // a sample for read_result format=verify: the rows already carry every address and name
-            NamedAddresses = Named(page.Where(x => x.Ran).Take(MaxCoverageNamed).Select(x => new EvidenceName(r.ImageId, r.Sha256, Rva(r, x.Address), x.Name)).ToList()),
+            NamedAddresses = Named(page.Take(MaxCoverageNamed).Select(x => new EvidenceName(r.ImageId, r.Sha256, Rva(r, x.Address), x.Name)).ToList()),
         }, "function", head.ToString());
     }
 

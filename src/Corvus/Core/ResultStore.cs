@@ -92,6 +92,9 @@ public sealed partial class ResultStore
 
     public ResultStore(ResultCacheOptions options) => Options = options;
 
+    /// <summary>Whether <paramref name="id"/> has the form of a kept result id (r-&lt;12 hex&gt;).</summary>
+    public static bool IsId(string id) => IdPattern().IsMatch(id.Trim().ToLowerInvariant());
+
     /// <summary>The content id of <paramref name="text"/>.</summary>
     public static string IdOf(string text) => "r-" + Sha256Hex(text)[..12];
 

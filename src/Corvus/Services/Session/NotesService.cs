@@ -26,27 +26,34 @@ public sealed record NoteAnchor(
 
 /// <summary>
 /// Where a note's claim was seen: a tool call (tool, args) whose result hashes to resultSha256, so it can be re-run and
-/// compared; or free text. A plain string (note files before evidence objects) reads as text.
+/// compared; a saved record (result, a kept result id) that supports or refutes the note, with the verdict of its last
+/// check; or free text. A plain string (note files before evidence objects) reads as text.
 /// </summary>
 [JsonConverter(typeof(NoteEvidenceConverter))]
 public sealed record NoteEvidence(
     [property: JsonPropertyName("tool")] string? Tool = null,
     [property: JsonPropertyName("args")] JsonObject? Args = null,
     [property: JsonPropertyName("resultSha256")] string? ResultSha256 = null,
-    [property: JsonPropertyName("text")] string? Text = null)
+    [property: JsonPropertyName("text")] string? Text = null,
+    [property: JsonPropertyName("result")] string? Result = null,
+    [property: JsonPropertyName("expect")] string? Expect = null,
+    [property: JsonPropertyName("verdict")] string? Verdict = null)
 {
+    public const string Supports = "supports", Refutes = "refutes";
+
     public static implicit operator NoteEvidence(string text) => new(Text: text);
 
-    /// <summary>Equal entries name the same call (tool and canonical args) or the same text.</summary>
-    [JsonIgnore] internal string Key => Tool != null ? Tool + " " + ResultHashes.Canonical(Args ?? new JsonObject()) : "text " + Text;
+    /// <summary>Equal entries name the same saved record, the same call (tool and canonical args) or the same text.</summary>
+    [JsonIgnore] internal string Key => Result != null ? "result " + Result : Tool != null ? Tool + " " + ResultHashes.Canonical(Args ?? new JsonObject()) : "text " + Text;
 
     public override string ToString() =>
-        Tool == null ? Text ?? "" : $"{Tool} {ResultHashes.Canonical(Args ?? new JsonObject())}" + (ResultSha256 != null ? $" sha256 {ResultSha256[..12]}" : "") + (Text != null ? $" ({Text})" : "");
+        Result != null ? $"{Expect ?? Supports} {Result}" + (Tool != null ? $" ({Tool})" : "") + (Text != null ? $" {Text}" : "") + (Verdict != null ? $": {Verdict}" : "")
+        : Tool == null ? Text ?? "" : $"{Tool} {ResultHashes.Canonical(Args ?? new JsonObject())}" + (ResultSha256 != null ? $" sha256 {ResultSha256[..12]}" : "") + (Text != null ? $" ({Text})" : "");
 }
 
 internal sealed class NoteEvidenceConverter : JsonConverter<NoteEvidence>
 {
-    private sealed record Shape(string? Tool, JsonObject? Args, string? ResultSha256, string? Text);
+    private sealed record Shape(string? Tool, JsonObject? Args, string? ResultSha256, string? Text, string? Result = null, string? Expect = null, string? Verdict = null);
 
     private static readonly JsonSerializerOptions Plain = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
@@ -54,11 +61,11 @@ internal sealed class NoteEvidenceConverter : JsonConverter<NoteEvidence>
     {
         if (reader.TokenType == JsonTokenType.String) return new NoteEvidence(Text: reader.GetString());
         var s = JsonSerializer.Deserialize<Shape>(ref reader, Plain) ?? throw new JsonException("an evidence entry is an object or a string");
-        return new NoteEvidence(s.Tool, s.Args, s.ResultSha256, s.Text);
+        return new NoteEvidence(s.Tool, s.Args, s.ResultSha256, s.Text, s.Result, s.Expect, s.Verdict);
     }
 
     public override void Write(Utf8JsonWriter writer, NoteEvidence value, JsonSerializerOptions options) =>
-        JsonSerializer.Serialize(writer, new Shape(value.Tool, value.Args, value.ResultSha256, value.Text), Plain);
+        JsonSerializer.Serialize(writer, new Shape(value.Tool, value.Args, value.ResultSha256, value.Text, value.Result, value.Expect, value.Verdict), Plain);
 }
 
 public sealed record Note(
@@ -85,8 +92,9 @@ public sealed record NoteChange(string? Status = null, string? Text = null, stri
 /// </summary>
 public sealed class NotesService(AnnotationStore store)
 {
-    // 2: evidence entries are objects (tool, args, resultSha256, text); 1 had strings, read as text.
-    public const string Format = "corvus-notes/2";
+    // 3: evidence entries may link a saved record (result, expect, verdict); 2 had objects (tool, args, resultSha256, text); 1 strings, read as text.
+    public const string Format = "corvus-notes/3";
+    private const string Format2 = "corvus-notes/2";
     private const string Format1 = "corvus-notes/1";
 
     // Migration only: the format of note files written before the rename; read, and rewritten in the current one.
@@ -147,9 +155,22 @@ public sealed class NotesService(AnnotationStore store)
         foreach (var raw in entries ?? [])
         {
             var e = raw with { Tool = string.IsNullOrWhiteSpace(raw.Tool) ? null : raw.Tool.Trim(), Text = string.IsNullOrWhiteSpace(raw.Text) ? null : raw.Text.Trim(),
-                ResultSha256 = string.IsNullOrWhiteSpace(raw.ResultSha256) ? null : raw.ResultSha256.Trim().ToLowerInvariant() };
+                ResultSha256 = string.IsNullOrWhiteSpace(raw.ResultSha256) ? null : raw.ResultSha256.Trim().ToLowerInvariant(),
+                Result = string.IsNullOrWhiteSpace(raw.Result) ? null : raw.Result.Trim(), Expect = string.IsNullOrWhiteSpace(raw.Expect) ? null : raw.Expect.Trim().ToLowerInvariant() };
+            if (e.Result != null)
+            {
+                if (!ResultStore.IsId(e.Result))
+                    throw new ToolError(ErrorCode.InvalidArgument, $"result '{e.Result}' is not a kept result id (r-<12 hex>).", "pass a kept result id or last:N");
+                e = e with { Expect = e.Expect ?? NoteEvidence.Supports };
+                if (e.Expect is not (NoteEvidence.Supports or NoteEvidence.Refutes))
+                    throw new ToolError(ErrorCode.InvalidArgument, $"expect must be supports or refutes, not '{raw.Expect}'.");
+                list.Add(e);
+                continue;
+            }
+            if (e.Expect != null || e.Verdict != null)
+                throw new ToolError(ErrorCode.InvalidArgument, "expect and verdict belong to an evidence entry that links a saved record.", "pass {result: \"r-…\" or \"last:N\", expect}");
             if (e.Tool == null && e.Text == null)
-                throw new ToolError(ErrorCode.InvalidArgument, "An evidence entry needs a tool (with its args) or a text.", "pass {tool, args} of the call that shows it, or {text}");
+                throw new ToolError(ErrorCode.InvalidArgument, "An evidence entry needs a saved record (result), a tool (with its args) or a text.", "pass {result}, {tool, args} of the call that shows it, or {text}");
             if (e.Tool == null && (e.Args != null || e.ResultSha256 != null))
                 throw new ToolError(ErrorCode.InvalidArgument, "An evidence entry with args or resultSha256 needs the tool they belong to.");
             if (e.ResultSha256 is { } sha && (sha.Length != 64 || !sha.All(char.IsAsciiHexDigit)))
@@ -280,7 +301,7 @@ public sealed class NotesService(AnnotationStore store)
         var (written, problem) = LockedJsonFile.Update<NoteFile>(path, current =>
         {
             var file = current ?? new NoteFile();
-            if (file.Format is not (Format or Format1 or LegacyFormat))
+            if (file.Format is not (Format or Format2 or Format1 or LegacyFormat))
                 throw new ToolError(ErrorCode.Conflict, $"{path} has format '{file.Format}', not {Format}; it is left untouched.");
             file.Format = Format;
             change(file);
@@ -311,7 +332,7 @@ public sealed class NotesService(AnnotationStore store)
     {
         if (!Directory.Exists(Root)) yield break;
         foreach (var path in Directory.EnumerateFiles(Root, "*.json"))
-            if (LockedJsonFile.Read<NoteFile>(path, Json).Value is { Format: Format or Format1 or LegacyFormat } file)
+            if (LockedJsonFile.Read<NoteFile>(path, Json).Value is { Format: Format or Format2 or Format1 or LegacyFormat } file)
                 yield return (Path.GetFileNameWithoutExtension(path), file.Notes);
     }
 

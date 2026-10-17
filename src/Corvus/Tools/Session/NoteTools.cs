@@ -11,7 +11,7 @@ namespace Corvus.Tools;
 
 /// <summary>Analyst notes kept per binary identity across sessions and server processes.</summary>
 [McpServerToolType]
-public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, NativeCodeService code, MinidumpService dumps)
+public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService notes, NativeCodeService code, MinidumpService dumps, ResultStore? results = null)
 {
     public const string AnchorDescription =
         "'<image>@<address>', '<assembly>:<symbol or token>', image or assembly id, 'dump:<id or path>', or empty (session-wide).";
@@ -21,7 +21,7 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
         int Offset, int Total,
         [property: Description("How the filters were applied (e.g. the function an address was widened to).")] IReadOnlyList<string> Notes);
 
-    private const string EvidenceDescription = "At most 10: {tool, args} of a call made here (resultSha256 filled in) or {text}.";
+    private const string EvidenceDescription = "At most 10: {result: r-… or last:N, expect: supports|refutes}, {tool, args} of a call made here, or {text}.";
 
     [McpServerTool(Name = "record_note", Title = "Record a note", UseStructuredContent = true)]
     [Description("Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per user, " +
@@ -37,11 +37,12 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var resolved = Anchor(anchor);
-        return notes.Record(text, kind, status, resolved, tags, Evidence(evidence), context?.Server?.ClientInfo?.Name);
+        return notes.Record(text, kind, status, resolved, tags, Evidence(Link(evidence, context)), context?.Server?.ClientInfo?.Name);
     }, cancellationToken);
 
     [McpServerTool(Name = "update_note", Title = "Update a note", UseStructuredContent = true)]
-    [Description("Change a note in part: status, kind, text, tags, evidence. A note changed since expectedRevision fails with a conflict carrying it (details.current).")]
+    [Description("Change a note in part: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or refuted " +
+                 "when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note (details.current).")]
     public Task<Note> UpdateNote(
         [Description("Note id.")] string id,
         [Description("The revision last read.")] int expectedRevision,
@@ -52,8 +53,15 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
         [Description("Tags to add.")] string[]? addTags = null,
         [Description("Tags to remove.")] string[]? removeTags = null,
         [Description(EvidenceDescription)] NoteEvidence[]? addEvidence = null,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
-        notes.Update((id ?? "").Trim(), expectedRevision, new NoteChange(status, text, appendText, addTags, removeTags, Evidence(addEvidence), kind)), cancellationToken);
+        [Description("Re-check linked records after the other changes.")] bool verify = false,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
+    {
+        var note = notes.Update((id ?? "").Trim(), expectedRevision, new NoteChange(status, text, appendText, addTags, removeTags, Evidence(Link(addEvidence, context)), kind));
+        if (!verify) return note;
+        var (evidence, verified) = await Verify(note, context, cancellationToken).ConfigureAwait(false);
+        return notes.Update(note.Id, note.Revision, new NoteChange(verified, AddEvidence: evidence));
+    }, cancellationToken);
 
     /// <summary>Checked evidence; a call this process has no result for keeps no hash, with a warning.</summary>
     private static List<NoteEvidence> Evidence(NoteEvidence[]? entries)

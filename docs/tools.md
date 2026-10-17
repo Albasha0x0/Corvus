@@ -2038,7 +2038,7 @@ Record a finding, question, hypothesis or todo anchored to a native address, a .
 | `status` | string |  |  | Default open. Values: open, confirmed, refuted, answered, dropped. |
 | `anchor` | string |  |  | '<image>@<address>', '<assembly>:<symbol or token>', image or assembly id, 'dump:<id or path>', or empty (session-wide). |
 | `tags` | string[] |  |  | At most 10. |
-| `evidence` | object[] |  |  | At most 10: {tool, args} of a call made here (resultSha256 filled in) or {text}. |
+| `evidence` | object[] |  |  | At most 10: {result: r-… or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
 
 Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
 
@@ -2046,7 +2046,7 @@ Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`,
 
 **Update a note** (destructive, idempotent)
 
-Change a note in part: status, kind, text, tags, evidence. A note changed since expectedRevision fails with a conflict carrying it (details.current).
+Change a note in part: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or refuted when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note (details.current).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2058,7 +2058,8 @@ Change a note in part: status, kind, text, tags, evidence. A note changed since 
 | `appendText` | string |  |  | Text appended on a new line. |
 | `addTags` | string[] |  |  | Tags to add. |
 | `removeTags` | string[] |  |  | Tags to remove. |
-| `addEvidence` | object[] |  |  | At most 10: {tool, args} of a call made here (resultSha256 filled in) or {text}. |
+| `addEvidence` | object[] |  |  | At most 10: {result: r-… or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
+| `verify` | boolean |  |  | Re-check linked records after the other changes. |
 
 Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
 
