@@ -77,6 +77,8 @@ public partial class ToolPackageTests
             ["NUGET_PACKAGES"] = Path.Combine(dir.Path, "packages"),
             ["DOTNET_NOLOGO"] = "1",
             ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
+            // else the first run under this home appends its tools folder to the user's PATH (the registry, on Windows)
+            ["DOTNET_ADD_GLOBAL_TOOLS_TO_PATH"] = "false",
         };
         // the CLI stages tool installs and restores in random folders of the temporary folder and leaves them: one of its own, deleted with dir
         var temp = Directory.CreateDirectory(Path.Combine(dir.Path, "tmp")).FullName;
