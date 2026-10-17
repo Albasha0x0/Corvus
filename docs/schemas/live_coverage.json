@@ -1,0 +1,282 @@
+{
+  "type": "object",
+  "properties": {
+    "run": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "state": {
+          "description": "recording, complete or ended.",
+          "type": "string"
+        },
+        "points": {
+          "type": "integer"
+        },
+        "ran": {
+          "type": "integer"
+        },
+        "hitLimit": {
+          "type": "integer"
+        },
+        "unplaced": {
+          "description": "Functions refused; reasons in the text.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run",
+        "session",
+        "image",
+        "sha256",
+        "state",
+        "points",
+        "ran",
+        "hitLimit"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "Function start (VA).",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "hits": {
+            "description": "Stops counted; at the hit limit, a lower bound.",
+            "type": "integer"
+          },
+          "ran": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "address",
+          "name",
+          "hits",
+          "ran"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "total": {
+      "description": "Absent with format=dot (offset counts characters).",
+      "type": "integer"
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "state": {
+            "description": "recording, complete or ended.",
+            "type": "string"
+          },
+          "points": {
+            "type": "integer"
+          },
+          "ran": {
+            "type": "integer"
+          },
+          "hitLimit": {
+            "type": "integer"
+          },
+          "unplaced": {
+            "description": "Functions refused; reasons in the text.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run",
+          "session",
+          "image",
+          "sha256",
+          "state",
+          "points",
+          "ran",
+          "hitLimit"
+        ]
+      }
+    },
+    "namedAddresses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "rva": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "image",
+          "sha256",
+          "rva",
+          "name"
+        ]
+      }
+    },
+    "code": {
+      "description": "format=dot: a page of the call graph (Graphviz DOT).",
+      "type": "string"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
+    "diff": {
+      "description": "action=diff.",
+      "type": "object",
+      "properties": {
+        "other": {
+          "type": "object",
+          "properties": {
+            "run": {
+              "type": "string"
+            },
+            "session": {
+              "type": "string"
+            },
+            "image": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "state": {
+              "description": "recording, complete or ended.",
+              "type": "string"
+            },
+            "points": {
+              "type": "integer"
+            },
+            "ran": {
+              "type": "integer"
+            },
+            "hitLimit": {
+              "type": "integer"
+            },
+            "unplaced": {
+              "description": "Functions refused; reasons in the text.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "run",
+            "session",
+            "image",
+            "sha256",
+            "state",
+            "points",
+            "ran",
+            "hitLimit"
+          ]
+        },
+        "onlyInRun": {
+          "type": "array",
+          "items": {
+            "$ref": "#/properties/items/items"
+          }
+        },
+        "onlyInOther": {
+          "type": "array",
+          "items": {
+            "$ref": "#/properties/items/items"
+          }
+        },
+        "onlyInRunTotal": {
+          "type": "integer"
+        },
+        "onlyInOtherTotal": {
+          "type": "integer"
+        },
+        "inBoth": {
+          "type": "integer"
+        },
+        "inNeither": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "other",
+        "onlyInRun",
+        "onlyInOther",
+        "onlyInRunTotal",
+        "onlyInOtherTotal",
+        "inBoth",
+        "inNeither"
+      ]
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "offset",
+    "runs"
+  ]
+}

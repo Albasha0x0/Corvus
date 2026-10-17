@@ -18,6 +18,8 @@ public static partial class ToolEffects
         ["live_events"] = Reads(openWorld: true),
         // a user script runs inside the observed program and may change it; gated by --live-scripting as well
         ["live_script"] = Changes(destructive: true, idempotent: false, openWorld: true),
+        // coverage stop points are resumed at once; the program runs as before
+        ["live_coverage"] = Changes(destructive: false, idempotent: false, openWorld: true),
     };
 }
 
@@ -30,6 +32,10 @@ public static partial class ParameterDomains
         ["live_break"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear", "continue"]) },
         ["live_watch"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear"]) },
         ["live_script"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "load", "unload"]) },
+        ["live_coverage"] = new Dictionary<string, Domain>
+        {
+            ["action"] = Of(["start", "stop", "list", "report", "diff"]), ["show"] = Of(["ran", "missed", "all"]), ["format"] = Of(["text", "dot"]),
+        },
     };
 }
 
@@ -44,5 +50,6 @@ public sealed partial record ToolContract
         ["live_read"] = Row(O.Report, L.Interactive),
         ["live_events"] = Row(O.List, L.Instant, sort: "event sequence"),
         ["live_script"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live and --live-scripting"),
+        ["live_coverage"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
     };
 }

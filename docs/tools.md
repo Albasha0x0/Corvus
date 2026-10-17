@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-162 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+163 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -20,7 +20,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [engine](#engine) | 0 | 0 | 13: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | 0 | 0 | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | 0 | 0 | 7: crash dumps and crash text |
-| [live](#live) | 0 | 0 | 7: running programs: read-only inspection, and sessions with stop points, call recording and user scripts |
+| [live](#live) | 0 | 0 | 8: running programs: read-only inspection, and sessions with stop points, call recording, code coverage and user scripts |
 | [web](#web) | 0 | 0 | 1: JavaScript bundles and their source maps |
 
 ## session
@@ -2804,7 +2804,7 @@ Structured output: `folder`, `dumps`, `items`, `offset`, `total`, `failed`, `not
 
 ## live
 
-Running programs: read-only inspection, and sessions with stop points, call recording and user scripts.
+Running programs: read-only inspection, and sessions with stop points, call recording, code coverage and user scripts.
 
 ### inspect_process
 
@@ -2929,6 +2929,27 @@ Load, list or unload your own Frida script in a session's program; its messages 
 | `script` | string |  |  | unload: script id. |
 
 Structured output: `session`, `scripts`.
+
+### live_coverage
+
+**Code coverage of a session** (edit, open-world)
+
+Collect code coverage in a session: which functions of an image ran and how often, drawn on the static call graph; diff compares two runs.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session` | string |  |  | Session id; start only. |
+| `action` | string |  | `list` | start, stop, list, report or diff. Values: start, stop, list, report, diff. |
+| `run` | string |  |  | Coverage run id (cov-1); diff: the first run. |
+| `other` | string |  |  | diff: the run compared with. |
+| `match` | string |  |  | Only functions whose name contains this; start: module!part for another module. |
+| `hitLimit` | integer |  | `100` | start: stops counted per function before its point is cleared. |
+| `show` | string |  | `ran` | report: ran, missed or all. Values: ran, missed, all. |
+| `format` | string |  | `text` | report: text, or dot (call graph; offset counts characters). Values: text, dot. |
+| `offset` | integer |  |  |  |
+| `limit` | integer |  | `100` |  |
+
+Structured output: `run`, `items`, `offset`, `total`, `runs`, `namedAddresses`, `code`, `nextOffset`, `totalChars`, `diff`, `limit`, `totalExact`, `hasMore`.
 
 ## web
 

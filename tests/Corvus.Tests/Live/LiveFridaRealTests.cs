@@ -55,17 +55,20 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
-    private string Build()
+    private string Build() => Build(_dir, "orders", Source);
+
+    /// <summary>Compiles <paramref name="source"/> with MSVC (/Od, full PDB) into &lt;name&gt;.exe in <paramref name="dir"/>.</summary>
+    internal static string Build(TempDir dir, string name, string source)
     {
-        File.WriteAllText(_dir.File("orders.c"), Source);
+        File.WriteAllText(dir.File(name + ".c"), source);
         var psi = new ProcessStartInfo("cmd.exe")
         {
-            WorkingDirectory = _dir.Path,
-            Arguments = $"/s /c \"\"{VisualStudio.VcVarsAll()}\" x64 >nul && cl /nologo /Od /Zi orders.c /link /DEBUG:FULL /INCREMENTAL:NO /OUT:orders.exe\"",
+            WorkingDirectory = dir.Path,
+            Arguments = $"/s /c \"\"{VisualStudio.VcVarsAll()}\" x64 >nul && cl /nologo /Od /Zi {name}.c /link /DEBUG:FULL /INCREMENTAL:NO /OUT:{name}.exe\"",
         };
         var (code, log) = Tools.Run(psi, 300_000);
-        Assert.True(code == 0 && File.Exists(_dir.File("orders.exe")), log);
-        return _dir.File("orders.exe");
+        Assert.True(code == 0 && File.Exists(dir.File(name + ".exe")), log);
+        return dir.File(name + ".exe");
     }
 
     private async Task<(string Text, bool IsError)> Call(InProcessServer server, string tool, Dictionary<string, object?> args)

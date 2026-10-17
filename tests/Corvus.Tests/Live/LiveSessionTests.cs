@@ -72,7 +72,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             case "unwatch": return WatchedKinds.Remove((string)args["id"]!);
             case "load_script": return new JsonObject { ["loaded"] = (string)args["id"]! };
             case "unload_script": return new JsonObject { ["unloaded"] = true };
-            case "resume": return new JsonObject { ["resumed"] = new JsonArray(), ["started"] = true };
+            case "resume": return new JsonObject { ["resumed"] = args["thread"] is { } t ? new JsonArray((long)t) : new JsonArray(), ["started"] = true };
             case "read":
                 var at = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
                 return new JsonObject { ["bytes"] = Memory.TryGetValue(at, out var b) ? Convert.ToHexStringLower(b.AsSpan(0, Math.Min(b.Length, (int)args["length"]!))) : null };

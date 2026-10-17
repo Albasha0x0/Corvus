@@ -62,7 +62,7 @@ when installed. Their databases and output are kept, so the second question abou
 | Android packages | manifest, resources, DEX, smali, Java (JADX), JNI bindings, devices over adb | JADX for Java, adb for devices |
 | Crash dumps | Windows minidumps, .NET exceptions, stacks, heap; crash text | nothing |
 
-Full list: [features](docs/features.md) and the [tool reference](docs/tools.md) (162 tools, 15 prompts).
+Full list: [features](docs/features.md) and the [tool reference](docs/tools.md) (163 tools, 15 prompts).
 
 ## Showcases
 

@@ -87,6 +87,8 @@ public sealed class LiveSession
     public Dictionary<string, LiveWatchState> Watches { get; } = new(StringComparer.Ordinal);
     /// <summary>User scripts loaded with live_script: id to where the source came from.</summary>
     public Dictionary<string, string> Scripts { get; } = new(StringComparer.Ordinal);
+    /// <summary>Stop points of coverage runs: point id to its run.</summary>
+    internal ConcurrentDictionary<string, LiveCoverageRun> CoveragePoints { get; } = new(StringComparer.Ordinal);
     public bool Suspended { get; internal set; }
     public string? Ended { get; internal set; }
     public bool Closed { get; internal set; }
@@ -197,7 +199,7 @@ public sealed class LiveSession
 /// the static model: modules to loaded images by path, addresses to function names, offsets and PDB source lines; stop
 /// points accept names, module!export, file:line and addresses.
 /// </summary>
-public sealed class LiveSessionService(AssemblyWorkspace workspace, NativeCodeService code) : IDisposable
+public sealed partial class LiveSessionService(AssemblyWorkspace workspace, NativeCodeService code) : IDisposable
 {
     public const string MaxMinutesVariable = "CORVUS_LIVE_MAX_MINUTES";
     public const int MaxSessions = 8;
@@ -275,6 +277,7 @@ public sealed class LiveSessionService(AssemblyWorkspace workspace, NativeCodeSe
             {
                 session.Ended = "failed: the session worker ended" + (worker.StderrText.Length > 0 ? ": " + worker.StderrText.Trim().Split('\n')[^1] : "");
                 session.ReleaseAll();
+                EndCoverage(session);
                 session.Add("exit", null, null, session.Ended);
             }
         }, TaskScheduler.Default);
@@ -309,6 +312,11 @@ public sealed class LiveSessionService(AssemblyWorkspace workspace, NativeCodeSe
             case "stop":
             {
                 var point = body.GetProperty("point").GetString() ?? "";
+                if (session.CoveragePoints.TryGetValue(point, out var run))
+                {
+                    CoverageStop(session, run, point, Thread());
+                    break;
+                }
                 var registers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var r in body.GetProperty("registers").EnumerateObject())
                     if (r.Value.ValueKind == JsonValueKind.String) registers[r.Name] = r.Value.GetString()!;
@@ -378,6 +386,7 @@ public sealed class LiveSessionService(AssemblyWorkspace workspace, NativeCodeSe
             case "exit":
                 session.Ended = "exited: " + body.GetProperty("reason").GetString();
                 session.ReleaseAll();
+                EndCoverage(session);
                 session.Add("exit", null, null, session.Ended);
                 break;
         }
@@ -595,6 +604,7 @@ public sealed class LiveSessionService(AssemblyWorkspace workspace, NativeCodeSe
             await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         session.Worker.Dispose();
         session.ReleaseAll();
+        EndCoverage(session);
         session.Add("exit", null, null, "session closed (" + reason + ")");
     }
 

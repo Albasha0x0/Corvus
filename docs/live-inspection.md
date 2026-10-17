@@ -82,6 +82,7 @@ starting a program needs `--allow-live-spawn` as well. A session runs a worker o
 | Run to the next stop | `live_break action=continue wait=true` |
 | Read the held thread | `live_read registers=rcx,rdx memory=rcx type=int32[2]` |
 | Record every call of a function | `live_watch action=set at=AddLine` (or `kernelbase!CreateFileA`, an address) |
+| Collect code coverage of a run | `live_coverage action=start` before `continue`, then `action=report` (`format=dot` for the call graph); two runs: `action=diff run=cov-1 other=cov-2` |
 | Page what happened | `live_events cursor=<from the last page> kind=stop`; one watch's calls: `live_events from=w1` |
 | Load your own script | `live_script action=load path=trace.js` (needs `--live-scripting`) |
 | Save the process as a dump | `live_session action=snapshot` (then `dump_stack`, `read_dump_memory` on the dump id) |
@@ -101,6 +102,16 @@ script sends calls in batches (512 calls or every 100 ms, and at exit); calls ov
 a second) are counted, not recorded, so a hot function does not slow the program. Each call is a `call` event named by
 its caller: `orders.exe!main+0xDC: AddLine(o=0xE1BAFFE50, qty=3) -> 3`.
 
+`live_coverage` collects code coverage the way a coverage profiler does, from stop events: a stop point at the start
+of each function of the program's image (`match=` narrows by name, `module!part` counts another module), each stop
+counted and resumed at once, the point cleared after `hitLimit` stops (default 100), so a count at the limit reads
+"100+". Functions reached from TLS callbacks or a DLL's entry point are left out, since they also run at process exit;
+a function whose first block is too short is refused with the reason "too short to count with stop-based coverage".
+`action=report` lists the functions that ran (`show=missed` or `all`), busiest first, and `format=dot` draws them on
+the static call graph in Graphviz DOT, functions that never ran dashed. `action=diff` compares two runs of the same
+build: the functions that ran only in each, in both and in neither. Counting covers function entries; blocks inside a
+function are not counted.
+
 `action=snapshot` writes the session's process as a standard dump file with the operating system's own writer (MiniDumpWriteDump
 on Windows, as dotnet-dump and ProcDump write them; GDB's `gcore` on Linux) and opens it
 with the dump tools; the program keeps running. The dump goes to `outputPath`, else a new
@@ -112,7 +123,8 @@ with its rights and can change it, so the tool is off unless the server also sta
 
 Measured on a small MSVC-built program (Windows 11, x64): session open with modules matched 1.1-1.5 s; a held stop to
 its named stack 1 ms; a stop point set by name 0.6 s on the first call (the image's index), then under 10 ms; a watched
-function called 20,000 times in a loop: every call recorded at 107,000-136,000 calls a second (target 5,000).
+function called 20,000 times in a loop: every call recorded at 107,000-136,000 calls a second (target 5,000). Coverage
+of the same program (3,020 functions, statically linked C runtime): stop points placed in 1.4-1.7 s, 165 functions ran.
 
 ## Limits
 

@@ -53,8 +53,8 @@ public static class Toolsets
              "search_dex", "find_dex_references", "map_java_dotnet", "list_jni_bindings", "list_android_devices", "get_android_device_info", "list_android_packages",
              "get_android_package_info", "pull_android_package", "pull_android_file", "read_android_log", "install_android_package", "uninstall_android_package"]),
         new("dumps", "crash dumps and crash text", ["open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps"]),
-        new("live", "running programs: read-only inspection, and sessions with stop points, call recording and user scripts",
-            ["inspect_process", "live_session", "live_break", "live_watch", "live_read", "live_events", "live_script"]),
+        new("live", "running programs: read-only inspection, and sessions with stop points, call recording, code coverage and user scripts",
+            ["inspect_process", "live_session", "live_break", "live_watch", "live_read", "live_events", "live_script", "live_coverage"]),
         new("web", "JavaScript bundles and their source maps", ["analyze_js"]),
     ];
 

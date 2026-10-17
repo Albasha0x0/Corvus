@@ -69,13 +69,13 @@ Off by default, each needs a server option or environment variable chosen by the
   `uninstall_android_package`, which change a connected Android device through adb. The other device tools only read
   (device facts, package lists, files, logs).
 - `--allow-live` (`CORVUS_ALLOW_LIVE=1`) enables the session tools (`live_session`, `live_break`, `live_watch`,
-  `live_read`, `live_events`) on programs already running on this machine; `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`) also
+  `live_coverage`, `live_read`, `live_events`) on programs already running on this machine; `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`) also
   lets `live_session` start a program. A session runs a Python worker with Frida's bindings, which loads a script into
   the program: stop points hold the hitting thread until `live_break action=continue`, and the program's memory is
   read, never written. Closing a session, its deadline (`CORVUS_LIVE_MAX_MINUTES`, default 30) and server exit
   release every held thread and end a program the session started; a started program's output reaches the session's
   events, never the server's protocol stream. `live_watch` records calls through the same script and reads arguments
-  only. `--live-scripting` (`CORVUS_LIVE_SCRIPTING=1`) also enables `live_script`, which loads a user-supplied script
+  only. `live_coverage` places stop points at function starts and resumes each stop at once; it records counts only. `--live-scripting` (`CORVUS_LIVE_SCRIPTING=1`) also enables `live_script`, which loads a user-supplied script
   into the program: it runs with the program's rights and can change it.
 - `--toolsets live` registers `inspect_process` (read-only, above) and the session tools.
 

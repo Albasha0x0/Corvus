@@ -25,7 +25,7 @@ public class LiveSessionGateTests
         foreach (var call in new Func<Task<string>>[]
                  {
                      () => tools.LiveSession("attach", program: "app.exe"), () => tools.LiveBreak("live-1"), () => tools.LiveWatchCalls("live-1"), () => tools.LiveRead("live-1"),
-                     () => tools.LiveEvents("live-1"), () => tools.LiveScriptCalls("live-1"),
+                     () => tools.LiveEvents("live-1"), () => tools.LiveScriptCalls("live-1"), () => tools.LiveCoverage("live-1"),
                  })
         {
             var e = await Assert.ThrowsAsync<ToolError>(call);

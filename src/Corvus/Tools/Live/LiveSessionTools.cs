@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 /// calls unless the server starts with --allow-live, and starting a program also needs --allow-live-spawn.
 /// </summary>
 [McpServerToolType]
-public sealed class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null)
+public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null)
 {
     private const string SessionDescription = "Session id from live_session.";
 
