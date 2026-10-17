@@ -18,6 +18,7 @@ public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output
     private static readonly HashSet<(string Tool, string Parameter)> NotInputFiles =
     [
         ("install_android_package", "path"), // refused before the file is read unless device changes are allowed
+        ("live_script", "path"), // refused before the file is read unless sessions and user scripts are on
     ];
 
     /// <summary>The plausible arguments of each tool, as the contract sweep builds them.</summary>
