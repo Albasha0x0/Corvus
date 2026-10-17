@@ -8,7 +8,7 @@ if (-not (Test-Path $module)) { throw 'set CORVUS_FIXTURE_POWERSHELL_LAYERS to t
 Import-Module $module -Force
 $out = Join-Path $PSScriptRoot 'powershell'
 New-Item -ItemType Directory -Force $out | Out-Null
-$sb = [ScriptBlock]::Create("`$u = 'http://example.com/corvus/stage.txt'; `$wc = New-Object Net.WebClient; Write-Host 'corvus marker'; Write-Output `$u")
+$sb = [ScriptBlock]::Create("`$u = 'http://api.example.com/v1/notes.txt'; `$wc = New-Object Net.WebClient; Write-Host 'corvus marker'; Write-Output `$u")
 $cases = @(
     @{ n = 'token-all'; f = { Out-ObfuscatedTokenCommand -ScriptBlock $sb } },
     @{ n = 'string-concat'; f = { Out-ObfuscatedStringCommand -ScriptBlock $sb 1 } },
@@ -31,7 +31,7 @@ foreach ($c in $cases) {
 # variables, stdin, clipboard, mshta) around a second benign command; read as command lines, not batch files.
 $launchers = Join-Path $PSScriptRoot 'launchers'
 New-Item -ItemType Directory -Force $launchers | Out-Null
-$sb = [ScriptBlock]::Create("Write-Host 'corvus marker'; `$u = 'http://example.com/corvus/stage.txt'")
+$sb = [ScriptBlock]::Create("Write-Host 'corvus marker'; `$u = 'http://api.example.com/v1/notes.txt'")
 foreach ($n in 1..12) {
     $r = Out-PowerShellLauncher -ScriptBlock $sb -LaunchType $n -NoProfile -NonInteractive -WindowStyle Hidden
     Set-Content -Path (Join-Path $launchers ('launcher-{0:00}.cmd' -f $n)) -Value $r -Encoding UTF8

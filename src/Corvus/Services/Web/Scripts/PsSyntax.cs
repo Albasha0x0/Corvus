@@ -2,7 +2,7 @@ using System.Text;
 
 namespace Corvus.Services.Web.Scripts;
 
-// The PowerShell syntax tree the reader folds: expressions, commands, pipelines and the statements a dropper uses.
+// The PowerShell syntax tree the reader folds: expressions, commands, pipelines and the statements layered scripts carry.
 
 internal abstract class PsNode(int start, int end)
 {

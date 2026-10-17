@@ -12,11 +12,10 @@ q = Array( _
     "TTP""): ", _
     "o.Open ", _
     """GET"", ", _
-    """http:/", _
-    "/exampl", _
-    "e.com/c", _
-    "orvus/s", _
-    "tage.tx", _
-    "t"", Fal", _
+    """https:/", _
+    "/api.exa", _
+    "mple.com", _
+    "/v1/note", _
+    "s"", Fal", _
     "se")
 ExEcUtE JoIn(q, "")

@@ -11,7 +11,7 @@ fs.mkdirSync(out, { recursive: true });
 const source = `
 function report(target) {
     var message = 'corvus marker';
-    var url = 'http://example.com/corvus/stage.txt';
+    var url = 'https://api.example.com/v1/notes';
     console.log(message + ' ' + target);
     return fetch(url, { method: 'POST', body: JSON.stringify({ host: target }) });
 }

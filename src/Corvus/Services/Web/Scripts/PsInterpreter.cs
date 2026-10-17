@@ -7,7 +7,8 @@ using static Corvus.Services.Web.Scripts.PsConvert;
 namespace Corvus.Services.Web.Scripts;
 
 /// <summary>
-/// A bounded PowerShell evaluator: straight-line code, loops and functions over constants, with the decoders droppers use
+/// A bounded PowerShell evaluator: straight-line code, loops and functions over constants, with the decoders layered
+/// scripts carry
 /// (base64, char codes, XOR, format, replace, reverse, deflate / gzip, SecureString). Commands are never run: the
 /// invocations of code (Invoke-Expression and its spellings, script blocks, encoded commands) are peeled as layers, and
 /// constant expressions are folded to literals in place. Anything not modelled is unknown.
