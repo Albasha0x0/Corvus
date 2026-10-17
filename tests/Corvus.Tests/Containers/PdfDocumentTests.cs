@@ -8,19 +8,19 @@ namespace Corvus.Tests;
 /// <summary>PDF objects, filters, actions, scripts, embedded files, pdfid counts and the empty-password security handler.</summary>
 public sealed class PdfDocumentTests
 {
-    private const string Script = "var s = unescape('%u9090%u9090');\nthis.exportDataObject({ cName: 'invoice.exe', nLaunch: 2 });\neval(s);\n";
+    private const string Script = "var s = unescape('%41%42');\nthis.exportDataObject({ cName: 'module.dll', nLaunch: 0 });\neval(s);\n";
 
     private static PdfFixtures Base() => new PdfFixtures()
-        .Add(1, "<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /JavaScript /JS 5 0 R >> /Names << /EmbeddedFiles << /Names [(invoice.exe) 6 0 R] >> >> >>")
+        .Add(1, "<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /JavaScript /JS 5 0 R >> /Names << /EmbeddedFiles << /Names [(module.dll) 6 0 R] >> >> >>")
         .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
         .Add(3, "<< /Type /Page /Parent 2 0 R /AA << /O 4 0 R >> /Annots [8 0 R] >>")
-        .Add(4, "<< /S /Launch /Win << /F (cmd.exe) /P (/c calc) >> >>")
+        .Add(4, "<< /S /Launch /Win << /F (notepad.exe) /P (readme.txt) >> >>")
         .Add(5, "<< /Filter [/ASCIIHexDecode /FlateDecode] >>", Encoding.ASCII.GetBytes(Convert.ToHexString(PdfFixtures.Deflate(Script)) + ">"))
-        .Add(6, "<< /Type /Filespec /F (invoice.exe) /UF (invoice.exe) /Desc (the invoice) /EF << /F 7 0 R >> >>")
+        .Add(6, "<< /Type /Filespec /F (module.dll) /UF (module.dll) /Desc (the module) /EF << /F 7 0 R >> >>")
         .Add(7, "<< /Type /EmbeddedFile /Filter /FlateDecode >>", PdfFixtures.Deflate(Payload))
         .Add(8, "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /A << /S /URI /URI (http://example.test/next) >> >>");
 
-    private static readonly byte[] Payload = ContainerFixtures.Module("Invoice");
+    private static readonly byte[] Payload = ContainerFixtures.Module("Embedded");
 
     private static PdfFileView.Facts View(byte[] pdf) =>
         (PdfFileView.Facts)new PdfFileView().Inspect(new FileInput("a.pdf", pdf, Blob.Identify(pdf)), default)!.Detail;
@@ -30,7 +30,7 @@ public sealed class PdfDocumentTests
     {
         var f = View(Base().Build());
         Assert.Contains(f.Actions, a => a is { Object: 1, Type: "JavaScript", Trigger: "object 1 /OpenAction (document opens)" });
-        Assert.Contains(f.Actions, a => a is { Object: 4, Type: "Launch", Target: "cmd.exe /c calc", Trigger: "object 3 /AA/O (page or annotation opens)" });
+        Assert.Contains(f.Actions, a => a is { Object: 4, Type: "Launch", Target: "notepad.exe readme.txt", Trigger: "object 3 /AA/O (page or annotation opens)" });
         Assert.Contains(f.Actions, a => a is { Object: 8, Type: "URI", Target: "http://example.test/next", Trigger: "object 8 /A (link, outline item or field activated)" });
     }
 
@@ -51,9 +51,9 @@ public sealed class PdfDocumentTests
     {
         var pdf = Base().Build();
         var e = Assert.Single(View(pdf).EmbeddedFiles);
-        Assert.Equal(("invoice.exe", "the invoice", ".NET assembly"), (e.Name, e.Description, e.Kind));
+        Assert.Equal(("module.dll", "the module", ".NET assembly"), (e.Name, e.Description, e.Kind));
         var c = Containers.Open(pdf, "a.pdf", AnalysisLimits.Default, default);
-        Assert.Equal(Payload, c.Items.Single(i => i.Name == "EmbeddedFiles/invoice.exe").Bytes);
+        Assert.Equal(Payload, c.Items.Single(i => i.Name == "EmbeddedFiles/module.dll").Bytes);
         Assert.Equal(Script, Encoding.UTF8.GetString(c.Items.Single(i => i.Name == "JavaScript/object1.js").Bytes));
     }
 
@@ -111,7 +111,7 @@ public sealed class PdfDocumentTests
         builder.EncryptRc4(9);
         var f = View(builder.Build());
         Assert.Equal("RC4 128-bit, revision 3", f.Encryption);
-        Assert.Contains(f.Actions, a => a is { Type: "Launch", Target: "cmd.exe /c calc" });
+        Assert.Contains(f.Actions, a => a is { Type: "Launch", Target: "notepad.exe readme.txt" });
         Assert.Equal(Script.Length, Assert.Single(f.Scripts).Length);
         Assert.Equal(".NET assembly", Assert.Single(f.EmbeddedFiles).Kind);
     }
