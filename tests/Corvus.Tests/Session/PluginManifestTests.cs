@@ -64,9 +64,18 @@ public class PluginManifestTests
     {
         var claude = Environment.GetEnvironmentVariable("CORVUS_CLAUDE") ?? BundleTests.FindOnPath(OperatingSystem.IsWindows() ? "claude.exe" : "claude");
         if (claude is null) return; // no claude CLI on this machine
+        // A copy of the shipped plugin files: the validator also reads untracked files at the plugin root (a local CLAUDE.md is a warning).
+        using var dir = new TempDir();
+        foreach (var folder in new[] { ".claude-plugin", "skills" })
+            foreach (var file in Directory.EnumerateFiles(Path.Combine(Root, folder), "*", SearchOption.AllDirectories))
+            {
+                var copy = Path.Combine(dir.Path, Path.GetRelativePath(Root, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+                File.Copy(file, copy);
+            }
         foreach (var target in new[] { ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json" })
         {
-            ProcessStartInfo start = new(claude) { RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Root };
+            ProcessStartInfo start = new(claude) { RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = dir.Path };
             foreach (var arg in new[] { "plugin", "validate", "--strict", target }) start.ArgumentList.Add(arg);
             using var process = Process.Start(start)!;
             var output = process.StandardOutput.ReadToEndAsync();
