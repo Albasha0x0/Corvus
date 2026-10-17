@@ -2831,16 +2831,18 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 **Session on a local program** (edit, open-world)
 
-Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images.
+Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images; snapshot saves the process as a dump for the dump tools.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | list, processes, attach, spawn, status or close. Values: list, processes, attach, spawn, status, close. |
+| `action` | string |  | `list` | list, processes, attach, spawn, status, snapshot or close. Values: list, processes, attach, spawn, status, close. |
 | `program` | string |  |  | attach: process id or name; spawn: program path, started suspended; processes: a name filter. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `session` | string |  |  | Session id from live_session. |
+| `outputPath` | string |  |  | snapshot: the dump file (default: the temp folder). |
+| `overwrite` | boolean |  |  | Replace outputPath if it exists. |
 
-Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`.
+Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`.
 
 ### live_break
 

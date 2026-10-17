@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 /// calls unless the server starts with --allow-live, and starting a program also needs --allow-live-spawn.
 /// </summary>
 [McpServerToolType]
-public sealed class LiveSessionTools(ServerOptions options, LiveSessionService live)
+public sealed class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null)
 {
     private const string SessionDescription = "Session id from live_session.";
 
@@ -28,6 +28,9 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
 
     public sealed record LiveProcessRow(int ProcessId, string Name);
 
+    /// <summary>A snapshot of the session's process as a dump file, opened for the dump tools.</summary>
+    public sealed record LiveSnapshot(string Path, long Bytes, [property: Description("Id for dump_stack, read_dump_memory and the other dump tools.")] string Dump);
+
     public sealed record LiveSessionReport(string Action,
         [property: Description("Session id; null for action=list and processes.")] string? Session,
         string? Backend, string? Program, int? ProcessId,
@@ -35,6 +38,7 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
         IReadOnlyList<LiveModule> Modules, IReadOnlyList<LiveSessionRow> Sessions)
     {
         public IReadOnlyList<LiveProcessRow>? Processes { get; init; }
+        public LiveSnapshot? Snapshot { get; init; }
     }
 
     public sealed record LiveStopPoint(string Id,
@@ -89,12 +93,14 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
     }
 
     [McpServerTool(Name = "live_session", Title = "Session on a local program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
-    [Description("Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images.")]
+    [Description("Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images; snapshot saves the process as a dump for the dump tools.")]
     public Task<string> LiveSession(
-        [Description("list, processes, attach, spawn, status or close.")] string action = "list",
+        [Description("list, processes, attach, spawn, status, snapshot or close.")] string action = "list",
         [Description("attach: process id or name; spawn: program path, started suspended; processes: a name filter.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description(SessionDescription)] string? session = null,
+        [Description("snapshot: the dump file (default: the temp folder).")] string? outputPath = null,
+        [Description("Replace outputPath if it exists.")] bool overwrite = false,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -118,14 +124,31 @@ public sealed class LiveSessionTools(ServerOptions options, LiveSessionService l
                     return Report(a, opened);
                 case "status":
                     return Report(a, live.Get(RequireSession(session)));
+                case "snapshot":
+                    return await Snapshot(live.Get(RequireSession(session)), outputPath, overwrite, cancellationToken).ConfigureAwait(false);
                 case "close":
                     var closing = live.Get(RequireSession(session));
                     await live.CloseAsync(closing, "closed by request").ConfigureAwait(false);
                     return Report(a, closing);
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status or close");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot or close");
             }
         }, cancellationToken);
+
+    private async Task<string> Snapshot(Services.LiveSession s, string? outputPath, bool overwrite, CancellationToken ct)
+    {
+        LiveSessionService.Live(s);
+        if (dumps == null) throw new ToolError(ErrorCode.Unsupported, "This server has no dump reader.", "open the dump file with open_minidump");
+        var path = string.IsNullOrWhiteSpace(outputPath)
+            ? Path.Combine(Path.GetTempPath(), "corvus-snapshots", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}{(OperatingSystem.IsWindows() ? ".dmp" : ".core")}")
+            : outputPath;
+        var bytes = Native.Diagnostics.ProcessSnapshot.Write(s.ProcessId, path, overwrite, ct);
+        var full = Path.GetFullPath(path);
+        var report = await dumps.Summarize(full, null, ct).ConfigureAwait(false);
+        var text = $"{s.Id}: process {s.ProcessId} written to {full} ({bytes:N0} bytes), opened as {report.Id}; the program keeps running\n" +
+                   $"next: open_minidump path={report.Id} view=threads, dump_stack dump={report.Id}\n";
+        return ToolOutput.With(text, new LiveSessionReport("snapshot", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Snapshot = new LiveSnapshot(full, bytes, report.Id) });
+    }
 
     /// <summary>Local processes by name (then id), those whose name contains <paramref name="filter"/> when given.</summary>
     private static List<LiveProcessRow> LocalProcesses(string? filter)

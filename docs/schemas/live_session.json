@@ -93,6 +93,26 @@
         ]
       }
     },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer"
+        },
+        "dump": {
+          "description": "Id for dump_stack, read_dump_memory and the other dump tools.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "bytes",
+        "dump"
+      ]
+    },
     "notices": {
       "type": "array",
       "items": {

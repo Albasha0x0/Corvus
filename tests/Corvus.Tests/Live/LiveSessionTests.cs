@@ -14,6 +14,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public FakeWorkerProcess? Worker { get; private set; }
     public readonly List<string> Ops = [];
     public string? Missing { get; init; }
+    /// <summary>The process id the session reports (a real child for snapshot tests).</summary>
+    public int ProcessId { get; init; } = Pid;
     /// <summary>Bytes the program holds, by address.</summary>
     public readonly Dictionary<ulong, byte[]> Memory = [];
     private readonly Dictionary<string, ulong> _points = [];
@@ -55,7 +57,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             case "open":
                 return new JsonObject
                 {
-                    ["pid"] = Pid, ["arch"] = "x64", ["suspended"] = args["spawn"] != null,
+                    ["pid"] = ProcessId, ["arch"] = "x64", ["suspended"] = args["spawn"] != null,
                     ["modules"] = new JsonArray(
                         new JsonObject { ["name"] = Path.GetFileName(mainPath), ["base"] = $"0x{mainBase:x}", ["size"] = mainSize, ["path"] = mainPath },
                         new JsonObject { ["name"] = "system.dll", ["base"] = "0x7ffe00000000", ["size"] = 0x10000, ["path"] = "/nowhere/system.dll" }),
@@ -239,6 +241,37 @@ public sealed class LiveSessionTests : IDisposable
         var rows = await _tools.LiveSession("processes", program: self.ProcessName);
         Assert.Contains($"{self.Id,7} {self.ProcessName}", rows);
         Assert.Equal("No process matches.\n", await _tools.LiveSession("processes", program: "no-such-program-" + Guid.NewGuid().ToString("N")));
+    }
+
+    [Fact]
+    public async Task A_snapshot_writes_the_process_as_a_dump_the_dump_tools_open()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
+            { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
+        var dumps = new MinidumpService();
+        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id } };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true }, service, dumps);
+        var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            await tools.LiveSession("attach", program: child.Id.ToString());
+            var path = Path.Combine(dir, "findstr.dmp");
+            var snap = await tools.LiveSession("snapshot", session: "live-1", outputPath: path);
+            Assert.Contains($"process {child.Id} written to {path}", snap);
+            Assert.Contains("the program keeps running", snap);
+            var id = System.Text.RegularExpressions.Regex.Match(snap, @"opened as (\S+);").Groups[1].Value;
+            Assert.Contains("findstr.exe", await new MinidumpTools(dumps).OpenMinidump(id, "modules", limit: 200));
+            Assert.False(child.HasExited);
+            Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => tools.LiveSession("snapshot", session: "live-1", outputPath: path))).Code);
+        }
+        finally
+        {
+            service.Dispose();
+            child.Kill();
+            dumps.Dispose();
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
     }
 
     [Fact]

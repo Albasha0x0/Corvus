@@ -84,6 +84,7 @@ starting a program needs `--allow-live-spawn` as well. A session runs a worker o
 | Record every call of a function | `live_watch action=set at=AddLine` (or `kernelbase!CreateFileA`, an address) |
 | Page what happened | `live_events cursor=<from the last page> kind=stop`; one watch's calls: `live_events from=w1` |
 | Load your own script | `live_script action=load path=trace.js` (needs `--live-scripting`) |
+| Save the process as a dump | `live_session action=snapshot` (then `dump_stack`, `read_dump_memory` on the dump id) |
 | End | `live_session action=close` |
 
 Addresses are joined to the static model: the program's own image is loaded and indexed when the session opens, so a
@@ -99,6 +100,11 @@ parameter names, else `arguments` raw values. Strings are read while the call ru
 script sends calls in batches (512 calls or every 100 ms, and at exit); calls over a watch's `rateLimit` (default 10,000
 a second) are counted, not recorded, so a hot function does not slow the program. Each call is a `call` event named by
 its caller: `orders.exe!main+0xDC: AddLine(o=0xE1BAFFE50, qty=3) -> 3`.
+
+`action=snapshot` writes the session's process as a standard dump file with the operating system's own writer (MiniDumpWriteDump
+on Windows, as dotnet-dump and ProcDump write them; GDB's `gcore` on Linux) and opens it
+with the dump tools; the program keeps running. The dump goes to `outputPath`, else a new
+file under the temp folder's `corvus-snapshots`.
 
 `live_script` loads a script you wrote into the program (Frida's JavaScript API); what it sends arrives as `script`
 events, and a script that does not compile is refused with the compiler's message. A script runs inside the program
