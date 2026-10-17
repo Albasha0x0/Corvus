@@ -192,6 +192,21 @@ public sealed class LiveTimelineTests : IDisposable
     }
 
     [Fact]
+    public void Keys_held_open_before_the_trace_name_the_root_of_later_relative_opens()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var held = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft")!;
+        var keys = OpenKeys.Read(Environment.ProcessId);
+        var key = keys.First(k => k.Path.Equals(@"\REGISTRY\MACHINE\SOFTWARE\Microsoft", StringComparison.OrdinalIgnoreCase));
+        // the handle table shows object addresses to elevated processes only, as event tracing needs anyway
+        ulong keyObject = key.Object != 0 ? key.Object : 0xA;
+        var d = new ActivityDecoder(Environment.ProcessId, new DeviceMap([]), null);
+        d.Known(keyObject, key.Path);
+        Assert.Equal(@"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            d.Key(DateTime.UtcNow, 0, keyObject, 0xB, null, @"Windows NT\CurrentVersion")!.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Endpoints_files_and_started_programs_are_decoded_from_the_provider_fields()
     {
         var d = new ActivityDecoder(7, new DeviceMap([(@"\Device\HarddiskVolume2", "C:")]), null);

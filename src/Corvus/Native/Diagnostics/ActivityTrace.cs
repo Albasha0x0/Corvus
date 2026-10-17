@@ -97,7 +97,9 @@ public sealed class EventTraceSource : IActivityTraceSource
             session.Dispose();
             throw;
         }
-        return new Trace(session, new ActivityDecoder(processId, DeviceMap.Load(), System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value), record);
+        var decoder = new ActivityDecoder(processId, DeviceMap.Load(), System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value);
+        foreach (var (keyObject, path) in OpenKeys.Read(processId)) decoder.Known(keyObject, path);
+        return new Trace(session, decoder, record);
     }
 
     /// <summary>Stops sessions a server that is no longer running left behind (they outlive their process).</summary>
@@ -197,6 +199,12 @@ internal sealed class ActivityDecoder(int processId, DeviceMap devices, string? 
 
     public int ProcessId => processId;
 
+    /// <summary>A key the process held open before the trace started, by its key object and kernel path.</summary>
+    public void Known(ulong keyObject, string path)
+    {
+        if (keyObject != 0 && path.Length > 0 && _keys.Count < MaxKeys) _keys[keyObject] = path;
+    }
+
     public ActivityEntry? File(DateTime at, string? fileName, int createOptions) =>
         string.IsNullOrEmpty(fileName) || (createOptions & FileDirectoryFile) != 0 ? null : new(at, "file", devices.DosPath(fileName));
 
@@ -287,6 +295,100 @@ internal sealed class ActivityDecoder(int processId, DeviceMap devices, string? 
         }
         return path;
     }
+}
+
+/// <summary>
+/// The registry keys a process holds open, by key object (the address the kernel registry provider reports): keys opened
+/// before a trace started, the HKLM handle among them, have no open event, so later relative opens need these names.
+/// </summary>
+[SupportedOSPlatform("windows")]
+internal static class OpenKeys
+{
+    private const int SystemExtendedHandleInformation = 64, KeyNameInformation = 3, EntrySize = 40;
+    private const int StatusInfoLengthMismatch = unchecked((int)0xC0000004);
+    private const uint ProcessDupHandle = 0x40, DuplicateSameAccess = 0x2;
+
+    /// <summary>Kernel paths (\REGISTRY\MACHINE\...); empty when the handle table or the process cannot be read.</summary>
+    public static IReadOnlyList<(ulong Object, string Path)> Read(int processId)
+    {
+        var keys = new List<(ulong, string)>();
+        if (IntPtr.Size != 8) return keys; // the entry layout below is the 64-bit one
+        using var probe = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("SOFTWARE");
+        var process = OpenProcess(ProcessDupHandle, false, processId);
+        if (probe == null || process == IntPtr.Zero) return keys;
+        var table = IntPtr.Zero;
+        try
+        {
+            table = HandleTable();
+            long count = Marshal.ReadInt64(table);
+            // the key object type's index differs between Windows builds: take it from a key handle of our own
+            ulong own = (ulong)probe.Handle.DangerousGetHandle();
+            int self = Environment.ProcessId, keyType = -1;
+            for (long i = 0; i < count && keyType < 0; i++)
+            {
+                var e = table + 16 + (nint)(i * EntrySize);
+                if (Marshal.ReadInt64(e, 8) == self && (ulong)Marshal.ReadInt64(e, 16) == own) keyType = (ushort)Marshal.ReadInt16(e, 30);
+            }
+            if (keyType < 0) return keys;
+            var name = Marshal.AllocHGlobal(4096);
+            try
+            {
+                for (long i = 0; i < count; i++)
+                {
+                    var e = table + 16 + (nint)(i * EntrySize);
+                    if (Marshal.ReadInt64(e, 8) != processId || (ushort)Marshal.ReadInt16(e, 30) != keyType) continue;
+                    if (!DuplicateHandle(process, Marshal.ReadIntPtr(e, 16),GetCurrentProcess(), out var dup, 0, false, DuplicateSameAccess)) continue;
+                    try
+                    {
+                        // KEY_NAME_INFORMATION: a byte length, then the name
+                        if (NtQueryKey(dup, KeyNameInformation, name, 4096, out _) == 0 && Marshal.ReadInt32(name) is var bytes and > 0 and <= 4092)
+                            keys.Add(((ulong)Marshal.ReadInt64(e), Marshal.PtrToStringUni(name + 4, bytes / 2)));
+                    }
+                    finally { CloseHandle(dup); }
+                }
+            }
+            finally { Marshal.FreeHGlobal(name); }
+        }
+        catch (Exception e) when (e is OutOfMemoryException or System.ComponentModel.Win32Exception) { /* names stay unjoined */ }
+        finally
+        {
+            if (table != IntPtr.Zero) Marshal.FreeHGlobal(table);
+            CloseHandle(process);
+        }
+        return keys;
+    }
+
+    /// <summary>SYSTEM_HANDLE_INFORMATION_EX: a count, a reserved field, then 40-byte entries (object, process id, handle value, access, type index at 30).</summary>
+    private static IntPtr HandleTable()
+    {
+        for (int length = 4 << 20; ; )
+        {
+            var buffer = Marshal.AllocHGlobal(length);
+            int status = NtQuerySystemInformation(SystemExtendedHandleInformation, buffer, length, out int needed);
+            if (status == 0) return buffer;
+            Marshal.FreeHGlobal(buffer);
+            if (status != StatusInfoLengthMismatch || length >= 1 << 30) throw new System.ComponentModel.Win32Exception(status);
+            length = Math.Max(length * 2, needed + (1 << 20));
+        }
+    }
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQuerySystemInformation(int informationClass, IntPtr buffer, int length, out int returned);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryKey(IntPtr key, int informationClass, IntPtr buffer, int length, out int returned);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess, out IntPtr target, uint access, bool inherit, uint options);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
 }
 
 /// <summary>NT device names to drive letters (QueryDosDevice), so \Device\HarddiskVolume2\x reads C:\x.</summary>
