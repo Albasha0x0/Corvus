@@ -17,7 +17,7 @@
       "id": "commands",
       "sets": ["bench"],
       "prompt": "Which command-line commands does the program in {v1} accept (the first argument)? List them all.",
-      "expect": ["\\blist\\b", "\\bexport\\b", "\\blicense\\b"]
+      "expect": ["\\blist\\b", "\\bexport\\b", "\\bpreview\\b"]
     },
     {
       "id": "usage-exit-code",
@@ -40,7 +40,7 @@
     {
       "id": "renamed-verify",
       "sets": ["bench"],
-      "prompt": "{v2} is a newer build of {v1}. What is the method LicenseCheck.Verify of the old build called in the new build?",
+      "prompt": "{v2} is a newer build of {v1}. What is the method PreviewGate.Verify of the old build called in the new build?",
       "expect": ["\\bCheck\\b"]
     },
     {
@@ -59,7 +59,7 @@
       "id": "moved-decoder",
       "sets": ["bench"],
       "prompt": "{v2} is a newer build of {v1}. In the old build the string decoder D(string, int) is in the type Notes.Strings. Which type declares it in the new build?",
-      "expect": ["LicenseCheck"]
+      "expect": ["PreviewGate"]
     }
   ]
 }
