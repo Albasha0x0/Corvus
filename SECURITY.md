@@ -2,6 +2,8 @@
 
 ## Reporting a vulnerability
 
+Maintainer: Hossain Albasha ([@Albasha0x0](https://github.com/Albasha0x0)), owner and sole maintainer of Corvus.
+
 Report vulnerabilities in Corvus privately through the repository's **Security** tab ("Report a vulnerability"). Do not
 open a public issue for a security problem. Include the version (`corvus version`), the operating system, the MCP
 client, and the smallest input or tool call that shows the problem.
