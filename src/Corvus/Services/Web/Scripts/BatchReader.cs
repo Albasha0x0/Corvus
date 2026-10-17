@@ -16,7 +16,6 @@ internal sealed partial class BatchReader
     private readonly ScriptContext _ctx;
     private readonly int _depth;
     private readonly Dictionary<string, string> _vars;
-    private readonly HashSet<int> _peeled = [];
 
     private readonly bool _commandLine;
 

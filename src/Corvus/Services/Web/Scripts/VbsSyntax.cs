@@ -293,8 +293,6 @@ internal sealed class VbParser
         return list;
     }
 
-    private static bool EndOf(VbToken t, string word) => t.Is("end") || t.Is("next") || t.Is("loop") || t.Is("wend") || t.Is(word);
-
     private VbStatement? Statement()
     {
         var t = T;
