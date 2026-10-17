@@ -278,6 +278,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 session.Ended = "failed: the session worker ended" + (worker.StderrText.Length > 0 ? ": " + worker.StderrText.Trim().Split('\n')[^1] : "");
                 session.ReleaseAll();
                 EndCoverage(session);
+                EndTimeline(session);
                 session.Add("exit", null, null, session.Ended);
             }
         }, TaskScheduler.Default);
@@ -387,6 +388,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 session.Ended = "exited: " + body.GetProperty("reason").GetString();
                 session.ReleaseAll();
                 EndCoverage(session);
+                EndTimeline(session);
                 session.Add("exit", null, null, session.Ended);
                 break;
         }
@@ -605,6 +607,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         session.Worker.Dispose();
         session.ReleaseAll();
         EndCoverage(session);
+        EndTimeline(session);
         session.Add("exit", null, null, "session closed (" + reason + ")");
     }
 
@@ -613,5 +616,6 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         foreach (var s in _sessions.Values)
             try { CloseAsync(s, "server exit").Wait(TimeSpan.FromSeconds(6)); }
             catch (AggregateException) { s.Worker.Kill("server exit"); }
+        StopTimelines();
     }
 }

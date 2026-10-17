@@ -83,6 +83,7 @@ starting a program needs `--allow-live-spawn` as well. A session runs a worker o
 | Read the held thread | `live_read registers=rcx,rdx memory=rcx type=int32[2]` |
 | Record every call of a function | `live_watch action=set at=AddLine` (or `kernelbase!CreateFileA`, an address) |
 | Collect code coverage of a run | `live_coverage action=start` before `continue`, then `action=report` (`format=dot` for the call graph); two runs: `action=diff run=cov-1 other=cov-2` |
+| Trace the files, registry keys and endpoints it opens | `live_timeline action=start` before `continue`, then `action=list run=tl-1` (`cursor=`) or `action=report` |
 | Page what happened | `live_events cursor=<from the last page> kind=stop`; one watch's calls: `live_events from=w1` |
 | Load your own script | `live_script action=load path=trace.js` (needs `--live-scripting`) |
 | Save the process as a dump | `live_session action=snapshot` (then `dump_stack`, `read_dump_memory` on the dump id) |
@@ -111,6 +112,16 @@ a function whose first block is too short is refused with the reason "too short 
 the static call graph in Graphviz DOT, functions that never ran dashed. `action=diff` compares two runs of the same
 build: the functions that ran only in each, in both and in neither. Counting covers function entries; blocks inside a
 function are not counted.
+
+`live_timeline` collects a timestamped trace from the OS diagnostics channel: an event tracing session (ETW) with the
+kernel file, registry, network and process providers, as PerfView and Process Monitor collect them, keeping the
+session program's events. Each entry is a time, a category (`file`, `registry`, `network`, `process`) and the name the
+OS reports: a file path with its drive letter, a registry key or value as `HKLM\...` / `HKCU\...`, a TCP connect or
+accept and each UDP endpoint once, a child program's image. `action=list` pages entries with a cursor (`category=`,
+`match=` filter), `action=report` lists each name once with its count and first time; a timeline keeps the latest
+100,000 entries, and it completes on `stop` or when the program exits, once the OS has delivered its buffers. Event
+tracing needs administrator rights or membership in Performance Log Users (`access_denied` otherwise); other platforms
+answer `provider_unavailable`. Results are kept as evidence records like the other session tools.
 
 `action=snapshot` writes the session's process as a standard dump file with the operating system's own writer (MiniDumpWriteDump
 on Windows, as dotnet-dump and ProcDump write them; GDB's `gcore` on Linux) and opens it

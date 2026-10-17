@@ -30,6 +30,7 @@ public static partial class ToolOutput
         ["compare_folders"] = ["entries", "changes"],
         ["compare_native_images"] = ["items", "changes"],
         ["compare_assemblies"] = ["items", "changes"],
+        ["live_timeline"] = ["items", "names"],
     };
 
     /// <summary>

@@ -1,0 +1,169 @@
+{
+  "type": "object",
+  "properties": {
+    "run": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "program": {
+          "type": "string"
+        },
+        "processId": {
+          "type": "integer"
+        },
+        "source": {
+          "description": "The diagnostics channel: event tracing (ETW) on Windows.",
+          "type": "string"
+        },
+        "state": {
+          "description": "recording or complete.",
+          "type": "string"
+        },
+        "entries": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run",
+        "session",
+        "program",
+        "processId",
+        "source",
+        "state",
+        "entries"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer"
+          },
+          "time": {
+            "description": "UTC, ISO 8601.",
+            "type": "string"
+          },
+          "category": {
+            "description": "file, registry, network or process.",
+            "type": "string"
+          },
+          "name": {
+            "description": "As the OS reports it: a path, registry key or value, endpoint or program.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "time",
+          "category",
+          "name"
+        ]
+      }
+    },
+    "cursor": {
+      "description": "Cursor for the next page; null at the end.",
+      "type": "string"
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "program": {
+            "type": "string"
+          },
+          "processId": {
+            "type": "integer"
+          },
+          "source": {
+            "description": "The diagnostics channel: event tracing (ETW) on Windows.",
+            "type": "string"
+          },
+          "state": {
+            "description": "recording or complete.",
+            "type": "string"
+          },
+          "entries": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run",
+          "session",
+          "program",
+          "processId",
+          "source",
+          "state",
+          "entries"
+        ]
+      }
+    },
+    "dropped": {
+      "description": "Entries the ring dropped before this page.",
+      "type": "integer"
+    },
+    "names": {
+      "description": "action=report: each name with its count and first time.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "first": {
+            "description": "UTC, ISO 8601.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "name",
+          "count",
+          "first"
+        ]
+      }
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "runs"
+  ]
+}

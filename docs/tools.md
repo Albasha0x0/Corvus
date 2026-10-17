@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-163 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+164 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -20,7 +20,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [engine](#engine) | 0 | 0 | 13: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | 0 | 0 | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | 0 | 0 | 7: crash dumps and crash text |
-| [live](#live) | 0 | 0 | 8: running programs: read-only inspection, and sessions with stop points, call recording, code coverage and user scripts |
+| [live](#live) | 0 | 0 | 9: running programs: read-only inspection, and sessions with stop points, call recording, code coverage, activity traces and user scripts |
 | [web](#web) | 0 | 0 | 1: JavaScript bundles and their source maps |
 
 ## session
@@ -2805,7 +2805,7 @@ Structured output: `folder`, `dumps`, `items`, `offset`, `total`, `failed`, `not
 
 ## live
 
-Running programs: read-only inspection, and sessions with stop points, call recording, code coverage and user scripts.
+Running programs: read-only inspection, and sessions with stop points, call recording, code coverage, activity traces and user scripts.
 
 ### inspect_process
 
@@ -2951,6 +2951,25 @@ Collect code coverage in a session: which functions of an image ran and how ofte
 | `limit` | integer |  | `100` |  |
 
 Structured output: `run`, `items`, `offset`, `total`, `runs`, `namedAddresses`, `code`, `nextOffset`, `totalChars`, `diff`, `limit`, `totalExact`, `hasMore`.
+
+### live_timeline
+
+**Activity trace of a session** (edit, open-world)
+
+Collect a timestamped trace of the files, registry keys, endpoints and child processes a session's program opens, from the OS diagnostics channel (event tracing on Windows); entries page with a cursor, report counts each name.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session` | string |  |  | Session id; start only. |
+| `action` | string |  | `list` | start, stop, list or report. Values: start, stop, list, report. |
+| `run` | string |  |  | Timeline id (tl-1); without it, list shows the timelines. |
+| `category` | string |  |  | Only file, registry, network or process. Values: file, registry, network, process. |
+| `match` | string |  |  | Only names containing this. |
+| `cursor` | string |  |  | list: cursor from an earlier page; default the oldest entry kept. |
+| `offset` | integer |  |  | Rows to skip. (report). |
+| `limit` | integer |  | `100` |  |
+
+Structured output: `run`, `items`, `cursor`, `runs`, `dropped`, `names`.
 
 ## web
 

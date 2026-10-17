@@ -57,7 +57,7 @@ public static class ToolAvailability
     public static readonly IReadOnlyList<string> DeviceChanging = ["install_android_package", "uninstall_android_package"];
 
     /// <summary>The session tools, allowed only with --allow-live (starting a program also needs --allow-live-spawn).</summary>
-    public static readonly IReadOnlyList<string> SessionTools = ["live_session", "live_break", "live_watch", "live_read", "live_events", "live_script", "live_coverage"];
+    public static readonly IReadOnlyList<string> SessionTools = ["live_session", "live_break", "live_watch", "live_read", "live_events", "live_script", "live_coverage", "live_timeline"];
 
     /// <summary>Tools whose availability depends on programs found on this machine.</summary>
     public static IEnumerable<string> ExternalProgramTools => ExternalPrograms().Select(p => p.Tool).Distinct();

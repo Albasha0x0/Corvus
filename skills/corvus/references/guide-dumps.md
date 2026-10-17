@@ -27,5 +27,6 @@ points by name, module!export, address or file:line, continue resumes held threa
 wait returns the next stop with a named stack; live_read reads a held thread's registers and memory as typed values;
 live_watch records every call of a function with its arguments decoded (PDB prototype or known API) as call events;
 live_coverage counts which functions ran, drawn on the static call graph, and diffs two runs;
+live_timeline traces the files, registry keys, endpoints and child processes the program opens (event tracing, Windows);
 live_script (--live-scripting) loads your own script; live_events pages the event ring with a cursor. Close sessions
 when done: held threads are released, a spawned program ends.

@@ -1,0 +1,152 @@
+using System.Collections.Concurrent;
+using System.Globalization;
+using Corvus.Core;
+using Corvus.Native.Diagnostics;
+
+namespace Corvus.Services;
+
+/// <summary>An entry of a timeline with its sequence number, the cursor live_timeline pages by.</summary>
+public sealed record LiveTimelineEntry(long Sequence, DateTime Time, string Category, string Name);
+
+/// <summary>
+/// An activity trace of a session's program from the operating system's diagnostics channel: a bounded ring of entries,
+/// each a time, a category and the name the OS reports.
+/// </summary>
+public sealed class LiveTimelineRun
+{
+    public const int Capacity = 100_000;
+    private readonly Queue<LiveTimelineEntry> _ring = new();
+    private long _sequence;
+    private string _state = "recording";
+
+    internal LiveTimelineRun(string id, LiveSession session, string source)
+    {
+        Id = id;
+        Session = session.Id;
+        // an attached program is named by its image, not the id it was attached by
+        lock (session.Modules) Program = session.Modules.FirstOrDefault()?.Path is { Length: > 0 } image ? image : session.Program;
+        ProcessId = session.ProcessId;
+        Source = source;
+    }
+
+    public string Id { get; }
+    public string Session { get; }
+    public string Program { get; }
+    public int ProcessId { get; }
+    /// <summary>The diagnostics channel, as the platform names it.</summary>
+    public string Source { get; }
+    public DateTime Started { get; } = DateTime.UtcNow;
+    public DateTime? Stopped { get; private set; }
+    internal IActivityTrace? Trace { get; set; }
+    internal Task? Stopping { get; set; }
+
+    /// <summary>recording or complete.</summary>
+    public string State { get { lock (_ring) return _state; } }
+
+    /// <summary>Entries the ring dropped, oldest first.</summary>
+    public long Dropped { get; private set; }
+
+    public long Count { get { lock (_ring) return _sequence; } }
+
+    internal void Add(ActivityEntry e)
+    {
+        lock (_ring)
+        {
+            _ring.Enqueue(new LiveTimelineEntry(++_sequence, e.Time, e.Category, e.Name));
+            if (_ring.Count > Capacity)
+            {
+                _ring.Dequeue();
+                Dropped++;
+            }
+        }
+    }
+
+    /// <summary>Entries from <paramref name="from"/> (a sequence) on, filtered; the first sequence kept tells what was dropped.</summary>
+    public (IReadOnlyList<LiveTimelineEntry> Entries, long FirstKept, long Last) Page(long from, string? category, string? match, int limit)
+    {
+        lock (_ring)
+        {
+            var first = _ring.Count > 0 ? _ring.Peek().Sequence : _sequence + 1;
+            return (Kept(category, match).Where(e => e.Sequence >= from).Take(limit).ToList(), first, _sequence);
+        }
+    }
+
+    /// <summary>The entries kept, filtered by category and a part of the name.</summary>
+    public IReadOnlyList<LiveTimelineEntry> Entries(string? category, string? match)
+    {
+        lock (_ring) return Kept(category, match).ToList();
+    }
+
+    private IEnumerable<LiveTimelineEntry> Kept(string? category, string? match) =>
+        _ring.Where(e => (category == null || e.Category == category) && (match == null || e.Name.Contains(match, StringComparison.OrdinalIgnoreCase)));
+
+    internal void Finish()
+    {
+        lock (_ring)
+        {
+            if (_state != "recording") return;
+            _state = "complete";
+            Stopped = DateTime.UtcNow;
+        }
+    }
+}
+
+public sealed partial class LiveSessionService
+{
+    /// <summary>The categories an entry has.</summary>
+    public static readonly IReadOnlyList<string> TimelineCategories = ["file", "registry", "network", "process"];
+    private readonly ConcurrentDictionary<string, LiveTimelineRun> _timelines = new(StringComparer.OrdinalIgnoreCase);
+    private int _nextTimeline;
+
+    /// <summary>The diagnostics channel timelines read.</summary>
+    public IActivityTraceSource ActivitySource { get; set; } = ActivityTraceSources.ForThisMachine();
+
+    public IReadOnlyList<LiveTimelineRun> TimelineRuns => _timelines.Values.OrderBy(r => int.Parse(r.Id[3..], CultureInfo.InvariantCulture)).ToList();
+
+    public LiveTimelineRun GetTimeline(string id) =>
+        _timelines.TryGetValue(id?.Trim() ?? "", out var r) ? r
+            : throw new ToolError(ErrorCode.NotFound, $"No timeline '{id}'.", "live_timeline action=list shows the timelines; action=start begins one");
+
+    /// <summary>Starts tracing the session's program; one recording timeline per session.</summary>
+    public LiveTimelineRun StartTimeline(LiveSession session)
+    {
+        Live(session);
+        if (ActivitySource.Unavailable() is { } missing) throw new ToolError(ErrorCode.ProviderUnavailable, missing.Reason, missing.Remediation);
+        if (_timelines.Values.FirstOrDefault(r => r.Session == session.Id && r.State == "recording") is { } open)
+            throw new ToolError(ErrorCode.Conflict, $"{open.Id} is already recording {session.Id}.", $"live_timeline action=stop run={open.Id} first");
+        if (_timelines.Values.Count(r => r.State == "recording") >= MaxSessions)
+            throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} timelines are recording.", "stop one with live_timeline action=stop");
+        var run = new LiveTimelineRun("tl-" + Interlocked.Increment(ref _nextTimeline), session, ActivitySource.Name);
+        run.Trace = ActivitySource.Start(session.ProcessId, run.Add);
+        _timelines[run.Id] = run;
+        return run;
+    }
+
+    /// <summary>Ends the trace once what the OS still buffers has arrived; the entries stay.</summary>
+    public Task StopTimelineAsync(LiveTimelineRun run)
+    {
+        lock (run)
+            return run.Stopping ??= Task.Run(async () =>
+            {
+                try
+                {
+                    if (run.Trace is { } trace) await trace.StopAsync().ConfigureAwait(false);
+                }
+                finally { run.Finish(); }
+            });
+    }
+
+    /// <summary>The program ended: its timelines finish once the last buffers arrive.</summary>
+    private void EndTimeline(LiveSession session)
+    {
+        foreach (var run in _timelines.Values.Where(r => r.Session == session.Id)) _ = StopTimelineAsync(run);
+    }
+
+    /// <summary>Every trace ends with the server: an event tracing session outlives the process that started it.</summary>
+    private void StopTimelines()
+    {
+        var stopping = _timelines.Values.Select(StopTimelineAsync).ToArray();
+        try { Task.WaitAll(stopping, TimeSpan.FromSeconds(8)); }
+        catch (AggregateException) { /* a trace that failed to stop is removed by the next server's start */ }
+    }
+}

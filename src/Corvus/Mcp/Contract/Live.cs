@@ -20,6 +20,8 @@ public static partial class ToolEffects
         ["live_script"] = Changes(destructive: true, idempotent: false, openWorld: true),
         // coverage stop points are resumed at once; the program runs as before
         ["live_coverage"] = Changes(destructive: false, idempotent: false, openWorld: true),
+        // an event tracing session reads what the OS reports; the program is not touched
+        ["live_timeline"] = Changes(destructive: false, idempotent: false, openWorld: true),
     };
 }
 
@@ -36,6 +38,10 @@ public static partial class ParameterDomains
         {
             ["action"] = Of(["start", "stop", "list", "report", "diff"]), ["show"] = Of(["ran", "missed", "all"]), ["format"] = Of(["text", "dot"]),
         },
+        ["live_timeline"] = new Dictionary<string, Domain>
+        {
+            ["action"] = Of(["start", "stop", "list", "report"]), ["category"] = Of(["file", "registry", "network", "process"]),
+        },
     };
 }
 
@@ -51,5 +57,6 @@ public sealed partial record ToolContract
         ["live_events"] = Row(O.List, L.Instant, sort: "event sequence"),
         ["live_script"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live and --live-scripting"),
         ["live_coverage"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
+        ["live_timeline"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
     };
 }

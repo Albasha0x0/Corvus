@@ -29,6 +29,8 @@
     <!-- ELF / Mach-O oracle for the native format readers. -->
     <PackageReference Include="LibObjectFile" Version="2.3.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <!-- as the server references it: aliased, so its global PEFile namespace stays out of these sources -->
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.8" ExcludeAssets="build;buildTransitive" Aliases="TraceEventPackage" />
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />

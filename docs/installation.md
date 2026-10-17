@@ -304,7 +304,7 @@ Options go after the command in a client's configuration (`args`), e.g. to prelo
 | `--no-index` | Don't index method bodies and build the call graph in the background after loading. |
 | `--no-watch` | Don't watch loaded files or reload them when they change on disk. |
 | `--allow-device-changes` | Allow `install_android_package` and `uninstall_android_package`, which change a connected Android device (`CORVUS_ALLOW_DEVICE_CHANGES=1`). Off by default; the other device tools only read. |
-| `--allow-live` | Allow the session tools (`live_session`, `live_break`, `live_watch`, `live_coverage`, `live_read`, `live_events`) on programs running on this machine (`CORVUS_ALLOW_LIVE=1`). Off by default. |
+| `--allow-live` | Allow the session tools (`live_session`, `live_break`, `live_watch`, `live_coverage`, `live_timeline`, `live_read`, `live_events`) on programs running on this machine (`CORVUS_ALLOW_LIVE=1`). Off by default. |
 | `--allow-live-spawn` | With `--allow-live`, allow `live_session action=spawn`, which starts a program under a session (`CORVUS_ALLOW_LIVE_SPAWN=1`). Off by default. |
 | `--live-scripting` | With `--allow-live`, allow `live_script`, which loads a user-supplied script into a session's program, with the program's rights (`CORVUS_LIVE_SCRIPTING=1`). Off by default. |
 | `--ida-scripting` | Allow `ida_python` (arbitrary Python in the IDA worker, with the server's rights; `CORVUS_IDA_SCRIPTING=1`). Off by default. |
