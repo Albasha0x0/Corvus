@@ -30,14 +30,28 @@ public sealed partial class LiveSessionTools
         public long Dropped { get; init; }
         [Description("action=report: each name with its count and first time.")]
         public IReadOnlyList<LiveTimelineName>? Names { get; init; }
+        [Description("action=diff.")]
+        public LiveTimelineDiff? Diff { get; init; }
     }
 
+    public sealed record LiveTimelinePair(string Category, string Name);
+
+    public sealed record LiveTimelineDiff([property: Description("Timeline b; Run is timeline a.")] LiveTimelineSummary Other,
+        [property: Description("This page's pairs recorded in a and not in b.")] IReadOnlyList<LiveTimelinePair> OnlyA,
+        [property: Description("This page's pairs recorded in b and not in a.")] IReadOnlyList<LiveTimelinePair> OnlyB,
+        int OnlyATotal, int OnlyBTotal, int Common);
+
+    /// <summary>A row of the diff's one paged list: the pairs only in a, then those only in b.</summary>
+    private sealed record TimelineDiffRow(int Index, bool InA, string Category, string Name);
+
     [McpServerTool(Name = "live_timeline", Title = "Activity trace of a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveTimelinePage))]
-    [Description("Collect a timestamped trace of the files, registry keys, endpoints and child processes a session's program opens, from the OS diagnostics channel (event tracing on Windows); entries page with a cursor, report counts each name.")]
+    [Description("Collect a timestamped trace of the files, registry keys, endpoints and child processes a session's program opens, from the OS diagnostics channel (event tracing on Windows); entries page with a cursor, report counts each name, diff lists the names unique to each of two traces.")]
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
-        [Description("start, stop, list or report.")] string action = "list",
+        [Description("start, stop, list, report or diff.")] string action = "list",
         [Description("Timeline id (tl-1); without it, list shows the timelines.")] string? run = null,
+        [Description("diff: the first timeline.")] string? a = null,
+        [Description("diff: the second timeline.")] string? b = null,
         [Description("Only file, registry, network or process.")] string? category = null,
         [Description("Only names containing this.")] string? match = null,
         [Description("list: cursor from an earlier page; default the oldest entry kept.")] string? cursor = null,
@@ -47,11 +61,11 @@ public sealed partial class LiveSessionTools
         Task.Run(async () =>
         {
             Require(spawn: false);
-            var a = action.Trim().ToLowerInvariant();
+            var act = action.Trim().ToLowerInvariant();
             limit = ToolSupport.ClampLimit(limit, 1_000);
             var c = Category(category);
             var m = string.IsNullOrWhiteSpace(match) ? null : match.Trim();
-            switch (a)
+            switch (act)
             {
                 case "start":
                 {
@@ -80,8 +94,17 @@ public sealed partial class LiveSessionTools
                     return TimelinePage(live.GetTimeline(run!), c, m, cursor, limit);
                 case "report":
                     return TimelineReport(live.GetTimeline(RequireTimeline(run)), c, m, offset, limit);
+                case "diff":
+                {
+                    if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+                        throw new ToolError(ErrorCode.InvalidArgument, "action=diff needs a and b.", "a=<first timeline> b=<second timeline>, ids from live_timeline action=list");
+                    var (ra, rb) = (live.GetTimeline(a), live.GetTimeline(b));
+                    if (ReferenceEquals(ra, rb))
+                        throw new ToolError(ErrorCode.InvalidArgument, $"a and b are both {ra.Id}.", "pass two different timelines");
+                    return TimelineDiff(ra, rb, c, m, offset, limit);
+                }
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=start, stop, list or report");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=start, stop, list, report or diff");
             }
         }, cancellationToken);
 
@@ -134,5 +157,23 @@ public sealed partial class LiveSessionTools
                    $"{ToolSupport.Plural(names.Count, "name")}, {r.State}{(r.Dropped > 0 ? $"; {r.Dropped:N0} oldest entries dropped" : "")}\n";
         return ToolOutput.List(names, offset, limit, x => $"{x.Count,8:N0}  {x.Category,-8}  {x.Name}",
             page => new LiveTimelinePage(TimelineSummary(r), [], null, []) { Names = page }, "name", head);
+    }
+
+    /// <summary>The pairs only in a, then only in b, as one paged list; each side's first row on a page carries its heading.</summary>
+    private static string TimelineDiff(LiveTimelineRun a, LiveTimelineRun b, string? category, string? match, int offset, int limit)
+    {
+        var (onlyA, onlyB, common) = LiveSessionService.TimelineDiff(a, b, category, match);
+        var rows = onlyA.Select((p, i) => new TimelineDiffRow(i, true, p.Category, p.Name))
+            .Concat(onlyB.Select((p, i) => new TimelineDiffRow(onlyA.Count + i, false, p.Category, p.Name))).ToList();
+        var head = $"{a.Id} {Path.GetFileName(a.Program)} and {b.Id} {Path.GetFileName(b.Program)}: {ToolSupport.Plural(onlyA.Count, "name")} only in {a.Id}, " +
+                   $"{onlyB.Count:N0} only in {b.Id}, {common:N0} in both\n";
+        // a heading row's entry continues on the next line, indented 4 past the row (ToolOutput.Line); other entries match it
+        string Render(TimelineDiffRow x) =>
+            (x.Index == Math.Max(0, offset) || x.Index == onlyA.Count ? $"only in {(x.InA ? a.Id : b.Id)}:\n" : "    ") + $"{x.Category,-8}  {x.Name}";
+        return ToolOutput.List(rows, offset, limit, Render, page => new LiveTimelinePage(TimelineSummary(a), [], null, [])
+        {
+            Diff = new LiveTimelineDiff(TimelineSummary(b), [.. page.Where(x => x.InA).Select(x => new LiveTimelinePair(x.Category, x.Name))],
+                [.. page.Where(x => !x.InA).Select(x => new LiveTimelinePair(x.Category, x.Name))], onlyA.Count, onlyB.Count, common),
+        }, "name", head);
     }
 }

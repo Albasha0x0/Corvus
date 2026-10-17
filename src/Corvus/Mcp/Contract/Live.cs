@@ -40,7 +40,7 @@ public static partial class ParameterDomains
         },
         ["live_timeline"] = new Dictionary<string, Domain>
         {
-            ["action"] = Of(["start", "stop", "list", "report"]), ["category"] = Of(["file", "registry", "network", "process"]),
+            ["action"] = Of(["start", "stop", "list", "report", "diff"]), ["category"] = Of(["file", "registry", "network", "process"]),
         },
     };
 }

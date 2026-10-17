@@ -143,6 +143,93 @@
         ]
       }
     },
+    "diff": {
+      "description": "action=diff.",
+      "type": "object",
+      "properties": {
+        "other": {
+          "description": "Timeline b; Run is timeline a.",
+          "type": "object",
+          "properties": {
+            "run": {
+              "type": "string"
+            },
+            "session": {
+              "type": "string"
+            },
+            "program": {
+              "type": "string"
+            },
+            "processId": {
+              "type": "integer"
+            },
+            "source": {
+              "description": "The diagnostics channel: event tracing (ETW) on Windows.",
+              "type": "string"
+            },
+            "state": {
+              "description": "recording or complete.",
+              "type": "string"
+            },
+            "entries": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "run",
+            "session",
+            "program",
+            "processId",
+            "source",
+            "state",
+            "entries"
+          ]
+        },
+        "onlyA": {
+          "description": "This page's pairs recorded in a and not in b.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "category": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "category",
+              "name"
+            ]
+          }
+        },
+        "onlyB": {
+          "description": "This page's pairs recorded in b and not in a.",
+          "type": "array",
+          "items": {
+            "$ref": "#/properties/diff/properties/onlyA/items"
+          }
+        },
+        "onlyATotal": {
+          "type": "integer"
+        },
+        "onlyBTotal": {
+          "type": "integer"
+        },
+        "common": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "other",
+        "onlyA",
+        "onlyB",
+        "onlyATotal",
+        "onlyBTotal",
+        "common"
+      ]
+    },
     "notices": {
       "type": "array",
       "items": {

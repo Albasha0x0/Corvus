@@ -122,6 +122,18 @@ public sealed partial class LiveSessionService
         return run;
     }
 
+    /// <summary>Set arithmetic over two timelines' distinct (category, name) pairs; times and counts are not compared.</summary>
+    public static (IReadOnlyList<(string Category, string Name)> OnlyA, IReadOnlyList<(string Category, string Name)> OnlyB, int Common) TimelineDiff(
+        LiveTimelineRun a, LiveTimelineRun b, string? category, string? match)
+    {
+        HashSet<(string, string)> Pairs(LiveTimelineRun r) => r.Entries(category, match).Select(e => (e.Category, e.Name)).ToHashSet();
+        var inA = Pairs(a);
+        var inB = Pairs(b);
+        List<(string Category, string Name)> Only(HashSet<(string, string)> x, HashSet<(string, string)> y) =>
+            [.. x.Where(p => !y.Contains(p)).OrderBy(p => TimelineCategories.ToList().IndexOf(p.Item1)).ThenBy(p => p.Item2, StringComparer.OrdinalIgnoreCase)];
+        return (Only(inA, inB), Only(inB, inA), inA.Count(inB.Contains));
+    }
+
     /// <summary>Ends the trace once what the OS still buffers has arrived; the entries stay.</summary>
     public Task StopTimelineAsync(LiveTimelineRun run)
     {

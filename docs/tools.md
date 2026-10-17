@@ -2956,20 +2956,22 @@ Structured output: `run`, `items`, `offset`, `total`, `runs`, `namedAddresses`, 
 
 **Activity trace of a session** (edit, open-world)
 
-Collect a timestamped trace of the files, registry keys, endpoints and child processes a session's program opens, from the OS diagnostics channel (event tracing on Windows); entries page with a cursor, report counts each name.
+Collect a timestamped trace of the files, registry keys, endpoints and child processes a session's program opens, from the OS diagnostics channel (event tracing on Windows); entries page with a cursor, report counts each name, diff lists the names unique to each of two traces.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
-| `action` | string |  | `list` | start, stop, list or report. Values: start, stop, list, report. |
+| `action` | string |  | `list` | start, stop, list, report or diff. Values: start, stop, list, report, diff. |
 | `run` | string |  |  | Timeline id (tl-1); without it, list shows the timelines. |
+| `a` | string |  |  | diff: the first timeline. |
+| `b` | string |  |  | diff: the second timeline. |
 | `category` | string |  |  | Only file, registry, network or process. Values: file, registry, network, process. |
 | `match` | string |  |  | Only names containing this. |
 | `cursor` | string |  |  | list: cursor from an earlier page; default the oldest entry kept. |
 | `offset` | integer |  |  | Rows to skip. (report). |
 | `limit` | integer |  | `100` |  |
 
-Structured output: `run`, `items`, `cursor`, `runs`, `dropped`, `names`.
+Structured output: `run`, `items`, `cursor`, `runs`, `dropped`, `names`, `diff`.
 
 ## web
 

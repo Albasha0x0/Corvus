@@ -91,6 +91,66 @@ public sealed class LiveTimelineTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveTimeline(action: "list", run: "tl-1", category: "thread"))).Code);
     }
 
+    /// <summary>tl-1 and tl-2 on one session, one after the other: orders.txt and the registry value in both, the rest in one.</summary>
+    private async Task TwoTimelines()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveTimeline("live-1", "start");
+        _source.Send("file", @"C:\data\orders.txt");
+        _source.Send("file", @"C:\data\old.cfg");
+        _source.Send("registry", @"HKLM\SOFTWARE\Orders\Path");
+        _source.Send("network", "tcp 127.0.0.1:8080");
+        await _tools.LiveTimeline(action: "stop", run: "tl-1");
+        await _tools.LiveTimeline("live-1", "start");
+        _source.Send("file", @"C:\data\orders.txt");
+        _source.Send("file", @"C:\data\orders.txt");
+        _source.Send("file", @"C:\data\new.cfg");
+        _source.Send("registry", @"HKLM\SOFTWARE\Orders\Path");
+        _source.Send("process", @"C:\tools\child.exe");
+        await _tools.LiveTimeline(action: "stop", run: "tl-2");
+    }
+
+    [Fact]
+    public async Task Diff_lists_the_pairs_unique_to_each_timeline()
+    {
+        await TwoTimelines();
+        var text = await _tools.LiveTimeline(action: "diff", a: "tl-1", b: "tl-2");
+        Assert.Contains("tl-1 e_sqlite3.dll and tl-2 e_sqlite3.dll: 2 names only in tl-1, 2 only in tl-2, 2 in both", text);
+        Assert.Matches(@"only in tl-1:\r?\n\s+file\s+C:\\data\\old\.cfg\r?\n\s+network\s+tcp 127\.0\.0\.1:8080\r?\n\s+only in tl-2:\r?\n\s+file\s+C:\\data\\new\.cfg\r?\n\s+process\s+C:\\tools\\child\.exe\r?\n", text);
+        Assert.DoesNotContain("orders.txt", text);
+        Assert.DoesNotContain(@"Orders\Path", text);
+
+        var files = await _tools.LiveTimeline(action: "diff", a: "tl-1", b: "tl-2", category: "file");
+        Assert.Contains("1 name only in tl-1, 1 only in tl-2, 1 in both", files);
+        Assert.DoesNotContain("network", files);
+        Assert.DoesNotContain("child.exe", files);
+    }
+
+    [Fact]
+    public async Task Diff_pages_through_offset_and_limit()
+    {
+        await TwoTimelines();
+        var first = await _tools.LiveTimeline(action: "diff", a: "tl-1", b: "tl-2", limit: 3);
+        Assert.Contains("4 names (showing 1-3)", first);
+        Assert.Contains("new.cfg", first);
+        Assert.DoesNotContain("child.exe", first);
+        var rest = await _tools.LiveTimeline(action: "diff", a: "tl-1", b: "tl-2", offset: 3, limit: 3);
+        Assert.Contains("4 names (showing 4-4)", rest);
+        // a page that starts inside a side repeats that side's heading
+        Assert.Matches(@"only in tl-2:\r?\n\s+process\s+C:\\tools\\child\.exe", rest);
+        Assert.DoesNotContain("old.cfg", rest);
+    }
+
+    [Fact]
+    public async Task Diff_of_a_timeline_with_itself_is_refused()
+    {
+        await TwoTimelines();
+        var e = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveTimeline(action: "diff", a: "tl-1", b: "TL-1"));
+        Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+        Assert.Contains("pass two different timelines", e.Remediation);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveTimeline(action: "diff", a: "tl-1", b: "tl-9"))).Code);
+    }
+
     [Fact]
     public async Task The_timeline_completes_when_the_program_exits()
     {
