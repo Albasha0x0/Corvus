@@ -127,15 +127,16 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         int loaded = workspace.LoadedCount; // without the lock: status answers while a long call holds it
         var registered = (server?.ToolCollection?.Select(t => t.ProtocolTool.Name) ?? []).ToHashSet(StringComparer.Ordinal);
         var client = context?.Server?.ClientInfo;
+        var unavailable = Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting, options.AllowLive, options.AllowLiveSpawn, options.LiveScripting));
         return new ServerStatus(ServerIdentity.Product, typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", ServerIdentity.InformationalVersion,
             ServerIdentity.Executable, string.IsNullOrWhiteSpace(expectedExecutable) ? null : ServerIdentity.SamePath(expectedExecutable.Trim(), ServerIdentity.Executable),
             ServerIdentity.InstallKind, ServerIdentity.StartedAt, (long)(DateTimeOffset.UtcNow - ServerIdentity.StartedAt).TotalSeconds,
             context?.Server?.NegotiatedProtocolVersion, client == null ? null : new Client(client.Name, client.Version),
             digest, expected ? difference == null : null, difference,
-            toolCount, loaded, indexing.Status, Environment.WorkingSet / (1024 * 1024), capabilities,
+            toolCount, loaded, indexing.Status, Environment.WorkingSet / (1024 * 1024), PointToUnavailable(capabilities, unavailable),
             ToolEffects.LongRunning.Where(registered.Contains).ToList(),
             Core.Toolsets.Families.Select(f => new Toolset(f.Name, f.Tools.Any(registered.Contains), Profiles.InCore(f), f.Tools.Length, f.Description)).ToList(),
-            Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting, options.AllowLive, options.AllowLiveSpawn, options.LiveScripting)),
+            unavailable,
             NoteCountsOf(notes),
             new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds),
             (engines?.SessionStates() ?? []).Select(e => new EngineSession(e.Image, e.State.Engine, e.State.WorkerPid, e.State.State, e.State.BusyOp,
@@ -151,6 +152,11 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             new Capability($"external tool: {p.Name}, for {p.Purpose}", p.Usable,
                 p.Usable ? $"{p.Path} (from {p.Source}{(p.Version != null ? $", version {p.Version}" : "")})" : p.Problem!,
                 p.Usable ? null : p.Remediation));
+
+    // The report budget: a reason already in an unavailableTools row is said once, there.
+    internal static List<Capability> PointToUnavailable(List<Capability> capabilities, List<UnavailableGroup> unavailable) =>
+        [.. capabilities.Select(c => !c.Available && c.Detail.Length > 40 && unavailable.Any(u => u.Reason.Contains(c.Detail, StringComparison.Ordinal))
+            ? c with { Detail = "unavailable: see unavailableTools", Remediation = null } : c)];
 
     private static NoteCounts? NoteCountsOf(NotesService? notes)
     {

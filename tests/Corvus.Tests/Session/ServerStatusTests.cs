@@ -80,4 +80,18 @@ public class ServerStatusTests
         var few = Assert.Single(Corvus.Tools.SessionTools.Group(rows.Take(3)));
         Assert.Equal(["disassemble engine=ghidra", "find_xrefs engine=ghidra", "get_cfg engine=ghidra"], few.Tools);
     }
+
+    [Fact]
+    public void AReasonInAnUnavailableRowIsNotRepeatedInItsCapability()
+    {
+        const string reason = "Ghidra was not found: neither CORVUS_GHIDRA_DIR nor GHIDRA_INSTALL_DIR is set.";
+        var capabilities = new List<Corvus.Tools.SessionTools.Capability>
+        {
+            new("native decompilation (Ghidra)", false, reason, "set CORVUS_GHIDRA_DIR"),
+            new("external tool: TShark", false, "not found (CORVUS_TSHARK is not set and it is not on PATH)", "set CORVUS_TSHARK"),
+        };
+        var trimmed = Corvus.Tools.SessionTools.PointToUnavailable(capabilities, [new(["ghidra_script"], reason, "set CORVUS_GHIDRA_DIR")]);
+        Assert.Equal(("unavailable: see unavailableTools", null), (trimmed[0].Detail, trimmed[0].Remediation));
+        Assert.Equal(capabilities[1], trimmed[1]);
+    }
 }
