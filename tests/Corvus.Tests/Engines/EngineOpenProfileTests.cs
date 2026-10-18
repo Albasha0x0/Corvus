@@ -105,8 +105,10 @@ public sealed class EngineOpenProfileTests : IDisposable
         _owned.Add(workspace);
         var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
 
-        using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
-        var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, deadline.Token));
+        // The deadline starts with the analysis stage: a fixed one also ran out during a slow cold start.
+        using var deadline = new CancellationTokenSource();
+        var progress = new SyncProgress(p => { if (p.Stage == "analysis") deadline.CancelAfter(300); });
+        var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, progress, deadline.Token));
         Assert.Equal(ErrorCode.Timeout, error.Code);
         Assert.Matches(@"still opening .+: analysis, \d+ s so far", error.Message);
         var details = System.Text.Json.JsonDocument.Parse(error.ToJson()).RootElement.GetProperty("details");
