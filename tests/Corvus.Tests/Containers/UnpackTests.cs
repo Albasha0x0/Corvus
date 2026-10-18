@@ -239,7 +239,9 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.Equal(".NET single-file bundle", streamed.Container);
         Assert.Equal(whole.Assemblies.Select(a => (a.Path, a.Sha256)), streamed.Assemblies.Select(a => (a.Path, a.Sha256)));
         Assert.Equal(whole.File.Type, streamed.File.Type);
-        Assert.Contains(streamed.Notes, n => n.Contains("(an overlay) are not held", StringComparison.Ordinal));
+        // The macOS bundler extends __LINKEDIT over the bundle (for code signing), so there it is part of the image.
+        if (!OperatingSystem.IsMacOS())
+            Assert.Contains(streamed.Notes, n => n.Contains("(an overlay) are not held", StringComparison.Ordinal));
     }
 
     [Fact]
