@@ -148,11 +148,18 @@ if (Test-Path '$queued') {
     & '$root/test.ps1' @strength
 }
 "@
-    # -WindowStyle exists on Windows only; elsewhere nohup keeps the run past the terminal.
-    $start = @{ FilePath = 'pwsh'; ArgumentList = @('-NoProfile', '-Command', $script) }
-    if ($IsWindows) { $start.WindowStyle = 'Hidden' }
-    else { $start.FilePath = 'nohup'; $start.ArgumentList = @('pwsh') + $start.ArgumentList; $start.RedirectStandardOutput = '/dev/null' }
-    $started = Start-Process @start -PassThru
+    $scriptFile = Join-Path $gitDir 'corvus-background.ps1'
+    Set-Content -Path $scriptFile -Value $script
+    if ($IsWindows) {
+        # Created by WMI, outside the caller's job object: a terminal or agent shell that closes its job would end the run.
+        $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{
+            ShowWindow = [uint16]0; EnvironmentVariables = [string[]](Get-ChildItem env: | ForEach-Object { "$($_.Name)=$($_.Value)" }) }
+        $created = Invoke-CimMethod Win32_Process -MethodName Create -Arguments @{
+            CommandLine = "pwsh -NoProfile -File `"$scriptFile`""; CurrentDirectory = $root; ProcessStartupInformation = $startup }
+        if ($created.ReturnValue -ne 0) { Write-Host "The background run did not start (Win32_Process.Create returned $($created.ReturnValue))." -ForegroundColor Red; exit 1 }
+        $started = Get-Process -Id $created.ProcessId
+    }
+    else { $started = Start-Process nohup -ArgumentList @('pwsh', '-NoProfile', '-File', $scriptFile) -RedirectStandardOutput /dev/null -PassThru }
     $record = [ordered]@{ pid = $started.Id; started = $started.StartTime.ToUniversalTime().Ticks; commit = $commit; dir = $dir; strength = $strength }
     Set-Content -Path $running -Value ($record | ConvertTo-Json) -NoNewline
     Write-Host "Full suite started in the background on $short ($dir); ./test.ps1 -Status shows the result."
