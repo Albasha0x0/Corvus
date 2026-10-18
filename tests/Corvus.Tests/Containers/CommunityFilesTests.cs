@@ -66,7 +66,7 @@ public partial class CommunityFilesTests
         // worktree, /tmp/corvus-bg-*) has a parent that names no machine.
         if (Path.GetDirectoryName(Root.TrimEnd(Path.DirectorySeparatorChar)) is { } parent && Path.GetPathRoot(parent) != parent
             && (personal || parent != Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
-            && !string.Equals(parent, Path.TrimEndingDirectorySeparator(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase)) needles.Add(parent);
+            && !string.Equals(parent, Path.TrimEndingDirectorySeparator(LeakGuard.SharedTemp), StringComparison.OrdinalIgnoreCase)) needles.Add(parent);
         if (personal)
             needles.AddRange([$@"\Users\{user}", $"/Users/{user}", $"/home/{user}", $@"\\Users\\{user}"]);
         var git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git", "ls-files -z") { WorkingDirectory = Root, RedirectStandardOutput = true })!;
