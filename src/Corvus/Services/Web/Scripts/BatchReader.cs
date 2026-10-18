@@ -181,7 +181,7 @@ internal sealed partial class BatchReader
         var text = echo.Groups[1].Value;
         var right = line[(bar + 1)..];
         var target = FirstWord(Unescape(right), out _);
-        if (Path.GetFileNameWithoutExtension(target).Equals("clip", StringComparison.OrdinalIgnoreCase))
+        if (Path.GetFileNameWithoutExtension(target.Replace('\\', '/').Split('/')[^1]).Equals("clip", StringComparison.OrdinalIgnoreCase))
         {
             _ctx.Clipboard = text.Trim();
             int ignored = -1;
