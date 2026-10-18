@@ -57,7 +57,7 @@ public static class ToolAvailability
     public static readonly IReadOnlyList<string> DeviceChanging = ["install_android_package", "uninstall_android_package"];
 
     /// <summary>The session tools, allowed only with --allow-live (starting a program also needs --allow-live-spawn).</summary>
-    public static readonly IReadOnlyList<string> SessionTools = ["live_session", "live_break", "live_watch", "live_read", "live_events", "live_script", "live_coverage", "live_timeline"];
+    public static readonly IReadOnlyList<string> SessionTools = ["live_session", "live_break", "live_watch", "live_read", "live_events", "live_script", "live_coverage", "live_timeline", "live_console"];
 
     /// <summary>Tools whose availability depends on programs found on this machine.</summary>
     public static IEnumerable<string> ExternalProgramTools => ExternalPrograms().Select(p => p.Tool).Distinct();
@@ -114,6 +114,9 @@ public static class ToolAvailability
                 $"start the server with {Core.ServerOptions.AllowLiveOption} (or {Core.ServerOptions.AllowLiveVariable}=1)"));
         if (allowLive && !allowLiveSpawn && registered.Contains("live_session"))
             result.Add(new("live_session", "action=spawn", "off: it starts a program under a session",
+                $"start the server with {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
+        if (allowLive && !allowLiveSpawn && registered.Contains("live_console"))
+            result.Add(new("live_console", "action=start", "off: it starts a program under a console",
                 $"start the server with {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
         if (allowLive && !liveScripting && registered.Contains("live_script"))
             result.Add(new("live_script", null, "off: it runs a user-supplied script inside the observed program",

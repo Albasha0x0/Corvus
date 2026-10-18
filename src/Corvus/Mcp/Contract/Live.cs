@@ -22,6 +22,8 @@ public static partial class ToolEffects
         ["live_coverage"] = Changes(destructive: false, idempotent: false, openWorld: true),
         // an event tracing session reads what the OS reports; the program is not touched
         ["live_timeline"] = Changes(destructive: false, idempotent: false, openWorld: true),
+        // starts a program under a console and types the script's input into it; gated by --allow-live-spawn as well
+        ["live_console"] = Changes(destructive: false, idempotent: false, openWorld: true),
     };
 }
 
@@ -42,6 +44,7 @@ public static partial class ParameterDomains
         {
             ["action"] = Of(["start", "stop", "list", "report", "diff"]), ["category"] = Of(["file", "registry", "network", "process"]),
         },
+        ["live_console"] = new Dictionary<string, Domain> { ["action"] = Of(["start", "stop", "list", "status", "transcript"]) },
     };
 }
 
@@ -58,5 +61,6 @@ public sealed partial record ToolContract
         ["live_script"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live and --live-scripting"),
         ["live_coverage"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
         ["live_timeline"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
+        ["live_console"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live and --allow-live-spawn"),
     };
 }

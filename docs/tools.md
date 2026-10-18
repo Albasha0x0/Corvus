@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-164 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+165 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -20,7 +20,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [engine](#engine) | 0 | 0 | 13: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | 0 | 0 | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | 0 | 0 | 7: crash dumps and crash text |
-| [live](#live) | 0 | 0 | 9: running programs: read-only inspection, and sessions with stop points, call recording, code coverage, activity traces and user scripts |
+| [live](#live) | 0 | 0 | 10: running programs: read-only inspection, and sessions with stop points, call recording, code coverage, activity traces, scripted console runs and user scripts |
 | [web](#web) | 0 | 0 | 1: JavaScript bundles and their source maps |
 
 ## session
@@ -2805,7 +2805,7 @@ Structured output: `folder`, `dumps`, `items`, `offset`, `total`, `failed`, `not
 
 ## live
 
-Running programs: read-only inspection, and sessions with stop points, call recording, code coverage, activity traces and user scripts.
+Running programs: read-only inspection, and sessions with stop points, call recording, code coverage, activity traces, scripted console runs and user scripts.
 
 ### inspect_process
 
@@ -2972,6 +2972,25 @@ Collect a timestamped trace of the files, registry keys, endpoints and child pro
 | `limit` | integer |  | `100` |  |
 
 Structured output: `run`, `items`, `cursor`, `runs`, `dropped`, `names`, `diff`.
+
+### live_console
+
+**Scripted console run** (edit, open-world)
+
+Run a program under a console host (the pseudoconsole on Windows) driven by a script of send, wait, resize and delay steps; reports each step's outcome and pages the transcript with a cursor.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `action` | string |  | `list` | start, stop, list, status or transcript. Values: start, stop, list, status, transcript. |
+| `program` | string |  |  | start: program path. |
+| `arguments` | string[] |  |  | start: program arguments. |
+| `script` | string[] |  |  | start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \r (Enter), \n, \t, \e, \xHH. |
+| `run` | string |  |  | Console run id (con-1). |
+| `timeoutSeconds` | integer |  | `10` | Seconds each wait step waits (1-300). |
+| `cursor` | string |  |  | transcript: cursor from an earlier page; default the oldest line kept. |
+| `limit` | integer |  | `100` |  |
+
+Structured output: `run`, `items`, `cursor`, `runs`, `steps`, `dropped`.
 
 ## web
 

@@ -69,13 +69,13 @@ Off by default, each needs a server option or environment variable chosen by the
   `uninstall_android_package`, which change a connected Android device through adb. The other device tools only read
   (device facts, package lists, files, logs).
 - `--allow-live` (`CORVUS_ALLOW_LIVE=1`) enables the session tools (`live_session`, `live_break`, `live_watch`,
-  `live_coverage`, `live_timeline`, `live_read`, `live_events`) on programs already running on this machine; `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`) also
-  lets `live_session` start a program. A session runs a Python worker with Frida's bindings, which loads a script into
+  `live_coverage`, `live_timeline`, `live_read`, `live_events`, `live_console`) on programs already running on this machine; `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`) also
+  lets `live_session` and `live_console` start a program. A session runs a Python worker with Frida's bindings, which loads a script into
   the program: stop points hold the hitting thread until `live_break action=continue`, and the program's memory is
   read, never written. Closing a session, its deadline (`CORVUS_LIVE_MAX_MINUTES`, default 30) and server exit
   release every held thread and end a program the session started; a started program's output reaches the session's
   events, never the server's protocol stream. `live_watch` records calls through the same script and reads arguments
-  only. `live_coverage` places stop points at function starts and resumes each stop at once; it records counts only. `live_timeline` starts an event tracing session (ETW, Windows) with the kernel file, registry, network and process providers; it needs administrator rights or membership in Performance Log Users, reads what the OS reports, never touches the program, keeps only the traced process's entries, and stops its tracing session on `stop`, program exit and server exit (a session a stopped server left behind is removed by the next start). `--live-scripting` (`CORVUS_LIVE_SCRIPTING=1`) also enables `live_script`, which loads a user-supplied script
+  only. `live_coverage` places stop points at function starts and resumes each stop at once; it records counts only. `live_timeline` starts an event tracing session (ETW, Windows) with the kernel file, registry, network and process providers; it needs administrator rights or membership in Performance Log Users, reads what the OS reports, never touches the program, keeps only the traced process's entries, and stops its tracing session on `stop`, program exit and server exit (a session a stopped server left behind is removed by the next start). `live_console` starts the program it names under the Windows pseudoconsole (ConPTY) inside a kill-on-close job object, types only the script's `send` text into its console, reads what the console shows, and ends the program on `stop` and server exit (the job ends it should the server be killed). `--live-scripting` (`CORVUS_LIVE_SCRIPTING=1`) also enables `live_script`, which loads a user-supplied script
   into the program: it runs with the program's rights and can change it.
 - `--toolsets live` registers `inspect_process` (read-only, above) and the session tools.
 

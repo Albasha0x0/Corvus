@@ -85,6 +85,7 @@ starting a program needs `--allow-live-spawn` as well. A session runs a worker o
 | Collect code coverage of a run | `live_coverage action=start` before `continue`, then `action=report` (`format=dot` for the call graph); two runs: `action=diff run=cov-1 other=cov-2` |
 | Trace the files, registry keys and endpoints it opens | `live_timeline action=start` before `continue`, then `action=list run=tl-1` (`cursor=`) or `action=report`; two runs: `action=diff a=tl-1 b=tl-2` |
 | Page what happened | `live_events cursor=<from the last page> kind=stop`; one watch's calls: `live_events from=w1` |
+| Run a console program from a script | `live_console action=start program=app.exe script=["wait name?", "send Ada\r", "wait echo: Ada"]`, then `action=transcript run=con-1` (`cursor=`) |
 | Load your own script | `live_script action=load path=trace.js` (needs `--live-scripting`) |
 | Save the process as a dump | `live_session action=snapshot` (then `dump_stack`, `read_dump_memory` on the dump id) |
 | End | `live_session action=close` |
@@ -124,6 +125,18 @@ tracing needs administrator rights or membership in Performance Log Users (`acce
 answer `provider_unavailable`. Results are kept as evidence records like the other session tools.
 `action=diff a=tl-1 b=tl-2` compares two traces as sets of (category, name), times and counts aside: the names recorded
 only in each, paged with `offset` and `limit`.
+
+`live_console` runs a program under a console host and drives it from a script, as expect and pexpect test harnesses do:
+the Windows pseudoconsole (ConPTY), created as Microsoft's terminal samples create it, at 120x30. The script is a list of
+steps, one per line or array element: `send <text>` types into the console (`\r` is Enter; `\n`, `\t`, `\e`, `\xHH`),
+`wait <text>` waits until the output since the last match contains the text (`timeoutSeconds` each, default 10),
+`resize <columns> <rows>` and `delay <ms>`. `action=start` runs the steps in order and reports each one; the first that
+cannot complete stops the script with its reason and the last lines the console showed. The transcript is the console's
+output as plain text lines, escape sequences left out; `action=transcript` pages it with a cursor (a line still being
+written, such as a prompt, comes again on the next poll), and a run keeps the latest 20,000 lines. The program keeps
+running after the script until it exits or `action=stop`; every run ends with the server. Starting one needs
+`--allow-live-spawn`; other platforms answer `provider_unavailable`. Results are kept as evidence records, the script
+among the arguments, so the same run can be repeated.
 
 `action=snapshot` writes the session's process as a standard dump file with the operating system's own writer (MiniDumpWriteDump
 on Windows, as dotnet-dump and ProcDump write them; GDB's `gcore` on Linux) and opens it

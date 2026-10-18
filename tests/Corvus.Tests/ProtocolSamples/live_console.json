@@ -1,0 +1,17 @@
+{
+  "tool": "live_console",
+  "arguments": {
+    "action": "start",
+    "program": "prompt.exe",
+    "script": [
+      "wait name?",
+      "send Ada\\r"
+    ]
+  },
+  "isError": true,
+  "content": [
+    "Error (unsupported) in live_console: Sessions on running programs are off in this server.\nNext: start the server with --allow-live (or CORVUS_ALLOW_LIVE=1)",
+    "\n\nerror (json): {\"code\":\"unsupported\",\"retryable\":false,\"message\":\"Sessions on running programs are off in this server.\",\"next\":\"start the server with --allow-live (or CORVUS_ALLOW_LIVE=1)\",\"partial\":null,\"details\":null}"
+  ],
+  "structuredContent": null
+}

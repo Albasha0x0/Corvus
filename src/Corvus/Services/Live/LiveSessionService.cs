@@ -617,5 +617,6 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             try { CloseAsync(s, "server exit").Wait(TimeSpan.FromSeconds(6)); }
             catch (AggregateException) { s.Worker.Kill("server exit"); }
         StopTimelines();
+        StopConsoles();
     }
 }

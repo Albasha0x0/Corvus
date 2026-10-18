@@ -1,0 +1,180 @@
+{
+  "type": "object",
+  "properties": {
+    "run": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string"
+        },
+        "program": {
+          "type": "string"
+        },
+        "processId": {
+          "type": "integer"
+        },
+        "host": {
+          "description": "The console host: the pseudoconsole (ConPTY) on Windows.",
+          "type": "string"
+        },
+        "state": {
+          "description": "running, exited or stopped.",
+          "type": "string"
+        },
+        "exitCode": {
+          "type": "integer"
+        },
+        "script": {
+          "description": "complete, stopped at step N, or none.",
+          "type": "string"
+        },
+        "lines": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run",
+        "program",
+        "processId",
+        "host",
+        "state",
+        "script",
+        "lines"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer"
+          },
+          "time": {
+            "description": "UTC, ISO 8601.",
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "partial": {
+            "description": "The line the console is still writing (a prompt, say).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sequence",
+          "time",
+          "text"
+        ]
+      }
+    },
+    "cursor": {
+      "description": "Cursor for the next page; null at the end.",
+      "type": "string"
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "program": {
+            "type": "string"
+          },
+          "processId": {
+            "type": "integer"
+          },
+          "host": {
+            "description": "The console host: the pseudoconsole (ConPTY) on Windows.",
+            "type": "string"
+          },
+          "state": {
+            "description": "running, exited or stopped.",
+            "type": "string"
+          },
+          "exitCode": {
+            "type": "integer"
+          },
+          "script": {
+            "description": "complete, stopped at step N, or none.",
+            "type": "string"
+          },
+          "lines": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run",
+          "program",
+          "processId",
+          "host",
+          "state",
+          "script",
+          "lines"
+        ]
+      }
+    },
+    "steps": {
+      "description": "start and status: each script step with its outcome.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer"
+          },
+          "line": {
+            "description": "As written.",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "done, stopped or not run.",
+            "type": "string"
+          },
+          "milliseconds": {
+            "type": "integer"
+          },
+          "detail": {
+            "description": "Why the step stopped.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "line",
+          "outcome",
+          "milliseconds"
+        ]
+      }
+    },
+    "dropped": {
+      "description": "Lines the ring dropped before this page.",
+      "type": "integer"
+    },
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "resultId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "runs"
+  ]
+}

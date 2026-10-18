@@ -25,7 +25,7 @@ public class LiveSessionGateTests
         foreach (var call in new Func<Task<string>>[]
                  {
                      () => tools.LiveSession("attach", program: "app.exe"), () => tools.LiveBreak("live-1"), () => tools.LiveWatchCalls("live-1"), () => tools.LiveRead("live-1"),
-                     () => tools.LiveEvents("live-1"), () => tools.LiveScriptCalls("live-1"), () => tools.LiveCoverage("live-1"), () => tools.LiveTimeline("live-1"),
+                     () => tools.LiveEvents("live-1"), () => tools.LiveScriptCalls("live-1"), () => tools.LiveCoverage("live-1"), () => tools.LiveTimeline("live-1"), () => tools.LiveConsole(),
                  })
         {
             var e = await Assert.ThrowsAsync<ToolError>(call);
@@ -40,6 +40,8 @@ public class LiveSessionGateTests
         var e = await Assert.ThrowsAsync<ToolError>(() => Tools(live: true).LiveSession("spawn", program: "app.exe"));
         Assert.Equal(ErrorCode.Unsupported, e.Code);
         Assert.Contains(ServerOptions.AllowLiveSpawnOption, e.Remediation);
+        var console = await Assert.ThrowsAsync<ToolError>(() => Tools(live: true).LiveConsole("start", program: "app.exe"));
+        Assert.Contains(ServerOptions.AllowLiveSpawnOption, console.Remediation);
         // past the gates: the backend's own answer
         Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => Tools(live: true).LiveSession("attach", program: "app.exe"))).Code);
     }
@@ -52,8 +54,8 @@ public class LiveSessionGateTests
         Assert.Equal(ToolAvailability.SessionTools.Order(StringComparer.Ordinal), off.Select(u => u.Tool).Order(StringComparer.Ordinal));
         Assert.All(off, u => Assert.Contains(ServerOptions.AllowLiveOption, u.Remediation));
         var live = ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true);
-        Assert.Equal([("live_session", "action=spawn"), ("live_script", (string?)null)], live.Select(u => (u.Tool, u.Mode)));
-        Assert.Contains(ServerOptions.LiveScriptingOption, live[1].Remediation);
+        Assert.Equal([("live_session", "action=spawn"), ("live_console", "action=start"), ("live_script", (string?)null)], live.Select(u => (u.Tool, u.Mode)));
+        Assert.Contains(ServerOptions.LiveScriptingOption, live[2].Remediation);
         Assert.Empty(ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true, allowLiveSpawn: true, liveScripting: true));
     }
 }
