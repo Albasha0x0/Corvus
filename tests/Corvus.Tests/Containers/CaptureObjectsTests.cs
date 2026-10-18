@@ -314,15 +314,13 @@ public sealed class CaptureObjectsTests : IDisposable
             }
         }
         GC.Collect();
-        var process = Process.GetCurrentProcess();
-        process.Refresh();
-        long before = process.PrivateMemorySize64, peak = before;
+        long before = ProcessMemory.Private(), peak = before;
         var sw = Stopwatch.StartNew();
         CaptureObjects.Result result;
         using (var s = File.OpenRead(path))
         {
             var reader = Task.Run(() => CaptureObjects.Read(s, null, AnalysisLimits.Default, default));
-            while (!reader.IsCompleted) { process.Refresh(); peak = Math.Max(peak, process.PrivateMemorySize64); await Task.Delay(50); }
+            while (!reader.IsCompleted) { peak = Math.Max(peak, ProcessMemory.Private()); await Task.Delay(50); }
             result = await reader;
         }
         Console.WriteLine($"{new FileInfo(path).Length / 1e9:0.00} GB capture, {result.Tls.Count:N0} TLS connections in {sw.Elapsed.TotalSeconds:0.0} s, private memory +{(peak - before) / 1e6:N0} MB");

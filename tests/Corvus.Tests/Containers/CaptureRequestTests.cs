@@ -11,6 +11,7 @@ namespace Corvus.Tests;
 /// search_container kind=request on HAR, mitmproxy and .saz captures (names only unless values=true, GraphQL operations,
 /// WebSocket messages, SSE and NDJSON shapes), and kind=endpoint comparing two captures.
 /// </summary>
+[Collection(nameof(SerialTimingTests))] // the 500 MB budget measures the whole process
 public sealed class CaptureRequestTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -229,16 +230,13 @@ public sealed class CaptureRequestTests : IDisposable
             written = w.BaseStream.Length;
         }
         GC.Collect();
-        var process = Process.GetCurrentProcess();
-        process.Refresh();
-        long before = process.PrivateMemorySize64, peak = before;
+        long before = ProcessMemory.Private(), peak = before;
         using var done = new CancellationTokenSource();
         var sampler = Task.Run(async () =>
         {
             while (!done.IsCancellationRequested)
             {
-                process.Refresh();
-                peak = Math.Max(peak, process.PrivateMemorySize64);
+                peak = Math.Max(peak, ProcessMemory.Private());
                 await Task.Delay(20);
             }
         });
