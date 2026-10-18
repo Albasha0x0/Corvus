@@ -26,8 +26,8 @@ samples/Notes/v1/bin/single/Notes (.NET single-file bundle): 3 file(s) written t
 Note: Single-file bundle v6.0, id <bundle-id-1>, 3 files.
 3 files (showing 1-3):
   .NET assembly Notes.dll 12,288 bytes, loaded as Notes [bundle entry (assembly)]
-  text Notes.runtimeconfig.json 342 bytes [bundle entry (runtimeconfig.json)]
-  text Notes.deps.json 467 bytes [bundle entry (deps.json)]
+  text Notes.runtimeconfig.json <size> bytes [bundle entry (runtimeconfig.json)]
+  text Notes.deps.json <size> bytes [bundle entry (deps.json)]
 [End: 3 files]
 === [3/3] compare_assemblies
 Comparing Notes (samples/Notes/v1/bin/unpacked/Notes.dll; SHA-256 <sha256-1>, MVID <guid-1>)

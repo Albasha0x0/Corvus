@@ -213,6 +213,7 @@ public partial class SampleDocsTests
         text = Sha256().Replace(text, m => Label(m, "sha256"));
         text = Guid().Replace(text, m => Label(m, "guid"));
         text = BundleId().Replace(text, m => Label(m, "bundle-id"));
+        text = HostJsonSize().Replace(text, "<size>");
         return string.Join("\n", text.ReplaceLineEndings("\n").Split('\n').Select(l => l.TrimEnd()));
     }
 
@@ -222,8 +223,8 @@ public partial class SampleDocsTests
         var labels = new Dictionary<string, string>();
         var a = new string('a', 64);
         var path = Path.Combine(Root, "samples", "Notes", "v1", "bin", "Notes.dll");
-        var text = Normalize($"{a} {a.ToUpperInvariant()} {new string('b', 64)} {path} 0f8fad5b-d9cb-469f-a165-70867728950e", labels);
-        Assert.Equal("<sha256-1> <sha256-1> <sha256-2> samples/Notes/v1/bin/Notes.dll <guid-1>", text);
+        var text = Normalize($"{a} {a.ToUpperInvariant()} {new string('b', 64)} {path} 0f8fad5b-d9cb-469f-a165-70867728950e text Notes.deps.json 1,467 bytes", labels);
+        Assert.Equal("<sha256-1> <sha256-1> <sha256-2> samples/Notes/v1/bin/Notes.dll <guid-1> text Notes.deps.json <size> bytes", text);
     }
 
     [GeneratedRegex(@"^<!-- check: ([a-z]+)\b([^>]*)-->$")]
@@ -244,6 +245,10 @@ public partial class SampleDocsTests
     /// <summary>A single-file bundle's id, which each publish draws anew.</summary>
     [GeneratedRegex(@"(?<=bundle v[0-9.]+, id )[A-Za-z0-9_-]+")]
     private static partial Regex BundleId();
+
+    /// <summary>The SDK writes these with the host's line endings and runtime identifier: their size depends on the build machine.</summary>
+    [GeneratedRegex(@"(?<=\.(?:runtimeconfig|deps)\.json )[0-9,]+(?= bytes)")]
+    private static partial Regex HostJsonSize();
 
     [GeneratedRegex(@"\b[0-9a-fA-F]{64}\b")]
     private static partial Regex Sha256();
