@@ -37,6 +37,10 @@ $tests = Join-Path $root 'tests/Corvus.Tests'
 $gitDir = [IO.Path]::GetFullPath((git -C $root rev-parse --git-common-dir).Trim(), $root)
 $result = Join-Path $gitDir 'corvus-background.result'
 $log = Join-Path $gitDir 'corvus-background.log'
+# Test homes of earlier runs leave their deleted tools folders in an inherited PATH; past cmd's limit it finds no dotnet.
+$tempRoot = [IO.Path]::GetTempPath()
+$env:PATH = ($env:PATH -split [IO.Path]::PathSeparator | Where-Object {
+    $_ -and -not ($_.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -and -not (Test-Path $_)) }) -join [IO.Path]::PathSeparator
 
 if ($Status) {
     if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; exit 0 }
