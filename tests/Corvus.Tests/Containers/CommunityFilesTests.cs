@@ -62,9 +62,11 @@ public partial class CommunityFilesTests
         var user = Environment.UserName;
         bool personal = user.Length > 2 && !new[] { "user", "runner", "root", "vsts", "admin" }.Contains(user, StringComparer.OrdinalIgnoreCase);
         var needles = new List<string>();
-        // A checkout straight in a shared account's home (/root/corvus) has a parent that names no machine.
+        // A checkout straight in a shared account's home (/root/corvus) or in the temp folder (test.ps1 -Background's
+        // worktree, /tmp/corvus-bg-*) has a parent that names no machine.
         if (Path.GetDirectoryName(Root.TrimEnd(Path.DirectorySeparatorChar)) is { } parent && Path.GetPathRoot(parent) != parent
-            && (personal || parent != Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))) needles.Add(parent);
+            && (personal || parent != Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
+            && !string.Equals(parent, Path.TrimEndingDirectorySeparator(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase)) needles.Add(parent);
         if (personal)
             needles.AddRange([$@"\Users\{user}", $"/Users/{user}", $"/home/{user}", $@"\\Users\\{user}"]);
         var git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git", "ls-files -z") { WorkingDirectory = Root, RedirectStandardOutput = true })!;
