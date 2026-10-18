@@ -13,6 +13,7 @@
 #         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
+#         ./test.ps1 -CoverageMap         # which source files each family's tests run (weekly): -Reuse keys families on them
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
 #                                         #   surviving mutants checked against Ratchets/mutation-survivors.txt (gates and releases)
 #Requires -Version 7.0
@@ -30,6 +31,7 @@ param(
     [switch]$Whole,
     [switch]$SecondGhidra,
     [switch]$Coverage,
+    [switch]$CoverageMap,
     [switch]$Mutation,
     [string[]]$Target
 )
@@ -193,6 +195,7 @@ if ($Full -and $IfChanged) {
 # Per-family passes: every full run on a clean tree records which families passed under which input key (SDK, OS build,
 # engine settings and the family's files; test-reuse.psm1), and -Reuse runs only the families whose key changed.
 $familyStamps = Join-Path $gitDir 'corvus-family-stamps.json'
+$coverageMapFile = Join-Path $gitDir 'corvus-coverage-map.json'
 $mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
 $familyKeys = $null
 $wholeSuite = $Full -and -not $Filter
@@ -218,7 +221,7 @@ function Invoke-SecondGhidra {
     $key = $null; $last = $null
     if (Get-CleanTree) {
         $environment = Get-RunEnvironment @{ CORVUS_GHIDRA_DIR = $env:CORVUS_SECOND_GHIDRA_DIR }
-        $key = (Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @('Engines') @(Get-RootReaders $tests) $environment)['Engines']
+        $key = (Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @('Engines') @(Get-RootReaders $tests) $environment (Read-CoverageMap $coverageMapFile))['Engines']
         $last = if (Test-Path $secondStamp) { Get-Content $secondStamp -Raw | ConvertFrom-Json } else { $null }
         if ($last.key -ne $key) { $last = $null }
     }
@@ -248,10 +251,41 @@ function Invoke-SecondGhidra {
 }
 if ($SecondGhidra) { exit (Invoke-SecondGhidra) }
 
+# One instrumented run per family records the source files its tests ran; failures do not matter here (timing budgets
+# fail under instrumentation), only what ran. Read-CoverageMap drops the map after a week.
+if ($CoverageMap) {
+    Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    $classMap = Get-ClassMap $tests
+    & dotnet build $tests --nologo -v q
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $families = [ordered]@{}
+    $saved = $env:CORVUS_ALL_TESTS; $env:CORVUS_ALL_TESTS = '1'
+    try {
+        foreach ($family in $classMap.Keys | Sort-Object) {
+            $out = Join-Path $tempRoot "corvus-map-$PID-$family"
+            $filter = ($classMap[$family] | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|'
+            & dotnet test $tests --nologo --no-build --filter $filter --results-directory $out --collect 'XPlat Code Coverage' -- `
+                'DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=[corvus]*' | Out-Null
+            $report = Get-ChildItem $out -Recurse -Filter coverage.cobertura.xml -ErrorAction SilentlyContinue | Select-Object -First 1
+            # a family without a report keeps the folder rules for every file
+            if ($report) { $families[$family] = @(Get-CoveredFiles $report.FullName $root) }
+            Write-Host "$family`: $(if ($report) { "$($families[$family].Count) source files" } else { 'no report' })"
+            if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+        }
+    }
+    finally { $env:CORVUS_ALL_TESTS = $saved }
+    $record = [ordered]@{ commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); families = $families }
+    Set-Content -Path $coverageMapFile -Value ($record | ConvertTo-Json -Depth 4) -NoNewline
+    Write-Host "Coverage map: $coverageMapFile"
+    exit 0
+}
+
 if ($wholeSuite -and (Get-CleanTree)) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $classMap = Get-ClassMap $tests
-    $familyKeys = Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment)
+    $coverage = Read-CoverageMap $coverageMapFile
+    $familyKeys = Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment) $coverage
+    if (-not $coverage) { Write-Host 'No coverage map from the last week (./test.ps1 -CoverageMap): shared code keys every family.' }
     if ($Reuse) {
         $stamps = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }
         $stale = Get-StaleFamilies $familyKeys $stamps $Exhaustive.IsPresent

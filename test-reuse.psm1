@@ -42,13 +42,16 @@ function Get-RootReaders([string]$testsDir) {
     } | ForEach-Object Name
 }
 
-# One key per family from `git ls-tree -r` lines ("<mode> blob <sha>\t<path>") and an environment string.
-function Get-FamilyKeys([string[]]$treeLines, [string[]]$families, [string[]]$rootReaders, [string]$environment) {
+# One key per family from `git ls-tree -r` lines ("<mode> blob <sha>\t<path>") and an environment string. With a
+# coverage map (Read-CoverageMap), a source file the families' tests ran keys only those families.
+function Get-FamilyKeys([string[]]$treeLines, [string[]]$families, [string[]]$rootReaders, [string]$environment, [hashtable]$coverage = $null) {
     $own = @{}; $shared = [System.Text.StringBuilder]::new(); $root = [System.Text.StringBuilder]::new()
     foreach ($line in $treeLines) {
         $tab = $line.IndexOf("`t"); if ($tab -lt 0) { continue }
         $entry = $line
-        switch (Get-ReuseScope $line.Substring($tab + 1)) {
+        $path = $line.Substring($tab + 1)
+        $scopes = if ($coverage -and $coverage[$path]) { $coverage[$path] } else { Get-ReuseScope $path }
+        switch ($scopes) {
             '*' { [void]$shared.AppendLine($entry) }
             'root' { [void]$root.AppendLine($entry) }
             default { if (-not $own[$_]) { $own[$_] = [System.Text.StringBuilder]::new() }; [void]$own[$_].AppendLine($entry) }
@@ -60,6 +63,30 @@ function Get-FamilyKeys([string[]]$treeLines, [string[]]$families, [string[]]$ro
         $keys[$family] = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($text)))
     }
     return $keys
+}
+
+# Which source files each family's tests ran, as @{ path = @(families) }, from the map test.ps1 -CoverageMap writes; $null
+# when there is none or it is older than $maxDays (calls added since would be missed; the folder rules then apply).
+function Read-CoverageMap([string]$file, [int]$maxDays = 7) {
+    if (-not (Test-Path $file)) { return $null }
+    $map = Get-Content $file -Raw | ConvertFrom-Json -AsHashtable
+    if ([datetime]::ParseExact($map.at, 'yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture) -lt (Get-Date).AddDays(-$maxDays)) { return $null }
+    $byPath = @{}
+    foreach ($family in $map.families.Keys) { foreach ($path in $map.families[$family]) { $byPath[$path] = @($byPath[$path]) + $family | Where-Object { $_ } } }
+    return $byPath
+}
+
+# The repository paths of the source files with a line hit in a coverlet Cobertura report.
+function Get-CoveredFiles([string]$reportPath, [string]$repoRoot) {
+    [xml]$report = Get-Content $reportPath -Raw
+    $sources = @($report.coverage.sources.source | ForEach-Object { "$_" })
+    $repo = [IO.Path]::GetFullPath($repoRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    @($report.SelectNodes('//class') | Where-Object { [double]::Parse($_.'line-rate', [cultureinfo]::InvariantCulture) -gt 0 } | ForEach-Object {
+        $name = $_.filename
+        $full = if ([IO.Path]::IsPathRooted($name)) { $name } else { $sources | ForEach-Object { Join-Path $_ $name } | Where-Object { Test-Path $_ } | Select-Object -First 1 }
+        if ($full) { $full = [IO.Path]::GetFullPath($full) }
+        if ($full -and $full.StartsWith($repo, [StringComparison]::OrdinalIgnoreCase)) { $full.Substring($repo.Length) -replace '\\', '/' }
+    } | Sort-Object -Unique)
 }
 
 # Families that must run: no stamp, a different key, or a sampled pass when an exhaustive one is needed.
@@ -122,4 +149,4 @@ function Get-FailedTests([string]$trxPath) {
         ForEach-Object { $nameOf[$_.Node.testId] } | Sort-Object -Unique)
 }
 
-Export-ModuleMember -Function Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Test-DocsOnly, Get-FailedTests
+Export-ModuleMember -Function Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Test-DocsOnly, Get-FailedTests

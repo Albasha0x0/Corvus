@@ -19,7 +19,9 @@
   clean tree also records which test families passed, under a key of the family's own folders, all shared code, the
   repository files its tests read, the SDK, the OS build and the `CORVUS_*` settings (`test-reuse.psm1`).
   `./test.ps1 -Full -Reuse` then runs only the families whose key changed, plus the contract tests and the classes
-  known to be flaky under load; its stamp is marked `reused`. `release.ps1` runs the suite through `test.ps1` before
+  known to be flaky under load; its stamp is marked `reused`. `./test.ps1 -CoverageMap` (weekly; one instrumented run
+  per family) records which source files each family's tests run, and for a week the keys follow it: a shared file
+  keys only the families that ran it, and a file no family ran keeps the folder rules. `release.ps1` runs the suite through `test.ps1` before
   the version bump, so every release run records its passes: patch releases take a reused pass; minor releases (`x.y.0`)
   want a whole exhaustive pass, or a reused one when only documentation changed since the last whole pass. With
   `CORVUS_SECOND_GHIDRA_DIR` set (another Ghidra, such as the oldest supported one), every whole-suite full run, and

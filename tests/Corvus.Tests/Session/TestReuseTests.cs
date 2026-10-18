@@ -100,6 +100,46 @@ public class TestReuseTests
         finally { File.Delete(trx); }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void ACoverageMapKeysSharedCodeOnlyForTheFamiliesThatRanIt()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var dir = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(dir, "src", "Corvus", "Core"));
+        File.WriteAllText(Path.Combine(dir, "src", "Corvus", "Core", "Y.cs"), "");
+        File.WriteAllText(Path.Combine(dir, "coverage.cobertura.xml"), $"""
+            <coverage><sources><source>{Path.Combine(dir, "src")}</source></sources><packages><package><classes>
+              <class name="Y" filename="Corvus{Path.DirectorySeparatorChar}Core{Path.DirectorySeparatorChar}Y.cs" line-rate="0.5" />
+              <class name="Z" filename="Corvus{Path.DirectorySeparatorChar}Core{Path.DirectorySeparatorChar}Z.cs" line-rate="0" />
+            </classes></package></packages></coverage>
+            """);
+        var map = Path.Combine(dir, "map.json");
+        File.WriteAllText(map, $$"""{ "at": "{{DateTime.Now:yyyy-MM-dd HH:mm}}", "families": { "Dotnet": ["src/Corvus/Core/Y.cs"], "Engines": [] } }""");
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{module.Replace("'", "''")}}'
+                'covered=' + ((Get-CoveredFiles '{{Path.Combine(dir, "coverage.cobertura.xml")}}' '{{dir}}') -join ',')
+                $f = 'Dotnet', 'Engines'
+                $c = Read-CoverageMap '{{map}}'
+                $base = "100644 blob b1`tsrc/Corvus/Core/Y.cs", "100644 blob e1`tsrc/Corvus/Core/New.cs"
+                $k0 = Get-FamilyKeys $base $f @() 'env' $c
+                function Changed($lines) { $k = Get-FamilyKeys $lines $f @() 'env' $c; ($f | Where-Object { $k[$_] -ne $k0[$_] }) -join ',' }
+                'mapped=' + (Changed ($base -replace 'b1', 'b2'))
+                'unmapped=' + (Changed ($base -replace 'e1', 'e2'))
+                'old=' + ($null -eq (Read-CoverageMap '{{map}}' -maxDays 0))
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+            Assert.Equal("src/Corvus/Core/Y.cs", Line("covered")); // only files with a line hit
+            Assert.Equal("Dotnet", Line("mapped"));               // shared code only the Dotnet tests ran
+            Assert.Equal("Dotnet,Engines", Line("unmapped"));     // a file the map does not know keeps the folder rules
+            Assert.Equal("True", Line("old"));                    // an old map is not used
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     private static string[] Run(string script)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };
