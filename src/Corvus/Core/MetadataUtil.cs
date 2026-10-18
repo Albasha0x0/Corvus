@@ -38,7 +38,9 @@ public static class MetadataUtil
         else limit.CancelAfter(timeLimit);
         try
         {
-            Parallel.For(0, work.Length, new ParallelOptions { CancellationToken = limit.Token }, i =>
+            // Capped: uncapped, it took every thread the pool injected, and visitors waiting on pool work (a reference pack
+            // download) stalled the process until the time limit.
+            Parallel.For(0, work.Length, new ParallelOptions { CancellationToken = limit.Token, MaxDegreeOfParallelism = Environment.ProcessorCount }, i =>
             {
                 var found = new List<T>();
                 visit(work[i].Assembly, work[i].Type, found);
