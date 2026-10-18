@@ -202,11 +202,11 @@ if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMa
     $changed = @(git -C $root diff --name-only $Base) + @(git -C $root ls-files --others --exclude-standard) | Where-Object { $_ } | Sort-Object -Unique
     if (-not $changed) { Write-Host "Nothing changed since ${Base}; ./test.ps1 -All runs the whole quick set."; exit 0 }
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
-    $coverage = Read-CoverageMap (Join-Path $gitDir 'corvus-coverage-map.json')
+    $coveredBy = Read-CoverageMap (Join-Path $gitDir 'corvus-coverage-map.json')
     # files outside src/ and tests/ (docs, scripts) go to the families whose tests read repository files
     $readers = @(Get-RootReaders $tests)
     $families = @(@($changed | ForEach-Object {
-        if ($coverage -and $coverage[$_]) { $coverage[$_] } elseif ($_ -notmatch '^(src|tests)/') { $readers } else { Get-Family $_ } }) + 'Contract' | Sort-Object -Unique)
+        if ($coveredBy -and $coveredBy[$_]) { $coveredBy[$_] } elseif ($_ -notmatch '^(src|tests)/') { $readers } else { Get-Family $_ } }) + 'Contract' | Sort-Object -Unique)
     if ($families -notcontains '*') {
         $classes = @($families | ForEach-Object { Get-FamilyClasses $_ } | Sort-Object -Unique)
         $quickFilter = 'Speed!=Slow&(' + (($classes | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|') + ')'
@@ -333,9 +333,9 @@ if ($CoverageMap) {
 if ($wholeSuite -and (Get-CleanTree)) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $classMap = Get-ClassMap $tests
-    $coverage = Read-CoverageMap $coverageMapFile
-    $familyKeys = Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment) $coverage
-    if (-not $coverage) { Write-Host 'No coverage map from the last week (./test.ps1 -CoverageMap): shared code keys every family.' }
+    $coveredBy = Read-CoverageMap $coverageMapFile
+    $familyKeys = Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment) $coveredBy
+    if (-not $coveredBy) { Write-Host 'No coverage map from the last week (./test.ps1 -CoverageMap): shared code keys every family.' }
     if ($Reuse) {
         $stamps = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }
         $stale = Get-StaleFamilies $familyKeys $stamps $Exhaustive.IsPresent
