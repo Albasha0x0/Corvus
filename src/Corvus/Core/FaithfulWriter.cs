@@ -56,13 +56,14 @@ internal sealed class FaithfulWriter
         if (original == null)
         {
             // Nothing to keep or compare with: the original's metadata cannot be read independently of dnlib.
-            WriteModule(module, new CollectingLogger(), null, output);
+            bool dropped = WriteModule(module, new CollectingLogger(), null, output);
             return new SaveReport([new SaveIssue(SaveIssueReason.Reencoded, 0, "module",
-                $"the original image cannot be read for comparison ({unreadable}): the whole module is written as dnlib encodes it, unchecked")]);
+                $"the original image cannot be read for comparison ({unreadable}): the whole module is written as dnlib encodes it, unchecked"),
+                .. dropped ? [PrecompiledCodeDropped(module)] : Array.Empty<SaveIssue>()]);
         }
         var writer = new FaithfulWriter(module, original, pristine);
         using var image = new MemoryStream();
-        WriteModule(module, writer._logger, writer.OnWriterEvent, image);
+        if (WriteModule(module, writer._logger, writer.OnWriterEvent, image)) writer._issues.Add(PrecompiledCodeDropped(module));
         var bytes = image.ToArray();
         writer.Verify(bytes);
         output.Write(bytes);
@@ -72,12 +73,20 @@ internal sealed class FaithfulWriter
     /// <summary>The module as dnlib writes it (PreserveAll, errors collected, nothing kept from the original).</summary>
     internal static void WritePlain(ModuleDefMD module, Stream output) => WriteModule(module, new CollectingLogger(), null, output);
 
-    private static void WriteModule(ModuleDefMD module, ILogger logger, EventHandler2<ModuleWriterEventArgs>? onEvent, Stream output)
+    /// <returns>True when the ReadyToRun code was dropped (<see cref="PrecompiledCodeDropped"/>).</returns>
+    private static bool WriteModule(ModuleDefMD module, ILogger logger, EventHandler2<ModuleWriterEventArgs>? onEvent, Stream output)
     {
-        if (module.IsILOnly)
+        bool dropPrecompiled = !module.IsILOnly && IsReadyToRun(module) && !HeadersHaveRoomForASection(module);
+        if (module.IsILOnly || dropPrecompiled)
         {
             var opts = new ModuleWriterOptions(module) { Logger = logger };
             opts.MetadataOptions.Flags |= MetadataFlags.PreserveAll;
+            if (dropPrecompiled)
+            {
+                // The IL every method keeps runs without its precompiled code; the runtime compiles it at run time.
+                opts.Cor20HeaderOptions.Flags = (module.Cor20HeaderFlags | ComImageFlags.ILOnly) & ~ComImageFlags.ILLibrary;
+                opts.PEHeadersOptions.Machine = WithoutTargetOs(module.Machine);
+            }
             if (onEvent != null) opts.WriterEvent += onEvent;
             module.Write(output, opts);
         }
@@ -89,6 +98,36 @@ internal sealed class FaithfulWriter
             if (onEvent != null) opts.WriterEvent += onEvent;
             module.NativeWrite(output, opts);
         }
+        return dropPrecompiled;
+    }
+
+    private static SaveIssue PrecompiledCodeDropped(ModuleDefMD module) => new(SaveIssueReason.PrecompiledCodeDropped, 0, "module",
+        $"the ReadyToRun code ({module.Machine}) was dropped: the image's headers have no room for the section the native writer adds (builds for Linux and macOS fill them), so the module is written as IL only");
+
+    private static bool IsReadyToRun(ModuleDefMD module) =>
+        (module.Cor20HeaderFlags & ComImageFlags.ILLibrary) != 0 && module.Metadata.ImageCor20Header.ManagedNativeHeader.VirtualAddress != 0;
+
+    private const int SectionHeaderSize = 40;
+
+    /// <summary>The native writer adds a section; its header goes between the section table and the first section's data.</summary>
+    private static bool HeadersHaveRoomForASection(ModuleDefMD module)
+    {
+        var sections = module.Metadata.PEImage.ImageSectionHeaders;
+        if (sections.Count == 0) return true;
+        long tableEnd = (long)(uint)sections[^1].EndOffset;
+        long firstData = sections.Where(s => s.SizeOfRawData != 0).Select(s => (long)s.PointerToRawData).DefaultIfEmpty(long.MaxValue).Min();
+        return firstData - tableEnd >= SectionHeaderSize;
+    }
+
+    /// <summary>ReadyToRun images for other systems XOR the machine with the system's value (Apple, FreeBSD, Linux, NetBSD, SunOS).</summary>
+    private static readonly ushort[] TargetOsMachineValues = [0x4644, 0xADC4, 0x7B79, 0x1993, 0x1992];
+
+    private static dnlib.PE.Machine WithoutTargetOs(dnlib.PE.Machine machine)
+    {
+        foreach (var os in TargetOsMachineValues)
+            if ((dnlib.PE.Machine)((ushort)machine ^ os) is var plain && plain is dnlib.PE.Machine.AMD64 or dnlib.PE.Machine.ARM64 or dnlib.PE.Machine.ARMNT or dnlib.PE.Machine.I386)
+                return plain;
+        return machine;
     }
 
     /// <summary>

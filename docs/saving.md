@@ -39,3 +39,4 @@ only when complete.
 | `unreadable-body` | yes | the original method body cannot be read from the image (its RVA lies outside the sections, or its header, code or exception sections run past the end of its section); what could be decoded is written instead, or no body |
 | `reencoded` | yes | a method body, signature or heap that no edit touched reads back differently from the original after writing (found by comparing the written image with the original) |
 | `writer-error` | yes | the writer reported an error for an edited or added member, or for no member in particular; the message says what it could not encode |
+| `precompiled-code-dropped` | yes | the module's ReadyToRun code is not written: its headers have no room for the section the native writer adds (ReadyToRun builds for Linux and macOS), so the module is written as IL only; it runs as before, compiled at run time |

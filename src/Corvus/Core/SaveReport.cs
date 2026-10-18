@@ -13,6 +13,7 @@ public enum SaveIssueReason
     UnreadableBody,
     Reencoded,
     WriterError,
+    PrecompiledCodeDropped,
 }
 
 /// <summary>A member of a saved image the user should know about: what, where and why.</summary>
@@ -80,6 +81,8 @@ public static class SaveManifest
             "a method body, signature or heap that no edit touched reads back differently from the original after writing (found by comparing the written image with the original)"),
         new(SaveIssueReason.WriterError, "writer-error", true,
             "the writer reported an error for an edited or added member, or for no member in particular; the message says what it could not encode"),
+        new(SaveIssueReason.PrecompiledCodeDropped, "precompiled-code-dropped", true,
+            "the module's ReadyToRun code is not written: its headers have no room for the section the native writer adds (ReadyToRun builds for Linux and macOS), so the module is written as IL only; it runs as before, compiled at run time"),
     ];
 
     private static readonly Dictionary<SaveIssueReason, ReasonInfo> ByReason = Reasons.ToDictionary(r => r.Reason);

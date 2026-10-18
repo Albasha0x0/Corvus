@@ -313,6 +313,42 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ReadyToRunImageWithFullHeadersIsWrittenAsIlOnlyAndReported()
+    {
+        var path = RealPackages.File("Microsoft.NETCore.App.Runtime.linux-arm64", "10.0.11", "runtimes", "linux-arm64", "lib", "net10.0", "System.Linq.dll");
+        var (written, report) = Rewrite(path);
+        Assert.Contains(report.Issues, i => i.Reason == SaveIssueReason.PrecompiledCodeDropped);
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(written)))
+        {
+            var cor = pe.PEHeaders.CorHeader!;
+            Assert.Equal(System.Reflection.PortableExecutable.CorFlags.ILOnly, cor.Flags & (System.Reflection.PortableExecutable.CorFlags.ILOnly | System.Reflection.PortableExecutable.CorFlags.ILLibrary));
+            Assert.Equal(0, cor.ManagedNativeHeaderDirectory.Size);
+            Assert.Equal(System.Reflection.PortableExecutable.Machine.Arm64, pe.PEHeaders.CoffHeader.Machine);
+        }
+        Assert.Empty(SaveFidelity.Differences(File.ReadAllBytes(path), written).Except(SaveFidelity.Listed(report, changesBytes: true)));
+
+        // On Linux and macOS the host's own System.Linq has full headers too: the IL-only rewrite runs.
+        var (own, ownReport) = Rewrite(typeof(Enumerable).Assembly.Location);
+        if (!ownReport.Issues.Any(i => i.Reason == SaveIssueReason.PrecompiledCodeDropped)) return;
+        var context = new System.Runtime.Loader.AssemblyLoadContext("il-only", isCollectible: true);
+        try
+        {
+            var range = context.LoadFromStream(new MemoryStream(own)).GetType("System.Linq.Enumerable")!.GetMethod("Range")!;
+            Assert.Equal(new[] { 1, 2, 3 }, (IEnumerable<int>)range.Invoke(null, [1, 3])!);
+        }
+        finally { context.Unload(); }
+
+        static (byte[], SaveReport) Rewrite(string path)
+        {
+            using var workspace = new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false, WatchFiles = false });
+            var asm = workspace.Load(path);
+            using var ms = new MemoryStream();
+            var report = workspace.Read(() => asm.Write(ms));
+            return (ms.ToArray(), report);
+        }
+    }
+
+    [Fact]
     public void ReportCodesFollowTheManifest()
     {
         Assert.Equal(Enum.GetValues<SaveIssueReason>().Length, SaveManifest.Reasons.Count);

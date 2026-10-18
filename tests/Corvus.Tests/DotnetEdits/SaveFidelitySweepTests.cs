@@ -59,8 +59,10 @@ public sealed class SaveFidelitySweepTests(ITestOutputHelper output)
         var differ = SaveFidelity.Differences(original, written);
         var unexplained = differ.Except(SaveFidelity.Listed(report, changesBytes: true)).ToList();
         int methods = asm.Module.GetTypes().Sum(t => t.Methods.Count);
-        // The unmodified save lists the same invalid members that a rewrite keeps (or cannot keep).
-        bool sameSurvey = survey.Issues.Select(i => i.Token).ToHashSet().SetEquals(report.Issues.Select(i => i.Token));
+        // The unmodified save lists the same invalid members that a rewrite keeps (or cannot keep); a dropped ReadyToRun
+        // section is about the module, not a member.
+        bool sameSurvey = survey.Issues.Select(i => i.Token).ToHashSet()
+            .SetEquals(report.Issues.Where(i => i.Reason != SaveIssueReason.PrecompiledCodeDropped).Select(i => i.Token));
         return new Row(entry, methods, report.Kept.Count(), report.Changed.Count(), unexplained.Count, originalSaved, sameSurvey, time,
             unexplained.Count > 0 ? $"0x{unexplained[0]:X8}" : report.Changed.FirstOrDefault()?.ToString());
     }
