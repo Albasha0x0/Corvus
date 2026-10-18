@@ -20,22 +20,35 @@ internal static class FolderTally
     {
         bool known = Last.TryGetValue(folder, out var last);
         if (known && Environment.TickCount64 - last.At < MaxAgeMs) return (last.Entries, last.Bytes);
-        var task = Measuring.GetOrAdd(folder, f => Task.Run(() =>
+        if (!Measuring.TryGetValue(folder, out var task))
         {
-            try
+            Task? created = null;
+            created = new Task(() =>
             {
-                var (entries, bytes) = measure();
-                Last[f] = (Environment.TickCount64, entries, bytes);
-            }
-            finally { Measuring.TryRemove(f, out _); }
-        }));
+                try
+                {
+                    var (entries, bytes) = measure();
+                    var counted = (Environment.TickCount64, entries, bytes);
+                    Last[folder] = counted;
+                    // Forgotten while counting: the count predates the change.
+                    if (!Measuring.TryGetValue(folder, out var current) || current != created) Last.TryRemove(new(folder, counted));
+                }
+                finally { Measuring.TryRemove(new(folder, created!)); }
+            });
+            task = Measuring.GetOrAdd(folder, created);
+            if (task == created) created.Start(TaskScheduler.Default);
+        }
         if (known) return (last.Entries, last.Bytes);
         task.Wait(FirstWait);
         return Last.TryGetValue(folder, out last) ? (last.Entries, last.Bytes) : (-1, -1);
     }
 
     /// <summary>After a change the caller made itself (an eviction): the next report measures again.</summary>
-    public static void Forget(string folder) => Last.TryRemove(folder, out _);
+    public static void Forget(string folder)
+    {
+        Measuring.TryRemove(folder, out _);
+        Last.TryRemove(folder, out _);
+    }
 
     /// <summary>"N entries, M MB" or that the folder is being counted.</summary>
     public static string Text(int entries, long bytes, Func<long, string> megabytes, string noun = "entries") =>
