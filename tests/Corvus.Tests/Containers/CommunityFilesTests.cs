@@ -60,9 +60,12 @@ public partial class CommunityFilesTests
     {
         // The checkout's own location and the current account's home folder are what leak from a machine into a commit.
         var user = Environment.UserName;
+        bool personal = user.Length > 2 && !new[] { "user", "runner", "root", "vsts", "admin" }.Contains(user, StringComparer.OrdinalIgnoreCase);
         var needles = new List<string>();
-        if (Path.GetDirectoryName(Root.TrimEnd(Path.DirectorySeparatorChar)) is { } parent && Path.GetPathRoot(parent) != parent) needles.Add(parent);
-        if (user.Length > 2 && !new[] { "user", "runner", "root", "vsts", "admin" }.Contains(user, StringComparer.OrdinalIgnoreCase))
+        // A checkout straight in a shared account's home (/root/corvus) has a parent that names no machine.
+        if (Path.GetDirectoryName(Root.TrimEnd(Path.DirectorySeparatorChar)) is { } parent && Path.GetPathRoot(parent) != parent
+            && (personal || parent != Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))) needles.Add(parent);
+        if (personal)
             needles.AddRange([$@"\Users\{user}", $"/Users/{user}", $"/home/{user}", $@"\\Users\\{user}"]);
         var git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git", "ls-files -z") { WorkingDirectory = Root, RedirectStandardOutput = true })!;
         var files = git.StandardOutput.ReadToEnd().Split('\0', StringSplitOptions.RemoveEmptyEntries);
