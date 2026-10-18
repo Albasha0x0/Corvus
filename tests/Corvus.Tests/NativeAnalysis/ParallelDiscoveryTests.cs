@@ -22,7 +22,7 @@ public class ParallelDiscoveryTests
         Assert.True(at == serial.Length && at == parallel.Length, $"{what}: payloads differ at byte {at} ({serial.Length} / {parallel.Length} bytes)");
     }
 
-    public static readonly TheoryData<string> Small = new() { "linux-x64", "osx-arm64", "win-arm64", "linux-arm", "android-arm stripped" };
+    public static readonly TheoryData<string> Small = new() { "linux-x64", "osx-arm64", "win-arm64", "linux-arm" };
 
     /// <summary>Every queued root goes through the parallel path, so speculative runs and their commits are exercised.</summary>
     [Theory]
@@ -34,12 +34,20 @@ public class ParallelDiscoveryTests
             "linux-x64" => NativeImageLoader.Open(NativeFixtures.LinuxX64DbgShim),
             "osx-arm64" => NativeImageLoader.Open(NativeFixtures.OsxArm64DbgShim),
             "linux-arm" => NativeImageLoader.Open(NativeFixtures.LinuxArmDbgShim),
-            // ARM32 without symbols: states learned while exploring (speculative runs log their reads and hints)
-            "android-arm stripped" => Stripped(NativeFixtures.AndroidArmTracing),
             _ => NativeImageLoader.Open(NativeFixtures.WinArm64DbgShim),
         };
         var serial = Payload(image, new CodeIndexOptions { MaxParallelism = 1 });
         AssertSame(serial, Payload(image, new CodeIndexOptions { MaxParallelism = 4, ParallelExploreMin = 1 }), build);
+    }
+
+    /// <summary>ARM32 without symbols: states learned while exploring (speculative runs log their reads and hints).</summary>
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Saved_index_of_a_stripped_arm_library_is_the_same_at_one_and_four_threads()
+    {
+        var image = Stripped(NativeFixtures.AndroidArmTracing);
+        var serial = Payload(image, new CodeIndexOptions { MaxParallelism = 1 });
+        AssertSame(serial, Payload(image, new CodeIndexOptions { MaxParallelism = 4, ParallelExploreMin = 1 }), "android-arm stripped");
     }
 
     public static readonly TheoryData<string> Large = new() { "win-x64 10.0.11", "win-x86 10.0.11", "linux-x64 10.0.11", "osx-arm64 10.0.11", "libSkiaSharp", "libSkiaSharp arm stripped" };
