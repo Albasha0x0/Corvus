@@ -12,7 +12,7 @@
       "name": "corvus",
       "source": "./",
       "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare builds, patch and save.",
-      "version": "2.3.0",
+      "version": "2.4.0",
       "category": "development",
       "homepage": "https://github.com/Albasha0x0/Corvus",
       "license": "MIT"
