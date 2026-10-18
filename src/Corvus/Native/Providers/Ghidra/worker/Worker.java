@@ -963,6 +963,8 @@ public class Worker implements GhidraLaunchable {
 
     /** Analysis options of the program: {options: [[name, type, value, description]]} by name. */
     private JsonElement analyzers() {
+        // a program reopened from its project registers its analyzer options only once a manager initializes them
+        AutoAnalysisManager.getAnalysisManager(program).initializeOptions();
         Options options = program.getOptions(Program.ANALYSIS_PROPERTIES);
         List<String> names = new ArrayList<>(options.getOptionNames());
         java.util.Collections.sort(names, String.CASE_INSENSITIVE_ORDER);
