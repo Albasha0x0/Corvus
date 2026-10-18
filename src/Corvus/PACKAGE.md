@@ -1,7 +1,7 @@
 # Corvus
 
 Reverse-engineering MCP server for AI agents: decompile, search, trace, compare and patch .NET assemblies and native
-PE, ELF and Mach-O binaries. IDA and Ghidra are optional decompilers. Nothing is executed and nothing is uploaded.
+PE, ELF and Mach-O binaries. IDA and Ghidra are optional decompilers. Nothing is uploaded, and by default nothing is executed.
 
 Corvus is under active development; changes are listed in the
 [release notes](https://github.com/Albasha0x0/Corvus/blob/main/docs/release-notes.md).

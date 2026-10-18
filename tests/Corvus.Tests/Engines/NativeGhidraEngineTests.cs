@@ -169,7 +169,10 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
             Output.WriteLine($"{names.Count} Ghidra names, e.g. {string.Join(", ", names.Where(n => n.Function).Take(8).Select(n => $"{n.Name} ({(n.Imported ? "imported" : "analysis")})"))}");
             // the ghidra layer holds Ghidra's names below the others; without the PDB layer a name only Ghidra has left resolves through it
             var exports = native.Image.Exports.Select(e => e.Rva).ToHashSet();
-            var only = names.First(n => n.Function && !exports.Contains(n.Rva) && index.FunctionAt(n.Rva)?.Start == n.Rva);
+            // the layer holds the names at the open; a PDB that reaches the session later (seen under load: 274 names, then
+            // 1,335) adds names it does not hold, so the name comes from the layer as imported
+            var layer = NativeNameLayers.Of(native).Get(NativeNameSource.Ghidra)!;
+            var only = names.First(n => n.Function && layer.Names.GetValueOrDefault(n.Rva) == n.Name && !exports.Contains(n.Rva) && index.FunctionAt(n.Rva)?.Start == n.Rva);
             Assert.Equal(only.Name, index.Sourced.NameAt(only.Rva, NativeNameSource.Ghidra));
             NativeNameLayers.Of(native).Remove(NativeNameSource.Pdb, index);
             Assert.Equal((only.Name, NativeNameSource.Ghidra), index.Sourced.NameAt(only.Rva));

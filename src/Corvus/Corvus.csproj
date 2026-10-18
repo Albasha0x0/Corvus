@@ -19,7 +19,7 @@
     <PackageId>CorvusRE</PackageId>
     <PackageType>McpServer</PackageType>
     <Authors>Albasha0x0</Authors>
-    <Description>MCP server and command line for reverse engineering .NET assemblies and native PE, ELF and Mach-O binaries: decompile, search, compare builds, patch and save. Nothing is executed.</Description>
+    <Description>MCP server and command line for reverse engineering .NET assemblies and native PE, ELF and Mach-O binaries: decompile, search, compare builds, patch and save. By default nothing is executed.</Description>
     <PackageTags>mcp;mcp-server;decompiler;reverse-engineering;dotnet;il2cpp;disassembler</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>

@@ -2,7 +2,7 @@
 
 **Reverse engineering for AI agents.** Corvus is an MCP server that lets your agent read, trace, compare and patch
 compiled programs: .NET assemblies and native PE, ELF and Mach-O binaries. One self-contained binary, no runtime to
-install, nothing executed, nothing uploaded.
+install, nothing uploaded; by default nothing it reads is executed.
 
 [![Release](https://img.shields.io/github/v/release/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)

@@ -18,7 +18,11 @@ Fixes go into the next release; the release notes name the fixed problem once a 
 
 Corvus analyzes files that may be untrusted: third-party programs, modified builds, crafted containers, dumps and symbol files. The
 person running the server and the MCP client it answers are trusted; the analyzed files and everything derived from
-them are not. The server analyzes files; it does not run them.
+them are not. By default the server reads files and never runs them. The opt-ins below, each off by default, widen
+this: the session tools (`--allow-live`) attach to programs running on this machine, start them only with
+`--allow-live-spawn` and load scripts into them only with `--live-scripting`; they are meant for the user's own programs,
+and a program run this way runs with the user's rights. The engine scripting tools and the device-changing Android
+tools have opt-ins of their own.
 
 ### Untrusted inputs
 
@@ -56,6 +60,9 @@ What starts a process outside the server's own: an `engine` argument (IDA or Ghi
 on `unity_overview` (Detect It Easy), the Android device tools (adb: `list_android_devices`, `get_android_device_info`,
 `list_android_packages`, `get_android_package_info`, `pull_android_package`, `pull_android_file`, `read_android_log`,
 `install_android_package`, `uninstall_android_package`), `server_status` (probes the Python IDA uses) and `inspect_process` (reads another process).
+Behind their opt-ins (below): `ida_python` and `ghidra_script` (in the engine workers) and the session tools (a Python
+worker with Frida's bindings; `live_timeline` an event tracing session; `live_session action=spawn` and
+`live_console action=start` the program they name).
 
 ### Opt-ins that widen the boundary
 
