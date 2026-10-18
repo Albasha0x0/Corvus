@@ -13,6 +13,7 @@ namespace Corvus.Tests;
 /// unpack_container on pcap / pcapng (W-P1-1): TCP reassembled, HTTP/1.x and HTTP/2 objects exported, TLS 1.2 and 1.3
 /// decrypted with a key log (OpenSSL-made sessions), other streams written, JA3 / JA4 / JA4S fingerprints.
 /// </summary>
+[Collection(nameof(SerialTimingTests))] // the 1 GiB budget measures the whole process
 public sealed class CaptureObjectsTests : IDisposable
 {
     private readonly TempDir _dir = new();
