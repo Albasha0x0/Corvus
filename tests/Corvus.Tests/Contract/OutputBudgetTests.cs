@@ -115,6 +115,27 @@ public sealed partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHelp
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
+    /// <summary>Two CoreLib builds compared, and a whole-assembly simplify dry run whose full report stays readable through read_result.</summary>
+    [Fact]
+    public async Task ACoreLibComparisonAndAWholeAssemblySimplifyFitTheirBudget()
+    {
+        var other = RealPackages.File("Microsoft.NETCore.App.Runtime.osx-arm64", "10.0.11", "runtimes", "osx-arm64", "lib", "net10.0", "System.Private.CoreLib.dll");
+        var json = RealPackages.File("Newtonsoft.Json", "13.0.4", "lib", "net6.0", "Newtonsoft.Json.dll");
+        foreach (var path in new[] { other, json })
+            Assert.NotEqual(true, (await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = path })).IsError);
+        var problems = await Run(
+        [
+            ("compare_assemblies", new() { ["oldAssembly"] = "System.Private.CoreLib", ["newAssembly"] = "System.Private.CoreLib#2" }),
+            ("simplify_methods", new() { ["assembly"] = "Newtonsoft.Json" }),
+        ]);
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+        var cut = Text(await _client.CallToolAsync("simplify_methods", new Dictionary<string, object?> { ["assembly"] = "Newtonsoft.Json" }));
+        var id = Regex.Match(cut, @"read_result id=(r-[0-9a-f]+)").Groups[1].Value;
+        var whole = await _client.CallToolAsync("read_result", new Dictionary<string, object?> { ["id"] = id, ["outputPath"] = _dir.File("simplify.txt") });
+        Assert.NotEqual(true, whole.IsError);
+        Assert.True(new FileInfo(_dir.File("simplify.txt")).Length > cut.Length * 2, $"the kept report is not the whole outcome: {Text(whole)}");
+    }
+
     [Fact]
     public async Task DefaultPagesOnANativeLibraryFitTheirBudget()
     {
