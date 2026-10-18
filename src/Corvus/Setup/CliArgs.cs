@@ -92,17 +92,22 @@ internal sealed partial class CliArgs
         var properties = inputSchema?["properties"] as JsonObject;
         foreach (var (key, raw, isJson) in Assignments)
         {
-            var value = raw.StartsWith('@') && !isJson ? ReadSource(raw[1..], stdin) : raw;
+            var value = raw.StartsWith('@') && !isJson ? ReadSource(raw[1..], stdin, key) : raw;
             result[key] = isJson ? Element(ParseJson(key, value)) : Element(Coerce(key, value, properties?[key]));
         }
         return result;
     }
 
-    private static string ReadSource(string path, TextReader stdin)
+    private static string ReadSource(string path, TextReader stdin, string? key = null)
     {
         if (path == "-") return stdin.ReadToEnd();
         try { return File.ReadAllText(path); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { throw new UsageException($"Cannot read {path}: {ex.Message}"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // Values such as Android resource references (@xml/config) start with @ too.
+            var text = key == null ? "" : $" For text that starts with @, pass it as JSON: {key}:='\"@{path}\"'.";
+            throw new UsageException($"Cannot read {path}: {ex.Message}{text}");
+        }
     }
 
     private static JsonElement? Element(JsonNode? node) => node is null ? null : JsonSerializer.SerializeToElement(node);

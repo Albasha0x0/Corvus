@@ -73,6 +73,10 @@ public class ToolCliTests
         }
         finally { File.Delete(file); }
 
+        // An Android resource reference is not a file: the error names the JSON form that passes it as text.
+        var missing = Assert.Throws<UsageException>(() => CliArgs.Parse(["text=@xml/no_such_file"]).ToolArguments(schema, TextReader.Null));
+        Assert.Contains("""text:='"@xml/no_such_file"'""", missing.Message);
+        Assert.Equal("\"@xml/config\"", System.Text.Json.JsonSerializer.Serialize(CliArgs.Parse(["text:=\"@xml/config\""]).ToolArguments(schema, TextReader.Null)["text"]));
         Assert.Throws<UsageException>(() => CliArgs.Parse(["n=ten"]).ToolArguments(schema, TextReader.Null));
         Assert.Throws<UsageException>(() => CliArgs.Parse(["flag=maybe"]).ToolArguments(schema, TextReader.Null));
         Assert.Throws<UsageException>(() => CliArgs.Parse(["--args", "[1]"]).ToolArguments(schema, TextReader.Null));
