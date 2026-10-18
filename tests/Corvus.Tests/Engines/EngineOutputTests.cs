@@ -66,6 +66,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
     public sealed class LargestFunction(ITestOutputHelper output) : EngineOutputTests(output)
     {
         /// <summary>The largest function of e_sqlite3 (the slowest decompile measured): a second fresh process answers within a second, byte-identical.</summary>
+        [Trait("Tier", "Release")]
         [Trait("Speed", "Slow")]
         [Trait("Data", "Real")]
         [IdaFact]

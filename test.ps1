@@ -3,7 +3,7 @@
 # Usage:  ./test.ps1                      # quick set (before each commit)
 #         ./test.ps1 -Full                # full suite (before a release or a gate run)
 #         ./test.ps1 -Full -IfChanged     # full suite unless it already passed on this exact tree
-#         ./test.ps1 -Full -Exhaustive    # the real-image sweeps take every input, not a quarter (gates and releases)
+#         ./test.ps1 -Full -Exhaustive    # every sweep input, not a quarter, and the Tier=Release tests (gates and releases)
 #         ./test.ps1 -Affected            # quick set plus the slow tests of the families changed since origin/main (before a push)
 #         ./test.ps1 -Filter <expr>       # any dotnet test filter, quick or full
 #         ./test.ps1 -Full -Reuse         # only the families whose inputs changed since their last full pass (test-reuse.psm1)
@@ -308,7 +308,10 @@ if ($Full) {
 }
 
 $arguments = @('test', $tests, '--nologo')
-if ($Filter) { $arguments += @('--filter', $Filter) }
+# Measurements, accuracy oracles and the largest inputs (Tier=Release) run at release strength only; a filter given
+# on the command line and coverage runs (the floors count them) keep them.
+$runFilter = if ($Full -and -not $Exhaustive -and -not $Coverage -and -not $PSBoundParameters.ContainsKey('Filter')) { if ($Filter) { "($Filter)&Tier!=Release" } else { 'Tier!=Release' } } else { $Filter }
+if ($runFilter) { $arguments += @('--filter', $runFilter) }
 $results = Join-Path ([IO.Path]::GetTempPath()) "corvus-trx-$PID"
 if ($familyKeys) { $arguments += @('--logger', 'trx;LogFileName=full.trx', '--results-directory', $results) }
 # Coverage floors are set by whole-suite runs, so a partial run is never checked against them.

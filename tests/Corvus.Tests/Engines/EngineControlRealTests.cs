@@ -158,6 +158,7 @@ public abstract class EngineControlRealTests(ITestOutputHelper output) : IDispos
     public sealed class GhidraOpenStages(ITestOutputHelper output) : EngineControlRealTests(output)
     {
         /// <summary>The open's stage profile, cold (a new cache) and warm (the saved database), on notepad.exe and dbghelp.dll copies.</summary>
+        [Trait("Tier", "Release")]
         [GhidraFact]
         public Task Open_stages_Ghidra() => OpenStages("ghidra");
     }
@@ -195,6 +196,7 @@ public abstract class EngineControlRealTests(ITestOutputHelper output) : IDispos
     [Trait("Speed", "Slow")]
     public sealed class Controls(ITestOutputHelper output) : EngineControlRealTests(output)
     {
+        [Trait("Tier", "Release")]
         [IdaFact]
         public Task Open_stages_Ida() => OpenStages("ida");
 

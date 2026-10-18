@@ -429,6 +429,7 @@ public class CallArgumentTests(ITestOutputHelper output)
         "CreateEventW", "InitializeCriticalSectionAndSpinCount", "MessageBoxW", "OpenProcess", "CreateMutexW", "LocalAlloc", "FormatMessageW",
     ];
 
+    [Trait("Tier", "Release")]
     [Fact]
     [Trait("Speed", "Slow")]
     public void System32_argument_recovery_rates()

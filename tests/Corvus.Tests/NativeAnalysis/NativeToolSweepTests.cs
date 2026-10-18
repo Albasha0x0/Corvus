@@ -53,6 +53,7 @@ public class NativeToolSweepTests(ITestOutputHelper output)
     }
 
     /// <summary>The three largest native images under Program Files and System32 (up to the parser's file size limit).</summary>
+    [Trait("Tier", "Release")]
     [WindowsFact]
     public Task Largest()
     {

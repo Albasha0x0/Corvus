@@ -39,6 +39,7 @@ public sealed class IsaEngineTests(ITestOutputHelper output)
     [IdaFact]
     public Task Every_architecture_in_IDA() => Run("ida");
 
+    [Trait("Tier", "Release")]
     [GhidraFact]
     public Task Every_architecture_in_Ghidra() => Run("ghidra");
 

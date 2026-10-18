@@ -80,6 +80,7 @@ public class NativeCodeOracleTests(ITestOutputHelper output)
         return names.Select(n => Path.Combine(sys32, n)).Concat(names.Select(n => Path.Combine(wow, n))).Where(File.Exists);
     }
 
+    [Trait("Tier", "Release")]
     [Fact]
     public void Function_starts_and_calls_match_ida()
     {
