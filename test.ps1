@@ -101,7 +101,11 @@ Set-Content -Path '$result' -Value ('$short ' + `$(if (`$code -eq 0) { 'passed' 
 Set-Location '$root'
 git worktree remove --force '$dir'
 "@
-    Start-Process pwsh -ArgumentList '-NoProfile', '-Command', $script -WindowStyle Hidden | Out-Null
+    # -WindowStyle exists on Windows only; elsewhere nohup keeps the run past the terminal.
+    $start = @{ FilePath = 'pwsh'; ArgumentList = @('-NoProfile', '-Command', $script) }
+    if ($IsWindows) { $start.WindowStyle = 'Hidden' }
+    else { $start.FilePath = 'nohup'; $start.ArgumentList = @('pwsh') + $start.ArgumentList; $start.RedirectStandardOutput = '/dev/null' }
+    Start-Process @start | Out-Null
     Write-Host "Full suite started in the background on $short ($dir); ./test.ps1 -Status shows the result."
     exit 0
 }
