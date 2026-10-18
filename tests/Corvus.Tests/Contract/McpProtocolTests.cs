@@ -389,8 +389,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["bucket_minidumps"] = (new() { ["folder"] = Path.GetDirectoryName(SyntheticCrash.Write(dir)) }, "\"signature\":\"0xC0000005 | synth!Crash | synth!Outer > synth!Big\""),
         ["symbolize_stack_text"] = (new() { ["text"] = "System.Exception: boom\n   at Fixture.Model.Account.Charge(Int32 amount)" }, "\"resolved\":\"Fixture.Model.Account::Charge(int)\""),
         ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "534883EC"),
-        // the test process itself (the server is a child process): read-only, every handle closed
-        ["inspect_process"] = (new() { ["process"] = Environment.ProcessId.ToString(), ["view"] = "modules", ["limit"] = 5 }, "\"detached\":true"),
+        // the test process itself (the server is a child process): read-only, every handle closed; the Windows process API only
+        ["inspect_process"] = (new() { ["process"] = Environment.ProcessId.ToString(), ["view"] = "modules", ["limit"] = 5 },
+            OperatingSystem.IsWindows() ? "\"detached\":true" : "Error (provider_unavailable, retryable) in inspect_process"),
         ["live_session"] = (new() { ["action"] = "attach", ["program"] = Environment.ProcessId.ToString() }, "Error (unsupported) in live_session"),
         ["live_break"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_break"),
         ["live_read"] = (new() { ["session"] = "live-1" }, "Error (unsupported) in live_read"),
