@@ -2,7 +2,67 @@
 
 ## 2.4.0
 
-- **Fixes.** `corvus update` on Linux and macOS deleted the version it was running from and then failed while refreshing
+165 tools and 15 prompts (2.3.0 had 156): nine session tools are new, in the `live` family and off by default. Record
+changes are listed under **Changed**; the native code index is built again once (persist format 16).
+
+- **Session tools** (behind `--allow-live`; starting a program also needs `--allow-live-spawn`, user scripts
+  `--live-scripting`). `live_session` opens a session on a local program (open, spawn, list processes, save a
+  snapshot as a standard dump that the dump tools open); `live_break` sets stop points by name, `module!export`,
+  `file:line` or address and reads named stacks, typed registers and memory (`live_read`); `live_events` pages a
+  session's events with a cursor. `live_watch` records each call of a function with its arguments and return value,
+  decoded from the known-API table, PDB prototypes or DWARF parameter names. `live_coverage` collects function coverage
+  of an image, draws it on the static call graph and compares two runs. `live_timeline` records the files, registry keys,
+  endpoints and child processes a run touches from the OS event trace (ETW on Windows) and compares two runs.
+  `live_console` drives a console program through a console host (send, wait, resize) with a paged transcript.
+  `live_script` loads a user-supplied script. Saved session records verify through `read_result format=verify` by
+  their named addresses; `inspect_process` takes a session id.
+- **Notes as a hypothesis ledger.** Note evidence links a kept result or `last:N` that supports or refutes it;
+  `update_note verify=true` re-checks each record and marks the hypothesis confirmed, refuted or open.
+- **Documents.** `summarize_file view=office` (OLE and OOXML documents, VBA modules, Excel 4.0 macro sheets, embedded
+  packages, encrypted OOXML under well-known default passwords), `view=pdf` (objects, streams and scripts as pdf-parser lists
+  them; keyword counts as pdfid), `view=lnk` (a shortcut's target as the shell resolves it) and OneNote embedded files.
+- **Installers and disk images.** Cabinets (MSZIP, LZX) and Windows Installer packages extract and list;
+  `summarize_file view=installer` shows custom actions, registry, services and shortcuts. ISO 9660 (Joliet, Rock Ridge,
+  El Torito), UDF, VHD, VHDX, MBR / GPT and NTFS images list and extract.
+- **Scripts and packages.** `summarize_file view=script` reads PowerShell, VBScript / VBA, batch and JavaScript with
+  their transformation layers decoded to plain text by bounded evaluators, nothing run. `view=package` reviews npm,
+  PyPI, VS Code and browser extension packages before installing: install-time scripts, entry points, permissions,
+  native binaries, signature and hash checks, names close to popular packages.
+- **Firmware.** squashfs 4.0, cramfs, ext2/3/4, FAT, cpio, JFFS2, UBI / UBIFS, uImage, FIT, Android boot and TRX
+  images read and extract in-process on every OS; `view=firmware` validates 143 header signatures.
+- **Captures.** `unpack_container` on a pcap reassembles TCP and writes HTTP/1.x and HTTP/2 objects, decrypting TLS
+  1.2 / 1.3 with a key log; JA3 / JA4 fingerprints. `search_container kind=request` pages a HAR, mitmproxy or `.saz`
+  capture's requests as a stream; two captures compare as API diffs. Source maps unpack to their original tree.
+- **JavaScript and Electron.** `search_container kind=electron` reads windows, preloads, bridge methods and IPC
+  channels from the syntax tree; `kind=feature` follows a UI or log text to its handler. `analyze_js` adds
+  `view=endpoints`, `secrets`, `diff` (two builds module by module), `runtime` (the webpack runtime), `flow` and
+  `origins` (data flow through assignments, calls and the Electron bridge). `unpack_container` writes a bundle's
+  modules as files. Hermes bytecode 59-96 reads, disassembles and decompiles through `analyze_js` and
+  `summarize_file view=hermes`.
+- **Mobile and managed.** `survey_features` on Android and Apple apps lists platform security findings (WebView bridges,
+  TLS trust, cleartext, pinning, dynamic loading, embedded keys) at their method and offset. `summarize_file
+  view=layers` joins an APK's DEX, native, .NET, Il2Cpp and JS layers. `decompile_java` keeps output on disk and puts
+  R8 / ProGuard names into the Java text; jars and `.class` files disassemble as `javap -c -p` does. WPF `.baml`
+  resources show event handlers joined to their methods. NativeAOT static fields get names in the name layer.
+- **Debug info.** PDB line tables: `resolve_address` shows file and line, stop points take `file:line`. DWARF adds
+  split units (`.dwo`, `.dwp`), dwz supplementary files, relocatable objects, Mach-O debug maps, and the parameters and
+  locals in scope at an address. ELF core stacks unwind through DWARF CFI expressions (ppc64, s390x, riscv64).
+- **Engines.** Ghidra's standard profile answers sooner (libSkiaSharp first answer 434 s to 348 s), reads DOS jump
+  tables, takes C++ enum bases and default calling conventions, runs `ghidra_script` in Python through PyGhidra
+  (`CORVUS_GHIDRA_PYTHON`), and works on Ghidra 12.0. A WebAssembly module for Ghidra answers unsupported at once when
+  no loader is installed. Native accuracy: x86 switch bounds, ARM32 literal pools and no-return calls, ARM64 jump
+  tables (recall 100); ARM32 discovery runs in parallel.
+- **Large inputs.** APK, IPA, plist, mitmproxy flows, WebAssembly and native images over 64 MiB read in ranges or as
+  streams (a 1 GiB APK summary from +1 GB to +15 MB of memory). SQLite reads `ADD COLUMN` defaults and carves
+  `WITHOUT ROWID` tables.
+- **Changed.** `inspect_instruction` pages its walk as a list; `offset` is a row offset. `get_native_type` and
+  `resolve_call_targets` records leave out false, zero and empty fields. `load_assembly`, `reload_assembly`,
+  `unload_assembly` and `add_search_directory` return typed records instead of a copy of the text. Note files are
+  written as `corvus-notes/3` (version 2 still reads). The 15 list tools that lacked it take `maxTokens`.
+- **Fixes.** `save_assembly` writes a ReadyToRun image with no header room for a new section as IL only and says so.
+  The command line reads and writes UTF-8 when redirected. `engine=auto` answers from the built-in index when another
+  session holds the saved analysis. `server_status` no longer walks cache folders on its own time.
+  `corvus update` on Linux and macOS deleted the version it was running from and then failed while refreshing
   client registrations (the update itself was installed); it now keeps that version until the next update. Updating
   from 2.3.0 or older still shows the failure once: run `corvus install --refresh-only` afterwards.
 
