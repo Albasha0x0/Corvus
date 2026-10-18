@@ -5,6 +5,7 @@ using Corvus.Services.Mobile;
 namespace Corvus.Tests;
 
 /// <summary>The DEX name layer: an R8 mapping.txt applied to the DEX views, and names recovered from Kotlin metadata and source files.</summary>
+[Collection(nameof(SerialTimingTests))] // the large mapping has a CPU budget
 public sealed class DexNamesTests : IDisposable
 {
     private readonly TempDir _dir = new();

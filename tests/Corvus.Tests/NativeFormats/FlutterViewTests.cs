@@ -6,6 +6,7 @@ using Corvus.Services.Analysis;
 namespace Corvus.Tests.NativeFormats;
 
 /// <summary>Dart AOT snapshot headers and the Dart VM version string; summarize_file view=flutter.</summary>
+[Collection(nameof(SerialTimingTests))] // the pool scan has a CPU budget
 public sealed class FlutterViewTests
 {
     private const string Hash = "0123456789abcdef0123456789abcdef";
