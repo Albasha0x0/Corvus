@@ -101,7 +101,9 @@ if ($Background) {
     $flags = '-Full' + $(if ($Sampled) { '' } elseif ($Whole) { ' -Exhaustive' } else { ' -Exhaustive -Reuse' })
     $short = $commit.Substring(0, 8)
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
+    # Below-normal priority, inherited by the test hosts and engine workers, keeps the machine responsive meanwhile.
     $script = @"
+(Get-Process -Id `$PID).PriorityClass = 'BelowNormal'
 Set-Location '$dir'
 & ./test.ps1 $flags *> '$log'
 `$code = `$LASTEXITCODE

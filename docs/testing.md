@@ -9,7 +9,8 @@
 - **Full set** (`CORVUS_ALL_TESTS=1 dotnet test`, or `dotnet test -p:CORVUS_ALL_TESTS=1`): adds real-library builds, whole-server
   runs over stdio, sweeps, fuzzing and the large runtime packs. A push needs the quick set; the full set then runs off
   the critical path, `./test.ps1 -Full -Background`, on the pushed commit in a worktree of its own (`-Status` shows
-  the result), and a failure is fixed in the next commit. A background run is exhaustive and reuses family passes
+  the result), and a failure is fixed in the next commit. A background run runs at below-normal priority (its test
+  hosts and engine workers inherit it), is exhaustive and reuses family passes
   (`-Sampled` runs the routine quarter of the sweeps without reuse). `./test.ps1 -Affected` runs the quick set plus the slow
   tests of the families changed since `origin/main` in the foreground (shared code such as `Core`, `Mcp` or test
   `Support` runs everything). Releases gate on the full set: a routine `./test.ps1 -Full` sweeps an evenly spread
