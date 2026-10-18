@@ -95,6 +95,9 @@ internal sealed class PosixGroupProcess : ChildProcess
     private readonly Task _exited;
     /// <summary>The worker itself (the shell's child): the id status reports and the process group Kill ends.</summary>
     private readonly int _workerId;
+    private readonly Lock _gate = new();
+    private bool _disposed, _disposedExited;
+    private int? _disposedExitCode;
 
     private PosixGroupProcess(Process process)
     {
@@ -186,10 +189,10 @@ internal sealed class PosixGroupProcess : ChildProcess
     public override Stream StandardInput => _process.StandardInput.BaseStream;
     public override Stream StandardOutput => _process.StandardOutput.BaseStream;
     public override Stream StandardError => _process.StandardError.BaseStream;
-    public override bool HasExited => _process.HasExited;
-    public override int? ExitCode => _process.HasExited ? _process.ExitCode : null;
+    public override bool HasExited { get { lock (_gate) return _disposed ? _disposedExited : _process.HasExited; } }
+    public override int? ExitCode { get { lock (_gate) return _disposed ? _disposedExitCode : _process.HasExited ? _process.ExitCode : null; } }
     public override Task Exited => _exited;
-    public override IReadOnlyList<int> TreeProcessIds() => _process.HasExited ? [] : [_workerId];
+    public override IReadOnlyList<int> TreeProcessIds() => HasExited ? [] : [_workerId];
 
     [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
     private static extern int SysKill(int pid, int signal);
@@ -200,7 +203,7 @@ internal sealed class PosixGroupProcess : ChildProcess
         {
             // a group keeps its id while members remain, so the group kill is safe after the worker itself ended
             _ = SysKill(-_workerId, 9);
-            if (!_process.HasExited) _ = SysKill(_workerId, 9);
+            if (!HasExited) _ = SysKill(_workerId, 9);
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { }
         try { _process.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { }
@@ -209,7 +212,15 @@ internal sealed class PosixGroupProcess : ChildProcess
     public override void Dispose()
     {
         Kill();
-        _process.Dispose();
+        lock (_gate)
+        {
+            if (_disposed) return;
+            // Process throws once disposed; the exit is kept, as WindowsJobProcess keeps it, for callers that still ask.
+            _disposedExited = _process.WaitForExit(2000);
+            _disposedExitCode = _disposedExited ? _process.ExitCode : null;
+            _disposed = true;
+            _process.Dispose();
+        }
     }
 }
 

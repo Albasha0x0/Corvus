@@ -288,6 +288,23 @@ public class NativeProviderTests
         Assert.Throws<System.ComponentModel.Win32Exception>(() => ChildProcess.Start(new ChildProcessStart("/no/such/program", [])));
     }
 
+    /// <summary>A replaced worker is disposed while the relay and the process list still ask whether it exited.</summary>
+    [PosixFact("Needs a POSIX shell.")]
+    public void A_disposed_posix_child_still_reports_its_exit()
+    {
+        var ended = ChildProcess.Start(new ChildProcessStart("/bin/sh", ["-c", "exit 5"]));
+        Assert.True(ended.Exited.Wait(10_000));
+        ended.Dispose();
+        Assert.True(ended.HasExited);
+        Assert.Equal(5, ended.ExitCode);
+        Assert.Empty(ended.TreeProcessIds());
+
+        var running = ChildProcess.Start(new ChildProcessStart("/bin/sh", ["-c", "sleep 600"]));
+        running.Dispose();
+        Assert.True(running.HasExited);
+        Assert.NotNull(running.ExitCode);
+    }
+
     [WindowsFact]
     public void Job_close_kills_the_whole_tree()
     {
