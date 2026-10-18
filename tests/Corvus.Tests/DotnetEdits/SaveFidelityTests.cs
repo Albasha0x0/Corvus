@@ -315,7 +315,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     [Fact]
     public void ReadyToRunImageWithFullHeadersIsWrittenAsIlOnlyAndReported()
     {
-        var path = RealPackages.File("Microsoft.NETCore.App.Runtime.linux-arm64", "10.0.11", "runtimes", "linux-arm64", "lib", "net10.0", "System.Linq.dll");
+        var path = RealPackages.File("Microsoft.NETCore.App.Runtime.osx-arm64", "10.0.11", "runtimes", "osx-arm64", "lib", "net10.0", "System.Linq.dll");
         var (written, report) = Rewrite(path);
         Assert.Contains(report.Issues, i => i.Reason == SaveIssueReason.PrecompiledCodeDropped);
         using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(written)))
