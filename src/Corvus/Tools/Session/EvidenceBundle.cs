@@ -111,34 +111,43 @@ public static partial class EvidenceBundle
                     : ((string?)null, (string?)null))));
                 continue;
             }
-            if (context.Server.ServerOptions.ToolCollection?.FirstOrDefault(t => t.ProtocolTool.Name == r.Tool) is not { } tool)
+            var result = await Invoke(r.Tool, r.Arguments != null ? JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(r.Arguments) : null, context, ct);
+            if (result == null)
             {
                 checks.Add(new(r.Id, r.Tool, false, $"{r.Tool} is not a tool of this server"));
                 continue;
             }
-            var request = new CallToolRequestParams
-            {
-                Name = r.Tool,
-                Arguments = r.Arguments != null ? JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(r.Arguments) : null,
-            };
-            var result = await CallFilter.Run(request, tool.ProtocolTool.InputSchema, context.Services,
-                token => tool.InvokeAsync(new RequestContext<CallToolRequestParams>(context.Server, context.JsonRpcRequest, request)
-                    { Services = context.Services, MatchedPrimitive = tool }, token), ct, context.Server.ClientInfo?.Name);
-            var text = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text));
+            var (text, record) = Whole(result, store);
             if (result.IsError == true)
             {
                 checks.Add(new(r.Id, r.Tool, false, $"the call failed now: {Format.Clip(text, 200)}"));
                 continue;
             }
-            // a re-run past the response budget is kept again: its whole content is what the record holds
-            var hash = KeptMarker().Match(text) is { Success: true } m && store.Read(m.Groups[1].Value) is { } again
-                ? ContentSha256(again.Text, again.Record)
-                : ContentSha256(text, result.StructuredContent?.GetRawText());
+            var hash = ContentSha256(text, record);
             checks.Add(hash == r.ContentSha256
                 ? new(r.Id, r.Tool, true, "same content")
                 : new(r.Id, r.Tool, false, $"the content differs: SHA-256 {r.ContentSha256[..12]}… then, {hash[..12]}… now"));
         }
         return checks;
+    }
+
+    /// <summary>Calls one of this server's tools from inside a call, through the same argument checks; null when there is no such tool.</summary>
+    internal static async Task<CallToolResult?> Invoke(string toolName, Dictionary<string, JsonElement>? arguments, RequestContext<CallToolRequestParams> context, CancellationToken ct)
+    {
+        if (context.Server.ServerOptions.ToolCollection?.FirstOrDefault(t => t.ProtocolTool.Name == toolName) is not { } tool) return null;
+        var request = new CallToolRequestParams { Name = toolName, Arguments = arguments };
+        return await CallFilter.Run(request, tool.ProtocolTool.InputSchema, context.Services,
+            token => tool.InvokeAsync(new RequestContext<CallToolRequestParams>(context.Server, context.JsonRpcRequest, request)
+                { Services = context.Services, MatchedPrimitive = tool }, token), ct, context.Server.ClientInfo?.Name);
+    }
+
+    /// <summary>A call's whole text and record: a result past the response budget was kept, and the kept copy holds all of it.</summary>
+    internal static (string Text, string? Record) Whole(CallToolResult result, ResultStore? store)
+    {
+        var text = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text));
+        return KeptMarker().Match(text) is { Success: true } m && store?.Read(m.Groups[1].Value) is { } kept
+            ? (kept.Text, kept.Record)
+            : (text, result.StructuredContent?.GetRawText());
     }
 
     [GeneratedRegex(@"is kept as (r-[0-9a-f]+); read_result")]

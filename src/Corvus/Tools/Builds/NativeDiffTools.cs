@@ -343,9 +343,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxDiffFunctions = 20;
 
     [McpServerTool(Name = "diff_function", Title = "Diff a function between builds", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDiffReport))]
-    [Description("What changed in one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or " +
-                 "+, operands made build-independent (labels, matched callees, strings, mapped data). view=pseudocode: a unified diff. " +
-                 "addresses: a summary per function. oldResult / newResult: kept code.")]
+    [Description("Changes to one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or " +
+                 "+, operands made build-independent (labels, callees, strings, data). view=pseudocode: a unified diff. " +
+                 "addresses: one summary each. oldResult / newResult: kept code.")]
     public Task<string> DiffFunction(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
@@ -353,18 +353,21 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("Instead of address: up to 20 functions, one summary each.")] string[]? addresses = null,
         [Description("Which build the address is in.")] string side = "old",
         [Description("asm, or pseudocode (needs an engine).")] string view = "asm",
-        [Description("Unchanged rows or lines around each change (0-50).")] int context = 4,
+        [Description("Unchanged rows around each change (0-50).")] int context = 4,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
         [Description("view=pseudocode: auto, ida or ghidra.")] string? engine = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 500,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Instead: old code as " + EvidenceInput.ReferenceDescription + ".")] string? oldResult = null,
-        [Description("New code, from the same tool.")] string? newResult = null,
+        [Description("Same tool; or one result plus the other image and address.")] string? newResult = null,
         RequestContext<CallToolRequestParams> request = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(request, async progress =>
     {
-        if (!string.IsNullOrWhiteSpace(oldResult) || !string.IsNullOrWhiteSpace(newResult))
+        bool keptOld = !string.IsNullOrWhiteSpace(oldResult), keptNew = !string.IsNullOrWhiteSpace(newResult);
+        if (keptOld != keptNew && (keptOld ? oldImage : newImage) == null && (keptOld ? newImage : oldImage) is { } loaded && addresses == null)
+            return await DiffKeptAndLoaded(keptOld ? oldResult! : newResult!, keptOld, loaded, address, context, offset, limit, request, cancellationToken);
+        if (keptOld || keptNew)
             return DiffResults(oldResult, newResult, oldImage != null || newImage != null || address != null || addresses != null, context, offset, limit, request?.Services);
         var s = (string.IsNullOrWhiteSpace(side) ? "old" : side).Trim().ToLowerInvariant();
         if (s is not ("old" or "new")) throw new ToolError(ErrorCode.InvalidArgument, $"side must be old or new, not '{side}'.");
@@ -430,7 +433,39 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             throw new ToolError(ErrorCode.InvalidArgument, "Pass oldImage, newImage and address, or oldResult and newResult, not both.", "results are diffed as they were kept: drop the images and address");
         if (context is < 0 or > 50) throw new ToolError(ErrorCode.InvalidArgument, $"context must be 0-50, not {context}.");
         var (a, b) = EvidenceInput.ResolvePair(oldResult, newResult, services?.GetService(typeof(ResultStore)) as ResultStore, services?.GetService(typeof(RecentCalls)) as RecentCalls);
-        var rows = DiffRows(TextDiff.Unified(EvidenceInput.Code(a), EvidenceInput.Code(b), oldResult, newResult, context));
+        return DiffItems(a, b, context, offset, limit);
+    }
+
+    /// <summary>
+    /// A kept result against its tool's output now on a loaded image: the kept call is made again with that image and
+    /// address, and the two codes are diffed as text.
+    /// </summary>
+    private static async Task<string> DiffKeptAndLoaded(string kept, bool keptIsOld, string image, string? address, int context, int offset, int limit,
+        RequestContext<CallToolRequestParams> request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Pass address: the function in {image} to compare with {kept}.");
+        if (context is < 0 or > 50) throw new ToolError(ErrorCode.InvalidArgument, $"context must be 0-50, not {context}.");
+        var store = request?.Services?.GetService(typeof(ResultStore)) as ResultStore;
+        var item = EvidenceInput.Resolve(kept, store, request?.Services?.GetService(typeof(RecentCalls)) as RecentCalls);
+        var args = item.Source.Arguments != null ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(item.Source.Arguments) : null;
+        if (args == null || !args.ContainsKey("image") || !args.ContainsKey("address"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"{kept} is a {item.Source.Tool} result without an image and address: it cannot be made again on {image}.",
+                "diff two results: oldResult and newResult");
+        args["image"] = System.Text.Json.JsonSerializer.SerializeToElement(image);
+        args["address"] = System.Text.Json.JsonSerializer.SerializeToElement(address);
+        var result = await EvidenceBundle.Invoke(item.Source.Tool, args, request!, ct)
+            ?? throw new ToolError(ErrorCode.Unsupported, $"{item.Source.Tool} is not a tool of this server.");
+        var (text, record) = EvidenceBundle.Whole(result, store);
+        if (result.IsError == true) throw new ToolError(ErrorCode.Failed, $"{item.Source.Tool} on {image} at {address} failed: {Format.Clip(text, 300)}");
+        var now = new EvidenceInput.Item(new EvidenceSource($"{item.Source.Tool} {image} {address}", "call", item.Source.Tool,
+            System.Text.Json.JsonSerializer.Serialize(args), [], DateTimeOffset.UtcNow), text, record);
+        return keptIsOld ? DiffItems(item, now, context, offset, limit) : DiffItems(now, item, context, offset, limit);
+    }
+
+    private static string DiffItems(EvidenceInput.Item a, EvidenceInput.Item b, int context, int offset, int limit)
+    {
+        var rows = DiffRows(TextDiff.Unified(EvidenceInput.Code(a), EvidenceInput.Code(b), a.Source.Ref, b.Source.Ref, context));
         int added = rows.Count(r => r.Op == "+"), removed = rows.Count(r => r.Op == "-");
         var summary = new EvidenceSummary(a.Source, b.Source, "text", null, "complete", rows.Count(r => r.Op == "="), 0, removed, added, 0);
         var report = new FunctionDiffReport(a.Source.Ref, b.Source.Ref, null, null, null, null, null, null, null, "pseudocode",

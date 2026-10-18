@@ -64,6 +64,30 @@ public sealed class EvidenceInputTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public async Task Diff_function_remakes_a_kept_result_on_a_loaded_image()
+    {
+        var copy = _dir.File("new-" + Path.GetFileName(NativeFormats.NativeFixtures.LinuxX64Coverage));
+        File.Copy(NativeFormats.NativeFixtures.LinuxX64Coverage, copy);
+        await using var server = await InProcessServer.StartAsync();
+        var old = (await Call(server, "load_assembly", new() { ["path"] = NativeFormats.NativeFixtures.LinuxX64Coverage })).StructuredContent!.Value.GetProperty("ids")[0].GetString()!;
+        var @new = (await Call(server, "load_assembly", new() { ["path"] = copy })).StructuredContent!.Value.GetProperty("ids")[0].GetString()!;
+        var start = (await Call(server, "list_functions", new() { ["image"] = old, ["limit"] = 1 })).StructuredContent!.Value
+            .GetProperty("items")[0].GetProperty("address").GetString()!;
+        await Call(server, "disassemble", new() { ["image"] = old, ["address"] = start });
+        var r = await Call(server, "diff_function", new() { ["oldResult"] = "last:1", ["newImage"] = @new, ["address"] = start });
+        Assert.NotEqual(true, r.IsError);
+        var record = r.StructuredContent!.Value;
+        Assert.Equal("recent", record.GetProperty("evidence").GetProperty("old").GetProperty("kind").GetString());
+        Assert.Contains($"disassemble {@new}", record.GetProperty("evidence").GetProperty("new").GetProperty("ref").GetString());
+        Assert.Equal((0, 0), (record.GetProperty("removed").GetInt32(), record.GetProperty("added").GetInt32())); // the same bytes
+
+        // last:1 is now that diff_function call: a result with no image and address to remake
+        var unmade = await Call(server, "diff_function", new() { ["oldResult"] = "last:1", ["newImage"] = @new, ["address"] = start });
+        Assert.Equal(true, unmade.IsError);
+        Assert.Contains("without an image and address", Text(unmade));
+    }
+
+    [Fact]
     public async Task Verify_compares_a_result_with_another_without_running_it()
     {
         await using var server = await InProcessServer.StartAsync();

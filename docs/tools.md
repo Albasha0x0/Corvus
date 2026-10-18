@@ -1881,7 +1881,7 @@ Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matc
 
 **Diff a function between builds** (read-only, idempotent, open-world, long-running)
 
-What changed in one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or +, operands made build-independent (labels, matched callees, strings, mapped data). view=pseudocode: a unified diff. addresses: a summary per function. oldResult / newResult: kept code.
+Changes to one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or +, operands made build-independent (labels, callees, strings, data). view=pseudocode: a unified diff. addresses: one summary each. oldResult / newResult: kept code.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1891,14 +1891,14 @@ What changed in one function between two builds. view=asm: aligned instruction r
 | `addresses` | string[] |  |  | Instead of address: up to 20 functions, one summary each. |
 | `side` | string |  | `old` | Which build the address is in. Values: old, new. |
 | `view` | string |  | `asm` | asm, or pseudocode (needs an engine). Values: asm, pseudocode. |
-| `context` | integer |  | `4` | Unchanged rows or lines around each change (0-50). |
+| `context` | integer |  | `4` | Unchanged rows around each change (0-50). |
 | `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
 | `engine` | string |  |  | view=pseudocode: auto, ida or ghidra. Values: auto, ida, ghidra. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `500` |  |
 | `maxTokens` | integer |  |  |  |
 | `oldResult` | string |  |  | Instead: old code as a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
-| `newResult` | string |  |  | New code, from the same tool. |
+| `newResult` | string |  |  | Same tool; or one result plus the other image and address. |
 
 Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `items`, `offset`, `total`, `candidates`, `functions`, `notes`, `evidence`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
