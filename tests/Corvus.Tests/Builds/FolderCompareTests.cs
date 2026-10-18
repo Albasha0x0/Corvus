@@ -184,6 +184,16 @@ public sealed class FolderCompareTests : IDisposable
     }
 
     [Fact]
+    public void Diff_false_lists_a_changed_text_file_without_reading_it_for_a_diff()
+    {
+        var a = Folder("plain-a", ("b.txt", "beta"));
+        var b = Folder("plain-b", ("b.txt", "beta!"));
+        var c = _service.Compare(a, b, "all", null, null, FolderCompare.DefaultMaxEntries, 0, 100, null, default, diff: false);
+        var entry = One(c, "b.txt");
+        Assert.Equal(("modified", "text", null), (entry.Change, entry.Kind, entry.Diff));
+    }
+
+    [Fact]
     public void ChangedAssemblyGetsFactsAndNextStep()
     {
         var a = Folder("a");

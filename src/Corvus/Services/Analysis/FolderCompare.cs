@@ -87,7 +87,7 @@ public sealed class FolderCompare
     }
 
     public Comparison Compare(string oldPath, string newPath, string? change, bool? caseSensitive, string? exclude, int maxEntries, int offset, int limit,
-        Action<int, int>? progress, CancellationToken ct)
+        Action<int, int>? progress, CancellationToken ct, bool diff = true)
     {
         var sw = Stopwatch.StartNew();
         var view = string.IsNullOrWhiteSpace(change) ? "changed" : change.Trim().ToLowerInvariant();
@@ -149,7 +149,7 @@ public sealed class FolderCompare
             for (int i = 0; i < page.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
-                entries.Add(i < MaxDetails ? Detail(page[i], oldInv, newInv, oldReader, newReader) : Plain(page[i], null));
+                entries.Add(i < MaxDetails ? Detail(page[i], oldInv, newInv, oldReader, newReader, diff) : Plain(page[i], null));
             }
 
         return new Comparison(Summary(oldInv), Summary(newInv), sha ? "sha256" : "crc32+size", !ignoreCase, counts, view, offset, selected.Count,
@@ -307,7 +307,7 @@ public sealed class FolderCompare
         new(r.Change, r.Old?.Path, r.New?.Path, kind, r.Old?.LinkTarget != null ? null : r.Old?.Size, r.New?.LinkTarget != null ? null : r.New?.Size,
             oldFacts, newFacts, r.Candidates, r.CandidateCount, next, diff, note ?? r.Note);
 
-    private static Entry Detail(Row r, Inventory oldInv, Inventory newInv, StreamingInventory.ContentReader oldReader, StreamingInventory.ContentReader newReader)
+    private static Entry Detail(Row r, Inventory oldInv, Inventory newInv, StreamingInventory.ContentReader oldReader, StreamingInventory.ContentReader newReader, bool withDiff)
     {
         var any = (r.New ?? r.Old)!;
         if (any.LinkTarget != null)
@@ -324,7 +324,7 @@ public sealed class FolderCompare
             if (r.New != null) newFacts = FactsOf(newReader.Read(r.New, MaxFactBytes, whole: true), kind, any.Path);
         }
         string? diff = null, note = null;
-        if (kind == "text" && r.Change == "modified")
+        if (kind == "text" && r.Change == "modified" && withDiff)
         {
             var a = oldReader.Read(r.Old!, MaxDiffBytes, whole: true);
             var b = newReader.Read(r.New!, MaxDiffBytes, whole: true);

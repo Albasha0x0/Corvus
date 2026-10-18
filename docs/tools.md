@@ -1837,20 +1837,21 @@ Structured output: `old`, `new`, `items`, `offset`, `total`, `limit`, `totalExac
 
 **Compare two folders or packages** (read-only, idempotent, long-running)
 
-Compare two folders, zip-family archives or files per entry: modified, added, removed, moved, case-only renames, links, unreadable; changed binaries with MVID and version, text with a diff. oldResult / newResult compare two kept results instead.
+Compare two folders, zip-family archives or files: modified, added, removed, moved, case-only renames, links, unreadable; changed binaries with MVID and version, text with a diff. oldResult / newResult compare kept results.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldPath` | string |  |  | Old folder, archive or file. |
 | `newPath` | string |  |  | New folder, archive or file. |
 | `change` | string |  | `changed` | Entries listed. Values: changed, modified, added, removed, moved, renamed, unreadable, unchanged, all. |
-| `exclude` | string[] |  |  | Globs of paths to skip. |
-| `caseSensitive` | boolean |  |  | Default: false on Windows and macOS, true elsewhere. |
+| `exclude` | string[] |  |  | Path globs to skip. |
+| `caseSensitive` | boolean |  |  | Default: false on Windows and macOS. |
 | `maxEntries` | integer |  | `200000` | Per side; past it, incomplete. |
 | `offset` | integer |  |  |  |
-| `limit` | integer |  | `100` | Max entries per page. |
+| `limit` | integer |  | `100` | Entries per page. |
 | `oldResult` | string |  |  | Instead: a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…). |
 | `newResult` | string |  |  | The new side, from the same tool. |
+| `noDiffs` | boolean |  |  | Leave out text diffs. |
 
 Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`, `offset`, `total`, `entries`, `notes`, `evidence`, `changes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
