@@ -93,27 +93,25 @@ if ($Mutation) {
 }
 
 # A full run on the committed HEAD in a worktree of its own, so building and testing here continue meanwhile. The worktree
-# is removed when the run ends; its stamp counts for -IfChanged and release.ps1 (same tree). A routine run replaces a
-# routine run still going (the newer commit is the one worth testing); a release-strength run is never replaced.
+# is removed when the run ends; its stamp counts for -IfChanged and release.ps1 (same tree). A request while a run is
+# going is queued: when the run ends, one run starts on the newest commit, at the strongest strength asked meanwhile,
+# so runs always finish and pushes in between share one run.
 $running = Join-Path $gitDir 'corvus-background.json'
 $lastPassed = Join-Path $gitDir 'corvus-background.passed'
+$queued = Join-Path $gitDir 'corvus-background.next'
 if ($Background) {
     $commit = (git -C $root rev-parse HEAD).Trim()
     if (git -C $root status --porcelain) { Write-Host 'Uncommitted changes are not part of the background run (it tests HEAD).' }
-    $routine = -not ($Whole -or $Exhaustive)
+    $strength = if ($Whole) { 'whole' } elseif ($Exhaustive) { 'exhaustive' } else { 'routine' }
     $previous = if (Test-Path $running) { Get-Content $running -Raw | ConvertFrom-Json } else { $null }
     $process = if ($previous) { Get-Process -Id $previous.pid -ErrorAction SilentlyContinue | Where-Object { $_.StartTime.ToUniversalTime().Ticks -eq $previous.started } } else { $null }
     if ($process) {
-        if (-not ($routine -and $previous.routine)) {
-            Write-Host "A $(if ($previous.routine) { 'routine' } else { 'release-strength' }) run on $($previous.commit.Substring(0, 8)) is still going; not started (./test.ps1 -Status)."
-            exit 0
-        }
-        $process.Kill($true)
-        $process.WaitForExit(30000) | Out-Null
-        git -C $root worktree remove --force $previous.dir 2>$null
-        Remove-Item -Recurse -Force $previous.dir -ErrorAction SilentlyContinue
-        git -C $root worktree prune
-        Write-Host "Replaced the run on $($previous.commit.Substring(0, 8))."
+        $order = 'routine', 'exhaustive', 'whole'
+        $asked = if (Test-Path $queued) { (Get-Content $queued -Raw).Trim() } else { 'routine' }
+        if ($order.IndexOf($strength) -gt $order.IndexOf($asked)) { $asked = $strength }
+        Set-Content -Path $queued -Value $asked -NoNewline
+        Write-Host "A run on $($previous.commit.Substring(0, 8)) is going; queued: a run on the newest commit ($asked) when it ends (./test.ps1 -Status)."
+        exit 0
     }
     $dir = Join-Path ([IO.Path]::GetTempPath()) "corvus-bg-$($commit.Substring(0, 8))"
     if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
@@ -133,13 +131,19 @@ if (`$code -eq 0) { Set-Content -Path '$lastPassed' -Value '$commit' -NoNewline 
 if ((Get-Content '$running' -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json).pid -eq `$PID) { Remove-Item '$running' }
 Set-Location '$root'
 git worktree remove --force '$dir'
+if (Test-Path '$queued') {
+    `$next = (Get-Content '$queued' -Raw).Trim(); Remove-Item '$queued'
+    `$strength = @{ Full = `$true; Background = `$true }
+    if (`$next -eq 'whole') { `$strength.Whole = `$true } elseif (`$next -eq 'exhaustive') { `$strength.Exhaustive = `$true }
+    & '$root/test.ps1' @strength
+}
 "@
     # -WindowStyle exists on Windows only; elsewhere nohup keeps the run past the terminal.
     $start = @{ FilePath = 'pwsh'; ArgumentList = @('-NoProfile', '-Command', $script) }
     if ($IsWindows) { $start.WindowStyle = 'Hidden' }
     else { $start.FilePath = 'nohup'; $start.ArgumentList = @('pwsh') + $start.ArgumentList; $start.RedirectStandardOutput = '/dev/null' }
     $started = Start-Process @start -PassThru
-    $record = [ordered]@{ pid = $started.Id; started = $started.StartTime.ToUniversalTime().Ticks; commit = $commit; dir = $dir; routine = $routine }
+    $record = [ordered]@{ pid = $started.Id; started = $started.StartTime.ToUniversalTime().Ticks; commit = $commit; dir = $dir; strength = $strength }
     Set-Content -Path $running -Value ($record | ConvertTo-Json) -NoNewline
     Write-Host "Full suite started in the background on $short ($dir); ./test.ps1 -Status shows the result."
     exit 0
