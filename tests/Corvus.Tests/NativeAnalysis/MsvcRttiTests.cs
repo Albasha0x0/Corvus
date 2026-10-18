@@ -312,7 +312,7 @@ public class MsvcRttiSweepTests(ITestOutputHelper output)
     /// Every DLL and EXE in System32 and SysWOW64: no exception, bounded time per file, structural invariants, and the
     /// same classes and vftable starts with and without the relocation cross-check.
     /// </summary>
-    [Fact]
+    [WindowsFact]
     [Trait("Speed", "Slow")]
     public void SweepSystemImages()
     {
