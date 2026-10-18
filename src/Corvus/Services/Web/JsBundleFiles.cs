@@ -143,7 +143,10 @@ internal static class JsBundleFiles
         int q = s.IndexOfAny(['?', '#']);
         if (q > 0) s = s[..q];
         var parts = s.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(p => p is not ("." or "..")).Select(p =>
-            new string(p.Select(c => char.IsControl(c) || Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray()).Trim()).Where(p => p.Length > 0).ToList();
+            new string(p.Select(c => char.IsControl(c) || InvalidNameChars.Contains(c) ? '_' : c).ToArray()).Trim()).Where(p => p.Length > 0).ToList();
         return parts.Count == 0 ? null : string.Join('/', parts);
     }
+
+    // Windows' set on every OS, so a tree written on one machine opens on any other.
+    private static readonly System.Buffers.SearchValues<char> InvalidNameChars = System.Buffers.SearchValues.Create("\"<>|:*?\\/");
 }
