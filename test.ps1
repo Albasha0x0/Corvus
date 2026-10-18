@@ -228,10 +228,11 @@ function Invoke-SecondGhidra {
         Write-Host "Engine tests on the second Ghidra: rerunning the $(@($last.failed).Count) that failed on these inputs."
     }
     $results = Join-Path $tempRoot "corvus-trx-second-$PID"
-    $saved = $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS
-    $env:CORVUS_GHIDRA_DIR = $env:CORVUS_SECOND_GHIDRA_DIR; $env:CORVUS_ALL_TESTS = '1'
+    # CORVUS_TEST_ENGINE=ghidra: the IDA-only tests skip; another Ghidra version cannot change them
+    $saved = $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS, $env:CORVUS_TEST_ENGINE
+    $env:CORVUS_GHIDRA_DIR = $env:CORVUS_SECOND_GHIDRA_DIR; $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_TEST_ENGINE = 'ghidra'
     try { & dotnet test $tests --nologo --filter $filter --logger 'trx;LogFileName=second.trx' --results-directory $results | Out-Host; $code = $LASTEXITCODE }
-    finally { $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS = $saved }
+    finally { $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS, $env:CORVUS_TEST_ENGINE = $saved }
     $trx = Join-Path $results 'second.trx'
     if ($key) {
         # A failure no test is blamed for (a crashed host) keeps no record, so everything runs next time.

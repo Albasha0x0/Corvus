@@ -747,7 +747,8 @@ public sealed class IdaFactAttribute : FactAttribute
 
     public IdaFactAttribute()
     {
-        if (IdaInstallation.Locate(null, out var reason, out _) == null) Skip = reason;
+        if (Environment.GetEnvironmentVariable("CORVUS_TEST_ENGINE") == "ghidra") Skip = "IDA tests are left out of the second-Ghidra pass.";
+        else if (IdaInstallation.Locate(null, out var reason, out _) == null) Skip = reason;
         else if (SkipReason.Value is { } r) Skip = r;
     }
 }

@@ -23,7 +23,7 @@
   the version bump, so every release run records its passes: patch releases take a reused pass; minor releases (`x.y.0`)
   want a whole exhaustive pass, or a reused one when only documentation changed since the last whole pass. With
   `CORVUS_SECOND_GHIDRA_DIR` set (another Ghidra, such as the oldest supported one), every whole-suite full run, and
-  `release.ps1` through `./test.ps1 -SecondGhidra`, runs the `Engines` tests again with that Ghidra, keyed like a family
+  `release.ps1` through `./test.ps1 -SecondGhidra`, runs the `Engines` tests again with that Ghidra (the IDA-only tests skip: `CORVUS_TEST_ENGINE=ghidra`), keyed like a family
   with that Ghidra in the settings: unchanged inputs skip it, and a retry runs only the tests that failed. After
   publishing, `release.ps1` installs the previous release with `install.sh` in WSL under a throwaway home and checks
   that `corvus update` reaches the new one.
