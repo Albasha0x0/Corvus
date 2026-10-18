@@ -18,11 +18,17 @@
   clean tree also records which test families passed, under a key of the family's own folders, all shared code, the
   repository files its tests read, the SDK, the OS build and the `CORVUS_*` settings (`test-reuse.psm1`).
   `./test.ps1 -Full -Reuse` then runs only the families whose key changed, plus the contract tests and the classes
-  known to be flaky under load. `release.ps1` runs the suite through `test.ps1` before the version bump, so every
-  release run records its passes: patch releases gate on the reusing run; minor releases (`x.y.0`) run the whole
-  exhaustive suite. With `CORVUS_SECOND_GHIDRA_DIR` set (another Ghidra, such as the oldest supported one), it then runs
-  the `Engines` tests again with that Ghidra. After publishing, it installs the previous release with `install.sh` in WSL
-  under a throwaway home and checks that `corvus update` reaches the new one.
+  known to be flaky under load; its stamp is marked `reused`. `release.ps1` runs the suite through `test.ps1` before
+  the version bump, so every release run records its passes: patch releases take a reused pass; minor releases (`x.y.0`)
+  want a whole exhaustive pass, or a reused one when only documentation changed since the last whole pass. With
+  `CORVUS_SECOND_GHIDRA_DIR` set (another Ghidra, such as the oldest supported one), every whole-suite full run, and
+  `release.ps1` through `./test.ps1 -SecondGhidra`, runs the `Engines` tests again with that Ghidra, keyed like a family
+  with that Ghidra in the settings: unchanged inputs skip it, and a retry runs only the tests that failed. After
+  publishing, `release.ps1` installs the previous release with `install.sh` in WSL under a throwaway home and checks
+  that `corvus update` reaches the new one.
+- **Preparing a release.** Commit the release notes and push first, then start `./test.ps1 -Full -Background -Whole`
+  (`-Background` alone for a patch release) with `CORVUS_GHIDRA_DIR` and `CORVUS_SECOND_GHIDRA_DIR` set. Once
+  `-Status` reads passed, `release.ps1` finds the stamps of that tree and runs neither pass again.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
 The full set and the real-application runs are done locally.

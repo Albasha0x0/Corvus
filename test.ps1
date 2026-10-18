@@ -10,6 +10,7 @@
 #         ./test.ps1 -Full -Background    # after a push: exhaustive with -Reuse on the committed HEAD in a worktree of its own;
 #                                         #   returns at once (-Sampled: the routine quarter of the sweeps, no reuse;
 #                                         #   -Whole: exhaustive without reuse, the pass a minor release gates on)
+#         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
@@ -27,6 +28,7 @@ param(
     [switch]$Reuse,
     [switch]$Sampled,
     [switch]$Whole,
+    [switch]$SecondGhidra,
     [switch]$Coverage,
     [switch]$Mutation,
     [string[]]$Target
@@ -204,6 +206,45 @@ function Get-RunEnvironment([hashtable]$override = @{}) {
     (@("sdk $(dotnet --version)", $os) + $settings) -join "`n"
 }
 
+# The Engines tests again with a second Ghidra (the oldest supported, say), keyed like a family with that Ghidra in the
+# settings: unchanged inputs skip it, and a retry under the same key runs only the tests that failed.
+$secondStamp = Join-Path $gitDir 'corvus-second-ghidra.json'
+function Invoke-SecondGhidra {
+    if (-not $env:CORVUS_SECOND_GHIDRA_DIR) { Write-Host 'Engine tests on a second Ghidra skipped: CORVUS_SECOND_GHIDRA_DIR is not set.' -ForegroundColor Yellow; return 0 }
+    Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    $filter = ((Get-ClassMap $tests)['Engines'] | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|'
+    $key = $null; $last = $null
+    if (Get-CleanTree) {
+        $environment = Get-RunEnvironment @{ CORVUS_GHIDRA_DIR = $env:CORVUS_SECOND_GHIDRA_DIR }
+        $key = (Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @('Engines') @(Get-RootReaders $tests) $environment)['Engines']
+        $last = if (Test-Path $secondStamp) { Get-Content $secondStamp -Raw | ConvertFrom-Json } else { $null }
+        if ($last.key -ne $key) { $last = $null }
+    }
+    if ($last -and -not $last.failed) { Write-Host "Engine tests on the second Ghidra passed on these inputs ($($last.commit)); skipped."; return 0 }
+    if ($last) {
+        $filter = ($last.failed | ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+        Write-Host "Engine tests on the second Ghidra: rerunning the $(@($last.failed).Count) that failed on these inputs."
+    }
+    $results = Join-Path $tempRoot "corvus-trx-second-$PID"
+    $saved = $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS
+    $env:CORVUS_GHIDRA_DIR = $env:CORVUS_SECOND_GHIDRA_DIR; $env:CORVUS_ALL_TESTS = '1'
+    try { & dotnet test $tests --nologo --filter $filter --logger 'trx;LogFileName=second.trx' --results-directory $results | Out-Host; $code = $LASTEXITCODE }
+    finally { $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS = $saved }
+    $trx = Join-Path $results 'second.trx'
+    if ($key) {
+        # A failure no test is blamed for (a crashed host) keeps no record, so everything runs next time.
+        $failed = if (Test-Path $trx) { @(Get-FailedTests $trx) } else { @() }
+        if ($code -eq 0 -or $failed) {
+            $record = [ordered]@{ key = $key; failed = $(if ($code -eq 0) { @() } else { $failed }); commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm') }
+            Set-Content -Path $secondStamp -Value ($record | ConvertTo-Json -Depth 3) -NoNewline
+        }
+        elseif (Test-Path $secondStamp) { Remove-Item $secondStamp }
+    }
+    if (Test-Path $results) { Remove-Item -Recurse -Force $results }
+    return $code
+}
+if ($SecondGhidra) { exit (Invoke-SecondGhidra) }
+
 if ($wholeSuite -and (Get-CleanTree)) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $classMap = Get-ClassMap $tests
@@ -288,6 +329,10 @@ try {
         Set-Content -Path $stamp -Value $value -NoNewline
         if ($Exhaustive -and -not $Filter) { Set-Content -Path $wholeStamp -Value $tree -NoNewline }
         Write-Host "Stamped $value."
+    }
+    if ($wholeSuite -and -not $Coverage -and $env:CORVUS_SECOND_GHIDRA_DIR) {
+        $code = Invoke-SecondGhidra
+        if ($code -ne 0) { exit $code }
     }
 }
 finally { $env:CORVUS_ALL_TESTS = $saved; $env:CORVUS_SWEEP = $savedSweep }

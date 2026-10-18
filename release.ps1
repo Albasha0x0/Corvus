@@ -136,15 +136,11 @@ if (-not $VerifyOnly) {
             if ($LASTEXITCODE -ne 0) { Fail 'the full suite failed' }
             $passed = $true
         }
-        # A second Ghidra version (the oldest supported, say): the engine tests again with it.
-        if (-not $SkipTests -and $env:CORVUS_SECOND_GHIDRA_DIR) {
-            $engines = (Get-ClassMap (Join-Path $root 'tests/Corvus.Tests'))['Engines']
-            $saved = $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS
-            $env:CORVUS_GHIDRA_DIR = $env:CORVUS_SECOND_GHIDRA_DIR; $env:CORVUS_ALL_TESTS = '1'
-            try { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo', '--filter', (($engines | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|')) }
-            finally { $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS = $saved }
+        # A second Ghidra version (the oldest supported, say): the engine tests again with it, skipped when they passed on these inputs.
+        if (-not $SkipTests) {
+            & (Join-Path $root 'test.ps1') -SecondGhidra
+            if ($LASTEXITCODE -ne 0) { Fail 'the engine tests on the second Ghidra failed' }
         }
-        else { Write-Host 'Engine tests on a second Ghidra version skipped: CORVUS_SECOND_GHIDRA_DIR is not set.' -ForegroundColor Yellow }
 
         $csproj = Get-Content $project -Raw
         $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
