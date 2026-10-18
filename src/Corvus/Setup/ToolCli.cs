@@ -48,7 +48,13 @@ internal static partial class ToolCli
         Console.CancelKeyPress += onCancel;
         try
         {
-            var io = new CliIo(Console.Out, Console.Error, Console.In, !Console.IsOutputRedirected, !Console.IsErrorRedirected);
+            // Files and pipes get UTF-8: the console's code page (437 by default on Windows) turns other text into '?' or a look-alike.
+            var utf8 = new UTF8Encoding(false);
+            var io = new CliIo(
+                Console.IsOutputRedirected ? new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true } : Console.Out,
+                Console.IsErrorRedirected ? new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true } : Console.Error,
+                Console.IsInputRedirected ? new StreamReader(Console.OpenStandardInput(), utf8) : Console.In,
+                !Console.IsOutputRedirected, !Console.IsErrorRedirected);
             return RunAsync(args, io, cancel.Token).GetAwaiter().GetResult();
         }
         finally { Console.CancelKeyPress -= onCancel; }

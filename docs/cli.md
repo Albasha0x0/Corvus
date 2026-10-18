@@ -30,7 +30,7 @@ commands and these.
 |---|---|
 | `name=value` | Typed by the parameter's schema: integers (also `0x` hex), numbers, `true`/`false` (also `1`/`0`, `yes`/`no`), arrays as JSON (`[1,2]`) or comma-separated (`a,b`), objects as JSON; anything else is text. |
 | `name:=<json>` | The value as raw JSON. |
-| `name=@file` | The value read from a file, e.g. a C# body for `patch_method_csharp`. |
+| `name=@file` | The value read from a file, e.g. a C# body for `patch_method_csharp`. Text that starts with `@` (an Android resource such as `@xml/config`) goes as JSON: `name:='"@xml/config"'`. |
 | `name=@-` | The value read from standard input. |
 | `--args '<json object>'` | All arguments as one JSON object (`--json '{...}'` is the same); `name=value` pairs override its members. |
 | `--args-file F` | The JSON object from a file (`-` for standard input). |
@@ -55,6 +55,7 @@ Files are not watched for changes in a command-line session.
 
 - Default: the result's text on stdout. An error result's text goes to stderr. Workspace notices (`[workspace] ...`)
   go to stderr.
+- Output to a file or pipe is UTF-8, and so is piped input, whatever the console's code page.
 - `--json`: one object `{tool, isError, text, structured, error}`, where `error` is the parsed error record
   (`{code, retryable, message, next, partial, details}`, [errors.md](errors.md)). Indented on a terminal, one line
   when piped.
