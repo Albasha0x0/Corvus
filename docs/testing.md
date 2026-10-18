@@ -4,12 +4,16 @@
 
 - **Quick set** (`dotnet test`): every test not marked `[Trait("Speed", "Slow")]`. It runs while iterating and stays under
   50 seconds on an idle machine (a ceiling against creep: about 30 s of parallel work and the timing and process-wide
-  tests that run alone after it), so a quick test uses the small fixtures in `tests/TestFixture` and builds nothing external. The
-  quick set is green at every commit.
+  tests that run alone after it), so a quick test uses the small fixtures in `tests/TestFixture` and builds nothing external.
+  Before each commit, `./test.ps1` runs the quick tests of the families the change touches (since `origin/main`,
+  uncommitted files included; by the coverage map where it knows a file), plus the contract tests; shared code runs
+  the whole quick set, and `./test.ps1 -All` runs it anyway.
 - **Full set** (`CORVUS_ALL_TESTS=1 dotnet test`, or `dotnet test -p:CORVUS_ALL_TESTS=1`): adds real-library builds, whole-server
-  runs over stdio, sweeps, fuzzing and the large runtime packs. A push needs the quick set; the full set then runs off
-  the critical path, `./test.ps1 -Full -Background`, on the pushed commit in a worktree of its own (`-Status` shows
-  the result), and a failure is fixed in the next commit. A background run runs at below-normal priority (its test
+  runs over stdio, sweeps, fuzzing and the large runtime packs. A push needs the commit gate above; the full set then runs off
+  the critical path: the pre-push hook (`.githooks/pre-push`, enabled per clone with `git config core.hooksPath
+  .githooks`) starts `./test.ps1 -Full -Background` on the commit pushed to main, in a worktree of its own (`-Status`
+  shows the result), and a failure is fixed in the next commit. A newer routine run replaces one still going; a
+  release-strength run is never replaced. A background run runs at below-normal priority (its test
   hosts and engine workers inherit it) and reuses family passes; it is routine strength, a quarter of the sweeps
   without the `Tier=Release` tests (`-Exhaustive`: release strength; `-Whole`: release strength without reuse). `./test.ps1 -Affected` runs the quick set plus the slow
   tests of the families changed since `origin/main` in the foreground (shared code such as `Core`, `Mcp` or test
@@ -26,14 +30,15 @@
   keys only the families that ran it, and a file no family ran keeps the folder rules. `release.ps1` runs the suite through `test.ps1` before
   the version bump, so every release run records its passes: patch releases take a reused pass; minor releases (`x.y.0`)
   want a whole exhaustive pass, or a reused one when only documentation changed since the last whole pass. With
-  `CORVUS_SECOND_GHIDRA_DIR` set (another Ghidra, such as the oldest supported one), every whole-suite full run, and
-  `release.ps1` through `./test.ps1 -SecondGhidra`, runs the `Engines` tests again with that Ghidra (the IDA-only tests skip: `CORVUS_TEST_ENGINE=ghidra`), keyed like a family
+  `CORVUS_SECOND_GHIDRA_DIR` set (another Ghidra, such as the oldest supported one), every whole-suite full run (and
+  `./test.ps1 -SecondGhidra`) runs the `Engines` tests again with that Ghidra (the IDA-only tests skip: `CORVUS_TEST_ENGINE=ghidra`), keyed like a family
   with that Ghidra in the settings: unchanged inputs skip it, and a retry runs only the tests that failed. After
   publishing, `release.ps1` installs the previous release with `install.sh` in WSL under a throwaway home and checks
   that `corvus update` reaches the new one.
-- **Preparing a release.** Commit the release notes and push first, then start `./test.ps1 -Full -Background -Whole`
-  (`-Background -Exhaustive` for a patch release) with `CORVUS_GHIDRA_DIR` and `CORVUS_SECOND_GHIDRA_DIR` set. Once
-  `-Status` reads passed, `release.ps1` finds the stamps of that tree and runs neither pass again.
+- **Releases.** `release.ps1` runs no suite in the foreground: it ships when the newest background pass is on the
+  release commit or an ancestor, stops on a known background failure (`-SkipTests` overrides), names the families not
+  yet verified on the current inputs, and runs the quick set after the version bump. A failure found later goes into a
+  patch release. For release-strength passes, start `./test.ps1 -Full -Background -Exhaustive` (or `-Whole`).
 - **Shared engine analyses.** IDA and Ghidra tests on the System32 sample start from a copy of one saved analysis per
   engine, engine install and server build (`Support/EngineSeed.cs`, kept under `corvus-test-data/engine-seed` in the
   temporary folder), instead of analysing it again in every empty cache: about half the time of those classes. Tests

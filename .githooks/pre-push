@@ -1,0 +1,11 @@
+#!/bin/sh
+# Starts the full suite in the background on the commit pushed to main (./test.ps1 -Full -Background); the push does not
+# wait for it. Enabled per clone: git config core.hooksPath .githooks
+root=$(git rev-parse --show-toplevel)
+head=$(git rev-parse HEAD)
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ "$remote_ref" = "refs/heads/main" ] && [ "$local_sha" = "$head" ]; then
+        pwsh -NoProfile -File "$root/test.ps1" -Full -Background >/dev/null 2>&1 || true
+    fi
+done
+exit 0

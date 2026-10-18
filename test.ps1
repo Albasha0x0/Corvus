@@ -93,10 +93,28 @@ if ($Mutation) {
 }
 
 # A full run on the committed HEAD in a worktree of its own, so building and testing here continue meanwhile. The worktree
-# is removed when the run ends; its stamp counts for -IfChanged and release.ps1 (same tree).
+# is removed when the run ends; its stamp counts for -IfChanged and release.ps1 (same tree). A routine run replaces a
+# routine run still going (the newer commit is the one worth testing); a release-strength run is never replaced.
+$running = Join-Path $gitDir 'corvus-background.json'
+$lastPassed = Join-Path $gitDir 'corvus-background.passed'
 if ($Background) {
     $commit = (git -C $root rev-parse HEAD).Trim()
     if (git -C $root status --porcelain) { Write-Host 'Uncommitted changes are not part of the background run (it tests HEAD).' }
+    $routine = -not ($Whole -or $Exhaustive)
+    $previous = if (Test-Path $running) { Get-Content $running -Raw | ConvertFrom-Json } else { $null }
+    $process = if ($previous) { Get-Process -Id $previous.pid -ErrorAction SilentlyContinue | Where-Object { $_.StartTime.ToUniversalTime().Ticks -eq $previous.started } } else { $null }
+    if ($process) {
+        if (-not ($routine -and $previous.routine)) {
+            Write-Host "A $(if ($previous.routine) { 'routine' } else { 'release-strength' }) run on $($previous.commit.Substring(0, 8)) is still going; not started (./test.ps1 -Status)."
+            exit 0
+        }
+        $process.Kill($true)
+        $process.WaitForExit(30000) | Out-Null
+        git -C $root worktree remove --force $previous.dir 2>$null
+        Remove-Item -Recurse -Force $previous.dir -ErrorAction SilentlyContinue
+        git -C $root worktree prune
+        Write-Host "Replaced the run on $($previous.commit.Substring(0, 8))."
+    }
     $dir = Join-Path ([IO.Path]::GetTempPath()) "corvus-bg-$($commit.Substring(0, 8))"
     if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     git -C $root worktree add --detach $dir $commit | Out-Null
@@ -111,6 +129,8 @@ Set-Location '$dir'
 & ./test.ps1 $flags *> '$log'
 `$code = `$LASTEXITCODE
 Set-Content -Path '$result' -Value ('$short ' + `$(if (`$code -eq 0) { 'passed' } else { 'FAILED (exit ' + `$code + ')' }) + ' at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm')) -NoNewline
+if (`$code -eq 0) { Set-Content -Path '$lastPassed' -Value '$commit' -NoNewline }
+if ((Get-Content '$running' -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json).pid -eq `$PID) { Remove-Item '$running' }
 Set-Location '$root'
 git worktree remove --force '$dir'
 "@
@@ -118,7 +138,9 @@ git worktree remove --force '$dir'
     $start = @{ FilePath = 'pwsh'; ArgumentList = @('-NoProfile', '-Command', $script) }
     if ($IsWindows) { $start.WindowStyle = 'Hidden' }
     else { $start.FilePath = 'nohup'; $start.ArgumentList = @('pwsh') + $start.ArgumentList; $start.RedirectStandardOutput = '/dev/null' }
-    Start-Process @start | Out-Null
+    $started = Start-Process @start -PassThru
+    $record = [ordered]@{ pid = $started.Id; started = $started.StartTime.ToUniversalTime().Ticks; commit = $commit; dir = $dir; routine = $routine }
+    Set-Content -Path $running -Value ($record | ConvertTo-Json) -NoNewline
     Write-Host "Full suite started in the background on $short ($dir); ./test.ps1 -Status shows the result."
     exit 0
 }
@@ -224,17 +246,6 @@ $coverageMapFile = Join-Path $gitDir 'corvus-coverage-map.json'
 $mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
 $familyKeys = $null
 $wholeSuite = $Full -and -not $Filter
-
-# The inputs every family key shares: SDK, OS build and the settings, with $override in place of the current values.
-function Get-RunEnvironment([hashtable]$override = @{}) {
-    $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
-    $values = @{}
-    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS') -or $_.Name -eq 'JAVA_HOME' } |
-        ForEach-Object { $values[$_.Name] = $_.Value }
-    foreach ($name in $override.Keys) { $values[$name] = $override[$name] }
-    $settings = $values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" }
-    (@("sdk $(dotnet --version)", $os) + $settings) -join "`n"
-}
 
 # The Engines tests again with a second Ghidra (the oldest supported, say), keyed like a family with that Ghidra in the
 # settings: unchanged inputs skip it, and a retry under the same key runs only the tests that failed.

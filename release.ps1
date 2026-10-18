@@ -1,9 +1,9 @@
 # Cuts a release from a clean main: bumps the version, checks the release notes, regenerates the generated docs, runs the
-# full suite, commits and tags. With -Push it pushes main and the tag, waits for release.yml, verifies every asset
+# quick set, commits and tags. With -Push it pushes main and the tag, waits for release.yml, verifies every asset
 # (archives, MCP bundles, the NuGet tool package) against SHA256SUMS, sets the GitHub release body from the notes and
 # prints the manual channel checklist.
-# Usage:  ./release.ps1 -Version 1.2.0              # check, test (full suite unless it passed on this tree; a patch
-#                                                   #   release reruns only the changed families), bump, commit, tag
+# Usage:  ./release.ps1 -Version 1.2.0              # check (the last background full run passed on this history),
+#                                                   #   bump, quick set, commit, tag
 #         ./release.ps1 -Version 1.2.0 -Push        # ... then push, wait for the workflow and verify the release
 #         ./release.ps1 -Version 1.2.0 -VerifyOnly  # verify an existing release and print the checklist
 #         ./release.ps1 -Version 1.2.0 -Bundle DIR  # MCP bundles (.mcpb) from the archives in DIR (release.yml runs this)
@@ -114,32 +114,30 @@ if (-not $VerifyOnly) {
         if (git tag --list $tag) { Fail "tag $tag exists" }
         $null = Get-Notes
 
-        # test.ps1 -Full -Exhaustive stamps the clean tree it passed on; the bump below changes only version strings and generated docs,
-        # whose quick run follows, so a passed tree needs no second full run. A patch release (x.y.z, z > 0) takes a pass
-        # made up partly of reused family passes; a minor release (x.y.0) wants the whole exhaustive suite, which also
-        # catches what a family key cannot see, unless only documentation changed since its last whole pass.
+        # The suite runs behind the work, never in front of a release: the pre-push hook starts a background full run on
+        # every push. A release ships when the newest background pass is on this commit or an ancestor; a known failure
+        # stops it; families not yet verified on these inputs are named. The quick set after the bump still runs.
         $gitDir = [IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())
-        $tree = (git rev-parse 'HEAD^{tree}').Trim()
-        $stamp = Join-Path $gitDir 'corvus-full-suite.stamp'
-        $have = if (Test-Path $stamp) { (Get-Content $stamp -Raw).Trim() } else { '' }
-        $whole = Join-Path $gitDir 'corvus-whole-suite.stamp'
-        $whole = if (Test-Path $whole) { (Get-Content $whole -Raw).Trim() } else { $null }
-        Import-Module (Join-Path $root 'test-reuse.psm1') -Force
-        $docsOnly = $whole -and $whole -ne $tree -and (Test-DocsOnly @(git diff --name-only $whole $tree 2>$null))
-        $reusable = [int]($Version -split '\.')[2] -gt 0 -or $docsOnly
-        if ($docsOnly) { Write-Host "Only documentation changed since the last whole pass ($($whole.Substring(0, 8))): family passes are reused." }
-        $passed = $have -eq "$tree exhaustive" -or ($reusable -and $have -eq "$tree exhaustive reused")
-        if ($passed) { Write-Host "The full suite passed on this tree ($have); not run again." }
-        # Before the bump, on the clean tree, so the run records its family passes.
-        elseif (-not $SkipTests) {
-            if ($reusable) { & (Join-Path $root 'test.ps1') -Full -Exhaustive -Reuse } else { & (Join-Path $root 'test.ps1') -Full -Exhaustive }
-            if ($LASTEXITCODE -ne 0) { Fail 'the full suite failed' }
-            $passed = $true
-        }
-        # A second Ghidra version (the oldest supported, say): the engine tests again with it, skipped when they passed on these inputs.
+        $result = Join-Path $gitDir 'corvus-background.result'
+        $last = if (Test-Path $result) { (Get-Content $result -Raw).Trim() } else { '' }
+        $passedFile = Join-Path $gitDir 'corvus-background.passed'
+        $passedAt = if (Test-Path $passedFile) { (Get-Content $passedFile -Raw).Trim() } else { $null }
         if (-not $SkipTests) {
-            & (Join-Path $root 'test.ps1') -SecondGhidra
-            if ($LASTEXITCODE -ne 0) { Fail 'the engine tests on the second Ghidra failed' }
+            if ($last -match 'FAILED') { Fail "the last background run failed ($last); fix it first (./test.ps1 -Status), or pass -SkipTests" }
+            if (-not $passedAt) { Fail 'no background full run has passed yet: push, or start ./test.ps1 -Full -Background, and release once it passes' }
+            git merge-base --is-ancestor $passedAt HEAD 2>$null
+            if ($LASTEXITCODE -ne 0) { Fail "the last background pass ($($passedAt.Substring(0, 8))) is not on this branch's history" }
+            $behind = [int](git rev-list --count "$passedAt..HEAD")
+            Write-Host "The background full suite passed on $($passedAt.Substring(0, 8))$(if ($behind) { ", $behind commits back" } else { ', this commit' })$(if ($last -match 'running') { "; a run is going: $last" })."
+            Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+            $stampsFile = Join-Path $gitDir 'corvus-family-stamps.json'
+            if (Test-Path $stampsFile) {
+                $tests = Join-Path $root 'tests/Corvus.Tests'
+                $classMap = Get-ClassMap $tests
+                $keys = Get-FamilyKeys @(git ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment) (Read-CoverageMap (Join-Path $gitDir 'corvus-coverage-map.json'))
+                $stale = @(Get-StaleFamilies $keys (Get-Content $stampsFile -Raw | ConvertFrom-Json) $false | Where-Object { $_ -ne 'Contract' })
+                if ($stale) { Write-Host "Not yet verified on these inputs: $($stale -join ', ')." -ForegroundColor Yellow }
+            }
         }
 
         $csproj = Get-Content $project -Raw

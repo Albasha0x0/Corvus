@@ -42,6 +42,17 @@ function Get-RootReaders([string]$testsDir) {
     } | ForEach-Object Name
 }
 
+# The inputs every family key shares: SDK, OS build and the settings, with $override in place of the current values.
+function Get-RunEnvironment([hashtable]$override = @{}) {
+    $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
+    $values = @{}
+    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS') -or $_.Name -eq 'JAVA_HOME' } |
+        ForEach-Object { $values[$_.Name] = $_.Value }
+    foreach ($name in $override.Keys) { $values[$name] = $override[$name] }
+    $settings = $values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" }
+    (@("sdk $(dotnet --version)", $os) + $settings) -join "`n"
+}
+
 # One key per family from `git ls-tree -r` lines ("<mode> blob <sha>\t<path>") and an environment string. With a
 # coverage map (Read-CoverageMap), a source file the families' tests ran keys only those families.
 function Get-FamilyKeys([string[]]$treeLines, [string[]]$families, [string[]]$rootReaders, [string]$environment, [hashtable]$coverage = $null) {
@@ -149,4 +160,4 @@ function Get-FailedTests([string]$trxPath) {
         ForEach-Object { $nameOf[$_.Node.testId] } | Sort-Object -Unique)
 }
 
-Export-ModuleMember -Function Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Test-DocsOnly, Get-FailedTests
+Export-ModuleMember -Function Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Test-DocsOnly, Get-FailedTests
