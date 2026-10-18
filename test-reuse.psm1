@@ -103,4 +103,23 @@ function Get-PassedFamilies([string]$trxPath, [hashtable]$classMap, [int]$exitCo
     @($ran.Keys | Where-Object { -not $failed[$_] } | Sort-Object)
 }
 
-Export-ModuleMember -Function Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies
+# Whether every changed path (git's forward-slash form) is documentation outside src/ and tests/: such a change leaves
+# every family key but those of the families reading repository files, so a whole pass before it holds for the rest.
+function Test-DocsOnly([string[]]$paths) {
+    $paths = @($paths | Where-Object { $_ })
+    $paths.Count -gt 0 -and -not ($paths | Where-Object { $_ -match '^(src|tests)/' -or -not ($_ -match '^docs/' -or $_ -match '\.md$') })
+}
+
+# The tests that did not pass in a TRX file, as "Class+Nested.Method" names a dotnet test filter matches.
+function Get-FailedTests([string]$trxPath) {
+    [xml]$trx = Get-Content $trxPath -Raw
+    $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+    $nameOf = @{}
+    foreach ($test in Select-Xml -Xml $trx -XPath '//t:UnitTest' -Namespace $ns) {
+        $nameOf[$test.Node.id] = "$($test.Node.TestMethod.className).$($test.Node.TestMethod.name)"
+    }
+    @(Select-Xml -Xml $trx -XPath '//t:UnitTestResult' -Namespace $ns | Where-Object { $_.Node.outcome -notin 'Passed', 'NotExecuted' } |
+        ForEach-Object { $nameOf[$_.Node.testId] } | Sort-Object -Unique)
+}
+
+Export-ModuleMember -Function Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Test-DocsOnly, Get-FailedTests

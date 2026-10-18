@@ -8,7 +8,8 @@
 #         ./test.ps1 -Filter <expr>       # any dotnet test filter, quick or full
 #         ./test.ps1 -Full -Reuse         # only the families whose inputs changed since their last full pass (test-reuse.psm1)
 #         ./test.ps1 -Full -Background    # after a push: exhaustive with -Reuse on the committed HEAD in a worktree of its own;
-#                                         #   returns at once (-Sampled: the routine quarter of the sweeps, no reuse)
+#                                         #   returns at once (-Sampled: the routine quarter of the sweeps, no reuse;
+#                                         #   -Whole: exhaustive without reuse, the pass a minor release gates on)
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
@@ -25,6 +26,7 @@ param(
     [switch]$Status,
     [switch]$Reuse,
     [switch]$Sampled,
+    [switch]$Whole,
     [switch]$Coverage,
     [switch]$Mutation,
     [string[]]$Target
@@ -94,7 +96,7 @@ if ($Background) {
     if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     git -C $root worktree add --detach $dir $commit | Out-Null
     # Release strength by default, so its family passes let a patch release skip what this run proved.
-    $flags = '-Full' + $(if ($Sampled) { '' } else { ' -Exhaustive -Reuse' })
+    $flags = '-Full' + $(if ($Sampled) { '' } elseif ($Whole) { ' -Exhaustive' } else { ' -Exhaustive -Reuse' })
     $short = $commit.Substring(0, 8)
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
     $script = @"
@@ -169,13 +171,16 @@ function Get-CleanTree {
     if (git -C $root status --porcelain) { return $null }
     return (git -C $root rev-parse 'HEAD^{tree}').Trim()
 }
+# "<tree> <mode>", with " reused" when reused family passes made up part of it; the whole-suite stamp names the last tree
+# an exhaustive run passed on without reuse (release.ps1: a minor release gates on it).
 $stamp = Join-Path $gitDir 'corvus-full-suite.stamp'
+$wholeStamp = Join-Path $gitDir 'corvus-whole-suite.stamp'
 
 if ($Full -and $IfChanged) {
     $tree = Get-CleanTree
-    $want = if ($Exhaustive) { "$tree exhaustive" } else { $null }
     $have = if (Test-Path $stamp) { (Get-Content $stamp -Raw).Trim() } else { '' }
-    if ($tree -and ($have -eq $want -or (-not $Exhaustive -and $have -like "$tree *"))) {
+    $done = if ($Exhaustive) { $have -in "$tree exhaustive", "$tree exhaustive reused" } else { $have -like "$tree *" }
+    if ($tree -and $done) {
         Write-Host "The full suite already passed on tree $tree; skipped."
         exit 0
     }
@@ -187,14 +192,22 @@ $familyStamps = Join-Path $gitDir 'corvus-family-stamps.json'
 $mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
 $familyKeys = $null
 $wholeSuite = $Full -and -not $Filter
+
+# The inputs every family key shares: SDK, OS build and the settings, with $override in place of the current values.
+function Get-RunEnvironment([hashtable]$override = @{}) {
+    $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
+    $values = @{}
+    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS') -or $_.Name -eq 'JAVA_HOME' } |
+        ForEach-Object { $values[$_.Name] = $_.Value }
+    foreach ($name in $override.Keys) { $values[$name] = $override[$name] }
+    $settings = $values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" }
+    (@("sdk $(dotnet --version)", $os) + $settings) -join "`n"
+}
+
 if ($wholeSuite -and (Get-CleanTree)) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $classMap = Get-ClassMap $tests
-    $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
-    $settings = Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS') -or $_.Name -eq 'JAVA_HOME' } |
-        Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }
-    $environment = (@("sdk $(dotnet --version)", $os) + $settings) -join "`n"
-    $familyKeys = Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) $environment
+    $familyKeys = Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment)
     if ($Reuse) {
         $stamps = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }
         $stale = Get-StaleFamilies $familyKeys $stamps $Exhaustive.IsPresent
@@ -232,7 +245,7 @@ $saved = $env:CORVUS_ALL_TESTS; $savedSweep = $env:CORVUS_SWEEP
 try {
     if ($Full) { $env:CORVUS_ALL_TESTS = '1' }
     $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
-    $tree = if ($wholeSuite -and -not $Filter -and -not $Coverage) { Get-CleanTree } else { $null }
+    $tree = if ($wholeSuite -and -not $Coverage) { Get-CleanTree } else { $null }
     & dotnet @arguments
     $code = $LASTEXITCODE
     $trx = Join-Path $results 'full.trx'
@@ -270,6 +283,11 @@ try {
     if (Test-Path $results) { Remove-Item -Recurse -Force $results }
     if ($missingEngines) { Write-Host "Engine tests were skipped: $($missingEngines -join ', ')." -ForegroundColor Yellow }
     if ($code -ne 0) { exit $code }
-    if ($tree) { $value = "$tree $mode"; Set-Content -Path $stamp -Value $value -NoNewline; Write-Host "Stamped $value." }
+    if ($tree) {
+        $value = "$tree $mode" + $(if ($Filter) { ' reused' } else { '' })
+        Set-Content -Path $stamp -Value $value -NoNewline
+        if ($Exhaustive -and -not $Filter) { Set-Content -Path $wholeStamp -Value $tree -NoNewline }
+        Write-Host "Stamped $value."
+    }
 }
 finally { $env:CORVUS_ALL_TESTS = $saved; $env:CORVUS_SWEEP = $savedSweep }

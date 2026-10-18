@@ -115,22 +115,29 @@ if (-not $VerifyOnly) {
         $null = Get-Notes
 
         # test.ps1 -Full -Exhaustive stamps the clean tree it passed on; the bump below changes only version strings and generated docs,
-        # whose quick run follows, so a passed tree needs no second full run.
-        $stamp = Join-Path ([IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())) 'corvus-full-suite.stamp'
-        $passed = (Test-Path $stamp) -and (Get-Content $stamp -Raw).Trim() -eq "$((git rev-parse 'HEAD^{tree}').Trim()) exhaustive"
-        if ($passed) { Write-Host 'The full suite passed on this tree (test.ps1 -Full -Exhaustive); not run again.' }
-        # Before the bump, on the clean tree, so the run records its family passes. A patch release (x.y.z, z > 0) reruns
-        # only the families whose inputs changed since their last exhaustive pass; a minor release (x.y.0) runs the whole
-        # exhaustive suite, which also catches what a family key cannot see.
+        # whose quick run follows, so a passed tree needs no second full run. A patch release (x.y.z, z > 0) takes a pass
+        # made up partly of reused family passes; a minor release (x.y.0) wants the whole exhaustive suite, which also
+        # catches what a family key cannot see, unless only documentation changed since its last whole pass.
+        $gitDir = [IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())
+        $tree = (git rev-parse 'HEAD^{tree}').Trim()
+        $stamp = Join-Path $gitDir 'corvus-full-suite.stamp'
+        $have = if (Test-Path $stamp) { (Get-Content $stamp -Raw).Trim() } else { '' }
+        $whole = Join-Path $gitDir 'corvus-whole-suite.stamp'
+        $whole = if (Test-Path $whole) { (Get-Content $whole -Raw).Trim() } else { $null }
+        Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+        $docsOnly = $whole -and $whole -ne $tree -and (Test-DocsOnly @(git diff --name-only $whole $tree 2>$null))
+        $reusable = [int]($Version -split '\.')[2] -gt 0 -or $docsOnly
+        if ($docsOnly) { Write-Host "Only documentation changed since the last whole pass ($($whole.Substring(0, 8))): family passes are reused." }
+        $passed = $have -eq "$tree exhaustive" -or ($reusable -and $have -eq "$tree exhaustive reused")
+        if ($passed) { Write-Host "The full suite passed on this tree ($have); not run again." }
+        # Before the bump, on the clean tree, so the run records its family passes.
         elseif (-not $SkipTests) {
-            $patch = [int]($Version -split '\.')[2] -gt 0
-            if ($patch) { & (Join-Path $root 'test.ps1') -Full -Exhaustive -Reuse } else { & (Join-Path $root 'test.ps1') -Full -Exhaustive }
+            if ($reusable) { & (Join-Path $root 'test.ps1') -Full -Exhaustive -Reuse } else { & (Join-Path $root 'test.ps1') -Full -Exhaustive }
             if ($LASTEXITCODE -ne 0) { Fail 'the full suite failed' }
             $passed = $true
         }
         # A second Ghidra version (the oldest supported, say): the engine tests again with it.
         if (-not $SkipTests -and $env:CORVUS_SECOND_GHIDRA_DIR) {
-            Import-Module (Join-Path $root 'test-reuse.psm1') -Force
             $engines = (Get-ClassMap (Join-Path $root 'tests/Corvus.Tests'))['Engines']
             $saved = $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS
             $env:CORVUS_GHIDRA_DIR = $env:CORVUS_SECOND_GHIDRA_DIR; $env:CORVUS_ALL_TESTS = '1'

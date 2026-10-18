@@ -70,6 +70,36 @@ public class TestReuseTests
         finally { File.Delete(trx); }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void DocumentationOnlyChangesAndFailedTestsAreNamed()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var trx = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}.trx");
+        File.WriteAllText(trx, Trx);
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{module.Replace("'", "''")}}'
+                'docs=' + (Test-DocsOnly @('docs/release-notes.md', 'README.md'))
+                'source=' + (Test-DocsOnly @('docs/tools.md', 'src/Corvus/X.cs'))
+                'test-doc=' + (Test-DocsOnly @('tests/Corvus.Tests/Notes.md'))
+                'script=' + (Test-DocsOnly @('test.ps1'))
+                'none=' + (Test-DocsOnly @())
+                'failed=' + ((Get-FailedTests '{{trx}}') -join ',')
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+            Assert.Equal("True", Line("docs"));
+            Assert.Equal("False", Line("source"));
+            Assert.Equal("False", Line("test-doc"));   // files under tests/ are test inputs
+            Assert.Equal("False", Line("script"));
+            Assert.Equal("False", Line("none"));
+            Assert.Equal("Corvus.Tests.EngineB+Nested.M", Line("failed")); // the name a dotnet test filter takes
+        }
+        finally { File.Delete(trx); }
+    }
+
     private static string[] Run(string script)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };
