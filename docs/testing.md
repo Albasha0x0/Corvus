@@ -10,11 +10,13 @@
   runs over stdio, sweeps, fuzzing and the large runtime packs. A push needs the quick set; the full set then runs off
   the critical path, `./test.ps1 -Full -Background`, on the pushed commit in a worktree of its own (`-Status` shows
   the result), and a failure is fixed in the next commit. A background run runs at below-normal priority (its test
-  hosts and engine workers inherit it), is exhaustive and reuses family passes
-  (`-Sampled` runs the routine quarter of the sweeps without reuse). `./test.ps1 -Affected` runs the quick set plus the slow
+  hosts and engine workers inherit it) and reuses family passes; it is routine strength, a quarter of the sweeps
+  without the `Tier=Release` tests (`-Exhaustive`: release strength; `-Whole`: release strength without reuse). `./test.ps1 -Affected` runs the quick set plus the slow
   tests of the families changed since `origin/main` in the foreground (shared code such as `Core`, `Mcp` or test
   `Support` runs everything). Releases gate on the full set: a routine `./test.ps1 -Full` sweeps an evenly spread
-  quarter of the real images; `-Exhaustive` (gates and releases, `CORVUS_SWEEP=exhaustive`) takes them all. `./test.ps1 -Full` records the clean tree it
+  quarter of the real images and leaves out the tests marked `[Trait("Tier", "Release")]` (measurements, accuracy
+  oracles against IDA, the largest inputs); `-Exhaustive` (gates and releases, `CORVUS_SWEEP=exhaustive`) takes
+  every image and those tests. A `-Filter` given on the command line keeps them. `./test.ps1 -Full` records the clean tree it
   passed on (in `.git`), and `-IfChanged` and `release.ps1` skip a second full run on that tree. Each full run on a
   clean tree also records which test families passed, under a key of the family's own folders, all shared code, the
   repository files its tests read, the SDK, the OS build and the `CORVUS_*` settings (`test-reuse.psm1`).
@@ -30,7 +32,7 @@
   publishing, `release.ps1` installs the previous release with `install.sh` in WSL under a throwaway home and checks
   that `corvus update` reaches the new one.
 - **Preparing a release.** Commit the release notes and push first, then start `./test.ps1 -Full -Background -Whole`
-  (`-Background` alone for a patch release) with `CORVUS_GHIDRA_DIR` and `CORVUS_SECOND_GHIDRA_DIR` set. Once
+  (`-Background -Exhaustive` for a patch release) with `CORVUS_GHIDRA_DIR` and `CORVUS_SECOND_GHIDRA_DIR` set. Once
   `-Status` reads passed, `release.ps1` finds the stamps of that tree and runs neither pass again.
 - **Shared engine analyses.** IDA and Ghidra tests on the System32 sample start from a copy of one saved analysis per
   engine, engine install and server build (`Support/EngineSeed.cs`, kept under `corvus-test-data/engine-seed` in the

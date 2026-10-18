@@ -7,8 +7,8 @@
 #         ./test.ps1 -Affected            # quick set plus the slow tests of the families changed since origin/main (before a push)
 #         ./test.ps1 -Filter <expr>       # any dotnet test filter, quick or full
 #         ./test.ps1 -Full -Reuse         # only the families whose inputs changed since their last full pass (test-reuse.psm1)
-#         ./test.ps1 -Full -Background    # after a push: exhaustive with -Reuse on the committed HEAD in a worktree of its own;
-#                                         #   returns at once (-Sampled: the routine quarter of the sweeps, no reuse;
+#         ./test.ps1 -Full -Background    # after a push: -Reuse on the committed HEAD in a worktree of its own; returns at once
+#                                         #   (-Exhaustive: release strength, the passes a patch release takes;
 #                                         #   -Whole: exhaustive without reuse, the pass a minor release gates on)
 #         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
@@ -27,7 +27,6 @@ param(
     [switch]$Background,
     [switch]$Status,
     [switch]$Reuse,
-    [switch]$Sampled,
     [switch]$Whole,
     [switch]$SecondGhidra,
     [switch]$Coverage,
@@ -99,8 +98,8 @@ if ($Background) {
     $dir = Join-Path ([IO.Path]::GetTempPath()) "corvus-bg-$($commit.Substring(0, 8))"
     if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     git -C $root worktree add --detach $dir $commit | Out-Null
-    # Release strength by default, so its family passes let a patch release skip what this run proved.
-    $flags = '-Full' + $(if ($Sampled) { '' } elseif ($Whole) { ' -Exhaustive' } else { ' -Exhaustive -Reuse' })
+    # Routine by default; release strength records the passes a release takes.
+    $flags = '-Full' + $(if ($Whole) { ' -Exhaustive' } elseif ($Exhaustive) { ' -Exhaustive -Reuse' } else { ' -Reuse' })
     $short = $commit.Substring(0, 8)
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
     # Below-normal priority, inherited by the test hosts and engine workers, keeps the machine responsive meanwhile.
