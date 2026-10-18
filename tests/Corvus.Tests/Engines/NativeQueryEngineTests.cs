@@ -34,6 +34,7 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
         var dir = Directory.CreateDirectory(_dir.File("input")).FullName;
         var copy = Path.Combine(dir, Path.GetFileName(NativeIdaProviderTests.System64));
         if (!File.Exists(copy)) File.Copy(NativeIdaProviderTests.System64, copy);
+        EngineSeed.Copy(_dir.File("cache"), copy);
         var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));

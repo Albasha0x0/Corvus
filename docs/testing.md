@@ -30,6 +30,10 @@
 - **Preparing a release.** Commit the release notes and push first, then start `./test.ps1 -Full -Background -Whole`
   (`-Background` alone for a patch release) with `CORVUS_GHIDRA_DIR` and `CORVUS_SECOND_GHIDRA_DIR` set. Once
   `-Status` reads passed, `release.ps1` finds the stamps of that tree and runs neither pass again.
+- **Shared engine analyses.** IDA and Ghidra tests on the System32 sample start from a copy of one saved analysis per
+  engine, engine install and server build (`Support/EngineSeed.cs`, kept under `corvus-test-data/engine-seed` in the
+  temporary folder), instead of analysing it again in every empty cache: about half the time of those classes. Tests
+  that measure or check a cold open keep an empty cache.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
 The full set and the real-application runs are done locally.

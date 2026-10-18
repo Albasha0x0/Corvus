@@ -29,6 +29,7 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output) : IDispo
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
         var cache = _dir.File("cache");
+        EngineSeed.Copy(cache, NativeIdaProviderTests.System64);
         var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = cache }, code, workspace, options, new GhidraProviderOptions { CacheRoot = cache });
         _owned.Add(engines);
         _owned.Add(workspace);

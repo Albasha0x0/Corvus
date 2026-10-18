@@ -133,6 +133,7 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         var ws = new AssemblyWorkspace(options);
         var code = new NativeCodeService(ws, options, null, new Native.Annotations.AnnotationStore(_dir.File("ann")));
         var cache = _dir.File("cache");
+        EngineSeed.Copy(cache, NativeIdaProviderTests.System64);
         var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = cache }, code, ws, options, new GhidraProviderOptions { CacheRoot = cache });
         _owned.Add(engines);
         _owned.Add(ws);

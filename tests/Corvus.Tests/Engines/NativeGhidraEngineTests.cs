@@ -36,6 +36,7 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
 
     private Rig Setup(string cache, EngineMode mode = EngineMode.Auto)
     {
+        EngineSeed.Copy(cache, NativeIdaProviderTests.System64, "ghidra");
         var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false, Engine = mode };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));

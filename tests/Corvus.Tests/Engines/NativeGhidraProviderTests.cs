@@ -15,7 +15,13 @@ public sealed class GhidraCacheFixture : IDisposable
     public TempDir Cache { get; } = new();
     private GhidraProvider? _provider;
 
-    public GhidraProvider Provider => _provider ??= NewProvider();
+    public GhidraProvider Provider => _provider ??= Seeded();
+
+    private GhidraProvider Seeded()
+    {
+        EngineSeed.Copy(Cache.File("cache"), NativeIdaProviderTests.System64, EngineSeed.Recipe.SymbolsOff, "ghidra");
+        return NewProvider();
+    }
 
     public GhidraProvider NewProvider() => new(new GhidraProviderOptions { CacheRoot = Cache.File("cache") });
 
@@ -54,10 +60,13 @@ public abstract class GhidraProviderTestBase(ITestOutputHelper output, GhidraCac
     protected GhidraCacheFixture Shared => shared;
     protected GhidraProvider Provider => shared.Provider;
 
-    protected GhidraProvider Isolated()
+    /// <param name="seed">An input whose symbols-off analysis the cache starts with (<see cref="EngineSeed"/>).</param>
+    protected GhidraProvider Isolated(string? seed = null)
     {
         var dir = new TempDir();
-        var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = Path.Combine(dir.Path, "cache (with spaces)") });
+        var cache = Path.Combine(dir.Path, "cache (with spaces)");
+        if (seed != null) EngineSeed.Copy(cache, seed, EngineSeed.Recipe.SymbolsOff, "ghidra");
+        var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = cache });
         Owned.Add(provider);
         Owned.Add(dir);
         return provider;
@@ -436,7 +445,7 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
     {
         var path = Shared.Sample;
         var rva = NativeIdaProviderTests.ExportRva(path, Export);
-        var provider = Isolated();
+        var provider = Isolated(path);
         await using (var s = (GhidraSession)await provider.OpenAsync(path, null, Offline))
         {
             Assert.Equal("sample_checksum", await s.SetNameAsync(rva, "sample_checksum"));
@@ -484,7 +493,7 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
     [GhidraFact]
     public async Task Batch_names_with_blanks_are_applied()
     {
-        await using var s = (GhidraSession)await Isolated().OpenAsync(Shared.Sample, null, Offline);
+        await using var s = (GhidraSession)await Isolated(Shared.Sample).OpenAsync(Shared.Sample, null, Offline);
         var f = (await s.ListFunctionsAsync()).First(x => !x.Flags.HasFlag(NativeFunctionFlags.Thunk));
         var batch = await s.ApplyNamesAsync([new NativeNameItem(f.StartRva, "-[Animal speak:]", null)]);
         Assert.Equal(1, batch.Named);
@@ -497,7 +506,7 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
     {
         var path = Shared.Copy(NativeIdaProviderTests.System64);
         var rva = NativeIdaProviderTests.ExportRva(path, Export);
-        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        await using var s = await Isolated(path).OpenAsync(path, null, Offline);
         var original = (await s.DisassembleRangeAsync(rva, 1)).Instructions[0];
         var bodyEnd = (await s.ListFunctionsAsync()).Single(f => f.StartRva == rva).EndRva;
         Assert.True(bodyEnd > rva + 1);
@@ -533,7 +542,7 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
     {
         var path = Shared.Copy(NativeIdaProviderTests.System64);
         var exportRva = NativeIdaProviderTests.ExportRva(path, Export);
-        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        await using var s = await Isolated(path).OpenAsync(path, null, Offline);
         var frame = await s.GetFrameAsync(exportRva + 1);
         Output.WriteLine($"frame of {frame.Name}: {frame.LocalSize} bytes, return address +0x{frame.ReturnAddressOffset:X}\n" +
                          string.Join("\n", frame.Members.Select(m => $"  +0x{m.Offset:X} {m.Name} {m.Type} {m.Size} {m.Kind}")) + "\n" +
@@ -633,7 +642,7 @@ public sealed class NativeGhidraTypeTests(ITestOutputHelper output, GhidraCacheF
     {
         var path = Shared.Copy(NativeIdaProviderTests.System64);
         var exportRva = NativeIdaProviderTests.ExportRva(path, Export);
-        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        await using var s = await Isolated(path).OpenAsync(path, null, Offline);
         var functions = await s.ListFunctionsAsync();
         // functions Ghidra named itself carry no prototype from a type library
         var plain = functions.Where(f => f.Name.StartsWith("FUN_", StringComparison.Ordinal) && !f.Flags.HasFlag(NativeFunctionFlags.Thunk)).Take(2).ToList();
@@ -672,7 +681,7 @@ public sealed class NativeGhidraTypeTests(ITestOutputHelper output, GhidraCacheF
     {
         var path = Shared.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SysWOW64", "version.dll"));
         var rva = NativeIdaProviderTests.ExportRva(path, "GetFileVersionInfoSizeW");
-        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        await using var s = await Isolated(path).OpenAsync(path, null, Offline);
         var r = await s.ApplyTypesAsync(new NativeTypeBatch(null, [new NativePrototype(rva, "int __cdecl SampleMethod(void *__this, int count, void *method);")], [], [], 4));
         Assert.Equal((1, 0), (r.Typed, r.TypeFailures));
         var f = await s.GetFunctionRecordAsync(rva);
@@ -685,7 +694,7 @@ public sealed class NativeGhidraTypeTests(ITestOutputHelper output, GhidraCacheF
     {
         // Windows typedefs the PE loader defines are taken as they are; the others resolve through aliases, prefixes and case
         var path = Shared.Copy(NativeIdaProviderTests.System64);
-        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        await using var s = await Isolated(path).OpenAsync(path, null, Offline);
         (string Type, string? Shown)[] table =
         [
             ("DWORD", null), ("dword", "dword"), ("unsigned int", "uint"), ("PVOID", "PVOID"), ("uchar *", "uchar *"), ("char *", "char *"),

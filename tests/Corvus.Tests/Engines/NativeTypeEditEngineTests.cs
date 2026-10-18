@@ -39,6 +39,7 @@ public abstract class NativeTypeEditEngineTests(ITestOutputHelper output) : IDis
 
     private Rig Setup(string cache)
     {
+        EngineSeed.Copy(_dir.File(cache), Image());
         var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));

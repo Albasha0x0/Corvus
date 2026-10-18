@@ -37,6 +37,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     /// <summary>A server on <paramref name="cache"/> (its IDA databases) and the shared annotation sidecars.</summary>
     private Rig Setup(string cache, bool scripting = false, string annotations = "annotations")
     {
+        EngineSeed.Copy(_dir.File(cache), Image, "ida");
         var options = new ServerOptions { TimeoutSeconds = 300, BackgroundIndexing = false, IdaScripting = scripting };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File(annotations)));

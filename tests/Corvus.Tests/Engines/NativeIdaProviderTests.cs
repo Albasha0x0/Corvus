@@ -16,7 +16,13 @@ public sealed class IdaCacheFixture : IDisposable
     public TempDir Cache { get; } = new();
     private IdaProvider? _provider;
 
-    public IdaProvider Provider => _provider ??= NewProvider();
+    public IdaProvider Provider => _provider ??= Seeded();
+
+    private IdaProvider Seeded()
+    {
+        EngineSeed.Copy(Cache.Path, NativeIdaProviderTests.System64, EngineSeed.Recipe.SymbolsOff, "ida");
+        return NewProvider();
+    }
 
     public IdaProvider NewProvider() => new(new IdaProviderOptions { CacheRoot = Cache.Path });
 

@@ -46,6 +46,7 @@ public sealed class NativeEditUndoEngineTests(ITestOutputHelper output) : IDispo
         var dir = Directory.CreateDirectory(_dir.File("input-" + engine)).FullName;
         var copy = Path.Combine(dir, Path.GetFileName(NativeIdaProviderTests.System64));
         File.Copy(NativeIdaProviderTests.System64, copy, overwrite: true);
+        EngineSeed.Copy(_dir.File("cache-" + engine), copy, engine);
         workspace.LoadAny(copy);
         return new Rig(workspace, code, engines, new NativeEditTools(workspace, code, edits, null, engines, names, new NativeTypePush(), user), journal);
     }
