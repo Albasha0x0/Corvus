@@ -53,6 +53,11 @@ if ($Status) {
     if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; exit 0 }
     Write-Host (Get-Content $result -Raw).Trim()
     if (Test-Path $log) { Get-Content $log -Tail 5 | Where-Object { $_ -match '\[FAIL\]|Passed!|Failed!|Stamped' } | ForEach-Object { Write-Host "  $_" } }
+    if (Test-Path "$log.previous") {
+        $before = Get-Content "$log.previous"
+        Write-Host "Previous: $(($before | Select-Object -Last 1) -replace '^Result: ', '')"
+        $before | Where-Object { $_ -match '\[FAIL\]|Failed!' } | Select-Object -First 10 | ForEach-Object { Write-Host "  $_" }
+    }
     exit 0
 }
 
@@ -119,6 +124,11 @@ if ($Background) {
     # Routine by default; release strength records the passes a release takes.
     $flags = '-Full' + $(if ($Whole) { ' -Exhaustive' } elseif ($Exhaustive) { ' -Exhaustive -Reuse' } else { ' -Reuse' })
     $short = $commit.Substring(0, 8)
+    # the previous run's log and result stay readable (-Status) after the next run starts
+    if (Test-Path $log) {
+        Move-Item -Force $log "$log.previous"
+        if (Test-Path $result) { Add-Content -Path "$log.previous" -Value "Result: $((Get-Content $result -Raw).Trim())" }
+    }
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
     # Below-normal priority, inherited by the test hosts and engine workers, keeps the machine responsive meanwhile.
     $script = @"
