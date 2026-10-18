@@ -1,6 +1,7 @@
 # Runs the tests. The quick set by default; -Full runs everything (slow, IDA and Ghidra tests; set CORVUS_GHIDRA_DIR for
 # Ghidra) and, on a clean tree, stamps the tree it passed on, so a later -Full -IfChanged (or release.ps1) skips a repeat.
-# Usage:  ./test.ps1                      # quick set (before each commit)
+# Usage:  ./test.ps1                      # before each commit: the quick tests of the families changed since origin/main
+#         ./test.ps1 -All                 # the whole quick set
 #         ./test.ps1 -Full                # full suite (before a release or a gate run)
 #         ./test.ps1 -Full -IfChanged     # full suite unless it already passed on this exact tree
 #         ./test.ps1 -Full -Exhaustive    # every sweep input, not a quarter, and the Tier=Release tests (gates and releases)
@@ -19,6 +20,7 @@
 #Requires -Version 7.0
 param(
     [switch]$Full,
+    [switch]$All,
     [switch]$IfChanged,
     [switch]$Exhaustive,
     [switch]$Affected,
@@ -126,7 +128,7 @@ function Get-Family([string]$path) {
     $p = $path -replace '\\', '/'
     switch -Regex ($p) {
         '^src/Corvus/(Tools|Services)/Shared/' { return '*' }
-        '^src/Corvus/(Tools|Services)/(Dotnet|DotnetEdits|NativeAnalysis|Engines|NativeEdits|Builds|Containers|Mobile|Dumps|Il2Cpp|NativeAot|Session)/' { return $Matches[2] }
+        '^src/Corvus/(Tools|Services)/(Dotnet|DotnetEdits|NativeAnalysis|Engines|NativeEdits|Builds|Containers|Mobile|Dumps|Il2Cpp|NativeAot|Session|Web)/' { return $Matches[2] }
         '^src/Corvus/Services/Analysis/' { return 'Containers' }
         '^src/Corvus/Services/Il2CppRaw/' { return 'Il2Cpp' }
         '^src/Corvus/Services/Mobile/' { return 'Mobile' }
@@ -155,6 +157,30 @@ function Get-FamilyClasses([string]$family) {
     Get-ChildItem $dir -Recurse -Filter *.cs | ForEach-Object {
         [regex]::Matches((Get-Content $_.FullName -Raw), '(?m)^public (?:sealed |abstract |partial )*class (\w+)') | ForEach-Object { $_.Groups[1].Value }
     } | Sort-Object -Unique
+}
+
+# The commit gate: the quick tests of the families a change touches (committed since $Base, uncommitted and untracked),
+# by the coverage map where it knows a file, plus the contract tests; shared code runs the whole quick set. The full
+# run after the push (the pre-push hook) runs everything.
+if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMap -or $SecondGhidra -or $Background)) {
+    $changed = @(git -C $root diff --name-only $Base) + @(git -C $root ls-files --others --exclude-standard) | Where-Object { $_ } | Sort-Object -Unique
+    if (-not $changed) { Write-Host "Nothing changed since ${Base}; ./test.ps1 -All runs the whole quick set."; exit 0 }
+    Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    $coverage = Read-CoverageMap (Join-Path $gitDir 'corvus-coverage-map.json')
+    # files outside src/ and tests/ (docs, scripts) go to the families whose tests read repository files
+    $readers = @(Get-RootReaders $tests)
+    $families = @(@($changed | ForEach-Object {
+        if ($coverage -and $coverage[$_]) { $coverage[$_] } elseif ($_ -notmatch '^(src|tests)/') { $readers } else { Get-Family $_ } }) + 'Contract' | Sort-Object -Unique)
+    if ($families -notcontains '*') {
+        $classes = @($families | ForEach-Object { Get-FamilyClasses $_ } | Sort-Object -Unique)
+        $quickFilter = 'Speed!=Slow&(' + (($classes | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|') + ')'
+        if ($quickFilter.Length -lt 24000) {
+            Write-Host "Changed since ${Base}: $($changed.Count) files; quick tests of $($families -join ', ')."
+            & dotnet test $tests --nologo --filter $quickFilter
+            exit $LASTEXITCODE
+        }
+    }
+    Write-Host "Changed since ${Base}: $($changed.Count) files, shared code among them: the whole quick set runs."
 }
 
 if ($Affected) {
