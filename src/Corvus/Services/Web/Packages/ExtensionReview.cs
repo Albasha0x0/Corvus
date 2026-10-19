@@ -82,7 +82,7 @@ public static partial class PackageReview
         foreach (var script in scripts)
         {
             if (files.Text(script) is not { } code) continue;
-            findings.AddRange(Scan(script, code, install: false, ct).Where(f => f.Category is "transformed code" or "credentials" or "exfiltration"));
+            findings.AddRange(Scan(script, code, install: false, ct).Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials"));
             // the fetched text handed to eval within a few hundred characters; cookies read next to a send to a fixed address
             if (FetchedEval.IsMatch(code)) findings.Add(new PackageFinding("noteworthy", "remote code", "evaluates code it fetches", script));
             if (CookieSend.IsMatch(code)) findings.Add(new PackageFinding("noteworthy", "credentials", "reads every cookie and sends data to a fixed address", script));
@@ -172,13 +172,9 @@ public static partial class PackageReview
             foreach (var key in new[] { "extensionDependencies", "extensionPack" })
                 foreach (var dep in Strings(p, key)) entries.Add(new PackageEntryPoint(key, dep, null));
         }
-        foreach (var e in entries.Where(e => e.Kind is "main" or "browser"))
-        {
-            var target = Resolve(root, e.Target!);
-            if (!files.Has(target) && files.Has(target + ".js")) target += ".js";
-            if (files.Text(target) is { } code)
-                findings.AddRange(Scan(target, code, install: false, ct).Where(f => f.Category is "transformed code" or "credentials"));
-        }
+        var loaded = entries.Where(e => e.Kind is "main" or "browser").Select(e => Resolve(root, e.Target!))
+            .Select(t => !files.Has(t) && files.Has(t + ".js") ? t + ".js" : t);
+        findings.AddRange(ScanLoaded(files, root, loaded, ct));
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         return new PackageReport("vscode extension", publisher != null && id != null && !id.Contains('.') ? $"{publisher}.{id}" : id, version)

@@ -7,6 +7,10 @@ public static partial class PackageReview
 {
     private const int MaxScannedSources = 200;
 
+    private static readonly Regex NotImported = new(@"(?:^|/)(?:tests?|testing|examples?|docs?|benchmarks?)/|(?:^|/)(?:test_[^/]*|[^/]*_test|conftest)\.py$", RegexOptions.Compiled);
+
+    private static readonly Regex StealerKit = new(@"(?i)\b(?:browser[_-]cookie3|discord[_-]?webhook|robloxpy|discord_webhook)\b", RegexOptions.Compiled);
+
     private static PackageReport? Python(PackageFiles files, CancellationToken ct)
     {
         var findings = new List<PackageFinding>();
@@ -72,10 +76,18 @@ public static partial class PackageReview
                 entries.AddRange(EntryPoints("[x]\n" + cfgEntries.Groups[1].Value.Replace("\n    ", "\n")).Select(e => e with { Kind = "entry point" }));
         }
         // import-time code: package __init__ modules (and the rest within a bound)
-        foreach (var source in files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal))
+        // tests, examples and docs ship in sdists but are not imported
+        foreach (var source in files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
                      .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/')).Take(MaxScannedSources))
             if (files.Text(source) is { } code)
-                findings.AddRange(Scan(source, code, install: false, ct).Where(f => f.Category is "transformed code" or "credentials" || f.Category == "dynamic code" && f.Detail.Contains("decoded", StringComparison.Ordinal)));
+                findings.AddRange(Scan(source, code, install: false, ct, entry: source.EndsWith("__init__.py", StringComparison.Ordinal))
+                    .Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials"));
+        // dependencies that together make a credential stealer: browser cookies, Discord webhooks, Roblox sessions
+        var requires = string.Join("\n", files.Paths.Where(p => p.EndsWith("/setup.py", StringComparison.Ordinal) || p == "setup.py" || p.EndsWith("/PKG-INFO", StringComparison.Ordinal)
+                                                              || p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || p.EndsWith("/requires.txt", StringComparison.Ordinal))
+            .Select(p => files.Text(p) ?? ""));
+        var kit = StealerKit.Matches(requires).Select(m => m.Value.ToLowerInvariant().Replace('-', '_')).Distinct().ToList();
+        if (kit.Count >= 2) findings.Add(new PackageFinding("noteworthy", "credentials", $"depends on {string.Join(", ", kit)}: browser cookie, Discord webhook and Roblox session libraries together"));
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (name != null && CloseTo(name, PopularNames.PyPI) is { } popular)

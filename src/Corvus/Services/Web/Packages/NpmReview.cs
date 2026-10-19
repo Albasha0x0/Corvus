@@ -8,6 +8,8 @@ public static partial class PackageReview
     /// <summary>Lifecycle scripts npm runs when the package is installed from a registry (prepare runs only for git and folder installs).</summary>
     private static readonly HashSet<string> NpmInstallScripts = new(StringComparer.Ordinal) { "preinstall", "install", "postinstall" };
 
+    private static readonly Regex NetworkCommand = new(@"(?:^|[\s;&|(`])(?:curl|wget|nc|ncat|nslookup|dig|Invoke-WebRequest|iwr)(?:\.exe)?\s", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static PackageReport? Npm(PackageFiles files, CancellationToken ct)
     {
         var manifestPath = Root(files, "package.json")!;
@@ -27,6 +29,8 @@ public static partial class PackageReview
         {
             findings.Add(new PackageFinding("review", "install script", $"{script.Name}: {Clip(script.Command)}", manifestPath));
             foreach (var f in Scan(manifestPath + "#scripts." + script.Name, script.Command, install: true, ct)) findings.Add(f);
+            if (NetworkCommand.IsMatch(script.Command))
+                findings.Add(new PackageFinding("noteworthy", "install script", $"{script.Name} runs a network tool: {Clip(script.Command, 160)}", manifestPath));
             // node file.js / node -e "...": read the code it runs
             foreach (Match m in Regex.Matches(script.Command, @"\bnode(?:\.exe)?\s+(?:--?[\w-]+\s+)*(['""]?)([^\s'""&|;]+\.(?:c|m)?js)\1"))
             {
@@ -50,10 +54,11 @@ public static partial class PackageReview
             else if (exports.ValueKind == JsonValueKind.Object)
                 foreach (var e in exports.EnumerateObject().Take(50)) entries.Add(new PackageEntryPoint("exports", e.Name, Target(e.Value)));
         }
-        // the code the package runs when loaded: its main file and binaries
-        foreach (var e in entries.Where(e => e.Kind is "main" or "bin").Take(10))
-            if (e.Target != null && files.Text(Resolve(root, e.Target)) is { } code)
-                findings.AddRange(Scan(Resolve(root, e.Target), code, install: false, ct).Where(f => f.Category is "transformed code" or "credentials"));
+        // the code the package runs when loaded: its main file (index.js when none is present), binaries, then its other scripts
+        var loaded = entries.Where(e => e.Kind is "main" or "bin" && e.Target != null).Take(10).Select(e => Resolve(root, e.Target!))
+            .Select(t => files.Has(t) || !files.Has(t + ".js") ? t : t + ".js").ToList();
+        if (!loaded.Any(files.Has)) loaded.Add(root + "index.js");
+        findings.AddRange(ScanLoaded(files, root, loaded, ct));
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (name != null && CloseTo(name, PopularNames.Npm) is { } popular)
