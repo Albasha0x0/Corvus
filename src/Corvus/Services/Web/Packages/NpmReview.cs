@@ -8,7 +8,7 @@ public static partial class PackageReview
     /// <summary>Lifecycle scripts npm runs when the package is installed from a registry (prepare runs only for git and folder installs).</summary>
     private static readonly HashSet<string> NpmInstallScripts = new(StringComparer.Ordinal) { "preinstall", "install", "postinstall" };
 
-    private static readonly Regex NetworkCommand = new(@"(?:^|[\s;&|(`])(?:curl|wget|nc|ncat|nslookup|dig|Invoke-WebRequest|iwr)(?:\.exe)?\s", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex NetworkCommand = new(@"(?:^|[\s;&|(`'""])(?:[\w.-]*/)*(?:curl|wget|nc|ncat|nslookup|dig|Invoke-WebRequest|iwr)(?:\.exe)?\s", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static PackageReport? Npm(PackageFiles files, CancellationToken ct)
     {
@@ -31,12 +31,13 @@ public static partial class PackageReview
             foreach (var f in Scan(manifestPath + "#scripts." + script.Name, script.Command, install: true, ct)) findings.Add(f);
             if (NetworkCommand.IsMatch(script.Command))
                 findings.Add(new PackageFinding("noteworthy", "install script", $"{script.Name} runs a network tool: {Clip(script.Command, 160)}", manifestPath));
-            // node file.js / node -e "...": read the code it runs
-            foreach (Match m in Regex.Matches(script.Command, @"\bnode(?:\.exe)?\s+(?:--?[\w-]+\s+)*(['""]?)([^\s'""&|;]+\.(?:c|m)?js)\1"))
+            // node file.js, node --require ./file, node -e "require('./file.js')": read the code it runs
+            foreach (var run in NodeTargets(script.Command))
             {
-                var target = Resolve(root, m.Groups[2].Value);
-                if (files.Text(target) is { } code) findings.AddRange(Scan(target, code, install: true, ct));
-                else notes.Add($"{script.Name} runs {m.Groups[2].Value}, which the package does not hold");
+                var target = Resolve(root, run);
+                if (!files.Has(target) && files.Has(target + ".js")) target += ".js";
+                if (files.Text(target) is { } code) findings.AddRange(Scan(target, InstallCode(files, root, target, code), install: true, ct));
+                else notes.Add($"{script.Name} runs {run}, which the package does not hold");
             }
         }
         var entries = new List<PackageEntryPoint>();
@@ -72,6 +73,39 @@ public static partial class PackageReview
             Dependencies = deps, Binaries = binaries.Count > 0 ? binaries : null, Findings = findings, Notes = notes,
         };
     }
+
+    private static IEnumerable<string> NodeTargets(string command)
+    {
+        var runs = Regex.Matches(command, @"\bnode(?:\.exe)?\s+(?:--?[\w-]+\s+)*(['""]?)([^\s'""&|;]+\.(?:c|m)?js)\1").Select(m => m.Groups[2].Value)
+            .Concat(Regex.Matches(command, @"\bnode(?:\.exe)?\s+(?:--?[\w-]+\s+)*?(?:-r|--require)[\s=]+(['""]?)(\.{1,2}/[^\s'""&|;]+)\1").Select(m => m.Groups[2].Value));
+        if (Regex.IsMatch(command, @"\bnode(?:\.exe)?\s+(?:-e|--eval|-p|--print)\b"))
+            runs = runs.Concat(Regex.Matches(command, @"\brequire\(\s*\\?['""`](\.{1,2}/[^'""`\\]+)\\?['""`]\s*\)").Select(m => m.Groups[1].Value));
+        return runs.Distinct();
+    }
+
+    /// <summary>Install-time code with the package files it loads or starts by a literal path, two levels deep (a runner that spawns the real script).</summary>
+    private static string InstallCode(PackageFiles files, string root, string target, string code)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal) { target };
+        var text = new System.Text.StringBuilder(code);
+        var queue = new Queue<(string Path, string Code, int Depth)>([(target, code, 0)]);
+        while (queue.TryDequeue(out var item))
+        {
+            if (item.Depth >= 2) continue;
+            foreach (Match m in LocalScript.Matches(item.Code))
+            {
+                var rel = m.Groups[1].Value;
+                var found = new[] { Resolve(Folder(item.Path), rel), Resolve(root, rel) }.SelectMany(c => new[] { c, c + ".js", c + "/index.js" })
+                    .FirstOrDefault(c => files.Has(c) && files.Size(c) <= 64 << 10); // runners start small scripts; a bundled CLI's chunks are read as loaded code
+                if (found == null || seen.Count >= 8 || !seen.Add(found) || files.Text(found) is not { } more) continue;
+                text.Append('\n').Append(more);
+                queue.Enqueue((found, more, item.Depth + 1));
+            }
+        }
+        return text.ToString();
+    }
+
+    private static readonly Regex LocalScript = R(@"['""`](\.{1,2}/[^'""`\s]+|[\w@.-]+(?:/[\w@.-]+)*\.(?:c|m)?js)['""`]");
 
     private static string? Target(JsonElement e) => e.ValueKind switch
     {
