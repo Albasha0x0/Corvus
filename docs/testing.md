@@ -103,6 +103,11 @@ their tool is missing:
   them. Stryker compiles the whole project once per run (about an hour here, whatever is mutated), so targets share a
   run. Surviving mutants (survived or not covered) per target are checked against `Ratchets/mutation-survivors.txt`
   (`MutationTests`), and the score per target is printed.
+- **Installer listings against reference tools** (`InstallerComparisonTests`): with `CORVUS_INSTALLERS` naming a
+  folder of real installers in `nsis`, `inno`, `msi` and `burn` subfolders, each installer's files (name and size)
+  are compared with a reference tool's listing: `CORVUS_ARCHIVE_LISTER` (7-Zip), `CORVUS_SETUP_LISTER` (innounp),
+  `CORVUS_MSI_LISTER` (lessmsi), `CORVUS_BUNDLE_EXTRACTOR` (the WiX `wix` tool). A format whose tool is unset is
+  skipped; each installer must match at least 99% of the reference rows.
 - **Real-client checks** (`tests/agents/run-tasks.ps1`, or the full set with `CORVUS_CLIENT_CHECKS=1`): each installed
   agent client (Claude Code, Codex, Gemini CLI; `CORVUS_CLIENT_CLAUDE`, `CORVUS_CLIENT_CODEX`,
   `CORVUS_CLIENT_GEMINI` name other executables) gets one known-answer question about the Notes sample through this
