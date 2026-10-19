@@ -99,6 +99,12 @@ internal sealed class Lzx
 
     private int Bit() => Bits(1);
 
+    private void Skip(int n)
+    {
+        _bits <<= n;
+        _bitCount -= n;
+    }
+
     // bytes decoded into the window and bytes handed out; a match may run up to 257 bytes into the next frame
     private long _decoded, _emitted;
 
@@ -261,11 +267,14 @@ internal sealed class Lzx
         return produced;
     }
 
-    /// <summary>A canonical Huffman code decoded bit by bit, most significant first (codes up to 16 bits).</summary>
+    /// <summary>A canonical Huffman code (up to 16 bits): codes up to TableBits long by table lookup, longer ones by length.</summary>
     private sealed class Huffman
     {
+        private const int TableBits = 10;
         private readonly int[] _count = new int[17], _first = new int[17], _offset = new int[17];
         private readonly int[] _symbols;
+        // symbol << 5 | code length; 0 where the code is longer than TableBits
+        private readonly ushort[] _table = new ushort[1 << TableBits];
 
         public Huffman(byte[] lengths)
         {
@@ -282,16 +291,33 @@ internal sealed class Lzx
             }
             var next = (int[])_offset.Clone();
             for (int s = 0; s < lengths.Length; s++) if (lengths[s] > 0) _symbols[next[lengths[s]]++] = s;
+            for (int len = 1; len <= TableBits; len++)
+                for (int i = 0; i < _count[len]; i++)
+                {
+                    int start = (_first[len] + i) << (TableBits - len), span = 1 << (TableBits - len);
+                    if (start + span > _table.Length) break; // an over-subscribed code: left to the length walk
+                    _table.AsSpan(start, span).Fill((ushort)(_symbols[_offset[len] + i] << 5 | len));
+                }
         }
 
         public int Decode(Lzx r)
         {
-            int code = 0;
-            for (int len = 1; len <= 16; len++)
+            r.Need(16);
+            uint peek = r._bits >> 16;
+            int entry = _table[peek >> (16 - TableBits)];
+            if (entry != 0)
             {
-                code = (code << 1) | r.Bit();
-                int idx = code - _first[len];
-                if (idx >= 0 && idx < _count[len]) return _symbols[_offset[len] + idx];
+                r.Skip(entry & 31);
+                return entry >> 5;
+            }
+            for (int len = TableBits + 1; len <= 16; len++)
+            {
+                int idx = (int)(peek >> (16 - len)) - _first[len];
+                if (idx >= 0 && idx < _count[len])
+                {
+                    r.Skip(len);
+                    return _symbols[_offset[len] + idx];
+                }
             }
             throw new InvalidDataException("an LZX code matches no symbol");
         }
