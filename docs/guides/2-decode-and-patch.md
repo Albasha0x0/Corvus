@@ -71,6 +71,7 @@ Notes.PreviewGate::Verify(string)  [46 -> 24 instructions]
   folded Notes.Strings::D(string, int) -> "invalid preview code" at IL_006F
   collapsed 4 branch chain(s), normalized 1 switch dispatcher(s) (6 transition(s) go straight to their case), removed 5 unreachable block(s) (8 instructions)
 Edit Notes#1. Unsaved edits in Notes: 1.
+Digest 73a90c814517d45c.
 === [4/8] decompile_member
 // [Notes]
 // Notes.PreviewGate::Verify(string)  [token 0x06000022]
@@ -88,11 +89,14 @@ public static bool Verify(string code)
 === [5/8] rename_symbol
 [Notes] rename method Notes.Strings::D(string, int) -> Decode
 Edit Notes#2. Unsaved edits in Notes: 2.
+Digest 2597468d97f6c120.
 === [6/8] stub_method
 [Notes] stub Notes.PreviewGate::Verify(string) => return true;
 Edit Notes#3. Unsaved edits in Notes: 3.
+Digest 2378754614672d06.
 === [7/8] save_assembly
 Wrote samples/Notes/v1/bin/patched/Notes.dll (12,800 bytes, 3 edit(s); everything no edit touched is as in the original).
+Edits written: Notes#1 (73a90c814517d45c), Notes#2 (2597468d97f6c120), Notes#3 (2378754614672d06).
 === [8/8] export_edits
 Exported 3 edit(s) of Notes to samples/Notes/v1/bin/patched/notes-v1.edits.json.
 Bound to the build: sha256 <sha256-1>, MVID <guid-1>, Notes, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null. apply_edits refuses other builds unless targetBuild=other.

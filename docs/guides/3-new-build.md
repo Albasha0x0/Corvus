@@ -68,6 +68,7 @@ Build check: different build, carried over (targetBuild=other): the script was m
 Cross-build: 3 edit(s) resolved by name, 3 target(s) followed to a renamed counterpart.
 === [5/5] save_assembly
 Wrote samples/Notes/v2/bin/patched/Notes.dll (12,800 bytes, 3 edit(s); everything no edit touched is as in the original).
+Edits written: Notes#2#1 (c89766f68754b1db), Notes#2#2 (4e55ef172ec3a611), Notes#2#3 (44588f360cc89803).
 ```
 
 The comparison finds the two renames and the move that the [source diff](../../samples/Notes) shows, and all three
