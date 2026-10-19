@@ -42,6 +42,47 @@ public sealed class InstallerStubTests
         return pe.Build();
     }
 
+    /// <summary>A cabinet with one stored folder (no checksums).</summary>
+    internal static byte[] Cab(params (string Name, byte[] Data)[] files)
+    {
+        var data = files.SelectMany(f => f.Data).ToArray();
+        var blocks = data.Chunk(32768).ToList();
+        int filesAt = 36 + 8, entries = files.Sum(f => 16 + Encoding.ASCII.GetByteCount(f.Name) + 1);
+        int dataAt = filesAt + entries, size = dataAt + blocks.Sum(b => 8 + b.Length);
+        var o = new BinaryWriter(new MemoryStream());
+        o.Write("MSCF"u8); o.Write(0); o.Write(size); o.Write(0); o.Write(filesAt); o.Write(0);
+        o.Write((byte)3); o.Write((byte)1); o.Write((ushort)1); o.Write((ushort)files.Length); o.Write((ushort)0); o.Write((ushort)0); o.Write((ushort)0);
+        o.Write(dataAt); o.Write((ushort)blocks.Count); o.Write((ushort)0);
+        uint offset = 0;
+        foreach (var (name, bytes) in files)
+        {
+            o.Write(bytes.Length); o.Write(offset); o.Write((ushort)0); o.Write((ushort)0x5A21); o.Write((ushort)0); o.Write((ushort)0x20);
+            o.Write(Encoding.ASCII.GetBytes(name)); o.Write((byte)0);
+            offset += (uint)bytes.Length;
+        }
+        foreach (var b in blocks) { o.Write(0); o.Write((ushort)b.Length); o.Write((ushort)b.Length); o.Write(b); }
+        return ((MemoryStream)o.BaseStream).ToArray();
+    }
+
+    /// <summary>A Burn stub: a .wixburn section sizing <paramref name="cabinets"/>, which follow the image unsigned.</summary>
+    internal static byte[] BurnStub(params byte[][] cabinets)
+    {
+        var pe = new PeBuilder { Is64 = false, Machine = 0x14C, ImageBase = 0x400000, Characteristics = 0x0102 };
+        pe.Add(".text", [0xC3]);
+        var header = new byte[48 + 4 * cabinets.Length];
+        var section = pe.Add(".wixburn", header);
+        pe.Overlay = [.. cabinets.SelectMany(c => c)];
+        var image = pe.Build();
+        int stub = image.Length - pe.Overlay.Length;
+        var w = new BinaryWriter(new MemoryStream(header));
+        w.Write(0x00F14300); w.Write(2); w.Write(Guid.Parse("11111111-2222-3333-4444-555555555555").ToByteArray());
+        w.Write(stub); w.Write(0); w.Write(0); w.Write(0); w.Write(1); w.Write(cabinets.Length);
+        foreach (var c in cabinets) w.Write(c.Length);
+        var raw = (int)BitConverter.ToUInt32(image, pe.SectionTableOffset + 40 + 20); // the second section's PointerToRawData
+        header.CopyTo(image, raw);
+        return image;
+    }
+
     private static byte[] Zip(params (string Name, byte[] Data)[] files)
     {
         var o = new MemoryStream();
@@ -67,15 +108,46 @@ public sealed class InstallerStubTests
         Assert.Contains(c.Items, i => i.Name == "App-1.2.3-full.nupkg" && i.Bytes.SequenceEqual(package));
     }
 
+    private static byte[] BurnFixture()
+    {
+        var manifest = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <BurnManifest xmlns="http://wixtoolset.org/schemas/v4/2008/Burn">
+              <UX><Payload Id="ba" FilePath="BA.dll" SourcePath="u0" Packaging="embedded" /></UX>
+              <Payload Id="app" FilePath="packages\app.msi" SourcePath="a0" Container="WixAttachedContainer" Packaging="embedded" />
+              <Payload Id="web" FilePath="runtime.exe" FileSize="1234" DownloadUrl="https://example.org/runtime.exe" Packaging="external" />
+              <Registration><Arp DisplayName="Sample Bundle" DisplayVersion="1.2.3" Publisher="Sample Publisher" /></Registration>
+              <Chain><MsiPackage Id="App" /><ExePackage Id="Runtime" /></Chain>
+            </BurnManifest>
+            """u8.ToArray();
+        return BurnStub(Cab(("0", manifest), ("u0", [0x4D, 0x5A, 1])), Cab(("a0", "app package"u8.ToArray())));
+    }
+
     [Fact]
-    [FuzzEntry(typeof(SquirrelSetupReader))]
+    public void A_Burn_bundle_lists_its_payloads_under_their_manifest_paths()
+    {
+        var bundle = BurnFixture();
+        Assert.True(new BurnBundleReader().Accepts(bundle, "bundle.exe"));
+        var c = Containers.Open(bundle, "bundle.exe", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Equal("WiX Burn bundle", c.Kind);
+        Assert.Contains("WiX Burn bundle Sample Bundle 1.2.3 by Sample Publisher: bundle id {11111111-2222-3333-4444-555555555555}, 2 cabinet(s), 2 package(s) (1 MsiPackage, 1 ExePackage).", c.Notes);
+        Assert.Equal(["ux/manifest.xml", "ux/BA.dll", "packages/app.msi"], c.Items.Select(i => i.Name));
+        Assert.Equal("app package"u8.ToArray(), c.Items[2].Bytes);
+        Assert.Contains(c.Entries!, e => e is { Path: "runtime.exe", Size: 1234, Detail: "downloaded at install from https://example.org/runtime.exe" });
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(SquirrelSetupReader), typeof(BurnBundleReader))]
     public void Fuzzed_installer_stubs_never_throw_past_a_tool_error()
     {
         var squirrel = Stub("DATA", 131, Zip(("RELEASES", Encoding.ASCII.GetBytes($"{new string('A', 40)} A-1-full.nupkg 3\n")), ("A-1-full.nupkg", [1, 2, 3])));
-        var failures = FormatFuzz.Run(squirrel, b =>
+        foreach (var seed in new[] { squirrel, BurnFixture() })
         {
-            try { Containers.Open(b, "Setup.exe", AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { }
-        }, 300);
-        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+            var failures = FormatFuzz.Run(seed, b =>
+            {
+                try { Containers.Open(b, "Setup.exe", AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { }
+            }, 300);
+            Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+        }
     }
 }
