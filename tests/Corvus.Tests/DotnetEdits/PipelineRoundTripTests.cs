@@ -251,6 +251,9 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
 
         var psi = new ProcessStartInfo(tool, $"-n \"{project}\"") { WorkingDirectory = work };
         psi.Environment[ToolIds.SigningKeyVariable] = SigningKey(); // the resource-integrity option signs with it
+        // the tool leaves a copy of the module in a folder of its own under TEMP: kept inside work, it goes with it
+        var temp = Directory.CreateDirectory(Path.Combine(work, "temp")).FullName;
+        psi.Environment["TEMP"] = psi.Environment["TMP"] = temp;
         var (code, log) = Tools.Run(psi);
         var processedPath = Path.Combine(outDir, file);
         if (code != 0 || !File.Exists(processedPath))
