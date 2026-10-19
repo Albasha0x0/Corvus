@@ -7,11 +7,12 @@ install, nothing uploaded; by default nothing it reads is executed.
 [![Release](https://img.shields.io/github/v/release/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/stargazers)
 
 > [!NOTE]
 > Corvus is under active development. Tools, parameters and output can change between releases; breaking changes are
 > listed in the [release notes](docs/release-notes.md). Bug reports and feedback are welcome in
-> [issues](https://github.com/Albasha0x0/Corvus/issues).
+> [issues](https://github.com/Albasha0x0/Corvus/issues). If Corvus is useful to you, a star helps other people find it.
 
 [Quick start](#quick-start) · [How it works](#how-it-works) · [What you can analyze](#what-you-can-analyze) ·
 [Showcases](#showcases) · [Why Corvus](#why-corvus) · [Documentation](#documentation)
@@ -106,3 +107,12 @@ Analyze software you own or are permitted to analyze. Decompiling, patching or r
 restricted by its license and by law where you live.
 
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
+
+## Star history
+
+<a href="https://www.star-history.com/#Albasha0x0/Corvus&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Albasha0x0/Corvus&type=Date&theme=dark" />
+    <img alt="Corvus star history" src="https://api.star-history.com/svg?repos=Albasha0x0/Corvus&type=Date" />
+  </picture>
+</a>
