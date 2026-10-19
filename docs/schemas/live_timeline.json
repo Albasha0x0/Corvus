@@ -57,6 +57,9 @@
           "name": {
             "description": "As the OS reports it: a path, registry key or value, endpoint or program.",
             "type": "string"
+          },
+          "processId": {
+            "type": "integer"
           }
         },
         "required": [

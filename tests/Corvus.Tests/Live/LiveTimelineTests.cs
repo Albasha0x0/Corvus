@@ -191,6 +191,14 @@ public sealed class LiveTimelineTests : IDisposable
         Assert.Equal(@"HKU\S-1-5-18\Software", ActivityDecoder.RegistryName(@"\Registry\User\S-1-5-18\Software", "S-1-5-21-1"));
     }
 
+    /// <summary>A started program keeps its process id beside the name, so a program that relaunches itself can be attached.</summary>
+    [Fact]
+    public void A_started_program_carries_its_process_id()
+    {
+        var started = new ActivityDecoder(7, new DeviceMap([]), null).ProcessStart(DateTime.UtcNow, 4321, []);
+        Assert.Equal(("process", 4321), (started.Category, started.ProcessId));
+    }
+
     [Fact]
     public void Keys_held_open_before_the_trace_name_the_root_of_later_relative_opens()
     {

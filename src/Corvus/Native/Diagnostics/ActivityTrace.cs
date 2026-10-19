@@ -11,7 +11,8 @@ using Corvus.Core;
 namespace Corvus.Native.Diagnostics;
 
 /// <summary>One entry of an activity trace: when, the kind of object (file, registry, network, process) and the name the OS reports for it.</summary>
-public sealed record ActivityEntry(DateTime Time, string Category, string Name);
+/// <summary>One recorded activity; <paramref name="ProcessId"/> is a started child's id.</summary>
+public sealed record ActivityEntry(DateTime Time, string Category, string Name, int? ProcessId = null);
 
 /// <summary>Why a trace cannot be collected on this machine, and the fix.</summary>
 public sealed record ActivityTraceUnavailable(string Reason, string Remediation);
@@ -243,7 +244,7 @@ internal sealed class ActivityDecoder(int processId, DeviceMap devices, string? 
     }
 
     public ActivityEntry ProcessStart(DateTime at, int childId, byte[] data) =>
-        new(at, "process", ImageName(data) is { } image ? devices.DosPath(image) : $"process {childId}");
+        new(at, "process", ImageName(data) is { } image ? devices.DosPath(image) : $"process {childId}", childId);
 
     /// <summary>An endpoint from the providers' fields: an IPv4 address as a 32-bit value or bytes, both in network byte order, and a port the same.</summary>
     public static string? Endpoint(object? address, object? port)

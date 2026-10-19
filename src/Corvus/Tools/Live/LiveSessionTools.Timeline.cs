@@ -13,7 +13,10 @@ public sealed partial class LiveSessionTools
     public sealed record LiveTimelineRow(long Sequence,
         [property: Description("UTC, ISO 8601.")] string Time,
         [property: Description("file, registry, network or process.")] string Category,
-        [property: Description("As the OS reports it: a path, registry key or value, endpoint or program.")] string Name);
+        [property: Description("As the OS reports it: a path, registry key or value, endpoint or program.")] string Name)
+    {
+        public int? ProcessId { get; init; }
+    }
 
     public sealed record LiveTimelineName(string Category, string Name, long Count, [property: Description("UTC, ISO 8601.")] string First);
 
@@ -135,13 +138,13 @@ public sealed partial class LiveSessionTools
         var text = new StringBuilder();
         long dropped = start > 0 && start < firstKept ? firstKept - start : 0;
         if (dropped > 0) text.AppendLine($"{dropped:N0} entries before this page were dropped (a timeline keeps {LiveTimelineRun.Capacity:N0})");
-        foreach (var e in entries) text.AppendLine($"#{e.Sequence} {Since(r, e.Time)} {e.Category} {e.Name}");
+        foreach (var e in entries) text.AppendLine($"#{e.Sequence} {Since(r, e.Time)} {e.Category} {e.Name}{(e.ProcessId is { } pid ? $" (process {pid})" : "")}");
         var next = entries.Count > 0 ? entries[^1].Sequence + 1 : Math.Max(start, firstKept);
         string? nextCursor = entries.Count == limit && entries[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
         text.AppendLine(entries.Count == 0 && start <= 1 ? $"No entries ({r.State})."
             : nextCursor != null ? $"more: cursor={nextCursor}"
             : r.State == "recording" ? $"end of the timeline so far; poll again with cursor={next}" : "end of the timeline (complete)");
-        var rows = entries.Select(e => new LiveTimelineRow(e.Sequence, Iso(e.Time), e.Category, e.Name)).ToList();
+        var rows = entries.Select(e => new LiveTimelineRow(e.Sequence, Iso(e.Time), e.Category, e.Name) { ProcessId = e.ProcessId }).ToList();
         return ToolOutput.With(text.ToString(), new LiveTimelinePage(TimelineSummary(r), rows, nextCursor, []) { Dropped = dropped });
     }
 

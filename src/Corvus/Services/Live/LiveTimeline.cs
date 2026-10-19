@@ -6,7 +6,7 @@ using Corvus.Native.Diagnostics;
 namespace Corvus.Services;
 
 /// <summary>An entry of a timeline with its sequence number, the cursor live_timeline pages by.</summary>
-public sealed record LiveTimelineEntry(long Sequence, DateTime Time, string Category, string Name);
+public sealed record LiveTimelineEntry(long Sequence, DateTime Time, string Category, string Name, int? ProcessId = null);
 
 /// <summary>
 /// An activity trace of a session's program from the operating system's diagnostics channel: a bounded ring of entries,
@@ -52,7 +52,7 @@ public sealed class LiveTimelineRun
     {
         lock (_ring)
         {
-            _ring.Enqueue(new LiveTimelineEntry(++_sequence, e.Time, e.Category, e.Name));
+            _ring.Enqueue(new LiveTimelineEntry(++_sequence, e.Time, e.Category, e.Name, e.ProcessId));
             if (_ring.Count > Capacity)
             {
                 _ring.Dequeue();
