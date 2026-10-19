@@ -24,7 +24,7 @@ public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
             Name = "corvus",
             Command = exe ?? "dotnet",
             Arguments = exe == null ? [McpProtocolTests.ServerDll] : [],
-            EnvironmentVariables = new Dictionary<string, string?> { ["CORVUS_ANNOTATIONS_DIR"] = dir.File("annotations") },
+            EnvironmentVariables = new Dictionary<string, string?> { ["CORVUS_ANNOTATIONS_DIR"] = dir.File("annotations"), ["PATH"] = Tools.CmdPath() },
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),
         }), new McpClientOptions { DiscoverProbeTimeout = Timeout.InfiniteTimeSpan });
         var initialize = watch.Elapsed;

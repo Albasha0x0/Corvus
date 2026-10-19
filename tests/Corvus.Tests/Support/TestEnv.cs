@@ -271,10 +271,23 @@ internal static class Tools
         }
     }
 
+    /// <summary>
+    /// PATH for a child that runs through cmd: cmd expands no variable over 8,191 characters, so a longer PATH loses its
+    /// duplicates and missing folders (otherwise vcvarsall finds no Windows SDK and cmd /c finds no dotnet).
+    /// </summary>
+    public static string? CmdPath(string? path = null)
+    {
+        path ??= Environment.GetEnvironmentVariable("PATH");
+        return !OperatingSystem.IsWindows() || path is not { Length: > 8191 } ? path
+            : string.Join(';', path.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(Directory.Exists).DistinctBy(p => p.TrimEnd('\\').ToLowerInvariant()));
+    }
+
     public static (int ExitCode, string Output) Run(ProcessStartInfo psi, int timeoutMs = 900_000)
     {
         psi.RedirectStandardOutput = psi.RedirectStandardError = true;
         psi.UseShellExecute = false;
+        psi.Environment["PATH"] = CmdPath(psi.Environment["PATH"]);
         var output = new System.Text.StringBuilder();
         using var stdoutDone = new ManualResetEventSlim();
         using var stderrDone = new ManualResetEventSlim();

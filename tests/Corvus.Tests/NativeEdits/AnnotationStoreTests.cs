@@ -456,7 +456,7 @@ public class AnnotationStoreTests : IDisposable
             Name = "corvus",
             Command = "dotnet",
             Arguments = [typeof(Corvus.Core.AssemblyWorkspace).Assembly.Location],
-            EnvironmentVariables = new Dictionary<string, string?> { ["CORVUS_ANNOTATIONS_DIR"] = Root },
+            EnvironmentVariables = new Dictionary<string, string?> { ["CORVUS_ANNOTATIONS_DIR"] = Root, ["PATH"] = Tools.CmdPath() },
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),
         }));
         Assert.True((await server.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = image })).IsError != true);
