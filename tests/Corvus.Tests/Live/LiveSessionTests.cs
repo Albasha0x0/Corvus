@@ -282,6 +282,25 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_crash_whose_exception_event_was_lost_is_recorded_from_the_exit_code()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            "/c findstr x & exit /b -1073741819") { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
+        await tools.LiveSession("attach", program: child.Id.ToString());
+        child.StandardInput.Close();
+        await child.WaitForExitAsync();
+        backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+        for (int i = 0; i < 100 && service.Get("live-1").State != "exited"; i++) await Task.Delay(50);
+        var events = await tools.LiveEvents("live-1", kind: "exception");
+        Assert.Contains("EXCEPTION_ACCESS_VIOLATION (0xC0000005), from the exit code", events);
+        Assert.Contains("exit code 0xC0000005", await tools.LiveEvents("live-1", kind: "exit"));
+    }
+
+    [Fact]
     public async Task Events_page_with_a_cursor_and_never_resend()
     {
         await _tools.LiveSession("attach", program: "4242");

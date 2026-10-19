@@ -105,6 +105,8 @@ public sealed class LiveSession
     public bool Closed { get; internal set; }
     /// <summary>Events the ring dropped, oldest first.</summary>
     public long Dropped { get; private set; }
+    /// <summary>Exception events recorded, dropped ones included.</summary>
+    public long Exceptions { get; private set; }
 
     public string State
     {
@@ -134,6 +136,7 @@ public sealed class LiveSession
         lock (_gate)
         {
             var seq = ++_sequence;
+            if (kind == "exception") Exceptions++;
             _ring.Enqueue(new LiveRingEvent(seq, kind, thread, address, text, source));
             if (_ring.Count > RingCapacity)
             {
@@ -448,6 +451,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 break;
             case "exit":
                 session.Ended = "exited: " + body.GetProperty("reason").GetString() + ExitText(session);
+                // the worker's exception event can be lost when the process dies at once; the exit code still names it
+                if (session is { Exceptions: 0, ExitCode: >= 0xC000_0000 and not StatusControlCExit and { } code } && Native.Dump.ExceptionCodes.Name(code) is { } exception)
+                    session.Add("exception", null, null, $"{exception} (0x{code:X8}), from the exit code: the program ended before the exception's address was reported");
                 session.ReleaseAll();
                 EndCoverage(session);
                 EndTimeline(session);
@@ -506,6 +512,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     private static readonly TimeSpan ExitCodeWait = TimeSpan.FromSeconds(1);
 
     /// <summary>", exit code N" from the program's handle once it has ended (crash codes named); empty when it cannot be read.</summary>
+    private const uint StatusControlCExit = 0xC000_013A;
+
     private static string ExitText(LiveSession session)
     {
         if (session.ProcessHandle is not { IsInvalid: false } h) return "";
