@@ -346,7 +346,10 @@ public sealed class DevRelayRealServerTests
         using var dir = new TempDir();
         var publish = Path.Combine(dir.Path, "publish");
         var server = Path.GetDirectoryName(typeof(DevRelay).Assembly.Location)!;
-        foreach (var file in Directory.EnumerateFiles(server, "*", SearchOption.AllDirectories))
+        // the server's own folders only: the test data beside it is not the server, and antivirus may block reading some of it
+        static bool Shipped(string relative) => Path.GetDirectoryName(relative) is not { Length: > 0 } dir
+            || dir.Split(Path.DirectorySeparatorChar)[0] is "runtimes" or "clr32" || relative.EndsWith(".resources.dll", StringComparison.Ordinal);
+        foreach (var file in Directory.EnumerateFiles(server, "*", SearchOption.AllDirectories).Where(f => Shipped(Path.GetRelativePath(server, f))))
         {
             var to = Path.Combine(publish, Path.GetRelativePath(server, file));
             Directory.CreateDirectory(Path.GetDirectoryName(to)!);
