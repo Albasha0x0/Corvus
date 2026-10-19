@@ -64,6 +64,18 @@
         ]
       }
     },
+    "code": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalChars": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {

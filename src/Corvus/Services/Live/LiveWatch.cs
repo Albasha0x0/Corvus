@@ -32,6 +32,8 @@ public sealed class LiveWatchState(string id, string where, ulong address, LiveF
     public LiveFrameName At { get; } = at;
     public LiveWatchPlan Plan { get; } = plan;
     public int PerSecond { get; } = perSecond;
+    /// <summary>Set when the location was a jump and the watch went where it leads.</summary>
+    public string? Followed { get; init; }
     public long Calls { get; set; }
     /// <summary>Calls over the rate limit: counted by the session script, not recorded.</summary>
     public long Skipped { get; set; }

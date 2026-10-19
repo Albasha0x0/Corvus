@@ -2837,7 +2837,7 @@ Open, list, inspect or close a session on a local program. Returns the session i
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | list, processes, attach, spawn, status, snapshot or close. Values: list, processes, attach, spawn, status, close. |
+| `action` | string |  | `list` | list, processes, attach, spawn, status, snapshot or close. Values: list, processes, attach, spawn, status, snapshot, close. |
 | `program` | string |  |  | attach: process id or name; spawn: program path, started suspended; processes: a name filter. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `session` | string |  |  | Session id from live_session. |
@@ -2896,7 +2896,7 @@ Read a held thread's registers and program memory as typed values, named through
 | `type` | string |  |  | memory: int8..uint64, float, double, pointer, cstring, utf16; [n] for arrays. |
 | `length` | integer |  | `64` | memory: bytes without a type (max 4096). |
 
-Structured output: `session`, `thread`, `registers`, `memory`, `namedAddresses`.
+Structured output: `session`, `thread`, `registers`, `memory`, `namedAddresses`, `code`, `offset`, `nextOffset`, `totalChars`.
 
 ### live_events
 

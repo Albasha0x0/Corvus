@@ -44,7 +44,11 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     public sealed record LiveStopPoint(string Id,
         [property: Description("As given: a name, module!export, address or file:line.")] string Where,
-        string? Address, int Hits);
+        string? Address, int Hits)
+    {
+        [Description("The jump followed, if any.")]
+        public string? Followed { get; init; }
+    }
 
     public sealed record LiveFrame(string Address, string? Image, string? Name, string? Source);
 
@@ -64,7 +68,11 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [property: Description("known API table, PDB prototype, DWARF parameter names or raw values.")] string Decoding,
         int RateLimit, long Calls,
         [property: Description("Calls over the rate limit, not recorded.")] long Skipped,
-        double? CallsPerSecond);
+        double? CallsPerSecond)
+    {
+        [Description("The jump followed, if any.")]
+        public string? Followed { get; init; }
+    }
 
     public sealed record LiveWatchReport(string Session, IReadOnlyList<LiveWatch> Watches)
     {
@@ -208,7 +216,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     LiveSessionService.Live(s);
                     if (string.IsNullOrWhiteSpace(at)) throw new ToolError(ErrorCode.InvalidArgument, "action=set needs at.", "at=<name>, module!export, file:line or 0xADDRESS");
                     var point = await live.SetAsync(s, at, cancellationToken).ConfigureAwait(false);
-                    head.AppendLine($"{point.Id} set at {Hex(point.Address)} {point.At.Display}{Src(point.At.Source)}");
+                    head.AppendLine($"{point.Id} set at {Hex(point.Address)} {point.At.Display}{Src(point.At.Source)}{(point.Followed != null ? $" ({point.Followed})" : "")}");
                     break;
                 case "clear":
                     LiveSessionService.Live(s);
@@ -241,7 +249,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             head.AppendLine($"{s.Id}: {s.State}, {points.Count} stop point(s)");
             foreach (var p in points) head.AppendLine($"  {p.Id} {p.Where} at {Hex(p.Address)} {p.At.Display}, {p.Hits} hit(s)");
             named.AddRange(points.Select(p => p.At.Named).OfType<EvidenceName>());
-            var rows = points.Select(p => new LiveStopPoint(p.Id, p.Where, Hex(p.Address), p.Hits)).ToList();
+            var rows = points.Select(p => new LiveStopPoint(p.Id, p.Where, Hex(p.Address), p.Hits) { Followed = p.Followed }).ToList();
             return ToolOutput.With(head.ToString(), new LiveStopPointReport(s.Id, rows, stop) { NamedAddresses = Named(named) });
         }, cancellationToken);
 
@@ -252,7 +260,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         text.AppendLine($"thread {held.Thread} stopped at {held.Point} ({frames.FirstOrDefault()?.Display ?? "?"})");
         for (int i = 0; i < frames.Count; i++) text.AppendLine($"  #{i} {Hex(frames[i].Address)} {frames[i].Display}{Src(frames[i].Source)}");
         return new LiveStop(held.Thread.ToString(CultureInfo.InvariantCulture), "stop point", held.Point,
-            frames.Select(f => new LiveFrame(Hex(f.Address), f.Image?.Id, f.Function == null ? null : f.Display, f.Source)).ToList());
+            frames.Select(f => new LiveFrame(Hex(f.Address), f.Image?.Id ?? f.Module, f.Module == null ? null : f.Display, f.Source)).ToList()); // module+offset when no image is loaded
     }
 
     [McpServerTool(Name = "live_watch", Title = "Record calls in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveWatchReport))]
@@ -278,7 +286,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     LiveSessionService.Live(s);
                     if (string.IsNullOrWhiteSpace(at)) throw new ToolError(ErrorCode.InvalidArgument, "action=set needs at.", "at=<name>, module!export or 0xADDRESS");
                     var w = await live.WatchAsync(s, at, Math.Clamp(rateLimit, 1, 100_000), arguments, cancellationToken).ConfigureAwait(false);
-                    head.AppendLine($"{w.Id} set at {Hex(w.Address)} {w.At.Display}: {w.Plan.Prototype} ({w.Plan.Source}); at most {w.PerSecond:N0} calls/s recorded");
+                    head.AppendLine($"{w.Id} set at {Hex(w.Address)} {w.At.Display}: {w.Plan.Prototype} ({w.Plan.Source}); at most {w.PerSecond:N0} calls/s recorded{(w.Followed != null ? $" ({w.Followed})" : "")}");
                     break;
                 case "clear":
                     LiveSessionService.Live(s);
@@ -299,7 +307,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 double? rate;
                 lock (x) (calls, skipped, rate) = (x.Calls, x.Skipped, x.Rate);
                 rows.Add(new LiveWatch(x.Id, x.Where, Hex(x.Address), x.At.Function == null ? null : x.At.Display, x.Plan.Prototype, x.Plan.Source, x.PerSecond, calls, skipped,
-                    rate is { } r ? Math.Round(r) : null));
+                    rate is { } r ? Math.Round(r) : null) { Followed = x.Followed });
                 head.AppendLine($"  {x.Id} {x.At.Display}: {calls:N0} call(s) recorded{(rate is { } r2 ? $" ({r2:N0}/s)" : "")}{(skipped > 0 ? $", {skipped:N0} over the rate limit" : "")}");
             }
             if (rows.Count > 0) head.AppendLine($"calls: live_events from={rows[0].Id}");
@@ -384,7 +392,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             var text = new StringBuilder();
             var named = new List<EvidenceName>();
             var regs = new List<LiveValue>();
-            if (held != null)
+            if (held != null && (memory == null || registers != null)) // a memory read shows registers only when asked
             {
                 var wanted = registers?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 text.AppendLine($"thread {held.Thread} (held at {held.Point})");
@@ -406,14 +414,23 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             if (memory != null)
             {
                 var address = held != null && held.Registers.TryGetValue(memory.Trim(), out var reg) && Number(reg) is { } r ? r
-                    : await live.ResolveAsync(s, memory, cancellationToken).ConfigureAwait(false);
+                    : await live.ResolveAsync(s, memory, cancellationToken, data: true).ConfigureAwait(false);
                 var (kind, size, count) = ParseType(type, length);
                 var bytes = await live.ReadAsync(s, address, size * count, cancellationToken).ConfigureAwait(false)
                             ?? throw new ToolError(ErrorCode.NotFound, $"The program has no readable memory at {Hex(address)}.", "check the address with live_session action=status (module ranges)");
                 var at = live.Name(s, address, ct: cancellationToken);
                 if (at.Named is { } n) named.Add(n);
                 text.AppendLine($"{Hex(address)}{(at.Module != null ? " " + at.Display : "")}: {kind}{(type != null && count > 1 ? $"[{count}]" : "")}");
+                // untyped bytes go in rows, so a page too small for the whole read keeps its first rows
+                if (kind == "bytes" && bytes.Length > BytesPerRow) (size, count) = (BytesPerRow, (bytes.Length + BytesPerRow - 1) / BytesPerRow);
                 for (int i = 0; i < count; i++)
+                    if (kind == "bytes" && count > 1)
+                    {
+                        var row = Convert.ToHexStringLower(bytes.AsSpan(i * size, Math.Min(size, bytes.Length - i * size)));
+                        values.Add(new LiveValue($"{memory.Trim()}+0x{i * size:X}", kind, row, Hex(address + (ulong)(i * size))));
+                        text.AppendLine($"  +0x{i * size:X3} {row}");
+                    }
+                    else
                 {
                     var v = Decode(kind, bytes.AsSpan(i * size, size));
                     var name = count == 1 ? memory.Trim() : $"{memory.Trim()}[{i}]";
@@ -423,6 +440,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             }
             return ToolOutput.With(text.ToString(), new LiveReadReport(s.Id, held?.Thread.ToString(CultureInfo.InvariantCulture) ?? "", regs, values) { NamedAddresses = Named(named) });
         }, cancellationToken);
+
+    private const int BytesPerRow = 256;
 
     private static readonly Dictionary<string, int> Sizes = new(StringComparer.Ordinal)
     {

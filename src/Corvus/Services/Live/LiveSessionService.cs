@@ -22,6 +22,8 @@ public sealed record LiveModuleState(string Name, ulong Base, ulong Size, string
 public sealed record LiveStopPointState(string Id, string Where, ulong Address, LiveFrameName At)
 {
     public int Hits { get; set; }
+    /// <summary>Set when the location was a jump and the point went where it leads.</summary>
+    public string? Followed { get; init; }
 }
 
 /// <summary>A thread held at a stop point until it is resumed: its general registers and return addresses.</summary>
@@ -430,9 +432,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     /// <summary>
     /// The live address of a name (in the program's image, then any matched image), module!export, file:line (PDB line
-    /// tables), an image VA (translated to where the module is loaded) or a live address.
+    /// tables), an image VA (translated to where the module is loaded) or a live address. With <paramref name="data"/>, a
+    /// module name is its base and an address outside every module (stack, heap) is taken as is.
     /// </summary>
-    public async Task<ulong> ResolveAsync(LiveSession session, string where, CancellationToken ct)
+    public async Task<ulong> ResolveAsync(LiveSession session, string where, CancellationToken ct, bool data = false)
     {
         var t = where.Trim();
         if (t.Length == 0) throw new ToolError(ErrorCode.InvalidArgument, "The stop point location is empty.", "at=<name>, module!export, file:line or 0xADDRESS");
@@ -471,8 +474,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             foreach (var m in modules)
                 if (Match(m) is { } native && value >= native.Image.ImageBase && value - native.Image.ImageBase < native.Image.SizeOfImage)
                     return m.Base + (value - native.Image.ImageBase);
+            if (data) return value;
             throw new ToolError(ErrorCode.NotFound, $"0x{value:X} is in no module of the program, live or as an image address.", "live_session action=status lists module ranges");
         }
+        if (data && modules.FirstOrDefault(m => m.Name.Equals(t, StringComparison.OrdinalIgnoreCase)) is { } whole) return whole.Base;
         ToolError? first = null;
         foreach (var m in modules)
         {
@@ -489,12 +494,58 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return NativeAddress.Parse(native.Image, name, index.AddressesOfName);
     }
 
+    /// <summary>
+    /// Where code at <paramref name="address"/> really starts: the backend places a stop point on a jump (direct or through
+    /// memory) at the jump's target, so the server follows it first and says so; a jump through a CFG dispatch or check
+    /// pointer is refused, since its target runs for every indirect call of the program.
+    /// </summary>
+    internal async Task<(ulong Address, string? Followed)> FollowJumpsAsync(LiveSession session, ulong address, CancellationToken ct)
+    {
+        var start = address;
+        for (int hop = 0; hop < 8; hop++)
+        {
+            LiveModuleState? m;
+            lock (session.Modules) m = session.Modules.FirstOrDefault(x => x.Contains(address));
+            if (m == null || Match(m) is not { } native) break;
+            var index = code.Ready(native) ?? await code.Index(native, null, ct).ConfigureAwait(false);
+            var rva = (uint)(address - m.Base);
+            if (index.Decode(rva) is not { } insn) break;
+            ulong next;
+            if (insn.Flow == FlowKind.Jump && insn.BranchTarget is { } target) next = m.Base + target;
+            else if (insn.Flow == FlowKind.IndirectJump && insn.MemoryTarget is { } slot)
+            {
+                if (GuardPointerSlots(native).Contains(slot))
+                    throw new ToolError(ErrorCode.Unsupported,
+                        $"{Name(session, address, ct: ct).Display} jumps through the Control Flow Guard dispatch pointer: a stop point or watch there would run for every indirect call of the program.",
+                        "set it at the function the indirect call reaches");
+                int size = native.Image.Is64Bit ? 8 : 4;
+                if (await ReadAsync(session, m.Base + slot, size, ct).ConfigureAwait(false) is not { } b || b.Length < size) break;
+                next = size == 8 ? BitConverter.ToUInt64(b) : BitConverter.ToUInt32(b);
+            }
+            else break;
+            if (next == 0 || next == address) break;
+            address = next;
+        }
+        return address == start ? (start, null) : (address, $"{Name(session, start, ct: ct).Display} jumps to {Name(session, address, ct: ct).Display}, so it is set there");
+    }
+
+    /// <summary>RVAs of the image's CFG check and dispatch pointers (the load configuration's guard function pointers).</summary>
+    private static HashSet<uint> GuardPointerSlots(LoadedNative native)
+    {
+        var slots = new HashSet<uint>();
+        if (native.Image is Native.Pe.PeFile { LoadConfig: { } lc })
+            foreach (var va in new[] { lc.GuardCfCheckFunctionPointer, lc.GuardCfDispatchFunctionPointer, lc.GuardXfgCheckFunctionPointer,
+                         lc.GuardXfgDispatchFunctionPointer, lc.GuardXfgTableDispatchFunctionPointer })
+                if (va > native.Image.ImageBase && va - native.Image.ImageBase < native.Image.SizeOfImage) slots.Add((uint)(va - native.Image.ImageBase));
+        return slots;
+    }
+
     public async Task<LiveStopPointState> SetAsync(LiveSession session, string where, CancellationToken ct)
     {
-        var address = await ResolveAsync(session, where, ct).ConfigureAwait(false);
+        var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         var id = session.NextPointId();
         await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{address:X}" }, RequestTimeout, ct).ConfigureAwait(false);
-        var point = new LiveStopPointState(id, where.Trim(), address, Name(session, address, ct: ct));
+        var point = new LiveStopPointState(id, where.Trim(), address, Name(session, address, ct: ct)) { Followed = followed };
         lock (session.StopPoints) session.StopPoints[id] = point;
         return point;
     }
@@ -502,7 +553,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// <summary>Records each call of the function at <paramref name="where"/>, decoded by the plan its name, PDB or DWARF gives.</summary>
     public async Task<LiveWatchState> WatchAsync(LiveSession session, string where, int perSecond, int rawArguments, CancellationToken ct)
     {
-        var address = await ResolveAsync(session, where, ct).ConfigureAwait(false);
+        var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         var at = Name(session, address, ct: ct);
         var bare = where.Trim();
         // a known API is found by the name given (module!export) or the function's own name
@@ -511,7 +562,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         var os = session.Platform switch { "windows" => ApiOs.Windows, "linux" => ApiOs.Linux, "darwin" => ApiOs.Darwin, _ => ApiOs.Unknown };
         var plan = LiveWatchPlans.Build(function, at.Image, at.Rva, session.Arch is "x64" or "arm64", os, rawArguments);
         var id = session.NextWatchId();
-        var w = new LiveWatchState(id, bare, address, at, plan, perSecond);
+        var w = new LiveWatchState(id, bare, address, at, plan, perSecond) { Followed = followed };
         lock (session.Watches) session.Watches[id] = w;
         try
         {

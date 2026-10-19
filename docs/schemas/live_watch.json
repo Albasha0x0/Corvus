@@ -41,6 +41,10 @@
           },
           "callsPerSecond": {
             "type": "number"
+          },
+          "followed": {
+            "description": "The jump followed, if any.",
+            "type": "string"
           }
         },
         "required": [

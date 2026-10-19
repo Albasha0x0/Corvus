@@ -21,6 +21,10 @@
           },
           "hits": {
             "type": "integer"
+          },
+          "followed": {
+            "description": "The jump followed, if any.",
+            "type": "string"
           }
         },
         "required": [
