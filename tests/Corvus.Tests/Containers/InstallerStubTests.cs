@@ -202,18 +202,21 @@ public sealed class InstallerStubTests
     }
 
     /// <summary>
-    /// An Inno Setup 6.7.0 installer with uncompressed setup-0 blocks: AppName "Sample", one stored file {app}\a.txt and the
-    /// uninstaller entry; the offset table (RCDATA 11111) points past the image.
+    /// An Inno Setup 6.7.0 installer (with <paramref name="older"/>, data 5.5.7 (u): 32-bit sizes, SHA-1, no encryption header)
+    /// with uncompressed setup-0 blocks: AppName "Sample", one stored file {app}\a.txt and the uninstaller entry; the offset
+    /// table (RCDATA 11111) points past the image.
     /// </summary>
-    private static byte[] InnoFixture()
+    private static byte[] InnoFixture(bool older = false)
     {
         var content = "inno file"u8.ToArray();
-        static byte[] Block(byte[] data)
+        byte[] Block(byte[] data)
         {
             var o = new BinaryWriter(new MemoryStream());
             var chunks = data.Chunk(4096).ToList();
-            var header = new byte[9];
-            BitConverter.TryWriteBytes(header, (long)chunks.Sum(c => 4 + c.Length));
+            var header = new byte[older ? 5 : 9];
+            int stored = chunks.Sum(c => 4 + c.Length);
+            if (older) BitConverter.TryWriteBytes(header, stored);
+            else BitConverter.TryWriteBytes(header, (long)stored);
             o.Write(System.IO.Hashing.Crc32.HashToUInt32(header)); o.Write(header);
             foreach (var c in chunks) { o.Write(System.IO.Hashing.Crc32.HashToUInt32(c)); o.Write(c); }
             return ((MemoryStream)o.BaseStream).ToArray();
@@ -225,26 +228,32 @@ public sealed class InstallerStubTests
             w.Write(fixedPart);
         }
         var first = new BinaryWriter(new MemoryStream());
-        var header = new byte[162];
-        BitConverter.TryWriteBytes(header.AsSpan(32), 2); // file entries
-        BitConverter.TryWriteBytes(header.AsSpan(36), 1); // file locations
-        Record(first, ["Sample", .. Enumerable.Repeat("", 8), "1.0", .. Enumerable.Repeat("", 29)], 4, header);
-        var file = new byte[80];
-        BitConverter.TryWriteBytes(file.AsSpan(53), 0);
-        Record(first, ["a.txt", @"{app}\a.txt", .. Enumerable.Repeat("", 13)], 1, file);
-        var uninstaller = new byte[80];
-        BitConverter.TryWriteBytes(uninstaller.AsSpan(53), -1);
-        uninstaller[79] = 1;
-        Record(first, ["", @"{app}\unins000.exe", .. Enumerable.Repeat("", 13)], 1, uninstaller);
-        var location = new byte[89];
-        BitConverter.TryWriteBytes(location.AsSpan(24), (long)content.Length);
-        BitConverter.TryWriteBytes(location.AsSpan(32), (long)content.Length);
-        System.Security.Cryptography.SHA256.HashData(content).CopyTo(location, 40);
+        // field offsets per format: header (file counts, strings), file entry (size, strings, location, type)
+        var (headerSize, files, strings, fileSize, fileStrings, fileAnsi, locationAt, typeAt) = older ? (157, 28, 28, 43, 10, 0, 20, 42) : (162, 32, 39, 80, 15, 1, 53, 79);
+        var header = new byte[headerSize];
+        BitConverter.TryWriteBytes(header.AsSpan(files), 2); // file entries
+        BitConverter.TryWriteBytes(header.AsSpan(files + 4), 1); // file locations
+        Record(first, ["Sample", .. Enumerable.Repeat("", 8), "1.0", .. Enumerable.Repeat("", strings - 10)], 4, header);
+        var file = new byte[fileSize];
+        BitConverter.TryWriteBytes(file.AsSpan(locationAt), 0);
+        Record(first, ["a.txt", @"{app}\a.txt", .. Enumerable.Repeat("", fileStrings - 2)], fileAnsi, file);
+        var uninstaller = new byte[fileSize];
+        BitConverter.TryWriteBytes(uninstaller.AsSpan(locationAt), -1);
+        uninstaller[typeAt] = 1;
+        Record(first, ["", @"{app}\unins000.exe", .. Enumerable.Repeat("", fileStrings - 2)], fileAnsi, uninstaller);
+        var location = new byte[older ? 74 : 89];
+        int sizes = older ? 20 : 24;
+        BitConverter.TryWriteBytes(location.AsSpan(sizes), (long)content.Length);
+        BitConverter.TryWriteBytes(location.AsSpan(sizes + 8), (long)content.Length);
+        (older ? System.Security.Cryptography.SHA1.HashData(content) : System.Security.Cryptography.SHA256.HashData(content)).CopyTo(location, sizes + 16);
 
         var setup0 = new BinaryWriter(new MemoryStream());
-        setup0.Write(Encoding.ASCII.GetBytes("Inno Setup Setup Data (6.7.0)".PadRight(64, '\0')));
-        var encryption = new byte[49];
-        setup0.Write(System.IO.Hashing.Crc32.HashToUInt32(encryption)); setup0.Write(encryption);
+        setup0.Write(Encoding.ASCII.GetBytes((older ? "Inno Setup Setup Data (5.5.7) (u)" : "Inno Setup Setup Data (6.7.0)").PadRight(64, '\0')));
+        if (!older)
+        {
+            var encryption = new byte[49];
+            setup0.Write(System.IO.Hashing.Crc32.HashToUInt32(encryption)); setup0.Write(encryption);
+        }
         setup0.Write(Block(((MemoryStream)first.BaseStream).ToArray()));
         setup0.Write(Block(location));
         byte[] tail = [.. ((MemoryStream)setup0.BaseStream).ToArray(), .. "zlb\x1a"u8, .. content];
@@ -253,9 +262,10 @@ public sealed class InstallerStubTests
         {
             var t = new byte[64];
             "rDlPtS"u8.CopyTo(t); new byte[] { 0xCD, 0xE6, 0xD7, 0x7B, 0x0B, 0x2A }.CopyTo(t, 6);
-            BitConverter.TryWriteBytes(t.AsSpan(12), 2);
-            BitConverter.TryWriteBytes(t.AsSpan(40), image);
-            BitConverter.TryWriteBytes(t.AsSpan(48), image + tail.Length - 4 - content.Length);
+            long setup1 = image + tail.Length - 4 - content.Length;
+            BitConverter.TryWriteBytes(t.AsSpan(12), older ? 1 : 2);
+            if (older) { BitConverter.TryWriteBytes(t.AsSpan(32), (uint)image); BitConverter.TryWriteBytes(t.AsSpan(36), (uint)setup1); }
+            else { BitConverter.TryWriteBytes(t.AsSpan(40), image); BitConverter.TryWriteBytes(t.AsSpan(48), setup1); }
             return t;
         }
         int imageSize = Stub("#10", 11111, Table(0), tail).Length - tail.Length;
@@ -272,7 +282,16 @@ public sealed class InstallerStubTests
         Assert.Contains("Inno Setup installer (data 6.7.0) Sample 1.0: 2 file(s) in 1 data block(s), stored.", c.Notes);
         Assert.Equal("inno file"u8.ToArray(), Assert.Single(c.Items, i => i.Name == "{app}/a.txt").Bytes);
         Assert.Contains(c.Entries!, e => e.Path == "{app}/unins000.exe" && e.Detail!.StartsWith("uninstaller", StringComparison.Ordinal));
-        Assert.DoesNotContain(c.Notes, n => n.Contains("SHA-256", StringComparison.Ordinal));
+        Assert.DoesNotContain(c.Notes, n => n.Contains("stored hash", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_Inno_Setup_5_installer_reads_its_32_bit_sizes_and_SHA_1()
+    {
+        var c = Containers.Open(InnoFixture(older: true), "setup.exe", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Contains("Inno Setup installer (data 5.5.7 (u)) Sample 1.0: 2 file(s) in 1 data block(s), stored.", c.Notes);
+        Assert.Equal("inno file"u8.ToArray(), Assert.Single(c.Items, i => i.Name == "{app}/a.txt").Bytes);
+        Assert.DoesNotContain(c.Notes, n => n.Contains("stored hash", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -10,9 +10,9 @@ using SharpCompress.Compressors.LZMA;
 namespace Corvus.Core.Installers;
 
 /// <summary>
-/// Inno Setup installers (data formats 6.4 to 7.1): the loader's offset table (resource RCDATA 11111) locates setup-0,
+/// Inno Setup installers (data formats 5.5 to 7.1; before 6.3 the Unicode builds): the loader's offset table (resource RCDATA 11111) locates setup-0,
 /// whose compressed blocks hold the header, the entries up to the file list, and the file locations; setup-1 holds the
-/// file data in chunks. Files are listed under their destination names ({app}\...) and checked against their SHA-256.
+/// file data in chunks. Files are listed under their destination names ({app}\...) and checked against their SHA-1 or SHA-256.
 /// </summary>
 internal sealed class InnoSetupReader : IContainerReader
 {
@@ -59,9 +59,9 @@ internal sealed class InnoSetupReader : IContainerReader
         var read = InstallerPe.Of(stream);
         var offsets = OffsetTable(read(0, (int)Math.Min(stream.Length, HeadBytes))!, read) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: no Inno Setup offset table.");
         var id = read(offsets.Setup0, 64) is { } idBytes ? Encoding.ASCII.GetString(idBytes).TrimEnd('\0') : throw new ToolError(ErrorCode.MalformedInput, $"{name}: setup-0 is past the end of the file.");
-        var version = id.StartsWith(SetupIdPrefix, StringComparison.Ordinal) && id.EndsWith(')') ? id[SetupIdPrefix.Length..^1] : null;
+        var version = id.StartsWith(SetupIdPrefix, StringComparison.Ordinal) && id.EndsWith(')') ? id[SetupIdPrefix.Length..^1].Replace(") (u", " (u)") : null;
         var layout = Layouts.FirstOrDefault(l => l.Id == version)
-            ?? throw new ToolError(ErrorCode.Unsupported, $"{name}: Inno Setup data \"{id}\" is not a format this reader knows (6.4 to 7.1 are).");
+            ?? throw new ToolError(ErrorCode.Unsupported, $"{name}: Inno Setup data \"{id}\" is not a format this reader knows (5.5 to 7.1 are; before 6.3 the Unicode builds).");
 
         Setup setup;
         try { setup = ReadSetup(stream, read, offsets.Setup0 + 64, layout, name); }
@@ -107,7 +107,7 @@ internal sealed class InnoSetupReader : IContainerReader
 
     private sealed record App(string Name, string Version, string Publisher);
     private sealed record SetupFile(string Path, int Location, long ExternalSize, bool Uninstaller);
-    private sealed record Location(int FirstSlice, int LastSlice, long Start, long Suboffset, long Size, long CompressedSize, byte[] Sha256, bool CallOptimized, bool Encrypted, bool Compressed);
+    private sealed record Location(int FirstSlice, int LastSlice, long Start, long Suboffset, long Size, long CompressedSize, byte[] Hash, bool CallOptimized, bool Encrypted, bool Compressed);
     private sealed record Setup(App App, List<SetupFile> Files, List<Location> Locations, int Compression, bool EncryptedFiles);
 
     private static Setup ReadSetup(Stream stream, InstallerPe.Read read, long at, Layout layout, string name)
@@ -151,7 +151,7 @@ internal sealed class InnoSetupReader : IContainerReader
             for (int b = l.Flags; b < l.Size; b++) flags |= (ulong)e[b] << (8 * (b - l.Flags));
             locations.Add(new Location(BinaryPrimitives.ReadInt32LittleEndian(e), BinaryPrimitives.ReadInt32LittleEndian(e[4..]), start,
                 BinaryPrimitives.ReadInt64LittleEndian(e[l.ChunkSuboffset..]), BinaryPrimitives.ReadInt64LittleEndian(e[l.OriginalSize..]),
-                BinaryPrimitives.ReadInt64LittleEndian(e[l.ChunkCompressedSize..]), e.Slice(l.Sha256, 32).ToArray(),
+                BinaryPrimitives.ReadInt64LittleEndian(e[l.ChunkCompressedSize..]), e.Slice(l.Hash, l.HashBytes).ToArray(),
                 (flags >> l.CallOptimized & 1) != 0, (flags >> l.ChunkEncrypted & 1) != 0, (flags >> l.ChunkCompressed & 1) != 0));
             encryptedFiles |= locations[^1].Encrypted;
         }
@@ -224,7 +224,7 @@ internal sealed class InnoSetupReader : IContainerReader
         }
     }
 
-    /// <summary>Each chunk of setup-1 decoded once, front to back; its files cut out at their suboffsets and checked by SHA-256.</summary>
+    /// <summary>Each chunk of setup-1 decoded once, front to back; its files cut out at their suboffsets and checked by their hash.</summary>
     private static void Extract(Stream stream, long setup1, Setup setup, Layout layout, AnalysisLimits limits, Dictionary<int, byte[]> bytes, List<string> notes, CancellationToken ct)
     {
         int mismatched = 0, skipped = 0;
@@ -257,11 +257,11 @@ internal sealed class InnoSetupReader : IContainerReader
                 decoded.ReadExactly(data);
                 position += loc.Size;
                 if (loc.CallOptimized) TransformCallInstructions(data);
-                if (!SHA256.HashData(data).AsSpan().SequenceEqual(loc.Sha256)) mismatched++;
+                if (!(loc.Hash.Length == 20 ? SHA1.HashData(data) : SHA256.HashData(data)).AsSpan().SequenceEqual(loc.Hash)) mismatched++;
                 bytes[index] = data;
             }
         }
-        if (mismatched > 0) notes.Add($"{mismatched} file(s) differ from their stored SHA-256.");
+        if (mismatched > 0) notes.Add($"{mismatched} file(s) differ from their stored hash.");
         if (skipped > 0) notes.Add($"{skipped} data block(s) not extracted (encrypted, on another disk, or over the item limit).");
     }
 
@@ -308,9 +308,9 @@ internal sealed class InnoSetupReader : IContainerReader
     /// <summary>Strings (UTF-16, ANSI) and fixed bytes of one packed record.</summary>
     private readonly record struct Rec(int Strings, int AnsiStrings, int Fixed);
 
-    /// <summary>File location field offsets and the bit positions of its flags.</summary>
+    /// <summary>File location field offsets and the bit positions of its flags; the hash is SHA-1 (20 bytes, before 6.4) or SHA-256.</summary>
     private sealed record LocationLayout(int Size, int StartOffset, int StartOffsetBytes, int ChunkSuboffset, int OriginalSize, int ChunkCompressedSize,
-        int Sha256, int Flags, int CallOptimized, int ChunkEncrypted, int ChunkCompressed);
+        int Hash, int Flags, int CallOptimized, int ChunkEncrypted, int ChunkCompressed, int HashBytes = 32);
 
     /// <summary>
     /// One data format: the encryption header size (0: none), the block stored-size width, the header record, the entry
@@ -319,9 +319,27 @@ internal sealed class InnoSetupReader : IContainerReader
     private sealed record Layout(string Id, int EncryptionHeader, int StoredSizeBytes, Rec Header, Rec[] Entries, int[] Counts, int FileLocations,
         int CompressMethod, int FileLocation, int ExternalSize, int FileType, LocationLayout Location);
 
-    /// <summary>Computed from each format's Shared.Struct.pas (packed records; strings are stored apart from the fixed part).</summary>
+    /// <summary>Computed from each format's Shared.Struct.pas (Struct.pas before 6.4; packed records; strings are stored apart from the fixed part).</summary>
     private static readonly Layout[] Layouts =
     [
+        new("5.5.0 (u)", 0, 4, new(27, 4, 160), [new(6, 4, 21), new(2, 0, 4), new(0, 1, 0), new(4, 0, 30), new(5, 0, 42), new(6, 0, 26), new(7, 0, 27), new(10, 0, 43)],
+            [0, 4, 8, 12, 16, 20, 24, 28], 32, 141, 20, 28, 42,
+            new(74, 8, 4, 12, 20, 28, 36, 72, 4, 6, 7, 20)),
+        new("5.5.6 (u)", 0, 4, new(28, 4, 160), [new(6, 4, 21), new(2, 0, 4), new(0, 1, 0), new(4, 0, 30), new(5, 0, 42), new(6, 0, 26), new(7, 0, 27), new(10, 0, 43)],
+            [0, 4, 8, 12, 16, 20, 24, 28], 32, 141, 20, 28, 42,
+            new(74, 8, 4, 12, 20, 28, 36, 72, 4, 6, 7, 20)),
+        new("5.5.7 (u)", 0, 4, new(28, 4, 157), [new(6, 4, 21), new(2, 0, 4), new(0, 1, 0), new(4, 0, 30), new(5, 0, 42), new(6, 0, 26), new(7, 0, 27), new(10, 0, 43)],
+            [0, 4, 8, 12, 16, 20, 24, 28], 32, 138, 20, 28, 42,
+            new(74, 8, 4, 12, 20, 28, 36, 72, 4, 6, 7, 20)),
+        new("6.0.0 (u)", 0, 4, new(30, 4, 167), [new(6, 4, 21), new(2, 0, 4), new(0, 1, 0), new(4, 0, 30), new(5, 0, 42), new(6, 0, 26), new(7, 0, 27), new(10, 0, 43)],
+            [0, 4, 8, 12, 16, 20, 24, 28], 32, 148, 20, 28, 42,
+            new(74, 8, 4, 12, 20, 28, 36, 72, 4, 6, 7, 20)),
+        new("6.1.0 (u)", 0, 4, new(30, 4, 167), [new(6, 4, 21), new(2, 0, 4), new(0, 1, 0), new(4, 0, 30), new(5, 0, 42), new(6, 0, 26), new(7, 0, 27), new(10, 0, 43)],
+            [0, 4, 8, 12, 16, 20, 24, 28], 32, 148, 20, 28, 42,
+            new(74, 8, 4, 12, 20, 28, 36, 72, 4, 6, 7, 20)),
+        new("6.3.0", 0, 4, new(32, 4, 166), [new(6, 4, 21), new(2, 0, 4), new(0, 1, 0), new(4, 0, 30), new(5, 0, 42), new(6, 0, 26), new(7, 0, 27), new(10, 0, 43)],
+            [0, 4, 8, 12, 16, 20, 24, 28], 32, 148, 20, 28, 42,
+            new(75, 8, 4, 12, 20, 28, 36, 72, 4, 6, 7, 20)),
         new("6.4.0.1", 0, 4, new(32, 4, 177), [new(6, 4, 21), new(2, 0, 4), new(0, 1, 0), new(4, 0, 30), new(5, 0, 42), new(6, 0, 26), new(7, 0, 27), new(10, 0, 43)],
             [0, 4, 8, 12, 16, 20, 24, 28], 32, 160, 20, 28, 42,
             new(87, 8, 4, 12, 20, 28, 36, 84, 4, 6, 7)),
