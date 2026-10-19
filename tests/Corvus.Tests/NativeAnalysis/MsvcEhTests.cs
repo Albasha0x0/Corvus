@@ -94,6 +94,81 @@ public class MsvcEhTests(ITestOutputHelper output)
         Assert.Contains(catches, c => c.TypeDescriptorRva == null); // catch (...)
     }
 
+    /// <summary>
+    /// ARM64 .xdata with the X bit: f's __C_specific_handler scope table (E set, one code word), g's FuncInfo4 (extension
+    /// word, one epilog scope) whose catch funclet has packed unwind data, and h with packed unwind data (no frame).
+    /// Handlers are named through adrp / ldr / br import thunks.
+    /// </summary>
+    [Fact]
+    public void Arm64_xdata_handlers_and_packed_entries()
+    {
+        const uint Code = CodeTestImage.SyntheticCodeRva, Data = CodeTestImage.SyntheticDataRva, ImageBase = 0x10000000;
+        const uint F = Code, G = Code + 0x40, H = Code + 0x80, Funclet = Code + 0x100, CSpecific = Code + 0x180, Fh4 = Code + 0x190;
+        const uint CSpecificSlot = Data + 0x200, Fh4Slot = Data + 0x208;
+        var a = new A64(Code);
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp).Word(A64.Nop).Word(A64.Nop).Word(A64.Nop).Word(A64.Nop).Word(A64.LdpFpLrPost).Word(A64.Ret);
+        a.Word(A64.MovW(0, 1)).Word(A64.LdpFpLrPost).Word(A64.Ret);                            // __except block at F + 0x20
+        while (a.Here < G) a.Word(A64.Nop);
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp).Word(A64.Nop).Word(A64.Nop).Word(A64.Nop).Word(A64.LdpFpLrPost).Word(A64.Ret);
+        while (a.Here < G + 0x30) a.Word(A64.Nop);
+        a.Word(A64.MovW(0, 2)).Word(A64.LdpFpLrPost).Word(A64.Ret);                            // catch continuation at G + 0x30
+        while (a.Here < H) a.Word(A64.Nop);
+        a.Word(A64.MovW(0, 3)).Word(A64.Ret);
+        while (a.Here < Funclet) a.Word(A64.Nop);
+        a.Word(A64.StpFpLrPre).Later(at => A64.Adr(at, G + 0x30, 0)).Word(A64.LdpFpLrPost).Word(A64.Ret);
+        while (a.Here < CSpecific) a.Word(A64.Nop);
+        a.Later(at => A64.Adrp(at, CSpecificSlot, 16, ImageBase)).Word(A64.LdrX(16, 16, CSpecificSlot & 0xFFF)).Word(A64.Br(16)).Word(A64.Nop);
+        a.Later(at => A64.Adrp(at, Fh4Slot, 16, ImageBase)).Word(A64.LdrX(16, 16, Fh4Slot & 0xFFF)).Word(A64.Br(16)).Word(A64.Nop);
+
+        var d = new PeBlob(Data);
+        uint xdataF = d.U32(0x10 | 1u << 20 | 1u << 21 | 1u << 27);                              // 16 words, X, E, one code word
+        d.U32(0xE4E4E4E4);
+        d.U32(CSpecific);
+        d.U32(1);                                                                                // one scope: constant filter, __except block
+        d.U32(F + 8); d.U32(F + 0x10); d.U32(1); d.U32(F + 0x20);
+        uint xdataG = d.U32(0x10 | 1u << 20);                                                    // X; epilog count and code words in the extension
+        d.U32(1 | 1u << 16);
+        d.U32(0x00000005);
+        d.U32(0xE4E4E4E4);
+        d.U32(Fh4);
+        uint infoAt = d.U32(0);
+        uint type = d.U64(0); d.U64(0); d.Ascii(".H"); d.Align(4);                               // type descriptor of int
+        uint info = d.Here;
+        d.Bytes([0x18]);                                                                         // unwind map, try block map, IP-to-state map
+        uint unwindAt = d.U32(0), tryAt = d.U32(0), ipAt = d.U32(0);
+        uint unwind = d.Bytes([0x04, 0x00, 0x08]);                                               // states 0 and 1 (1 unwinds to 0)
+        uint tryMap = d.Bytes([0x02, 0x00, 0x00, 0x02]);                                         // one try block: states 0-0, catch high 1
+        uint arrayAt = d.U32(0);
+        uint array = d.Bytes([0x02, 0x12]);                                                      // one catch: type, one function-relative continuation
+        d.U32(type); d.U32(Funclet); d.Bytes([0x60]);
+        uint ip = d.Bytes([0x04, 0x08, 0x02, 0x20, 0x00]);                                       // G + 4 = state 0, G + 0x14 = no state
+        d.Patch32(infoAt, info); d.Patch32(unwindAt, unwind); d.Patch32(tryAt, tryMap); d.Patch32(ipAt, ip); d.Patch32(arrayAt, array);
+        while (d.Here < Fh4Slot + 8) d.U32(0);
+
+        var image = CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), d.ToArray(),
+            imports: [new NativeImport("vcruntime140.dll", "__C_specific_handler", null, 0, CSpecificSlot, false), new NativeImport("vcruntime140.dll", "__CxxFrameHandler4", null, 0, Fh4Slot, false)],
+            pdata: [new RuntimeFunction(F, F + 0x40, xdataF), new RuntimeFunction(G, G + 0x40, xdataG), new RuntimeFunction(H, H + 8, 0), new RuntimeFunction(Funclet, Funclet + 0x10, 0)]);
+        var index = NativeCodeIndex.Build(image);
+        var eh = index.ExceptionInfo;
+
+        Assert.Equal(0, eh.RejectCount);
+        Assert.Equal(2, eh.Stats.Frames);
+        var scopes = eh.FrameOf(F)!;
+        Assert.Equal((MsvcEhScheme.CSpecific, "__C_specific_handler"), (scopes.Scheme, scopes.HandlerName));
+        var scope = Assert.Single(scopes.Scopes);
+        Assert.Equal((F + 8, F + 0x10, 1, F + 0x20), (scope.BeginRva!.Value, scope.EndRva!.Value, scope.FilterConstant!.Value, scope.HandlerRva));
+        Assert.Equal(F, index.FunctionAt(F + 0x20)!.Start);
+
+        var cxx = eh.FrameOf(G)!;
+        Assert.Equal((MsvcEhScheme.Cxx4, "__CxxFrameHandler4"), (cxx.Scheme, cxx.HandlerName));
+        var clause = Assert.Single(Assert.Single(cxx.TryBlocks).Catches);
+        Assert.Equal(("int", Funclet, G + 0x30), (clause.TypeName, clause.HandlerRva, Assert.Single(clause.Continuations)));
+        Assert.Equal([(G + 4, 0), (G + 0x14, -1)], cxx.IpToState.Select(x => (x.Rva, x.State)));
+        Assert.Equal(G, index.FunctionByStart(Funclet)!.Parent!.Start);
+        Assert.Null(eh.FrameOf(H));
+        Assert.Null(eh.FrameOf(Funclet));
+    }
+
     /// <summary>Patches bytes over an image: corrupted metadata without writing files.</summary>
     private sealed class PatchedImage(INativeImage inner, Func<uint, byte, byte> patch) : INativeImage
     {

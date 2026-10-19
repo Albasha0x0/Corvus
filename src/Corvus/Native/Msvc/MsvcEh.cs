@@ -5,13 +5,13 @@ namespace Corvus.Native.Msvc;
 /// <summary>How a frame handles exceptions.</summary>
 public enum MsvcEhScheme
 {
-    /// <summary>x64 __C_specific_handler: a scope table of __try ranges with filters, __except blocks and __finally handlers.</summary>
+    /// <summary>x64 / ARM64 __C_specific_handler: a scope table of __try ranges with filters, __except blocks and __finally handlers.</summary>
     CSpecific,
     /// <summary>C++ exceptions, FuncInfo version 1-3 (__CxxFrameHandler3; x86 through an __ehhandler$ stub).</summary>
     Cxx3,
-    /// <summary>x64 C++ exceptions, compressed FuncInfo4 (__CxxFrameHandler4).</summary>
+    /// <summary>x64 / ARM64 C++ exceptions, compressed FuncInfo4 (__CxxFrameHandler4).</summary>
     Cxx4,
-    /// <summary>x64 __GSHandlerCheck: only the stack cookie check, no handlers.</summary>
+    /// <summary>x64 / ARM64 __GSHandlerCheck: only the stack cookie check, no handlers.</summary>
     GsOnly,
     /// <summary>x86 _except_handler3 scope table.</summary>
     Seh3,
@@ -24,7 +24,7 @@ public enum MsvcEhScheme
 /// <summary>How code reached only through exception metadata relates to the function that owns it.</summary>
 public enum MsvcEhChildKind
 {
-    /// <summary>C++ catch block (x64: a funclet; x86: code in the parent run on its frame).</summary>
+    /// <summary>C++ catch block (x64 / ARM64: a funclet; x86: code in the parent run on its frame).</summary>
     Catch,
     /// <summary>C++ unwind action: destroys an object of the parent's frame.</summary>
     Unwind,
@@ -73,7 +73,7 @@ public enum MsvcEhUnwindKind
 public sealed record MsvcEhUnwind(int State, int ToState, MsvcEhUnwindKind Kind, uint? ActionRva, int? ObjectOffset);
 
 /// <summary>
-/// One SEH scope. x64: the protected range [Begin, End), the filter (a funclet or a constant such as 1 =
+/// One SEH scope. x64 / ARM64: the protected range [Begin, End), the filter (a funclet or a constant such as 1 =
 /// EXCEPTION_EXECUTE_HANDLER) and the __except block, or the __finally funclet. x86: the enclosing level instead of a
 /// range (-1 / -2 = outermost).
 /// </summary>
@@ -84,8 +84,8 @@ public sealed record MsvcEhIpState(uint Rva, int State);
 public sealed record MsvcEhChild(uint Rva, MsvcEhChildKind Kind);
 
 /// <summary>Exception handling of one function (or funclet) as its metadata describes it.</summary>
-/// <param name="FunctionRva">The function the metadata belongs to (x64: the .pdata entry; x86: the function that installs the frame).</param>
-/// <param name="HandlerRva">x64: the language-specific handler; x86: the frame handler pushed by the prologue (0 when set up by __SEH_prolog4).</param>
+/// <param name="FunctionRva">The function the metadata belongs to (x64 / ARM64: the .pdata entry; x86: the function that installs the frame).</param>
+/// <param name="HandlerRva">x64 / ARM64: the language-specific handler; x86: the frame handler pushed by the prologue (0 when set up by __SEH_prolog4).</param>
 /// <param name="HandlerName">The handler's import or export name, when it has one.</param>
 /// <param name="DataRva">The handler data: FuncInfo, FuncInfo4 or scope table.</param>
 /// <param name="GsCookieOffset">Frame offset of the stack cookie the handler checks (GS handler variants, x86 SEH4).</param>
@@ -195,7 +195,8 @@ public sealed class MsvcEhResult
 /// <summary>
 /// Decodes MSVC exception handling metadata. x64: the language-specific handler and data of each .pdata entry's
 /// UNWIND_INFO (__C_specific_handler scope tables, __CxxFrameHandler3 FuncInfo, __CxxFrameHandler4 compressed
-/// FuncInfo4, __GSHandlerCheck variants) and chained unwind information (fragments). x86: frames installed by
+/// FuncInfo4, __GSHandlerCheck variants) and chained unwind information (fragments). ARM64: the same handler data
+/// after each .pdata entry's .xdata (no chained entries). x86: frames installed by
 /// prologues (push offset scope table for _except_handler3/4 and __SEH_prolog4, push / mov eax offset of an
 /// __ehhandler$ stub that loads a FuncInfo for __CxxFrameHandler3). Every structure is bounds-checked and
 /// cross-checked (handlers in executable code, ranges inside the function, type descriptor names that decode);
@@ -208,6 +209,7 @@ public static partial class MsvcEh
         var sw = Stopwatch.StartNew();
         var run = new Run(image, options ?? MsvcEhOptions.Default, ct);
         if (image.Arch == NativeArch.X64) run.X64();
+        else if (image.Arch == NativeArch.Arm64) run.Arm64();
         else if (image.Arch == NativeArch.X86 && view != null) run.X86(view);
         return run.Result(sw.Elapsed);
     }

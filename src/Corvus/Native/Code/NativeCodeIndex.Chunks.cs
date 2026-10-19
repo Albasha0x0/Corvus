@@ -118,7 +118,7 @@ public sealed partial class NativeCodeIndex
                 AttachLandingPads(plan, starts, ref results);
                 return plan;
             }
-            if (image.Arch is not (NativeArch.X86 or NativeArch.X64)) return plan;
+            if (image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64)) return plan;
             report.Report("decoding exception metadata", 0, 0);
             var index = new Dictionary<uint, int>(starts.Length);
             for (int i = 0; i < starts.Length; i++) index[starts[i]] = i;
@@ -183,9 +183,9 @@ public sealed partial class NativeCodeIndex
                     // a NativeAOT funclet its method calls (a finally) is still part of the method
                     if ((_sources[child] & OwnSources) != 0 && !aot.ContainsKey(child)) continue;
                     if (callers.TryGetValue(child, out var from) && from.Any(g => g != ci && !ownerIdx.Contains(g))) continue;
-                    // x64 C++ catch and unwind funclets have their own .pdata entry and frame, and the linker folds identical
-                    // ones across functions: they stay functions with a parent link (as IDA keeps them)
-                    if (image.Arch == NativeArch.X64 && owners[0].Kind is MsvcEhChildKind.Catch or MsvcEhChildKind.Unwind && !aot.ContainsKey(child))
+                    // x64 and ARM64 C++ catch and unwind funclets have their own .pdata entry and frame, and the linker folds
+                    // identical ones across functions: they stay functions with a parent link (as IDA keeps them)
+                    if (image.Arch is NativeArch.X64 or NativeArch.Arm64 && owners[0].Kind is MsvcEhChildKind.Catch or MsvcEhChildKind.Unwind && !aot.ContainsKey(child))
                     {
                         plan.Funclets[child] = owners[0].Parent;
                         if (owners[0].Kind == MsvcEhChildKind.Catch) keptCatches.Add((index[owners[0].Parent], results[ci]));

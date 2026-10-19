@@ -36,7 +36,7 @@ public sealed record ExceptionReport(string Image,
     IReadOnlyList<EhHandler> Handlers, IReadOnlyList<EhRange> Ranges,
     [property: Description("Image summary: frames, FDEs and the like by kind.")] IReadOnlyDictionary<string, int>? Counts);
 
-/// <summary>MSVC exception handling metadata of native functions (x86 / x64).</summary>
+/// <summary>MSVC exception handling metadata of native functions (x86 / x64 / ARM64).</summary>
 [McpServerToolType]
 public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager)
 {
@@ -64,12 +64,13 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         if (string.IsNullOrWhiteSpace(address))
         {
             var s = eh.Stats;
-            return ToolOutput.Report(pager.Page(Summary(native.Id, index, eh), offset, maxTokens), new ExceptionReport(native.Id, null, null, "msvc", null, null, [], [],
-                new Dictionary<string, int>
-                {
-                    ["frames"] = s.Frames, ["cxx3"] = s.Cxx3, ["cxx4"] = s.Cxx4, ["cSpecific"] = s.CSpecific, ["seh4"] = s.Seh4, ["seh3"] = s.Seh3,
-                    ["gsOnly"] = s.GsOnly, ["unknown"] = s.Unknown, ["children"] = s.Children, ["fragments"] = s.Fragments, ["rejected"] = eh.RejectCount,
-                }));
+            var counts = new Dictionary<string, int>
+            {
+                ["frames"] = s.Frames, ["cxx3"] = s.Cxx3, ["cxx4"] = s.Cxx4, ["cSpecific"] = s.CSpecific, ["seh4"] = s.Seh4, ["seh3"] = s.Seh3,
+                ["gsOnly"] = s.GsOnly, ["unknown"] = s.Unknown, ["children"] = s.Children, ["fragments"] = s.Fragments, ["rejected"] = eh.RejectCount,
+            };
+            if (index.Image.Arch == NativeArch.Arm64) counts["packed"] = Packed(index.Image);
+            return ToolOutput.Report(pager.Page(Summary(native.Id, index, eh), offset, maxTokens), new ExceptionReport(native.Id, null, null, "msvc", null, null, [], [], counts));
         }
 
         uint rva = NativeCodeTools.Address(index, address);
@@ -132,8 +133,8 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         }, ct);
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
-        if (index.Image.Format == ImageFormat.Pe && index.Image.Arch is not (NativeArch.X86 or NativeArch.X64))
-            throw new ToolError(ErrorCode.Unsupported, $"Exception metadata of PE images is decoded for x86 and x64; {native.Id} is {index.Image.Arch}.");
+        if (index.Image.Format == ImageFormat.Pe && index.Image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64))
+            throw new ToolError(ErrorCode.Unsupported, $"Exception metadata of PE images is decoded for x86, x64 and ARM64; {native.Id} is {index.Image.Arch}.");
         return (native, index);
     }
 
@@ -197,6 +198,8 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         var sb = new StringBuilder($"{id}: {Plural(s.Frames, "frame")} with exception metadata " +
             $"(C++ FuncInfo {s.Cxx3}, C++ FuncInfo4 {s.Cxx4}, __C_specific_handler {s.CSpecific}, SEH4 {s.Seh4}, SEH3 {s.Seh3}, GS only {s.GsOnly}, unknown {s.Unknown}); " +
             $"{Plural(s.Children, "handler or funclet")}, {Plural(s.Fragments, "chained fragment")}\n");
+        if (index.Image.Arch == NativeArch.Arm64)
+            sb.AppendLine($".pdata: {Plural(index.Image.RuntimeFunctions.Count, "entry")}, {Packed(index.Image)} with packed unwind data (no handler)");
         var chunks = index.Functions.SelectMany(f => f.Chunks).GroupBy(c => c.Kind).OrderBy(g => g.Key).ToList();
         if (chunks.Count > 0)
             sb.AppendLine("Attached to their functions: " + string.Join(", ", chunks.Select(g => $"{g.Count()} {Describe(g.Key)}")));
@@ -211,6 +214,9 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         sb.AppendLine("Pass an address for one function's handlers.");
         return sb.ToString();
     }
+
+    /// <summary>ARM64 .pdata entries with packed unwind data, which have no handler.</summary>
+    private static int Packed(INativeImage image) => image.RuntimeFunctions.Count(r => r.UnwindInfoRva == 0);
 
     private static void AppendFrame(StringBuilder sb, NativeCodeIndex index, MsvcEhFrame f, Func<uint, string> name)
     {

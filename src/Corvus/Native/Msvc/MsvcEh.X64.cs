@@ -57,7 +57,12 @@ public static partial class MsvcEh
                 if (!_r.IsCode(handler)) { Reject(rf.BeginRva, "unwind info", $"language-specific handler {handler:X} is not in executable code"); continue; }
                 uses.Add(new HandlerUse(rf, handler, at + 4));
             }
+            DecodeUses(uses);
+        }
 
+        /// <summary>Decodes the handler data of each use by the scheme of its handler (named, else classified by what decodes).</summary>
+        private void DecodeUses(List<HandlerUse> uses)
+        {
             foreach (var group in uses.GroupBy(u => u.Handler))
             {
                 ct.ThrowIfCancellationRequested();
@@ -128,7 +133,13 @@ public static partial class MsvcEh
         private string? HandlerName(uint handler)
         {
             Span<byte> b = stackalloc byte[7];
-            if (_r.Bytes(handler, b))
+            if (image.Arch == NativeArch.Arm64)
+            {
+                if (Arm64ImportSlot(handler) is { } armSlot)
+                    foreach (var imp in image.Imports)
+                        if (imp.SlotRva == armSlot) return imp.Name;
+            }
+            else if (_r.Bytes(handler, b))
             {
                 int at = b[0] == 0x48 ? 1 : 0;
                 if (b[at] == 0xFF && b[at + 1] == 0x25)
