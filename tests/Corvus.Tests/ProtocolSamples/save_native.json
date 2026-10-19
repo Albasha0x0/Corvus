@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "Wrote <fixtures>/samples/patched.dll (4,112 bytes, 1 patch(es)).\nVerified: every byte outside the patched ranges (and the checksum field) matches the original.\nRelocations verified: the table re-parses (1 entries) and every patched range holds exactly its kept/added entries (0 across 1 patch(es))."
+    "Wrote <fixtures>/samples/patched.dll (4,112 bytes, 1 patch(es)).\nVerified: every byte outside the patched ranges (and the checksum field) matches the original.\nRelocations verified: the table re-parses (1 entries) and every patched range holds exactly its kept/added entries (0 across 1 patch(es)).\nPatches written: edit.dll#2 (5746c3d3d6b0e71f)."
   ],
   "structuredContent": {
     "outputPath": "<fixtures>/samples/patched.dll",
@@ -17,6 +17,12 @@
     "notes": [
       "Verified: every byte outside the patched ranges (and the checksum field) matches the original.",
       "Relocations verified: the table re-parses (1 entries) and every patched range holds exactly its kept/added entries (0 across 1 patch(es))."
+    ],
+    "editList": [
+      {
+        "id": "edit.dll#2",
+        "digest": "5746c3d3d6b0e71f"
+      }
     ]
   }
 }

@@ -687,7 +687,7 @@ Rename a type, method, field, property (and accessors) or event in memory; other
 | `kind` | string |  |  | Restrict symbol resolution to this kind. Values: type, method, field, property, event. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### rename_namespace
 
@@ -703,7 +703,7 @@ Move every type of a namespace (optionally its sub-namespaces) to a new namespac
 | `includeSubNamespaces` | boolean |  |  | Also rewrite namespaces that start with oldNamespace + '.'. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### stub_method
 
@@ -718,7 +718,7 @@ Replace a method's body with 'return <value>;' ('return;' for void) in memory: f
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### patch_method_csharp
 
@@ -733,7 +733,7 @@ Replace a method's body (methods, constructors, accessors) with C# compiled agai
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview the IL that would be written; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### patch_method_il
 
@@ -749,7 +749,7 @@ Rewrite a method body from IL text (stack-validated): edit get_il's lines and pa
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### add_members_csharp
 
@@ -764,7 +764,7 @@ Add C# members (methods, fields, properties, events, constructors, nested types)
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### add_types_csharp
 
@@ -778,7 +778,7 @@ Add C# types (with namespace) to an assembly; they see its internal types and pa
 | `code` | string | yes |  | C# source declaring the new types. |
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### simplify_methods
 
@@ -796,7 +796,7 @@ Clean transformed method bodies: fold (string decoders with constant inputs run 
 | `dryRun` | boolean |  | `true` | Default true: preview; pass dryRun=false to apply. |
 | `deterministicEnvironment` | boolean |  |  | Fold machine reads (paths, environment, names) against fixed stand-ins. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### list_edits
 
@@ -839,7 +839,7 @@ Undo the last edit or one by number: the others are replayed on the original ima
 | `assembly` | string | yes |  | Assembly id, name or path. |
 | `number` | integer |  |  | Edit number from list_edits (the #n of its editId); omit for the last. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### revert_edits
 
@@ -851,7 +851,7 @@ Discard every unsaved edit of an assembly; resultId keeps them as a script (read
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### export_edits
 
@@ -881,7 +881,7 @@ Replay an export_edits script, each edit with its outcome. Another build needs t
 | `continueOnError` | boolean |  |  | Apply the edits that succeed; default: roll all back on the first failure. |
 | `targetBuild` | string |  | `same` | same: the script's build only; other: another build, symbols resolved by name. Values: same, other. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
 ### save_assembly
 
@@ -896,7 +896,7 @@ Write an assembly with its edits to a new file, atomically (overwrite=true keeps
 | `overwrite` | boolean |  |  | Allow replacing an existing file. |
 | `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save and list them). |
 
-Structured output: `outputPath`, `bytes`, `sha256`, `edits`, `backup`.
+Structured output: `outputPath`, `bytes`, `sha256`, `edits`, `backup`, `editList`.
 
 ## il2cpp
 
@@ -1589,7 +1589,7 @@ Load a native image's debug symbols: PDB (GUID and age checked), or DWARF for EL
 | `maxMegabytes` | integer |  | `2048` | Download size limit in MB. |
 | `clear` | boolean |  |  | Remove the PDB names and their saved copy instead (not read again this session). |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### search_pdb_symbols
 
@@ -1647,7 +1647,7 @@ Name a native address: used by every native tool, pushed to the engines, kept pe
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | Engine to push to now (default: one with this image open, else at its next use). Values: auto, ida, ghidra. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
 ### comment_native
 
@@ -1668,7 +1668,7 @@ Comment a native address (undoable, pushed to engines). scope: line (repeatable:
 | `stopOnError` | boolean |  |  | Stop at the first failing item. |
 | `engine` | string |  |  | Engine to push to now (default: one with this image open, else at its next use). Values: auto, ida, ghidra. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
 ### export_native_annotations
 
@@ -1705,7 +1705,7 @@ Replace bytes at a native address in memory, as an undoable edit every read path
 | `stubMode` | string |  |  | With extend: replace (default; the displaced instructions), before or after them. Values: replace, before, after. |
 | `placement` | string |  |  | With extend: auto (default; cave, else section), cave or section (a new PE section or ELF/Mach-O segment). Values: auto, cave, section. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
 ### patch_asm
 
@@ -1725,7 +1725,7 @@ Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch tar
 | `stubMode` | string |  |  | With extend: replace (default; the displaced instructions), before or after them. Values: replace, before, after. |
 | `placement` | string |  |  | With extend: auto (default; cave, else section), cave or section (a new PE section or ELF/Mach-O segment). Values: auto, cave, section. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
 ### list_native_edits
 
@@ -1754,7 +1754,7 @@ Undo native edits by editId (list_native_edits), the last by default: a patch, n
 | `image` | string | yes |  | Native image id, file name or path. |
 | `editId` | string |  |  | image#n or #n; comma-separated for several, undone in order; default the last. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
 ### save_native
 
@@ -1769,7 +1769,7 @@ Write the patched native image to a new file: unpatched bytes identical, PE chec
 | `overwrite` | boolean |  |  | Allow replacing an existing file. |
 | `stripSignature` | boolean |  |  | Remove the Authenticode certificate table from the output. |
 
-Structured output: `outputPath`, `bytes`, `patches`, `sha256`, `checksum`, `backup`, `verified`, `notes`.
+Structured output: `outputPath`, `bytes`, `patches`, `sha256`, `checksum`, `backup`, `verified`, `notes`, `editList`.
 
 ### export_native_patches
 
@@ -2118,7 +2118,7 @@ Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len
 | `showDecompile` | string |  |  | The function's pseudocode after the edit (after) or its unified diff (diff). Values: none, after, diff. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### set_native_local
 
@@ -2140,7 +2140,7 @@ Rename and/or retype a local or argument in a native function's pseudocode, name
 | `inferStruct` | string |  |  | Ghidra: declare this struct from the local's accesses; the local points to it. |
 | `storage` | string |  |  | Move an argument to this register, or auto: the convention's place. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### set_native_stack_var
 
@@ -2161,7 +2161,7 @@ Rename and/or retype a stack frame member, by its get_native_frame name (var_28)
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `items` | string |  |  | Instead: lines 'member = newName' or JSON [{variable, newName?, type?, delete?, clear?}]. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### get_native_frame
 
@@ -2199,7 +2199,7 @@ Declare C types (structs, unions, enums, typedefs, function types) in the engine
 | `rename` | string |  |  | 'Old=New'; kept edits naming it follow. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### list_native_types
 
@@ -2239,7 +2239,7 @@ Redefine an address in the engine by kind: code (to end, else along the flow), f
 | `type` | string |  |  | kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16) or a C type; dword[8] arrays. |
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### reanalyze_native
 
@@ -2280,7 +2280,7 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 | `engine` | string |  |  | auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `items` | string |  |  | Instead: lines 'address operand display [type]' or JSON [{address, operand, display, type?}]. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
 ### ida_python
 
@@ -2650,7 +2650,7 @@ Installs an APK, a split set or a directory of APKs on a device in one session; 
 | `grantPermissions` | boolean |  |  | Grant all requested runtime permissions. |
 | `serial` | string |  |  | Device serial; optional with one device ready. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
 ### uninstall_android_package
 
@@ -2664,7 +2664,7 @@ Remove an app (and its data unless keepData) from a device; needs the server opt
 | `keepData` | boolean |  |  | Keep the app's data and cache. |
 | `serial` | string |  |  | Device serial; optional with one device ready. |
 
-Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`.
+Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
 ## dumps
 

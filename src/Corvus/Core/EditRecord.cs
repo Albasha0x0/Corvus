@@ -16,4 +16,34 @@ public sealed record EditRecord(string Kind, IReadOnlyDictionary<string, string?
 
     /// <summary>The edit's number in its assembly (its <see cref="EditId"/>): given once, kept when other edits are undone; 0 until recorded.</summary>
     public int Number { get; init; }
+
+    /// <summary>The content digest (<see cref="EditDigest"/>); a dry run reports the same for the record it would make.</summary>
+    public string ContentDigest() => EditDigest.Of(Kind, Args);
+}
+
+/// <summary>
+/// The record a dry run would have made, for the calling tool to report its digest. Scoped to the call: dry runs hold only
+/// the read lock and can run side by side.
+/// </summary>
+public static class EditPreview
+{
+    private sealed class Slot { public EditRecord? Record; }
+
+    private static readonly AsyncLocal<Slot?> Current = new();
+
+    /// <summary>Runs <paramref name="edit"/> and returns its result with the record a dry run in it offered, if any.</summary>
+    public static (T Result, EditRecord? Previewed) Capture<T>(Func<T> edit)
+    {
+        var slot = new Slot();
+        var outer = Current.Value;
+        Current.Value = slot;
+        try { return (edit(), slot.Record); }
+        finally { Current.Value = outer; }
+    }
+
+    /// <summary>Called by an edit in a dry run with the record it would make.</summary>
+    public static void Offer(EditRecord record)
+    {
+        if (Current.Value is { } slot) slot.Record = record;
+    }
 }

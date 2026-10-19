@@ -118,8 +118,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var asm = workspace.Get(assembly);
-        var rows = asm.Edits.Select(e => new EditListItem(e.Number, new EditId(asm.Id, e.Number).ToString(), e.Kind, e.Description)).ToList();
-        return ToolOutput.List(rows, offset, ClampLimit(limit), r => $"#{r.Number}  {r.Tool,-20} {r.Description}",
+        var rows = asm.Edits.Select(e => new EditListItem(e.Number, new EditId(asm.Id, e.Number).ToString(), e.Kind, e.Description, e.ContentDigest())).ToList();
+        return ToolOutput.List(rows, offset, ClampLimit(limit), r => $"#{r.Number}  {r.Tool,-20} {r.Digest}  {r.Description}",
             page => new EditList(asm.Id, page, Math.Max(0, offset), rows.Count), "edit",
             rows.Count == 0 ? $"{asm.Id} has no unsaved edits.\n" : $"{asm.Id}, in order (undo_edit and diff_edits take the number):\n");
     }, cancellationToken);
@@ -277,13 +277,16 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     private static string Outcome(LoadedAssembly asm, bool dryRun, Func<string> edit, Func<IReadOnlyList<EditRecord>, IReadOnlyList<EditChange>> changes)
     {
         int before = asm.Edits.Count;
-        var text = edit();
+        var (text, previewed) = EditPreview.Capture(edit);
         var recorded = dryRun ? [] : asm.Edits.Skip(before).ToList();
+        var digest = dryRun ? previewed?.ContentDigest() : recorded.Count == 1 ? recorded[0].ContentDigest() : null;
         var ids = recorded.Select(e => new EditId(asm.Id, e.Number)).ToList();
         var tail = dryRun ? "\nNothing changed (dry run); pass dryRun=false to apply."
             : ids.Count == 0 ? $"\nNo edit recorded. Unsaved edits in {asm.Id}: {asm.Edits.Count}."
             : $"\nEdit {string.Join(", ", ids)}. Unsaved edits in {asm.Id}: {asm.Edits.Count}.";
-        return ToolOutput.Edit(new EditOutcome(!dryRun && ids.Count > 0, dryRun, dryRun || ids.Count > 0 ? changes(recorded) : [], ids), $"[{asm.Id}] {text}{tail}");
+        if (digest != null) tail += $"\nDigest {digest}{(dryRun ? " (the applied edit and the save report the same)" : "")}.";
+        return ToolOutput.Edit(new EditOutcome(!dryRun && ids.Count > 0, dryRun, dryRun || ids.Count > 0 ? changes(recorded) : [], ids) { Digest = digest },
+            $"[{asm.Id}] {text}{tail}");
     }
 
     /// <summary>Runs a long call with progress: one report at once (before any lock wait), then the phases its services report.</summary>
@@ -300,8 +303,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         recorded.Count == 0 ? [new EditChange(kind, scope)] : recorded.SelectMany(e => e.Touched).Select(t => new EditChange(kind, t)).ToList();
 }
 
-/// <summary>One unsaved edit: its number, id and the tool that made it (diff_edits shows the members it touched).</summary>
-public sealed record EditListItem(int Number, string EditId, string Tool, string Description);
+/// <summary>One unsaved edit: its number, id, the tool that made it and its content digest (diff_edits shows the members it touched).</summary>
+public sealed record EditListItem(int Number, string EditId, string Tool, string Description, string Digest);
 
 public sealed record EditList(string Assembly, IReadOnlyList<EditListItem> Items, int Offset, int Total);
 
@@ -315,4 +318,7 @@ public sealed record EditResult(bool Applied, bool DryRun, IReadOnlyList<EditRes
 
     /// <summary>Batch items that failed (engine declarations); absent otherwise.</summary>
     public int? Failed { get; init; }
+
+    [Description("The edit's content digest: the same in its dry run and when applied; save results list it with the edit id.")]
+    public string? Digest { get; init; }
 }

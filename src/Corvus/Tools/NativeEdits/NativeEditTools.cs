@@ -167,6 +167,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         int failed = results.Count(r => r.Error != null);
         return new EditOutcome(!dryRun && id != null, dryRun, changes, id is { } e ? [e] : [])
         {
+            Digest = changes.Count > 0 ? EditDigest.Of(changes) : null,
             Failed = failed > 0 ? failed : null,
             Items = failed > 0 ? [.. results.Where(r => r.Error != null).Select(r => (object)new { target = r.Address, error = BatchError.From(r.Error!) })] : null,
             PushedTo = engine != null ? [engine] : null,
@@ -536,10 +537,15 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     private string PatchOutcome(LoadedNative native, NativeCodeIndex index, NativeEditService.PatchResult prepared, bool dryRun, string note)
     {
         var applied = edits.Apply(native, index, prepared, dryRun);
-        var p = applied.Patch;
-        var change = new EditChange("bytes", NativeAddress.Va(native.Image, p.Rva), Convert.ToHexString(p.Original), Convert.ToHexString(p.Replacement));
-        return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, [change], applied.EditId is { } id ? [id] : []), note + applied.Text);
+        var change = PatchChange(native, applied.Patch);
+        var digest = EditDigest.Of([change]);
+        return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, [change], applied.EditId is { } id ? [id] : []) { Digest = digest },
+            note + applied.Text + $"\nDigest {digest}{(dryRun ? " (the applied patch and the save report the same)" : "")}.");
     }
+
+    /// <summary>A byte patch as an edit change: the dry run, the applied patch and the save's edit list digest the same.</summary>
+    private static EditChange PatchChange(LoadedNative native, NativePatch p) =>
+        new("bytes", NativeAddress.Va(native.Image, p.Rva), Convert.ToHexString(p.Original), Convert.ToHexString(p.Replacement));
 
     /// <summary>list_native_edits' row: an edit (id, tool, kind) or, with search, a matching name or comment (source, kind).</summary>
     public sealed record NativeEditRow(
@@ -686,7 +692,11 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("The recomputed PE checksum, when the original had one.")] string? Checksum,
         [property: Description("The original's backup, when the original was replaced.")] string? Backup,
         [property: Description("Every byte outside the patches matches the original and the relocations re-parse as planned.")] bool Verified,
-        IReadOnlyList<string> Notes);
+        IReadOnlyList<string> Notes)
+    {
+        [Description("The byte patches written: edit id and the digest their dry run and the applied patch reported.")]
+        public IReadOnlyList<SavedEdit> EditList { get; init; } = [];
+    }
 
     [McpServerTool(Name = "save_native", Title = "Save patched native image", UseStructuredContent = true, OutputSchemaType = typeof(NativeSaveResult))]
     [Description("Write the patched native image to a new file: unpatched bytes identical, PE checksum recomputed, a signature invalidated " +
@@ -702,7 +712,10 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var (native, _) = await Open(image, progress, cancellationToken);
         var saved = edits.Write(native, outputPath, overwrite, stripSignature);
         journal?.Saved(native);
-        return ToolOutput.Report(saved.Text, new NativeSaveResult(saved.OutputPath, saved.Bytes, saved.Patches, saved.Sha256, saved.Checksum, saved.Backup, saved.Verified, saved.Notes));
+        var written = edits.Journal.Entries(native).Where(e => e.Patch != null).Select(e => new SavedEdit(e.Id, EditDigest.Of([PatchChange(native, e.Patch!)]))).ToList();
+        var text = saved.Text + (written.Count > 0 ? $"\nPatches written: {string.Join(", ", written.Select(e => $"{e.Id} ({e.Digest})"))}." : "");
+        return ToolOutput.Report(text, new NativeSaveResult(saved.OutputPath, saved.Bytes, saved.Patches, saved.Sha256, saved.Checksum, saved.Backup, saved.Verified, saved.Notes)
+            { EditList = written });
     });
 
     private static byte[] ParseHex(string hex)

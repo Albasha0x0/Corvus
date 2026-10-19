@@ -12,6 +12,7 @@
     "outputPath": "<fixtures>/samples/saved.dll",
     "bytes": 13312,
     "sha256": "<id>",
-    "edits": 0
+    "edits": 0,
+    "editList": []
   }
 }

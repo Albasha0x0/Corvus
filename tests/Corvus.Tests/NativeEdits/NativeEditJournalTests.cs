@@ -194,6 +194,38 @@ public class NativeEditToolOutcomeTests
     }
 
     [Fact]
+    public async Task Digests_MatchFromDryRunToSave_ThePatchesOnly_AndAnUndonePatchLeavesTheSave()
+    {
+        using var r = new Rig();
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        async Task<EditOutcome> PreviewThenApply(Func<bool, Task<string>> edit)
+        {
+            var text = await edit(true);
+            var dry = Assert.IsType<EditOutcome>(collector.Value);
+            await edit(false);
+            var applied = Assert.IsType<EditOutcome>(collector.Value);
+            Assert.Matches("^[0-9a-f]{16}$", dry.Digest);
+            Assert.Equal(dry.Digest, applied.Digest);
+            return applied;
+        }
+        var bytes = await PreviewThenApply(d => r.Tools.PatchBytes(r.Path, "rva:0x1006", hex: "CC", dryRun: d));
+        var previewText = await r.Tools.PatchBytes(r.Path, "rva:0x1008", hex: "CC");
+        Assert.Contains($"Digest {Assert.IsType<EditOutcome>(collector.Value).Digest}", previewText);
+        var asm = await PreviewThenApply(d => r.Tools.PatchAsm(r.Path, "rva:0x1008", "int3", dryRun: d));
+        var name = await PreviewThenApply(d => r.Tools.RenameNative(r.Path, "rva:0x1000", "entry", dryRun: d));
+        Assert.Equal(3, new[] { bytes.Digest, asm.Digest, name.Digest }.Distinct().Count());
+
+        var text = await r.Tools.SaveNative(r.Path, r.Dir.File("out.dll"));
+        var saved = Assert.IsType<Corvus.Tools.NativeEditTools.NativeSaveResult>(collector.Value);
+        Assert.Equal([new SavedEdit(bytes.EditIds[0], bytes.Digest!), new SavedEdit(asm.EditIds[0], asm.Digest!)], saved.EditList);
+        Assert.Contains($"Patches written: {bytes.EditIds[0]} ({bytes.Digest})", text);
+
+        await r.Tools.UndoNativeEdit(r.Path, bytes.EditIds[0].ToString());
+        await r.Tools.SaveNative(r.Path, r.Dir.File("out2.dll"));
+        Assert.Equal([new SavedEdit(asm.EditIds[0], asm.Digest!)], Assert.IsType<Corvus.Tools.NativeEditTools.NativeSaveResult>(collector.Value).EditList);
+    }
+
+    [Fact]
     public async Task Batch_AllFailed_IsAnError_SomeFailed_IsASuccessWithFailedItems()
     {
         using var r = new Rig();

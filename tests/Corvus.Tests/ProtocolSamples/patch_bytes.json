@@ -8,7 +8,7 @@
   },
   "isError": false,
   "content": [
-    "Patched 1 byte(s) at 0x140001000:\nBefore:\n  140001000  C3                       ret\nAfter:\n  140001000  90                       nop\nRecorded as edit.dll#2. undo_native_edit reverts it; save_native writes the file.\n"
+    "Patched 1 byte(s) at 0x140001000:\nBefore:\n  140001000  C3                       ret\nAfter:\n  140001000  90                       nop\nRecorded as edit.dll#2. undo_native_edit reverts it; save_native writes the file.\n\nDigest 5746c3d3d6b0e71f."
   ],
   "structuredContent": {
     "applied": true,
@@ -23,6 +23,7 @@
     ],
     "editIds": [
       "edit.dll#2"
-    ]
+    ],
+    "digest": "5746c3d3d6b0e71f"
   }
 }

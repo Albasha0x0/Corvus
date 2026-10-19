@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "[TestFixture] Dry run — compiled OK; would add to TestFixture: Mods.M\nNothing changed (dry run); pass dryRun=false to apply."
+    "[TestFixture] Dry run — compiled OK; would add to TestFixture: Mods.M\nNothing changed (dry run); pass dryRun=false to apply.\nDigest 114b571695f50e72 (the applied edit and the save report the same)."
   ],
   "structuredContent": {
     "applied": false,
@@ -17,6 +17,7 @@
         "target": "TestFixture"
       }
     ],
-    "editIds": []
+    "editIds": [],
+    "digest": "114b571695f50e72"
   }
 }

@@ -31,6 +31,23 @@
         "type": "string"
       }
     },
+    "editList": {
+      "description": "The byte patches written: edit id and the digest their dry run and the applied patch reported.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": true,
+          "digest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "digest"
+        ]
+      }
+    },
     "notices": {
       "type": "array",
       "items": {

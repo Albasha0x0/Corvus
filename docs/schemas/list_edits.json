@@ -20,13 +20,17 @@
           },
           "description": {
             "type": "string"
+          },
+          "digest": {
+            "type": "string"
           }
         },
         "required": [
           "number",
           "editId",
           "tool",
-          "description"
+          "description",
+          "digest"
         ]
       }
     },

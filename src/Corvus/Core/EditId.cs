@@ -40,4 +40,24 @@ public sealed record EditOutcome(bool Applied, bool DryRun, IReadOnlyList<EditCh
     public string? ResultId { get; init; }
     /// <summary>The engines the change was pushed to (ida, ghidra); empty: none open, they take it at their next use.</summary>
     public IReadOnlyList<string>? PushedTo { get; init; }
+    /// <summary>The edit's content digest: the same for its dry run and the applied edit; save results list it with the edit id.</summary>
+    public string? Digest { get; init; }
+}
+
+/// <summary>An edit a save wrote: its id and content digest (as its dry run and the applied edit reported).</summary>
+public sealed record SavedEdit(EditId Id, string Digest);
+
+/// <summary>Content digests of edits: the first 16 hex digits of a SHA-256 over the edit's kind and inputs, or its changes.</summary>
+public static class EditDigest
+{
+    /// <summary>A .NET edit: the tool and its recorded arguments (symbols as label, token and signature).</summary>
+    public static string Of(string kind, IReadOnlyDictionary<string, string?> args) =>
+        Hash(kind + "\n" + string.Concat(args.OrderBy(a => a.Key, StringComparer.Ordinal).Select(a => $"{a.Key}={(a.Value == null ? "\0" : a.Value.Replace("\r\n", "\n"))}\n")));
+
+    /// <summary>A native edit: its changes in order (kind, address, before, after).</summary>
+    public static string Of(IEnumerable<EditChange> changes) =>
+        Hash(string.Concat(changes.Select(c => $"{c.Kind}\0{c.Target}\0{c.Before}\0{c.After}\n")));
+
+    private static string Hash(string text) =>
+        Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)))[..16];
 }

@@ -128,6 +128,14 @@ public static class SaveManifest
             file cannot be replaced) writes nothing either: the image goes to a temporary file that replaces the target
             only when complete.
 
+            ## Matching a preview to the saved file
+
+            Every edit reports a content digest: its dry run, the applied edit and `list_edits` show the same value for
+            the same change on the same build. The save result gives the SHA-256 of the file written and `editList`,
+            each edit it wrote with its id and digest, so a reviewer can check that the change previewed is the edit
+            applied and that the edit is in the file. `save_native` does the same for byte patches, and reports
+            `verified` after reading the file back (bytes outside the patches equal the original, relocations re-parse).
+
             ## Reasons
 
             | Code | Bytes changed | Meaning |

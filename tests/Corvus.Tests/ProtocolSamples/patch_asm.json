@@ -7,7 +7,7 @@
   },
   "isError": false,
   "content": [
-    "Dry run: would patch 1 byte(s) at 0x140001000:\nBefore:\n  140001000  C3                       ret\nAfter:\n  140001000  90                       nop\nNothing recorded; dryRun=false applies it.\n"
+    "Dry run: would patch 1 byte(s) at 0x140001000:\nBefore:\n  140001000  C3                       ret\nAfter:\n  140001000  90                       nop\nNothing recorded; dryRun=false applies it.\n\nDigest 5746c3d3d6b0e71f (the applied patch and the save report the same)."
   ],
   "structuredContent": {
     "applied": false,
@@ -20,6 +20,7 @@
         "after": "90"
       }
     ],
-    "editIds": []
+    "editIds": [],
+    "digest": "5746c3d3d6b0e71f"
   }
 }

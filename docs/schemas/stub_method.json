@@ -34,6 +34,10 @@
     "failed": {
       "type": "integer"
     },
+    "digest": {
+      "description": "The edit's content digest: the same in its dry run and when applied; save results list it with the edit id.",
+      "type": "string"
+    },
     "notices": {
       "type": "array",
       "items": {

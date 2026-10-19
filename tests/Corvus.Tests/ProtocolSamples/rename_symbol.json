@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "[TestFixture] Dry run — would rename type Fixture.Model.Account -> Customer\nNothing changed (dry run); pass dryRun=false to apply."
+    "[TestFixture] Dry run — would rename type Fixture.Model.Account -> Customer\nNothing changed (dry run); pass dryRun=false to apply.\nDigest 3bccce9a4c68e0a6 (the applied edit and the save report the same)."
   ],
   "structuredContent": {
     "applied": false,
@@ -19,6 +19,7 @@
         "after": "Customer"
       }
     ],
-    "editIds": []
+    "editIds": [],
+    "digest": "3bccce9a4c68e0a6"
   }
 }

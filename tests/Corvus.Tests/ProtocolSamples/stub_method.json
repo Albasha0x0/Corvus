@@ -7,7 +7,7 @@
   },
   "isError": false,
   "content": [
-    "[TestFixture] stub Fixture.Model.Secret::Validate(string) => return true;\nEdit TestFixture#1. Unsaved edits in TestFixture: 1."
+    "[TestFixture] stub Fixture.Model.Secret::Validate(string) => return true;\nEdit TestFixture#1. Unsaved edits in TestFixture: 1.\nDigest 5f3d464b7d155cfe."
   ],
   "structuredContent": {
     "applied": true,
@@ -21,6 +21,7 @@
     ],
     "editIds": [
       "TestFixture#1"
-    ]
+    ],
+    "digest": "5f3d464b7d155cfe"
   }
 }

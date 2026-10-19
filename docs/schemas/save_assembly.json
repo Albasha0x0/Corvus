@@ -16,6 +16,22 @@
     "backup": {
       "type": "string"
     },
+    "editList": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": true,
+          "digest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "digest"
+        ]
+      }
+    },
     "notices": {
       "type": "array",
       "items": {

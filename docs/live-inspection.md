@@ -72,7 +72,8 @@ leave the process running, but:
 ## Sessions
 
 The session tools observe a program while it runs. They are off unless the server starts with `--allow-live`, and
-starting a program needs `--allow-live-spawn` as well. A session runs a worker on Frida's Python bindings
+starting a program needs `--allow-live-spawn` as well. These are server start-up switches (also `CORVUS_ALLOW_LIVE=1`):
+they apply to the whole server process, which for a stdio client means its client configuration. A session runs a worker on Frida's Python bindings
 (`pip install frida`; `CORVUS_FRIDA_PYTHON` names the interpreter when the first one found lacks them).
 
 | Step | Call |

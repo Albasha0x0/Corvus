@@ -20,7 +20,9 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         var member = symbol.Member;
         var oldLabel = symbol.Label;
         if (member is TypeDef generic) newName = KeepArity(generic.Name, newName);
-        if (dryRun)
+        var args = SymbolArgs("symbol", symbol, oldLabel);
+        args["newName"] = newName;
+        if (Previewed(dryRun, "rename_symbol", args))
             return $"Dry run — would rename {symbol.Kind} {oldLabel} -> {newName}" +
                    (member is PropertyDef or EventDef ? " (accessor methods renamed to match)" : "");
         switch (member)
@@ -50,8 +52,6 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
                 throw new ToolError(ErrorCode.Unsupported, $"Cannot rename {member.GetType().Name}.");
         }
         var description = $"rename {symbol.Kind} {oldLabel} -> {newName}";
-        var args = SymbolArgs("symbol", symbol, oldLabel);
-        args["newName"] = newName;
         symbol.Assembly.RecordEdit(new EditRecord("rename_symbol", args, description, [Format.MemberLabel(member)]));
         return description;
     }
@@ -82,18 +82,19 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         int count = targets.Count;
         if (count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No types in namespace '{oldNamespace}' in {asm.Id}.");
-        if (dryRun)
+        var args = new Dictionary<string, string?>
+        {
+            ["oldNamespace"] = oldNamespace,
+            ["newNamespace"] = newNamespace,
+            ["includeSubNamespaces"] = includeSubNamespaces ? "true" : "false",
+        };
+        if (Previewed(dryRun, "rename_namespace", args))
             return $"Dry run — would move {count} types: " + string.Join(", ", targets.Take(30).Select(t => t.FullName)) + (count > 30 ? ", …" : "");
         foreach (var t in targets)
             t.Namespace = newNamespace + t.Namespace.String[oldNamespace.Length..];
 
         var description = $"rename namespace {oldNamespace} -> {newNamespace} ({count} types)";
-        asm.RecordEdit(new EditRecord("rename_namespace", new Dictionary<string, string?>
-        {
-            ["oldNamespace"] = oldNamespace,
-            ["newNamespace"] = newNamespace,
-            ["includeSubNamespaces"] = includeSubNamespaces ? "true" : "false",
-        }, description, []));
+        asm.RecordEdit(new EditRecord("rename_namespace", args, description, []));
         return description;
     }
 
@@ -121,13 +122,13 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             EmitValue(il, body, ret, value?.Trim());
         }
         il.Add(OpCodes.Ret.ToInstruction());
-        if (dryRun)
+        var args = SymbolArgs("method", symbol);
+        args["value"] = value;
+        if (Previewed(dryRun, "stub_method", args))
             return $"Dry run — {symbol.Label} would become: {shown}\n" + Listing(il);
 
         Apply(m, body);
         var description = $"stub {symbol.Label} => {shown}";
-        var args = SymbolArgs("method", symbol);
-        args["value"] = value;
         symbol.Assembly.RecordEdit(new EditRecord("stub_method", args, description, [symbol.Label]));
         return description;
     }
@@ -243,7 +244,10 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         {
             oldBody?.UpdateInstructionOffsets(); // offsets of the shared original instructions were recomputed above
         }
-        if (dryRun)
+        var args = SymbolArgs("method", symbol);
+        args["il"] = il;
+        args["mode"] = prepend ? "prepend" : "replace";
+        if (Previewed(dryRun, "patch_method_il", args))
             return $"Dry run — {symbol.Label} would become ({final.Count} instructions, maxstack {maxStack}" +
                    $"{(assembled.NewLocals.Count > 0 ? $", +{assembled.NewLocals.Count} locals" : "")}):\n{listing}";
 
@@ -255,9 +259,6 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         Apply(m, body);
 
         var description = $"patch IL ({(prepend ? "prepend" : "replace")}, {assembled.Instructions.Count} instructions) {symbol.Label}";
-        var args = SymbolArgs("method", symbol);
-        args["il"] = il;
-        args["mode"] = prepend ? "prepend" : "replace";
         symbol.Assembly.RecordEdit(new EditRecord("patch_method_il", args, description, [symbol.Label]));
         return $"{description}\nNew body:\n{Listing(body.Instructions)}";
     }
@@ -281,12 +282,12 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             throw withNext;
         }
         var helpers = (outcome.Added.Count > 0 ? $"\nCompiler-generated helpers added: {string.Join(", ", outcome.Added.Take(10))}" : "") + Relaxed(outcome);
-        if (dryRun)
+        var args = SymbolArgs("method", symbol);
+        args["code"] = code;
+        if (Previewed(dryRun, "patch_method_csharp", args))
             return $"Dry run — compiled OK; {symbol.Label} would become:\n{outcome.Listing}{helpers}";
 
         var description = $"patch C# {symbol.Label}";
-        var args = SymbolArgs("method", symbol);
-        args["code"] = code;
         symbol.Assembly.RecordEdit(new EditRecord("patch_method_csharp", args, description, [symbol.Label]));
         return description + helpers;
     }
@@ -296,12 +297,12 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     {
         var outcome = MergeSafely(typeSymbol.Assembly, dryRun, target => csharp.AddMembers(typeSymbol, code, target, ct), ct);
         var visible = UserVisible(outcome.Added);
-        if (dryRun)
+        var args = SymbolArgs("type", typeSymbol);
+        args["code"] = code;
+        if (Previewed(dryRun, "add_members_csharp", args))
             return $"Dry run — compiled OK; would add to {typeSymbol.Label}: {string.Join(", ", visible)}";
 
         var description = $"add members to {typeSymbol.Label}: {string.Join(", ", visible.Select(ShortName))}";
-        var args = SymbolArgs("type", typeSymbol);
-        args["code"] = code;
         typeSymbol.Assembly.RecordEdit(new EditRecord("add_members_csharp", args, description, visible));
         return description + Relaxed(outcome);
     }
@@ -310,11 +311,12 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     {
         var outcome = MergeSafely(asm, dryRun, target => csharp.AddTypes(asm, code, target, ct), ct);
         var visible = UserVisible(outcome.Added).Where(a => !a.Contains("::")).ToList();
-        if (dryRun)
+        var args = new Dictionary<string, string?> { ["code"] = code };
+        if (Previewed(dryRun, "add_types_csharp", args))
             return $"Dry run — compiled OK; would add to {asm.Id}: {string.Join(", ", visible)}";
 
         var description = $"add types: {string.Join(", ", visible)}";
-        asm.RecordEdit(new EditRecord("add_types_csharp", new Dictionary<string, string?> { ["code"] = code }, description, visible));
+        asm.RecordEdit(new EditRecord("add_types_csharp", args, description, visible));
         return description + Relaxed(outcome);
     }
 
@@ -397,14 +399,14 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         var header = dryRun
             ? $"Dry run — simplify {scope} ({options.Label()}): {changed.Count} of {methods.Count} method(s) would change."
             : $"Simplified {scope} ({options.Label()}): {changed.Count} of {methods.Count} method(s) changed.";
-        if (dryRun || changed.Count == 0) return header + report;
-
-        foreach (var c in changed) c.Method.Body = c.NewBody!;
         var args = symbol == null ? new Dictionary<string, string?>() : SymbolArgs("symbol", symbol);
         args["passes"] = options.Describe();
         args["maxDepth"] = options.EffectiveLimits.MaxDepth.ToString(CultureInfo.InvariantCulture);
         args["budget"] = options.EffectiveLimits.InstructionBudget.ToString(CultureInfo.InvariantCulture);
         if (options.DeterministicEnvironment) args["deterministicEnvironment"] = "true";
+        if (changed.Count == 0 || Previewed(dryRun, "simplify_methods", args)) return header + report;
+
+        foreach (var c in changed) c.Method.Body = c.NewBody!;
         var description = $"simplify {scope} ({options.Label()}): {changed.Count} method(s)";
         asm.RecordEdit(new EditRecord("simplify_methods", args, description, changed.Select(c => Format.MemberLabel(c.Method)).ToList()));
         return header + report;
@@ -613,6 +615,13 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         }
     }
 
+    /// <summary>True for a dry run, after offering the record it would make (its digest is reported).</summary>
+    private static bool Previewed(bool dryRun, string kind, Dictionary<string, string?> args)
+    {
+        if (dryRun) EditPreview.Offer(new EditRecord(kind, args, "", []));
+        return dryRun;
+    }
+
     private static Dictionary<string, string?> SymbolArgs(string key, ResolvedSymbol symbol, string? label = null) => new()
     {
         [key] = label ?? symbol.Label,
@@ -713,7 +722,11 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict = false) => Save(asm, outputPath, overwrite, strict, out _);
 
     /// <summary>What save_assembly wrote.</summary>
-    public sealed record SavedFile(string OutputPath, long Bytes, string Sha256, int Edits, string? Backup);
+    public sealed record SavedFile(string OutputPath, long Bytes, string Sha256, int Edits, string? Backup)
+    {
+        /// <summary>The edits written, with the digests their dry runs and applied edits reported.</summary>
+        public IReadOnlyList<SavedEdit> EditList { get; init; } = [];
+    }
 
     public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict, out SavedFile saved)
     {
@@ -741,12 +754,14 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         if (webcil) image = Webcil.FromPe(image);
         string? backup = isOriginal ? SaveTarget.Backup(target, asm.OriginalBytes) : null;
         SafeFile.WriteAllBytes(target, image, overwrite);
-        saved = new SavedFile(target, image.LongLength, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(image)), asm.Edits.Count, backup);
+        saved = new SavedFile(target, image.LongLength, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(image)), asm.Edits.Count, backup)
+            { EditList = [.. asm.Edits.Select(e => new SavedEdit(new EditId(asm.Id, e.Number), e.ContentDigest()))] };
 
         var kept = asm.IsDirty ? "everything no edit touched is as in the original" : "no edits: the original bytes";
         return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s); {kept})." +
                $"{(backup != null ? $" Original backed up to {backup}." : "")}" +
                (webcil ? " Written as Webcil (Blazor WebAssembly); the app's boot manifest (blazor.boot.json or dotnet.boot.js) holds an integrity hash per file: update or remove this file's." : "") +
+               (saved.EditList.Count > 0 ? $"\nEdits written: {string.Join(", ", saved.EditList.Select(e => $"{e.Id} ({e.Digest})"))}." : "") +
                $"{report.Describe()}{(asm.IsDirty ? SignatureNotes(asm) : "")}";
     }
 

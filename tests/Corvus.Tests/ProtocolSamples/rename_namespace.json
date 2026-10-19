@@ -7,7 +7,7 @@
   },
   "isError": false,
   "content": [
-    "[TestFixture] Dry run — would move 15 types: Fixture.Model.TagsAttribute, Fixture.Model.Tagged, Fixture.Model.IChargeable, Fixture.Model.Entity, Fixture.Model.Account, Fixture.Model.PremiumAccount, Fixture.Model.Vec2, Fixture.Model.Team, Fixture.Model.Secret, Fixture.Model.Container`1, Fixture.Model.Shop, Fixture.Model.Singleton`1, Fixture.Model.Bank, Fixture.Model.Holder`1, Fixture.Model.CountHolder\nNothing changed (dry run); pass dryRun=false to apply."
+    "[TestFixture] Dry run — would move 15 types: Fixture.Model.TagsAttribute, Fixture.Model.Tagged, Fixture.Model.IChargeable, Fixture.Model.Entity, Fixture.Model.Account, Fixture.Model.PremiumAccount, Fixture.Model.Vec2, Fixture.Model.Team, Fixture.Model.Secret, Fixture.Model.Container`1, Fixture.Model.Shop, Fixture.Model.Singleton`1, Fixture.Model.Bank, Fixture.Model.Holder`1, Fixture.Model.CountHolder\nNothing changed (dry run); pass dryRun=false to apply.\nDigest 051715c9c3a9c83f (the applied edit and the save report the same)."
   ],
   "structuredContent": {
     "applied": false,
@@ -20,6 +20,7 @@
         "after": "Model"
       }
     ],
-    "editIds": []
+    "editIds": [],
+    "digest": "051715c9c3a9c83f"
   }
 }
