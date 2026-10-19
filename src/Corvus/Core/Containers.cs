@@ -67,6 +67,7 @@ public static class Containers
         if (kind == "text" && Captures.LooksLikeHar(data) && Captures.Open(data, flows: false, allFiles, limits, ct) is { } har) return har;
         if (kind is "text" or "data" && Captures.LooksLikeFlows(data)) return Captures.Open(data, flows: true, allFiles, limits, ct)!;
         if (kind == "zip") return OpenZip(data, name, limits, ct);
+        if (kind == "jmod") return OpenZip(data[4..], name, limits, ct) with { Kind = "JMOD (Java module)" };
         if (kind is "wasm" or "webcil")
         {
             // Named by the assembly, not the fingerprinted file (App.3tcu7b1rf6.wasm), so references to it resolve in the output folder.

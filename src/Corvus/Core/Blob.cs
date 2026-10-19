@@ -31,6 +31,7 @@ public static class Blob
             if (pe != null) return pe.IsDotNet(b) ? ".NET assembly" : pe.IsNativeAot(b) ? "NativeAOT executable" : "native PE";
         }
         if (StartsWith(b, "PK\x03\x04"u8) || StartsWith(b, "PK\x05\x06"u8)) return "zip";
+        if (StartsWith(b, "JM\x01\x00PK"u8)) return "jmod"; // JDK module: a 4-byte header, then a zip whose offsets start after it
         if (StartsWith(b, [0x1F, 0x8B])) return "gzip";
         if (b.Length >= 2 && b[0] == 0x78 && (b[1] is 0x01 or 0x5E or 0x9C or 0xDA)) return "zlib";
         if (StartsWith(b, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])) return "7z";

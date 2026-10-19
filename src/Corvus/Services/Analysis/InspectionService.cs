@@ -427,6 +427,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         ".NET assembly" => ".dll",
         "native PE" or "NativeAOT executable" => p.Detail?.EndsWith("DLL", StringComparison.Ordinal) == true ? ".dll" : ".exe", // .exe is defanged on write
         "zip" => ".zip",
+        "jmod" => ".jmod",
         "gzip" => ".gz",
         "text" => ".txt",
         _ => ".bin",

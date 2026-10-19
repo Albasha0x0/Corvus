@@ -214,6 +214,22 @@ public class InspectionEdgeTests : IDisposable
         Assert.DoesNotContain(s.Highlights, h => h.Contains("Embedded .NET assembly"));
     }
     [Fact]
+    public void Jmod_opens_as_the_zip_after_its_header()
+    {
+        var ms = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (var s = zip.CreateEntry("classes/module-info.class").Open()) s.Write([0xCA, 0xFE, 0xBA, 0xBE]);
+            using (var s = zip.CreateEntry("lib/A.dll").Open()) s.Write(ReferenceResolutionTests.Compile("A", "public class AType { }"));
+        }
+        byte[] bytes = [(byte)'J', (byte)'M', 1, 0, .. ms.ToArray()]; // the zip's offsets count from after the header, as jmod writes them
+        Assert.Equal("jmod", Blob.Identify(bytes));
+        var contents = Containers.Open(bytes, "a.jmod", AnalysisLimits.Default, default);
+        Assert.Equal("JMOD (Java module)", contents.Kind);
+        Assert.Equal("lib/A.dll", Assert.Single(contents.Items).Name);
+    }
+
+    [Fact]
     public void TruncatedZip_RecoversTheCompleteEntries()
     {
         var ms = new MemoryStream();
