@@ -136,12 +136,77 @@ public sealed class InstallerStubTests
         Assert.Contains(c.Entries!, e => e is { Path: "runtime.exe", Size: 1234, Detail: "downloaded at install from https://example.org/runtime.exe" });
     }
 
+    /// <summary>
+    /// A Unicode NSIS installer, one solid deflate stream: SetOutPath $INSTDIR\sub, File a.txt, File /oname=$PLUGINSDIR\p.dll,
+    /// WriteUninstaller $INSTDIR\uninst.exe.
+    /// </summary>
+    private static byte[] NsisFixture()
+    {
+        var strings = new MemoryStream();
+        strings.Write([0, 0]);
+        int String(params object[] parts)
+        {
+            int index = (int)strings.Length / 2;
+            foreach (var part in parts)
+                strings.Write(part is int variable ? [3, 0, (byte)(variable | 0x80), 0x80] : Encoding.Unicode.GetBytes((string)part));
+            strings.Write([0, 0]);
+            return index;
+        }
+        const int InstDir = 21, PluginsDir = 26;
+        int[][] code =
+        [
+            [11, String(InstDir, @"\sub"), 1, 0, 0, 0, 0],
+            [20, 0, String("a.txt"), 0, 0, 0, 0],
+            [20, 0, String(PluginsDir, @"\p.dll"), 9, 0, 0, 0],
+            [62, String(InstDir, @"\uninst.exe"), 16, 0, 0, 0, 0],
+        ];
+        int entriesAt = 4 + 8 * 8, stringsAt = entriesAt + code.Length * 28, langAt = stringsAt + (int)strings.Length;
+        var header = new BinaryWriter(new MemoryStream());
+        header.Write(0);
+        for (int i = 0; i < 8; i++)
+        {
+            var (at, count) = i switch { 2 => (entriesAt, code.Length), 3 => (stringsAt, 0), 4 => (langAt, 0), _ => (0, 0) };
+            header.Write(at); header.Write(count);
+        }
+        foreach (var entry in code) foreach (var v in entry) header.Write(v);
+        header.Write(strings.ToArray());
+        var h = ((MemoryStream)header.BaseStream).ToArray();
+
+        var data = new BinaryWriter(new MemoryStream());
+        foreach (var block in new[] { h, "hello"u8.ToArray(), [0x4D, 0x5A, 0x90], [1, 2] }) { data.Write(block.Length); data.Write(block); }
+        var packed = new MemoryStream();
+        using (var deflate = new DeflateStream(packed, CompressionLevel.Optimal, leaveOpen: true)) deflate.Write(((MemoryStream)data.BaseStream).ToArray());
+
+        var pe = new PeBuilder { Is64 = false, Machine = 0x14C, ImageBase = 0x400000, Characteristics = 0x0102 };
+        pe.Add(".text", [0xC3]);
+        int image = pe.Build().Length, first = (image + 511) / 512 * 512;
+        var tail = new BinaryWriter(new MemoryStream());
+        tail.Write(new byte[first - image]);
+        tail.Write(0); tail.Write(0xDEADBEEF); tail.Write("NullsoftInst"u8); tail.Write(h.Length); tail.Write(28 + (int)packed.Length);
+        tail.Write(packed.ToArray());
+        pe.Overlay = ((MemoryStream)tail.BaseStream).ToArray();
+        return pe.Build();
+    }
+
     [Fact]
-    [FuzzEntry(typeof(SquirrelSetupReader), typeof(BurnBundleReader))]
+    public void An_NSIS_installer_lists_its_files_under_their_install_paths()
+    {
+        var setup = NsisFixture();
+        Assert.True(new NsisInstallerReader().Accepts(setup, "setup.exe"));
+        var c = Containers.Open(setup, "setup.exe", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Equal("NSIS installer", c.Kind);
+        Assert.Contains(c.Notes, n => n.StartsWith("NSIS installer, Unicode strings: Deflate solid, header of ", StringComparison.Ordinal) && n.EndsWith(" bytes, 2 file(s), an uninstaller.", StringComparison.Ordinal));
+        Assert.Equal(["sub/a.txt", "$PLUGINSDIR/p.dll"], c.Items.Select(i => i.Name));
+        Assert.Equal("hello"u8.ToArray(), c.Items[0].Bytes);
+        Assert.Contains(c.Entries!, e => e.Path == "uninst.exe" && e.Detail!.StartsWith("uninstaller written at install time", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(SquirrelSetupReader), typeof(BurnBundleReader), typeof(NsisInstallerReader))]
     public void Fuzzed_installer_stubs_never_throw_past_a_tool_error()
     {
         var squirrel = Stub("DATA", 131, Zip(("RELEASES", Encoding.ASCII.GetBytes($"{new string('A', 40)} A-1-full.nupkg 3\n")), ("A-1-full.nupkg", [1, 2, 3])));
-        foreach (var seed in new[] { squirrel, BurnFixture() })
+        foreach (var seed in new[] { squirrel, BurnFixture(), NsisFixture() })
         {
             var failures = FormatFuzz.Run(seed, b =>
             {
