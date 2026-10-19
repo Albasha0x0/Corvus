@@ -60,7 +60,7 @@ public class PascalVmtTests
     /// Delphi 2009+ VMTs: the header of 11 pointers before the 11 TObject virtual methods, the VMT, the class's own slots,
     /// then its name, method, field and type info tables. The published method fills the last slot; the field is of the parent class.
     /// </summary>
-    private static void Delphi(VmtWriter w, Spec[] classes)
+    private static void Delphi(VmtWriter w, Spec[] classes, int objectVirtuals = 11)
     {
         foreach (var c in classes)
         {
@@ -74,7 +74,7 @@ public class PascalVmtTests
             w.Ptr(c.Name + ".name");
             w.Word(c.Size);
             w.Ptr(c.Parent != null ? c.Parent + ".self" : null);
-            for (int i = 0; i < 11; i++) w.Code(i);
+            for (int i = 0; i < objectVirtuals; i++) w.Code(i);
             w.Label(c.Name);
             for (int i = 0; i < c.UserSlots; i++) w.Code(c.Published && i == c.UserSlots - 1 ? 30 : 20 + i);
             w.Label(c.Name + ".name");
@@ -177,6 +177,17 @@ public class PascalVmtTests
     {
         var image = Image(is64, w => Delphi(w, Chain));
         CheckChain(image, CppRtti.Analyze(image), "Delphi", firstUser: 0);
+    }
+
+    [Fact]
+    public void DelphiChainWithCppAbiSlots()
+    {
+        // 64-bit Windows Delphi: CPP_ABI_1..3 follow Destroy, so the header starts three pointers further down
+        var image = Image(true, w => Delphi(w, Chain, objectVirtuals: 14));
+        var result = CppRtti.Analyze(image);
+        CheckChain(image, result, "Delphi", firstUser: 0);
+        var p = result.Classes.Single(c => c.Name == "TForm1").Pascal!;
+        Assert.Equal(["TObject.Destroy", "TObject.CPP_ABI_1", "TObject.CPP_ABI_2", "TObject.CPP_ABI_3"], p.VirtualMethods.Where(m => m.Offset < 0).TakeLast(4).Select(m => m.Name));
     }
 
     [Fact]

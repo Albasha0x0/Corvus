@@ -55,6 +55,8 @@ public static class PascalVmt
     private static readonly Layout[] Layouts =
     [
         new("Delphi", false, -22, -14, -13, -12, -18, -17, -16, [-21, -20, -19, -18, -17, -16, -15, -14], -11, DelphiVirtuals),
+        // CPP_ABI_SUPPORT targets (64-bit Windows and the LLVM platforms): three more TObject virtual methods after Destroy
+        new("Delphi", false, -25, -17, -16, -15, -21, -20, -19, [-24, -23, -22, -21, -20, -19, -18, -17], -14, [.. DelphiVirtuals, "CPP_ABI_1", "CPP_ABI_2", "CPP_ABI_3"]),
         new("Delphi (before 2009)", false, -19, -11, -10, -9, -15, -14, -13, [-18, -17, -16, -15, -14, -13, -12, -11], -8, DelphiVirtuals[3..]),
         new("Free Pascal", true, 0, 3, 0, 2, 7, 6, 5, [3, 4, 5, 6, 7, 8, 9, 10, 11], 12,
             ["Destroy", "NewInstance", "FreeInstance", "SafeCallException", "DefaultHandler", "AfterConstruction", "BeforeDestruction",
@@ -112,7 +114,7 @@ public static class PascalVmt
                     foreach (var l in Layouts)
                         if (!l.Fpc && value == image.ImageBase + rva + (ulong)(-l.SelfPtr * _ptr)) Consider(rva + (uint)(-l.SelfPtr * _ptr), l);
                     // Free Pascal: InstanceSize, then -InstanceSize
-                    if (value is > 0 and < MaxInstanceSize && next == ((ulong)-(long)value & Mask)) Consider(rva, Layouts[2]);
+                    if (value is > 0 and < MaxInstanceSize && next == ((ulong)-(long)value & Mask)) Consider(rva, Layouts[^1]);
                 }
             }
             Resolve();
