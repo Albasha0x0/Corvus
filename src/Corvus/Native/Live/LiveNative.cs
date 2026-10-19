@@ -80,6 +80,17 @@ internal static class LiveNative
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern SafeKernelHandle OpenProcess(uint access, bool inherit, int processId);
 
+    // A file or folder opened with no access, only to ask for its final path (links and short names resolved).
+    public const uint FILE_SHARE_ALL = 0x7;
+    public const uint OPEN_EXISTING = 3;
+    public const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "CreateFileW")]
+    public static extern SafeFileHandle OpenForQuery(string path, uint access, uint share, nint security, uint disposition, uint flags, nint template);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetFinalPathNameByHandleW")]
+    public static extern uint GetFinalPathNameByHandle(SafeFileHandle file, [Out] char[] path, uint size, uint flags);
+
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern SafeKernelHandle OpenThread(uint access, bool inherit, uint threadId);
 

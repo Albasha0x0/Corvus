@@ -73,9 +73,11 @@ leave the process running, but:
 
 The session tools observe a program while it runs. They are off unless the server starts with `--allow-live`;
 starting a program needs `--allow-live-spawn` as well, and attaching to a program already running `--allow-live-attach`.
-`--live-allow <program or folder>` (repeatable) limits both to the programs listed: the check reads the process's image
-path from the operating system, and anything outside the list is refused before a session opens. `server_status` shows
-the list. These are server start-up switches (each also an environment variable, such as `CORVUS_ALLOW_LIVE=1`): they
+`--live-allow <program or folder>` (repeatable) limits both to the programs listed: the check uses the final path
+(junctions and symbolic links in any folder of the path resolved) and, for a running program, the image path the
+operating system reports; anything outside the list is refused before a session opens, and a started program is the
+file that was checked. List only folders that you alone can write to: a file copied or hard-linked into a listed folder
+counts as inside it. `server_status` shows the list. These are server start-up switches (each also an environment variable, such as `CORVUS_ALLOW_LIVE=1`): they
 apply to the whole server process, which for a stdio client means its client configuration. The model cannot turn them on.
 
 Run programs you do not trust only in a disposable virtual machine: a session observes the program, it does not contain

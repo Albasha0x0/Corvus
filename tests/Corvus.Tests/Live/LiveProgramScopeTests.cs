@@ -82,6 +82,44 @@ public sealed class LiveProgramScopeTests : IDisposable
     }
 
     [Fact]
+    public async Task A_link_is_judged_by_where_it_leads_in_every_folder_of_the_path()
+    {
+        if (Links.DirectoryLinkUnavailable != null) return;
+        var allowed = Path.Combine(_dir.Path, "allowed");
+        var inside = Program("allowed");
+        var outside = Program("outside");
+        Links.CreateDirectoryLink(Path.Combine(allowed, "out"), Path.GetDirectoryName(outside)!);   // inside the folder, leads out
+        Links.CreateDirectoryLink(Path.Combine(_dir.Path, "in"), allowed);                         // outside the folder, leads in
+
+        var escape = await Refused(() => Tools(allow: allowed).LiveSession("spawn", program: Path.Combine(allowed, "out", "tool.exe")));
+        Assert.Contains(Path.Combine("outside", "tool.exe"), escape.Message);
+        Assert.Null(_backend.LastOpen);
+
+        await Tools(allow: allowed).LiveSession("spawn", program: Path.Combine(_dir.Path, "in", "tool.exe"));
+        Assert.Equal(inside, (string?)_backend.LastOpen!["spawn"]); // the backend starts the file that was checked
+    }
+
+    [Fact]
+    public void A_listed_entry_matches_through_a_link_any_case_and_a_trailing_separator()
+    {
+        var inside = Program("allowed");
+        var allowed = Path.GetDirectoryName(inside)!;
+        Assert.True(LiveProgramScope.Contains([allowed + Path.DirectorySeparatorChar], inside));
+        if (OperatingSystem.IsWindows()) Assert.True(LiveProgramScope.Contains([allowed.ToUpperInvariant()], inside));
+        if (Links.DirectoryLinkUnavailable != null) return;
+        var link = Path.Combine(_dir.Path, "link-to-allowed");
+        Links.CreateDirectoryLink(link, allowed);
+        Assert.True(LiveProgramScope.Contains([link], inside));
+    }
+
+    [Fact]
+    public async Task Attach_refuses_a_path_and_names_spawn()
+    {
+        var e = await Refused(() => Tools(allow: _dir.Path).LiveSession("attach", program: Program("allowed")), ErrorCode.InvalidArgument);
+        Assert.Contains("action=spawn", e.Remediation);
+    }
+
+    [Fact]
     public void A_listed_file_allows_only_itself()
     {
         var file = Program("one");

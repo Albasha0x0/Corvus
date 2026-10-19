@@ -18,9 +18,10 @@ public static class LiveProgramScope
     {
         var path = FindProgram(program.Trim())
                    ?? throw new ToolError(ErrorCode.NotFound, $"'{program}' is not a program file.", "pass the full path of the program");
-        if (!Contains(allowed, path))
-            throw Outside($"{path} is outside the programs sessions may open.", allowed);
-        return path;
+        var final = Canonical(path);
+        if (!Contains(allowed, final))
+            throw Outside($"{final} is outside the programs sessions may open.", allowed);
+        return final;
     }
 
     /// <summary>The process id to attach to: the one named, or the single process of that name whose image lies inside <paramref name="allowed"/>.</summary>
@@ -33,6 +34,8 @@ public static class LiveProgramScope
             if (!Contains(allowed, image)) throw Outside($"Process {pid} ({image}) is outside the programs sessions may open.", allowed);
             return text;
         }
+        if (text.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) >= 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"attach takes a process id or name, not a path: '{text}'.", "pass the process id or name; action=spawn starts a program by path");
         var name = text.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? text[..^4] : text;
         var named = new List<(int Pid, string? Image)>();
         foreach (var p in Process.GetProcessesByName(name))
@@ -49,7 +52,7 @@ public static class LiveProgramScope
         };
     }
 
-    /// <summary>True when <paramref name="path"/> is a listed file or lies under a listed folder (links resolved on both sides).</summary>
+    /// <summary>True when <paramref name="path"/> is a listed file or lies under a listed folder (both sides resolved to their final paths).</summary>
     public static bool Contains(IReadOnlyList<string> allowed, string path)
     {
         var target = Canonical(path);
@@ -63,17 +66,40 @@ public static class LiveProgramScope
         return false;
     }
 
+    /// <summary>The final path: junctions, symbolic links and short names resolved in every folder along it, not only the last.</summary>
     private static string Canonical(string path)
     {
         var full = Path.GetFullPath(path);
-        try
+        return Path.TrimEndingDirectorySeparator((OperatingSystem.IsWindows() ? FinalPathOnWindows(full) : FinalPathByLinks(full)) ?? full);
+    }
+
+    private static string? FinalPathOnWindows(string full)
+    {
+        using var file = LiveNative.OpenForQuery(full, 0, LiveNative.FILE_SHARE_ALL, 0, LiveNative.OPEN_EXISTING, LiveNative.FILE_FLAG_BACKUP_SEMANTICS, 0);
+        if (file.IsInvalid) return null;
+        var buffer = new char[32768];
+        uint n = LiveNative.GetFinalPathNameByHandle(file, buffer, (uint)buffer.Length, 0);
+        if (n == 0 || n >= buffer.Length) return null;
+        var final = new string(buffer, 0, (int)n);
+        return final.StartsWith(@"\\?\UNC\", StringComparison.Ordinal) ? @"\\" + final[8..]
+            : final.StartsWith(@"\\?\", StringComparison.Ordinal) ? final[4..] : final;
+    }
+
+    private static string FinalPathByLinks(string full)
+    {
+        var root = Path.GetPathRoot(full) ?? "";
+        var current = root;
+        foreach (var part in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
         {
-            FileSystemInfo info = Directory.Exists(full) ? new DirectoryInfo(full) : new FileInfo(full);
-            if (info.ResolveLinkTarget(returnFinalTarget: true) is { } link) full = Path.GetFullPath(link.FullName);
+            current = Path.Combine(current, part);
+            try
+            {
+                FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+                if (info.LinkTarget != null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target) current = Path.GetFullPath(target.FullName);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
-        return Path.TrimEndingDirectorySeparator(full);
+        return current;
     }
 
     /// <summary>The program file as given, or found on PATH (with PATHEXT on Windows) like a shell would.</summary>
