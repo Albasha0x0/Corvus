@@ -283,12 +283,14 @@ public static class Format
 
     /// <summary>
     /// Characters that print as nothing or reorder the text around them: format characters (zero-width and bidi
-    /// controls such as U+202E), line and paragraph separators, and the Hangul fillers. Code transformers build names from them.
+    /// controls such as U+202E), line and paragraph separators, the Hangul fillers, and control characters other than tab,
+    /// CR and LF (ANSI escape sequences start with U+001B). Code transformers build names from them.
     /// </summary>
     public static bool IsInvisible(char ch) =>
         char.GetUnicodeCategory(ch) is System.Globalization.UnicodeCategory.Format or System.Globalization.UnicodeCategory.LineSeparator
             or System.Globalization.UnicodeCategory.ParagraphSeparator
-        || ch is 'ᅟ' or 'ᅠ' or 'ㅤ' or 'ﾠ';
+        || ch is 'ᅟ' or 'ᅠ' or 'ㅤ' or 'ﾠ'
+        || char.IsControl(ch) && ch is not ('\t' or '\n' or '\r');
 
     /// <summary>Invisible characters (see <see cref="IsInvisible"/>) as \uXXXX, the way the decompiler escapes identifiers.</summary>
     public static string EscapeInvisible(string s)

@@ -99,7 +99,8 @@ public static partial class ToolOutput
     /// <summary>Which engine answered, and why.</summary>
     public static void Engine(string engine, string? note) => OutputCall.Current?.Engine = (engine, note);
 
-    internal static string Line(string row) => row.Replace("\r\n", "\n").Replace("\n", "\n    ");
+    // a row's own line breaks continue it, indented; file text in a row cannot start a marker line (a type named "x\nNext: ...")
+    internal static string Line(string row) => Format.EscapeMarkers(row).Replace("\r\n", "\n").TrimEnd('\r').Replace('\r', '\n').Replace("\n", "\n    ");
 
     private static string RowsText(List<string> lines, int offset, int shown, int total, bool totalExact, string noun)
     {
