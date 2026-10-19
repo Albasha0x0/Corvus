@@ -5,11 +5,24 @@ using Corvus.Native.Msvc;
 
 namespace Corvus.Native.Itanium;
 
-/// <summary>C++ RTTI of any image: MSVC on PE, Itanium on ELF and Mach-O, in the one class model.</summary>
+/// <summary>Class metadata of any image in the one class model: C++ RTTI (MSVC on PE, Itanium on ELF and Mach-O) plus Object Pascal VMTs.</summary>
 public static class CppRtti
 {
-    public static MsvcRttiResult Analyze(INativeImage image, CancellationToken ct = default) =>
-        image.Format == ImageFormat.Pe ? MsvcRtti.Analyze(image, ct: ct) : ItaniumRtti.Analyze(image, ct);
+    public static MsvcRttiResult Analyze(INativeImage image, CancellationToken ct = default)
+    {
+        var cpp = image.Format == ImageFormat.Pe ? MsvcRtti.Analyze(image, ct: ct) : ItaniumRtti.Analyze(image, ct);
+        var pascal = Pascal.PascalVmt.Analyze(image, ct);
+        if (pascal.Classes.Count == 0) return cpp;
+        // the rejected counts stay C++'s: VMT candidates fail far more often and say nothing about the classes found
+        var classes = cpp.Classes.Concat(pascal.Classes)
+            .OrderBy(c => c.Name, StringComparer.Ordinal).ThenBy(c => c.TypeDescriptorRva).ToList();
+        var (a, b) = (cpp.Stats, pascal.Stats);
+        var stats = new MsvcRttiStats(a.TypeDescriptors + b.TypeDescriptors, a.Locators + b.Locators, a.Classes + b.Classes, a.Vtables + b.Vtables,
+            a.TypeDescriptorCandidatesRejected, a.LocatorCandidatesRejected, a.LocatorsWithoutVtable, a.BytesScanned + b.BytesScanned, a.UsedRelocations,
+            a.CodeReferences, a.Elapsed + b.Elapsed);
+        return new MsvcRttiResult(classes, [.. cpp.TypeDescriptors, .. pascal.TypeDescriptors], [.. cpp.Skipped, .. pascal.Skipped],
+            [.. cpp.Notes, .. pascal.Notes], stats);
+    }
 }
 
 /// <summary>

@@ -12,6 +12,7 @@ namespace Corvus.Native.Msvc;
 /// <param name="Bases">The hierarchy descriptor's base class array without the class itself, in its (preorder) order.</param>
 /// <param name="Vtables">One per complete object locator, ordered by subobject offset.</param>
 /// <param name="Issues">Inconsistencies between locators of this class; the class is still reported.</param>
+/// <param name="Pascal">The VMT's own data for an Object Pascal class; null for C++.</param>
 public sealed record MsvcRttiClass(
     string Name,
     string DecoratedName,
@@ -21,7 +22,8 @@ public sealed record MsvcRttiClass(
     MsvcHierarchyAttributes Attributes,
     IReadOnlyList<MsvcRttiBase> Bases,
     IReadOnlyList<MsvcRttiVtable> Vtables,
-    IReadOnlyList<string> Issues);
+    IReadOnlyList<string> Issues,
+    Pascal.PascalClass? Pascal = null);
 
 [Flags]
 public enum MsvcHierarchyAttributes : uint

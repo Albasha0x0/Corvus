@@ -242,7 +242,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
                     hits[at] = new Hit(pdbHit.Candidate with { Source = Pdb + "+" + Rtti }, () => WithRtti(c, pdbHit.View!(), k));
                     continue;
                 }
-                hits.Add(new Hit(new NativeTypeCandidate(RttiId(c, cls), cls.Name, cls.Kind, -1, Rtti), () => RttiView(c, k)));
+                hits.Add(new Hit(new NativeTypeCandidate(RttiId(c, cls), cls.Name, cls.Kind, (long?)cls.Pascal?.InstanceSize ?? -1, Rtti), () => RttiView(c, k)));
             }
         foreach (var t in Il2CppTypesOf(c))
         {
@@ -799,6 +799,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
 
     private static NativeTypeView RttiView(Context c, MsvcRttiClass cls)
     {
+        if (cls.Pascal is { } pascal) return PascalView(c, cls, pascal);
         var view = Empty(RttiId(c, cls), cls.Name, cls.Kind, Rtti, -1);
         var fields = cls.Vtables.Select(v => new NativeTypeField(v.Offset, PointerSize(c.Native), "__vftable", $"{cls.Name}::`vftable' *", null, "vfptr", null, null,
             v.Offset == 0 ? null : $"subobject +0x{v.Offset:X}")).ToList();
@@ -806,6 +807,21 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         {
             Fields = fields, TotalFields = fields.Count, Bases = Bases(c, cls), Vftables = Vftables(c, cls),
             Notes = ["RTTI records bases and vftables, not fields or size" + (c.PdbFile == null ? "; load_pdb adds the members when a PDB exists" : "")],
+        };
+    }
+
+    /// <summary>An Object Pascal class: the VMT gives the instance size, the VMT pointer at 0 and the published fields (object references).</summary>
+    private static NativeTypeView PascalView(Context c, MsvcRttiClass cls, Native.Pascal.PascalClass pascal)
+    {
+        int ptr = PointerSize(c.Native);
+        var ids = c.RttiResult?.Classes.Where(k => k.Pascal != null).GroupBy(k => k.Name).ToDictionary(g => g.Key, g => RttiId(c, g.First()), StringComparer.Ordinal) ?? [];
+        var fields = new List<NativeTypeField> { new(0, ptr, "__vmt", $"{cls.Name}::`vmt' *", null, "vfptr", null, null, null) };
+        fields.AddRange(pascal.PublishedFields.OrderBy(f => f.Offset).Select(f => new NativeTypeField(f.Offset, ptr, f.Name, f.Type ?? "TObject", f.Type is { } t ? ids.GetValueOrDefault(t) : null,
+            "member", null, null, "published")));
+        return Empty(RttiId(c, cls), cls.Name, cls.Kind, Rtti, pascal.InstanceSize) with
+        {
+            Fields = fields, TotalFields = fields.Count, Bases = Bases(c, cls), Vftables = Vftables(c, cls),
+            Notes = [$"{pascal.Compiler} VMT{(pascal.Unit != null ? $", unit {pascal.Unit}" : "")}: the instance size and published fields only"],
         };
     }
 

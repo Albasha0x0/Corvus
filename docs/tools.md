@@ -1448,13 +1448,13 @@ Structured output: `image`, `function`, `address`, `format`, `scheme`, `parent`,
 
 **C++ classes from RTTI** (read-only, idempotent, open-world)
 
-C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, bases (offsets, virtual and multiple inheritance), vftables with slot targets; rejects counted by reason. Mach-O: also ObjC classes, categories, protocols, Swift types. engine=ghidra: Ghidra's class namespaces (PDB too); ida: its C++ structs.
+C++ classes from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, bases (offsets, virtual, multiple inheritance), vftables with slot targets; rejects by reason. Delphi, Free Pascal: VMT classes. Mach-O: also ObjC classes, categories, protocols, Swift types. engine=ghidra: Ghidra's class namespaces (PDB too); ida: its C++ structs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `filter` | string |  |  | Name substring (case-insensitive). |
-| `slots` | boolean |  |  | Include each vftable's slot addresses. |
+| `slots` | boolean |  |  | Slot addresses (Pascal: methods, fields). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Max classes (default 100). |
 | `maxTokens` | integer |  |  |  |

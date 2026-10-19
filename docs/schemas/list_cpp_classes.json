@@ -66,6 +66,58 @@
             "items": {
               "type": "string"
             }
+          },
+          "pascal": {
+            "type": "object",
+            "properties": {
+              "compiler": {
+                "type": "string"
+              },
+              "vmt": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "instanceSize": {
+                "type": "integer"
+              },
+              "virtualMethods": {
+                "type": "integer"
+              },
+              "publishedMethods": {
+                "type": "integer"
+              },
+              "publishedFields": {
+                "type": "integer"
+              },
+              "virtuals": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "methods": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "compiler",
+              "vmt",
+              "instanceSize",
+              "virtualMethods",
+              "publishedMethods",
+              "publishedFields"
+            ]
           }
         },
         "required": [

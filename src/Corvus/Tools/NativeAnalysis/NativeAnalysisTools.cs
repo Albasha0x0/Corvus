@@ -45,20 +45,26 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         [property: Description("Direct bases: virtual, name, @+offset.")] IReadOnlyList<string>? Bases,
         IReadOnlyList<CppVftable>? Vftables,
         [property: Description("Engine: functions in the class namespace.")] int? Functions,
-        IReadOnlyList<string>? Issues);
+        IReadOnlyList<string>? Issues,
+        PascalVmtRow? Pascal = null);
+
+    /// <summary>An Object Pascal class's VMT data; the method and field lists only with slots=true.</summary>
+    public sealed record PascalVmtRow(
+        string Compiler, string Vmt, string? Unit, long InstanceSize, int VirtualMethods, int PublishedMethods, int PublishedFields,
+        IReadOnlyList<string>? Virtuals, IReadOnlyList<string>? Methods, IReadOnlyList<string>? Fields);
 
     public sealed record CppClassList(string Image,
         [property: Description("rtti, ida or ghidra.")] string Source,
         IReadOnlyList<CppClass> Items, int Offset, int Total, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI", UseStructuredContent = true, OutputSchemaType = typeof(CppClassList))]
-    [Description("C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, bases (offsets, virtual and multiple " +
-                 "inheritance), vftables with slot targets; rejects counted by reason. Mach-O: also ObjC classes, categories, protocols, Swift " +
-                 "types. engine=ghidra: Ghidra's class namespaces (PDB too); ida: its C++ structs.")]
+    [Description("C++ classes from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, bases (offsets, virtual, multiple " +
+                 "inheritance), vftables with slot targets; rejects by reason. Delphi, Free Pascal: VMT classes. Mach-O: also ObjC classes, " +
+                 "categories, protocols, Swift types. engine=ghidra: Ghidra's class namespaces (PDB too); ida: its C++ structs.")]
     public async Task<string> ListCppClasses(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name substring (case-insensitive).")] string? filter = null,
-        [Description("Include each vftable's slot addresses.")] bool slots = false,
+        [Description("Slot addresses (Pascal: methods, fields).")] bool slots = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max classes (default 100).")] int limit = 100,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -140,7 +146,9 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         // slot targets are named from the code index, built for this when it is not yet
         var index = !slots || code == null ? null : code.Ready(native) ?? code.Index(native, null, cancellationToken).GetAwaiter().GetResult();
         var classes = result.Classes.Where(c => filter == null || c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-        var head = $"{native.Id}: {Plural(result.Classes.Count, "class")} with RTTI, {Plural(result.Stats.Vtables, "vftable")}, " +
+        int pascalCount = result.Classes.Count(c => c.Pascal != null);
+        var head = $"{native.Id}: {Plural(result.Classes.Count, "class")} with RTTI" + (pascalCount > 0 ? $" ({pascalCount} from Object Pascal VMTs)" : "") +
+                   $", {Plural(result.Stats.Vtables, "vftable")}, " +
                    $"{Plural(result.TypeDescriptors.Count, pe.Format == ImageFormat.Pe ? "type descriptor" : "typeinfo")}" +
                    (filter != null ? $"; {classes.Count} match '{filter}'" : "") + "\n";
         var notes = result.Notes.ToList();
@@ -160,21 +168,43 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
             foreach (var v in c.Vtables)
             {
                 sb.Append($"\n  vftable {NativeAddress.Va(pe, v.VftableRva)} for subobject +0x{v.Offset:X}: {Plural(v.SlotRvas.Count, "slot")}");
-                if (slots)
+                // Object Pascal slots are listed by name with the VMT data
+                if (slots && c.Pascal == null)
                     for (int i = 0; i < v.SlotRvas.Count; i++)
                         sb.Append($"\n    [{i}] {(v.SlotRvas[i] == 0 ? "(import)" : NativeAddress.Va(pe, v.SlotRvas[i]))}" +
                                   (v.SlotRvas[i] != 0 && index?.NameAt(v.SlotRvas[i]) is { } name ? "  " + name : ""));
                 vftables.Add(new CppVftable(NativeAddress.Va(pe, v.VftableRva), (int)v.Offset, v.SlotRvas.Count,
                     slots ? v.SlotRvas.Select(s => s == 0 ? "0" : NativeAddress.Va(pe, s)).ToList() : null));
             }
+            var pascal = c.Pascal is { } p ? PascalRow(pe, p, slots, sb) : null;
             foreach (var issue in c.Issues) sb.Append($"\n  issue: {issue}");
-            rows.Add((new CppClass(c.Kind, c.Name, direct.Count > 0 ? direct : null, vftables.Count > 0 ? vftables : null, null, c.Issues.Count > 0 ? c.Issues.ToList() : null),
-                sb.ToString()));
+            rows.Add((new CppClass(c.Kind, c.Name, direct.Count > 0 ? direct : null, vftables.Count > 0 ? vftables : null, null, c.Issues.Count > 0 ? c.Issues.ToList() : null,
+                pascal), sb.ToString()));
         }
         if (pe.Format == ImageFormat.MachO)
             foreach (var line in AppleNames.ClassLines(native, filter, slots, rva => index?.NameAt(rva) is { } n ? NativeTools.DisplayName(n, ImageFormat.MachO) : null, cancellationToken))
                 rows.Add((new CppClass(line.TrimStart().StartsWith("swift", StringComparison.OrdinalIgnoreCase) ? "swift" : "objc", line.Trim(), null, null, null, null), line));
         return ClassPage(native.Id, "rtti", rows, offset, limit, head, notes);
+    }
+
+    /// <summary>The VMT line (and with <paramref name="slots"/> the virtual methods, published methods and fields) of an Object Pascal class.</summary>
+    private static PascalVmtRow PascalRow(INativeImage pe, Native.Pascal.PascalClass p, bool slots, StringBuilder sb)
+    {
+        string Va(uint rva) => NativeAddress.Va(pe, rva);
+        sb.Append($"\n  {p.Compiler} VMT {Va(p.VmtRva)}" + (p.Unit != null ? $", unit {p.Unit}" : "") + $", {p.InstanceSize} bytes: " +
+                  $"{Plural(p.VirtualMethods.Count, "virtual method")}, {Plural(p.PublishedMethods.Count, "published method")}, {Plural(p.PublishedFields.Count, "published field")}");
+        List<string>? virtuals = null, methods = null, fields = null;
+        if (slots)
+        {
+            virtuals = p.VirtualMethods.Select(m => $"{(m.Offset < 0 ? "-" : "+")}0x{Math.Abs(m.Offset):X} {m.Name} {Va(m.Rva)}").ToList();
+            methods = p.PublishedMethods.Select(m => $"{m.Name} {Va(m.Rva)}").ToList();
+            fields = p.PublishedFields.Select(f => $"+0x{f.Offset:X} {f.Name}: {f.Type ?? "?"}").ToList();
+            foreach (var v in virtuals) sb.Append($"\n    virtual {v}");
+            foreach (var m in methods) sb.Append($"\n    published {m}");
+            foreach (var f in fields) sb.Append($"\n    field {f}");
+        }
+        return new PascalVmtRow(p.Compiler, Va(p.VmtRva), p.Unit, p.InstanceSize, p.VirtualMethods.Count, p.PublishedMethods.Count, p.PublishedFields.Count,
+            virtuals, methods, fields);
     }
 
     public sealed record VerdictCount(string Status, string Reason, int Count);
