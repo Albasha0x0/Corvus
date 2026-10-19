@@ -138,6 +138,17 @@ public sealed class LiveConsoleTests : IDisposable
     }
 
     [Fact]
+    public async Task A_page_cut_to_the_output_budget_continues_after_its_last_line()
+    {
+        await Start(10, "wait name?");
+        for (int i = 1; i <= 3000; i++) _host.Last!.Show($"line {i} {new string('x', 40)}\r\n");
+        using var pipeline = new OutputPipeline();
+        var seen = await pipeline.PageAll("live_console", 600, (cursor, ct) => _tools.LiveConsole("transcript", run: "con-1", cursor: cursor, limit: 1000, cancellationToken: ct),
+            @"line (\d+) x");
+        Assert.Equal(Enumerable.Range(1, 3000), seen);
+    }
+
+    [Fact]
     public async Task Bad_scripts_and_a_missing_host_are_refused()
     {
         var bad = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveConsole("start", program: _program, script: ["wait name?", "type Ada"]));

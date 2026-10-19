@@ -135,18 +135,23 @@ public sealed partial class LiveSessionTools
         long start = 0;
         if (!string.IsNullOrWhiteSpace(cursor) && !long.TryParse(cursor.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out start))
             throw new ToolError(ErrorCode.InvalidArgument, $"Bad cursor '{cursor}'.", "pass the cursor of an earlier page");
-        var (lines, firstKept, last) = r.Page(start, limit);
-        var text = new StringBuilder();
+        var (page, firstKept, last) = r.Page(start, limit);
         long dropped = start > 0 && start < firstKept ? firstKept - start : 0;
-        if (dropped > 0) text.AppendLine($"{dropped:N0} lines before this page were dropped (a transcript keeps {LiveConsoleRun.Capacity:N0})");
-        foreach (var l in lines) text.AppendLine($"#{l.Sequence} {l.Text}");
-        // a partial line is shown again on the next poll, with what was written since
-        var next = lines.Count == 0 ? Math.Max(start, firstKept) : lines[^1].Partial ? lines[^1].Sequence : lines[^1].Sequence + 1;
-        string? nextCursor = lines.Count == limit && lines[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
-        text.AppendLine(lines.Count == 0 && start <= 1 ? $"No output ({r.State})."
-            : nextCursor != null ? $"more: cursor={nextCursor}"
-            : r.State == "running" ? $"end of the transcript so far; poll again with cursor={next}" : $"end of the transcript ({r.State}{(r.ExitCode is { } c ? $", exit code {c}" : "")})");
-        var rows = lines.Select(l => new LiveConsoleRow(l.Sequence, Iso(l.Time), l.Text) { Partial = l.Partial }).ToList();
-        return ToolOutput.With(text.ToString(), new LiveConsolePage(ConsoleSummary(r), rows, nextCursor, []) { Dropped = dropped });
+        (string, object) Render(int count)
+        {
+            var lines = page.Take(count).ToList();
+            var text = new StringBuilder();
+            if (dropped > 0) text.AppendLine($"{dropped:N0} lines before this page were dropped (a transcript keeps {LiveConsoleRun.Capacity:N0})");
+            foreach (var l in lines) text.AppendLine($"#{l.Sequence} {l.Text}");
+            // a partial line is shown again on the next poll, with what was written since
+            var next = lines.Count == 0 ? Math.Max(start, firstKept) : lines[^1].Partial ? lines[^1].Sequence : lines[^1].Sequence + 1;
+            string? nextCursor = (lines.Count == limit || count < page.Count) && lines[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
+            text.AppendLine(lines.Count == 0 && start <= 1 ? $"No output ({r.State})."
+                : nextCursor != null ? $"more: cursor={nextCursor}"
+                : r.State == "running" ? $"end of the transcript so far; poll again with cursor={next}" : $"end of the transcript ({r.State}{(r.ExitCode is { } c ? $", exit code {c}" : "")})");
+            var rows = lines.Select(l => new LiveConsoleRow(l.Sequence, Iso(l.Time), l.Text) { Partial = l.Partial }).ToList();
+            return (text.ToString(), new LiveConsolePage(ConsoleSummary(r), rows, nextCursor, []) { Dropped = dropped });
+        }
+        return FitPage(page.Count, Render);
     }
 }

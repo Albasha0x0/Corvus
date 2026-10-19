@@ -387,6 +387,18 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Contains("u2 reported error: Error: on purpose", await tools.LiveScriptCalls("live-1", "load", source: "throw new Error('on purpose');"));
     }
 
+    [Fact]
+    public async Task Event_pages_cut_to_the_output_budget_skip_no_event()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        for (int i = 1; i <= 2000; i++) _backend.ScriptMessage("u1", new JsonObject { ["n"] = i, ["pad"] = new string('x', 60) });
+        for (int i = 0; i < 100 && !(await _tools.LiveEvents("live-1", kind: "script", limit: 1000, cursor: "1990")).Contains("\"n\":2000"); i++) await Task.Delay(20);
+        using var pipeline = new OutputPipeline();
+        var seen = await pipeline.PageAll("live_events", 600, (cursor, ct) => _tools.LiveEvents("live-1", cursor: cursor, kind: "script", limit: 1000, cancellationToken: ct),
+            "\"n\":(\\d+)");
+        Assert.Equal(Enumerable.Range(1, 2000), seen);
+    }
+
     /// <summary>Two sessions in one process would place their hooks independently: a second attach names the first.</summary>
     [Fact]
     public async Task A_process_already_in_a_session_is_not_attached_again()

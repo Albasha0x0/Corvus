@@ -544,6 +544,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             int dropped = start > 0 && start < firstKept ? (int)Math.Min(int.MaxValue, firstKept - start) : 0;
             if (dropped > 0) text.AppendLine($"{dropped} event(s) before this page were dropped (the ring keeps {Services.LiveSession.RingCapacity:N0})");
             var rows = new List<LiveEvent>();
+            var lines = new List<string>();
             foreach (var e in events)
             {
                 string? name = null;
@@ -554,13 +555,44 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     if (at.Named is { } n) named.Add(n);
                 }
                 rows.Add(new LiveEvent(e.Sequence, e.Kind, e.Thread?.ToString(CultureInfo.InvariantCulture), e.Address is { } x ? Hex(x) : null, name, e.Text));
-                text.AppendLine($"#{e.Sequence} {e.Kind}{(e.Thread != null ? " thread " + e.Thread : "")}{(e.Address is { } y ? " " + Hex(y) : "")}{(name != null ? " " + name : "")}: {e.Text}");
+                lines.Add($"#{e.Sequence} {e.Kind}{(e.Thread != null ? " thread " + e.Thread : "")}{(e.Address is { } y ? " " + Hex(y) : "")}{(name != null ? " " + name : "")}: {e.Text}");
             }
-            var next = rows.Count > 0 ? rows[^1].Sequence + 1 : Math.Max(start, firstKept);
-            string? nextCursor = rows.Count > 0 && rows[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
-            text.AppendLine(rows.Count == 0 ? "No events." : nextCursor != null ? $"more: cursor={nextCursor}" : $"end of the ring; poll again with cursor={next}");
-            return ToolOutput.With(text.ToString(), new LiveEventPage(s.Id, rows, nextCursor, dropped) { NamedAddresses = Named(named) });
+            var head = text.ToString();
+            (string, object) Render(int count)
+            {
+                var page = new StringBuilder(head);
+                foreach (var l in lines.Take(count)) page.AppendLine(l);
+                var kept = rows.Take(count).ToList();
+                var next = kept.Count > 0 ? kept[^1].Sequence + 1 : Math.Max(start, firstKept);
+                string? nextCursor = kept.Count > 0 && kept[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
+                page.AppendLine(kept.Count == 0 ? "No events." : nextCursor != null ? $"more: cursor={nextCursor}" : $"end of the ring; poll again with cursor={next}");
+                return (page.ToString(), new LiveEventPage(s.Id, kept, nextCursor, dropped) { NamedAddresses = Named(named) });
+            }
+            return FitPage(rows.Count, Render);
         }, cancellationToken);
+
+    /// <summary>
+    /// A cursor page cut to the call's output budget by rows, before its cursor is set: the cursor follows the last row shown,
+    /// so a page the output layer would cut no longer skips the rows between. At least one row is kept.
+    /// </summary>
+    private static string FitPage(int count, Func<int, (string Text, object Record)> render)
+    {
+        var whole = render(count);
+        if (OutputCall.Current is { } call && count > 1 && !Fits(whole))
+        {
+            int lo = 1, hi = count - 1;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                if (Fits(render(mid))) lo = mid; else hi = mid - 1;
+            }
+            whole = render(lo);
+        }
+        return ToolOutput.With(whole.Text, whole.Record);
+
+        bool Fits((string Text, object Record) page) =>
+            call.Fits(page.Text) && call.Fits(System.Text.Json.JsonSerializer.SerializeToNode(page.Record, page.Record.GetType(), ToolOutput.Json)!.ToJsonString(ToolOutput.Wire));
+    }
 
     private static IReadOnlyList<LiveNamedAddress>? Named(List<EvidenceName> named) =>
         named.Count == 0 ? null : named.Distinct().Select(n => new LiveNamedAddress(n.Image, n.Sha256, $"0x{n.Rva:X}", n.Name)).ToList();

@@ -134,18 +134,23 @@ public sealed partial class LiveSessionTools
         long start = 0;
         if (!string.IsNullOrWhiteSpace(cursor) && !long.TryParse(cursor.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out start))
             throw new ToolError(ErrorCode.InvalidArgument, $"Bad cursor '{cursor}'.", "pass the cursor of an earlier page");
-        var (entries, firstKept, last) = r.Page(start, category, match, limit);
-        var text = new StringBuilder();
+        var (page, firstKept, last) = r.Page(start, category, match, limit);
         long dropped = start > 0 && start < firstKept ? firstKept - start : 0;
-        if (dropped > 0) text.AppendLine($"{dropped:N0} entries before this page were dropped (a timeline keeps {LiveTimelineRun.Capacity:N0})");
-        foreach (var e in entries) text.AppendLine($"#{e.Sequence} {Since(r, e.Time)} {e.Category} {e.Name}{(e.ProcessId is { } pid ? $" (process {pid})" : "")}");
-        var next = entries.Count > 0 ? entries[^1].Sequence + 1 : Math.Max(start, firstKept);
-        string? nextCursor = entries.Count == limit && entries[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
-        text.AppendLine(entries.Count == 0 && start <= 1 ? $"No entries ({r.State})."
-            : nextCursor != null ? $"more: cursor={nextCursor}"
-            : r.State == "recording" ? $"end of the timeline so far; poll again with cursor={next}" : "end of the timeline (complete)");
-        var rows = entries.Select(e => new LiveTimelineRow(e.Sequence, Iso(e.Time), e.Category, e.Name) { ProcessId = e.ProcessId }).ToList();
-        return ToolOutput.With(text.ToString(), new LiveTimelinePage(TimelineSummary(r), rows, nextCursor, []) { Dropped = dropped });
+        (string, object) Render(int count)
+        {
+            var entries = page.Take(count).ToList();
+            var text = new StringBuilder();
+            if (dropped > 0) text.AppendLine($"{dropped:N0} entries before this page were dropped (a timeline keeps {LiveTimelineRun.Capacity:N0})");
+            foreach (var e in entries) text.AppendLine($"#{e.Sequence} {Since(r, e.Time)} {e.Category} {e.Name}{(e.ProcessId is { } pid ? $" (process {pid})" : "")}");
+            var next = entries.Count > 0 ? entries[^1].Sequence + 1 : Math.Max(start, firstKept);
+            string? nextCursor = (entries.Count == limit || count < page.Count) && entries[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
+            text.AppendLine(entries.Count == 0 && start <= 1 ? $"No entries ({r.State})."
+                : nextCursor != null ? $"more: cursor={nextCursor}"
+                : r.State == "recording" ? $"end of the timeline so far; poll again with cursor={next}" : "end of the timeline (complete)");
+            var rows = entries.Select(e => new LiveTimelineRow(e.Sequence, Iso(e.Time), e.Category, e.Name) { ProcessId = e.ProcessId }).ToList();
+            return (text.ToString(), new LiveTimelinePage(TimelineSummary(r), rows, nextCursor, []) { Dropped = dropped });
+        }
+        return FitPage(page.Count, Render);
     }
 
     /// <summary>Each name once, with how often it came and when first, in category order, then by first time.</summary>

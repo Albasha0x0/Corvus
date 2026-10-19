@@ -112,6 +112,18 @@ public sealed class LiveTimelineTests : IDisposable
     }
 
     [Fact]
+    public async Task Entry_pages_cut_to_the_output_budget_skip_no_entry()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveTimeline("live-1", "start");
+        for (int i = 1; i <= 2000; i++) _source.Send("file", $@"C:\data\file{i}-{new string('x', 50)}.txt");
+        using var pipeline = new OutputPipeline();
+        var seen = await pipeline.PageAll("live_timeline", 600, (cursor, ct) => _tools.LiveTimeline(action: "list", run: "tl-1", cursor: cursor, limit: 1000, cancellationToken: ct),
+            @"file(\d+)-", field: "name");
+        Assert.Equal(Enumerable.Range(1, 2000), seen);
+    }
+
+    [Fact]
     public async Task Diff_lists_the_pairs_unique_to_each_timeline()
     {
         await TwoTimelines();
