@@ -18,9 +18,25 @@ function moduleRow(m) {
   return { name: m.name, base: m.base.toString(), size: m.size, path: m.path };
 }
 
+// Modules with deferred points (lower-case name or name without extension): their load holds the loading thread, before
+// the module's code runs, until the worker posts load-<tid> once the points are set.
+const deferredModules = new Set();
+
+function isDeferred(m) {
+  const name = m.name.toLowerCase();
+  const dot = name.lastIndexOf('.');
+  return deferredModules.has(name) || (dot > 0 && deferredModules.has(name.substring(0, dot)));
+}
+
 if (typeof Process.attachModuleObserver === 'function') {
   Process.attachModuleObserver({
-    onAdded(m) { if (observing) send({ type: 'module', action: 'loaded', module: moduleRow(m) }); },
+    onAdded(m) {
+      if (!observing) return;
+      const held = deferredModules.size > 0 && isDeferred(m);
+      const tid = Process.getCurrentThreadId();
+      send({ type: 'module', action: 'loaded', module: moduleRow(m), held, tid });
+      if (held) recv('load-' + tid, () => {}).wait();
+    },
     onRemoved(m) { if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) }); },
   });
 }
@@ -31,9 +47,15 @@ if (typeof Process.attachThreadObserver === 'function') {
   });
 }
 observing = true;
+// The kinds that usually end the program wait for the worker to receive the event: a message still queued when the
+// process dies is lost.
+const FATAL_KINDS = new Set(['abort', 'access-violation', 'guard-page', 'illegal-instruction', 'stack-overflow', 'arithmetic']);
 Process.setExceptionHandler(d => {
-  send({ type: 'exception', tid: Process.getCurrentThreadId(), kind: d.type, address: d.address.toString(),
+  const tid = Process.getCurrentThreadId();
+  const ack = FATAL_KINDS.has(d.type);
+  send({ type: 'exception', tid, kind: d.type, address: d.address.toString(), ack,
     memory: d.memory ? { operation: d.memory.operation, address: d.memory.address.toString() } : null });
+  if (ack) recv('exception-' + tid, () => {}).wait();
   return false; // the program's own handlers decide
 });
 
@@ -115,6 +137,13 @@ rpc.exports = {
   watch(id, address, args, perSecond) {
     watch(id, address, args, perSecond);
     return true;
+  },
+  deferModule(name) {
+    deferredModules.add(name.toLowerCase());
+    return true;
+  },
+  undeferModule(name) {
+    return deferredModules.delete(name.toLowerCase());
   },
   unwatch(id) {
     const w = watches[id];

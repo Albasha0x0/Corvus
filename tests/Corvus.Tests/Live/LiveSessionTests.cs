@@ -51,10 +51,10 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
         ["frames"] = new JsonArray([.. new[] { _points[id] }.Concat(frames).Select(f => (JsonNode)$"0x{f:x}")]),
     });
 
-    /// <summary>The program loading <paramref name="name"/> from <paramref name="path"/> at <paramref name="at"/>.</summary>
-    public void Load(string name, string path, ulong at, uint size) => Worker!.Emit(new JsonObject
+    /// <summary>The program loading <paramref name="name"/> from <paramref name="path"/> at <paramref name="at"/>; <paramref name="heldBy"/>: the loading thread the worker holds.</summary>
+    public void Load(string name, string path, ulong at, uint size, long? heldBy = null) => Worker!.Emit(new JsonObject
     {
-        ["event"] = "module", ["action"] = "loaded",
+        ["event"] = "module", ["action"] = "loaded", ["held"] = heldBy != null, ["tid"] = heldBy,
         ["module"] = new JsonObject { ["name"] = name, ["base"] = $"0x{at:x}", ["size"] = size, ["path"] = path },
     });
 
@@ -92,6 +92,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 WatchedKinds[(string)args["id"]!] = args["args"]!.AsArray().Select(k => (string)k!).ToList();
                 return true;
             case "unwatch": return WatchedKinds.Remove((string)args["id"]!);
+            case "defer_module" or "undefer_module": return true;
+            case "release_load": return new JsonObject { ["released"] = true };
             case "load_script":
                 if (((string)args["source"]!).StartsWith("throw", StringComparison.Ordinal)) // the worker posts a top-level exception after its reply
                     _ = Task.Delay(20).ContinueWith(_ => Worker!.Emit(new JsonObject { ["event"] = "user_script", ["script"] = (string)args["id"]!, ["error"] = "Error: on purpose" }), TaskScheduler.Default);
@@ -180,14 +182,19 @@ public sealed class LiveSessionTests : IDisposable
     {
         await _tools.LiveSession("attach", program: "4242");
         var deferred = await _tools.LiveBreak("live-1", "set", at: "plugin!sqlite3_open");
-        Assert.Contains("s1 deferred: plugin is not loaded", deferred);
+        Assert.Contains("s1 deferred: plugin is not loaded; it is set when plugin loads, before the module's code runs", deferred);
         Assert.Contains("s1 plugin!sqlite3_open: deferred until plugin loads", deferred);
         Assert.Contains("w1 deferred", await _tools.LiveWatchCalls("live-1", "set", at: "plugin!sqlite3_close"));
         Assert.DoesNotContain("set", _backend.Ops);
 
         const ulong PluginBase = 0x7ff7_0000_0000;
-        _backend.Load("plugin.dll", Sqlite, PluginBase, 0x200000);
-        for (int i = 0; i < 100 && !_backend.WatchedKinds.ContainsKey("w1"); i++) await Task.Delay(50);
+        _backend.Load("plugin.dll", Sqlite, PluginBase, 0x200000, heldBy: 77);
+        for (int i = 0; i < 100 && !_backend.Ops.Contains("release_load"); i++) await Task.Delay(50);
+        // the loading thread goes on only once both are set
+        List<string> ops;
+        lock (_backend.Ops) ops = [.. _backend.Ops];
+        Assert.True(ops.IndexOf("release_load") > ops.IndexOf("set") && ops.IndexOf("release_load") > ops.IndexOf("watch"), string.Join(",", ops));
+        Assert.Contains("undefer_module", ops);
         var listed = await _tools.LiveBreak("live-1");
         Assert.Contains("s1 plugin!sqlite3_open at 0x7FF7", listed);
         Assert.DoesNotContain("deferred", listed);

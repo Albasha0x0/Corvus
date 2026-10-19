@@ -217,9 +217,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "set":
                     LiveSessionService.Live(s);
                     if (string.IsNullOrWhiteSpace(at)) throw new ToolError(ErrorCode.InvalidArgument, "action=set needs at.", "at=<name>, module!export, file:line or 0xADDRESS");
-                    if (live.Defer(s, at, watch: false) is { } deferred)
+                    if (await live.DeferAsync(s, at, watch: false, ct: cancellationToken).ConfigureAwait(false) is { } deferred)
                     {
-                        head.AppendLine($"{deferred.Id} deferred: {deferred.Module} is not loaded; it is set when {deferred.Module} loads (calls before then are missed)");
+                        head.AppendLine(Deferred(deferred));
                         break;
                     }
                     var point = await live.SetAsync(s, at, cancellationToken).ConfigureAwait(false);
@@ -296,9 +296,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "set":
                     LiveSessionService.Live(s);
                     if (string.IsNullOrWhiteSpace(at)) throw new ToolError(ErrorCode.InvalidArgument, "action=set needs at.", "at=<name>, module!export or 0xADDRESS");
-                    if (live.Defer(s, at, watch: true, Math.Clamp(rateLimit, 1, 100_000), arguments) is { } deferred)
+                    if (await live.DeferAsync(s, at, watch: true, Math.Clamp(rateLimit, 1, 100_000), arguments, cancellationToken).ConfigureAwait(false) is { } deferred)
                     {
-                        head.AppendLine($"{deferred.Id} deferred: {deferred.Module} is not loaded; it is set when {deferred.Module} loads (calls before then are missed)");
+                        head.AppendLine(Deferred(deferred));
                         break;
                     }
                     var w = await live.WatchAsync(s, at, Math.Clamp(rateLimit, 1, 100_000), arguments, cancellationToken).ConfigureAwait(false);
@@ -575,6 +575,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     private static string Hex(ulong v) => $"0x{v:X}";
     private static string Src(string? source) => source != null ? "  " + source : "";
+
+    private static string Deferred((LiveDeferred Point, bool Held) d) =>
+        $"{d.Point.Id} deferred: {d.Point.Module} is not loaded; it is set when {d.Point.Module} loads" +
+        (d.Held ? ", before the module's code runs" : " (calls before then are missed)");
 
     /// <summary>The opt-in flags: sessions need --allow-live, starting a program --allow-live-spawn and attaching --allow-live-attach as well.</summary>
     private void Require(bool spawn, bool attach = false)

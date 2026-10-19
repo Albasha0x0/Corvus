@@ -1,10 +1,12 @@
 """Session worker: a local program observed through Frida, on the worker protocol (one JSON object per line).
 
-Ops: hello; open {attach | spawn, arguments, temp, tmp}; info; set {id, address}; clear {id}; watch {id, address, args,
-perSecond}; unwatch {id}; load_script {id, source}; unload_script {id}; read {address, length}; resume {thread}; close.
+Ops: hello; open {attach | spawn, arguments, cwd, temp, tmp}; info; set {id, address}; clear {id}; watch {id, address, args,
+perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source};
+unload_script {id}; read {address, length}; resume {thread}; close.
 Events: ready, stop, calls, module, thread, exception, output, exit, script_error, user_script.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
-program only when this worker started it.
+program only when this worker started it. A module named by defer_module holds its loading thread (module event with
+held) until release_load; a fatal exception event holds its thread until the worker has read it.
 """
 import json
 import sys
@@ -45,6 +47,7 @@ class Session:
         self.suspended = False
         self.exited = False
         self.held = set()
+        self.loading = set()  # threads held at the load of a deferred module
         self.lock = threading.Lock()
         self.user_scripts = {}
 
@@ -57,8 +60,14 @@ class Session:
         if kind == "stop":
             with self.lock:
                 self.held.add(payload.get("tid"))
+        elif kind == "module" and payload.get("held"):
+            with self.lock:
+                self.loading.add(payload.get("tid"))
+        ack = kind == "exception" and payload.pop("ack", False)
         payload["event"] = kind
         emit(payload)
+        if ack and self.script is not None:
+            self.script.post({"type": "exception-%d" % payload.get("tid")})
 
     def on_output(self, pid, fd, data):
         if pid == self.pid and data:
@@ -159,6 +168,16 @@ class Session:
             self.suspended = False
         return {"resumed": targets, "started": started}
 
+    def release_load(self, args):
+        self.require()
+        tid = args.get("thread")
+        with self.lock:
+            held = tid in self.loading
+            self.loading.discard(tid)
+        if held:
+            self.script.post({"type": "load-%d" % tid})
+        return {"released": held}
+
     def end_spawned(self):
         if self.spawned and self.pid is not None:
             try:
@@ -176,9 +195,13 @@ class Session:
             try:
                 with self.lock:
                     held = list(self.held)
+                    loading = list(self.loading)
                     self.held.clear()
+                    self.loading.clear()
                 for tid in held:
                     self.script.post({"type": "resume-%d" % tid})
+                for tid in loading:
+                    self.script.post({"type": "load-%d" % tid})
                 self.script.unload()
             except frida.InvalidOperationError:
                 pass
@@ -219,6 +242,12 @@ def handle(state, op, args):
         return state.require().watch(args["id"], args["address"], args["args"], int(args["perSecond"]))
     if op == "unwatch":
         return state.require().unwatch(args["id"])
+    if op == "defer_module":
+        return state.require().defer_module(args["name"])
+    if op == "undefer_module":
+        return state.require().undefer_module(args["name"])
+    if op == "release_load":
+        return state.release_load(args)
     if op == "load_script":
         return state.load_script(args)
     if op == "unload_script":

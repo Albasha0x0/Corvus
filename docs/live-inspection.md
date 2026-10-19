@@ -110,11 +110,12 @@ Attach refuses the server's own process and the processes it runs under (the MCP
 or by name: a session held there would freeze the client driving it.
 
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
-breakpoint: it is set when the module's load event arrives (a `module` event says so), so calls made before then are
-missed. An address inside an instruction, a stop point in the first 16 bytes of a watched or counted function (or a watch or count over one),
+breakpoint: the loading thread waits at the module's load, before any of the module's code runs, until the point is set
+(a `module` event says so), so its first call is caught. An address inside an instruction, a stop point in the first 16 bytes of a watched or counted function (or a watch or count over one),
 and a function too short for a hook's jump are refused with the nearest place that works. The `exit` event carries the
-exit code the system reports (`exit code 0xC0000005 (EXCEPTION_ACCESS_VIOLATION)`); a crash whose exception event the
-program's end cut off is recorded as an `exception` event from that code, without an address. Stack values that cannot be
+exit code the system reports (`exit code 0xC0000005 (EXCEPTION_ACCESS_VIOLATION)`). An access violation, illegal
+instruction, stack overflow or arithmetic fault waits until the server has its `exception` event, so a crash keeps its
+address; when no event came, one is recorded from the exit code, without an address. Stack values that cannot be
 return addresses (small values, header bytes, non-executable pages) are left out of a stop's frames.
 
 A watch records each call's arguments and return value without stopping the program. They are decoded from, in order:

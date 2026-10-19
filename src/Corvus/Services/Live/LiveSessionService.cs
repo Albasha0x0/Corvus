@@ -435,7 +435,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     if (loaded) session.Modules.Add(m);
                 }
                 session.Add("module", null, m.Base, $"{(loaded ? "loaded" : "unloaded")} {m.Name} ({m.Path})");
-                if (loaded) _ = SetDeferredAsync(session, m);
+                long? holder = loaded && body.TryGetProperty("held", out var held) && held.ValueKind == JsonValueKind.True ? Thread() : null;
+                if (loaded) _ = SetDeferredAsync(session, m, holder);
                 break;
             }
             case "thread":
@@ -713,9 +714,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     /// <summary>
     /// Defers a module!name whose module the program has not loaded (a plug-in loaded later): the point or watch is set
-    /// when the module's load event comes, so calls made before then are missed. Null when the module is loaded.
+    /// when the module loads. Held is true when the worker holds the loading thread until then, so no call is missed.
+    /// Null when the module is loaded.
     /// </summary>
-    public LiveDeferred? Defer(LiveSession session, string where, bool watch, int perSecond = 0, int rawArguments = 0)
+    public async Task<(LiveDeferred Point, bool Held)?> DeferAsync(LiveSession session, string where, bool watch, int perSecond = 0, int rawArguments = 0, CancellationToken ct = default)
     {
         var t = where.Trim();
         if (NameOffset.Match(t) is { Success: true } no) t = no.Groups["name"].Value;
@@ -725,20 +727,44 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             if (session.Modules.Any(m => ModuleNamed(m, module))) return null;
         var d = new LiveDeferred(watch ? session.NextWatchId() : session.NextPointId(), where.Trim(), module, watch, perSecond, rawArguments);
         lock (session.Deferred) session.Deferred.Add(d);
-        return d;
+        // a worker without the op still sets the point on the load event, after the module's first calls
+        try { await session.Worker.RequestAsync("defer_module", new JsonObject { ["name"] = module }, RequestTimeout, ct).ConfigureAwait(false); }
+        catch (ToolError) { return (d, false); }
+        return (d, true);
     }
 
     private static bool ModuleNamed(LiveModuleState m, string name) =>
         m.Name.Equals(name, StringComparison.OrdinalIgnoreCase) || Path.GetFileNameWithoutExtension(m.Name).Equals(name, StringComparison.OrdinalIgnoreCase);
 
-    private async Task SetDeferredAsync(LiveSession session, LiveModuleState module)
+    /// <summary>Sets the points deferred to <paramref name="module"/>, then lets its loading thread (held by the worker) go on.</summary>
+    private async Task SetDeferredAsync(LiveSession session, LiveModuleState module, long? holder)
     {
         List<LiveDeferred> due;
+        bool rest;
         lock (session.Deferred)
         {
             due = session.Deferred.Where(d => ModuleNamed(module, d.Module)).ToList();
             session.Deferred.RemoveAll(due.Contains);
+            rest = session.Deferred.Any(d => due.Any(x => x.Module.Equals(d.Module, StringComparison.OrdinalIgnoreCase)));
         }
+        try
+        {
+            await SetDueAsync(session, module, due).ConfigureAwait(false);
+            if (!rest)
+                foreach (var name in due.Select(d => d.Module).Distinct(StringComparer.OrdinalIgnoreCase))
+                    await session.Worker.RequestAsync("undefer_module", new JsonObject { ["name"] = name }, RequestTimeout, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException) { }
+        finally
+        {
+            if (holder is { } tid)
+                try { await session.Worker.RequestAsync("release_load", new JsonObject { ["thread"] = tid }, RequestTimeout, CancellationToken.None).ConfigureAwait(false); }
+                catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException) { }
+        }
+    }
+
+    private async Task SetDueAsync(LiveSession session, LiveModuleState module, List<LiveDeferred> due)
+    {
         foreach (var d in due)
         {
             try
