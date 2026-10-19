@@ -167,8 +167,8 @@ public class EditTests : IDisposable
         File.Copy(Env.FixturePath, copy);
         using var env = new Env(copy);
         env.Edit(() => env.Edits.Rename(env.One("Account::CheckPreview"), "HasPreview"));
-        Assert.Throws<ToolError>(() => env.Edits.Save(env.Fixture, copy, overwrite: false));
-        env.Edits.Save(env.Fixture, copy, overwrite: true);
+        Assert.Throws<ToolError>(() => env.Edits.Save(env.Fixture, copy, overwrite: true));
+        env.Edits.Save(env.Fixture, copy, overwrite: false, replaceOriginal: true);
         Assert.True(File.Exists(copy + ".bak"));
         Assert.Equal(new FileInfo(Env.FixturePath).Length, new FileInfo(copy + ".bak").Length);
 

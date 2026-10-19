@@ -255,17 +255,19 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", UseStructuredContent = true, OutputSchemaType = typeof(EditService.SavedFile))]
-    [Description("Write an assembly with its edits to a new file, atomically (overwrite=true keeps a .bak; a file changed since load is refused). " +
+    [Description("Write an assembly with its edits to a new file, atomically (replaceOriginal=true keeps a .bak; a file changed since load is refused). " +
                  "Untouched bodies keep their bytes; members the writer changed are listed with reason codes (docs/saving.md).")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output path (.wasm writes Webcil for Blazor); default '<original>.patched.dll'.")] string? outputPath = null,
-        [Description("Allow replacing an existing file.")] bool overwrite = false,
+        [Description("Replace an existing file, not the original.")] bool overwrite = false,
         [Description("Write nothing if the writer would change any member (default: save and list them).")] bool strict = false,
+        [Description("Replace the loaded file itself.")] bool replaceOriginal = false,
+        [Description("Write '<name>.N.dll', the first free N.")] bool versioned = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var asm = workspace.Get(assembly);
-        var report = edits.Save(asm, outputPath, overwrite, strict, out var saved);
+        var report = edits.Save(asm, outputPath, overwrite, strict, out var saved, replaceOriginal, versioned);
         journal?.Saved(asm);
         return ToolOutput.Report(report, saved);
     }, cancellationToken);

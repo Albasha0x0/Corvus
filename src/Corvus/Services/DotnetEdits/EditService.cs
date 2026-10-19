@@ -714,12 +714,13 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     }
 
     /// <summary>
-    /// Writes the (edited) module. Refuses to overwrite the original file unless asked; when overwriting, the original
+    /// Writes the (edited) module. Refuses to replace the original file without replaceOriginal; when replacing it, the original
     /// is first copied to &lt;file&gt;.bak (<see cref="SaveTarget"/>). Whatever no edit touched is written as in the original; the result lists what
     /// could not be (and what is invalid in the original). <paramref name="strict"/>: refuse the save instead when
     /// anything would be written differently without an edit asking for it. Nothing is written when the save fails.
     /// </summary>
-    public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict = false) => Save(asm, outputPath, overwrite, strict, out _);
+    public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict = false, bool replaceOriginal = false, bool versioned = false) =>
+        Save(asm, outputPath, overwrite, strict, out _, replaceOriginal, versioned);
 
     /// <summary>What save_assembly wrote.</summary>
     public sealed record SavedFile(string OutputPath, long Bytes, string Sha256, int Edits, string? Backup)
@@ -728,11 +729,11 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         public IReadOnlyList<SavedEdit> EditList { get; init; } = [];
     }
 
-    public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict, out SavedFile saved)
+    public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict, out SavedFile saved, bool replaceOriginal = false, bool versioned = false)
     {
         var (target, isOriginal) = SaveTarget.Resolve(string.IsNullOrWhiteSpace(outputPath)
             ? Path.Combine(Path.GetDirectoryName(asm.FilePath)!, Path.GetFileNameWithoutExtension(asm.FilePath) + ".patched" + Path.GetExtension(asm.FilePath))
-            : outputPath, asm.FilePath, asm.OriginalSha256, overwrite, asm.SavedOverOriginalSha256);
+            : outputPath, asm.FilePath, asm.OriginalSha256, overwrite, asm.SavedOverOriginalSha256, replaceOriginal, versioned);
 
         byte[] image;
         SaveReport report;
@@ -753,7 +754,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         bool webcil = target.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase);
         if (webcil) image = Webcil.FromPe(image);
         string? backup = isOriginal ? SaveTarget.Backup(target, asm.OriginalBytes) : null;
-        SafeFile.WriteAllBytes(target, image, overwrite);
+        SafeFile.WriteAllBytes(target, image, overwrite || isOriginal);
         saved = new SavedFile(target, image.LongLength, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(image)), asm.Edits.Count, backup)
             { EditList = [.. asm.Edits.Select(e => new SavedEdit(new EditId(asm.Id, e.Number), e.ContentDigest()))] };
         if (isOriginal) asm.SavedOverOriginalSha256 = saved.Sha256;

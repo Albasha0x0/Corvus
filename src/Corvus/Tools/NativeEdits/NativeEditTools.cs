@@ -700,17 +700,19 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "save_native", Title = "Save patched native image", UseStructuredContent = true, OutputSchemaType = typeof(NativeSaveResult))]
     [Description("Write the patched native image to a new file: unpatched bytes identical, PE checksum recomputed, a signature invalidated " +
-                 "(stripSignature removes it). Atomic and verified before it replaces the target; overwrite=true keeps a .bak and refuses a file changed on disk.")]
+                 "(stripSignature removes it). Atomic and verified before it replaces the target; replaceOriginal=true keeps a .bak and refuses a file changed on disk.")]
     public Task<string> SaveNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
-        [Description("Allow replacing an existing file.")] bool overwrite = false,
+        [Description("Replace an existing file, not the original.")] bool overwrite = false,
         [Description("Remove the Authenticode certificate table from the output.")] bool stripSignature = false,
+        [Description("Replace the loaded file itself.")] bool replaceOriginal = false,
+        [Description("Write '<name>.N.dll', the first free N.")] bool versioned = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, _) = await Open(image, progress, cancellationToken);
-        var saved = edits.Write(native, outputPath, overwrite, stripSignature);
+        var saved = edits.Write(native, outputPath, overwrite, stripSignature, replaceOriginal, versioned);
         journal?.Saved(native);
         var written = edits.Journal.Entries(native).Where(e => e.Patch != null).Select(e => new SavedEdit(e.Id, EditDigest.Of([PatchChange(native, e.Patch!)]))).ToList();
         var text = saved.Text + (written.Count > 0 ? $"\nPatches written: {string.Join(", ", written.Select(e => $"{e.Id} ({e.Digest})"))}." : "");

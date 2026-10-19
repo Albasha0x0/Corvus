@@ -431,15 +431,17 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     public sealed record SaveResult(string Text, string OutputPath, long Bytes, int Patches, string Sha256, string? Checksum, string? Backup, bool Verified,
         IReadOnlyList<string> Notes);
 
-    public string Save(LoadedNative native, string outputPath, bool overwrite, bool stripSignature) => Write(native, outputPath, overwrite, stripSignature).Text;
+    public string Save(LoadedNative native, string outputPath, bool overwrite, bool stripSignature, bool replaceOriginal = false, bool versioned = false) =>
+        Write(native, outputPath, overwrite, stripSignature, replaceOriginal, versioned).Text;
 
-    public SaveResult Write(LoadedNative native, string outputPath, bool overwrite, bool stripSignature)
+    public SaveResult Write(LoadedNative native, string outputPath, bool overwrite, bool stripSignature, bool replaceOriginal = false, bool versioned = false)
     {
         if (string.IsNullOrWhiteSpace(outputPath))
             throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.");
         var container = Container(native);
         var (target, isOriginal) = SaveTarget.Resolve(outputPath, native.FilePath,
-            container is { } c ? Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(c.File)) : native.OriginalSha256, overwrite, native.SavedOverOriginalSha256);
+            container is { } c ? Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(c.File)) : native.OriginalSha256, overwrite, native.SavedOverOriginalSha256,
+            replaceOriginal, versioned);
 
         var notes = new List<string>();
         var bytes = OutputBytes(native, stripSignature, notes);
@@ -453,7 +455,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         string? backup = isOriginal ? SaveTarget.Backup(target, container?.File ?? native.Patches.OriginalBytes()) : null;
         string verify = "";
         // Verified on the written temp file, so a file that does not read back or parse never replaces the target.
-        SafeFile.WriteAllBytes(target, bytes, overwrite, temp =>
+        SafeFile.WriteAllBytes(target, bytes, overwrite || isOriginal, temp =>
         {
             var written = File.ReadAllBytes(temp);
             if (!written.AsSpan().SequenceEqual(bytes))

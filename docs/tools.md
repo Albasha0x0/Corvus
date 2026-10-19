@@ -887,14 +887,16 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`,
 
 **Save patched assembly** (destructive, idempotent)
 
-Write an assembly with its edits to a new file, atomically (overwrite=true keeps a .bak; a file changed since load is refused). Untouched bodies keep their bytes; members the writer changed are listed with reason codes (docs/saving.md).
+Write an assembly with its edits to a new file, atomically (replaceOriginal=true keeps a .bak; a file changed since load is refused). Untouched bodies keep their bytes; members the writer changed are listed with reason codes (docs/saving.md).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
 | `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default '<original>.patched.dll'. |
-| `overwrite` | boolean |  |  | Allow replacing an existing file. |
+| `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save and list them). |
+| `replaceOriginal` | boolean |  |  | Replace the loaded file itself. |
+| `versioned` | boolean |  |  | Write '<name>.N.dll', the first free N. |
 
 Structured output: `outputPath`, `bytes`, `sha256`, `edits`, `backup`, `editList`.
 
@@ -1760,14 +1762,16 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`,
 
 **Save patched native image** (destructive, idempotent, long-running)
 
-Write the patched native image to a new file: unpatched bytes identical, PE checksum recomputed, a signature invalidated (stripSignature removes it). Atomic and verified before it replaces the target; overwrite=true keeps a .bak and refuses a file changed on disk.
+Write the patched native image to a new file: unpatched bytes identical, PE checksum recomputed, a signature invalidated (stripSignature removes it). Atomic and verified before it replaces the target; replaceOriginal=true keeps a .bak and refuses a file changed on disk.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id, file name or path. |
 | `outputPath` | string | yes |  | Output file path. |
-| `overwrite` | boolean |  |  | Allow replacing an existing file. |
+| `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `stripSignature` | boolean |  |  | Remove the Authenticode certificate table from the output. |
+| `replaceOriginal` | boolean |  |  | Replace the loaded file itself. |
+| `versioned` | boolean |  |  | Write '<name>.N.dll', the first free N. |
 
 Structured output: `outputPath`, `bytes`, `patches`, `sha256`, `checksum`, `backup`, `verified`, `notes`, `editList`.
 

@@ -19,7 +19,7 @@ stack-verified or left unchanged, with a reason code (docs/simplify.md). decompi
 Review: list_edits, diff_edits; undo_edit (by the number of an editId <assembly>#<n>), revert_edits. Carry edits: export_edits writes a script, apply_edits replays it
 (tied to its build: another build needs targetBuild=other). Unsaved edits and patches are journaled; a
 file whose last session ended without saving gets a [workspace] notice naming the journal to replay.
-save_assembly writes a new file (never overwrites the original without overwrite=true; keeps a .bak; untouched parts are
+save_assembly writes a new file (the original only with replaceOriginal=true, keeping a .bak; versioned=true numbers copies; untouched parts are
 written byte-for-byte, anything that cannot be is listed; strict=true refuses such a save).
 Native: rename_native and comment_native (kept per file hash), patch_bytes / patch_asm (relocation-correct under ASLR; a
 patch larger than its site: extend=true moves it into a code cave or a new section; unsafe sites are refused with a reason),
