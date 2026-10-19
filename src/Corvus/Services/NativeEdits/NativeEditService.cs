@@ -439,7 +439,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.");
         var container = Container(native);
         var (target, isOriginal) = SaveTarget.Resolve(outputPath, native.FilePath,
-            container is { } c ? Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(c.File)) : native.OriginalSha256, overwrite);
+            container is { } c ? Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(c.File)) : native.OriginalSha256, overwrite, native.SavedOverOriginalSha256);
 
         var notes = new List<string>();
         var bytes = OutputBytes(native, stripSignature, notes);
@@ -468,6 +468,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                (backup != null ? $" Original backed up to {backup}." : "") +
                (notes.Count > 0 ? "\n  " + string.Join("\n  ", notes) : "") +
                $"\n{verify}";
+        if (isOriginal) native.SavedOverOriginalSha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
         var checksum = notes.FirstOrDefault(n => n.StartsWith(ChecksumNote, StringComparison.Ordinal))?[ChecksumNote.Length..].TrimEnd('.');
         return new SaveResult(text, target, bytes.Length, native.Patches.Patches.Count, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)),
             checksum, backup, !verify.Contains("WARNING", StringComparison.Ordinal), [.. notes, .. verify.Split('\n', StringSplitOptions.RemoveEmptyEntries)]);
@@ -488,6 +489,9 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         {
             throw new ToolError(ErrorCode.IoError, $"Cannot read the universal file {native.FilePath} to write the patched slice into: {ex.Message}");
         }
+        // after this server's own save over the file its slice is the patched one
+        if (string.Equals(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(file)), native.SavedOverOriginalSha256, StringComparison.Ordinal))
+            return (file, (int)slice.Offset, (int)slice.Size);
         if (slice.Offset + slice.Size > file.Length
             || !string.Equals(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(file.AsSpan((int)slice.Offset, (int)slice.Size))), native.OriginalSha256, StringComparison.Ordinal))
             throw new ToolError(ErrorCode.ChangedOnDisk, $"{native.FilePath} changed on disk since load: its {slice.Name} slice is not the one patched. Nothing was written.",

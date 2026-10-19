@@ -61,6 +61,9 @@ public sealed class LoadedNative
     /// <summary>SHA-256 of the file as first loaded; the key for annotations, stable across in-memory patches.</summary>
     public string OriginalSha256 { get; }
 
+    /// <summary>SHA-256 of the file save_native last wrote over the original: a later save may replace it.</summary>
+    public string? SavedOverOriginalSha256 { get; set; }
+
     /// <summary>Cancelled when the image is unloaded or reloaded.</summary>
     public CancellationToken Released => _released.Token;
 

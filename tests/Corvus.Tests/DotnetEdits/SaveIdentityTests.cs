@@ -64,6 +64,22 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
+    public void OriginalSavedOverBefore_IsReplacedAgain()
+    {
+        var original = CopyFixture();
+        var loaded = File.ReadAllBytes(original);
+        using var env = new Env(original);
+        Rename(env);
+        env.Edits.Save(env.Fixture, original, overwrite: true);
+        env.Edit(() => env.Edits.Rename(env.One("Account::Score"), "Rating"));
+
+        env.Edits.Save(env.Fixture, original, overwrite: true);
+        Assert.Equal(loaded, File.ReadAllBytes(original + ".bak"));
+        using var saved = new Env(original);
+        Assert.Equal("Rating", saved.One("Account::Rating").Member.Name.String);
+    }
+
+    [Fact]
     public void OriginalChangedOnDiskSinceLoad_IsNotReplaced()
     {
         var original = CopyFixture();
@@ -147,6 +163,20 @@ public class SaveIdentityTests : IDisposable
         Assert.Equal(before, File.ReadAllBytes(original + ".bak"));
         Assert.Equal(0xCC, File.ReadAllBytes(original)[(int)Offset(native)]);
         Assert.Empty(Directory.GetFiles(real, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task Native_OriginalSavedOverBefore_IsReplacedAgain()
+    {
+        var original = _dir.File("tiny.dll");
+        File.WriteAllBytes(original, TinyImage());
+        using var h = new NativeHarness(_dir.File("ann"));
+        var native = await h.Patched(original);
+        h.Edits.Save(native, original, overwrite: true, stripSignature: false);
+
+        Assert.Contains("Verified", h.Edits.Save(native, original, overwrite: true, stripSignature: false));
+        Assert.Equal(TinyImage(), File.ReadAllBytes(original + ".bak"));
+        Assert.Equal(0xCC, File.ReadAllBytes(original)[(int)Offset(native)]);
     }
 
     [Fact]

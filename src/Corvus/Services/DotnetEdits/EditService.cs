@@ -732,7 +732,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     {
         var (target, isOriginal) = SaveTarget.Resolve(string.IsNullOrWhiteSpace(outputPath)
             ? Path.Combine(Path.GetDirectoryName(asm.FilePath)!, Path.GetFileNameWithoutExtension(asm.FilePath) + ".patched" + Path.GetExtension(asm.FilePath))
-            : outputPath, asm.FilePath, asm.OriginalSha256, overwrite);
+            : outputPath, asm.FilePath, asm.OriginalSha256, overwrite, asm.SavedOverOriginalSha256);
 
         byte[] image;
         SaveReport report;
@@ -756,6 +756,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         SafeFile.WriteAllBytes(target, image, overwrite);
         saved = new SavedFile(target, image.LongLength, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(image)), asm.Edits.Count, backup)
             { EditList = [.. asm.Edits.Select(e => new SavedEdit(new EditId(asm.Id, e.Number), e.ContentDigest()))] };
+        if (isOriginal) asm.SavedOverOriginalSha256 = saved.Sha256;
 
         var kept = asm.IsDirty ? "everything no edit touched is as in the original" : "no edits: the original bytes";
         return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s); {kept})." +

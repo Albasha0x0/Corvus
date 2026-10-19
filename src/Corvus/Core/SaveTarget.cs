@@ -11,17 +11,19 @@ public static class SaveTarget
     public sealed record Plan(string Path, bool IsOriginal);
 
     /// <summary>
-    /// Refuses an existing file without <paramref name="overwrite"/>, and an original whose bytes on disk are no longer
-    /// the ones loaded (<paramref name="originalSha256"/>). A link to the original resolves to the original itself.
+    /// Refuses an existing file without <paramref name="overwrite"/>, and an original whose bytes on disk are neither the
+    /// ones loaded (<paramref name="originalSha256"/>) nor this server's last save over it (<paramref name="savedSha256"/>).
+    /// A link to the original resolves to the original itself.
     /// </summary>
-    public static Plan Resolve(string target, string originalPath, string originalSha256, bool overwrite)
+    public static Plan Resolve(string target, string originalPath, string originalSha256, bool overwrite, string? savedSha256 = null)
     {
         var full = SafeFile.FullPath(target);
         bool isOriginal = FileIdentity.Same(full, originalPath);
         if (isOriginal) full = FileIdentity.Resolve(full);
         if (Path.Exists(full) && !overwrite)
             throw new ToolError(ErrorCode.Conflict, $"{full} already exists. Pass overwrite=true to replace it{(isOriginal ? " (the original is backed up to .bak)" : "")}.");
-        if (isOriginal && File.Exists(full) && !string.Equals(Sha256(full), originalSha256, StringComparison.OrdinalIgnoreCase))
+        if (isOriginal && File.Exists(full) && Sha256(full) is var onDisk && !string.Equals(onDisk, originalSha256, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(onDisk, savedSha256, StringComparison.OrdinalIgnoreCase))
             throw new ToolError(ErrorCode.ChangedOnDisk, $"{full} changed on disk since load; replacing it would lose those changes. Nothing was written.",
                 "save to another path, or export the edits, reload the file and apply them again");
         return new(full, isOriginal);
