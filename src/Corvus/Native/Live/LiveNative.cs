@@ -36,6 +36,7 @@ internal static class LiveNative
     public const int ERROR_INVALID_PARAMETER = 87;
     public const uint STILL_ACTIVE = 259;
 
+    public const uint TH32CS_SNAPPROCESS = 0x2;
     public const uint TH32CS_SNAPTHREAD = 0x4;
     public const uint LIST_MODULES_ALL = 0x3;
 
@@ -68,6 +69,17 @@ internal static class LiveNative
 
     [StructLayout(LayoutKind.Sequential)]
     public struct MODULEINFO { public nint lpBaseOfDll; public uint SizeOfImage; public nint EntryPoint; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct PROCESSENTRY32W
+    {
+        public uint dwSize, cntUsage, th32ProcessID;
+        public nint th32DefaultHeapID;
+        public uint th32ModuleID, cntThreads, th32ParentProcessID;
+        public int pcPriClassBase;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct THREADENTRY32 { public uint dwSize, cntUsage, th32ThreadID, th32OwnerProcessID; public int tpBasePri, tpDeltaPri; public uint dwFlags; }
@@ -133,6 +145,12 @@ internal static class LiveNative
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern SafeKernelHandle CreateToolhelp32Snapshot(uint flags, uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "Process32FirstW")]
+    public static extern bool Process32First(SafeKernelHandle snapshot, ref PROCESSENTRY32W entry);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "Process32NextW")]
+    public static extern bool Process32Next(SafeKernelHandle snapshot, ref PROCESSENTRY32W entry);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool Thread32First(SafeKernelHandle snapshot, ref THREADENTRY32 entry);

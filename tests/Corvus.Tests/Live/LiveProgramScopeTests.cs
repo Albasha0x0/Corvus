@@ -55,6 +55,24 @@ public sealed class LiveProgramScopeTests : IDisposable
     }
 
     [Fact]
+    public async Task Attach_refuses_this_server_and_the_processes_it_runs_under()
+    {
+        var chain = LiveProgramScope.OwnChain();
+        Assert.Equal(Environment.ProcessId, chain[0].Pid);
+        var self = await Refused(() => Tools().LiveSession("attach", program: Environment.ProcessId.ToString()));
+        Assert.Contains("is this server", self.Message);
+        if (chain.Count > 1)
+        {
+            var parent = await Refused(() => Tools().LiveSession("attach", program: chain[1].Name));
+            Assert.Contains($"Process {chain[1].Pid} ({chain[1].Name}) is one this server runs under", parent.Message);
+            Assert.Contains("process id of the other process", parent.Remediation);
+        }
+        Assert.Null(_backend.LastOpen);
+        await Tools().LiveSession("attach", program: "4242");
+        Assert.NotNull(_backend.LastOpen);
+    }
+
+    [Fact]
     public async Task Spawn_inside_a_listed_folder_hands_the_backend_the_full_path()
     {
         var inside = Program("allowed");
@@ -132,15 +150,21 @@ public sealed class LiveProgramScopeTests : IDisposable
     [Fact]
     public async Task Attach_is_checked_on_the_process_image_path()
     {
-        var self = Environment.ProcessId;
-        var image = LiveProgramScope.ImagePath(self);
-        Assert.NotNull(image);
-        var e = await Refused(() => Tools(allow: _dir.Path).LiveSession("attach", program: self.ToString()));
-        Assert.Contains(image!, e.Message);
-        Assert.Null(_backend.LastOpen);
+        using var child = Process.Start(OperatingSystem.IsWindows()
+            ? new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x") { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true }
+            : new ProcessStartInfo("sleep", "30") { UseShellExecute = false })!;
+        try
+        {
+            var image = LiveProgramScope.ImagePath(child.Id);
+            Assert.NotNull(image);
+            var e = await Refused(() => Tools(allow: _dir.Path).LiveSession("attach", program: child.Id.ToString()));
+            Assert.Contains(image!, e.Message);
+            Assert.Null(_backend.LastOpen);
 
-        await Tools(allow: Path.GetDirectoryName(image)!).LiveSession("attach", program: self.ToString());
-        Assert.Contains(self.ToString(), _backend.LastOpen!.ToJsonString());
+            await Tools(allow: Path.GetDirectoryName(image)!).LiveSession("attach", program: child.Id.ToString());
+            Assert.Contains(child.Id.ToString(), _backend.LastOpen!.ToJsonString());
+        }
+        finally { child.Kill(); }
     }
 
     [Fact]

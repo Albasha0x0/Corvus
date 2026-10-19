@@ -241,6 +241,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             throw new ToolError(ErrorCode.ProviderUnavailable, missing.Reason, missing.Remediation);
         string target = program.Trim();
         if (spawn) target = InputFiles.RequireRegularFile(target);
+        else LiveProgramScope.RefuseOwnChain(target);
         var worker = Backend.Start();
         var session = new LiveSession("live-" + Interlocked.Increment(ref _next), Backend.Name, target, spawn, worker);
         worker.EventReceived += e => OnEvent(session, e);

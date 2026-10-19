@@ -105,6 +105,9 @@ stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address; other mod
 A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` (default 30) and with the server; each releases every held
 thread, and a program the session started is ended. A started program's output arrives as `output` events.
 
+Attach refuses the server's own process and the processes it runs under (the MCP client, its terminal, the editor), by id
+or by name: a session held there would freeze the client driving it.
+
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
 breakpoint: it is set when the module's load event arrives (a `module` event says so), so calls made before then are
 missed. An address inside an instruction, a stop point in the first 16 bytes of a watched or counted function (or a watch or count over one),

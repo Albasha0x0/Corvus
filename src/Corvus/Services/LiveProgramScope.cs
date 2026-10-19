@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Corvus.Core;
 using Corvus.Native.Live;
 
@@ -141,6 +142,73 @@ public static class LiveProgramScope
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Refuses this server's own process and the processes it runs under (the MCP client, its terminal, the editor): a
+    /// session held at a stop point there would freeze the client that drives it. A name matches when any of them has it.
+    /// </summary>
+    public static void RefuseOwnChain(string target)
+    {
+        var chain = OwnChain();
+        var text = target.Trim();
+        var name = text.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? text[..^4] : text;
+        var hit = int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int pid)
+            ? chain.FirstOrDefault(c => c.Pid == pid)
+            : chain.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (hit.Name == null) return;
+        throw new ToolError(ErrorCode.Unsupported,
+            $"Process {hit.Pid} ({hit.Name}) is {(hit.Pid == Environment.ProcessId ? "this server" : "one this server runs under")}: a session there could freeze the client driving it.",
+            int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out _) ? "attach to another process" : "pass the process id of the other process (live_session action=processes lists them)");
+    }
+
+    /// <summary>This process and its ancestors, nearest first; each parent must have started before its child, so a reused id ends the chain.</summary>
+    internal static List<(int Pid, string Name)> OwnChain()
+    {
+        var chain = new List<(int, string)>();
+        var parents = new Dictionary<int, (int Parent, string Name)>();
+        if (OperatingSystem.IsWindows())
+        {
+            using var snapshot = LiveNative.CreateToolhelp32Snapshot(LiveNative.TH32CS_SNAPPROCESS, 0);
+            if (snapshot.IsInvalid) return [(Environment.ProcessId, Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "corvus"))];
+            var entry = new LiveNative.PROCESSENTRY32W { dwSize = (uint)Marshal.SizeOf<LiveNative.PROCESSENTRY32W>() };
+            for (var ok = LiveNative.Process32First(snapshot, ref entry); ok; ok = LiveNative.Process32Next(snapshot, ref entry))
+                parents[(int)entry.th32ProcessID] = ((int)entry.th32ParentProcessID, Path.GetFileNameWithoutExtension(entry.szExeFile));
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            foreach (var dir in Directory.EnumerateDirectories("/proc"))
+                if (int.TryParse(Path.GetFileName(dir), out int id))
+                    try
+                    {
+                        var stat = File.ReadAllText(Path.Combine(dir, "stat"));
+                        int close = stat.LastIndexOf(')');
+                        parents[id] = (int.Parse(stat[(close + 2)..].Split(' ')[1], CultureInfo.InvariantCulture), stat[(stat.IndexOf('(') + 1)..close]);
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException) { }
+        }
+        int pid = Environment.ProcessId;
+        DateTime? childStart = null;
+        while (pid > 0 && parents.TryGetValue(pid, out var p) && chain.Count < 64)
+        {
+            var start = StartTime(pid);
+            if (childStart is { } c && start is { } s && s > c) break;
+            chain.Add((pid, p.Name));
+            if (p.Parent == pid) break;
+            (pid, childStart) = (p.Parent, start ?? childStart);
+        }
+        if (chain.Count == 0) chain.Add((Environment.ProcessId, Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "corvus")));
+        return chain;
+    }
+
+    private static DateTime? StartTime(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return p.StartTime;
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { return null; }
     }
 
     private static ToolError Outside(string message, IReadOnlyList<string> allowed) =>
