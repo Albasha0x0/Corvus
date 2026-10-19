@@ -149,6 +149,8 @@ public sealed class NotesTests : IDisposable
         await using var server = await InProcessServer.StartAsync();
         var sqlite = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll");
         await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = sqlite });
+        // disassemble annotates from the code index once it is built: wait for it, so the re-run during verification matches
+        Assert.NotEqual(true, (await server.Client.CallToolAsync("list_functions", new Dictionary<string, object?> { ["image"] = "e_sqlite3.dll", ["limit"] = 1 })).IsError);
         Assert.NotEqual(true, (await server.Client.CallToolAsync("disassemble", new Dictionary<string, object?> { ["image"] = "e_sqlite3.dll", ["address"] = "sqlite3_complete" })).IsError);
 
         async Task<JsonNode> Note(string tool, Dictionary<string, object?> args)
