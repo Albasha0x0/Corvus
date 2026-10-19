@@ -349,8 +349,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     }
                     else if (Encoding.UTF8.GetByteCount(text) > MaxScriptBytes)
                         throw new ToolError(ErrorCode.LimitExceeded, $"The source is over {MaxScriptBytes / 1024 / 1024} MB.", "load a smaller script");
-                    var id = await live.LoadScriptAsync(s, text, origin, cancellationToken).ConfigureAwait(false);
+                    var (id, error) = await live.LoadScriptAsync(s, text, origin, cancellationToken).ConfigureAwait(false);
                     head.AppendLine($"{id} loaded ({origin}); its messages: live_events from={id}");
+                    if (error != null) head.AppendLine($"{id} reported {error}");
                     break;
                 case "unload":
                     if (string.IsNullOrWhiteSpace(script)) throw new ToolError(ErrorCode.InvalidArgument, "action=unload needs script.", "script=<id from action=list>");
@@ -500,7 +501,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     public Task<string> LiveEvents(
         [Description(SessionDescription)] string session,
         [Description("Cursor from an earlier page; default the oldest event kept.")] string? cursor = null,
-        [Description("Only this kind: stop, call, script, exception, module, thread, output, error or exit.")] string? kind = null,
+        [Description("Only this kind.")] string? kind = null,
         [Description("Only this thread id.")] string? thread = null,
         [Description("Only events of this watch or script id.")] string? from = null,
         [Description(ToolSupport.LimitDescription)] int limit = 100,

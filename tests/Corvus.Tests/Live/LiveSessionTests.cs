@@ -73,7 +73,10 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 WatchedKinds[(string)args["id"]!] = args["args"]!.AsArray().Select(k => (string)k!).ToList();
                 return true;
             case "unwatch": return WatchedKinds.Remove((string)args["id"]!);
-            case "load_script": return new JsonObject { ["loaded"] = (string)args["id"]! };
+            case "load_script":
+                if (((string)args["source"]!).StartsWith("throw", StringComparison.Ordinal)) // the worker posts a top-level exception after its reply
+                    _ = Task.Delay(20).ContinueWith(_ => Worker!.Emit(new JsonObject { ["event"] = "user_script", ["script"] = (string)args["id"]!, ["error"] = "Error: on purpose" }), TaskScheduler.Default);
+                return new JsonObject { ["loaded"] = (string)args["id"]! };
             case "unload_script": return new JsonObject { ["unloaded"] = true };
             case "resume": return new JsonObject { ["resumed"] = args["thread"] is { } t ? new JsonArray((long)t) : new JsonArray(), ["started"] = true };
             case "read":
@@ -229,6 +232,16 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Contains("script: u1: {\"hello\":4242}", await tools.LiveEvents("live-1", kind: "script"));
         Assert.Contains("u1 unloaded", await tools.LiveScriptCalls("live-1", "unload", script: "u1"));
         Assert.Contains("0 script(s)", await tools.LiveScriptCalls("live-1"));
+        Assert.Contains("u2 reported error: Error: on purpose", await tools.LiveScriptCalls("live-1", "load", source: "throw new Error('on purpose');"));
+    }
+
+    /// <summary>Two sessions in one process would place their hooks independently: a second attach names the first.</summary>
+    [Fact]
+    public async Task A_process_already_in_a_session_is_not_attached_again()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var e = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("attach", program: "4242"));
+        Assert.Equal((ErrorCode.Conflict, "Process 4242 is already in session live-1."), (e.Code, e.Message));
     }
 
     [Fact]

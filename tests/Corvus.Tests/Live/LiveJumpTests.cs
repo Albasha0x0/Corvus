@@ -77,6 +77,29 @@ public sealed class LiveJumpTests : IDisposable
         lock (_backend.Ops) Assert.DoesNotContain(_backend.Ops, op => op is "set" or "watch");
     }
 
+    /// <summary>A 32-bit program names its system DLLs by their System32 path; the module's image size picks the SysWOW64 copy.</summary>
+    [Fact]
+    public void A_system_module_of_a_32_bit_program_is_read_from_the_SysWOW64_copy()
+    {
+        static void Pe(string path, uint sizeOfImage)
+        {
+            var b = new byte[0x200];
+            b[0] = (byte)'M'; b[1] = (byte)'Z';
+            BitConverter.GetBytes(0x40).CopyTo(b, 0x3C);
+            BitConverter.GetBytes(0x00004550u).CopyTo(b, 0x40);
+            BitConverter.GetBytes(sizeOfImage).CopyTo(b, 0x40 + 24 + 56);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, b);
+        }
+        string system = Path.Combine(_dir.Path, "System32"), wow64 = Path.Combine(_dir.Path, "SysWOW64");
+        Pe(Path.Combine(system, "kernel32.dll"), 0xC4000);
+        Pe(Path.Combine(wow64, "kernel32.dll"), 0xF0000);
+        var reported = Path.Combine(system, "kernel32.dll");
+        Assert.Equal(Path.Combine(wow64, "kernel32.dll"), LiveSessionService.ModuleFile(reported, 0xF0000, system, wow64));
+        Assert.Equal(reported, LiveSessionService.ModuleFile(reported, 0xC4000, system, wow64));
+        Assert.Equal(reported, LiveSessionService.ModuleFile(reported, 0x1000, system, wow64)); // neither matches: left as reported
+    }
+
     [Fact]
     public async Task Direct_and_memory_jumps_are_followed_and_said()
     {

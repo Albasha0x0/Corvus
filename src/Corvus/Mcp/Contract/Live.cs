@@ -36,6 +36,7 @@ public static partial class ParameterDomains
         ["live_break"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear", "continue"]) },
         ["live_watch"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear"]) },
         ["live_script"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "load", "unload"]) },
+        ["live_events"] = new Dictionary<string, Domain> { ["kind"] = Of(["stop", "call", "script", "exception", "module", "thread", "output", "error", "exit"]) },
         ["live_coverage"] = new Dictionary<string, Domain>
         {
             ["action"] = Of(["start", "stop", "list", "report", "diff"]), ["show"] = Of(["ran", "missed", "all"]), ["format"] = Of(["text", "dot"]),

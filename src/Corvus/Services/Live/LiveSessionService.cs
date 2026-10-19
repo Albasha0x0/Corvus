@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
@@ -246,6 +247,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 : new JsonObject { ["attach"] = target };
             var info = await worker.RequestAsync("open", args, RequestTimeout, ct).ConfigureAwait(false);
             session.ProcessId = info.GetProperty("pid").GetInt32();
+            // two sessions in one process place their hooks independently, at the same functions
+            if (_sessions.Values.FirstOrDefault(o => o.ProcessId == session.ProcessId && o.State is not ("closed" or "exited" or "failed")) is { } other)
+                throw new ToolError(ErrorCode.Conflict, $"Process {session.ProcessId} is already in session {other.Id}.", $"use {other.Id}, or close it first (live_session action=close session={other.Id})");
             session.Arch = info.GetProperty("arch").GetString() ?? "";
             session.Platform = info.TryGetProperty("platform", out var platform) ? platform.GetString() ?? "" : "";
             session.Suspended = info.TryGetProperty("suspended", out var s) && s.GetBoolean();
@@ -287,8 +291,43 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return session;
     }
 
-    private static LiveModuleState Module(JsonElement m) =>
-        new(m.GetProperty("name").GetString() ?? "", Hex(m.GetProperty("base").GetString()), (ulong)m.GetProperty("size").GetInt64(), m.GetProperty("path").GetString() ?? "");
+    private static LiveModuleState Module(JsonElement m)
+    {
+        ulong size = (ulong)m.GetProperty("size").GetInt64();
+        return new(m.GetProperty("name").GetString() ?? "", Hex(m.GetProperty("base").GetString()), size, ModuleFile(m.GetProperty("path").GetString() ?? "", size));
+    }
+
+    /// <summary>
+    /// The file behind a module. A 32-bit program on 64-bit Windows names its system DLLs by their System32 path, which
+    /// this 64-bit server opens as the 64-bit copy; the SysWOW64 copy is used when its image size matches the module's.
+    /// </summary>
+    internal static string ModuleFile(string path, ulong size, string? system = null, string? wow64 = null)
+    {
+        system ??= Environment.GetFolderPath(Environment.SpecialFolder.System);
+        wow64 ??= Environment.Is64BitOperatingSystem ? Environment.GetFolderPath(Environment.SpecialFolder.SystemX86) : "";
+        system = Path.TrimEndingDirectorySeparator(system);
+        if (wow64.Length == 0 || system.Length == 0 || !path.StartsWith(system + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return path;
+        if (SizeOfImage(path) == size) return path;
+        var other = Path.Combine(wow64, path[(system.Length + 1)..]);
+        return SizeOfImage(other) == size ? other : path;
+    }
+
+    /// <summary>The optional header's SizeOfImage (the same offset in PE32 and PE32+), or null when the file is no PE image.</summary>
+    private static ulong? SizeOfImage(string path)
+    {
+        try
+        {
+            using var f = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[4096];
+            int n = f.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            if (n < 0x40 || head[0] != 'M' || head[1] != 'Z') return null;
+            int pe = BitConverter.ToInt32(head[0x3C..]);
+            if (pe < 0 || pe + 24 + 60 > n || BitConverter.ToUInt32(head[pe..]) != 0x00004550) return null;
+            return BitConverter.ToUInt32(head[(pe + 24 + 56)..]);
+        }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+    }
 
     private static ulong Hex(string? s) =>
         s != null && ulong.TryParse(s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) ? v : 0;
@@ -524,6 +563,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             }
             else break;
             if (next == 0 || next == address) break;
+            lock (session.Modules) if (!session.Modules.Any(x => x.Contains(next))) break; // a target outside every module is no code to set a point on
             address = next;
         }
         return address == start ? (start, null) : (address, $"{Name(session, start, ct: ct).Display} jumps to {Name(session, address, ct: ct).Display}, so it is set there");
@@ -590,14 +630,22 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     }
 
     /// <summary>Loads a user-supplied script into the session's program; its messages and errors go into the event ring.</summary>
-    public async Task<string> LoadScriptAsync(LiveSession session, string source, string origin, CancellationToken ct)
+    /// <summary>Loads a script; Error is what it reported failing within <see cref="ScriptErrorWait"/> (an exception in its top-level code).</summary>
+    public async Task<(string Id, string? Error)> LoadScriptAsync(LiveSession session, string source, string origin, CancellationToken ct)
     {
         Live(session);
         var id = session.NextScriptId();
         await session.Worker.RequestAsync("load_script", new JsonObject { ["id"] = id, ["source"] = source }, RequestTimeout, ct).ConfigureAwait(false);
         lock (session.Scripts) session.Scripts[id] = origin;
-        return id;
+        // the worker posts a top-level exception as an event after the load reply
+        var prefix = id + ": error: ";
+        for (var waited = Stopwatch.StartNew(); waited.Elapsed < ScriptErrorWait; await Task.Delay(25, ct).ConfigureAwait(false))
+            if (session.Page(0, "script", null, 10, id).Events.FirstOrDefault(e => e.Text.StartsWith(prefix, StringComparison.Ordinal)) is { } failed)
+                return (id, failed.Text[(id.Length + 2)..]);
+        return (id, null);
     }
+
+    private static readonly TimeSpan ScriptErrorWait = TimeSpan.FromMilliseconds(300);
 
     public async Task UnloadScriptAsync(LiveSession session, string id, CancellationToken ct)
     {
