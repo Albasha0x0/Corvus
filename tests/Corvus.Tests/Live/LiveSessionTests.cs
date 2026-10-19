@@ -142,6 +142,7 @@ public sealed class LiveSessionTests : IDisposable
         var hex = await _tools.LiveRead("live-1", memory: "0x5000", type: "int32"); // stack or heap: outside every module
         Assert.Contains("  1", hex);
         Assert.DoesNotContain("pc ", hex); // registers only when asked
+        Assert.Contains("rcx", await _tools.LiveRead("live-1", registers: "all"));
         _backend.Memory[0x8000] = Enumerable.Range(0, 600).Select(i => (byte)i).ToArray();
         var rows = await _tools.LiveRead("live-1", memory: "0x8000", length: 600); // untyped bytes in 256-byte rows, the last one partial
         Assert.Contains("  +0x100 " + Convert.ToHexStringLower(Enumerable.Range(256, 256).Select(i => (byte)i).ToArray()), rows);

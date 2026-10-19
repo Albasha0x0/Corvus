@@ -395,7 +395,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             var regs = new List<LiveValue>();
             if (held != null && (memory == null || registers != null)) // a memory read shows registers only when asked
             {
-                var wanted = registers?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var wanted = registers?.Trim().Equals("all", StringComparison.OrdinalIgnoreCase) == true ? null
+                    : registers?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 text.AppendLine($"thread {held.Thread} (held at {held.Point})");
                 foreach (var (name, value) in held.Registers)
                 {
